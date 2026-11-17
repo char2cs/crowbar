@@ -1,5 +1,6 @@
 use gpui::{Context, Entity, Subscription, Window};
 use layout_view::{LayoutEvent, LayoutView};
+use model::Command;
 use sidebar::{Sidebar, SidebarEvent};
 use startup_view::StartupEvent;
 use tab_bar::{TabBar, TabBarEvent};
@@ -77,6 +78,13 @@ impl ShellView {
     ) {
         match event {
             LayoutEvent::Apply(command) => return self.apply_guarded(vec![command.clone()], cx),
+            LayoutEvent::StripFocus { pane } => {
+                let focus = Command::FocusPane { pane: pane.clone() };
+                self.state.apply_from_strip(vec![focus]);
+            },
+            LayoutEvent::Announce(text) => {
+                return self.show_notice(NoticeKey::Command, (ToastKind::Info, text.clone()), cx);
+            },
             LayoutEvent::OpenChat {
                 chat,
                 tab,

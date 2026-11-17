@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use model::{Command, LayoutHistory};
-use pane_host::PaneHost;
+use pane_host::{Keyboard, PaneHost};
 
 use crate::browser_ids::BrowserIds;
 use crate::closed_panes::ClosedPanes;
@@ -34,6 +34,7 @@ pub(crate) struct ShellState {
     serials: Serials,
     closed: ClosedPanes,
     frozen: FrozenLayer,
+    keyboard: Keyboard,
 }
 
 impl std::fmt::Debug for ShellState {
@@ -78,6 +79,7 @@ impl ShellState {
             serials,
             closed: ClosedPanes::default(),
             frozen: FrozenLayer::default(),
+            keyboard: Keyboard::default(),
         })
     }
 
@@ -112,6 +114,22 @@ impl ShellState {
     }
 
     pub(crate) fn apply(
+        &mut self,
+        commands: Vec<Command>,
+    ) {
+        self.keyboard = Keyboard::Pane;
+        self.run(commands);
+    }
+
+    pub(crate) fn apply_from_strip(
+        &mut self,
+        commands: Vec<Command>,
+    ) {
+        self.run(commands);
+        self.keyboard = Keyboard::Shell;
+    }
+
+    fn run(
         &mut self,
         commands: Vec<Command>,
     ) {
@@ -210,6 +228,61 @@ mod tests {
             .map(|(name, _)| *name)
             .collect();
         assert!(wrong.is_empty(), "failed cases: {wrong:?}");
+    }
+
+    fn handed_back(rig: &ShellRig) -> usize {
+        let calls = rig.mock.calls();
+        calls
+            .iter()
+            .filter(|call| matches!(call, webview::Call::FocusParent { .. }))
+            .count()
+    }
+
+    fn sync_chat(
+        rig: &mut ShellRig,
+        pane: &PaneId,
+    ) {
+        let bounds = webview::Bounds {
+            x: 0.0,
+            y: 0.0,
+            width: 400.0,
+            height: 300.0,
+        };
+        let shown = pane_host::VisiblePane {
+            pane: pane.clone(),
+            bounds,
+        };
+        rig.shell.sync(webview::ParentWindow::X11(9), vec![shown]);
+    }
+
+    enum Via {
+        Strip,
+        Elsewhere,
+    }
+
+    const CASES: &[(&str, Via, usize)] = &[
+        ("a strip press keeps the keys in the shell", Via::Strip, 1),
+        (
+            "any other command gives them to the page",
+            Via::Elsewhere,
+            0,
+        ),
+    ];
+
+    #[test]
+    fn only_a_strip_keeps_the_keyboard_from_the_page_that_becomes_active() {
+        for (name, via, handed) in CASES {
+            let mut rig = shell_rig();
+            let pane = crate::test_support::synced_chat(&mut rig);
+            let before = handed_back(&rig);
+            let focus = vec![Command::FocusPane { pane: pane.clone() }];
+            match via {
+                Via::Strip => rig.shell.apply_from_strip(focus),
+                Via::Elsewhere => rig.shell.apply(focus),
+            }
+            sync_chat(&mut rig, &pane);
+            assert_eq!(handed_back(&rig) - before, *handed, "{name}");
+        }
     }
 
     #[test]

@@ -17,6 +17,14 @@ pub enum LayoutEvent {
         /// The pane and side the chat lands next to.
         placement: Placement,
     },
+    /// A strip tab was pressed, or reached with the arrow keys: focus `pane`, and let the strip
+    /// keep the keyboard instead of the page that becomes active.
+    StripFocus {
+        /// The tab's pane.
+        pane: PaneId,
+    },
+    /// Something the user should be told, such as why a key did nothing.
+    Announce(String),
     /// The "+" button of a strip was pressed: open a New Tab page as a new tab of the group
     /// holding `onto`.
     NewTab {

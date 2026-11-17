@@ -5,6 +5,7 @@ pub(crate) struct Outcome {
     pub(crate) titles_changed: bool,
     pub(crate) dirty_changed: bool,
     pub(crate) hover: Vec<(PaneId, bool)>,
+    pub(crate) focused: Vec<PaneId>,
     pub(crate) dropped: Vec<protocol::FsPath>,
     pub(crate) commands: Vec<CommandId>,
     pub(crate) pages: Vec<(PaneId, String)>,

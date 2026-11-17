@@ -390,18 +390,49 @@ mod tests {
         },
     ];
 
+    #[derive(Debug, PartialEq)]
+    struct Seated {
+        strip: String,
+        pins: usize,
+        moved_is_pinned: bool,
+    }
+
+    fn travelled(case: &Travelled) -> Seated {
+        let mut layout = fixture();
+        apply(
+            &mut layout,
+            Command::PinPane {
+                pane: id(case.moved),
+            },
+        );
+        join_to(&mut layout, case.moved, (case.onto, None));
+        let strip = strips(&layout, case.tab)
+            .into_iter()
+            .find(|strip| strip.contains(case.moved))
+            .unwrap_or_default();
+        let moved = id(case.moved);
+        let group = layout.tab_of(&moved).and_then(|tab| tab.group_of(&moved));
+        let pinned = group.map(|group| (group.pinned_count(), group.is_pinned(&moved)));
+        let (pins, moved_is_pinned) = pinned.unwrap_or_default();
+        Seated {
+            strip,
+            pins,
+            moved_is_pinned,
+        }
+    }
+
+    fn still_pinned(case: &Travelled) -> Seated {
+        Seated {
+            strip: case.strip.to_owned(),
+            pins: 1,
+            moved_is_pinned: true,
+        }
+    }
+
     #[test]
     fn a_pinned_pane_stays_pinned_in_the_group_it_moves_to() {
         for case in TRAVELLED {
-            let mut layout = fixture();
-            apply(&mut layout, Command::PinPane { pane: id(case.moved) });
-            join_to(&mut layout, case.moved, (case.onto, None));
-            let strip = strips(&layout, case.tab);
-            let joined = strip.iter().find(|strip| strip.contains(case.moved)).unwrap();
-            let group = layout.tab_of(&id(case.moved)).unwrap().group_of(&id(case.moved)).unwrap();
-            assert_eq!(joined, case.strip, "{}", case.name);
-            assert!(group.is_pinned(&id(case.moved)), "{}: still pinned", case.name);
-            assert_eq!(group.pinned_count(), 1, "{}: one pin", case.name);
+            assert_eq!(travelled(case), still_pinned(case), "{}", case.name);
         }
     }
 

@@ -13,9 +13,9 @@ use crate::close_button::CloseButton;
 use crate::tab_actions::{TabAction, TabActions};
 use crate::tab_dragging::TabDragging;
 use crate::tab_end::TabEnd;
+use crate::tab_frame::{HEIGHT, group_of};
 use crate::tab_state::TabState;
 
-pub(crate) const HEIGHT: f32 = 32.0;
 const MAX_WIDTH: f32 = 200.0;
 const PAD_LEFT: f32 = 10.0;
 const PAD_RIGHT: f32 = 32.0;
@@ -107,10 +107,6 @@ fn draggable(
     })
     .drag_over::<DragSubject>(move |tab, _, _, _| tab.border_l(px(DROP_LINE)).border_color(line))
     .on_drop::<DragSubject>(move |subject, window, cx| drop(subject, window, cx))
-}
-
-pub(crate) fn group_of(name: &str) -> SharedString {
-    SharedString::from(format!("strip-tab-{name}"))
 }
 
 fn frame(

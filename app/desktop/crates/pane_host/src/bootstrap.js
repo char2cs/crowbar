@@ -45,6 +45,9 @@
   };
   document.documentElement.addEventListener('mouseenter', () => hover(true));
   document.documentElement.addEventListener('mouseleave', () => hover(false));
+  window.addEventListener('focus', () => {
+    crowbar.post(JSON.stringify({ sdk: 1, kind: 'shell.focus' }));
+  });
   window.__crowbarReceive = (text) => {
     try {
       const frame = JSON.parse(text);

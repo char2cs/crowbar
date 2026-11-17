@@ -4,9 +4,9 @@ use gpui::{
 };
 use ui::{Icon, Surface, Theme};
 
-use crate::strip_tab::{HEIGHT, group_of};
 use crate::tab_actions::TabAction;
 use crate::tab_end::TabEnd;
+use crate::tab_frame::{HEIGHT, group_of};
 use crate::tab_state::TabState;
 
 const CLOSE: f32 = 20.0;

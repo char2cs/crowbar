@@ -2,6 +2,7 @@ use model::Layout;
 use protocol::PaneId;
 use webview::ParentWindow;
 
+use crate::keyboard::Keyboard;
 use crate::visible_pane::VisiblePane;
 
 /// What the pane host needs from the shell to reconcile: the layout it reads panes and their
@@ -17,6 +18,8 @@ pub struct LayoutSnapshot<'a> {
     pub visible: Vec<VisiblePane>,
     /// The focused pane of the active tab.
     pub focused: Option<PaneId>,
+    /// Who the keys go to while that pane is shown.
+    pub keyboard: Keyboard,
 }
 
 impl<'a> LayoutSnapshot<'a> {
@@ -32,7 +35,18 @@ impl<'a> LayoutSnapshot<'a> {
             parent,
             visible,
             focused: layout.active_tab().and_then(|tab| tab.focused().cloned()),
+            keyboard: Keyboard::default(),
         }
+    }
+
+    /// The same snapshot with the keys going to `keyboard`.
+    #[must_use]
+    pub fn with_keyboard(
+        mut self,
+        keyboard: Keyboard,
+    ) -> Self {
+        self.keyboard = keyboard;
+        self
     }
 
     pub(crate) fn pane_ids(&self) -> impl Iterator<Item = PaneId> + '_ {

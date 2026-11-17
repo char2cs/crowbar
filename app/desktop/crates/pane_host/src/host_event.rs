@@ -76,6 +76,11 @@ pub enum HostEvent {
         /// Whether the pointer is over it.
         hovered: bool,
     },
+    /// A pane's page took native keyboard focus: the user clicked or tabbed into it.
+    PageFocused {
+        /// The pane.
+        pane: PaneId,
+    },
     /// Files from the operating system were dropped on a pane's page.
     FilesDropped {
         /// The pane.

@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use gpui::Context;
-use model::{Command, DragSubject, Group};
+use model::{DragSubject, Group};
 use protocol::PaneId;
 
 use crate::layout_event::LayoutEvent;
@@ -48,7 +48,7 @@ impl LayoutView {
                 .position(|pane| pane == group.active())?,
             at_end_drop: Self::drop_action(group.active(), end, cx),
             add: Self::add_action(group.active(), cx),
-            keys: Self::keys_action(group, cx),
+            keys: self.keys_action(group, cx),
             overflow: self.overflow_of(group, cx),
         })
     }
@@ -118,9 +118,7 @@ impl LayoutView {
         pane: &PaneId,
         cx: &mut Context<'_, Self>,
     ) {
-        cx.emit(LayoutEvent::Apply(Command::FocusPane {
-            pane: pane.clone(),
-        }));
+        cx.emit(LayoutEvent::StripFocus { pane: pane.clone() });
     }
 
     pub(crate) fn joins_strip(
@@ -210,6 +208,7 @@ mod tests {
     fn the_tab_actions_focus_close_and_drop_before_their_index(cx: &mut TestAppContext) {
         let harness = open_with(cx, &stacked_layout(), stacking());
         let (view, cx, commands) = (harness.view, harness.cx, harness.commands);
+        let opened = harness.opened;
         let strip = view
             .update(cx, |view, cx| view.strip_of(&pane_id("b"), cx))
             .expect("strip");
@@ -220,7 +219,6 @@ mod tests {
             (first.drop)(&DragSubject::Pane(pane_id("a")), window, cx);
         });
         let expected = [
-            Command::FocusPane { pane: pane_id("b") },
             Command::ClosePane { pane: pane_id("b") },
             Command::MoveToGroup {
                 pane: pane_id("a"),
@@ -228,10 +226,11 @@ mod tests {
                 index: Some(0),
             },
         ];
+        assert_eq!(commands.borrow().as_slice(), &expected, "close, drop");
         assert_eq!(
-            commands.borrow().as_slice(),
-            &expected,
-            "select, close, drop"
+            opened.borrow().as_slice(),
+            &[LayoutEvent::StripFocus { pane: pane_id("b") }],
+            "select keeps the keyboard in the strip"
         );
     }
 
@@ -280,13 +279,18 @@ mod tests {
             .apply(Command::FocusPane { pane: pane_id("a") })
             .unwrap();
         let harness = open_with(cx, &layout, stacking());
-        let (view, cx, commands) = (harness.view, harness.cx, harness.commands);
+        let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
+        let commands = harness.commands;
         let size = view.read_with(cx, |view, _| view.bounds.size);
         let tab = point(size.width * 0.5 + px(40.0), px(20.0));
         cx.simulate_mouse_down(tab, MouseButton::Left, Modifiers::none());
         assert_eq!(
-            commands.borrow().as_slice(),
-            &[Command::FocusPane { pane: pane_id("b") }],
+            opened.borrow().as_slice(),
+            &[LayoutEvent::StripFocus { pane: pane_id("b") }],
+            "the strip focuses the tab and keeps the keyboard"
+        );
+        assert!(
+            commands.borrow().is_empty(),
             "the pane press behind the tab must not undo it"
         );
     }

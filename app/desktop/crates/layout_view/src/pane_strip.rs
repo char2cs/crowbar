@@ -174,7 +174,7 @@ fn row_of(entry: OverflowEntry) -> MenuItem {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::strip_tab::HEIGHT as TAB_HEIGHT;
+    use crate::tab_frame::HEIGHT as TAB_HEIGHT;
 
     #[test]
     fn the_strip_row_holds_a_tab_with_its_padding() {

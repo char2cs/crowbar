@@ -13,6 +13,7 @@ use webview::{
 
 use crate::host_event::HostEvent;
 use crate::ipc_message::IpcMessage;
+use crate::keyboard::Keyboard;
 use crate::layout_snapshot::LayoutSnapshot;
 use crate::multiplicity::Multiplicity;
 use crate::origin_table::OriginTable;
@@ -38,12 +39,22 @@ impl Fixture {
         visible: &[&str],
         focused: Option<&str>,
     ) -> Vec<HostEvent> {
+        self.sync_with(panes, visible, (focused, Keyboard::Pane))
+    }
+
+    pub(crate) fn sync_with(
+        &mut self,
+        panes: &[PaneInstance],
+        visible: &[&str],
+        (focused, keyboard): (Option<&str>, Keyboard),
+    ) -> Vec<HostEvent> {
         self.layout = layout_of(panes, focused);
         let snapshot = LayoutSnapshot {
             layout: &self.layout,
             parent: WINDOW,
             visible: visible.iter().map(|id| visible_pane(id)).collect(),
             focused: focused.map(|id| PaneId::new(id).unwrap()),
+            keyboard,
         };
         let report = self.host.sync(&snapshot);
         assert!(report.failure.is_none(), "{:?}", report.failure);

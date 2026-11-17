@@ -3,6 +3,7 @@ use protocol::{ExtensionStatus, Lifecycle, PaneFrame, PaneId, PaneTypeId, ShellF
 
 use crate::error::Result;
 use crate::host_event::HostEvent;
+use crate::keyboard::Keyboard;
 use crate::pane_host::PaneHost;
 use crate::pane_phase::PanePhase;
 use crate::pane_runtime::PaneRuntime;
@@ -49,7 +50,7 @@ impl PaneHost {
         let Some(focused) = self.focused.as_ref().and_then(|pane| self.panes.get(pane)) else {
             return Ok(());
         };
-        if focused.slot.is_some() {
+        if focused.slot.is_some() && self.keyboard == Keyboard::Pane {
             return Ok(());
         }
         let holder = self
@@ -74,7 +75,9 @@ impl PaneHost {
         let slot = runtime.slot;
         self.send(pane, &frame)?;
         match (stage, slot.and_then(|id| self.pool.get(id))) {
-            (Stage::Active, Some(slot)) => Ok(slot.handle.focus()?),
+            (Stage::Active, Some(slot)) if self.keyboard == Keyboard::Pane => {
+                Ok(slot.handle.focus()?)
+            },
             _ => Ok(()),
         }
     }
@@ -217,6 +220,34 @@ mod tests {
     use crate::ipc_message::IpcMessage;
     use crate::pane_display::PaneDisplay;
     use crate::test_support::{Fixture, fixture, instance, lifecycle_events, register};
+
+    #[test]
+    fn a_page_takes_native_focus_on_activation_only_while_the_keyboard_is_the_pages() {
+        let cases = [
+            ("the pane holds the keyboard", Keyboard::Pane, true, false),
+            ("the shell holds the keyboard", Keyboard::Shell, false, true),
+        ];
+        for (name, keyboard, focuses_page, returns_to_shell) in cases {
+            let mut f = fixture();
+            let panes = [instance("p1", "core.chat"), instance("p2", "core.chat")];
+            f.sync(&panes, &["p1", "p2"], Some("p1"));
+            register(&mut f, "p1", "core.chat");
+            register(&mut f, "p2", "core.chat");
+            let before = f.mock.calls().len();
+            f.sync_with(&panes, &["p1", "p2"], (Some("p2"), keyboard));
+            let calls = f.mock.calls();
+            let after = calls.iter().skip(before);
+            let focused = after.clone().any(|call| matches!(call, Call::Focus { .. }));
+            let returned = after
+                .clone()
+                .any(|call| matches!(call, Call::FocusParent { .. }));
+            assert_eq!(
+                (focused, returned),
+                (focuses_page, returns_to_shell),
+                "{name}"
+            );
+        }
+    }
 
     pub(crate) fn started() -> Fixture {
         let mut f = fixture();

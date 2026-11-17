@@ -1,4 +1,5 @@
 use gpui::Context;
+use model::Command;
 use protocol::CommandId;
 use shell_keys::ShellCommand;
 
@@ -17,6 +18,7 @@ impl ShellView {
             titles_changed,
             dirty_changed,
             hover,
+            focused,
             dropped,
             commands,
             pages,
@@ -35,7 +37,23 @@ impl ShellView {
             self.layout
                 .update(cx, |view, cx| view.set_hovered_pane(current, cx));
         }
-        for command in served_commands(&commands) {
+        for pane in focused {
+            self.apply_guarded(vec![Command::FocusPane { pane }], cx);
+        }
+        self.serve(&commands);
+        if dirty_changed {
+            send(&self.requests, ShellRequest::ResumeClosing);
+        }
+        if titles_changed {
+            self.refresh(cx);
+        }
+    }
+
+    fn serve(
+        &self,
+        commands: &[CommandId],
+    ) {
+        for command in served_commands(commands) {
             self.queue_command(command);
         }
         for slot in commands
@@ -43,12 +61,6 @@ impl ShellView {
             .filter_map(|id| shell_keys::project_slot_of_command(id.as_str()))
         {
             send(&self.requests, ShellRequest::SelectProject(slot));
-        }
-        if dirty_changed {
-            send(&self.requests, ShellRequest::ResumeClosing);
-        }
-        if titles_changed {
-            self.refresh(cx);
         }
     }
 

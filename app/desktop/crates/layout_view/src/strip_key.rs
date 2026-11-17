@@ -1,40 +1,50 @@
-use model::{Command, Group, StripStep};
+use model::{Group, StripStep};
 use protocol::PaneId;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum StripKey {
+    Focus(PaneId),
+    Close(PaneId),
+    PinnedStays(PaneId),
+}
+
 pub(crate) fn strip_command(
     group: &Group,
     shown: &PaneId,
     key: &str,
-) -> Option<Command> {
+) -> Option<StripKey> {
     let step = match key {
         "left" => StripStep::Previous,
         "right" => StripStep::Next,
         "home" => StripStep::First,
         "end" => StripStep::Last,
-        "delete" | "backspace" => return close_shown(group, shown),
+        "delete" | "backspace" => return Some(close_shown(group, shown)),
         _ => return None,
     };
     let pane = group.step(shown, step)?.clone();
-    Some(Command::FocusPane { pane })
+    Some(StripKey::Focus(pane))
 }
 
 fn close_shown(
     group: &Group,
     shown: &PaneId,
-) -> Option<Command> {
-    (!group.is_pinned(shown)).then(|| Command::ClosePane {
-        pane: shown.clone(),
-    })
+) -> StripKey {
+    let pane = shown.clone();
+    if group.is_pinned(shown) {
+        return StripKey::PinnedStays(pane);
+    }
+    StripKey::Close(pane)
 }
 
 #[cfg(test)]
 mod tests {
+    use model::Command;
+
     use super::*;
     use crate::test_support::{pane_id, strip_layout};
 
-    fn focus(name: &str) -> Command {
-        Command::FocusPane {
-            pane: pane_id(name),
-        }
+    fn focus(name: &str) -> StripKey {
+        StripKey::Focus(pane_id(name))
     }
 
     #[test]
@@ -47,17 +57,12 @@ mod tests {
             ("left at the start", "a", "left", None),
             ("right at the end", "c", "right", None),
             ("end at the end", "c", "end", None),
-            (
-                "delete",
-                "b",
-                "delete",
-                Some(Command::ClosePane { pane: pane_id("b") }),
-            ),
+            ("delete", "b", "delete", Some(StripKey::Close(pane_id("b")))),
             (
                 "backspace",
                 "b",
                 "backspace",
-                Some(Command::ClosePane { pane: pane_id("b") }),
+                Some(StripKey::Close(pane_id("b"))),
             ),
             ("another key", "b", "x", None),
         ];
@@ -71,7 +76,7 @@ mod tests {
     }
 
     #[test]
-    fn a_pinned_tab_is_not_closed_by_the_keyboard() {
+    fn a_pinned_tab_is_not_closed_by_the_keyboard_and_the_user_is_told() {
         let mut layout = strip_layout("b");
         layout
             .apply(Command::PinPane { pane: pane_id("b") })
@@ -80,7 +85,7 @@ mod tests {
         let group = tab.group_of(&pane_id("b")).unwrap();
         assert_eq!(
             strip_command(group, &pane_id("b"), "delete"),
-            None,
+            Some(StripKey::PinnedStays(pane_id("b"))),
             "pinned"
         );
     }

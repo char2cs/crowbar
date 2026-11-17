@@ -18,7 +18,8 @@ impl ShellState {
         visible: Vec<VisiblePane>,
     ) -> Outcome {
         self.frozen.set_holes(&visible);
-        let snapshot = LayoutSnapshot::from_layout(self.history.layout(), parent, visible);
+        let snapshot = LayoutSnapshot::from_layout(self.history.layout(), parent, visible)
+            .with_keyboard(self.keyboard);
         let report = self.host.sync(&snapshot);
         if let Some(error) = report.failure {
             tracing::error!(%error, "a pane could not be driven while syncing with the layout");
@@ -74,6 +75,7 @@ impl ShellState {
             } => self.open_pane(type_id, params),
             HostEvent::CommandRequested { command, .. } => outcome.commands.push(command),
             HostEvent::HoverChanged { pane, hovered } => outcome.hover.push((pane, hovered)),
+            HostEvent::PageFocused { pane } => outcome.focused.push(pane),
             HostEvent::SettingRequested { key, value, .. } => outcome.settings.push((key, value)),
             HostEvent::OpenExternal { url } => {
                 log_failure(shell_platform::open_external(url.as_str()).map_err(|e| e.to_string()));

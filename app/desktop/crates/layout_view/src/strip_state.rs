@@ -60,7 +60,10 @@ mod tests {
             state.follow(&second, 1);
             assert_eq!(state.shown.as_ref(), Some(&second), "then the second");
             assert!(state.measure(px(40.0)), "now overflowing");
-            assert_eq!(state.shown, None, "the strip narrowed, so the tab is brought into view again");
+            assert_eq!(
+                state.shown, None,
+                "the strip narrowed, so the tab is brought into view again"
+            );
             assert!(!state.measure(px(40.0)), "still overflowing");
             assert!(
                 state.measure(px(0.5)),

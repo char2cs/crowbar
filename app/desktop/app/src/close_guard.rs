@@ -75,7 +75,7 @@ mod tests {
         Command::ClosePanes {
             panes: panes
                 .iter()
-                .map(|pane| PaneId::new(pane).unwrap())
+                .map(|pane| PaneId::new(*pane).unwrap())
                 .collect(),
         }
     }

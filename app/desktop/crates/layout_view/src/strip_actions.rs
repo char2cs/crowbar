@@ -8,7 +8,7 @@ use crate::layout_event::LayoutEvent;
 use crate::layout_view::LayoutView;
 use crate::overflow_entry::OverflowEntry;
 use crate::strip_input::state_in;
-use crate::strip_key::strip_command;
+use crate::strip_keyboard::StripKeyboard;
 use crate::tab_actions::{StripKeys, TabAction};
 
 impl LayoutView {
@@ -31,14 +31,19 @@ impl LayoutView {
     }
 
     pub(crate) fn keys_action(
+        &self,
         group: &Group,
         cx: &mut Context<'_, Self>,
     ) -> StripKeys {
-        let (view, group) = (cx.entity(), group.clone());
-        Rc::new(move |key, _, cx| {
-            let command = strip_command(&group, group.active(), key);
-            tell_command(&view, command, cx);
-        })
+        let pinned: Vec<(PaneId, String)> = group
+            .panes()
+            .iter()
+            .filter(|pane| group.is_pinned(pane))
+            .map(|pane| (pane.clone(), self.look_of(pane).label.to_string()))
+            .collect();
+        let keys = StripKeyboard::new(group.clone(), pinned);
+        let view = cx.entity();
+        Rc::new(move |key, _, cx| keys.press(key, &view, cx))
     }
 
     pub(crate) fn overflow_of(
@@ -56,17 +61,6 @@ impl LayoutView {
             })
             .collect()
     }
-}
-
-fn tell_command(
-    view: &Entity<LayoutView>,
-    command: Option<Command>,
-    cx: &mut App,
-) {
-    let Some(command) = command else {
-        return;
-    };
-    tell(view, LayoutEvent::Apply(command), cx);
 }
 
 fn tell(
@@ -112,7 +106,7 @@ mod tests {
     #[gpui::test]
     fn keys_on_the_strip_select_neighbours_and_ignore_the_rest(cx: &mut TestAppContext) {
         let harness = open_with(cx, &stacked_layout(), stacking());
-        let (view, cx, commands) = (harness.view, harness.cx, harness.commands);
+        let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
         let strip = view
             .update(cx, |view, cx| view.strip_of(&pane_id("b"), cx))
             .expect("strip");
@@ -122,9 +116,55 @@ mod tests {
             (strip.keys)("x", window, cx);
         });
         assert_eq!(
-            commands.borrow().as_slice(),
-            &[Command::FocusPane { pane: pane_id("b") }],
+            opened.borrow().as_slice(),
+            &[LayoutEvent::StripFocus { pane: pane_id("b") }],
             "no right of c, b left of c, x ignored"
+        );
+    }
+
+    fn pressing_delete(
+        cx: &mut TestAppContext,
+        layout: &model::Layout,
+    ) -> (Vec<Command>, Vec<LayoutEvent>) {
+        let harness = open_with(cx, layout, stacking());
+        let (view, cx) = (harness.view, harness.cx);
+        let (commands, opened) = (harness.commands, harness.opened);
+        let strip = view
+            .update(cx, |view, cx| view.strip_of(&pane_id("b"), cx))
+            .expect("strip");
+        cx.update(|window, cx| (strip.keys)("delete", window, cx));
+        (commands.take(), opened.take())
+    }
+
+    #[gpui::test]
+    fn delete_closes_the_shown_tab(cx: &mut TestAppContext) {
+        let (commands, opened) = pressing_delete(cx, &stacked_layout());
+        assert_eq!(
+            (commands, opened),
+            (vec![Command::ClosePane { pane: pane_id("c") }], vec![]),
+            "c is shown and loose"
+        );
+    }
+
+    #[gpui::test]
+    fn delete_on_a_pinned_shown_tab_closes_nothing_and_says_why(cx: &mut TestAppContext) {
+        let mut layout = stacked_layout();
+        layout
+            .apply(Command::PinPane { pane: pane_id("b") })
+            .unwrap();
+        layout
+            .apply(Command::FocusPane { pane: pane_id("b") })
+            .unwrap();
+        let (commands, opened) = pressing_delete(cx, &layout);
+        assert_eq!(
+            (commands, opened),
+            (
+                vec![],
+                vec![LayoutEvent::Announce(
+                    "Cannot close pinned tab core.chat".into()
+                )]
+            ),
+            "b is shown and pinned"
         );
     }
 

@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use model::Layout;
 use protocol::{
-    DaemonTransport, KeyBinding, PaneId, SettingValues,
-    ShellFrame, ThemeTokens, decode_pane_frame, encode,
+    DaemonTransport, KeyBinding, PaneId, SettingValues, ShellFrame, ThemeTokens, decode_pane_frame,
+    encode,
 };
 use webview::WebViewHost;
 
@@ -12,11 +12,13 @@ use crate::browser_slot::browser_event;
 use crate::drop_message::drop_report;
 use crate::error::{Error, Result};
 use crate::failures::Failures;
+use crate::focus_message::focus_report;
 use crate::host_event::HostEvent;
 use crate::hover_message::parse_hover;
 use crate::inbox_gate::InboxGate;
 use crate::ipc_message::IpcMessage;
 use crate::ipc_notice::IpcNotice;
+use crate::keyboard::Keyboard;
 use crate::layout_snapshot::LayoutSnapshot;
 use crate::origin_table::OriginTable;
 use crate::overlay::Overlay;
@@ -46,6 +48,7 @@ pub struct PaneHost {
     pub(crate) settings: Option<SettingValues>,
     pub(crate) overlay: Overlay,
     pub(crate) focused: Option<PaneId>,
+    pub(crate) keyboard: Keyboard,
     pub(crate) inbox: async_channel::Receiver<IpcMessage>,
     pub(crate) gate: Arc<InboxGate>,
     pub(crate) config: PaneHostConfig,
@@ -93,6 +96,7 @@ impl PaneHost {
             settings: None,
             overlay: Overlay::Inactive,
             focused: None,
+            keyboard: Keyboard::default(),
             inbox,
             gate,
             config,
@@ -173,6 +177,7 @@ impl PaneHost {
             failures.note(self.show(snapshot.parent, visible, snapshot.layout));
         }
         self.focused.clone_from(&snapshot.focused);
+        self.keyboard = snapshot.keyboard;
         failures.note(self.route_activation(snapshot.layout));
         failures.note(self.hand_focus_to_native());
         SyncReport {
@@ -208,7 +213,10 @@ impl PaneHost {
         if let Some(events) = type_id.and_then(|type_id| browser_event(&message, type_id)) {
             return Ok(events);
         }
-        if let Some(event) = hover_report(&message).or_else(|| drop_report(&message)) {
+        let report = hover_report(&message)
+            .or_else(|| focus_report(&message))
+            .or_else(|| drop_report(&message));
+        if let Some(event) = report {
             return Ok(vec![event]);
         }
         if let Some(notice) = IpcNotice::parse(&message.text) {
@@ -242,7 +250,6 @@ impl PaneHost {
             .ok_or_else(|| Error::NotShown(pane.clone()))?;
         Ok(slot.handle.post_message(&encode(frame)?)?)
     }
-
 }
 
 #[cfg(test)]
@@ -252,9 +259,9 @@ mod tests {
     use webview::{Call, Visibility, WebViewKind};
 
     use super::*;
-    use crate::pane_lifecycle::PaneLifecycle;
     use crate::browse_action::BrowseAction;
     use crate::error::Error;
+    use crate::pane_lifecycle::PaneLifecycle;
     use crate::test_support::*;
 
     fn is_mount(frame: &ShellFrame) -> bool {
