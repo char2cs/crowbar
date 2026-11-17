@@ -1,13 +1,4 @@
 //! Public-API tests of `transport` against real sockets and fake daemons.
-#![allow(
-    clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::indexing_slicing,
-    clippy::string_slice,
-    clippy::result_large_err,
-    clippy::excessive_nesting,
-    reason = "test code: a failing fake or assertion should fail the test loudly, and async blocks nest by construction"
-)]
 
 #[path = "support/http_daemon.rs"]
 mod http_daemon;
@@ -25,6 +16,8 @@ use transport::{
 
 use crate::http_daemon::Handler;
 use crate::tls_host::{TlsHost, identity};
+
+type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 const TOKEN: &str = "tok-1";
 
@@ -44,8 +37,8 @@ fn handler() -> Handler {
 }
 
 #[ignore = "real-infra: pairs and dials a fake host over a loopback TLS socket"]
-async fn host() -> TlsHost {
-    TlsHost::start(identity(), &[&rustls::version::TLS13], handler()).await
+async fn host() -> Result<TlsHost, Box<dyn std::error::Error>> {
+    TlsHost::start(identity()?, &[&rustls::version::TLS13], handler()).await
 }
 
 fn request<'a>(
@@ -103,17 +96,17 @@ async fn pair(
 }
 
 fn get(path: &str) -> Request<Vec<u8>> {
-    Request::builder()
-        .method(Method::GET)
-        .uri(path)
-        .body(Vec::new())
-        .expect("request")
+    let mut built = Request::new(Vec::new());
+    *built.method_mut() = Method::GET;
+    *built.uri_mut() = path.parse().unwrap_or_default();
+    built
 }
 
 #[tokio::test]
 #[ignore = "real-infra: pairs and dials a fake host over a loopback TLS socket"]
-async fn pairing_with_the_confirmed_fingerprint_registers_the_host_and_requests_carry_the_token() {
-    let host = host().await;
+async fn pairing_with_the_confirmed_fingerprint_registers_the_host_and_requests_carry_the_token()
+-> TestResult {
+    let host = host().await?;
     let rig = rig();
     let client = pair(&rig, &host, &fingerprint_of(&host.cert_der), "good")
         .await
@@ -134,6 +127,7 @@ async fn pairing_with_the_confirmed_fingerprint_registers_the_host_and_requests_
     assert_eq!(answer.status(), 200);
     let sent = host.requests().pop().expect("the host saw a request");
     assert_eq!(sent.header("authorization"), Some("Bearer tok-1"));
+    Ok(())
 }
 
 enum Fingerprint {
@@ -163,13 +157,13 @@ const CASES: [Case; 2] = [
 
 #[tokio::test]
 #[ignore = "real-infra: pairs and dials a fake host over a loopback TLS socket"]
-async fn a_refused_pairing_is_reported_and_leaves_no_trace() {
+async fn a_refused_pairing_is_reported_and_leaves_no_trace() -> TestResult {
     for (fingerprint, code, reads_as, seen) in CASES {
-        let host = host().await;
+        let host = host().await?;
         let rig = rig();
         let confirmed = match fingerprint {
             Fingerprint::Pinned => fingerprint_of(&host.cert_der),
-            Fingerprint::Other => fingerprint_of(&identity().cert),
+            Fingerprint::Other => fingerprint_of(&identity()?.cert),
         };
         let error = pair(&rig, &host, &confirmed, code).await.unwrap_err();
         assert!(reads_as(&error), "{code}: {error}");
@@ -181,17 +175,18 @@ async fn a_refused_pairing_is_reported_and_leaves_no_trace() {
             "{code}: requests that reached the host"
         );
     }
+    Ok(())
 }
 
 #[tokio::test]
 #[ignore = "real-infra: pairs and dials a fake host over a loopback TLS socket"]
-async fn a_host_that_changes_its_certificate_after_pairing_never_sees_the_token() {
-    let host = host().await;
+async fn a_host_that_changes_its_certificate_after_pairing_never_sees_the_token() -> TestResult {
+    let host = host().await?;
     let rig = rig();
     pair(&rig, &host, &fingerprint_of(&host.cert_der), "good")
         .await
         .expect("paired");
-    let impostor = TlsHost::start(identity(), &[&rustls::version::TLS13], handler()).await;
+    let impostor = TlsHost::start(identity()?, &[&rustls::version::TLS13], handler()).await?;
     let id = HostId::new("host-1").unwrap();
     rig.registry
         .insert(id, Endpoint::parse(&impostor.endpoint()).unwrap())
@@ -207,24 +202,26 @@ async fn a_host_that_changes_its_certificate_after_pairing_never_sees_the_token(
         0,
         "the bearer token never reached the impostor"
     );
+    Ok(())
 }
 
 #[tokio::test]
 #[ignore = "real-infra: pairs and dials a fake host over a loopback TLS socket"]
-async fn a_host_that_only_speaks_tls12_is_not_dialled_with_the_token() {
-    let old = TlsHost::start(identity(), &[&rustls::version::TLS12], handler()).await;
+async fn a_host_that_only_speaks_tls12_is_not_dialled_with_the_token() -> TestResult {
+    let old = TlsHost::start(identity()?, &[&rustls::version::TLS12], handler()).await?;
     let rig = rig();
     let error = pair(&rig, &old, &fingerprint_of(&old.cert_der), "good")
         .await
         .unwrap_err();
     assert!(!matches!(error, Error::Refused { .. }), "{error}");
     assert_eq!(old.requests().len(), 0);
+    Ok(())
 }
 
 #[tokio::test]
 #[ignore = "real-infra: pairs and dials a fake host over a loopback TLS socket"]
-async fn an_unreachable_host_is_marked_unreachable() {
-    let host = host().await;
+async fn an_unreachable_host_is_marked_unreachable() -> TestResult {
+    let host = host().await?;
     let rig = rig();
     pair(&rig, &host, &fingerprint_of(&host.cert_der), "good")
         .await
@@ -241,6 +238,7 @@ async fn an_unreachable_host_is_marked_unreachable() {
         .handle(&PaneOrigin::Core, get("crowbar://host-1/v0/projects"))
         .await;
     assert_eq!(transport::marker_of(&answer), Some("host-unreachable"));
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -274,8 +272,8 @@ impl TokenStore for FullKeychain {
 
 #[tokio::test]
 #[ignore = "real-infra: pairs and dials a fake host over a loopback TLS socket"]
-async fn a_token_the_keychain_cannot_keep_is_revoked_on_the_host() {
-    let host = host().await;
+async fn a_token_the_keychain_cannot_keep_is_revoked_on_the_host() -> TestResult {
+    let host = host().await?;
     let registry = Arc::new(HostRegistry::in_memory());
     let tokens: Arc<dyn TokenStore> = Arc::new(FullKeychain {
         complaint: "the keychain is full",
@@ -295,4 +293,5 @@ async fn a_token_the_keychain_cannot_keep_is_revoked_on_the_host() {
         .expect("revoked on the host");
     assert_eq!(revoke.target, "/v0/clients/c1");
     assert_eq!(revoke.header("authorization"), Some("Bearer tok-1"));
+    Ok(())
 }

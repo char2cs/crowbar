@@ -20,8 +20,8 @@ pub(crate) struct RelayRig {
 }
 
 impl RelayRig {
-    pub(crate) fn start(config: RelayConfig) -> Self {
-        let daemon = EchoDaemon::start();
+    pub(crate) fn start(config: RelayConfig) -> Result<Self, Box<dyn std::error::Error>> {
+        let daemon = EchoDaemon::start()?;
         let transport = Arc::new(Transport::new(
             Arc::new(daemon.socket.clone()),
             Arc::new(HostRegistry::in_memory()),
@@ -29,46 +29,37 @@ impl RelayRig {
         ));
         let origins = ExactOrigins::new(vec![CORE_ORIGIN.to_owned()], "crowbar-ext://{extension}");
         let (acceptor, dialer) = memory_listener(RELAY_PORT);
-        let relay = Relay::start_on(acceptor, Arc::clone(&transport), Arc::new(origins), config)
-            .expect("relay starts");
-        Self {
+        let relay = Relay::start_on(acceptor, Arc::clone(&transport), Arc::new(origins), config)?;
+        Ok(Self {
             relay,
             dialer,
             daemon,
             transport,
-        }
+        })
     }
 
     pub(crate) fn token(
         &self,
         pane: &str,
         origin: PaneOrigin,
-    ) -> String {
-        let scope = RelayScope::new(
-            HostId::new("local").expect("host id"),
-            PaneId::new(pane).expect("pane id"),
-            origin,
-        );
-        self.relay
-            .issue(&scope)
-            .expect("token issued")
-            .token()
-            .to_owned()
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        let scope = RelayScope::new(HostId::new("local")?, PaneId::new(pane)?, origin);
+        Ok(self.relay.issue(&scope)?.token().to_owned())
     }
 
     pub(crate) fn extension_token(
         &self,
         pane: &str,
         extension: &str,
-    ) -> String {
-        let id = ExtensionId::new(extension).expect("extension id");
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        let id = ExtensionId::new(extension)?;
         self.token(pane, PaneOrigin::Extension(id))
     }
 
     pub(crate) fn core_token(
         &self,
         pane: &str,
-    ) -> String {
+    ) -> Result<String, Box<dyn std::error::Error>> {
         self.token(pane, PaneOrigin::Core)
     }
 }

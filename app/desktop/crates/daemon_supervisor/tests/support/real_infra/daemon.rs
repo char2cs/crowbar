@@ -1,8 +1,10 @@
+use std::io;
 use std::time::Duration;
 
 use daemon_supervisor::{DaemonEvent, DaemonPaths, SupervisorConfig, Timings};
 use tempfile::TempDir;
 use tokio::sync::broadcast::Receiver;
+use tokio::sync::broadcast::error::RecvError;
 
 const EVENT_BUDGET: Duration = Duration::from_secs(30);
 
@@ -24,42 +26,37 @@ pub(crate) fn fast_timings() -> Timings {
 pub(crate) fn config(
     mode: &str,
     timings: Timings,
-) -> (SupervisorConfig, TempDir) {
-    let dir = tempfile::Builder::new()
-        .prefix("cb-sup-")
-        .tempdir()
-        .expect("test dir");
+) -> io::Result<(SupervisorConfig, TempDir)> {
+    let dir = tempfile::Builder::new().prefix("cb-sup-").tempdir()?;
     let script = dir.path().join("crowbar-api");
     let fake = env!("CARGO_BIN_EXE_fake_daemon");
     let body = format!("#!/bin/sh\nFAKE_DAEMON_MODE={mode} exec {fake} \"$@\"\n");
-    std::fs::write(&script, body).expect("script");
-    std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755))
-        .expect("chmod");
+    std::fs::write(&script, body)?;
+    std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755))?;
     let paths = DaemonPaths {
         socket: dir.path().join("d.sock"),
         log: dir.path().join("logs").join("daemon.log"),
     };
     let mut config = SupervisorConfig::new(script, paths, None, "1.2.3-test");
     config.timings = timings;
-    (config, dir)
+    Ok((config, dir))
 }
 
 async fn first_matching(
     events: &mut Receiver<DaemonEvent>,
     wanted: impl Fn(&DaemonEvent) -> bool,
-) -> DaemonEvent {
-    let mut event = events.recv().await.expect("event stream open");
+) -> Result<DaemonEvent, RecvError> {
+    let mut event = events.recv().await?;
     while !wanted(&event) {
-        event = events.recv().await.expect("event stream open");
+        event = events.recv().await?;
     }
-    event
+    Ok(event)
 }
 
+/// The next event `wanted` accepts, or an error when the stream closes or `EVENT_BUDGET` runs out.
 pub(crate) async fn next_matching(
     events: &mut Receiver<DaemonEvent>,
     wanted: impl Fn(&DaemonEvent) -> bool,
-) -> DaemonEvent {
-    tokio::time::timeout(EVENT_BUDGET, first_matching(events, wanted))
-        .await
-        .expect("event arrived in time")
+) -> Result<DaemonEvent, Box<dyn std::error::Error>> {
+    Ok(tokio::time::timeout(EVENT_BUDGET, first_matching(events, wanted)).await??)
 }

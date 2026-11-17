@@ -1,13 +1,4 @@
 //! Public-API tests of `transport` against real sockets and fake daemons.
-#![allow(
-    clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::indexing_slicing,
-    clippy::string_slice,
-    clippy::result_large_err,
-    clippy::excessive_nesting,
-    reason = "test code: a failing fake or assertion should fail the test loudly, and async blocks nest by construction"
-)]
 
 #[path = "support/http_daemon.rs"]
 mod http_daemon;
@@ -21,11 +12,13 @@ use transport::{EXTENSION_HEADER, HostRegistry, MemoryTokenStore, Transport};
 
 use crate::http_daemon::{Handler, Log, serve_http};
 
+type TestResult = Result<(), Box<dyn std::error::Error>>;
+
 #[ignore = "real-infra: end to end against a fake daemon on a real unix socket"]
-fn socket() -> (tempfile::TempDir, std::path::PathBuf) {
-    let dir = tempfile::tempdir().expect("temp dir");
+fn socket() -> std::io::Result<(tempfile::TempDir, std::path::PathBuf)> {
+    let dir = tempfile::tempdir()?;
     let path = dir.path().join("daemon.sock");
-    (dir, path)
+    Ok((dir, path))
 }
 
 fn transport_at(path: std::path::PathBuf) -> Transport {
@@ -40,12 +33,12 @@ fn transport_at(path: std::path::PathBuf) -> Transport {
 fn daemon(
     path: &std::path::Path,
     handler: Handler,
-) -> Log {
-    let listener = tokio::net::UnixListener::bind(path).expect("bind daemon");
+) -> std::io::Result<Log> {
+    let listener = tokio::net::UnixListener::bind(path)?;
     let log: Log = Arc::new(Mutex::new(Vec::new()));
     let seen = Arc::clone(&log);
     tokio::spawn(accept_loop(listener, handler, seen));
-    log
+    Ok(log)
 }
 
 #[ignore = "real-infra: end to end against a fake daemon on a real unix socket"]
@@ -64,11 +57,10 @@ fn request(
     uri: &str,
     body: &[u8],
 ) -> Request<Vec<u8>> {
-    Request::builder()
-        .method(method)
-        .uri(uri)
-        .body(body.to_vec())
-        .expect("request")
+    let mut built = Request::new(body.to_vec());
+    *built.method_mut() = method;
+    *built.uri_mut() = uri.parse().unwrap_or_default();
+    built
 }
 
 fn ok(body: &str) -> Handler {
@@ -84,8 +76,9 @@ fn ok(body: &str) -> Handler {
 
 #[tokio::test]
 #[ignore = "real-infra: end to end against a fake daemon on a real unix socket"]
-async fn a_request_reaches_the_daemon_with_its_method_body_and_headers_and_the_answer_returns() {
-    let (_dir, path) = socket();
+async fn a_request_reaches_the_daemon_with_its_method_body_and_headers_and_the_answer_returns()
+-> TestResult {
+    let (_dir, path) = socket()?;
     let log = daemon(
         &path,
         Arc::new(|seen| {
@@ -95,7 +88,7 @@ async fn a_request_reaches_the_daemon_with_its_method_body_and_headers_and_the_a
                 format!("got {}", seen.body.len()),
             )
         }),
-    );
+    )?;
     let transport = transport_at(path);
     let mut req = request(
         Method::POST,
@@ -113,13 +106,15 @@ async fn a_request_reaches_the_daemon_with_its_method_body_and_headers_and_the_a
         ("POST", &b"hello"[..])
     );
     assert_eq!(seen.header("x-pane"), Some("p1"));
+    Ok(())
 }
 
 #[tokio::test]
 #[ignore = "real-infra: end to end against a fake daemon on a real unix socket"]
-async fn the_extension_header_is_stamped_for_extensions_and_stripped_from_core_requests() {
-    let (_dir, path) = socket();
-    let log = daemon(&path, ok("{}"));
+async fn the_extension_header_is_stamped_for_extensions_and_stripped_from_core_requests()
+-> TestResult {
+    let (_dir, path) = socket()?;
+    let log = daemon(&path, ok("{}"))?;
     let transport = transport_at(path);
     let acme = PaneOrigin::Extension(ExtensionId::new("acme").unwrap());
     transport
@@ -140,13 +135,14 @@ async fn the_extension_header_is_stamped_for_extensions_and_stripped_from_core_r
         None,
         "a pane cannot name an extension"
     );
+    Ok(())
 }
 
 #[tokio::test]
 #[ignore = "real-infra: end to end against a fake daemon on a real unix socket"]
-async fn an_extension_cannot_reach_core_routes_and_the_daemon_never_hears_of_it() {
-    let (_dir, path) = socket();
-    let log = daemon(&path, ok("{}"));
+async fn an_extension_cannot_reach_core_routes_and_the_daemon_never_hears_of_it() -> TestResult {
+    let (_dir, path) = socket()?;
+    let log = daemon(&path, ok("{}"))?;
     let transport = transport_at(path);
     let acme = PaneOrigin::Extension(ExtensionId::new("acme").unwrap());
     let cases = [
@@ -164,12 +160,13 @@ async fn an_extension_cannot_reach_core_routes_and_the_daemon_never_hears_of_it(
         assert_eq!(answer.status(), 403, "{uri}");
     }
     assert_eq!(log.lock().unwrap().len(), 0);
+    Ok(())
 }
 
 #[tokio::test]
 #[ignore = "real-infra: end to end against a fake daemon on a real unix socket"]
-async fn a_daemon_supplied_proxy_marker_is_not_passed_to_the_page() {
-    let (_dir, path) = socket();
+async fn a_daemon_supplied_proxy_marker_is_not_passed_to_the_page() -> TestResult {
+    let (_dir, path) = socket()?;
     daemon(
         &path,
         Arc::new(|_| {
@@ -179,7 +176,7 @@ async fn a_daemon_supplied_proxy_marker_is_not_passed_to_the_page() {
                 "{}".into(),
             )
         }),
-    );
+    )?;
     let transport = transport_at(path);
     let answer = transport
         .handle(
@@ -188,13 +185,14 @@ async fn a_daemon_supplied_proxy_marker_is_not_passed_to_the_page() {
         )
         .await;
     assert_eq!(transport::marker_of(&answer), None);
+    Ok(())
 }
 
 #[tokio::test]
 #[ignore = "real-infra: end to end against a fake daemon on a real unix socket"]
-async fn cors_is_granted_only_to_answers_the_proxy_wrote() {
-    let (_dir, path) = socket();
-    daemon(&path, ok("{}"));
+async fn cors_is_granted_only_to_answers_the_proxy_wrote() -> TestResult {
+    let (_dir, path) = socket()?;
+    daemon(&path, ok("{}"))?;
     let transport = transport_at(path.clone());
     let mut served = request(Method::GET, "crowbar://localhost/v0/x", b"");
     served
@@ -221,12 +219,13 @@ async fn cors_is_granted_only_to_answers_the_proxy_wrote() {
         answer.headers()["access-control-allow-origin"],
         "crowbar://app"
     );
+    Ok(())
 }
 
 #[tokio::test]
 #[ignore = "real-infra: end to end against a fake daemon on a real unix socket"]
-async fn a_large_body_goes_through_intact_in_both_directions() {
-    let (_dir, path) = socket();
+async fn a_large_body_goes_through_intact_in_both_directions() -> TestResult {
+    let (_dir, path) = socket()?;
     daemon(
         &path,
         Arc::new(|seen| {
@@ -236,7 +235,7 @@ async fn a_large_body_goes_through_intact_in_both_directions() {
                 String::from_utf8_lossy(&seen.body).into_owned(),
             )
         }),
-    );
+    )?;
     let transport = transport_at(path);
     let payload = "x".repeat(4 * 1024 * 1024);
     let answer = transport
@@ -246,12 +245,13 @@ async fn a_large_body_goes_through_intact_in_both_directions() {
         )
         .await;
     assert_eq!(answer.body().len(), payload.len());
+    Ok(())
 }
 
 #[tokio::test]
 #[ignore = "real-infra: end to end against a fake daemon on a real unix socket"]
-async fn an_unregistered_remote_host_is_a_bad_gateway() {
-    let (_dir, path) = socket();
+async fn an_unregistered_remote_host_is_a_bad_gateway() -> TestResult {
+    let (_dir, path) = socket()?;
     let transport = transport_at(path);
     let answer = transport
         .handle(
@@ -260,4 +260,5 @@ async fn an_unregistered_remote_host_is_a_bad_gateway() {
         )
         .await;
     assert_eq!(answer.status(), 502);
+    Ok(())
 }

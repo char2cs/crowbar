@@ -28,6 +28,7 @@ function check_allow(buf, line,   inner, rs, lints, n, i, reason) {
   for (i = 1; i <= n; i++) {
     gsub(/[ \t]/, "", lints[i])
     if (lints[i] != "" && lints[i] !~ /^[A-Za-z_:0-9]+$/) continue
+    if (lints[i] == "unsafe_code") { unsafe_allow_line = line; continue }
     if (lints[i] != "") report(line, "allow-lint", lints[i] ": lint suppression needs an entry in tools/scripts/allow-baseline.txt (the list only shrinks)")
   }
 }
@@ -110,7 +111,7 @@ BEGIN { ri_active = ri_file + 0; pend_doc = 0; cfg_line = 0; in_t = 0; t_depth =
   if (raw ~ /^[ \t]*#\[(tokio::)?test\]/) { if (!t_body) report(NR, "test-in-src", "#[test] outside the file's `mod tests`"); next }
   if (t_body) {
     s = strip(raw); i = index(s, "//")
-    if (i) { text = substr(s, i + 2); sub(/^[ \t]+/, "", text); if (raw !~ /^[ \t]*\/\/\//) { if (text !~ /^(SAFETY|SPEC|PLATFORM|DEPRECATED):/) report(NR, "comment", "inline comment (only SAFETY:/SPEC:/PLATFORM:/DEPRECATED: allowed)"); else check_tag(text, NR) } }
+    if (i) { text = substr(s, i + 2); sub(/^[ \t]+/, "", text); if (raw !~ /^[ \t]*\/\/\//) { if (text !~ /^(SAFETY|SPEC|PLATFORM|DEPRECATED):/) report(NR, "comment", "inline comment (only SAFETY:/SPEC:/PLATFORM:/DEPRECATED: allowed)"); else check_tag(text, NR); if (text ~ /^SAFETY:/) seen_safety = 1 } }
     next
   }
   if (raw ~ /^[ \t]*\/\/\//) { if (!pend_doc) doc_line = NR; pend_doc = 1; next }
@@ -134,7 +135,7 @@ BEGIN { ri_active = ri_file + 0; pend_doc = 0; cfg_line = 0; in_t = 0; t_depth =
     text = substr(rest, 3)
     sub(/^[ \t]+/, "", text)
     if (text !~ /^(SAFETY|SPEC|PLATFORM|DEPRECATED):/) report(NR, "comment", "inline comment (only SAFETY:/SPEC:/PLATFORM:/DEPRECATED: allowed)")
-    else check_tag(text, NR)
+    else { check_tag(text, NR); if (text ~ /^SAFETY:/) seen_safety = 1 }
   }
   if (s ~ /\/\*/) report(NR, "comment", "block comment")
   if (code ~ /\.unwrap\(\)/ && !allow_unwrap) report(NR, "panic", "unwrap() outside tests/main")
@@ -157,6 +158,8 @@ BEGIN { ri_active = ri_file + 0; pend_doc = 0; cfg_line = 0; in_t = 0; t_depth =
   }
 }
 END {
+  # An FFI boundary may allow unsafe_code (with a reason) without a baseline entry when its unsafe blocks carry SAFETY comments.
+  if (unsafe_allow_line && !seen_safety) report(unsafe_allow_line, "allow-lint", "unsafe_code: allowed only in a file whose unsafe blocks carry // SAFETY: comments")
   if (!paused) for (i = 1; i <= nsleep; i++) report(sleep_line[i], "real-infra", "real sleep in a test: use a paused clock (start_paused) or a channel")
   table = (tbl_def && tbl_iter) || tbl_macro
   if (ntests > 2 && !table) report(1, "table-driven", ntests " #[test] fns and no table (a const array of cases iterated in one test, or a macro/rstest): one table, one behaviour per case")

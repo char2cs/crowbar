@@ -82,7 +82,9 @@ async fn answer<S: AsyncWrite + Unpin>(
     seen: Seen,
 ) -> bool {
     let (status, headers, body) = handler(&seen);
-    log.lock().expect("log lock").push(seen);
+    log.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(seen);
     let reply = render_reply(status, headers, &body);
     stream.write_all(reply.as_bytes()).await.is_ok()
 }
