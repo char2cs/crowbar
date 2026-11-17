@@ -51,7 +51,7 @@ struct AppearanceCards: View {
       .contentShape(.rect)
     }
 
-    // PLATFORM: strokeBorder draws inside the shape, over the clipped face: nothing leaves the card.
+    // PLATFORM: ios: strokeBorder draws inside the shape, over the clipped face: nothing leaves the card.
     private var preview: some View {
       Preview(mode: item.id, palette: palette)
         .frame(height: Metric.previewHeight)

@@ -7,6 +7,11 @@ enum Dialogs {
     return top
   }
 
+  enum ConfirmAnswer {
+    case confirmed
+    case cancelled
+  }
+
   struct ConfirmOptions: Decodable {
     let title: String
     let message: String
@@ -26,7 +31,7 @@ enum Dialogs {
   static func confirm(
     _ options: ConfirmOptions,
     over root: UIViewController,
-    answer: @escaping (Bool) -> Void
+    answer: @escaping (ConfirmAnswer) -> Void
   ) {
     let alert = UIAlertController(
       title: options.title,
@@ -34,13 +39,13 @@ enum Dialogs {
       preferredStyle: .alert
     )
     alert.addAction(
-      UIAlertAction(title: options.cancelLabel, style: .cancel) { _ in answer(false) }
+      UIAlertAction(title: options.cancelLabel, style: .cancel) { _ in answer(.cancelled) }
     )
     alert.addAction(
       UIAlertAction(
         title: options.confirmLabel,
         style: options.destructive ? .destructive : .default
-      ) { _ in answer(true) }
+      ) { _ in answer(.confirmed) }
     )
     topmost(root).present(alert, animated: true)
   }

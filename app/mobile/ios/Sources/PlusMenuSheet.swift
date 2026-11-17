@@ -61,7 +61,7 @@ struct PlusMenuSheet: View {
     var body: some View {
       Button(action: choose) { label }
         .buttonStyle(.plain)
-        // PLATFORM: The row's own 44pt is the whole height: the list's default insets would add 27pt to it.
+        // PLATFORM: ios: The row's own 44pt is the whole height: the list's default insets would add 27pt to it.
         .listRowInsets(
           EdgeInsets(top: 2, leading: Spacing.large, bottom: 2, trailing: Spacing.large)
         )

@@ -12,7 +12,7 @@ enum SecondaryPage {
     let config = WKWebViewConfiguration()
     config.websiteDataStore = main.configuration.websiteDataStore
     config.userContentController = controller
-    // PLATFORM: Not wry's handler: it assumes its own webview class and crashes on this one.
+    // PLATFORM: ios: Not wry's handler: it assumes its own webview class and crashes on this one.
     config.setURLSchemeHandler(scheme, forURLScheme: "tauri")
     let page = WKWebView(frame: .zero, configuration: config)
     FormAccessory.hide(in: page)

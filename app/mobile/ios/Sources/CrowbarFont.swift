@@ -57,9 +57,9 @@ enum CrowbarFont {
 
   private static func wght(_ weight: UIFont.Weight) -> CGFloat {
     switch weight {
-    case ..<UIFont.Weight.medium: 400
-    case ..<UIFont.Weight.semibold: 500
-    case ..<UIFont.Weight.bold: 600
+    case ..<UIFont.Weight.medium: Metric.regularWght
+    case ..<UIFont.Weight.semibold: Metric.mediumWght
+    case ..<UIFont.Weight.bold: Metric.semiboldWght
     default: Metric.boldWght
     }
   }

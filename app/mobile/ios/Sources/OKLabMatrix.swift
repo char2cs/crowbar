@@ -1,6 +1,6 @@
 import Foundation
 
-// SPEC: OKLab matrices (Ottosson): OKLab to cube-root LMS, and LMS to linear sRGB.
+// SPEC: https://bottosson.github.io/posts/oklab/ OKLab matrices (Ottosson): OKLab to cube-root LMS, and LMS to linear sRGB.
 enum OKLabMatrix {
   static let lmsFromLab: [[Double]] = [
     [1, 0.3963377774, 0.2158037573],

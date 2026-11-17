@@ -4,6 +4,8 @@ import WebKit
 
 @available(iOS 26.0, *)
 final class ChromeOverlays {
+  private static let leadingSide = "leading"
+  private static let trailingSide = "trailing"
   private let model: ChromeModel
   private let scheme: AppScheme
   private let sidebar: PageChannel
@@ -99,7 +101,7 @@ final class ChromeOverlays {
       host in
       [
         view.topAnchor.constraint(equalTo: host.safeAreaLayoutGuide.topAnchor),
-        side == "leading"
+        side == Self.leadingSide
           ? view.leadingAnchor.constraint(
             equalTo: host.leadingAnchor,
             constant: GlassCircle.edgeInset
@@ -213,9 +215,9 @@ final class ChromeOverlays {
       ),
       send: send
     )
-    navigation.chatHeader = [corner(.chat, "leading"), corner(.chat, "trailing")].compactMap { $0 }
+    navigation.chatHeader = [corner(.chat, Self.leadingSide), corner(.chat, Self.trailingSide)].compactMap { $0 }
     navigation.ideHeader =
-      [corner(.ide, "leading"), corner(.ide, "trailing"), tabStrip].compactMap { $0 }
+      [corner(.ide, Self.leadingSide), corner(.ide, Self.trailingSide), tabStrip].compactMap { $0 }
     navigation.canOpenIde = { [model] in
       model.headers.chat.first { $0.id == "ide" }?.enabled ?? false
     }
@@ -390,7 +392,7 @@ final class ChromeOverlays {
 
   func apply(_ state: ChromeState) {
     _ = settingsPage()
-    // PLATFORM: The app's theme, not the device's: sheets, glass and keyboard match the web beneath.
+    // PLATFORM: ios: The app's theme, not the device's: sheets, glass and keyboard match the web beneath.
     webview?.window?.overrideUserInterfaceStyle =
       switch state.appearance {
       case "light": .light

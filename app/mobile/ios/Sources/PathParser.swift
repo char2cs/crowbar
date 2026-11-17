@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct PathParser {
+  private static let curveNumberCount = 6
   var path = Path()
   private var numbers: [CGFloat] = []
   private var command: Character = "M"
@@ -16,7 +17,7 @@ struct PathParser {
     switch (command, numbers.count) {
     case ("M", 2): path.move(to: points[0])
     case ("L", 2): path.addLine(to: points[0])
-    case ("C", 6): path.addCurve(to: points[2], control1: points[0], control2: points[1])
+    case ("C", Self.curveNumberCount): path.addCurve(to: points[2], control1: points[0], control2: points[1])
     case ("Z", _): path.closeSubpath()
     default: break
     }

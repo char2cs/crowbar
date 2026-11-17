@@ -28,7 +28,7 @@ struct ModelPickerSheet: View {
     .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always))
     .navigationTitle("Model")
     .navigationBarTitleDisplayMode(.inline)
-    // PLATFORM: Rows scroll under the bar and fade through the system's edge effect, not a hard cut.
+    // PLATFORM: ios: Rows scroll under the bar and fade through the system's edge effect, not a hard cut.
     .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
     .toolbar { toolbarContent }
   }

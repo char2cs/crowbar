@@ -4,6 +4,9 @@ import WebKit
 @available(iOS 26.0, *)
 final class NavigationController: NSObject {
   static let strip: CGFloat = 72
+  private static let leftZone: CGFloat = 0.4
+  private static let rightZone: CGFloat = 0.6
+  private static let lastPosition = 3
 
   private weak var host: UIView?
   private weak var webview: WKWebView?
@@ -100,16 +103,16 @@ final class NavigationController: NSObject {
     switch Int(machine.position.rounded()) {
     case 0 where start.x > width - Self.strip:
       return .init(motion: .leftward, overridesScrollers: true)
-    case 1 where start.x < width * 0.4:
+    case 1 where start.x < width * Self.leftZone:
       return .init(motion: .rightward)
-    case 1 where start.x > width * 0.6 && canOpenIde():
+    case 1 where start.x > width * Self.rightZone && canOpenIde():
       return .init(motion: .leftward)
-    // PLATFORM: The IDE's editor and terminal scroll sideways themselves: only its edges swipe.
+    // PLATFORM: ios: The IDE's editor and terminal scroll sideways themselves: only its edges swipe.
     case 2 where start.x < DrawerSwipe.edge:
       return .init(motion: .rightward)
     case 2 where start.x > width - DrawerSwipe.edge:
       return .init(motion: .leftward)
-    case 3 where start.x < Self.strip:
+    case Self.lastPosition where start.x < Self.strip:
       return .init(motion: .rightward, overridesScrollers: true)
     default:
       return nil
@@ -330,8 +333,8 @@ final class NavigationController: NSObject {
     default:
       break
     }
-    // PLATFORM: The status bar's glyphs are drawn for the drawer, so the card's strip under them takes the
-    // PLATFORM: drawer's colour; the card's own white would swallow the clock where it straddles the edge.
+    // PLATFORM: ios: The status bar's glyphs are drawn for the drawer, so the card's strip under them takes the
+    // PLATFORM: ios: drawer's colour; the card's own white would swallow the clock where it straddles the edge.
     catcher.band.backgroundColor = (at == closesFiles ? files : list).backgroundColor
     catcher.band.frame = CGRect(
       x: 0,

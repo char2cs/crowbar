@@ -9,6 +9,8 @@ struct NavigationMachine {
 
   static let response = 0.34
   private static let rest = 0.0015
+  private static let dimPeak = 0.22
+  private static let lastPosition = 3.0
 
   var width: Double
   var strip: Double
@@ -47,12 +49,10 @@ struct NavigationMachine {
     origin = position
     velocity = 0
     phase = .dragging
-    var commands: [NavigationCommand] = []
-    if gap == 1, toward == .leftward {
-      commands += freezeIfNeeded()
-      commands += tell(.ide)
-    }
-    return commands
+    guard gap == 1, toward == .leftward else { return [] }
+    let frozen = freezeIfNeeded()
+    let told = tell(.ide)
+    return frozen + told
   }
 
   mutating func drag(translation: Double) {
@@ -91,13 +91,11 @@ struct NavigationMachine {
     if ack < acked { sent = ack }
     acked = ack
     web = screen
-    var commands: [NavigationCommand] = []
     if !isAwaitingWeb, screen != intended {
       intended = screen
       follow(screen)
     }
-    commands += releaseSnapshot()
-    return commands
+    return releaseSnapshot()
   }
 
   private mutating func follow(_ screen: Screen) {
@@ -159,19 +157,15 @@ struct NavigationMachine {
     return releaseSnapshot()
   }
 
-  private func step(toward screen: Screen) -> Screen? {
-    Screen(rawValue: intended.rawValue + (intended < screen ? 1 : -1))
-  }
-
   private mutating func tell(_ screen: Screen) -> [NavigationCommand] {
-    var commands: [NavigationCommand] = []
-    while intended != screen {
-      guard let next = step(toward: screen) else { break }
+    let direction = intended < screen ? 1 : -1
+    let raws = stride(from: intended.rawValue + direction, through: screen.rawValue, by: direction)
+    return raws.compactMap { Screen(rawValue: $0) }.map { (next: Screen) -> NavigationCommand in
       sent += 1
-      commands.append(.send(Self.intent(from: intended, to: next), seq: sent))
+      let command = NavigationCommand.send(Self.intent(from: intended, to: next), seq: sent)
       intended = next
+      return command
     }
-    return commands
   }
 
   private static func intent(
@@ -215,9 +209,9 @@ struct NavigationMachine {
     let amount: Double
     let dim: Double
     switch gap {
-    case 0: (amount, dim) = (1 - x, 0.22 * x)
-    case 1: (amount, dim) = (x - 1, 0.22 * (2 - x))
-    case 2: (amount, dim) = (x - 2, 0.22 * (3 - x))
+    case 0: (amount, dim) = (1 - x, Self.dimPeak * x)
+    case 1: (amount, dim) = (x - 1, Self.dimPeak * (2 - x))
+    case 2: (amount, dim) = (x - 2, Self.dimPeak * (Self.lastPosition - x))
     default: (amount, dim) = (0, 0)
     }
     return Frames(

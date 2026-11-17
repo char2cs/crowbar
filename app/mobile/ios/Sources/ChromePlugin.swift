@@ -114,7 +114,7 @@ class ChromePlugin: Plugin {
     DispatchQueue.main.async {
       let root = self.webview?.window?.rootViewController
       guard let root else { return invoke.resolve(["confirmed": false]) }
-      Dialogs.confirm(options, over: root) { invoke.resolve(["confirmed": $0]) }
+      Dialogs.confirm(options, over: root) { invoke.resolve(["confirmed": $0 == .confirmed]) }
     }
   }
 

@@ -11,8 +11,8 @@ final class KeyboardFit: NSObject, UIGestureRecognizerDelegate {
     super.init()
     webview.scrollView.contentInsetAdjustmentBehavior = .never
     webview.scrollView.isScrollEnabled = false
-    // PLATFORM: The transcript scrolls in WebKit's own inner scrollers, so `keyboardDismissMode` has no
-    // PLATFORM: scroller to go on: this watches drags alongside them instead, never claiming the touch.
+    // PLATFORM: ios: The transcript scrolls in WebKit's own inner scrollers, so `keyboardDismissMode` has no
+    // PLATFORM: ios: scroller to go on: this watches drags alongside them instead, never claiming the touch.
     let drag = UIPanGestureRecognizer(target: self, action: #selector(dragged(_:)))
     drag.cancelsTouchesInView = false
     drag.delegate = self
@@ -59,7 +59,7 @@ final class KeyboardFit: NSObject, UIGestureRecognizerDelegate {
       delay: 0,
       options: UIView.AnimationOptions(rawValue: curve << Motion.curveShift)
     ) {
-      // PLATFORM: Bounds and centre, not frame: the reveal may have the webview transformed.
+      // PLATFORM: ios: Bounds and centre, not frame: the reveal may have the webview transformed.
       let height = host.bounds.height - overlap
       webview.bounds.size.height = height
       webview.center.y = height / 2

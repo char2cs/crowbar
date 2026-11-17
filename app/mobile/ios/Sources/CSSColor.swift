@@ -2,6 +2,7 @@ import SwiftUI
 
 extension Color {
   private static let byteMax = 255.0
+  private static let byteMask: UInt64 = 0xFF
   private static let halfTurnDegrees = 180.0
   private static let fullChroma = 0.4
   private static let hexRadix = 16
@@ -74,8 +75,8 @@ extension Color {
     else {
       return nil
     }
-    let rgba = full.count == Self.rgbDigits ? value << Self.alphaBits | 0xFF : value
-    let byte = { (shift: UInt64) in Double((rgba >> shift) & 0xFF) / Self.byteMax }
+    let rgba = full.count == Self.rgbDigits ? value << Self.alphaBits | Self.byteMask : value
+    let byte = { (shift: UInt64) in Double((rgba >> shift) & Self.byteMask) / Self.byteMax }
     return Color(
       .sRGB,
       red: byte(Self.redShift),
