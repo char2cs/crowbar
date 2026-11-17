@@ -11,6 +11,7 @@ use crate::dropdown_state::DropdownState;
 use crate::menu_item::MenuItem;
 use crate::menu_spec::MenuSpec;
 use crate::opaque_debug::opaque_debug;
+use crate::placement::Placement;
 use crate::popup;
 
 const OFFSET: f32 = 4.0;
@@ -21,6 +22,7 @@ pub struct DropdownMenu {
     id: ElementId,
     trigger: AnyElement,
     spec: MenuSpec,
+    placement: Placement,
 }
 
 impl DropdownMenu {
@@ -34,7 +36,18 @@ impl DropdownMenu {
             id: id.into(),
             trigger: trigger.into_any_element(),
             spec: MenuSpec::new(items.into()),
+            placement: Placement::default(),
         }
+    }
+
+    /// Sets where the popup opens relative to the trigger; under it, left edges aligned, by default.
+    #[must_use]
+    pub fn placement(
+        mut self,
+        placement: Placement,
+    ) -> Self {
+        self.placement = placement;
+        self
     }
 
     /// Sets the minimum width of the popup.
@@ -69,7 +82,7 @@ impl RenderOnce for DropdownMenu {
         };
         wrapper
             .child(popup::click_away(window, move |_, cx| close(&state, cx)))
-            .child(popup::below(OFFSET, menu))
+            .child(popup::placed(self.placement, OFFSET, menu))
             .into_any_element()
     }
 }
@@ -149,5 +162,22 @@ mod tests {
         cx.run_until_parked();
         cx.simulate_keystrokes("down enter");
         assert_eq!(chosen.get(), 1);
+    }
+
+    #[gpui::test]
+    fn an_end_placed_menu_shares_the_right_edge_of_its_trigger(cx: &mut TestAppContext) {
+        let cx = open(cx, |_, _| {
+            let trigger = div().w(px(300.0)).h(px(20.0));
+            let rows = vec![MenuItem::Action(MenuAction::new("Row", |_, _| {}))];
+            DropdownMenu::new("end", trigger, rows).placement(Placement::BelowEnd)
+        });
+        cx.simulate_click(point(px(10.0), px(10.0)), gpui::Modifiers::none());
+        cx.run_until_parked();
+        let trigger = cx.debug_bounds("probe").unwrap_or_default();
+        let menu = cx.debug_bounds("ui-menu").unwrap_or_default();
+        assert!(
+            (menu.right() - trigger.right()).abs() < px(0.5),
+            "{menu:?} ends with {trigger:?}"
+        );
     }
 }

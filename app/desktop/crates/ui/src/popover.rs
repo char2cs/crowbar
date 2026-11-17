@@ -82,10 +82,7 @@ impl RenderOnce for Popover {
         let panel = panel(&state, &self.content, window, cx);
         wrapper
             .child(popup::click_away(window, move |_, cx| close(&closer, cx)))
-            .child(match self.placement {
-                Placement::Below => popup::below(OFFSET, panel),
-                Placement::Right => popup::right_of(OFFSET, panel),
-            })
+            .child(popup::placed(self.placement, OFFSET, panel))
             .into_any_element()
     }
 }

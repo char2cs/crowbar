@@ -4,14 +4,17 @@ use std::rc::Rc;
 
 use gpui::{
     AnyElement, App, DismissEvent, ElementId, Entity, InteractiveElement, IntoElement, MouseButton,
-    ParentElement, Pixels, Point, RenderOnce, Window, div,
+    ParentElement, Pixels, Point, RenderOnce, Styled, Window, div,
 };
 
 use crate::context_state::ContextState;
 use crate::menu_item::MenuItem;
 use crate::menu_spec::MenuSpec;
 use crate::opaque_debug::opaque_debug;
+use crate::placement::Placement;
 use crate::popup;
+
+const OFFSET: f32 = 4.0;
 
 /// Wraps `child`; a right click on it opens `items` at the pointer, a press outside or `Escape` closes them.
 ///
@@ -21,6 +24,7 @@ pub struct ContextMenu {
     id: ElementId,
     child: AnyElement,
     spec: MenuSpec,
+    placement: Option<Placement>,
 }
 
 impl ContextMenu {
@@ -34,7 +38,18 @@ impl ContextMenu {
             id: id.into(),
             child: child.into_any_element(),
             spec: MenuSpec::new(items.into()),
+            placement: None,
         }
+    }
+
+    /// Opens the menu at `placement` of the wrapped element instead of at the pointer.
+    #[must_use]
+    pub fn placement(
+        mut self,
+        placement: Placement,
+    ) -> Self {
+        self.placement = Some(placement);
+        self
     }
 
     /// Sets the minimum width of the popup.
@@ -62,18 +77,24 @@ impl RenderOnce for ContextMenu {
             (current.open.clone(), current.at)
         };
         let (opener, spec) = (state.clone(), self.spec);
-        let wrapper = div().id(self.id).child(self.child).on_mouse_down(
-            MouseButton::Right,
-            move |event, window, cx| {
+        let placement = self.placement;
+        let wrapper = div()
+            .id(self.id)
+            .relative()
+            .child(self.child)
+            .on_mouse_down(MouseButton::Right, move |event, window, cx| {
                 spec.open_at(&opener, event.position, (window, cx));
-            },
-        );
+            });
         let Some(menu) = open else {
             return wrapper.into_any_element();
         };
+        let panel = match placement {
+            Some(placement) => popup::placed(placement, OFFSET, menu),
+            None => popup::at(at, menu),
+        };
         wrapper
             .child(popup::click_away(window, move |_, cx| close(&state, cx)))
-            .child(popup::at(at, menu))
+            .child(panel)
             .into_any_element()
     }
 }
@@ -154,6 +175,33 @@ mod tests {
         cx.run_until_parked();
         cx.simulate_keystrokes("down enter");
         assert_eq!(chosen.get(), 1);
+    }
+
+    #[gpui::test]
+    fn a_placed_menu_opens_under_the_centre_of_its_child_wherever_the_pointer_is(
+        cx: &mut TestAppContext
+    ) {
+        let cx = open(cx, |_, _| {
+            let area = div().w(px(200.0)).h(px(100.0));
+            let rows = vec![MenuItem::Action(MenuAction::new("Row", |_, _| {}))];
+            ContextMenu::new("placed", area, rows).placement(Placement::BelowCentre)
+        });
+        cx.simulate_mouse_down(
+            point(px(10.0), px(10.0)),
+            MouseButton::Right,
+            gpui::Modifiers::none(),
+        );
+        cx.run_until_parked();
+        let area = cx.debug_bounds("probe").unwrap_or_default();
+        let menu = cx.debug_bounds("ui-menu").unwrap_or_default();
+        assert!(
+            (menu.origin.x - (area.origin.x + px(100.0))).abs() < px(0.5),
+            "{menu:?} in {area:?}"
+        );
+        assert!(
+            (menu.origin.y - (area.bottom() + px(4.0))).abs() < px(0.5),
+            "{menu:?} in {area:?}"
+        );
     }
 
     #[gpui::test]

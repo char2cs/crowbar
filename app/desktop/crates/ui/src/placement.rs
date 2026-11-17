@@ -6,6 +6,10 @@ pub enum Placement {
     /// Under the trigger, left edges aligned.
     #[default]
     Below,
+    /// Under the trigger, right edges aligned.
+    BelowEnd,
+    /// Under the trigger, the panel's left edge at the trigger's horizontal centre.
+    BelowCentre,
     /// Beside the trigger on its right, top edges aligned.
     Right,
 }

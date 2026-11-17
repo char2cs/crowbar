@@ -3,15 +3,29 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels, Point,
-    Styled, Window, anchored, deferred, div, point, px,
+    AnyElement, App, Corner, InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels,
+    Point, Styled, Window, anchored, deferred, div, point, px, relative,
 };
 
 use crate::layer;
+use crate::placement::Placement;
 
 const WINDOW_MARGIN: f32 = 8.0;
 const SUBMENU_GAP: f32 = 2.0;
 const SUBMENU_RISE: f32 = 5.0;
+
+pub(crate) fn placed(
+    placement: Placement,
+    offset: f32,
+    content: impl IntoElement,
+) -> AnyElement {
+    match placement {
+        Placement::Below => below(offset, content),
+        Placement::BelowEnd => below_end(offset, content),
+        Placement::BelowCentre => below_centre(offset, content),
+        Placement::Right => right_of(offset, content),
+    }
+}
 
 pub(crate) fn below(
     offset: f32,
@@ -20,6 +34,47 @@ pub(crate) fn below(
     div()
         .absolute()
         .left_0()
+        .top_full()
+        .mt(px(offset))
+        .child(
+            deferred(
+                anchored()
+                    .snap_to_window_with_margin(px(WINDOW_MARGIN))
+                    .child(content),
+            )
+            .with_priority(layer::MENU),
+        )
+        .into_any_element()
+}
+
+pub(crate) fn below_end(
+    offset: f32,
+    content: impl IntoElement,
+) -> AnyElement {
+    div()
+        .absolute()
+        .right_0()
+        .top_full()
+        .mt(px(offset))
+        .child(
+            deferred(
+                anchored()
+                    .anchor(Corner::TopRight)
+                    .snap_to_window_with_margin(px(WINDOW_MARGIN))
+                    .child(content),
+            )
+            .with_priority(layer::MENU),
+        )
+        .into_any_element()
+}
+
+pub(crate) fn below_centre(
+    offset: f32,
+    content: impl IntoElement,
+) -> AnyElement {
+    div()
+        .absolute()
+        .left(relative(0.5))
         .top_full()
         .mt(px(offset))
         .child(
@@ -173,5 +228,50 @@ mod tests {
             content.origin.y >= trigger.bottom() + px(4.0) - px(0.5),
             "{content:?} below {trigger:?}"
         );
+    }
+
+    #[gpui::test]
+    fn an_end_aligned_popup_shares_the_right_edge_of_its_trigger(cx: &mut TestAppContext) {
+        let cx = open(cx, |_, _| {
+            div().relative().w(px(100.0)).h(px(30.0)).child(below_end(
+                4.0,
+                div()
+                    .w(px(80.0))
+                    .h(px(20.0))
+                    .debug_selector(|| "popup-content".into()),
+            ))
+        });
+        let trigger = cx.debug_bounds("probe").unwrap_or_default();
+        let content = cx.debug_bounds("popup-content").unwrap_or_default();
+        assert!(
+            (content.right() - trigger.right()).abs() < px(0.5),
+            "{content:?} end of {trigger:?}"
+        );
+        assert!(content.origin.y >= trigger.bottom() + px(4.0) - px(0.5));
+    }
+
+    #[gpui::test]
+    fn a_centred_popup_starts_at_the_horizontal_centre_of_its_trigger(cx: &mut TestAppContext) {
+        let cx = open(cx, |_, _| {
+            div()
+                .relative()
+                .w(px(100.0))
+                .h(px(30.0))
+                .child(below_centre(
+                    4.0,
+                    div()
+                        .w(px(80.0))
+                        .h(px(20.0))
+                        .debug_selector(|| "popup-content".into()),
+                ))
+        });
+        let trigger = cx.debug_bounds("probe").unwrap_or_default();
+        let content = cx.debug_bounds("popup-content").unwrap_or_default();
+        let centre = trigger.origin.x + trigger.size.width * 0.5;
+        assert!(
+            (content.origin.x - centre).abs() < px(0.5),
+            "{content:?} from {centre:?}"
+        );
+        assert!((content.origin.y - (trigger.bottom() + px(4.0))).abs() < px(0.5));
     }
 }
