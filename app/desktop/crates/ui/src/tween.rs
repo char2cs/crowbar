@@ -36,12 +36,13 @@ impl Tween {
         elapsed: Duration,
         motion: Motion,
     ) -> (f32, bool) {
-        let delay = motion.duration(self.delay).min(self.delay);
-        let span = motion.duration(self.span);
-        let Some(into) = elapsed.checked_sub(delay) else {
+        if motion.is_reduced() {
+            return (self.curve.ease(1.0), false);
+        }
+        let Some(into) = elapsed.checked_sub(self.delay) else {
             return (0.0, true);
         };
-        let progress = (into.as_secs_f32() / span.as_secs_f32()).clamp(0.0, 1.0);
+        let progress = (into.as_secs_f32() / self.span.as_secs_f32()).clamp(0.0, 1.0);
         (self.curve.ease(progress), progress < 1.0)
     }
 }
@@ -94,6 +95,13 @@ mod tests {
             "reduced motion finishes at once",
             40,
             1,
+            Motion::reduced,
+            (1.0, false, 0.0),
+        ),
+        (
+            "reduced motion finishes before any time has passed",
+            40,
+            0,
             Motion::reduced,
             (1.0, false, 0.0),
         ),

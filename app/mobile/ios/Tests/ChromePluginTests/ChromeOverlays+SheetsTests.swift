@@ -23,9 +23,7 @@ final class ChromeOverlaysSheetsTests: XCTestCase {
 
   private func assertColor(
     _ color: Color?,
-    red: CGFloat,
-    green: CGFloat,
-    blue: CGFloat
+    channels expected: [CGFloat]
   ) throws {
     let resolved = UIColor(try XCTUnwrap(color))
     var seenRed: CGFloat = 0
@@ -33,10 +31,10 @@ final class ChromeOverlaysSheetsTests: XCTestCase {
     var seenBlue: CGFloat = 0
     var seenAlpha: CGFloat = 0
     XCTAssertTrue(resolved.getRed(&seenRed, green: &seenGreen, blue: &seenBlue, alpha: &seenAlpha))
-    XCTAssertEqual(seenRed, red, accuracy: Self.tolerance)
-    XCTAssertEqual(seenGreen, green, accuracy: Self.tolerance)
-    XCTAssertEqual(seenBlue, blue, accuracy: Self.tolerance)
-    XCTAssertEqual(seenAlpha, 1, accuracy: Self.tolerance)
+    let seen = [seenRed, seenGreen, seenBlue, seenAlpha]
+    for (channel, want) in zip(seen, expected + [1]) {
+      XCTAssertEqual(channel, want, accuracy: Self.tolerance)
+    }
   }
 
   func testPickingFromASheetSendsTheIntentOnceItIsClosed() {
@@ -55,8 +53,8 @@ final class ChromeOverlaysSheetsTests: XCTestCase {
       ##"{"accent":"#ff0000","brandGround":"#00ff00","appearance":"dark"}"##
     )
     rig.overlays.applyTheme(theme)
-    try assertColor(rig.model.accent, red: 1, green: 0, blue: 0)
-    try assertColor(rig.model.brandGround, red: 0, green: 1, blue: 0)
+    try assertColor(rig.model.accent, channels: [1, 0, 0])
+    try assertColor(rig.model.brandGround, channels: [0, 1, 0])
 
     let picker = try decode(
       ModelPickerState.self,

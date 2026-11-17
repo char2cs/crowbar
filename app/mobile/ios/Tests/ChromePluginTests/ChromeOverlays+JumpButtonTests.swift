@@ -45,6 +45,7 @@ final class ChromeOverlaysJumpButtonTests: XCTestCase {
     XCTAssertFalse(view.isHidden)
     XCTAssertEqual(view.alpha, 1)
     XCTAssertEqual(view.center.x, rig.webview.bounds.midX)
-    XCTAssertEqual(view.center.y, OverlaysRig.height - CGFloat(bottomGap) - GlassCircle.diameter / 2)
+    let bottom = OverlaysRig.height - CGFloat(bottomGap)
+    XCTAssertEqual(view.center.y, bottom - GlassCircle.diameter / 2)
   }
 }

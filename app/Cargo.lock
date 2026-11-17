@@ -7178,7 +7178,6 @@ dependencies = [
  "async-channel 2.5.0",
  "futures-util",
  "protocol",
- "serde",
  "serde_json",
  "terminal",
  "thiserror 2.0.21",
