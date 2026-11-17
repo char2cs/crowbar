@@ -1,4 +1,5 @@
-use ui::IconName;
+use gpui::Hsla;
+use ui::{IconName, IconWeight, Palette};
 
 use crate::tab_state::TabState;
 
@@ -16,6 +17,24 @@ impl TabEnd {
         match self {
             Self::Close => IconName::X,
             Self::Unpin => IconName::PushPin,
+        }
+    }
+
+    pub(crate) fn weight(self) -> IconWeight {
+        match self {
+            Self::Close => IconWeight::Regular,
+            Self::Unpin => IconWeight::Fill,
+        }
+    }
+
+    pub(crate) fn ink(
+        self,
+        state: TabState,
+        palette: &Palette,
+    ) -> Hsla {
+        match self {
+            Self::Close => state.ink(palette),
+            Self::Unpin => palette.secondary(),
         }
     }
 
@@ -67,6 +86,23 @@ mod tests {
             let rest = end.rest_opacity(*state);
             assert!((rest - opacity).abs() < f32::EPSILON, "{name}: {rest}");
         }
+    }
+
+    #[test]
+    fn the_pin_is_solid_and_in_the_secondary_colour_the_cross_is_an_outline_in_the_tab_ink() {
+        let palette = ui::Theme::default().palette(ui::Surface::Window);
+        assert_eq!(TabEnd::Unpin.weight(), IconWeight::Fill, "solid pin");
+        assert_eq!(TabEnd::Close.weight(), IconWeight::Regular, "outline cross");
+        assert_eq!(
+            TabEnd::Unpin.ink(TabState::Idle, palette),
+            palette.secondary(),
+            "pin"
+        );
+        assert_eq!(
+            TabEnd::Close.ink(TabState::Active, palette),
+            palette.foreground(),
+            "cross"
+        );
     }
 
     #[test]

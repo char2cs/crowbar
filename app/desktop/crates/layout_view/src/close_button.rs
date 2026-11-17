@@ -28,7 +28,8 @@ impl RenderOnce for CloseButton {
         cx: &mut App,
     ) -> impl IntoElement {
         let palette = Theme::of(cx).palette(Surface::Window);
-        let (rest, ink) = (self.end.rest_opacity(self.state), self.state.ink(palette));
+        let rest = self.end.rest_opacity(self.state);
+        let ink = self.end.ink(self.state, palette);
         let on_close = self.action;
         div()
             .id(ElementId::from(SharedString::from(format!(
@@ -52,6 +53,7 @@ impl RenderOnce for CloseButton {
             })
             .child(
                 Icon::new(self.end.icon())
+                    .weight(self.end.weight())
                     .size(px(self.end.glyph()))
                     .color(ink),
             )
