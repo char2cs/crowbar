@@ -56,7 +56,7 @@ jobs:
           SELF: auto-merge
         run: |
           set -euo pipefail
-          # tauri-checks-linux alone runs ~12m; 45m leaves room for a queue.
+          # The slowest check (ios-checks) takes minutes; 45m leaves room for a queue.
           deadline=$(( $(date +%s) + 45 * 60 ))
 
           while :; do

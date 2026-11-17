@@ -3,13 +3,11 @@
 Drives a real dev instance of THIS checkout and asserts through the DOM and
 the daemon. One command:
 
-    make e2e            # the Tauri desktop app (debug build), the real thing
-    make e2e-browser    # the same web bundle in a headless Chrome, faster
+    make e2e            # the web bundle in a headless Chrome
     make e2e ARGS=--only=console,recents    # a subset
     make e2e ARGS=--keep                    # keep the run dir on success too
 
-Needs bun, Go, Rust (for `e2e`) and Chrome (for `e2e-browser`; override the
-binary with `CROWBAR_E2E_CHROME`). Nothing to log in to.
+Needs bun, Go and Chrome (override the binary with `CROWBAR_E2E_CHROME`). Nothing to log in to.
 
 ## What a run does
 

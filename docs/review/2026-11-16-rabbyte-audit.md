@@ -5,6 +5,10 @@ gate output below is a snapshot (12:23 UTC); two earlier runs 12 minutes apart d
 Re-run the gates before and after fixing. Rules referenced by manifest number (docs/rabbyte-manifest.md);
 Go-only rules 18-19 are n/a, 14-17 and 20-23 are covered by cargo/SwiftPM and the scripts.
 
+Update 2026-11-17: the Tauri desktop bundle this audit's CI and release lines refer to is gone (Tauri is
+mobile-only; `app/mobile/src-tauri` is now the iOS shell's crate). The release workflows build the daemon and iOS only;
+a desktop release pipeline for `crowbar_desktop` is out of scope for now (docs/macos-code-signing.md).
+
 Method: every CI gate run as CI runs it; heuristic scans (python/grep, in the audit scratchpad) over 937
 non-test Rust sources (app/crates/*, app/desktop/crates/*, app/desktop/app, app/mobile/ios-plugin,
 app/mobile/src-tauri), 115 Swift sources + 30 Swift tests, 66 new TS sources (+ 48 tests) of app/panes; manual

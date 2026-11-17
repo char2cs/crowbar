@@ -2,7 +2,7 @@ export PATH := $(HOME)/.bun/bin:$(HOME)/.cargo/bin:$(HOME)/.rustup/toolchains/st
 export RUSTUP_HOME := $(HOME)/.rustup
 export CARGO_HOME := $(HOME)/.cargo
 
-.PHONY: e2e e2e-browser meter dev dev-api dev-web dev-desktop dev-bundle seed seed-chat web-install build test test-coverage lint pr-checks ci docker-up docker-down ios-device ios-sim ios-doctor
+.PHONY: e2e meter dev dev-api dev-web dev-desktop dev-bundle seed seed-chat web-install build test test-coverage lint pr-checks ci docker-up docker-down ios-device ios-sim ios-doctor
 
 # Dev isolation: every dev target roots Crowbar state (projects, store, socket,
 # logs) at <this workspace>/.crowbar instead of ~/.crowbar, so a dev instance
@@ -46,11 +46,10 @@ dev-api:
 dev-web:
 	$(MAKE) -C app/panes dev
 
-# Preinstall web deps before launching the desktop app: Tauri's beforeDevCommand
-# runs the Vite dev server (cd ../panes && npm run dev), which needs app/panes/node_modules
-# to already exist. Kept as a prerequisite so a fresh checkout just works.
+# The GPUI shell (crowbar_desktop). Its panes are the web bundle, so the web deps are
+# installed first; it talks to the daemon `make dev-api` runs.
 dev-desktop: web-install
-	$(MAKE) -C app/mobile dev
+	cd app && cargo run -p crowbar_desktop
 
 # Fills the RUNNING dev daemon with a throwaway repo, project, repo, feature
 # workspace with a real diff, and review threads — so a new workspace does not
@@ -70,14 +69,11 @@ seed-chat:
 	@cd api && go run -tags noEmbed ./cmd/crowbar-seed-chat --workspace-id $(WORKSPACE_ID) --turns $(TURNS) --tool-calls $(TOOL_CALLS)
 
 # End-to-end suite against a real dev instance of this checkout, in an isolated
-# CROWBAR_HOME and webview origin (tools/scripts/e2e/README.md). `e2e` drives the
-# Tauri desktop app; `e2e-browser` drives the same bundle in a headless Chrome.
+# CROWBAR_HOME and webview origin (tools/scripts/e2e/README.md), driving the web bundle
+# in a headless Chrome. The Tauri desktop target is gone: Tauri is mobile-only.
 # ARGS passes flags through, e.g. make e2e ARGS=--only=console,recents
 ARGS ?=
 e2e:
-	@bun tools/scripts/e2e/run.mjs --target=tauri $(ARGS)
-
-e2e-browser:
 	@bun tools/scripts/e2e/run.mjs --target=browser $(ARGS)
 
 # Endpoint-security meter: execs, file opens, held fds and file changes caused
@@ -105,8 +101,8 @@ build:
 	@$(MAKE) -C app/panes build
 	@echo "Building Go daemon..."
 	@$(MAKE) -C api build
-	@echo "Building Tauri app..."
-	@$(MAKE) -C app/mobile build
+	@echo "Building the desktop shell..."
+	cd app && cargo build --release -p crowbar_desktop
 
 test:
 	@$(MAKE) -C api test

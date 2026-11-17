@@ -1,8 +1,8 @@
-# Shell surface inventory (web/src): reachable vs dead
+# Shell surface inventory (app/panes/src): reachable vs dead
 
 Revision 2: DOM-level pass via the Tauri MCP bridge in Docker (see Method).
 
-Scope: React shell under `web/src`. Purpose: keep/cut list for the Tauri+React to GPUI migration.
+Scope: React shell under `app/panes/src` (then `web/src`). Purpose: keep/cut list for the Tauri+React to GPUI migration.
 
 ## Method and confidence (read first)
 

@@ -103,7 +103,7 @@ Crowbar is open-source and contributions are welcome. Building it needs Go, [Bun
 | Command              | Description                                                                       |
 | -------------------- | --------------------------------------------------------------------------------- |
 | `make dev`           | Daemon, web and desktop together, with hot reload                                 |
-| `make dev-desktop`   | Just the Tauri app                                                                |
+| `make dev-desktop`   | Just the desktop shell                                                            |
 | `make build`         | Web bundle, Go daemon, and desktop app                                            |
 | `make test`          | api + web + desktop                                                               |
 | `make lint`          | Lint everything                                                                   |

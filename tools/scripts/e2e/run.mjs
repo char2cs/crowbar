@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Entry point: `bun tools/scripts/e2e/run.mjs [--target=tauri|browser] [--only=a,b] [--keep]`
+// Entry point: `bun tools/scripts/e2e/run.mjs [--target=browser|tauri] [--only=a,b] [--keep]`
 // (see README.md; `make e2e` wraps it).
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -38,7 +38,7 @@ const flags = Object.fromEntries(
     return [key, value]
   }),
 )
-const target = flags.target ?? 'tauri'
+const target = flags.target ?? 'browser'
 if (!['tauri', 'browser'].includes(target)) throw new Error(`unknown --target=${target}`)
 const only = flags.only ? flags.only.split(',') : null
 const selected = SCENARIOS.filter((s) => !only || only.includes(s.name))

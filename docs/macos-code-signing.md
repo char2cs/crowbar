@@ -1,7 +1,15 @@
 # macOS Code Signing & Notarization
 
-Crowbar's macOS DMGs are built by three workflows — `nightly.yml`, `prerelease.yml`,
-`stable-release.yml` — all of which call `app/mobile/scripts/build-macos-dmg.sh`.
+> **Status (2026-11-17).** Tauri is mobile-only, so `nightly.yml`, `prerelease.yml` and
+> `stable-release.yml` no longer build a macOS DMG or a Linux AppImage/deb. The GPUI desktop
+> shell (`crowbar_desktop`) has no release pipeline yet: the owner accepted that as out of
+> scope for now, so none exists and desktop users build it from source
+> (`cd app && cargo build --release -p crowbar_desktop`). Packaging, signing and notarizing it
+> is future work; the steps below describe the retired Tauri DMG flow and are kept as the
+> starting point for that work.
+
+Crowbar's macOS DMGs were built by the three release workflows, all of which called
+`app/mobile/scripts/build-macos-dmg.sh`.
 
 Signing + notarization is **opt-in via GitHub secrets**. Until the six secrets
 below exist, every build produces the same ad-hoc-signed (effectively unsigned)
@@ -99,5 +107,5 @@ before relying on CI — signing errors are far easier to read in a local termin
   and runs the build; no-op signing when `APPLE_SIGNING_IDENTITY` is empty.
 - `app/mobile/src-tauri/Entitlements.plist` — Hardened Runtime entitlements (WebView
   JIT). Required for a notarized Tauri app to launch without crashing.
-- `.github/workflows/{nightly,prerelease,stable-release}.yml` — pass the six
-  secrets into the build step's environment.
+- `.github/workflows/{nightly,prerelease,stable-release}.yml` — passed the six
+  secrets into the build step's environment before the desktop jobs were removed.
