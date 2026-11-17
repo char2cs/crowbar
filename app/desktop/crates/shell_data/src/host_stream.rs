@@ -314,6 +314,12 @@ mod tests {
             rig.hub
                 .read(|state| state.hosts[0].store.projects.get("p").is_some())
         );
+        rig.controls.send(StreamControl::Resubscribe).unwrap();
+        assert_eq!(
+            peer.requests.recv().await.unwrap(),
+            r#"{"op":"sub","scope":"projects"}"#,
+            "a resubscribe asks again"
+        );
     }
 
     #[tokio::test(start_paused = true)]
@@ -337,32 +343,32 @@ mod tests {
         rig.until(old_replaced_by_new).await;
     }
 
-    #[tokio::test(start_paused = true)]
-    async fn a_failed_dial_is_down_and_a_resubscribe_asks_again() {
-        let rig = start(Vec::new());
-        rig.until(|state| state.hosts[0].link == LinkState::Down)
-            .await;
-        let (connection, mut peer) = pair();
-        let rig = start(vec![connection]);
-        peer.frames.send(READY.into()).await.unwrap();
-        peer.requests.recv().await.unwrap();
-        rig.controls.send(StreamControl::Resubscribe).unwrap();
-        assert_eq!(
-            peer.requests.recv().await.unwrap(),
-            r#"{"op":"sub","scope":"projects"}"#
-        );
+    #[derive(Clone, Copy, Debug)]
+    enum Ending {
+        NoConnection,
+        ControlsDropped,
     }
 
     #[tokio::test(start_paused = true)]
-    async fn closing_the_controls_stops_the_stream() {
-        let (connection, mut peer) = pair();
-        let rig = start(vec![connection]);
-        peer.frames.send(READY.into()).await.unwrap();
-        peer.requests.recv().await.unwrap();
-        drop(rig.controls);
-        assert!(
-            peer.requests.recv().await.is_none(),
-            "the stream dropped its end"
-        );
+    async fn a_stream_that_cannot_dial_is_down_and_one_without_controls_stops() {
+        let cases = [Ending::NoConnection, Ending::ControlsDropped];
+        for ending in cases {
+            match ending {
+                Ending::NoConnection => {
+                    let rig = start(Vec::new());
+                    rig.until(|state| state.hosts[0].link == LinkState::Down)
+                        .await;
+                },
+                Ending::ControlsDropped => {
+                    let (connection, mut peer) = pair();
+                    let rig = start(vec![connection]);
+                    peer.frames.send(READY.into()).await.unwrap();
+                    peer.requests.recv().await.unwrap();
+                    drop(rig.controls);
+                    let stopped = peer.requests.recv().await.is_none();
+                    assert!(stopped, "{ending:?}: the stream dropped its end");
+                },
+            }
+        }
     }
 }
