@@ -71,6 +71,7 @@ deny = [
     "blade-graphics",         # gpui Linux renderer
     "cairo-rs",               # gtk-rs 0.18 under wry (webview)
     "const-random-macro",     # ahash under gpui
+    "dbus-secret-service",    # keyring's Linux Secret Service store (transport); upstream
     "gdk-pixbuf",             # gtk-rs 0.18 under wry
     "gio",                    # gtk-rs 0.18 under wry
     "glib",                   # gtk-rs 0.18 under wry
