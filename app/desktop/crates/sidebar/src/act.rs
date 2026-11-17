@@ -1,6 +1,5 @@
 //! Turning row interactions into view-state changes and commands.
 
-
 use gpui::{Context, Pixels, Point, Window};
 use ui::{ToastContent, ToastKind, ToastLifetime};
 

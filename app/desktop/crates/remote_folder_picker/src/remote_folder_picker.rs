@@ -11,8 +11,8 @@ use ui::{Dialog, DialogSize, Surface, Theme};
 use crate::folder_reader::FolderReader;
 use crate::folder_requests::FolderRequests;
 use crate::folder_source::FolderSource;
-use crate::picker_event::PickerEvent;
 use crate::muted::muted;
+use crate::picker_event::PickerEvent;
 use crate::row_look::{GAP, TITLE};
 
 /// The remote folder picker; it emits a [`PickerEvent`] when a folder is chosen or it is dismissed.
@@ -89,7 +89,6 @@ impl RemoteFolderPicker {
             .iter()
             .for_each(|path| self.source.request(path));
     }
-
 }
 
 impl Render for RemoteFolderPicker {

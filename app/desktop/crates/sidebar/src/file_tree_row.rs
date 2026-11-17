@@ -23,9 +23,7 @@ use crate::row_action::{RowAction, RowHandler};
 use crate::row_focus::{ringed, row_focus};
 use crate::row_input::RowInput;
 use crate::row_label::input_view;
-use crate::scale::{
-    ICON_LARGE, ICON_MEDIUM, ICON_TINY, SPACE_SM, TEXT_BODY,
-};
+use crate::scale::{ICON_LARGE, ICON_MEDIUM, ICON_TINY, SPACE_SM, TEXT_BODY};
 use crate::tree_look::TreeLook;
 
 const BASE_PADDING: f32 = 6.0;

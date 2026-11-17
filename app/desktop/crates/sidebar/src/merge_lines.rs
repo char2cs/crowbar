@@ -49,6 +49,9 @@ mod tests {
     fn a_note_is_drawn_in_the_colour_it_was_given() {
         let color = hsla(0.5, 0.5, 0.5, 1.0);
         let mut line = note("careful".to_owned(), color);
-        assert_eq!(line.text_style().as_ref().and_then(|style| style.color), Some(color));
+        assert_eq!(
+            line.text_style().as_ref().and_then(|style| style.color),
+            Some(color)
+        );
     }
 }

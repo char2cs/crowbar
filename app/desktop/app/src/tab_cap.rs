@@ -253,7 +253,11 @@ mod tests {
         let incoming = [open("e4", EDITOR, "t")];
         let gone = evictions(&layout, &incoming, 3, &DirtyPanes::default());
         let names: Vec<String> = gone.iter().map(ToString::to_string).collect();
-        assert_eq!(names, ["e2"], "the pinned e1 stays, the next hidden one goes");
+        assert_eq!(
+            names,
+            ["e2"],
+            "the pinned e1 stays, the next hidden one goes"
+        );
     }
 
     #[test]

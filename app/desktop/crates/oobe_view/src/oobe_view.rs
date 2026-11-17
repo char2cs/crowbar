@@ -127,7 +127,6 @@ mod tests {
 
     use gpui::{Entity, TestAppContext, VisualTestContext};
 
-
     use super::*;
     use crate::test_support::FakeCheck;
 

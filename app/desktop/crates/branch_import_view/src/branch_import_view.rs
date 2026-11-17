@@ -4,20 +4,14 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
-    AppContext as _, Context, Entity, EventEmitter, IntoElement, Render, Subscription,
-    Window,
+    AppContext as _, Context, Entity, EventEmitter, IntoElement, Render, Subscription, Window,
 };
 use shell_data::BranchImport;
-use ui::{
-    Dialog, DialogSize, Surface, TextInput, TextInputEvent,
-    TextInputStyle, Theme,
-};
+use ui::{Dialog, DialogSize, Surface, TextInput, TextInputEvent, TextInputStyle, Theme};
 
 use crate::branch_source::BranchSource;
 use crate::import_event::ImportEvent;
-use crate::row_look::{
-    PLACEHOLDER, TITLE,
-};
+use crate::row_look::{PLACEHOLDER, TITLE};
 use crate::selection::Selection;
 
 /// The branch import dialog over a source of branches; it emits [`ImportEvent::Close`] when done.

@@ -130,7 +130,6 @@ mod tests {
         ) -> Option<FolderListing> {
             self.0.get(path).cloned()
         }
-
     }
 
     impl FolderRequests for Listed {

@@ -93,10 +93,7 @@ mod tests {
         );
         assert!(peek.position(Motion::default()) < 0.1, "barely started");
         reading.set(reading.get() + SLIDE);
-        assert!(
-            !peek.is_moving(Motion::default()),
-            "arrived after the span"
-        );
+        assert!(!peek.is_moving(Motion::default()), "arrived after the span");
         assert!(peek.position(Motion::default()) > 0.9, "fully shown");
         let mut instant = peek_at(&reading);
         instant.slide_to(1.0, Motion::reduced());

@@ -46,7 +46,6 @@ fn muted(palette: &Palette) -> Div {
     div().text_size(TEXT).text_color(palette.muted_foreground())
 }
 
-
 impl BranchImportView {
     pub(crate) fn row_at(
         &self,

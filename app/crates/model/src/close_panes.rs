@@ -110,7 +110,11 @@ mod tests {
     #[test]
     fn a_bad_list_is_refused_without_changes() {
         let cases = [
-            ("unknown", close(&["a", "zz"]), Error::PaneNotFound(id("zz"))),
+            (
+                "unknown",
+                close(&["a", "zz"]),
+                Error::PaneNotFound(id("zz")),
+            ),
             ("twice", close(&["a", "a"]), Error::DuplicatePane(id("a"))),
         ];
         for (name, command, error) in cases {

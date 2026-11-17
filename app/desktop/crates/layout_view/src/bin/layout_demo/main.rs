@@ -31,9 +31,7 @@ fn open(
     };
     let scenario = arguments.scenario();
     let content = (scenario::build(&scenario)?, scenario::chips()?);
-    cx.open_window(options, |_, cx| {
-        cx.new(|cx| Demo::new(content, cx))
-    })?;
+    cx.open_window(options, |_, cx| cx.new(|cx| Demo::new(content, cx)))?;
     Ok(())
 }
 

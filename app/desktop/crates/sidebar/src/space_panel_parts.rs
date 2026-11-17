@@ -103,11 +103,7 @@ mod tests {
             "title above subtitle"
         );
         let mut tile = icon_tile(&SpaceIcon::Default, palette);
-        assert_eq!(
-            tile.style().size.width,
-            Some(px(TILE).into()),
-            "tile width"
-        );
+        assert_eq!(tile.style().size.width, Some(px(TILE).into()), "tile width");
         let mut row = field_row(IconName::Books, "Label", palette);
         assert!(row.style().align_items.is_some(), "row centres");
     }

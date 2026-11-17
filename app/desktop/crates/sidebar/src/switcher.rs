@@ -4,7 +4,7 @@ use gpui::{
     AnyElement, Context, Div, ElementId, Entity, FontWeight, InteractiveElement, IntoElement,
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
-use ui::{Palette, Placement, Popover, Surface, Theme, Tooltip, HoverFill, radius};
+use ui::{HoverFill, Palette, Placement, Popover, Surface, Theme, Tooltip, radius};
 
 use crate::command::Command;
 use crate::edit_pencil::{GROUP, edit_pencil};
@@ -92,7 +92,8 @@ impl Sidebar {
     ) -> AnyElement {
         let group = SharedString::from(format!("mark-{}", project.id.as_str()));
         let fill = palette.sidebar_element_hover();
-        let tile = HoverFill::new(ElementId::from(group.clone()), fill).apply(mark_tile(project, &group, palette), (window, &mut **cx));
+        let tile = HoverFill::new(ElementId::from(group.clone()), fill)
+            .apply(mark_tile(project, &group, palette), (window, &mut **cx));
         let action = RowAction::Intent(Intent::Send(Command::SelectProject(project.id.clone())));
         let button = tile.on_click(cx.listener(move |this, _, window, cx| {
             this.act(action.clone(), window, cx);

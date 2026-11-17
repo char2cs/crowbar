@@ -124,10 +124,10 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::row_kind::RowKind;
     use crate::confirmation::Confirmation;
     use crate::removal_target::RemovalTarget;
     use crate::removal_tray::RemovalTray;
+    use crate::row_kind::RowKind;
 
     fn rows() -> Vec<Row> {
         let mut repo = Row::new("repo", RowKind::RepoHeader, 0, "demo");

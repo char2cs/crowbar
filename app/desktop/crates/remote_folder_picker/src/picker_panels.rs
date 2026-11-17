@@ -1,6 +1,6 @@
 use gpui::{
-    AnyElement, Context, Div, InteractiveElement, IntoElement, ParentElement, Styled,
-    StatefulInteractiveElement, div, uniform_list,
+    AnyElement, Context, Div, InteractiveElement, IntoElement, ParentElement,
+    StatefulInteractiveElement, Styled, div, uniform_list,
 };
 use shell_data::{BrowseEntry, FolderListing, ROOT_PATH};
 use ui::{Button, ButtonSize, ButtonVariant, Palette, Pose};

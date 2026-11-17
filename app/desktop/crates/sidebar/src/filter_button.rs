@@ -4,7 +4,7 @@ use gpui::{
     App, ClickEvent, InteractiveElement, IntoElement, MouseButton, ParentElement, RenderOnce,
     StatefulInteractiveElement, Styled, Window, div, px,
 };
-use ui::{Icon, IconName, Surface, Theme, Tooltip, HoverFill, radius};
+use ui::{HoverFill, Icon, IconName, Surface, Theme, Tooltip, radius};
 
 use crate::scale::ICON_MEDIUM;
 
@@ -40,9 +40,10 @@ impl RenderOnce for FilterButton {
             .border_color(palette.border())
             .cursor_pointer()
             .child(Icon::new(IconName::Funnel).size(ICON_MEDIUM).color(tint));
-        let button = HoverFill::new("file-filter-button", palette.sidebar_element_hover()).apply(base, (window, cx))
-        .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
-        .on_click(self.on_click);
+        let button = HoverFill::new("file-filter-button", palette.sidebar_element_hover())
+            .apply(base, (window, cx))
+            .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
+            .on_click(self.on_click);
         Tooltip::new("file-filter-tip", "Filter Files", button)
     }
 }

@@ -18,7 +18,6 @@ pub struct Group {
     pub(crate) pinned: usize,
 }
 
-
 impl Group {
     pub(crate) fn single(pane: PaneId) -> Self {
         Self {
@@ -263,12 +262,4 @@ mod tests {
         assert!(!group(&["a", "b"], "z").is_consistent(), "active outside");
         assert!(!group(&[], "a").is_consistent(), "empty");
     }
-
-
-
-
-
-
-
-
 }

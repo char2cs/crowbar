@@ -328,7 +328,8 @@ fn check_what_stayed(
     }
     let (old_state, new_state) = (states(before), states(after));
     for (id, state) in &old_state {
-        let touched = matches!(step, Step::SetState(p, _) if pane_id(*p).is_ok_and(|named| named == *id));
+        let touched =
+            matches!(step, Step::SetState(p, _) if pane_id(*p).is_ok_and(|named| named == *id));
         assert!(
             touched || new_state.get(id).is_none_or(|n| n == state),
             "{step:?}: {id} lost its state"
@@ -497,7 +498,10 @@ fn state_sent_per_keystroke_never_grows_history_or_copies_the_layout() -> Fixtur
 #[test]
 fn commands_naming_nothing_that_exists_are_refused_and_change_nothing() -> Fixture<()> {
     let cases = [
-        ("closing an unknown tab", Command::CloseTab { tab: tab_id(1) }),
+        (
+            "closing an unknown tab",
+            Command::CloseTab { tab: tab_id(1) },
+        ),
         (
             "activating an unknown tab",
             Command::ActivateTab { tab: tab_id(1) },

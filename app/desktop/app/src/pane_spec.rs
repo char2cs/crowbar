@@ -134,22 +134,29 @@ mod tests {
         );
     }
 
+    fn open_into(
+        layout: &mut Layout,
+        spec: &PaneSpec,
+        serials: &Serials,
+    ) {
+        for command in spec.clone().open_commands(layout, serials).unwrap() {
+            layout.apply(command).unwrap();
+        }
+    }
+
     #[test]
     fn a_pane_stacked_into_a_group_starts_with_its_state_too() {
         let serials = Serials::above(&Layout::default());
         let mut layout = Layout::default();
-        let chat = (
-            PaneTypeId::new(crate::core_panes::CHAT).unwrap(),
-            crate::core_panes::chat_params("c1").unwrap(),
-        );
-        for command in open_commands(&layout, chat, &serials).unwrap() {
-            layout.apply(command).unwrap();
-        }
+        let chat = PaneSpec {
+            type_id: PaneTypeId::new(crate::core_panes::CHAT).unwrap(),
+            params: crate::core_panes::chat_params("c1").unwrap(),
+            state: PaneState::default(),
+        };
+        open_into(&mut layout, &chat, &serials);
         for path in ["a.rs", "b.rs"] {
             let spec = PaneSpec::editor("c1", path).unwrap();
-            for command in spec.clone().open_commands(&layout, &serials).unwrap() {
-                layout.apply(command).unwrap();
-            }
+            open_into(&mut layout, &spec, &serials);
             let opened = layout.find_pane(&spec.type_id, &spec.params).unwrap();
             assert_eq!(opened.state, spec.state, "{path}");
         }

@@ -5,8 +5,8 @@ use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    AnyElement, AppContext as _, Context, Div, IntoElement, ParentElement,
-    PathPromptOptions, Styled, Window, div, px,
+    AnyElement, AppContext as _, Context, Div, IntoElement, ParentElement, PathPromptOptions,
+    Styled, Window, div, px,
 };
 use ui::{
     Button, ButtonVariant, IconName, Palette, Placement, Popover, Select, Surface, TextInput,

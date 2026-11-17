@@ -4,19 +4,13 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
-    Context, Div, Entity, EventEmitter, IntoElement, ParentElement,
-    Render, Styled, Subscription, Window, div,
+    Context, Div, Entity, EventEmitter, IntoElement, ParentElement, Render, Styled, Subscription,
+    Window, div,
 };
 use shell_data::{PairingPending, PairingSession, PairingStage, PairingState};
-use ui::{
-    Dialog, DialogSize, Palette, Surface, TextInput,
-    TextInputEvent, Theme,
-};
+use ui::{Dialog, DialogSize, Palette, Surface, TextInput, TextInputEvent, Theme};
 
-use crate::look::{
-    ADDRESS_PLACEHOLDER, CODE_PLACEHOLDER, GAP,
-    NAME_PLACEHOLDER, TITLE,
-};
+use crate::look::{ADDRESS_PLACEHOLDER, CODE_PLACEHOLDER, GAP, NAME_PLACEHOLDER, TITLE};
 use crate::pairing_action::PairingAction;
 use crate::pairing_event::PairingEvent;
 use crate::pairing_source::PairingSource;
@@ -134,9 +128,12 @@ impl PairingView {
                 address: stage_widgets::text_of(&self.address, cx),
             }),
             PairingStage::Fingerprint => self.source.act(PairingAction::Confirm),
-            PairingStage::Code => self
-                .source
-                .act(PairingAction::SubmitCode(stage_widgets::text_of(&self.code, cx))),
+            PairingStage::Code => {
+                self.source
+                    .act(PairingAction::SubmitCode(stage_widgets::text_of(
+                        &self.code, cx,
+                    )))
+            },
             PairingStage::Paired => cx.emit(PairingEvent::Close),
         }
     }
@@ -237,7 +234,9 @@ mod tests {
         ) {
             let call = match action {
                 PairingAction::Edited => "edited".to_owned(),
-                PairingAction::SubmitAddress { name, address } => format!("address {name} {address}"),
+                PairingAction::SubmitAddress { name, address } => {
+                    format!("address {name} {address}")
+                },
                 PairingAction::Confirm => "confirm".to_owned(),
                 PairingAction::Back => "back".to_owned(),
                 PairingAction::SubmitCode(code) => format!("code {code}"),

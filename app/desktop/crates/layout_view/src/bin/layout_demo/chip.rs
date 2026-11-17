@@ -5,7 +5,6 @@ use gpui::{
 use model::{DragSubject, PaneInstance};
 use ui::{DragGhost, Surface, Theme, radius, text_size};
 
-
 const CHIP_HEIGHT: f32 = 32.0;
 const CHIP_PADDING: f32 = 12.0;
 const GHOST_WIDTH: f32 = 160.0;

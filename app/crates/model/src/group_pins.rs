@@ -150,13 +150,28 @@ mod tests {
         assert_eq!(names(&stack), ["c", "d", "a", "b"], "d pinned after c");
         assert_eq!(stack.pinned_count(), 2, "count");
         stack.pin(&id("d"));
-        assert_eq!(names(&stack), ["c", "d", "a", "b"], "pinning twice is a no-op");
+        assert_eq!(
+            names(&stack),
+            ["c", "d", "a", "b"],
+            "pinning twice is a no-op"
+        );
         stack.unpin(&id("c"));
-        assert_eq!(names(&stack), ["d", "c", "a", "b"], "c unpinned first of the rest");
+        assert_eq!(
+            names(&stack),
+            ["d", "c", "a", "b"],
+            "c unpinned first of the rest"
+        );
         stack.unpin(&id("b"));
-        assert_eq!(names(&stack), ["d", "c", "a", "b"], "unpinning a loose pane is a no-op");
+        assert_eq!(
+            names(&stack),
+            ["d", "c", "a", "b"],
+            "unpinning a loose pane is a no-op"
+        );
         assert_eq!(stack.active(), &id("a"), "the shown pane never changes");
-        assert!(stack.is_pinned(&id("d")) && !stack.is_pinned(&id("c")), "flags");
+        assert!(
+            stack.is_pinned(&id("d")) && !stack.is_pinned(&id("c")),
+            "flags"
+        );
     }
 
     #[test]
@@ -178,9 +193,24 @@ mod tests {
     #[test]
     fn a_pane_reorders_only_inside_its_own_side_of_the_pin_line() {
         let cases = [
-            ("pinned to the end clamps", "a", Some(3), ["b", "a", "c", "d", "e"]),
-            ("pinned to the front", "b", Some(0), ["b", "a", "c", "d", "e"]),
-            ("loose to the front clamps", "e", Some(0), ["a", "b", "e", "c", "d"]),
+            (
+                "pinned to the end clamps",
+                "a",
+                Some(3),
+                ["b", "a", "c", "d", "e"],
+            ),
+            (
+                "pinned to the front",
+                "b",
+                Some(0),
+                ["b", "a", "c", "d", "e"],
+            ),
+            (
+                "loose to the front clamps",
+                "e",
+                Some(0),
+                ["a", "b", "e", "c", "d"],
+            ),
             ("loose to the end", "c", None, ["a", "b", "d", "e", "c"]),
         ];
         for (name, moved, index, expected) in cases {
@@ -227,7 +257,12 @@ mod tests {
             ("to the right", "a", CloseScope::ToRight, vec!["b", "c"]),
             ("all", "a", CloseScope::All, vec!["a", "b", "c"]),
             ("to the right of the last", "c", CloseScope::ToRight, vec![]),
-            ("to the right of a pinned one", "p", CloseScope::ToRight, vec!["a", "b", "c"]),
+            (
+                "to the right of a pinned one",
+                "p",
+                CloseScope::ToRight,
+                vec!["a", "b", "c"],
+            ),
         ];
         for (name, anchor, scope, expected) in cases {
             let got: Vec<String> = stack
