@@ -5,10 +5,12 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::adapters::disk_preferences::DiskPreferences;
 use crate::dock_side::DockSide;
 use crate::error::Error;
 use crate::mode::Mode;
 use crate::panel::Panel;
+use crate::preference_file::PreferenceFile;
 use crate::row_id::RowId;
 use crate::tree_state::TreeState;
 use crate::visibility::Visibility;
@@ -67,17 +69,7 @@ impl Preferences {
     /// [`Error::ReadPreferences`] when the file exists but cannot be read, and
     /// [`Error::ParsePreferences`] when it is not valid JSON of this shape.
     pub fn load(path: &Path) -> Result<Self, Error> {
-        let text = match std::fs::read_to_string(path) {
-            Ok(text) => text,
-            Err(source) if source.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(Self::default());
-            },
-            Err(source) => return Err(unreadable(path, source)),
-        };
-        serde_json::from_str(&text).map_err(|source| Error::ParsePreferences {
-            path: path.to_owned(),
-            source,
-        })
+        Self::load_from(&DiskPreferences::at(path))
     }
 
     /// Writes the file, replacing it.
@@ -89,13 +81,32 @@ impl Preferences {
         &self,
         path: &Path,
     ) -> Result<(), Error> {
-        let write = |source| Error::WritePreferences {
+        self.save_to(&DiskPreferences::at(path))
+    }
+
+    fn load_from(file: &dyn PreferenceFile) -> Result<Self, Error> {
+        let path = file.path();
+        let stored = file.read().map_err(|source| unreadable(path, source))?;
+        let Some(text) = stored else {
+            return Ok(Self::default());
+        };
+        serde_json::from_str(&text).map_err(|source| Error::ParsePreferences {
             path: path.to_owned(),
+            source,
+        })
+    }
+
+    fn save_to(
+        &self,
+        file: &dyn PreferenceFile,
+    ) -> Result<(), Error> {
+        let write = |source| Error::WritePreferences {
+            path: file.path().to_owned(),
             source,
         };
         let json = serde_json::to_string_pretty(self)
             .map_err(|error| write(std::io::Error::other(error)))?;
-        atomic_file::write(path, json.as_bytes()).map_err(write)
+        file.write(&json).map_err(write)
     }
 
     pub(crate) fn panel(&self) -> Panel {
@@ -127,10 +138,7 @@ impl Preferences {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn scratch(name: &str) -> std::path::PathBuf {
-        std::env::temp_dir().join(format!("sidebar-prefs-{}-{name}.json", std::process::id()))
-    }
+    use crate::test_support::MemoryPreferences;
 
     type Check = fn(&Result<Preferences, Error>) -> bool;
 
@@ -163,30 +171,21 @@ mod tests {
         ),
     ];
 
-    fn load_file(
-        name: &str,
-        content: Option<&str>,
-    ) -> Result<Preferences, Error> {
-        let path = scratch(name);
-        if let Some(text) = content {
-            std::fs::write(&path, text).expect("write");
-        }
-        let loaded = Preferences::load(&path);
-        std::fs::remove_file(&path).ok();
-        loaded
+    fn load_file(content: Option<&str>) -> Result<Preferences, Error> {
+        Preferences::load_from(&MemoryPreferences::with(content))
     }
 
     #[test]
     fn loading_handles_missing_corrupt_and_partial_files() {
         for (name, content, check) in LOAD_CASES {
-            let loaded = load_file(name, *content);
+            let loaded = load_file(*content);
             assert!(check(&loaded), "{name}");
         }
     }
 
     #[test]
     fn saving_and_loading_round_trips_every_field() {
-        let path = scratch("roundtrip");
+        let file = MemoryPreferences::with(None);
         let mut tree = TreeState::default();
         tree.toggle_fold(&RowId::from("row"));
         let mut panel = Panel::default();
@@ -196,9 +195,8 @@ mod tests {
         prefs
             .last_project_by_host
             .insert("local".into(), "p1".into());
-        prefs.save(&path).expect("save");
-        let loaded = Preferences::load(&path).expect("load");
-        std::fs::remove_file(&path).expect("cleanup");
+        prefs.save_to(&file).expect("save");
+        let loaded = Preferences::load_from(&file).expect("load");
         assert_eq!(loaded, prefs, "round trip");
         assert_eq!(loaded.panel().side(), DockSide::Right, "side");
         assert!((loaded.panel().preferred() - 400.0).abs() < 0.01, "width");

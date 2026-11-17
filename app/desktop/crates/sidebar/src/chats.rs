@@ -1,7 +1,6 @@
 //! The chats panel: one scrolling tree per space on a horizontal carousel.
 
 use std::rc::Rc;
-use std::time::Instant;
 
 use gpui::{
     AnyElement, Context, DragMoveEvent, InteractiveElement, IntoElement, ParentElement,
@@ -95,7 +94,7 @@ impl Sidebar {
         let index = projects
             .iter()
             .position(|project| Some(&project.id) == active.as_ref());
-        let (now, motion) = (Instant::now(), Motion::of(cx));
+        let (now, motion) = (self.clock.now(), Motion::of(cx));
         self.carousel
             .go_to(count_as_f32(index.unwrap_or(0)), now, motion);
         if self.carousel.is_running(now, motion) || self.tree.removals.tray().is_counting() {

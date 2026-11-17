@@ -1,6 +1,5 @@
 //! Turning row interactions into view-state changes and commands.
 
-use std::time::Instant;
 
 use gpui::{Context, Pixels, Point, Window};
 use ui::{ToastContent, ToastKind, ToastLifetime};
@@ -135,7 +134,10 @@ impl Sidebar {
                 );
                 false
             },
-            Err(_) => false,
+            Err(error) => {
+                tracing::warn!(%error, "sidebar command failed");
+                false
+            },
         }
     }
 
@@ -190,7 +192,7 @@ impl Sidebar {
         let Some(row) = self.row(id) else {
             return;
         };
-        self.tree.request_removal(&row, Instant::now());
+        self.tree.request_removal(&row, self.clock.now());
         self.schedule_removals(cx);
     }
 
@@ -201,7 +203,7 @@ impl Sidebar {
         let Some(deadline) = self.tree.removals.tray().next_deadline() else {
             return;
         };
-        let wait = deadline.saturating_duration_since(Instant::now());
+        let wait = deadline.saturating_duration_since(self.clock.now());
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(wait).await;
             this.update(cx, Self::send_due_removals)
@@ -213,7 +215,7 @@ impl Sidebar {
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
-        for row in self.tree.removals.take_due(Instant::now()) {
+        for row in self.tree.removals.take_due(self.clock.now()) {
             self.send(Command::CommitRemoval(row), cx);
         }
         self.schedule_removals(cx);

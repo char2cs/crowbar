@@ -1,7 +1,5 @@
 //! The sliding drop line, drawn above the whole window while a row is dragged.
 
-use std::time::Instant;
-
 use gpui::{
     AnyElement, Context, IntoElement, ParentElement, Window, anchored, deferred, point, px,
 };
@@ -23,7 +21,7 @@ impl Sidebar {
             self.drag.slide = None;
             return None;
         };
-        let clock = (Instant::now(), Motion::of(cx));
+        let clock = (self.clock.now(), Motion::of(cx));
         let scrolling = self.drag.pull != 0.0;
         let slide = self
             .drag

@@ -159,10 +159,11 @@ impl Sidebar {
 
     fn card(
         &mut self,
-        (side, width, slide): (DockSide, f32, f32),
+        placement: (DockSide, f32, f32),
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> Div {
+        let (side, width, slide) = placement;
         let palette = Theme::of(cx).palette(Surface::Chrome);
         let inset = PEEK_INSET - (width + PEEK_INSET) * (1.0 - slide);
         div()

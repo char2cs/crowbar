@@ -24,30 +24,25 @@ pub(crate) enum RowVerb {
 
 impl RowVerb {
     pub(crate) fn for_row(row: &Row) -> Vec<Self> {
-        let mut verbs = Vec::new();
         let placeholder = is_placeholder(row);
         let held = row
             .workspace
             .as_ref()
             .is_some_and(|workspace| workspace.held_by_path.is_some());
-        if row.kind == RowKind::Branch && held {
-            verbs.push(Self::Detach);
-        }
-        let retryable = row.kind == RowKind::Branch && placeholder && !held;
-        if retryable {
-            verbs.push(Self::Retry);
-        }
-        if row.kind == RowKind::RepoHeader {
-            verbs.push(Self::RepoMenu);
-        }
-        if is_removable(row) {
-            verbs.push(Self::Remove);
-        }
-        if !placeholder {
-            verbs.push(Self::Thread);
-            verbs.extend(fork_and_branch(row));
-        }
-        verbs
+        let is_branch = row.kind == RowKind::Branch;
+        let leading = [
+            (is_branch && held).then_some(Self::Detach),
+            (is_branch && placeholder && !held).then_some(Self::Retry),
+            (row.kind == RowKind::RepoHeader).then_some(Self::RepoMenu),
+            is_removable(row).then_some(Self::Remove),
+            (!placeholder).then_some(Self::Thread),
+        ];
+        let forks = (!placeholder).then(|| fork_and_branch(row));
+        leading
+            .into_iter()
+            .flatten()
+            .chain(forks.into_iter().flatten())
+            .collect()
     }
 
     pub(crate) fn icon(self) -> (IconName, IconWeight) {
@@ -109,21 +104,20 @@ fn is_removable(row: &Row) -> bool {
 }
 
 fn fork_and_branch(row: &Row) -> Vec<RowVerb> {
-    let mut verbs = Vec::new();
     let forks = match row.kind {
         RowKind::Folder => row.worktree == Worktree::Owned,
         RowKind::Branch => true,
         RowKind::Chat | RowKind::RepoHeader => false,
     };
-    if forks {
-        verbs.push(RowVerb::Fork);
-    }
     let can_branch =
         row.kind == RowKind::Chat && row.worktree == Worktree::Shared && row.pending_move.is_none();
-    if can_branch {
-        verbs.push(RowVerb::MakeBranch);
-    }
-    verbs
+    [
+        forks.then_some(RowVerb::Fork),
+        can_branch.then_some(RowVerb::MakeBranch),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 #[cfg(test)]

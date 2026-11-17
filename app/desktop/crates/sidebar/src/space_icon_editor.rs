@@ -15,7 +15,7 @@ impl Sidebar {
         let pick = Rc::new(move |icon: SpaceIcon, cx: &mut App| {
             sidebar
                 .update(cx, |this, cx| this.set_space_icon(icon, cx))
-                .ok();
+                .unwrap_or_else(|error| tracing::debug!(%error, "sidebar closed before the icon"));
         });
         cx.new(|cx| IconEditor::new(pick, cx))
     }

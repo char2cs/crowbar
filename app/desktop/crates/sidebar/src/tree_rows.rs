@@ -42,7 +42,7 @@ impl Sidebar {
         tree: &ProjectTree,
         (handler, width): (&RowHandler, f32),
     ) -> Vec<AnyElement> {
-        let now = Instant::now();
+        let now = self.clock.now();
         self.tree
             .visible(&tree.rows)
             .into_iter()
@@ -60,10 +60,11 @@ impl Sidebar {
 
     fn row_element(
         &self,
-        (row, visible): (Row, VisibleRow),
+        entry: (Row, VisibleRow),
         now: Instant,
-        (handler, width): (&RowHandler, f32),
+        layout: (&RowHandler, f32),
     ) -> AnyElement {
+        let ((row, visible), (handler, width)) = (entry, layout);
         let handler = Rc::clone(handler);
         if let Some(hold) = visible.removal {
             return removing_element((row, hold), now, handler);

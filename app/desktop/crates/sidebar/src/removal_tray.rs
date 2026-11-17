@@ -60,12 +60,14 @@ impl RemovalTray {
         &mut self,
         now: Instant,
     ) -> Vec<RowId> {
-        let mut due = Vec::new();
-        for hold in self.holds.iter_mut().filter(|hold| hold.is_due(now)) {
-            hold.deadline = Deadline::Committed;
-            due.push(hold.row.clone());
-        }
-        due
+        self.holds
+            .iter_mut()
+            .filter(|hold| hold.is_due(now))
+            .map(|hold| {
+                hold.deadline = Deadline::Committed;
+                hold.row.clone()
+            })
+            .collect()
     }
 
     pub(crate) fn commit(

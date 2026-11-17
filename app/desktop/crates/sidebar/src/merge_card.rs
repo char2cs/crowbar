@@ -2,8 +2,8 @@
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    AnyElement, Context, Div, Entity, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, div, px,
+    AnyElement, Context, Div, FontWeight, InteractiveElement, IntoElement, ParentElement,
+    StatefulInteractiveElement, Styled, div, px,
 };
 use ui::{
     Button, ButtonSize, ButtonVariant, Checkbox, Icon, IconName, Palette, Select, Surface, Theme,
@@ -14,6 +14,7 @@ use crate::after_merge::AfterMerge;
 use crate::command::Command;
 use crate::merge_box::MergeBox;
 use crate::merge_facts::MergeFacts;
+use crate::merge_lines::{note, path_row};
 use crate::merge_strategy::MergeStrategy;
 use crate::scale::{ICON_LARGE, SPACE_LG, SPACE_MD, SPACE_SM, SPACE_XS, TEXT_BODY, TEXT_SMALL};
 use crate::sidebar::Sidebar;
@@ -21,39 +22,6 @@ use crate::sidebar::Sidebar;
 const LIST_MAX_HEIGHT: f32 = 160.0;
 const LINE_HEIGHT: f32 = 16.0;
 const DELETE_LABEL: &str = "Delete this branch and its chats after merging";
-
-fn path_row(
-    path: &str,
-    ticked: &[String],
-    sidebar: &Entity<Sidebar>,
-) -> Div {
-    let (target, owner) = (path.to_owned(), sidebar.clone());
-    let id = SharedString::from(format!("merge-path-{path}"));
-    let checkbox = Checkbox::new(id, ticked.iter().any(|candidate| candidate == path))
-        .on(Surface::Chrome)
-        .on_change(move |_, _, cx| {
-            owner.update(cx, |this, cx| this.toggle_path(&target, cx));
-        });
-    div()
-        .flex()
-        .items_center()
-        .gap(SPACE_MD)
-        .text_size(TEXT_SMALL)
-        .line_height(px(LINE_HEIGHT))
-        .child(checkbox)
-        .child(div().truncate().child(path.to_owned()))
-}
-
-fn note(
-    text: String,
-    color: gpui::Hsla,
-) -> Div {
-    div()
-        .text_size(TEXT_SMALL)
-        .line_height(px(LINE_HEIGHT))
-        .text_color(color)
-        .child(text)
-}
 
 impl Sidebar {
     pub(crate) fn merge_card(
@@ -178,7 +146,7 @@ impl Sidebar {
         self.send(Command::Merge { after }, cx);
     }
 
-    fn toggle_path(
+    pub(crate) fn toggle_path(
         &mut self,
         path: &str,
         cx: &mut Context<'_, Self>,

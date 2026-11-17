@@ -5,6 +5,8 @@ use std::rc::Rc;
 use gpui::{AnyView, AppContext as _, Context, Entity, EventEmitter, FocusHandle};
 use ui::{CubicBezier, Glide, ToastQueue};
 
+use crate::adapters::system_clock::system_clock;
+use crate::clock::Clock;
 use crate::command_sink::CommandSink;
 use crate::drag_state::DragState;
 use crate::file_search::FileSearch;
@@ -44,6 +46,7 @@ pub struct Sidebar {
     pub(crate) menu: Option<OpenMenu>,
     pub(crate) carousel: Glide,
     pub(crate) peek: Peek,
+    pub(crate) clock: Rc<dyn Clock>,
     pub(crate) scrolls: Scrolls,
     pub(crate) handle_focus: FocusHandle,
     pub(crate) files_focus: FocusHandle,
@@ -66,9 +69,11 @@ impl Sidebar {
         data: Rc<dyn SidebarData>,
         sink: Rc<dyn CommandSink>,
         content: AnyView,
-        (preferences, cx): (Preferences, &mut Context<'_, Self>),
+        setup: (Preferences, &mut Context<'_, Self>),
     ) -> Self {
+        let (preferences, cx) = setup;
         let dock = preferences.panel().side();
+        let clock: Rc<dyn Clock> = Rc::new(system_clock());
         Self {
             data,
             sink,
@@ -81,7 +86,8 @@ impl Sidebar {
             inline: None,
             menu: None,
             carousel: Glide::resting(0.0, CAROUSEL_SPAN, CubicBezier::EASE),
-            peek: Peek::default(),
+            peek: Peek::new(Rc::clone(&clock)),
+            clock,
             scrolls: Scrolls::default(),
             handle_focus: cx.focus_handle(),
             files_focus: cx.focus_handle(),

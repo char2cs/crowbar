@@ -5,63 +5,28 @@ use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    AnyElement, AppContext as _, Context, Div, FontWeight, IntoElement, ParentElement,
+    AnyElement, AppContext as _, Context, Div, IntoElement, ParentElement,
     PathPromptOptions, Styled, Window, div, px,
 };
 use ui::{
-    Button, ButtonVariant, Icon, IconName, Palette, Placement, Popover, Select, Surface, TextInput,
-    TextInputEvent, Theme, radius,
+    Button, ButtonVariant, IconName, Palette, Placement, Popover, Select, Surface, TextInput,
+    TextInputEvent, Theme,
 };
 
 use crate::command::Command;
 use crate::host_kind::HostKind;
 use crate::icon_editor::IconEditor;
 use crate::mode::Mode;
-use crate::scale::{ICON_LARGE, SPACE_LG, SPACE_MD, SPACE_XL, SPACE_XS, TEXT_LARGE, TEXT_SMALL};
+use crate::scale::{SPACE_LG, SPACE_MD, SPACE_XL, TEXT_SMALL};
 use crate::sidebar::Sidebar;
 use crate::space_draft::{SpaceDraft, create_command};
 use crate::space_facts::SpaceFacts;
 use crate::space_icon::SpaceIcon;
+use crate::space_panel_parts::{field_row, heading, icon_tile};
 
-const TITLE_SIZE: f32 = 16.0;
-const TILE: f32 = 36.0;
 const HEAD_GAP: f32 = 10.0;
-const ROW_PADDING: f32 = 10.0;
 const SELECT_WIDTH: f32 = 150.0;
-const TITLE: &str = "Create a Space";
 const CHOOSE_FOLDER: &str = "Choose folder";
-const SUBTITLE: &str = "Spaces are used to organize your tabs and sessions.";
-
-fn field_row(
-    icon: IconName,
-    label: &'static str,
-    palette: &Palette,
-) -> Div {
-    div()
-        .flex()
-        .items_center()
-        .justify_between()
-        .gap(SPACE_MD)
-        .px(SPACE_LG)
-        .py(px(ROW_PADDING))
-        .rounded(radius::LG)
-        .border_1()
-        .border_color(palette.border())
-        .bg(palette.muted())
-        .text_size(TEXT_LARGE)
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(SPACE_MD)
-                .child(
-                    Icon::new(icon)
-                        .size(ICON_LARGE)
-                        .color(palette.muted_foreground()),
-                )
-                .child(label),
-        )
-}
 
 impl Sidebar {
     pub(crate) fn start_create_space(
@@ -74,7 +39,7 @@ impl Sidebar {
         let staged = Rc::new(move |icon: SpaceIcon, cx: &mut gpui::App| {
             sidebar
                 .update(cx, |this, cx| this.stage_space_icon(icon, cx))
-                .ok();
+                .unwrap_or_else(|error| tracing::debug!(%error, "sidebar closed before staging"));
         });
         let editor = cx.new(|cx| IconEditor::new(staged, cx));
         let subscription = cx.subscribe_in(
@@ -265,25 +230,6 @@ fn folder_button(
         .on_click(cx.listener(|this, _, _, cx| this.choose_space_folder(cx)))
 }
 
-fn heading(palette: &Palette) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .gap(SPACE_XS)
-        .child(
-            div()
-                .text_size(px(TITLE_SIZE))
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(TITLE),
-        )
-        .child(
-            div()
-                .text_size(TEXT_LARGE)
-                .text_color(palette.muted_foreground())
-                .child(SUBTITLE),
-        )
-}
-
 fn space_head(
     draft: &SpaceDraft,
     palette: &Palette,
@@ -328,31 +274,6 @@ fn space_footer(
         .children(hint)
         .child(create)
         .child(cancel)
-}
-
-fn icon_tile(
-    icon: &SpaceIcon,
-    palette: &Palette,
-) -> Div {
-    let glyph = match icon {
-        SpaceIcon::Emoji(text) => div().child(text.clone()),
-        SpaceIcon::Image(_) | SpaceIcon::Default => div().child(
-            Icon::new(IconName::Books)
-                .size(ICON_LARGE)
-                .color(palette.muted_foreground()),
-        ),
-    };
-    div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center()
-        .size(px(TILE))
-        .rounded(radius::LG)
-        .border_1()
-        .border_dashed()
-        .border_color(palette.border())
-        .child(glyph)
 }
 
 #[cfg(test)]

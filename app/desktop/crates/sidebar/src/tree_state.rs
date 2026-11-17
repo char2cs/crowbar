@@ -7,19 +7,16 @@ use crate::deadline::Deadline;
 use crate::editing::Editing;
 use crate::expansion::Expansion;
 use crate::files_state::FilesState;
-use crate::lock::Lock;
 use crate::nesting::Nesting;
-use crate::new_entry::NewEntry;
 use crate::removals::Removals;
 use crate::row::Row;
 use crate::row_id::RowId;
-use crate::row_kind::RowKind;
 use crate::visible_row::VisibleRow;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct TreeState {
-    folded: BTreeSet<RowId>,
-    editing: Editing,
+    pub(crate) folded: BTreeSet<RowId>,
+    pub(crate) editing: Editing,
     pub(crate) files: FilesState,
     pub(crate) removals: Removals,
 }
@@ -43,54 +40,6 @@ impl TreeState {
         if !self.folded.remove(row) {
             self.folded.insert(row.clone());
         }
-    }
-
-    pub(crate) fn editing(&self) -> &Editing {
-        &self.editing
-    }
-
-    pub(crate) fn start_rename(
-        &mut self,
-        row: &Row,
-    ) {
-        if row.kind == RowKind::Branch && row.lock == Lock::Locked {
-            return;
-        }
-        self.editing = Editing::Renaming(row.id.clone());
-    }
-
-    pub(crate) fn start_branching(
-        &mut self,
-        row: &RowId,
-    ) {
-        self.editing = Editing::Branching(row.clone());
-    }
-
-    pub(crate) fn start_draft(
-        &mut self,
-        parent: &RowId,
-    ) {
-        self.folded.remove(parent);
-        self.editing = Editing::Drafting(parent.clone());
-    }
-
-    pub(crate) fn start_file_rename(
-        &mut self,
-        path: String,
-    ) {
-        self.editing = Editing::RenamingFile(path);
-    }
-
-    pub(crate) fn start_file_create(
-        &mut self,
-        dir: String,
-        entry: NewEntry,
-    ) {
-        self.editing = Editing::Creating { dir, entry };
-    }
-
-    pub(crate) fn stop_editing(&mut self) {
-        self.editing = Editing::Nothing;
     }
 
     pub(crate) fn request_removal(
@@ -175,6 +124,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+    use crate::row_kind::RowKind;
     use crate::confirmation::Confirmation;
     use crate::removal_target::RemovalTarget;
     use crate::removal_tray::RemovalTray;
@@ -227,29 +177,6 @@ mod tests {
             let state = toggled(toggles);
             assert_eq!(indices(&state, &rows), *expected, "{name}");
         }
-    }
-
-    #[test]
-    fn rename_and_branching_exclude_each_other_and_locked_branches_refuse() {
-        let rows = rows();
-        let mut state = TreeState::default();
-        state.start_rename(&rows[2]);
-        assert_eq!(
-            state.editing(),
-            &Editing::Renaming(RowId::from("chat")),
-            "renaming"
-        );
-        state.start_branching(&RowId::from("other"));
-        assert_eq!(
-            state.editing(),
-            &Editing::Branching(RowId::from("other")),
-            "branching replaced it"
-        );
-        let mut locked = rows[1].clone();
-        locked.lock = Lock::Locked;
-        state.stop_editing();
-        state.start_rename(&locked);
-        assert_eq!(state.editing(), &Editing::Nothing, "locked branch refuses");
     }
 
     #[test]

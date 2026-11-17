@@ -4,7 +4,7 @@ use gpui::{
     AnyElement, Context, Div, ElementId, Entity, FontWeight, InteractiveElement, IntoElement,
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
-use ui::{Palette, Placement, Popover, Surface, Theme, Tooltip, hover_fill, radius};
+use ui::{Palette, Placement, Popover, Surface, Theme, Tooltip, HoverFill, radius};
 
 use crate::command::Command;
 use crate::edit_pencil::{GROUP, edit_pencil};
@@ -38,7 +38,7 @@ impl Sidebar {
         let projects = self.data.projects();
         let active = self.data.active_project()?;
         let current = projects.iter().find(|project| project.id == active)?;
-        let glide = hover_glide::track("switcher", window, cx);
+        let glide = hover_glide::track("switcher", &self.clock, window, cx);
         let reveal = match projects.len() {
             0 | 1 => 1.0,
             _ => hover_glide::value(&glide, window, cx),
@@ -92,12 +92,7 @@ impl Sidebar {
     ) -> AnyElement {
         let group = SharedString::from(format!("mark-{}", project.id.as_str()));
         let fill = palette.sidebar_element_hover();
-        let tile = hover_fill(
-            mark_tile(project, &group, palette),
-            ElementId::from(group.clone()),
-            fill,
-            (window, &mut **cx),
-        );
+        let tile = HoverFill::new(ElementId::from(group.clone()), fill).apply(mark_tile(project, &group, palette), (window, &mut **cx));
         let action = RowAction::Intent(Intent::Send(Command::SelectProject(project.id.clone())));
         let button = tile.on_click(cx.listener(move |this, _, window, cx| {
             this.act(action.clone(), window, cx);
@@ -169,10 +164,11 @@ fn editable_tile(
 
 fn active_block(
     current: &Project,
-    (add, editor): (IconButton, Option<Entity<IconEditor>>),
-    (reveal, family): (f32, &'static str),
+    controls: (IconButton, Option<Entity<IconEditor>>),
+    look: (f32, &'static str),
     palette: &Palette,
 ) -> Div {
+    let ((add, editor), (reveal, family)) = (controls, look);
     let mark = mark_view(&current.mark, px(MARK), palette);
     let tile = div()
         .flex()

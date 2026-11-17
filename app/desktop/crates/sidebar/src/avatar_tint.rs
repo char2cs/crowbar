@@ -24,17 +24,26 @@ pub enum AvatarTint {
     Pink,
 }
 
+const ROSE: u32 = 0x00be_123c;
+const AMBER: u32 = 0x00b4_5309;
+const EMERALD: u32 = 0x0004_785f;
+const CYAN: u32 = 0x000e_7490;
+const INDIGO: u32 = 0x0043_38ca;
+const VIOLET: u32 = 0x006d_28d9;
+const SLATE: u32 = 0x0031_4158;
+const PINK: u32 = 0x00be_185d;
+
 impl AvatarTint {
     pub(crate) fn color(self) -> Hsla {
         let hex = match self {
-            Self::Rose => 0x00be_123c,
-            Self::Amber => 0x00b4_5309,
-            Self::Emerald => 0x0004_785f,
-            Self::Cyan => 0x000e_7490,
-            Self::Indigo => 0x0043_38ca,
-            Self::Violet => 0x006d_28d9,
-            Self::Slate => 0x0031_4158,
-            Self::Pink => 0x00be_185d,
+            Self::Rose => ROSE,
+            Self::Amber => AMBER,
+            Self::Emerald => EMERALD,
+            Self::Cyan => CYAN,
+            Self::Indigo => INDIGO,
+            Self::Violet => VIOLET,
+            Self::Slate => SLATE,
+            Self::Pink => PINK,
         };
         rgb(hex).into()
     }

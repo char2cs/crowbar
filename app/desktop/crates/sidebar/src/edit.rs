@@ -98,10 +98,11 @@ impl Sidebar {
 
     fn open_field(
         &mut self,
-        (row, initial, placeholder): (RowId, &str, &str),
+        seed: (RowId, &str, &str),
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
+        let (row, initial, placeholder) = seed;
         let field = cx.new(|cx| {
             TextInput::new(placeholder.to_owned(), cx)
                 .on(Surface::Chrome)

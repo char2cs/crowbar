@@ -4,7 +4,7 @@ use gpui::{
     App, ClickEvent, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement,
     Pixels, RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
-use ui::{Icon, IconName, Surface, Theme, Tooltip, hover_fill, radius};
+use ui::{Icon, IconName, Surface, Theme, Tooltip, HoverFill, radius};
 
 use crate::tile_shape::TileShape;
 
@@ -90,7 +90,7 @@ impl RenderOnce for IconButton {
                     .color(palette.muted_foreground()),
             );
         let id = self.id.clone();
-        let button = hover_fill(base, self.id, palette.sidebar_element_hover(), (window, cx))
+        let button = HoverFill::new(self.id, palette.sidebar_element_hover()).apply(base, (window, cx))
             .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default());
         let button = match self.on_click {
             Some(handler) => button.on_click(handler),

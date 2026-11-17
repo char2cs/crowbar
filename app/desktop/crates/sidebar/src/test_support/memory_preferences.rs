@@ -1,0 +1,39 @@
+use std::cell::RefCell;
+use std::io;
+use std::path::{Path, PathBuf};
+
+use crate::preference_file::PreferenceFile;
+
+/// A preferences file kept in memory.
+#[derive(Debug)]
+pub(crate) struct MemoryPreferences {
+    path: PathBuf,
+    text: RefCell<Option<String>>,
+}
+
+impl MemoryPreferences {
+    pub(crate) fn with(text: Option<&str>) -> Self {
+        Self {
+            path: PathBuf::from("preferences.json"),
+            text: RefCell::new(text.map(str::to_owned)),
+        }
+    }
+}
+
+impl PreferenceFile for MemoryPreferences {
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    fn read(&self) -> io::Result<Option<String>> {
+        Ok(self.text.borrow().clone())
+    }
+
+    fn write(
+        &self,
+        text: &str,
+    ) -> io::Result<()> {
+        *self.text.borrow_mut() = Some(text.to_owned());
+        Ok(())
+    }
+}

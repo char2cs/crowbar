@@ -39,6 +39,7 @@ use crate::workspace::Workspace;
 use crate::workspace_status::WorkspaceStatus;
 use crate::worktree::Worktree;
 
+const MAIN: &str = "main";
 const RICH_COUNTS: (usize, usize) = (3, 2);
 const SYNC_LOOP_ADDED: u32 = 42;
 const SYNC_LOOP_DELETED: u32 = 7;
@@ -194,10 +195,10 @@ fn repo_header(
 
 fn reference_rows() -> Vec<Row> {
     let mut main = branch(
-        "main",
+        MAIN,
         1,
-        "main",
-        landed(WorkspaceStatus::Locked, "main", 0, 0),
+        MAIN,
+        landed(WorkspaceStatus::Locked, MAIN, 0, 0),
     );
     main.lock = Lock::Locked;
     let mut chat = Row::new("chat", RowKind::Branch, 1, "Untitled chat");
@@ -388,7 +389,7 @@ impl SidebarData for DemoData {
         };
         Changes {
             branch: "inv-rb".into(),
-            parent: Some("main".into()),
+            parent: Some(MAIN.into()),
             files: vec![file],
         }
     }

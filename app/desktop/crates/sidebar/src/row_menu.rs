@@ -20,35 +20,33 @@ pub(crate) fn row_menu(
     context: &MenuContext,
 ) -> Vec<MenuEntry> {
     let id = &row.id;
-    let mut entries = Vec::new();
-    if !is_locked_branch(row) {
+    let rename = (!is_locked_branch(row)).then(|| {
         let intent = Intent::StartRename(id.clone());
-        entries.push(MenuEntry::action(
-            "Rename",
-            IconName::PencilSimpleLine,
-            intent,
-        ));
-    }
-    entries.extend(lock_entry(row));
-    if row.kind == RowKind::RepoHeader {
+        MenuEntry::action("Rename", IconName::PencilSimpleLine, intent)
+    });
+    let is_repo = row.kind == RowKind::RepoHeader;
+    let import = is_repo.then(|| {
         let intent = Intent::Send(Command::ImportBranches(id.clone()));
-        entries.push(MenuEntry::action(
-            "Import branches",
-            IconName::DownloadSimple,
-            intent,
-        ));
-    }
-    entries.extend(creation_entries(row, context));
-    entries.extend(move_entries(row, context));
-    if row.kind == RowKind::RepoHeader {
-        entries.push(MenuEntry::Separator);
-        entries.push(MenuEntry::destructive(
-            "Delete Repo",
-            IconName::Trash,
-            Intent::RequestRemoval(id.clone()),
-        ));
-    }
-    entries
+        MenuEntry::action("Import branches", IconName::DownloadSimple, intent)
+    });
+    let delete = is_repo.then(|| {
+        [
+            MenuEntry::Separator,
+            MenuEntry::destructive(
+                "Delete Repo",
+                IconName::Trash,
+                Intent::RequestRemoval(id.clone()),
+            ),
+        ]
+    });
+    rename
+        .into_iter()
+        .chain(lock_entry(row))
+        .chain(import)
+        .chain(creation_entries(row, context))
+        .chain(move_entries(row, context))
+        .chain(delete.into_iter().flatten())
+        .collect()
 }
 
 fn is_locked_branch(row: &Row) -> bool {
@@ -106,17 +104,17 @@ fn move_entries(
     row: &Row,
     context: &MenuContext,
 ) -> Vec<MenuEntry> {
-    let mut entries = Vec::new();
-    if !context.targets.is_empty() {
-        entries.push(move_submenu(row, context));
-    }
-    entries.extend(make_branch_entry(row));
-    entries.extend(kill_entry(row, context));
-    if row.pending_move.is_some() {
+    let submenu = (!context.targets.is_empty()).then(|| move_submenu(row, context));
+    let cancel = row.pending_move.is_some().then(|| {
         let intent = Intent::Send(Command::CancelMove(row.id.clone()));
-        entries.push(MenuEntry::action("Cancel move", IconName::XCircle, intent));
-    }
-    entries
+        MenuEntry::action("Cancel move", IconName::XCircle, intent)
+    });
+    submenu
+        .into_iter()
+        .chain(make_branch_entry(row))
+        .chain(kill_entry(row, context))
+        .chain(cancel)
+        .collect()
 }
 
 fn move_targets(

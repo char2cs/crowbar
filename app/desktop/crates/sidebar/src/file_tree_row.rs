@@ -3,13 +3,14 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, ClickEvent, Div, ElementId, FontWeight, HighlightStyle, InteractiveElement, IntoElement,
-    ParentElement, Pixels, RenderOnce, SharedString, Stateful, StatefulInteractiveElement, Styled,
+    ParentElement, RenderOnce, SharedString, Stateful, StatefulInteractiveElement, Styled,
     StyledText, Window, div, px,
 };
 use ui::{ContextMenu, Icon, IconName, IconWeight, Palette, Surface, Theme, radius};
 
 use crate::command::Command;
 use crate::expansion::Expansion;
+use crate::file_badges::{count_gap, counts_view, letter_badge, status_color};
 use crate::file_drop;
 use crate::file_kind::FileKind;
 use crate::file_menu::file_menu;
@@ -23,7 +24,7 @@ use crate::row_focus::{ringed, row_focus};
 use crate::row_input::RowInput;
 use crate::row_label::input_view;
 use crate::scale::{
-    ICON_LARGE, ICON_MEDIUM, ICON_TINY, SPACE_SM, SPACE_XS, TEXT_BODY, TEXT_CAPTION,
+    ICON_LARGE, ICON_MEDIUM, ICON_TINY, SPACE_SM, TEXT_BODY,
 };
 use crate::tree_look::TreeLook;
 
@@ -31,7 +32,6 @@ const BASE_PADDING: f32 = 6.0;
 const IGNORED_OPACITY: f32 = 0.5;
 const MATCH_TINT: f32 = 0.07;
 const HIGHLIGHT_TINT: f32 = 0.3;
-const TIGHT_COUNT_GAP: f32 = 2.0;
 
 #[derive(IntoElement)]
 pub(crate) struct FileTreeRow {
@@ -183,19 +183,6 @@ fn command(entry: &FileTreeEntry) -> Command {
     }
 }
 
-fn status_color(
-    status: GitStatus,
-    palette: &Palette,
-) -> gpui::Hsla {
-    match status {
-        GitStatus::Added => palette.git_added(),
-        GitStatus::Untracked => palette.git_untracked(),
-        GitStatus::Modified => palette.git_modified(),
-        GitStatus::Deleted => palette.git_deleted(),
-        GitStatus::Clean | GitStatus::Ignored => palette.foreground(),
-    }
-}
-
 fn chevron(
     entry: &FileTreeEntry,
     palette: &Palette,
@@ -242,42 +229,6 @@ fn glyph(
         .items_center()
         .justify_center()
         .child(icon)
-}
-
-fn letter_badge(letter: char) -> Div {
-    div()
-        .flex_none()
-        .text_size(TEXT_CAPTION)
-        .child(letter.to_string())
-}
-
-fn count_gap(look: &TreeLook) -> Pixels {
-    if look.compact_badges {
-        return px(TIGHT_COUNT_GAP);
-    }
-    SPACE_XS
-}
-
-fn counts_view(
-    (added, deleted): (u32, u32),
-    (mono, gap): (&'static str, Pixels),
-    palette: &Palette,
-) -> Div {
-    div()
-        .flex()
-        .gap(gap)
-        .font_family(mono)
-        .text_size(TEXT_CAPTION)
-        .child(
-            div()
-                .text_color(palette.sidebar_count_added())
-                .child(format!("+{added}")),
-        )
-        .child(
-            div()
-                .text_color(palette.sidebar_count_deleted())
-                .child(format!("-{deleted}")),
-        )
 }
 
 #[cfg(test)]

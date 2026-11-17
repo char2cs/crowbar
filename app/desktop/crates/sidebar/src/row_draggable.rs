@@ -40,11 +40,12 @@ pub(crate) fn draggable(
 }
 
 fn report_press(
-    (row, handler): &Reporter,
+    reporter: &Reporter,
     event: &MouseDownEvent,
     window: &mut Window,
     cx: &mut App,
 ) {
+    let (row, handler) = reporter;
     let press = DragPress {
         row: row.clone(),
         at: event.position,
@@ -53,11 +54,12 @@ fn report_press(
 }
 
 fn report_drop(
-    (row, handler): &Reporter,
+    reporter: &Reporter,
     dragged: &DraggedRow,
     window: &mut Window,
     cx: &mut App,
 ) {
+    let (row, handler) = reporter;
     handler(
         RowAction::Dropped(RowId::from(dragged.row.as_ref()), row.clone()),
         window,
@@ -66,11 +68,12 @@ fn report_drop(
 }
 
 fn report_over(
-    (row, handler): &Reporter,
+    reporter: &Reporter,
     event: &DragMoveEvent<DraggedRow>,
     window: &mut Window,
     cx: &mut App,
 ) {
+    let (row, handler) = reporter;
     let at = event.event.position;
     if !event.bounds.contains(&at) {
         return;

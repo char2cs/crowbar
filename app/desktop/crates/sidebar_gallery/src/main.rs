@@ -1,7 +1,3 @@
-#![allow(
-    clippy::print_stderr,
-    reason = "the gallery reports startup failures on the terminal"
-)]
 //! Shows the sidebar over a stand-in content area; used to capture parity screenshots.
 //!
 //! Usage: `sidebar_gallery [--theme crowbar|frosted] [--mode light|dark] [--size WxH]
@@ -12,6 +8,8 @@
 mod arguments;
 mod content;
 
+use std::cell::RefCell;
+use std::error::Error;
 use std::rc::Rc;
 
 use gpui::{
@@ -49,7 +47,7 @@ fn preview(
 fn open(
     cx: &mut App,
     arguments: &Arguments,
-) {
+) -> Result<(), Box<dyn Error>> {
     let (width, height) = arguments.size();
     let bounds = Bounds::centered(None, size(px(width), px(height)), cx);
     let options = WindowOptions {
@@ -58,37 +56,49 @@ fn open(
     };
     let data = Rc::new(arguments.data());
     let preferences = arguments.preferences();
-    let opened = cx.open_window(options, |_, cx| {
+    cx.open_window(options, |_, cx| {
         let background = Theme::of(cx).palette(Surface::Window).background();
         let content = cx.new(|_| Content { background }).into();
         let sidebar =
             cx.new(|cx| Sidebar::new(Rc::clone(&data) as _, data, content, (preferences, cx)));
         preview(&sidebar, arguments, cx);
         sidebar
-    });
-    if let Err(error) = opened {
-        eprintln!("sidebar_gallery: open window: {error}");
-        cx.quit();
-    }
+    })?;
+    Ok(())
 }
 
 fn start(
     cx: &mut App,
     arguments: &Arguments,
-) {
-    if let Err(error) = ui::init(cx) {
-        eprintln!("sidebar_gallery: {error}");
-        cx.quit();
-        return;
-    }
+) -> Result<(), Box<dyn Error>> {
+    ui::init(cx)?;
     arguments.apply(cx);
-    open(cx, arguments);
+    open(cx, arguments)?;
     cx.activate(true);
+    Ok(())
 }
 
-fn main() {
+type Failure = Box<dyn Error>;
+
+fn remember_failure(
+    result: Result<(), Failure>,
+    slot: &Rc<RefCell<Option<Failure>>>,
+    cx: &mut App,
+) {
+    let Err(error) = result else {
+        return;
+    };
+    *slot.borrow_mut() = Some(error);
+    cx.quit();
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
     let arguments = Arguments::from_env();
+    let failure: Rc<RefCell<Option<Failure>>> = Rc::default();
+    let report = Rc::clone(&failure);
     Application::new()
         .with_assets(ui::assets())
-        .run(move |cx: &mut App| start(cx, &arguments));
+        .run(move |cx: &mut App| remember_failure(start(cx, &arguments), &report, cx));
+    let error = failure.borrow_mut().take();
+    error.map_or(Ok(()), Err)
 }
