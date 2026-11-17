@@ -2,7 +2,9 @@ package handlers_test
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -13,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/browser"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/browser/handlers"
 	"github.com/char2cs/crowbar/api/internal/app/browserbridge"
 )
 
@@ -84,4 +87,37 @@ func waitForTabs(t *testing.T, bridge *browserbridge.Bridge, present bool) {
 	require.Eventually(t, func() bool {
 		return (string(bridge.Tabs("chat1")) != "[]") == present
 	}, 5*time.Second, 5*time.Millisecond)
+}
+
+func TestPeer_RefusesAClientThatCameOverTLS(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	browser.Register(r.Group("/v0"), browserbridge.New())
+	srv := httptest.NewTLSServer(r)
+	t.Cleanup(srv.Close)
+	dialer := websocket.Dialer{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}} //nolint:gosec // a test server's self-signed certificate
+	conn, resp, err := dialer.Dial("wss"+strings.TrimPrefix(srv.URL, "https")+"/v0/browser/peer", nil)
+	require.Error(t, err)
+	require.Nil(t, conn)
+	require.Equal(t, http.StatusForbidden, resp.StatusCode, "paired network clients are not the desktop")
+	require.NoError(t, resp.Body.Close())
+}
+
+func TestPeer_DropsAPeerThatStopsAnsweringPings(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	bridge := browserbridge.New()
+	r := gin.New()
+	r.GET("/v0/browser/peer", handlers.NewWithKeepalive(bridge, 10*time.Millisecond, 100*time.Millisecond).Peer)
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+	conn, resp, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http")+"/v0/browser/peer", nil)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	t.Cleanup(func() { _ = conn.Close() })
+	require.NoError(t, conn.WriteJSON(map[string]any{
+		"type": "tabs", "tabs": []map[string]any{{"id": "t1", "chatId": "chat1"}},
+	}))
+	waitForTabs(t, bridge, true)
+	// The client never reads again, so it never answers a ping: a half-open connection.
+	waitForTabs(t, bridge, false)
 }

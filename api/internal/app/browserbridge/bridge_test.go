@@ -130,6 +130,24 @@ func TestScope_TabsRouteToTheWindowThatOwnsThem(t *testing.T) {
 	require.Equal(t, 0, p2.sent())
 }
 
+func TestDo_WithoutATabTheWindowThatOwnsTheChatsTabsIsAsked(t *testing.T) {
+	b := browserbridge.New()
+	s1, p1 := attach(b)
+	s2, p2 := attach(b)
+	s1.Receive(tabsFrame("one", "chat1"))
+	p1.onSend = respond(s1, true, `{}`, "")
+	p2.onSend = respond(s2, true, `{}`, "")
+
+	_, err := b.Do(context.Background(), "chat1", "open", "", nil)
+	require.NoError(t, err)
+	require.Equal(t, 1, p1.sent(), "the owner of the chat's tabs, not the newest window")
+	require.Equal(t, 0, p2.sent())
+
+	_, err = b.Do(context.Background(), "chat2", "open", "", nil)
+	require.NoError(t, err)
+	require.Equal(t, 1, p2.sent(), "a chat with no tabs yet goes to the newest window")
+}
+
 func TestDo_ClosingThePeerFailsItsPendingCallsAndForgetsItsTabs(t *testing.T) {
 	b := browserbridge.New()
 	s, p := attach(b)

@@ -145,7 +145,22 @@ func (b *Bridge) route(chatID, tabID string) (*Session, error) {
 	if len(b.peers) == 0 {
 		return nil, ErrNoDesktop
 	}
+	for _, s := range b.peers {
+		if s.holdsTabOf(chatID) {
+			return s, nil
+		}
+	}
 	return b.peers[len(b.peers)-1], nil
+}
+
+// holdsTabOf reports whether the peer reported a tab of chat chatID. The caller holds bridge.mu.
+func (s *Session) holdsTabOf(chatID string) bool {
+	for _, t := range s.tabs {
+		if t.chatID == chatID {
+			return true
+		}
+	}
+	return false
 }
 
 func (b *Bridge) forget(id string) {
