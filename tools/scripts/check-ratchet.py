@@ -10,7 +10,8 @@ fails when NEW has a key or count above OLD. `--strict` ignores the baselines (t
 
 Usage: check-ratchet.py --lang rust|ts|swift [--scope PREFIX]... [--scanned FILE] [--strict] [--shrink] [--baseline-dir DIR]
        check-ratchet.py --seed --lang L ...   (initial seeding only; writes the baseline from stdin)
-       check-ratchet.py --guard OLD NEW   |   check-ratchet.py --self-test"""
+       check-ratchet.py --guard OLD NEW   |   check-ratchet.py --self-test
+       check-ratchet.py --rekey --lang L OLD NEW   (findings on stdin; a pure file move: see `rekey`)"""
 import contextlib, os, re, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -102,6 +103,35 @@ def guard(old, new):
             print(f"{new}: [baseline-grew] {key[0]} {key[1]}: {a.get(key, 0)} -> {count}; baselines only shrink"); bad = 1
     return bad
 
+def rekey(lang, lines, directory, old, new):
+    """Moves the baseline entries of file OLD to file NEW after a pure move of the file.
+    Refuses (returns the reasons, changes nothing) when NEW already has an entry, when OLD still
+    has findings, or when NEW has more findings of a rule than OLD was allowed: a rekey never
+    grows a baseline. Entries are written with the findings NEW actually has, so a move that also
+    fixed some findings shrinks them."""
+    findings, _ = parse(lines)
+    actual = {}
+    for f in findings:
+        if f["rule"] in RATCHET[lang]: actual[(f["file"], key_of(f))] = actual.get((f["file"], key_of(f)), 0) + 1
+    problems, moves = [], {}
+    for kind, name in (("main", f"{lang}-baseline.txt"), ("allow", "allow-baseline.txt")):
+        path = os.path.join(directory, name)
+        base = read_baseline(path)
+        for (file, key), allowed in base.items():
+            if file != old: continue
+            if (new, key) in base: problems.append(f"{new}: [rekey] already has a baseline entry for {key}")
+            if actual.get((old, key), 0): problems.append(f"{old}: [rekey] still has {key} findings: not a pure move")
+            if actual.get((new, key), 0) > allowed: problems.append(f"{new}: [rekey] {key}: {actual[(new, key)]} findings, {old} was allowed {allowed}")
+            moves.setdefault(path, []).append((key, actual.get((new, key), 0)))
+    for key, count in actual.items():
+        if key[0] == new and not any(key[1] == k for entries in moves.values() for k, _ in entries): problems.append(f"{new}: [rekey] {key[1]}: {count} findings with no baseline entry on {old}")
+    if problems or not moves: return problems or [f"{old}: [rekey] no baseline entry to move"]
+    for path, entries in moves.items():
+        table = read_baseline(path)
+        for key, count in entries: del table[(old, key)]; table[(new, key)] = count
+        write_baseline(path, table, open(path).readline())
+    return []
+
 def self_test():
     rc = 0
     with tempfile.TemporaryDirectory() as d:
@@ -133,12 +163,39 @@ def self_test():
         open(old, "w").write("a.rs\tmagic-number\t1\n"); open(new, "w").write("a.rs\tmagic-number\t2\n")
         with open(os.devnull, "w") as sink, contextlib.redirect_stdout(sink): ok = guard(old, new) == 1
         print(("ok   " if ok else "FAIL ") + "ratchet: --guard rejects a grown baseline"); rc |= 0 if ok else 1
+        rc |= rekey_self_test(d)
+    return rc
+
+def rekey_self_test(d):
+    rc = 0
+    path = os.path.join(d, "rust-baseline.txt")
+    mk = lambda file, rule, n: [f"{file}:{i + 1}: [{rule}] m" for i in range(n)]
+    cases = [
+        ("rekey keeps a count that does not grow", 2, mk("b.rs", "magic-number", 2), True, 2),
+        ("rekey lowers a count the move fixed", 2, mk("b.rs", "magic-number", 1), True, 1),
+        ("rekey refuses growth", 2, mk("b.rs", "magic-number", 3), False, 2),
+        ("rekey refuses a file that still has findings", 2, mk("a.rs", "magic-number", 1) + mk("b.rs", "magic-number", 1), False, 2),
+        ("rekey refuses findings of a rule it never allowed", 2, mk("b.rs", "magic-number", 1) + mk("b.rs", "fn-count", 1), False, 2),
+    ]
+    for name, base, lines, want_ok, count in cases:
+        open(path, "w").write(f"# header\na.rs\tmagic-number\t{base}\n")
+        problems = rekey("rust", lines, d, "a.rs", "b.rs")
+        table = read_baseline(path)
+        moved = table.get(("b.rs", "magic-number")) == count and ("a.rs", "magic-number") not in table
+        kept = table.get(("a.rs", "magic-number")) == base and ("b.rs", "magic-number") not in table
+        ok = (not problems) == want_ok and (moved if want_ok else kept)
+        print(("ok   " if ok else "FAIL ") + "ratchet: " + name); rc |= 0 if ok else 1
     return rc
 
 def main(argv):
     if "--self-test" in argv: return self_test()
     if "--guard" in argv:
         i = argv.index("--guard"); return guard(argv[i + 1], argv[i + 2])
+    if "--rekey" in argv:
+        i = argv.index("--rekey"); lang = argv[argv.index("--lang") + 1]
+        out = rekey(lang, sys.stdin.readlines(), HERE, argv[i + 1], argv[i + 2])
+        print("\n".join(out)) if out else None
+        return 1 if out else 0
     opts = {"--lang": None, "--baseline-dir": HERE, "--scanned": None}
     scopes, flags, i = [], set(), 0
     while i < len(argv):

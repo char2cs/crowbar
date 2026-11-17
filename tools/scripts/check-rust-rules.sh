@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Enforces the structure rules of docs/rust-style.md that rustfmt and clippy cannot.
 # Usage: check-rust-rules.sh [--full] [--mobile] [ROOT...]   (--mobile adds app/mobile/ios-plugin, reported separately)   |   check-rust-rules.sh --self-test
+#        check-rust-rules.sh --rekey OLD NEW [ROOT...]   (after a pure file move: re-keys the baseline entries of OLD to NEW, never growing them)
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../.." && pwd)
@@ -145,8 +146,11 @@ do_full=0
 mobile=0
 ratchet_flags=()
 roots=()
-for a in "$@"; do
+rekey=()
+while (($#)); do
+  a=$1; shift
   case $a in
+    --rekey) rekey=(--rekey "$1" "$2"); shift 2 ;;
     --self-test) self_test ;;
     --full) do_full=1 ;;
     --mobile) mobile=1 ;;
@@ -167,6 +171,10 @@ for r in "${roots[@]}"; do
 done
 status=0
 ((do_full)) && full
-python3 -I "$here/check-ratchet.py" --lang rust ${scopes[@]+"${scopes[@]}"} ${ratchet_flags[@]+"${ratchet_flags[@]}"} <"$findings" || status=1
+if ((${#rekey[@]})); then
+  python3 -I "$here/check-ratchet.py" --lang rust "${rekey[@]}" <"$findings" || status=1
+else
+  python3 -I "$here/check-ratchet.py" --lang rust ${scopes[@]+"${scopes[@]}"} ${ratchet_flags[@]+"${ratchet_flags[@]}"} <"$findings" || status=1
+fi
 ((status)) && echo "check-rust-rules: violations found (see docs/rust-style.md)"
 exit $status
