@@ -70,6 +70,7 @@ mod shell_transport;
 mod socket_locator;
 mod socket_trust;
 mod stream_access;
+mod text_stream;
 mod tls_config;
 mod token_book;
 mod token_store;
@@ -111,6 +112,7 @@ pub use response::{
 pub use shell_transport::ShellTransport;
 pub use socket_locator::SocketLocator;
 pub use stream_access::StreamAccess;
+pub use text_stream::TextStream;
 pub use token_store::TokenStore;
 pub use transport::Transport;
 

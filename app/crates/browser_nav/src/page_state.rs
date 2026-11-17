@@ -35,7 +35,10 @@ impl PageState {
                 self.loading = false;
             },
             PageUpdate::Title { title } => self.title = Some(title),
-            PageUpdate::Picked { .. } | PageUpdate::PickEnded | PageUpdate::PickFailed { .. } => {},
+            PageUpdate::Picked { .. }
+            | PageUpdate::PickEnded
+            | PageUpdate::PickFailed { .. }
+            | PageUpdate::AgentReply { .. } => {},
         }
     }
 

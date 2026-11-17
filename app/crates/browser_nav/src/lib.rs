@@ -8,9 +8,12 @@
 //! report of what happened in the page and [`PageState`] folds those reports into what the
 //! address bar, title and reload button show.
 
+mod agent_answer;
+mod agent_script;
 mod browser_nav;
 mod browser_url;
 mod error;
+mod page_calls;
 mod page_state;
 mod page_update;
 mod pick_report;
@@ -20,6 +23,8 @@ mod pointer_text;
 mod search_engine;
 mod tab_name;
 
+pub use agent_answer::AgentAnswer;
+pub use agent_script::{agent_script, eval_script};
 pub use browser_nav::resolve_address;
 pub use browser_url::BrowserUrl;
 pub use error::Error;

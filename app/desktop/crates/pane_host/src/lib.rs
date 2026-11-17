@@ -21,6 +21,7 @@ mod bootstrap;
 mod browse;
 mod browse_action;
 mod browser_slot;
+mod browser_view;
 mod bundle_asset;
 mod bundle_source;
 mod drop_message;

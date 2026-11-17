@@ -15,4 +15,6 @@ pub enum BrowseAction {
     Pick,
     /// End a pick in progress.
     CancelPick,
+    /// Run a script the shell wrote in the page.
+    Script(String),
 }

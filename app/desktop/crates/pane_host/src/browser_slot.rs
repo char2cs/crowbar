@@ -42,7 +42,7 @@ fn forward_pick(
     sink: &async_channel::Sender<IpcMessage>,
     text: &str,
 ) {
-    if let Some(update) = PageUpdate::from_pick_message(text) {
+    if let Some(update) = PageUpdate::from_page_message(text) {
         send_update(owner, sink, &update);
     }
 }

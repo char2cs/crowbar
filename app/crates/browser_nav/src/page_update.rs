@@ -1,10 +1,12 @@
 use serde::{Deserialize, Serialize};
 
+use crate::agent_answer::AgentAnswer;
 use crate::browser_url::BrowserUrl;
 use crate::pick_report::PickReport;
 
 const MAX_TITLE_CHARS: usize = 200;
 const MAX_FAILURE_CHARS: usize = 200;
+const MAX_REPLY_BYTES: usize = 8 << 20;
 
 /// What the web engine reported about a browser pane's page. The shell builds these from the
 /// engine's own callbacks, never from anything the page posts.
@@ -39,6 +41,13 @@ pub enum PageUpdate {
         /// What the page said, shortened.
         message: String,
     },
+    /// The page answered a script the shell ran for an agent.
+    AgentReply {
+        /// The id the script was given.
+        id: String,
+        /// What the script returned, or what went wrong.
+        answer: AgentAnswer,
+    },
 }
 
 impl PageUpdate {
@@ -68,15 +77,20 @@ impl PageUpdate {
             Self::Title { .. }
             | Self::Picked { .. }
             | Self::PickEnded
-            | Self::PickFailed { .. } => Some(update),
+            | Self::PickFailed { .. }
+            | Self::AgentReply { .. } => Some(update),
         }
     }
-    /// Reads what the pick script posted from the page: the one message a browsed page may send.
-    /// Anything else, including a message shaped like another update, is `None`.
+    /// Reads what the scripts the shell ran posted from the page: a finished pick or the answer to
+    /// an agent's script, the only messages a browsed page may send. Anything else, including a
+    /// message shaped like another update, is `None`.
     #[must_use]
-    pub fn from_pick_message(text: &str) -> Option<Self> {
+    pub fn from_page_message(text: &str) -> Option<Self> {
         let message: serde_json::Value = serde_json::from_str(text).ok()?;
-        pick_update(message.get("crowbarPick")?)
+        if let Some(body) = message.get("crowbarPick") {
+            return pick_update(body);
+        }
+        agent_update(message.get("crowbarAgent")?)
     }
 }
 
@@ -84,6 +98,28 @@ fn failure(error: &str) -> PageUpdate {
     PageUpdate::PickFailed {
         message: error.chars().take(MAX_FAILURE_CHARS).collect(),
     }
+}
+
+fn agent_update(body: &serde_json::Value) -> Option<PageUpdate> {
+    let id = body.get("id")?.as_str()?.to_owned();
+    Some(PageUpdate::AgentReply {
+        id,
+        answer: answer_of(body)?,
+    })
+}
+
+fn answer_of(body: &serde_json::Value) -> Option<AgentAnswer> {
+    if body.to_string().len() > MAX_REPLY_BYTES {
+        return Some(AgentAnswer::Failed(format!(
+            "the page's answer is over {MAX_REPLY_BYTES} bytes"
+        )));
+    }
+    if let Some(error) = body.get("error").and_then(serde_json::Value::as_str) {
+        return Some(AgentAnswer::Failed(
+            error.chars().take(MAX_FAILURE_CHARS).collect(),
+        ));
+    }
+    body.get("result").cloned().map(AgentAnswer::Done)
 }
 
 fn pick_update(body: &serde_json::Value) -> Option<PageUpdate> {
@@ -132,7 +168,15 @@ mod tests {
     }
 
     fn kind_of(text: &str) -> &'static str {
-        match PageUpdate::from_pick_message(text) {
+        match PageUpdate::from_page_message(text) {
+            Some(PageUpdate::AgentReply {
+                answer: AgentAnswer::Done(_),
+                ..
+            }) => "answered",
+            Some(PageUpdate::AgentReply {
+                answer: AgentAnswer::Failed(_),
+                ..
+            }) => "refused",
             Some(PageUpdate::PickEnded) => "ended",
             Some(PageUpdate::PickFailed { .. }) => "failed",
             Some(PageUpdate::Picked { .. }) => "picked",
@@ -141,7 +185,7 @@ mod tests {
     }
 
     #[test]
-    fn only_the_pick_script_message_is_read_from_a_page() {
+    fn only_the_messages_of_the_shells_own_scripts_are_read_from_a_page() {
         const CASES: &[(&str, &str)] = &[
             (r#"{"crowbarPick":{"result":null}}"#, "ended"),
             (r#"{"crowbarPick":{"error":"boom"}}"#, "failed"),
@@ -149,6 +193,14 @@ mod tests {
                 r#"{"crowbarPick":{"result":{"kind":"element","title":"t","url":"u","items":[],"more":0,"box":[1,2,3,4]}}}"#,
                 "picked",
             ),
+            (
+                r#"{"crowbarAgent":{"id":"7","result":{"a":1}}}"#,
+                "answered",
+            ),
+            (r#"{"crowbarAgent":{"id":"7","result":null}}"#, "answered"),
+            (r#"{"crowbarAgent":{"id":"7","error":"boom"}}"#, "refused"),
+            (r#"{"crowbarAgent":{"result":1}}"#, "none"),
+            (r#"{"crowbarAgent":{"id":"7"}}"#, "none"),
             (r#"{"page":"loaded","url":"https://a.test/"}"#, "none"),
             (r#"{"crowbarPick":{"result":{"kind":1}}}"#, "none"),
             ("not json", "none"),
@@ -156,6 +208,19 @@ mod tests {
         for (text, expected) in CASES {
             assert_eq!(kind_of(text), *expected, "{text}");
         }
+    }
+
+    #[test]
+    fn an_answer_too_large_to_carry_is_refused_by_id() {
+        let body = serde_json::json!({
+            "crowbarAgent": { "id": "9", "result": "x".repeat(MAX_REPLY_BYTES) }
+        });
+        let update = PageUpdate::from_page_message(&body.to_string());
+        let refused = matches!(
+            &update,
+            Some(PageUpdate::AgentReply { id, answer: AgentAnswer::Failed(_) }) if id == "9"
+        );
+        assert!(refused, "a refusal for request 9, got {update:?}");
     }
 
     #[test]
