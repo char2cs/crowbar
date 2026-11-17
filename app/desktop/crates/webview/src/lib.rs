@@ -109,6 +109,8 @@ mod xlib_parent;
 #[cfg(target_os = "macos")]
 mod appkit_parent;
 #[cfg(target_os = "macos")]
+mod macos_browsing_data;
+#[cfg(target_os = "macos")]
 mod macos_data_store;
 #[cfg(target_os = "macos")]
 mod macos_platform;

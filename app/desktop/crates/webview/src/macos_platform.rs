@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ptr::NonNull;
 use std::rc::Rc;
@@ -18,6 +18,7 @@ use crate::page_control::PageControl;
 use crate::parent_window::ParentWindow;
 use crate::platform::Platform;
 use crate::protocol_handler::ProtocolHandler;
+use crate::view_capture::ViewCapture;
 use crate::view_focus::ViewFocus;
 use crate::view_layout::ViewLayout;
 use crate::view_lifecycle::ViewLifecycle;
@@ -29,7 +30,9 @@ use crate::web_view_kind::WebViewKind;
 pub(crate) struct MacosPlatform {
     scheme: String,
     protocol: Arc<dyn ProtocolHandler>,
-    views: RefCell<HashMap<WebViewId, Rc<WebView>>>,
+    pub(crate) views: RefCell<HashMap<WebViewId, Rc<WebView>>>,
+    pub(crate) kinds: RefCell<HashMap<WebViewId, WebViewKind>>,
+    pub(crate) last_parent: Cell<Option<usize>>,
 }
 
 impl MacosPlatform {
@@ -39,6 +42,8 @@ impl MacosPlatform {
             scheme: config.scheme,
             protocol: config.protocol,
             views: RefCell::new(HashMap::new()),
+            kinds: RefCell::new(HashMap::new()),
+            last_parent: Cell::new(None),
         })
     }
 
@@ -92,6 +97,8 @@ impl ViewLifecycle for MacosPlatform {
         let web_view =
             common_attributes(builder, &id_text, &config).build_as_child(&AppkitParent(view))?;
         self.views.borrow_mut().insert(id, Rc::new(web_view));
+        self.kinds.borrow_mut().insert(id, config.kind);
+        self.last_parent.set(Some(address));
         Ok(())
     }
 
@@ -99,6 +106,7 @@ impl ViewLifecycle for MacosPlatform {
         &self,
         id: WebViewId,
     ) -> Result<()> {
+        self.kinds.borrow_mut().remove(&id);
         self.views
             .borrow_mut()
             .remove(&id)
@@ -152,6 +160,8 @@ impl PageControl for MacosPlatform {
 }
 
 impl Platform for MacosPlatform {}
+
+impl ViewCapture for MacosPlatform {}
 
 impl ViewFocus for MacosPlatform {
     fn focus(

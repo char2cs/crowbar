@@ -124,16 +124,17 @@ fn member_ink(
     strong
 }
 
-fn member_glyph(
-    spinner_id: Option<ElementId>,
-    (kind, color): (MemberKind, Hsla),
+fn spinner_glyph(spinner_id: ElementId) -> AnyElement {
+    Spinner::new(spinner_id)
+        .size(px(SPINNER))
+        .on(Surface::Chrome)
+        .into_any_element()
+}
+
+fn resting_glyph(
+    kind: MemberKind,
+    color: Hsla,
 ) -> AnyElement {
-    if let Some(spinner_id) = spinner_id {
-        return Spinner::new(spinner_id)
-            .size(px(SPINNER))
-            .on(Surface::Chrome)
-            .into_any_element();
-    }
     let icon = match kind {
         MemberKind::Chat => IconName::ChatsCircle,
         MemberKind::Terminal => IconName::Terminal,
@@ -159,7 +160,8 @@ fn member_row(
     let spinner = member
         .working
         .then(|| ElementId::from((id.clone(), format!("spin{index}"))));
-    let glyph = member_glyph(spinner, (member.kind, text));
+    let resting = (count == 1).then(|| resting_glyph(member.kind, text));
+    let glyph = spinner.map(spinner_glyph).or(resting);
     div()
         .relative()
         .flex()
@@ -173,7 +175,7 @@ fn member_row(
         .when(!last && look == ShellLook::Idle, |row| {
             row.child(divider(muted))
         })
-        .child(glyph)
+        .children(glyph)
         .child(label(member, text))
 }
 
@@ -187,6 +189,7 @@ fn label(
         .overflow_hidden()
         .whitespace_nowrap()
         .text_ellipsis()
+        .debug_selector(|| "tab-label".into())
         .text_size(text_size::SM - px(1.0))
         .font_weight(FontWeight::MEDIUM)
         .text_color(color)
@@ -234,7 +237,68 @@ fn close_button(
 
 #[cfg(test)]
 mod tests {
+    use gpui::{Context, Render, TestAppContext};
+    use protocol::PaneId;
+    use ui::Motion;
+
     use super::*;
+
+    struct Pill {
+        labels: &'static [&'static str],
+    }
+
+    impl Render for Pill {
+        fn render(
+            &mut self,
+            _window: &mut Window,
+            _cx: &mut Context<'_, Self>,
+        ) -> impl IntoElement {
+            let members = self
+                .labels
+                .iter()
+                .enumerate()
+                .map(|(index, label)| MemberView {
+                    pane: PaneId::new(format!("pane{index}")).expect("id"),
+                    label: (*label).into(),
+                    provisional: false,
+                    working: false,
+                    kind: MemberKind::Chat,
+                });
+            div().flex().child(TabShell {
+                id: ElementId::from("pill"),
+                members: members.collect(),
+                look: ShellLook::Idle,
+                width: 236.0,
+                on_close: None,
+            })
+        }
+    }
+
+    fn label_width(
+        cx: &mut TestAppContext,
+        labels: &'static [&'static str],
+    ) -> f32 {
+        cx.update(|cx| {
+            ui::init(cx).expect("ui init");
+            cx.set_global(Theme::default());
+            cx.set_global(Motion::default());
+        });
+        let (_, cx) = cx.add_window_view(|_, _| Pill { labels });
+        cx.run_until_parked();
+        let bounds = cx.debug_bounds("tab-label");
+        bounds.map_or(0.0, |bounds| f32::from(bounds.size.width))
+    }
+
+    #[gpui::test]
+    fn the_members_of_a_set_leave_their_labels_room_instead_of_a_resting_glyph(
+        cx: &mut TestAppContext
+    ) {
+        const SET: &[&str] = &["New chat", "Terminal", "Review"];
+        const LONE: &[&str] = &["New chat"];
+        let set = label_width(cx, SET);
+        assert!(set >= 60.0, "a label of three: {set}");
+        assert!(label_width(cx, LONE) >= 150.0, "a lone tab keeps its room");
+    }
 
     #[test]
     fn the_pill_is_thirty_two_pixels_high_and_the_close_button_twenty_four() {
