@@ -3,6 +3,7 @@ use protocol::PaneId;
 use crate::error::{Error, Result};
 use crate::layout::Layout;
 use crate::pane_instance::PaneInstance;
+use crate::pin_commands;
 use crate::tab::Tab;
 
 type Seat<'a> = (&'a PaneId, Option<usize>);
@@ -30,6 +31,22 @@ pub(crate) fn open(
 }
 
 pub(crate) fn join(
+    layout: &mut Layout,
+    pane: &PaneId,
+    onto: Seat<'_>,
+) -> Result<()> {
+    let pinned = layout
+        .tab_of(pane)
+        .and_then(|tab| tab.group_of(pane))
+        .is_some_and(|group| group.is_pinned(pane));
+    seat_in(layout, pane, onto)?;
+    if pinned {
+        pin_commands::pin(layout, pane)?;
+    }
+    Ok(())
+}
+
+fn seat_in(
     layout: &mut Layout,
     pane: &PaneId,
     onto: Seat<'_>,
@@ -345,6 +362,46 @@ mod tests {
             let strip = all.iter().find(|strip| strip.contains('n')).unwrap();
             assert_eq!(strip, case.strip, "{}", case.name);
             assert_eq!(focused(&layout), "n", "{}: focused", case.name);
+        }
+    }
+
+    struct Travelled {
+        name: &'static str,
+        moved: &'static str,
+        onto: &'static str,
+        tab: u64,
+        strip: &'static str,
+    }
+
+    const TRAVELLED: &[Travelled] = &[
+        Travelled {
+            name: "into another group of the same tab",
+            moved: "a",
+            onto: "e",
+            tab: 1,
+            strip: "a* e f",
+        },
+        Travelled {
+            name: "into a group of another tab",
+            moved: "a",
+            onto: "x",
+            tab: 2,
+            strip: "a* x y",
+        },
+    ];
+
+    #[test]
+    fn a_pinned_pane_stays_pinned_in_the_group_it_moves_to() {
+        for case in TRAVELLED {
+            let mut layout = fixture();
+            apply(&mut layout, Command::PinPane { pane: id(case.moved) });
+            join_to(&mut layout, case.moved, (case.onto, None));
+            let strip = strips(&layout, case.tab);
+            let joined = strip.iter().find(|strip| strip.contains(case.moved)).unwrap();
+            let group = layout.tab_of(&id(case.moved)).unwrap().group_of(&id(case.moved)).unwrap();
+            assert_eq!(joined, case.strip, "{}", case.name);
+            assert!(group.is_pinned(&id(case.moved)), "{}: still pinned", case.name);
+            assert_eq!(group.pinned_count(), 1, "{}: one pin", case.name);
         }
     }
 
