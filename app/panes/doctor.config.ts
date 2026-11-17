@@ -10,6 +10,23 @@ import type { ReactDoctorConfig } from 'react-doctor/api'
 // score); "warn" / "error" restamp severity. Keys are fully-qualified
 // `<plugin>/<rule>`. Anything not listed keeps its built-in severity.
 export default {
+  ignore: {
+    // Vite build output (gitignored): bundled third-party code, not our source.
+    files: ['dist-panes/**'],
+    // Each pane's entries/<pane>/index.html loads src/entries/<pane>.tsx; the
+    // dead-code pass does not follow those pane HTML entry points.
+    overrides: [
+      {
+        files: [
+          'src/entries/chat.tsx',
+          'src/entries/console.tsx',
+          'src/entries/editor.tsx',
+          'src/entries/review.tsx',
+        ],
+        rules: ['deslop/unused-file'],
+      },
+    ],
+  },
   rules: {
     // OFF — false-positive-dominated (42/42 sampled). Every flagged site is one
     // of this codebase's sanctioned render-time ref patterns: latest-ref

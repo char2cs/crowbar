@@ -34,6 +34,7 @@ function useShellReporting(client: Shell, buffer: PaneContent | undefined): void
   const bufferId = buffer?.id
 
   useEffect(() => {
+    // react-doctor-disable-next-line no-pass-live-state-to-parent -- `client` is the shell channel, not a parent component: the shell is told the pane's title, and no render is saved by lifting it.
     if (buffer?.name) client.setTitle(buffer.name)
   }, [client, buffer?.name])
 

@@ -9,6 +9,7 @@ type Relay = { url: string; token: string }
 function freshRelay(api: string, cached: Relay | null | undefined): Relay | null | undefined {
   try {
     const lookup = new XMLHttpRequest()
+    // react-doctor-disable-next-line no-sync-xhr -- WsLike factories return a socket synchronously, so the relay token must be read before returning; the lookup is a loopback call to the shell's own server.
     lookup.open('GET', `${api}/__crowbar/relay`, false)
     lookup.send()
     if (lookup.status !== HTTP_OK) return cached
