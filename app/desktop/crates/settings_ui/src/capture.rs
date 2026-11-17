@@ -49,7 +49,7 @@ impl Capture {
     }
 }
 
-fn primary_modifier(primary: Primary) -> Modifier {
+pub(crate) fn primary_modifier(primary: Primary) -> Modifier {
     match primary {
         Primary::Control => Modifier::Control,
         Primary::Platform => Modifier::Platform,

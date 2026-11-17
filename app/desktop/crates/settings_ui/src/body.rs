@@ -120,7 +120,7 @@ mod tests {
             .state
             .capture_refusal()
             .is_some()));
-        cx.simulate_keystrokes("ctrl-k");
+        cx.simulate_keystrokes("secondary-k");
         let stored = harness.backend.get(&Key::new(KEYBINDING_OVERRIDES));
         let Some(Value::Map(map)) = stored else {
             panic!("no overrides stored: {stored:?}");

@@ -156,11 +156,12 @@ fn clear_button(
 mod tests {
     use gpui::TestAppContext;
 
+    use crate::capture::primary_modifier;
     use crate::catalog::KEYBINDING_OVERRIDES;
     use crate::intent::Intent;
     use crate::key::Key;
-    use crate::modifier::Modifier;
     use crate::pressed::Pressed;
+    use crate::primary::Primary;
     use crate::settings_read::SettingsRead as _;
     use crate::test_support::{inspect, open, run};
     use crate::value::Value;
@@ -184,7 +185,7 @@ mod tests {
         );
         run(
             &harness,
-            Intent::Key(Pressed::new("k", &[Modifier::Control])),
+            Intent::Key(Pressed::new("k", &[primary_modifier(Primary::native())])),
             cx,
         );
         assert!(matches!(overrides(&harness), Some(Value::Map(map)) if map.len() == 1));

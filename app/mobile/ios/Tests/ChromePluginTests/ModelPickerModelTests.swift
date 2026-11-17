@@ -14,17 +14,16 @@ final class ModelPickerModelTests: XCTestCase {
   }
 
   private func state(icon: String?) -> ModelPickerState {
-    ModelPickerState(
+    let provider = PickerProvider(
+      id: "p",
+      name: "P",
+      icon: icon,
+      fallbackIcon: "Robot",
+      models: []
+    )
+    return ModelPickerState(
       open: true,
-      providers: [
-        PickerProvider(
-          id: "p",
-          name: "P",
-          icon: icon,
-          fallbackIcon: "Robot",
-          models: []
-        ),
-      ],
+      providers: [provider],
       selected: nil,
       efforts: [],
       effort: nil,

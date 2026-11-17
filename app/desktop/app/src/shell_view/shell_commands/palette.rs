@@ -70,13 +70,10 @@ mod tests {
                 .all(|entry| entry.id != ShellCommand::CommandPalette.id())
         );
         let close = entries.iter().find(|entry| entry.id == "tabs.closeActive");
+        let expected = ["Ctrl+W", "\u{2318}W"][usize::from(cfg!(target_os = "macos"))];
         assert_eq!(
             close.and_then(|entry| entry.shortcut.as_deref()),
-            Some(if cfg!(target_os = "macos") {
-                "⌘W"
-            } else {
-                "Ctrl+W"
-            })
+            Some(expected)
         );
     }
 }
