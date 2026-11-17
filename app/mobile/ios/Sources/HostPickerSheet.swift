@@ -5,6 +5,8 @@ struct HostPickerSheet: View {
   @ObservedObject var model: HostPickerModel
   @ObservedObject var chrome: ChromeModel
 
+  private static let closeEmphasis: CGFloat = 0.5
+
   private var palette: ChromePalette? { chrome.palette }
 
   var body: some View {
@@ -24,9 +26,12 @@ struct HostPickerSheet: View {
   }
 
   private var closeButton: some View {
-    Button(action: { model.send(.of("closeHostPicker")) }) {
-      PhosphorIcon(.x, emphasis: 0.5).foregroundStyle(palette?.text ?? .primary)
-    }
+    Button(
+      action: { model.send(.of("closeHostPicker")) },
+      label: {
+        PhosphorIcon(.xMark, emphasis: Self.closeEmphasis).foregroundStyle(palette?.text ?? .primary)
+      }
+    )
     .accessibilityLabel("Close")
   }
 }

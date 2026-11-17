@@ -22,8 +22,12 @@ final class ChromeStateTests: XCTestCase {
          "fingerprint":"ab:cd","busy":false,"error":null},
        "headers":{"chat":[],"ide":[{"id":"files","icon":"FolderSimple","side":"trailing",
          "label":"Files","enabled":true}]},
-       "reveal":"chatList","ack":4,"settings":{"open":true,"theme":"crowbar","themes":[{"id":"crowbar","name":"Crowbar"}],"pages":[{"id":"hosts","label":"Hosts","icon":"HardDrives"}]},"appearance":"dark","hostPlace":"local","hostStatus":"needs-repair",
-       "palette":{"surface":"#000","raised":"#111","text":"#fff","secondaryText":"#888","brandLight":"#606c38","brandDark":"#98a86a"}}
+       "reveal":"chatList","ack":4,"settings":{"open":true,"theme":"crowbar",
+         "themes":[{"id":"crowbar","name":"Crowbar"}],
+         "pages":[{"id":"hosts","label":"Hosts","icon":"HardDrives"}]},
+       "appearance":"dark","hostPlace":"local","hostStatus":"needs-repair",
+       "palette":{"surface":"#000","raised":"#111","text":"#fff","secondaryText":"#888",
+         "brandLight":"#606c38","brandDark":"#98a86a"}}
       """
     )
     XCTAssertEqual(state.connect?.stage, .fingerprint)
@@ -60,6 +64,5 @@ final class ChromeStateTests: XCTestCase {
     },
     RejectedCase(name: "stage") {
       try JSONDecoder().decode(ConnectStage.self, from: Data(#""done""#.utf8))
-    },
-  ]
+    }]
 }

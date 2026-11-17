@@ -9,13 +9,15 @@ final class OKLabMatrixTests: XCTestCase {
     let linearRGB: [Double]
   }
 
-  private let cases = [
+  private static func table(_ items: Case...) -> [Case] { items }
+
+  private static let cases = table(
     Case(name: "black", lab: [0, 0, 0], linearRGB: [0, 0, 0]),
-    Case(name: "white", lab: [1, 0, 0], linearRGB: [1, 1, 1]),
-  ]
+    Case(name: "white", lab: [1, 0, 0], linearRGB: [1, 1, 1])
+  )
 
   func testNeutralLabMapsToTheLinearGrey() {
-    for item in cases {
+    for item in Self.cases {
       let lms = OKLabMatrix.apply(OKLabMatrix.lmsFromLab, to: item.lab).map { $0 * $0 * $0 }
       let rgb = OKLabMatrix.apply(OKLabMatrix.linearRGBFromLms, to: lms)
       assertClose(rgb, item.linearRGB, item.name)

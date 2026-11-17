@@ -2,8 +2,10 @@ import UIKit
 import WebKit
 
 final class KeyboardFit: NSObject, UIGestureRecognizerDelegate {
+  private static let half: CGFloat = 0.5
+
   private weak var webview: WKWebView?
-  private var up = false
+  private var isKeyboardUp = false
   var fitted: () -> Void = {}
 
   init(webview: WKWebView) {
@@ -11,8 +13,9 @@ final class KeyboardFit: NSObject, UIGestureRecognizerDelegate {
     super.init()
     webview.scrollView.contentInsetAdjustmentBehavior = .never
     webview.scrollView.isScrollEnabled = false
-    // PLATFORM: ios: The transcript scrolls in WebKit's own inner scrollers, so `keyboardDismissMode` has no
-    // PLATFORM: ios: scroller to go on: this watches drags alongside them instead, never claiming the touch.
+    // PLATFORM: ios: The transcript scrolls in WebKit's own inner scrollers, so
+    // PLATFORM: ios: `keyboardDismissMode` has no scroller to go on: this watches drags
+    // PLATFORM: ios: alongside them instead, never claiming the touch.
     let drag = UIPanGestureRecognizer(target: self, action: #selector(dragged(_:)))
     drag.cancelsTouchesInView = false
     drag.delegate = self
@@ -33,7 +36,7 @@ final class KeyboardFit: NSObject, UIGestureRecognizerDelegate {
   }
 
   @objc private func dragged(_ drag: UIPanGestureRecognizer) {
-    guard up, drag.state == .began, let webview else { return }
+    guard isKeyboardUp, drag.state == .began, let webview else { return }
     let velocity = drag.velocity(in: webview)
     if velocity.y > abs(velocity.x) { webview.endEditing(true) }
   }
@@ -50,7 +53,7 @@ final class KeyboardFit: NSObject, UIGestureRecognizerDelegate {
     let hiding = note.name == UIResponder.keyboardWillHideNotification
     let keyboard = host.convert(end, from: nil)
     let overlap = hiding ? 0 : max(0, host.bounds.maxY - keyboard.minY)
-    up = overlap > 0
+    isKeyboardUp = overlap > 0
     let duration =
       info[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? Motion.keyboardDuration
     let curve = info[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? Motion.keyboardCurve
@@ -62,7 +65,7 @@ final class KeyboardFit: NSObject, UIGestureRecognizerDelegate {
       // PLATFORM: ios: Bounds and centre, not frame: the reveal may have the webview transformed.
       let height = host.bounds.height - overlap
       webview.bounds.size.height = height
-      webview.center.y = height / 2
+      webview.center.y = height * Self.half
       self.fitted()
     }
   }

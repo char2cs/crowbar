@@ -77,8 +77,8 @@ struct HostListSection: View {
       Button(action: select) { line }
         .tint(text)
         .disabled(revoking)
-        // PLATFORM: ios: Not `role: .destructive`: that has the list drop the row at once, while the host stays in
-        // PLATFORM: ios: the model until the web has asked and revoked, and the next update then miscounts.
+        // PLATFORM: ios: Not `role: .destructive`: that has the list drop the row at once,
+        // PLATFORM: ios: while the host stays in the model until the web has revoked it.
         .swipeActions(edge: .trailing, allowsFullSwipe: false) { revoke }
         .accessibilityAddTraits(shown ? .isSelected : [])
     }
@@ -98,7 +98,10 @@ struct HostListSection: View {
     }
 
     private var revoke: some View {
-      Button(action: { send(.of("revokeHost", ["id": host.id])) }) { RevokeLabel() }
+      Button(
+        action: { send(.of("revokeHost", ["id": host.id])) },
+        label: { RevokeLabel() }
+      )
         .tint(.red)
     }
   }

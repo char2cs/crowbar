@@ -5,7 +5,8 @@ enum Motion {
   static let keyboardCurve: UInt = 7
   static let curveShift: UInt = 16
   static let throwSeconds = 0.15
-  static let maxFrameStep = 1.0 / 30
+  private static let slowestFrameRate = 30.0
+  static let maxFrameStep = 1.0 / slowestFrameRate
   static let stepsPerSecond = 240.0
   static let atRestVelocity = 0.05
   static let settleTolerance = 1e-9

@@ -55,7 +55,7 @@ final class DrawerSwipe: NSObject, UIGestureRecognizerDelegate {
     return atEdge || expected.overridesScrollers || !scrollsSideways(at: start, in: host)
   }
 
-  // PLATFORM: ios: The page's pans wait for this one to fail, which a vertical or held touch does at once.
+  // PLATFORM: ios: The page's pans wait for this one to fail, which a vertical or held touch does.
   func gestureRecognizer(
     _ gesture: UIGestureRecognizer,
     shouldBeRequiredToFailBy other: UIGestureRecognizer

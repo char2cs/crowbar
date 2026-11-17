@@ -196,7 +196,7 @@ struct AttachSheet: View {
 
     private var remove: some View {
       Button(action: removeFile) {
-        PhosphorIcon(.x, size: IconSize.standard, emphasis: Metric.strongEmphasis)
+        PhosphorIcon(.xMark, size: IconSize.standard, emphasis: Metric.strongEmphasis)
           .foregroundStyle(secondaryText)
           .frame(width: Metric.tapTarget, height: Metric.tapTarget)
           .contentShape(.rect)
@@ -244,14 +244,19 @@ struct AttachSheet: View {
   }
 
   private var cancel: some View {
-    Button(action: { chrome.send(.of("closeAttachSheet")) }) {
-      Text("Cancel")
-        .frame(maxWidth: .infinity, minHeight: Metric.controlHeight)
-        .background(palette?.raised ?? Color.secondary.opacity(Alpha.veil), in: .capsule)
-        .contentShape(.capsule)
-    }
+    Button(
+      action: { chrome.send(.of("closeAttachSheet")) },
+      label: { cancelLabel }
+    )
     .buttonStyle(.plain)
     .foregroundStyle(text)
+  }
+
+  private var cancelLabel: some View {
+    Text("Cancel")
+      .frame(maxWidth: .infinity, minHeight: Metric.controlHeight)
+      .background(palette?.raised ?? Color.secondary.opacity(Alpha.veil), in: .capsule)
+      .contentShape(.capsule)
   }
 
   private var attachLabel: some View {

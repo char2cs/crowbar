@@ -9,15 +9,11 @@ final class KeyboardFitTests: XCTestCase {
   private let keyboard = CGRect(x: 0, y: 500, width: 400, height: 300)
 
   private func post(_ name: Notification.Name) {
-    NotificationCenter.default.post(
-      name: name,
-      object: nil,
-      userInfo: [
-        UIResponder.keyboardFrameEndUserInfoKey: NSValue(cgRect: keyboard),
-        UIResponder.keyboardAnimationDurationUserInfoKey: 0.0,
-        UIResponder.keyboardAnimationCurveUserInfoKey: UInt(7),
-      ]
-    )
+    var info: [AnyHashable: Any] = [:]
+    info[UIResponder.keyboardFrameEndUserInfoKey] = NSValue(cgRect: keyboard)
+    info[UIResponder.keyboardAnimationDurationUserInfoKey] = 0.0
+    info[UIResponder.keyboardAnimationCurveUserInfoKey] = UInt(7)
+    NotificationCenter.default.post(name: name, object: nil, userInfo: info)
   }
 
   func testWebviewSitsAboveTheKeyboardAndFillsTheHostOnceItHides() {

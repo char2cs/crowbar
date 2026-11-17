@@ -29,8 +29,10 @@ final class ChromePaletteTests: XCTestCase {
     ),
     PaletteCase(
       name: "no sidebar palette keeps the plain chrome",
-      json:
-        ##"{"surface":"#fff","raised":"#eee","text":"#000","secondaryText":"#666","sidebar":null}"##,
+      json: ##"""
+        {"surface":"#fff","raised":"#eee","text":"#000","secondaryText":"#666",
+         "sidebar":null}
+        """##,
       hasPalette: true,
       hasSidebar: false
     ),
@@ -42,8 +44,7 @@ final class ChromePaletteTests: XCTestCase {
         """##,
       hasPalette: true,
       hasSidebar: false
-    ),
-  ]
+    )]
 
   func testThePaletteFollowsItsState() throws {
     for item in paletteCases {
@@ -56,7 +57,10 @@ final class ChromePaletteTests: XCTestCase {
   func testBrandFollowsTheColourScheme() throws {
     let state = try decode(
       PaletteState.self,
-      ##"{"surface":"#fff","raised":"#eee","text":"#000","secondaryText":"#666","brandLight":"#606c38","brandDark":"#98a86a"}"##
+      ##"""
+      {"surface":"#fff","raised":"#eee","text":"#000","secondaryText":"#666",
+       "brandLight":"#606c38","brandDark":"#98a86a"}
+      """##
     )
     let palette = try XCTUnwrap(ChromePalette(state))
     XCTAssertEqual(palette.brand(.light), Color(css: "#606c38"))

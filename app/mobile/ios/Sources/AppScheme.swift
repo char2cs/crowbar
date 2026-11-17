@@ -18,6 +18,12 @@ private func crowbarChromeAssetFree(
 )
 
 final class AppScheme: NSObject, WKURLSchemeHandler {
+  private struct Download {
+    let url: URL
+    let data: Data?
+    let response: URLResponse?
+  }
+
   private let frontend: UnsafeRawPointer
   private let devURL: String?
   private var stopped = Set<ObjectIdentifier>()
@@ -56,22 +62,22 @@ final class AppScheme: NSObject, WKURLSchemeHandler {
     guard let source = URL(string: devURL + path) else { return fail(task) }
     URLSession.shared
       .dataTask(with: source) { data, response, _ in
-        DispatchQueue.main.async(execute: self.delivery(task, url, data, response))
+        let download = Download(url: url, data: data, response: response)
+        DispatchQueue.main.async(execute: self.delivery(task, download))
       }
       .resume()
   }
 
   private func delivery(
     _ task: WKURLSchemeTask,
-    _ url: URL,
-    _ data: Data?,
-    _ response: URLResponse?
+    _ download: Download
   ) -> () -> Void {
     {
-      guard let data, let http = response as? HTTPURLResponse else { return self.fail(task) }
+      let http = download.response as? HTTPURLResponse
+      guard let data = download.data, let http else { return self.fail(task) }
       let headers = http.allHeaderFields as? [String: String]
       let reply = SchemeReply(
-        url: url,
+        url: download.url,
         status: http.statusCode,
         headers: headers ?? [:],
         body: data
@@ -95,7 +101,7 @@ final class AppScheme: NSObject, WKURLSchemeHandler {
     crowbarChromeAssetFree(bytes, len, mime)
     respond(
       task,
-      SchemeReply(url: url, status: HTTPStatus.ok, headers: ["Content-Type": type], body: body)
+      SchemeReply(url: url, status: HTTPStatus.success, headers: ["Content-Type": type], body: body)
     )
   }
 

@@ -9,6 +9,8 @@ struct SettingsSheet: View {
   let close: () -> Void
   @State private var path: [SettingsRoute] = []
 
+  private static let closeEmphasis: CGFloat = 0.5
+
   private var palette: ChromePalette? { chrome.palette }
   private var text: Color { palette?.text ?? .primary }
   private var secondaryText: Color { palette?.secondaryText ?? .secondary }
@@ -112,8 +114,11 @@ struct SettingsSheet: View {
   }
 
   private var closeButton: some View {
-    Button(action: close) { PhosphorIcon(.x, emphasis: 0.5).foregroundStyle(text) }
-      .accessibilityLabel("Close")
+    Button(
+      action: close,
+      label: { PhosphorIcon(.xMark, emphasis: Self.closeEmphasis).foregroundStyle(text) }
+    )
+    .accessibilityLabel("Close")
   }
 
   private var hostsSection: some View {
@@ -232,97 +237,5 @@ struct SettingsSheet: View {
 
   private var themeName: String {
     model.state?.themes.first { $0.id == model.state?.theme }?.name ?? model.state?.theme ?? ""
-  }
-
-  private struct Destination: View {
-    let route: SettingsRoute
-    @ObservedObject var model: SettingsModel
-    let page: WKWebView
-    let palette: ChromePalette?
-    let text: Color
-
-    var body: some View {
-      switch route {
-      case .hosts: hosts
-      case .theme: themes
-      case .page(let id, let label):
-        PageHost(id: id, label: label, model: model, page: page, palette: palette)
-      }
-    }
-
-    private var hosts: some View {
-      List { HostListSection(list: model.hosts, palette: palette, send: model.send) }
-        .nativeList(palette)
-        .nativeTitle("Hosts")
-    }
-
-    private var themes: some View {
-      List { Section { themeRows } }
-        .nativeList(palette)
-        .nativeTitle("Theme")
-    }
-
-    private var themeRows: some View {
-      ForEach(model.state?.themes ?? []) { theme in
-        ThemeRow(
-          theme: theme,
-          isCurrent: theme.id == model.state?.theme,
-          text: text,
-          send: model.send
-        )
-      }
-    }
-  }
-
-  private struct PageHost: View {
-    let id: String
-    let label: String
-    @ObservedObject var model: SettingsModel
-    let page: WKWebView
-    let palette: ChromePalette?
-
-    var body: some View {
-      HostedPage(page: page)
-        .background(palette?.surface.ignoresSafeArea())
-        .ignoresSafeArea(edges: .bottom)
-        .nativeTitle(label)
-        .onAppear { model.showTab(id) }
-        .onDisappear { model.showTab(nil) }
-    }
-  }
-
-  private struct ThemeRow: View {
-    let theme: ThemeChoice
-    let isCurrent: Bool
-    let text: Color
-    let send: (ChromeIntent) -> Void
-
-    var body: some View {
-      Button(action: choose) { label }
-        .tint(text)
-        .accessibilityAddTraits(isCurrent ? .isSelected : [])
-    }
-
-    private var choose: () -> Void {
-      {
-        Haptics.select()
-        send(.of("setTheme", ["id": theme.id]))
-      }
-    }
-
-    private var label: some View {
-      HStack {
-        Text(theme.name).foregroundStyle(text)
-        Spacer()
-        mark
-      }
-      .contentShape(.rect)
-    }
-
-    @ViewBuilder private var mark: some View {
-      if isCurrent {
-        PhosphorIcon(.check, size: IconSize.standard).frame(width: RowMetrics.trailing)
-      }
-    }
   }
 }

@@ -26,35 +26,41 @@ struct ChatListFoot: View {
   }
 
   private var settings: some View {
-    Button(action: { open("openSettings") }) {
-      PhosphorIcon(.gear)
-        .frame(width: Metric.tapTarget, height: Metric.tapTarget)
-        .foregroundStyle(ink)
-        .contentShape(.circle)
-    }
+    Button(
+      action: { open("openSettings") },
+      label: {
+        PhosphorIcon(.gear)
+          .frame(width: Metric.tapTarget, height: Metric.tapTarget)
+          .foregroundStyle(ink)
+          .contentShape(.circle)
+      }
+    )
     .buttonStyle(.plain)
     .glassEffect(.regular.interactive(), in: .circle)
     .accessibilityLabel("Settings")
   }
 
   private var hosts: some View {
-    Button(action: { open("openHostPicker") }) {
-      HostPlaceIcon(
-        hostId: model.hostPlace == "local" ? "local" : "remote",
-        state: model.hostStatus,
-        palette: model.palette
-      )
-      .frame(width: Metric.tapTarget, height: Metric.tapTarget)
-      .foregroundStyle(ink)
-      .contentShape(.circle)
-    }
+    Button(
+      action: { open("openHostPicker") },
+      label: {
+        HostPlaceIcon(
+          hostId: model.hostPlace == "local" ? "local" : "remote",
+          state: model.hostStatus,
+          palette: model.palette
+        )
+        .frame(width: Metric.tapTarget, height: Metric.tapTarget)
+        .foregroundStyle(ink)
+        .contentShape(.circle)
+      }
+    )
     .buttonStyle(.plain)
     .glassEffect(.regular.interactive(), in: .circle)
     .accessibilityLabel("Hosts")
   }
 
   private var newThread: some View {
-    Button(action: { open("newThread") }) { newThreadLabel }
+    Button(action: { open("newThread") }, label: { newThreadLabel })
       .buttonStyle(.glassProminent)
       .tint(sidebar?.brand ?? model.brandGround ?? .green)
       .controlSize(.large)

@@ -114,7 +114,7 @@ final class RowMenu: NSObject {
     }
     host.addSubview(anchor)
     Haptics.lift()
-    // PLATFORM: ios: .menuActionTriggered is an event UIKit sends as the menu presents; it does not present one.
+    // PLATFORM: ios: .menuActionTriggered is sent as the menu presents; it does not present one.
     anchor.performPrimaryAction()
   }
 
@@ -162,9 +162,11 @@ final class RowMenu: NSObject {
     )
     alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
     alert.addAction(
-      UIAlertAction(title: action.title, style: action.destructive ? .destructive : .default) {
-        [weak self] _ in self?.send(picked)
-      }
+      UIAlertAction(
+        title: action.title,
+        style: action.destructive ? .destructive : .default,
+        handler: { [weak self] _ in self?.send(picked) }
+      )
     )
     // PLATFORM: ios: Presenting while the menu is still dismissing is silently dropped by UIKit.
     guard menuUp else { return present(alert) }

@@ -25,7 +25,7 @@ mod visibility;
 /// Everything the modal remembers: the schema, the values on screen, the selected page, the search,
 /// the field being edited, the shortcut being captured and the confirmation being asked.
 ///
-/// Methods that change a setting return an [`Effect`]; the view performs it against the backend and
+/// Methods that change a setting return an [`Effect`](crate::effect::Effect); the view performs it against the backend and
 /// reports the outcome with [`SettingsState::acknowledged`] or [`SettingsState::write_failed`].
 #[derive(Debug, Clone)]
 pub struct SettingsState {

@@ -1,6 +1,10 @@
 import SwiftUI
 import UIKit
 
+enum CrowbarIconRendering {
+  static let cache = NSCache<NSString, UIImage>()
+}
+
 extension CrowbarIcon {
   init?(named name: String) { self.init(rawValue: name) }
 
@@ -19,7 +23,7 @@ extension CrowbarIcon {
 
   func image(size: CGFloat) -> UIImage {
     let key = "\(rawValue)@\(size)"
-    if let cached = Self.rendered.object(forKey: key as NSString) { return cached }
+    if let cached = CrowbarIconRendering.cache.object(forKey: key as NSString) { return cached }
     let image = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
       .image { _ in
         UIColor.black.setFill()
@@ -27,7 +31,7 @@ extension CrowbarIcon {
         paint(UIBezierPath(cgPath: path(in: size).cgPath), size: size)
       }
       .withRenderingMode(.alwaysTemplate)
-    Self.rendered.setObject(image, forKey: key as NSString)
+    CrowbarIconRendering.cache.setObject(image, forKey: key as NSString)
     return image
   }
 
@@ -41,8 +45,6 @@ extension CrowbarIcon {
     outline.lineJoinStyle = .round
     outline.stroke()
   }
-
-  private static let rendered = NSCache<NSString, UIImage>()
 
   static func parse(_ data: String) -> Path {
     var parser = PathParser()

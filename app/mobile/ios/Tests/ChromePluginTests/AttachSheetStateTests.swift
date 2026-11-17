@@ -9,10 +9,12 @@ final class AttachSheetStateTests: XCTestCase {
       """
       {"open":true,"title":"Attach files","note":"Up to 25 MB each.",
        "sources":[{"id":"photos","title":"Photos","icon":"Images"},
-         {"id":"camera","title":"Camera","icon":"Camera"},{"id":"files","title":"Files","icon":"Folder"}],
+         {"id":"camera","title":"Camera","icon":"Camera"},
+         {"id":"files","title":"Files","icon":"Folder"}],
        "files":[{"id":"0","name":"a.png","detail":"1 KB · Uploading…","status":"uploading",
          "percent":40,"canRetry":false},
-         {"id":"1","name":"b.pdf","detail":"2 MB · offline","status":"bad","percent":null,"canRetry":true}],
+         {"id":"1","name":"b.pdf","detail":"2 MB · offline","status":"bad","percent":null,
+          "canRetry":true}],
        "hint":"Uploading 0 of 1…","attachLabel":"Attach 1 file","canAttach":false}
       """
     )

@@ -74,15 +74,19 @@ struct ConnectSheet: View {
   }
 
   private var back: some View {
-    Button(action: { model.send(stage == .address ? .dismiss : .back) }) {
-      Text(stage == .address ? "Cancel" : "Back").frame(maxWidth: .infinity)
-    }
+    Button(
+      action: { model.send(stage == .address ? .dismiss : .back) },
+      label: { Text(stage == .address ? "Cancel" : "Back").frame(maxWidth: .infinity) }
+    )
     .buttonStyle(.glass)
     .disabled(busy)
   }
 
   private var primary: some View {
-    Button(action: { model.send(drafts.submission(at: stage)) }) { primaryContent }
+    Button(
+      action: { model.send(drafts.submission(at: stage)) },
+      label: { primaryContent }
+    )
       .buttonStyle(.glassProminent)
       .tint(model.accent)
       .disabled(busy || !drafts.canSubmit(at: stage))

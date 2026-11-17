@@ -10,7 +10,7 @@ impl PaneHost {
     /// Hides or shows every pane for a native overlay. No pane is told.
     ///
     /// # Errors
-    /// [`Error::WebView`] when a web view cannot be driven.
+    /// [`Error::WebView`](crate::error::Error::WebView) when a web view cannot be driven.
     pub fn set_overlay(
         &mut self,
         overlay: Overlay,
@@ -25,7 +25,7 @@ impl PaneHost {
     /// Replaces the active keybindings and pushes them to mounted panes.
     ///
     /// # Errors
-    /// [`Error::WebView`] when a pane cannot be reached.
+    /// [`Error::WebView`](crate::error::Error::WebView) when a pane cannot be reached.
     pub fn set_keybindings(
         &mut self,
         bindings: Vec<KeyBinding>,
@@ -43,7 +43,7 @@ impl PaneHost {
     /// Replaces the theme tokens and pushes them to mounted panes. Unchanged tokens send nothing.
     ///
     /// # Errors
-    /// [`Error::WebView`] when a pane cannot be reached.
+    /// [`Error::WebView`](crate::error::Error::WebView) when a pane cannot be reached.
     pub fn set_theme(
         &mut self,
         tokens: ThemeTokens,
@@ -65,7 +65,7 @@ impl PaneHost {
     /// unavailable or disabled, a fresh `mount` with the saved state when it is back.
     ///
     /// # Errors
-    /// [`Error::WebView`] when a pane cannot be reached.
+    /// [`Error::WebView`](crate::error::Error::WebView) when a pane cannot be reached.
     pub fn extension_status(
         &mut self,
         status: &ExtensionStatus,
@@ -89,7 +89,7 @@ impl PaneHost {
     /// Gives keyboard focus back to the shell, for example after a click on native chrome.
     ///
     /// # Errors
-    /// [`Error::WebView`] when the web view cannot be driven.
+    /// [`Error::WebView`](crate::error::Error::WebView) when the web view cannot be driven.
     pub fn focus_shell(&self) -> Result<()> {
         let slot = self
             .focused

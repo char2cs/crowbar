@@ -4,15 +4,20 @@ import XCTest
 @testable import tauri_plugin_crowbar_chrome
 
 final class HostDotTests: XCTestCase {
-  private let cases: [(state: String, tone: HostDot.Tone, words: String)] = [
-    ("up", .online, "Online"),
-    ("no-live-stream", .online, "Online, no live stream"),
-    ("down", .offline, "Offline"),
-    ("not-available", .offline, "Host not available"),
-    ("needs-repair", .needsAttention, "Needs pairing again"),
-    ("probing", .unsettled, "Checking"),
-    ("something-new", .unsettled, "Status unknown"),
-  ]
+  private struct HostCase {
+    let state: String
+    let tone: HostDot.Tone
+    let words: String
+  }
+
+  private let cases = [
+    HostCase(state: "up", tone: .online, words: "Online"),
+    HostCase(state: "no-live-stream", tone: .online, words: "Online, no live stream"),
+    HostCase(state: "down", tone: .offline, words: "Offline"),
+    HostCase(state: "not-available", tone: .offline, words: "Host not available"),
+    HostCase(state: "needs-repair", tone: .needsAttention, words: "Needs pairing again"),
+    HostCase(state: "probing", tone: .unsettled, words: "Checking"),
+    HostCase(state: "something-new", tone: .unsettled, words: "Status unknown")]
 
   func testEveryHostStateHasATonePhrase() {
     for item in cases {

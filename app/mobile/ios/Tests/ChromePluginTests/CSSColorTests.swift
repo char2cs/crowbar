@@ -4,16 +4,10 @@ import XCTest
 @testable import tauri_plugin_crowbar_chrome
 
 final class CSSColorTests: XCTestCase {
-  private func rgba(
-    _ css: String,
-    file: StaticString = #filePath,
-    line: UInt = #line
-  )
-    -> [Float]?
-  {
+  private func rgba(_ css: String) -> [Float]? {
     guard let color = Color(css: css) else { return nil }
-    let r = color.resolve(in: EnvironmentValues())
-    return [r.red, r.green, r.blue, r.opacity]
+    let resolved = color.resolve(in: EnvironmentValues())
+    return [resolved.red, resolved.green, resolved.blue, resolved.opacity]
   }
 
   private func assertColor(
@@ -26,8 +20,8 @@ final class CSSColorTests: XCTestCase {
     guard let got = rgba(css) else {
       return XCTFail("\(css) did not parse", file: file, line: line)
     }
-    for (a, b) in zip(got, expected) {
-      XCTAssertEqual(a, b, accuracy: accuracy, css, file: file, line: line)
+    for (actual, want) in zip(got, expected) {
+      XCTAssertEqual(actual, want, accuracy: accuracy, css, file: file, line: line)
     }
   }
 
@@ -37,7 +31,9 @@ final class CSSColorTests: XCTestCase {
     var accuracy: Float = 0.01
   }
 
-  private let acceptedCases = [
+  private static func table(_ items: AcceptedCase...) -> [AcceptedCase] { items }
+
+  private static let acceptedCases = table(
     AcceptedCase(css: "#fff", expected: [1, 1, 1, 1]),
     AcceptedCase(css: "#f008", expected: [1, 0, 0, 0.533]),
     AcceptedCase(css: "#ff0000", expected: [1, 0, 0, 1]),
@@ -54,29 +50,27 @@ final class CSSColorTests: XCTestCase {
       css: "oklch(50% 0 0 / 0.5)",
       expected: [0.389, 0.389, 0.389, 0.5],
       accuracy: 0.02
-    ),
-  ]
+    )
+  )
 
-  private let rejectedCases = [
-    "#12", "#12345", "#gggggg", "", "red", "hsl(0 100% 50%)", "rgb(1, 2)", "color(rec2020 1 0 0)",
-  ]
+  private let rejectedHex = ["#12", "#12345", "#gggggg", ""]
+  private let rejectedFunctions = ["red", "hsl(0 100% 50%)", "rgb(1, 2)", "color(rec2020 1 0 0)"]
 
   func testAcceptedColoursResolveToTheirChannels() {
-    for item in acceptedCases {
+    for item in Self.acceptedCases {
       assertColor(item.css, item.expected, accuracy: item.accuracy)
     }
   }
 
   func testRejectedColoursDoNotParse() {
-    for css in rejectedCases {
+    for css in rejectedHex + rejectedFunctions {
       XCTAssertNil(Color(css: css), css)
     }
   }
 
   func testDisplayP3RedLiesOutsideSRGB() {
-    // Display-P3 red lies outside sRGB: the extended-sRGB green goes negative.
-    guard let p3 = rgba("color(display-p3 1 0 0)") else { return XCTFail("p3 did not parse") }
-    XCTAssertGreaterThan(p3[0], 1)
-    XCTAssertLessThan(p3[1], 0)
+    guard let wide = rgba("color(display-p3 1 0 0)") else { return XCTFail("p3 did not parse") }
+    XCTAssertGreaterThan(wide[0], 1)
+    XCTAssertLessThan(wide[1], 0)
   }
 }

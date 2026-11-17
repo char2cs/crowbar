@@ -10,7 +10,9 @@ final class PathParserTests: XCTestCase {
     let bounds: CGRect
   }
 
-  private let cases = [
+  private static func table(_ items: Case...) -> [Case] { items }
+
+  private static let cases = table(
     Case(
       name: "line",
       tokens: ["M1", "2", "L5", "2", "Z"],
@@ -20,11 +22,11 @@ final class PathParserTests: XCTestCase {
       name: "square",
       tokens: ["M0", "0", "L4", "0", "L4", "4", "L0", "4", "Z"],
       bounds: CGRect(x: 0, y: 0, width: 4, height: 4)
-    ),
-  ]
+    )
+  )
 
   func testPathsBuildFromTheirTokens() {
-    for item in cases {
+    for item in Self.cases {
       var parser = PathParser()
       for token in item.tokens { parser.feed(token) }
       parser.flush()

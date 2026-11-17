@@ -3,5 +3,5 @@ import Foundation
 enum Screen: Int, Comparable {
   case chatList = 0, chat, ide, files
 
-  static func < (a: Screen, b: Screen) -> Bool { a.rawValue < b.rawValue }
+  static func < (lhs: Screen, rhs: Screen) -> Bool { lhs.rawValue < rhs.rawValue }
 }

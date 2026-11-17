@@ -5,8 +5,6 @@ import XCTest
 final class EffortDialTests: XCTestCase {
   private let levels = ["low", "medium", "high", "xhigh", "max"]
 
-  // The recorded flip-flop: release on Low while Max is handed, the old Max arrives once more,
-  // then Low. The control must show Low throughout.
   func testStaleEchoOfThePreviousLevelDoesNotMoveThePill() {
     var dial = EffortDial()
     XCTAssertTrue(dial.release(on: "low", handed: "max"))
@@ -53,15 +51,17 @@ final class EffortDialTests: XCTestCase {
     let expected: String?
   }
 
-  private let stepCases = [
+  private static func table(_ items: StepCase...) -> [StepCase] { items }
+
+  private static let stepCases = table(
     StepCase(name: "down from medium", delta: -1, handed: "medium", expected: "low"),
     StepCase(name: "down at the bottom", delta: -1, handed: "low", expected: nil),
     StepCase(name: "up at the top", delta: 1, handed: "max", expected: nil),
-    StepCase(name: "nothing handed", delta: 1, handed: nil, expected: nil),
-  ]
+    StepCase(name: "nothing handed", delta: 1, handed: nil, expected: nil)
+  )
 
   func testSteppingMovesOneLevelAndStopsAtTheEnds() {
-    for item in stepCases {
+    for item in Self.stepCases {
       var dial = EffortDial()
       XCTAssertEqual(
         dial.step(by: item.delta, levels: levels, handed: item.handed),
@@ -73,7 +73,8 @@ final class EffortDialTests: XCTestCase {
 
   func testPickingAtAPositionReleasesThatLevelOnce() {
     var dial = EffortDial()
-    XCTAssertEqual(dial.pick(at: 10, width: 300, levels: levels, handed: "max"), "low")
-    XCTAssertNil(dial.pick(at: 10, width: 300, levels: levels, handed: "max"))
+    let touch = EffortDial.Touch(position: 10, width: 300)
+    XCTAssertEqual(dial.pick(at: touch, levels: levels, handed: "max"), "low")
+    XCTAssertNil(dial.pick(at: touch, levels: levels, handed: "max"))
   }
 }

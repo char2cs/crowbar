@@ -15,10 +15,16 @@ final class CrowbarIconRenderingTests: XCTestCase {
     }
   }
 
-  // Every icon the web puts on a corner button resolves to a drawn path, the IDE's `</>` included.
+  /// Every icon the web puts on a corner button resolves to a drawn path, including `</>`.
   func testCornerButtonIconsAreDrawn() throws {
     let json =
-      #"{"chat":[{"id":"chat-list","icon":"SidebarToggle","side":"leading","label":"a","enabled":true},{"id":"ide","icon":"Code","side":"trailing","label":"Open IDE","enabled":true}],"ide":[{"id":"back","icon":"CaretLeft","side":"leading","label":"b","enabled":true},{"id":"files","icon":"FolderSimple","side":"trailing","label":"c","enabled":true}]}"#
+      #"""
+      {"chat":[\#
+      {"id":"chat-list","icon":"SidebarToggle","side":"leading","label":"a","enabled":true},\#
+      {"id":"ide","icon":"Code","side":"trailing","label":"Open IDE","enabled":true}],\#
+      "ide":[{"id":"back","icon":"CaretLeft","side":"leading","label":"b","enabled":true},\#
+      {"id":"files","icon":"FolderSimple","side":"trailing","label":"c","enabled":true}]}
+      """#
     let headers = try JSONDecoder().decode(ChromeHeaders.self, from: Data(json.utf8))
     XCTAssertEqual(headers.chat.last?.icon, "Code")
     for button in headers.chat + headers.ide {
@@ -27,10 +33,8 @@ final class CrowbarIconRenderingTests: XCTestCase {
     }
   }
 
-  private let nameCases: [(name: String, icon: CrowbarIcon?)] = [
-    ("PencilSimpleLine", .pencilSimpleLine),
-    ("pencil", nil),
-  ]
+  private let nameCases: [(name: String, icon: CrowbarIcon?)] =
+    [("PencilSimpleLine", .pencilSimpleLine), ("pencil", nil)]
 
   func testNamesAreTheWebsPhosphorNames() {
     for item in nameCases {

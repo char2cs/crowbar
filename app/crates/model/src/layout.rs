@@ -84,7 +84,7 @@ impl Layout {
     /// Applies a command, or changes nothing and says why not.
     ///
     /// # Errors
-    /// The [`Error`] that refused the command.
+    /// The [`Error`](crate::error::Error) that refused the command.
     pub fn apply(
         &mut self,
         command: Command,

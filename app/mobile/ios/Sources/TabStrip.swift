@@ -15,6 +15,9 @@ struct TabStrip: View {
     .dynamicTypeSize(...DynamicTypeSize.xxLarge)
   }
 
+  private static let rowSpacing: CGFloat = 2
+  private static let plusEmphasis: CGFloat = 0.5
+
   private struct Strip: View {
     @ObservedObject var model: TabsModel
     let ink: Color
@@ -38,7 +41,7 @@ struct TabStrip: View {
     }
 
     private var row: some View {
-      HStack(spacing: 2) {
+      HStack(spacing: TabStrip.rowSpacing) {
         tabs
         NewTabMenu(model: model, ink: ink)
       }
@@ -74,7 +77,7 @@ struct TabStrip: View {
     }
 
     private var plus: some View {
-      PhosphorIcon(.plus, size: IconSize.compact, emphasis: 0.5)
+      PhosphorIcon(.plus, size: IconSize.compact, emphasis: TabStrip.plusEmphasis)
         .foregroundStyle(ink)
         .frame(width: Metric.stripButton, height: Metric.tapTarget)
         .contentShape(.rect)

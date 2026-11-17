@@ -8,11 +8,13 @@ private func crowbarChromeFont(
   _ length: UnsafeMutablePointer<Int>
 )
 enum CrowbarFont {
-  static let ui = "CalSansUI-Regular"
+  static let uiFontName = "CalSansUI-Regular"
   static let heading = "InstrumentSerif-Regular"
 
+  private static let bundledFontCount = 2
+
   private static let registered: Bool = {
-    (0..<2)
+    (0..<Self.bundledFontCount)
       .map { index in
         var length = 0
         guard let bytes = crowbarChromeFont(index, &length),
@@ -37,10 +39,9 @@ enum CrowbarFont {
   ) -> UIFont {
     _ = registered
     let wght = Self.wght(weight)
-    let descriptor = UIFontDescriptor(fontAttributes: [
-      .name: ui,
-      kCTFontVariationAttribute as UIFontDescriptor.AttributeName: [weightAxis: wght],
-    ])
+    var attributes: [UIFontDescriptor.AttributeName: Any] = [.name: uiFontName]
+    attributes[kCTFontVariationAttribute as UIFontDescriptor.AttributeName] = [weightAxis: wght]
+    let descriptor = UIFontDescriptor(fontAttributes: attributes)
     let font = UIFont(descriptor: descriptor, size: size)
     return font.familyName == "Cal Sans UI" ? font : .systemFont(ofSize: size, weight: weight)
   }

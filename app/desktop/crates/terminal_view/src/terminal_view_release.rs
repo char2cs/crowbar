@@ -1,4 +1,4 @@
-use gpui::{ClipboardItem, Context, MouseButton, MouseUpEvent, Pixels, Point};
+use gpui::{Context, MouseButton, MouseUpEvent, Pixels, Point};
 use terminal::{LinkTarget, MouseAction, ViewPoint, resolve_file_path};
 
 use crate::button_event::ButtonEvent;
@@ -81,7 +81,7 @@ impl TerminalView {
         cx: &mut Context<'_, Self>,
     ) {
         if let Some(text) = text {
-            cx.write_to_primary(ClipboardItem::new_string(text));
+            cx.write_to_primary(gpui::ClipboardItem::new_string(text));
         }
     }
 

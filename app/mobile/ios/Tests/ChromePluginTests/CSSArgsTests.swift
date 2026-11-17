@@ -10,7 +10,9 @@ final class CSSArgsTests: XCTestCase {
     let alpha: Double
   }
 
-  private let parseCases = [
+  private static func table(_ items: ParseCase...) -> [ParseCase] { items }
+
+  private static let parseCases = table(
     ParseCase(
       name: "comma parts are opaque",
       input: "255, 128, 0",
@@ -34,11 +36,11 @@ final class CSSArgsTests: XCTestCase {
       input: "srgb 0 1 0",
       parts: ["srgb", "0", "1", "0"],
       alpha: 1
-    ),
-  ]
+    )
+  )
 
   func testPartsAndAlphaFollowTheSyntax() {
-    for item in parseCases {
+    for item in Self.parseCases {
       let args = CSSArgs(item.input)
       XCTAssertEqual(args.parts, item.parts, item.name)
       XCTAssertEqual(args.alpha, item.alpha, accuracy: 0.0001, item.name)

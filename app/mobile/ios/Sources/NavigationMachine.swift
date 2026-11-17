@@ -10,7 +10,13 @@ struct NavigationMachine {
   static let response = 0.34
   private static let rest = 0.0015
   private static let dimPeak = 0.22
-  private static let lastPosition = 3.0
+  private static let filesPosition = Double(Screen.files.rawValue)
+  private static let idePosition = Double(Screen.ide.rawValue)
+  private static let filesGap = Screen.ide.rawValue
+  private static let dragGaps = 0...filesGap
+  private static let halfway = 0.5
+  private static let angularFrequency = 2 * Double.pi / response
+  private static let dampingFactor = 2.0
 
   var width: Double
   var strip: Double
@@ -44,7 +50,7 @@ struct NavigationMachine {
   mutating func beginDrag(toward: Swipe) -> [NavigationCommand]? {
     let from = Int(position.rounded())
     let next = atScreen ? (toward == .rightward ? from - 1 : from) : Int(position.rounded(.down))
-    guard (0...2).contains(next) else { return nil }
+    guard Self.dragGaps.contains(next) else { return nil }
     gap = next
     origin = position
     velocity = 0
@@ -67,7 +73,7 @@ struct NavigationMachine {
     guard phase == .dragging else { return [] }
     let units = -velocity / span(gap)
     let thrown = ending == .cancelled ? position : position + units * Motion.throwSeconds
-    let landing = thrown - Double(gap) > 0.5 ? gap + 1 : gap
+    let landing = thrown - Double(gap) > Self.halfway ? gap + 1 : gap
     return settle(to: Screen(rawValue: landing) ?? .chat, velocity: units)
   }
 
@@ -100,7 +106,7 @@ struct NavigationMachine {
 
   private mutating func follow(_ screen: Screen) {
     guard phase != .dragging else { return }
-    if screen >= .ide, !hasSnapshot, position < 2 {
+    if screen >= .ide, !hasSnapshot, position < Self.idePosition {
       position = Double(screen.rawValue)
       phase = .rest
       return
@@ -135,14 +141,14 @@ struct NavigationMachine {
     phase = .rest
   }
 
-  mutating func tick(_ dt: Double) -> [NavigationCommand] {
+  mutating func tick(_ elapsed: Double) -> [NavigationCommand] {
     guard case .settling(let screen) = phase else { return [] }
     let target = Double(screen.rawValue)
-    let omega = 2 * Double.pi / Self.response
-    var remaining = dt
+    let omega = Self.angularFrequency
+    var remaining = elapsed
     while remaining > 0 {
       let step = min(remaining, 1.0 / Motion.stepsPerSecond)
-      let accel = -omega * omega * (position - target) - 2 * omega * velocity
+      let accel = -omega * omega * (position - target) - Self.dampingFactor * omega * velocity
       velocity += accel * step
       position += velocity * step
       remaining -= step
@@ -160,7 +166,7 @@ struct NavigationMachine {
   private mutating func tell(_ screen: Screen) -> [NavigationCommand] {
     let direction = intended < screen ? 1 : -1
     let raws = stride(from: intended.rawValue + direction, through: screen.rawValue, by: direction)
-    return raws.compactMap { Screen(rawValue: $0) }.map { (next: Screen) -> NavigationCommand in
+    return raws.compactMap { Screen(rawValue: $0) }.map { next in
       sent += 1
       let command = NavigationCommand.send(Self.intent(from: intended, to: next), seq: sent)
       intended = next
@@ -170,9 +176,9 @@ struct NavigationMachine {
 
   private static func intent(
     from: Screen,
-    to: Screen
+    to target: Screen
   ) -> String {
-    switch (from, to) {
+    switch (from, target) {
     case (.chat, .chatList): return "openChatList"
     case (.chatList, .chat): return "closeChatList"
     case (.chat, .ide): return "openIde"
@@ -197,32 +203,50 @@ struct NavigationMachine {
   }
 
   var frames: Frames {
-    let x = position
+    let slide = position
     let chatOffset: Double
-    switch x {
-    case ..<1: chatOffset = (1 - x) * (width - strip)
-    case ..<2: chatOffset = -(x - 1) * width
+    switch slide {
+    case ..<1: chatOffset = (1 - slide) * (width - strip)
+    case ..<Self.idePosition: chatOffset = -(slide - 1) * width
     default: chatOffset = -width
     }
-    let ideOffset = x <= 2 ? 0 : -(x - 2) * (width - strip)
-    let gap = atScreen && (1...2).contains(x.rounded()) ? nil : (x < 1 ? 0 : x < 2 ? 1 : 2)
-    let amount: Double
-    let dim: Double
-    switch gap {
-    case 0: (amount, dim) = (1 - x, Self.dimPeak * x)
-    case 1: (amount, dim) = (x - 1, Self.dimPeak * (2 - x))
-    case 2: (amount, dim) = (x - 2, Self.dimPeak * (Self.lastPosition - x))
-    default: (amount, dim) = (0, 0)
-    }
+    let ideOffset = slide <= Self.idePosition ? 0 : -(slide - Self.idePosition) * (width - strip)
+    let gap = activeGap
+    let shade = shading(gap: gap)
     return Frames(
       gap: gap,
       chatOffset: chatOffset,
       ideOffset: ideOffset,
-      amount: amount,
-      dim: dim,
-      shadow: Motion.shadowAlpha * min(1, amount * Motion.rampFactor),
-      chatHeaderAlpha: x >= 2 ? 0 : min(1, x),
-      ideHeaderAlpha: x <= 1 ? 0 : x <= 2 ? 1 : Double(Screen.files.rawValue) - x
+      amount: shade.amount,
+      dim: shade.dim,
+      shadow: Motion.shadowAlpha * min(1, shade.amount * Motion.rampFactor),
+      chatHeaderAlpha: slide >= Self.idePosition ? 0 : min(1, slide),
+      ideHeaderAlpha: ideHeaderAlpha
     )
+  }
+
+  private var activeGap: Int? {
+    let isDrawerFree = atScreen && (1...Self.idePosition).contains(position.rounded())
+    return isDrawerFree ? nil : max(0, min(Self.filesGap, Int(position.rounded(.down))))
+  }
+
+  private var ideHeaderAlpha: Double {
+    switch position {
+    case ...1: return 0
+    case ...Self.idePosition: return 1
+    default: return Self.filesPosition - position
+    }
+  }
+
+  private func shading(gap: Int?) -> (
+    amount: Double,
+    dim: Double
+  ) {
+    guard let gap else { return (0, 0) }
+    switch gap {
+    case 0: return (1 - position, Self.dimPeak * position)
+    case 1: return (position - 1, Self.dimPeak * (Self.idePosition - position))
+    default: return (position - Self.idePosition, Self.dimPeak * (Self.filesPosition - position))
+    }
   }
 }

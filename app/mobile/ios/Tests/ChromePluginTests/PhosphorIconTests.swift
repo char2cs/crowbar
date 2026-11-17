@@ -5,8 +5,8 @@ import XCTest
 @available(iOS 26.0, *)
 final class PhosphorIconTests: XCTestCase {
   func testDefaultsToNoEmphasis() {
-    let view = PhosphorIcon(.at)
-    XCTAssertEqual(view.icon, .at)
+    let view = PhosphorIcon(.atSign)
+    XCTAssertEqual(view.icon, .atSign)
     XCTAssertEqual(view.emphasis, 0)
   }
 

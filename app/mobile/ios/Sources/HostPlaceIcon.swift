@@ -5,6 +5,8 @@ struct HostPlaceIcon: View {
   let hostId: String
   let state: String
   var palette: ChromePalette?
+  private static let notchSize: CGFloat = 10
+
   @Environment(\.colorScheme) private var scheme
 
   var body: some View {
@@ -21,7 +23,10 @@ struct HostPlaceIcon: View {
   }
 
   private var notch: some View {
-    Circle().frame(width: 10, height: 10).offset(x: 1, y: 1).blendMode(.destinationOut)
+    Circle()
+      .frame(width: Self.notchSize, height: Self.notchSize)
+      .offset(x: 1, y: 1)
+      .blendMode(.destinationOut)
   }
 
   @ViewBuilder private var dot: some View {

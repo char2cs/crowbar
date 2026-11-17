@@ -1,5 +1,7 @@
 import SwiftUI
 
+private let hostLabelGap: CGFloat = 2
+
 @available(iOS 26.0, *)
 struct HostLine<Trailing: View>: View {
   let host: PickerHost
@@ -19,7 +21,7 @@ struct HostLine<Trailing: View>: View {
   }
 
   private var labels: some View {
-    VStack(alignment: .leading, spacing: 2) {
+    VStack(alignment: .leading, spacing: hostLabelGap) {
       Text(host.name).foregroundStyle(text).lineLimit(1)
       Text(host.endpoint).crowbarUI(.footnote).foregroundStyle(secondaryText).lineLimit(1)
     }

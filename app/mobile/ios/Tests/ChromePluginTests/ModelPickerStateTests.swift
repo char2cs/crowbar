@@ -23,7 +23,9 @@ final class ModelPickerStateTests: XCTestCase {
       ModelPickerState.self,
       """
       {"open":true,"providers":[],"selected":null,"efforts":[],"effort":null,
-       "permission":{"levels":[{"value":"guarded","label":"Guarded","description":"Asks first."}],"level":"guarded"}}
+       "permission":{"levels":[
+         {"value":"guarded","label":"Guarded","description":"Asks first."}],
+        "level":"guarded"}}
       """
     )
     XCTAssertEqual(state.permission?.levels.map(\.label), ["Guarded"])
@@ -71,6 +73,5 @@ final class ModelPickerStateTests: XCTestCase {
     FilterCase(query: "  ", providerIds: ["a", "b"], firstModelIds: ["1", "2"]),
     FilterCase(query: "deep", providerIds: ["a"], firstModelIds: ["2"]),
     FilterCase(query: "BETA", providerIds: ["b"], firstModelIds: ["3"]),
-    FilterCase(query: "zzz", providerIds: [], firstModelIds: []),
-  ]
+    FilterCase(query: "zzz", providerIds: [], firstModelIds: [])]
 }

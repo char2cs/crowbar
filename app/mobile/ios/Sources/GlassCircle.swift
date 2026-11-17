@@ -10,6 +10,7 @@ struct GlassCircle: View {
 
   static let edgeInset: CGFloat = 16
   static let diameter: CGFloat = 44
+  private static let glyphEmphasis: CGFloat = 0.5
 
   var body: some View {
     Button(action: tap) { face }
@@ -36,6 +37,6 @@ struct GlassCircle: View {
   }
 
   @ViewBuilder private var glyph: some View {
-    if let icon = CrowbarIcon(named: icon) { PhosphorIcon(icon, emphasis: 0.5) }
+    if let icon = CrowbarIcon(named: icon) { PhosphorIcon(icon, emphasis: Self.glyphEmphasis) }
   }
 }

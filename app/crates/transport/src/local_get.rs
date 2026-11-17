@@ -9,7 +9,7 @@ use crate::http_conn::exchange;
 /// daemon that does not answer from a process that has no descriptors left to dial with.
 ///
 /// # Errors
-/// [`Error::Http`], [`Error::TooLarge`] or [`Error::Body`] when the exchange fails.
+/// [`Error::Exchange`], [`Error::TooLarge`] or [`Error::Body`] when the exchange fails.
 pub async fn local_get<S>(
     stream: S,
     target: &str,

@@ -7,6 +7,9 @@ struct TabPill: View {
   let muted: Color
   let send: (ChromeIntent) -> Void
 
+  private static let closeTrailing: CGFloat = 2
+  private static let closeEmphasis: CGFloat = 0.5
+
   var body: some View {
     HStack(spacing: 0) {
       select
@@ -39,7 +42,7 @@ struct TabPill: View {
       title
     }
     .padding(.leading, Metric.pillInset)
-    .padding(.trailing, tab.closable ? 2 : Metric.pillInset)
+    .padding(.trailing, tab.closable ? Self.closeTrailing : Metric.pillInset)
     .frame(height: Metric.tapTarget)
     .contentShape(.rect)
   }
@@ -80,7 +83,7 @@ struct TabPill: View {
     PhosphorIcon(
       tab.dirty ? .circle : .x,
       size: tab.dirty ? Metric.statusDot : IconSize.dirtyCompact,
-      emphasis: tab.dirty ? 0 : 0.5
+      emphasis: tab.dirty ? 0 : Self.closeEmphasis
     )
     .foregroundStyle(ink)
     .frame(width: Spacing.xwide, height: Metric.tapTarget)

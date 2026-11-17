@@ -21,10 +21,22 @@ struct CrowbarFontModifier: ViewModifier {
 
   private static func baseSize(_ style: Font.TextStyle) -> CGFloat {
     switch style {
-    case .largeTitle: Metric.largeTitleSize
+    case .largeTitle, .title, .title2, .title3: titleSize(style)
+    default: textSize(style)
+    }
+  }
+
+  private static func titleSize(_ style: Font.TextStyle) -> CGFloat {
+    switch style {
     case .title: Metric.title1Size
     case .title2: Metric.title2Size
     case .title3: Metric.title3Size
+    default: Metric.largeTitleSize
+    }
+  }
+
+  private static func textSize(_ style: Font.TextStyle) -> CGFloat {
+    switch style {
     case .headline, .body: Metric.bodySize
     case .callout: Metric.calloutSize
     case .subheadline: Metric.subheadlineSize

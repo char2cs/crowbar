@@ -7,6 +7,8 @@ struct ModelPickerSheet: View {
   @ObservedObject var chrome: ChromeModel
   @State private var query = ""
 
+  private static let closeEmphasis: CGFloat = 0.5
+
   private var palette: ChromePalette? { chrome.palette }
   private var text: Color { palette?.text ?? .primary }
   private var secondaryText: Color { palette?.secondaryText ?? .secondary }
@@ -28,7 +30,7 @@ struct ModelPickerSheet: View {
     .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always))
     .navigationTitle("Model")
     .navigationBarTitleDisplayMode(.inline)
-    // PLATFORM: ios: Rows scroll under the bar and fade through the system's edge effect, not a hard cut.
+    // PLATFORM: ios: Rows scroll under the bar and fade through the system's edge effect.
     .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
     .toolbar { toolbarContent }
   }
@@ -38,9 +40,10 @@ struct ModelPickerSheet: View {
   }
 
   private var closeButton: some View {
-    Button(action: { model.send(.of("closeModelPicker")) }) {
-      PhosphorIcon(.x, emphasis: 0.5).foregroundStyle(text)
-    }
+    Button(
+      action: { model.send(.of("closeModelPicker")) },
+      label: { PhosphorIcon(.xMark, emphasis: Self.closeEmphasis).foregroundStyle(text) }
+    )
     .accessibilityLabel("Close")
   }
 
@@ -141,6 +144,8 @@ struct ModelPickerSheet: View {
     let secondaryText: Color
     let send: (ChromeIntent) -> Void
 
+    private static let titleGap: CGFloat = 2
+
     var body: some View {
       Button(action: choose) { label }
         .tint(text)
@@ -164,7 +169,7 @@ struct ModelPickerSheet: View {
     }
 
     private var titles: some View {
-      VStack(alignment: .leading, spacing: 2) {
+      VStack(alignment: .leading, spacing: Self.titleGap) {
         Text(item.label).foregroundStyle(item.value == "full-auto" ? Color.orange : text)
         Text(item.description).font(.footnote).foregroundStyle(secondaryText)
       }

@@ -6,7 +6,10 @@ final class SettingsModelTests: XCTestCase {
   func testApplyHostsReplacesTheList() {
     let model = SettingsModel()
     model.applyHosts(
-      #"{"hosts":[{"id":"h1","name":"lab","endpoint":"e","state":"up"}],"revoking":[],"shownHost":"h1"}"#
+      ##"""
+      {"hosts":[{"id":"h1","name":"lab","endpoint":"e","state":"up"}],
+       "revoking":[],"shownHost":"h1"}
+      """##
     )
     XCTAssertEqual(model.hosts.hosts.map(\.id), ["h1"])
     XCTAssertEqual(model.hosts.shownHost, "h1")

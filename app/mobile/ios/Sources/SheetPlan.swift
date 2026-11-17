@@ -5,8 +5,8 @@ struct SheetPlan {
 
   private var wantOpen = false
   private(set) var presented = false
-  // PLATFORM: ios: A present or dismiss still animating: the web can flip open and closed faster than that
-  // PLATFORM: ios: (React's dev double-mount does), so the next step waits for this one's completion.
+  // PLATFORM: ios: A present or dismiss still animating: the web can flip open and closed
+  // PLATFORM: ios: faster than that, so the next step waits for this one's completion.
   private(set) var moving = false
   private var waitingForRoot = false
 

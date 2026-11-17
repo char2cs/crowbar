@@ -9,9 +9,11 @@ final class PlusMenuStateTests: XCTestCase {
       """
       {"open":true,"title":"Add","items":[
         {"id":"photos","title":"Photo library","icon":"Images","hint":null,"divider":false},
-        {"id":"drawing","title":"New drawing","icon":"PencilSimpleLine","hint":null,"divider":false},
+        {"id":"drawing","title":"New drawing","icon":"PencilSimpleLine","hint":null,
+         "divider":false},
         {"id":"mention","title":"Mention a file","icon":"At","hint":"@","divider":true},
-        {"id":"command","title":"Run a command","icon":"TerminalWindow","hint":"/","divider":false}]}
+        {"id":"command","title":"Run a command","icon":"TerminalWindow","hint":"/",
+         "divider":false}]}
       """
     )
     XCTAssertEqual(

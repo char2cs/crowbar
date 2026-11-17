@@ -2,6 +2,7 @@ import Foundation
 
 struct CSSArgs {
   private static let channelsWithAlpha = 4
+  private static let slashSplitCount = 2
 
   let parts: [String]
   let alpha: Double
@@ -12,9 +13,10 @@ struct CSSArgs {
       halves.first.map {
         $0.split(whereSeparator: { $0 == "," || $0 == " " }).map(String.init)
       } ?? []
-    var alpha = halves.count == 2 ? String(halves[1]).trimmingCharacters(in: .whitespaces) : nil
-    if alpha == nil, parts.count == Self.channelsWithAlpha, parts.first.flatMap(Double.init) != nil
-    {
+    let alphaText = halves.count == Self.slashSplitCount ? String(halves[1]) : nil
+    var alpha = alphaText?.trimmingCharacters(in: .whitespaces)
+    let leadsWithNumber = parts.first.flatMap(Double.init) != nil
+    if alpha == nil, parts.count == Self.channelsWithAlpha, leadsWithNumber {
       alpha = parts.removeLast()
     }
     self.parts = parts

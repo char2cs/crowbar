@@ -6,21 +6,40 @@ final class NavigationController: NSObject {
   static let strip: CGFloat = 72
   private static let leftZone: CGFloat = 0.4
   private static let rightZone: CGFloat = 0.6
-  private static let lastPosition = 3
 
-  private weak var host: UIView?
-  private weak var webview: WKWebView?
+  weak var host: UIView?
+  weak var webview: WKWebView?
   private let send: (ChromeIntent) -> Void
-  private let list: UIView
-  private let files: UIView
-  private let dim = UIView()
-  private let shadow = UIView()
-  private let catcher = StripCatcher()
-  private var snapshot: UIView?
+  let list: UIView
+  let files: UIView
+  let dim = UIView()
+  let shadow = UIView()
+  let catcher = StripCatcher()
+  var snapshot: UIView?
   private var swipe: DrawerSwipe?
   private var link: CADisplayLink?
   private var lastTick: CFTimeInterval = 0
-  private var machine: NavigationMachine
+  var machine: NavigationMachine
+
+  enum Depth {
+    static let underlay: CGFloat = 1
+    static let scrim: CGFloat = 2
+    static let shadow: CGFloat = 2.5
+    static let web: CGFloat = 3
+    static let ideHeader: CGFloat = 3.5
+    static let welcome: CGFloat = 3.7
+    static let scrimOverIde: CGFloat = 4
+    static let shadowOverIde: CGFloat = 4.5
+    static let snapshot: CGFloat = 5
+    static let chatHeader: CGFloat = 6
+    static let catcher: CGFloat = 10
+  }
+
+  struct HeaderPlacement {
+    let offset: Double
+    let alpha: Double
+    let depth: CGFloat
+  }
 
   var chatHeader: [UIView] = []
   var ideHeader: [UIView] = []
@@ -81,13 +100,13 @@ final class NavigationController: NSObject {
     host.insertSubview(shadow, belowSubview: webview)
 
     webview.layer.cornerCurve = .continuous
-    webview.layer.zPosition = Z.web
+    webview.layer.zPosition = Depth.web
 
     catcher.isHidden = true
     catcher.isAccessibilityElement = true
     catcher.accessibilityTraits = .button
     catcher.close = { [weak self] in self?.tapStrip() }
-    catcher.layer.zPosition = Z.catcher
+    catcher.layer.zPosition = Depth.catcher
     catcher.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapStrip)))
     host.addSubview(catcher)
 
@@ -98,25 +117,48 @@ final class NavigationController: NSObject {
 
   private func claim(at start: CGPoint) -> DrawerSwipe.Claim? {
     guard let host, swipesEnabled() else { return nil }
-    let width = host.bounds.width
     if machine.isMoving { return .init(motion: .either, overridesScrollers: true) }
-    switch Int(machine.position.rounded()) {
-    case 0 where start.x > width - Self.strip:
-      return .init(motion: .leftward, overridesScrollers: true)
-    case 1 where start.x < width * Self.leftZone:
-      return .init(motion: .rightward)
-    case 1 where start.x > width * Self.rightZone && canOpenIde():
-      return .init(motion: .leftward)
-    // PLATFORM: ios: The IDE's editor and terminal scroll sideways themselves: only its edges swipe.
-    case 2 where start.x < DrawerSwipe.edge:
-      return .init(motion: .rightward)
-    case 2 where start.x > width - DrawerSwipe.edge:
-      return .init(motion: .leftward)
-    case Self.lastPosition where start.x < Self.strip:
-      return .init(motion: .rightward, overridesScrollers: true)
-    default:
-      return nil
+    let width = host.bounds.width
+    switch Screen(rawValue: Int(machine.position.rounded())) {
+    case .chatList: return claimChatList(at: start, width: width)
+    case .chat: return claimChat(at: start, width: width)
+    case .ide: return claimIde(at: start, width: width)
+    case .files: return claimFiles(at: start)
+    default: return nil
     }
+  }
+
+  private func claimChatList(
+    at start: CGPoint,
+    width: CGFloat
+  ) -> DrawerSwipe.Claim? {
+    guard start.x > width - Self.strip else { return nil }
+    return .init(motion: .leftward, overridesScrollers: true)
+  }
+
+  private func claimChat(
+    at start: CGPoint,
+    width: CGFloat
+  ) -> DrawerSwipe.Claim? {
+    if start.x < width * Self.leftZone { return .init(motion: .rightward) }
+    guard start.x > width * Self.rightZone, canOpenIde() else { return nil }
+    return .init(motion: .leftward)
+  }
+
+  private func claimIde(
+    at start: CGPoint,
+    width: CGFloat
+  ) -> DrawerSwipe.Claim? {
+    // PLATFORM: ios: The IDE's editor and terminal scroll sideways themselves:
+    // PLATFORM: ios: only its edges swipe.
+    if start.x < DrawerSwipe.edge { return .init(motion: .rightward) }
+    guard start.x > width - DrawerSwipe.edge else { return nil }
+    return .init(motion: .leftward)
+  }
+
+  private func claimFiles(at start: CGPoint) -> DrawerSwipe.Claim? {
+    guard start.x < Self.strip else { return nil }
+    return .init(motion: .rightward, overridesScrollers: true)
   }
 
   @objc private func tapStrip() {
@@ -170,9 +212,9 @@ final class NavigationController: NSObject {
   }
 
   func step(_ link: CADisplayLink) {
-    let dt = lastTick == 0 ? link.duration : link.timestamp - lastTick
+    let elapsed = lastTick == 0 ? link.duration : link.timestamp - lastTick
     lastTick = link.timestamp
-    run(machine.tick(min(dt, Motion.maxFrameStep)))
+    run(machine.tick(min(elapsed, Motion.maxFrameStep)))
     render()
     if case .settling = machine.phase { return }
     link.invalidate()
@@ -207,140 +249,8 @@ final class NavigationController: NSObject {
     frozen.layer.cornerCurve = .continuous
     frozen.clipsToBounds = true
     frozen.isUserInteractionEnabled = false
-    frozen.layer.zPosition = Z.snapshot
+    frozen.layer.zPosition = Depth.snapshot
     host.addSubview(frozen)
     snapshot = frozen
-  }
-
-  static let welcomeZ = Z.welcome
-
-  private enum Z {
-    static let underlay: CGFloat = 1
-    static let scrim: CGFloat = 2
-    static let shadow: CGFloat = 2.5
-    static let web: CGFloat = 3
-    static let ideHeader: CGFloat = 3.5
-    static let welcome: CGFloat = 3.7
-    static let scrimOverIde: CGFloat = 4
-    static let shadowOverIde: CGFloat = 4.5
-    static let snapshot: CGFloat = 5
-    static let chatHeader: CGFloat = 6
-    static let catcher: CGFloat = 10
-  }
-
-  private func transform(_ x: Double) -> CGAffineTransform {
-    CGAffineTransform(translationX: CGFloat(x), y: 0)
-  }
-
-  private func render() {
-    guard let host, let webview else { return }
-    machine.width = Double(host.bounds.width)
-    let frames = machine.frames
-    let width = host.bounds.width
-
-    let radius = renderCards(frames, webview: webview)
-    renderShadow(frames, host: host, webview: webview, radius: radius)
-
-    park(list, by: machine.position < 1 ? 0 : width)
-    park(files, by: machine.position > 2 ? 0 : width)
-    list.layer.zPosition = Z.underlay
-    files.layer.zPosition = Z.underlay
-
-    place(chatHeader, offset: frames.chatOffset, alpha: frames.chatHeaderAlpha, z: Z.chatHeader)
-    place(ideHeader, offset: frames.ideOffset, alpha: frames.ideHeaderAlpha, z: Z.ideHeader)
-    placeCatcher(width: width, height: host.bounds.height)
-  }
-
-  private func renderCards(
-    _ frames: Frames,
-    webview: WKWebView
-  ) -> CGFloat {
-    let webIsIde = machine.hasSnapshot || machine.web >= .ide
-    webview.transform = transform(webIsIde ? frames.ideOffset : frames.chatOffset)
-    snapshot?.transform = transform(frames.chatOffset)
-
-    let moving: UIView? =
-      frames.gap == nil ? nil : (frames.gap == 2 ? webview : (snapshot ?? webview))
-    let radius = Metric.tapTarget * CGFloat(min(1, frames.amount * Motion.rampFactor))
-    for card in [webview, snapshot].compactMap({ $0 }) {
-      let rounded = card === moving
-      card.layer.cornerRadius = rounded ? radius : 0
-      card.clipsToBounds = rounded || card === snapshot
-    }
-    return radius
-  }
-
-  private func renderShadow(
-    _ frames: Frames,
-    host: UIView,
-    webview: WKWebView,
-    radius: CGFloat
-  ) {
-    let offset = CGFloat(frames.gap == 2 ? frames.ideOffset : frames.chatOffset)
-    shadow.bounds = CGRect(origin: .zero, size: host.bounds.size)
-    shadow.center = CGPoint(x: host.bounds.midX + offset, y: host.bounds.midY)
-    shadow.layer.cornerRadius = radius
-    let beneath =
-      frames.gap == 1
-      ? webview.backgroundColor : (machine.position < 1 ? list : files).backgroundColor
-    shadow.backgroundColor = beneath ?? .clear
-    shadow.layer.shadowPath =
-      UIBezierPath(roundedRect: shadow.bounds, cornerRadius: radius).cgPath
-    shadow.layer.shadowOpacity = Float(frames.shadow)
-    shadow.isHidden = frames.gap == nil
-    dim.alpha = CGFloat(frames.dim)
-    let overIde = frames.gap == 1
-    dim.layer.zPosition = overIde ? Z.scrimOverIde : Z.scrim
-    shadow.layer.zPosition = overIde ? Z.shadowOverIde : Z.shadow
-  }
-
-  private func park(
-    _ layer: UIView,
-    by offset: CGFloat
-  ) {
-    layer.transform = CGAffineTransform(translationX: offset, y: 0)
-  }
-
-  private func place(
-    _ views: [UIView],
-    offset: Double,
-    alpha: Double,
-    z: CGFloat
-  ) {
-    for view in views {
-      view.transform = transform(offset)
-      view.alpha = CGFloat(alpha)
-      view.isUserInteractionEnabled = alpha >= 1
-      view.layer.zPosition = z
-    }
-  }
-
-  private func placeCatcher(
-    width: CGFloat,
-    height: CGFloat
-  ) {
-    let at = machine.phase == .rest ? Int(machine.position.rounded()) : -1
-    let closesList = Screen.chatList.rawValue
-    let closesFiles = Screen.files.rawValue
-    catcher.isHidden = at != closesList && at != closesFiles
-    switch at {
-    case closesList:
-      catcher.frame = CGRect(x: width - Self.strip, y: 0, width: Self.strip, height: height)
-      catcher.accessibilityLabel = "Close chat list"
-    case closesFiles:
-      catcher.frame = CGRect(x: 0, y: 0, width: Self.strip, height: height)
-      catcher.accessibilityLabel = "Close files"
-    default:
-      break
-    }
-    // PLATFORM: ios: The status bar's glyphs are drawn for the drawer, so the card's strip under them takes the
-    // PLATFORM: ios: drawer's colour; the card's own white would swallow the clock where it straddles the edge.
-    catcher.band.backgroundColor = (at == closesFiles ? files : list).backgroundColor
-    catcher.band.frame = CGRect(
-      x: 0,
-      y: 0,
-      width: Self.strip,
-      height: host?.safeAreaInsets.top ?? 0
-    )
   }
 }

@@ -7,6 +7,8 @@ struct PlusMenuSheet: View {
   let pick: (String) -> Void
   let close: () -> Void
 
+  private static let closeEmphasis: CGFloat = 0.5
+
   private var palette: ChromePalette? { chrome.palette }
   private var text: Color { palette?.text ?? .primary }
   private var secondaryText: Color { palette?.secondaryText ?? .secondary }
@@ -35,8 +37,11 @@ struct PlusMenuSheet: View {
   }
 
   private var closeButton: some View {
-    Button(action: close) { PhosphorIcon(.x, emphasis: 0.5).foregroundStyle(text) }
-      .accessibilityLabel("Close")
+    Button(
+      action: close,
+      label: { PhosphorIcon(.xMark, emphasis: Self.closeEmphasis).foregroundStyle(text) }
+    )
+    .accessibilityLabel("Close")
   }
 
   private struct Rows: View {
@@ -58,12 +63,19 @@ struct PlusMenuSheet: View {
     let secondaryText: Color
     let pick: (String) -> Void
 
+    private static let rowInset: CGFloat = 2
+
     var body: some View {
       Button(action: choose) { label }
         .buttonStyle(.plain)
-        // PLATFORM: ios: The row's own 44pt is the whole height: the list's default insets would add 27pt to it.
+        // PLATFORM: ios: The row's own 44pt is the whole height: list insets would add 27pt.
         .listRowInsets(
-          EdgeInsets(top: 2, leading: Spacing.large, bottom: 2, trailing: Spacing.large)
+          EdgeInsets(
+            top: Self.rowInset,
+            leading: Spacing.large,
+            bottom: Self.rowInset,
+            trailing: Spacing.large
+          )
         )
     }
 

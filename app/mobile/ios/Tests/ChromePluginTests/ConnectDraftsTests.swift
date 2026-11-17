@@ -54,8 +54,7 @@ final class ConnectDraftsTests: XCTestCase {
     ),
     SubmitCase(name: "fingerprint is always confirmable", stage: .fingerprint, canSubmit: true),
     SubmitCase(name: "code stage needs a code", stage: .code, canSubmit: false),
-    SubmitCase(name: "code present", stage: .code, code: "123456", canSubmit: true),
-  ]
+    SubmitCase(name: "code present", stage: .code, code: "123456", canSubmit: true)]
 
   func testEachStageSubmitsOnlyWhenItsFieldsAreFilled() {
     for item in submitCases {

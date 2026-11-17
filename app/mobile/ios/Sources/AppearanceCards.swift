@@ -9,9 +9,8 @@ struct AppearanceCards: View {
 
   private var ring: Color { palette?.brand(scheme) ?? .accentColor }
 
-  private static let modes: [(id: String, label: String)] = [
-    ("light", "Light"), ("dark", "Dark"), ("system", "System"),
-  ]
+  private static let modes: [(id: String, label: String)] =
+    [("light", "Light"), ("dark", "Dark"), ("system", "System")]
 
   var body: some View {
     HStack(spacing: Spacing.medium) { cards }
@@ -37,7 +36,7 @@ struct AppearanceCards: View {
     let choose: (String) -> Void
 
     var body: some View {
-      Button(action: { choose(item.id) }) { label }
+      Button(action: { choose(item.id) }, label: { label })
         .buttonStyle(.plain)
         .accessibilityLabel(item.label)
         .accessibilityAddTraits(selected ? .isSelected : [])
@@ -51,7 +50,7 @@ struct AppearanceCards: View {
       .contentShape(.rect)
     }
 
-    // PLATFORM: ios: strokeBorder draws inside the shape, over the clipped face: nothing leaves the card.
+    // PLATFORM: ios: strokeBorder draws inside the shape, so nothing leaves the card.
     private var preview: some View {
       Preview(mode: item.id, palette: palette)
         .frame(height: Metric.previewHeight)
@@ -118,6 +117,8 @@ struct AppearanceCards: View {
     let scheme: ColorScheme
     let brand: Color
 
+    private static let linePadding: CGFloat = 10
+
     private var light: Bool { scheme == .light }
     private var ink: Color { light ? Color.black : Color.white }
     private var ground: Color {
@@ -139,7 +140,7 @@ struct AppearanceCards: View {
         Capsule().fill(ink.opacity(Alpha.dim))
           .frame(width: Metric.shortLine, height: Metric.lineHeight)
       }
-      .padding(10)
+      .padding(Self.linePadding)
     }
 
     private var dot: some View {

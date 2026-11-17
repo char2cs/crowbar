@@ -12,5 +12,5 @@ Haptics # UIKit feedback generators
 HostedPage # WKWebView host
 PageChannel # WKScriptMessageHandler bridge
 SecondaryPage # SwiftUI hosting controller
-ViewStyles # SwiftUI styling
+View # SwiftUI styling
 WeakMessageHandler # WKScriptMessageHandler weak proxy

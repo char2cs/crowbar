@@ -93,9 +93,8 @@ struct EffortControl: View {
 
     private var release: (DragGesture.Value) -> Void {
       { drag in
-        guard
-          let level = dial.pick(at: drag.location.x, width: width, levels: levels, handed: handed)
-        else { return }
+        let touch = EffortDial.Touch(position: drag.location.x, width: width)
+        guard let level = dial.pick(at: touch, levels: levels, handed: handed) else { return }
         onPick(level)
       }
     }

@@ -12,7 +12,8 @@ use crate::settings_follow::Listener;
 use crate::snapshot::Snapshot;
 use crate::value::Value;
 
-/// A [`SettingsBackend`] and [`RecordBackend`] that keep everything in memory and log what they were asked to do.
+/// A [`SettingsBackend`](crate::settings_backend::SettingsBackend) and [`RecordBackend`](crate::record_backend::RecordBackend)
+/// that keep everything in memory and log what they were asked to do.
 #[derive(Clone, Default)]
 pub struct FakeBackend {
     pub(crate) state: Rc<RefCell<FakeState>>,

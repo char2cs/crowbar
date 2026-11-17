@@ -1,6 +1,11 @@
 import CoreGraphics
 
 struct EffortDial: Equatable {
+  struct Touch {
+    let position: CGFloat
+    let width: CGFloat
+  }
+
   private(set) var pending: String?
 
   func shown(handed: String?) -> String? { pending ?? handed }
@@ -15,12 +20,11 @@ struct EffortDial: Equatable {
   }
 
   mutating func pick(
-    at x: CGFloat,
-    width: CGFloat,
+    at touch: Touch,
     levels: [String],
     handed: String?
   ) -> String? {
-    let index = Self.index(at: x, width: width, count: levels.count)
+    let index = Self.index(at: touch.position, width: touch.width, count: levels.count)
     guard levels.indices.contains(index), release(on: levels[index], handed: handed) else {
       return nil
     }
@@ -53,11 +57,11 @@ struct EffortDial: Equatable {
   }
 
   static func index(
-    at x: CGFloat,
+    at position: CGFloat,
     width: CGFloat,
     count: Int
   ) -> Int {
     guard count > 0, width > 0 else { return 0 }
-    return min(count - 1, max(0, Int(x / width * CGFloat(count))))
+    return min(count - 1, max(0, Int(position / width * CGFloat(count))))
   }
 }

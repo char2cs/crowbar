@@ -7,7 +7,7 @@ final class RowMenuTests: XCTestCase {
   func testRowMenuActionDecoding() {
     let full = RowMenu.action([
       "id": "del", "title": "Delete", "icon": "Trash", "destructive": true,
-      "confirm": ["message": "Sure?"],
+      "confirm": ["message": "Sure?"]
     ])
     XCTAssertEqual(full?.id, "del")
     XCTAssertEqual(full?.destructive, true)

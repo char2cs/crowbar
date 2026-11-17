@@ -6,9 +6,9 @@ use crate::merge_work::MergeWork;
 /// The merge box of the focused workspace; the shell has already decided why merging is blocked.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct MergeBox {
-    /// The branch it merges into; the title reads "Merge into <parent>".
+    /// The branch it merges into; the title reads "Merge into `<parent>`".
     pub parent: Option<String>,
-    /// The branch has landed in its parent: the title reads "Merged into <parent>" and no controls show.
+    /// The branch has landed in its parent: the title reads "Merged into `<parent>`" and no controls show.
     pub merged: bool,
     /// The strategy chosen for this workspace.
     pub strategy: MergeStrategy,

@@ -7,7 +7,7 @@ use crate::row_id::RowId;
 pub struct RunningAgent {
     /// The chat's row.
     pub row: RowId,
-    /// The chat's title, for the confirmation "Kill the agent on <title>?".
+    /// The chat's title, for the confirmation "Kill the agent on `<title>`?".
     pub title: String,
     /// How many clients are attached to it, this one included; 0 is an orphan.
     pub viewers: u32,
