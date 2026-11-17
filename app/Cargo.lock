@@ -1512,7 +1512,6 @@ dependencies = [
  "smallvec",
  "startup_view",
  "tab_bar",
- "tempfile",
  "terminal",
  "terminal_session",
  "terminal_view",

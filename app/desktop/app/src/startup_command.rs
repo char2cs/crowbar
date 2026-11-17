@@ -46,20 +46,9 @@ mod tests {
     use gpui::{AppContext as _, Context, TestAppContext};
 
     use super::*;
-    use crate::app_options::AppOptions;
+    use crate::test_support::link_without_daemon;
 
     struct Empty;
-
-    fn link() -> (DaemonLink, tempfile::TempDir) {
-        let home = tempfile::tempdir().unwrap();
-        let options = AppOptions {
-            panes_dir: None,
-            chat_entry: "chat/index.html".into(),
-            home: home.path().to_path_buf(),
-            daemon_binary: Some(home.path().join("missing-daemon")),
-        };
-        (DaemonLink::start(&options).unwrap(), home)
-    }
 
     #[test]
     fn each_command_maps_to_its_action() {
@@ -75,7 +64,7 @@ mod tests {
 
     #[gpui::test]
     fn retry_after_a_failed_launch_reports_a_new_attempt(cx: &mut TestAppContext) {
-        let (link, _home) = link();
+        let link = link_without_daemon();
         let phases = link.phases();
         while phases.try_recv().is_ok() {}
         let view = cx.new(|_: &mut Context<'_, Empty>| Empty);
@@ -88,7 +77,7 @@ mod tests {
 
     #[gpui::test]
     fn opening_a_log_that_does_not_exist_is_harmless(cx: &mut TestAppContext) {
-        let (link, _home) = link();
+        let link = link_without_daemon();
         let view = cx.new(|_: &mut Context<'_, Empty>| Empty);
         view.update(cx, |_, cx| perform(StartupCommand::OpenLog, &link, cx));
         assert!(link.log().is_none(), "there was never a log to open");

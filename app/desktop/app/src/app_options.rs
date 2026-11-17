@@ -31,6 +31,7 @@ impl AppOptions {
     pub(crate) fn resolve_panes_dir(
         &self,
         exe: Option<&Path>,
+        is_file: impl Fn(&Path) -> bool,
     ) -> Result<PathBuf> {
         let dir = match (&self.panes_dir, exe.and_then(Path::parent)) {
             (Some(dir), _) => {
@@ -40,8 +41,7 @@ impl AppOptions {
             (None, None) => PathBuf::from(DEFAULT_PANES_DIR),
         };
         let entry = dir.join(&self.chat_entry);
-        entry
-            .is_file()
+        is_file(&entry)
             .then_some(dir)
             .ok_or(Error::PanesMissing(entry))
     }
@@ -136,11 +136,6 @@ mod tests {
         }
     }
 
-    fn bundle(root: &Path) {
-        std::fs::create_dir_all(root.join("chat")).unwrap();
-        std::fs::write(root.join("chat/index.html"), "<p>").unwrap();
-    }
-
     type ResolveCase = (
         &'static str,
         Option<&'static str>,
@@ -191,15 +186,17 @@ mod tests {
         assert!(dir.is_absolute(), "{name}: absolute");
     }
 
+    const ROOT: &str = "/root";
+
     fn run_case(case: &ResolveCase) {
         let (name, configured, exe, bundled, resolved) = case;
-        let root = tempfile::tempdir().unwrap();
-        if let Some(dir) = bundled {
-            bundle(&root.path().join(dir));
-        }
-        let options = options_with(configured.map(|dir| root.path().join(dir)));
-        let found = options.resolve_panes_dir(exe.map(|exe| root.path().join(exe)).as_deref());
-        check_resolved(name, found, resolved.map(|dir| root.path().join(dir)));
+        let at = |name: &str| Path::new(ROOT).join(name);
+        let entry = bundled.map(|dir| at(dir).join("chat/index.html"));
+        let options = options_with(configured.map(at));
+        let found = options.resolve_panes_dir(exe.map(at).as_deref(), |file| {
+            entry.as_deref() == Some(file)
+        });
+        check_resolved(name, found, resolved.map(at));
     }
 
     #[test]

@@ -77,8 +77,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_address_nobody_answers_at_is_an_error_text_not_a_fingerprint() {
-        let dir = tempfile::tempdir().unwrap();
-        let registry = Arc::new(HostRegistry::open(dir.path().join("hosts.json")).unwrap());
+        let registry = Arc::new(HostRegistry::in_memory());
         let book = TransportBook::new(registry, Arc::new(MemoryTokenStore::default()));
         assert!(book.probe("127.0.0.1:1").await.is_err());
         assert!(book.unpair("nobody").await.is_ok());

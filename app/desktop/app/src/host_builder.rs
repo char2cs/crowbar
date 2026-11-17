@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::sync::Arc;
 
 use pane_host::{
@@ -15,11 +16,12 @@ const SCHEME: &str = "crowbar";
 pub(crate) fn build_host(
     options: &AppOptions,
     transport: Arc<dyn DaemonTransport>,
+    is_file: impl Fn(&Path) -> bool,
 ) -> Result<PaneHost> {
     let origins = OriginTable::default();
     let bundles = PaneBundles {
         core: Arc::new(DirBundle::new(
-            options.resolve_panes_dir(std::env::current_exe().ok().as_deref())?,
+            options.resolve_panes_dir(std::env::current_exe().ok().as_deref(), is_file)?,
         )),
         extensions: ExtensionBundles::default(),
     };
@@ -63,10 +65,9 @@ mod tests {
 
     #[test]
     fn a_missing_bundle_stops_the_host_before_any_web_view_exists() {
-        let dir = tempfile::tempdir().unwrap();
-        let missing = dir.path().join("panes");
-        let error =
-            build_host(&options(missing.clone()), Arc::new(NoDaemon::timing_out())).unwrap_err();
+        let missing = PathBuf::from("/nonexistent-crowbar-panes");
+        let transport = Arc::new(NoDaemon::timing_out());
+        let error = build_host(&options(missing.clone()), transport, |_| false).unwrap_err();
         assert!(
             matches!(&error, Error::PanesMissing(entry) if entry.starts_with(&missing)),
             "{error}"

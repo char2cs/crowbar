@@ -51,22 +51,21 @@ mod tests {
         }
     }
 
-    fn desk(dir: &std::path::Path) -> shell_data::HostDesk {
-        let registry = Arc::new(transport::HostRegistry::open(dir.join("hosts.json")).unwrap());
+    const NOTES: &str = "/nonexistent-crowbar-home/notes.json";
+
+    fn desk() -> shell_data::HostDesk {
+        let registry = Arc::new(transport::HostRegistry::in_memory());
         let tokens = Arc::new(transport::MemoryTokenStore::default());
         shell_data::HostDesk {
             book: Arc::new(crate::transport_book::TransportBook::new(registry, tokens)),
-            notes: Arc::new(shell_data::HostNotes::open(dir.join("notes.json")).unwrap()),
+            notes: Arc::new(shell_data::HostNotes::open(NOTES.into()).unwrap()),
         }
     }
 
-    fn data(
-        runtime: &tokio::runtime::Runtime,
-        dir: &std::path::Path,
-    ) -> shell_data::ShellData {
+    fn data(runtime: &tokio::runtime::Runtime) -> shell_data::ShellData {
         let transport: Arc<dyn DaemonTransport> = Arc::new(NoDaemon);
         let wiring = shell_data::ShellWiring {
-            desk: desk(dir),
+            desk: desk(),
             signal: Arc::new(|| {}),
             outcome: Arc::new(|_| {}),
         };
@@ -78,8 +77,7 @@ mod tests {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .build()
             .unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        let data = data(&runtime, dir.path());
+        let data = data(&runtime);
         let (sender, receiver) = async_channel::unbounded();
         let sink = SidebarRequests {
             requests: sender,

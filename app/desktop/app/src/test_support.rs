@@ -1,3 +1,4 @@
+mod daemon_link;
 mod daemon_options;
 mod fixed_clock;
 mod idle_terminals;
@@ -6,6 +7,7 @@ mod mock_host;
 mod no_daemon;
 mod shell_rig;
 
+pub(crate) use daemon_link::link_without_daemon;
 pub(crate) use daemon_options::options_without_a_daemon;
 pub(crate) use fixed_clock::FixedClock;
 pub(crate) use idle_terminals::{idle_terminals, idle_terminals_for};

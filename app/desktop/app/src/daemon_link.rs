@@ -155,16 +155,11 @@ async fn build_transport(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::options_without_a_daemon;
+    use crate::test_support::link_without_daemon;
 
     #[test]
     fn a_link_without_a_daemon_reports_the_halt_and_has_nothing_to_shut_down() {
-        let home = tempfile::tempdir().unwrap();
-        let options = AppOptions {
-            home: home.path().to_path_buf(),
-            ..options_without_a_daemon()
-        };
-        let link = DaemonLink::start(&options).unwrap();
+        let link = link_without_daemon();
         let phase = link.phases().recv_blocking().unwrap();
         assert!(matches!(phase, StartupInput::Halted { .. }), "{phase:?}");
         assert!(link.log().is_none(), "nothing to open");

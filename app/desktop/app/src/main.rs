@@ -120,7 +120,7 @@ mod workspace;
 mod workspace_event;
 mod x11_session;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -200,7 +200,7 @@ fn main() -> anyhow::Result<()> {
     )?;
     legacy_settings::import_old_settings(std::env::var_os("HOME").map(PathBuf::from), &options);
     let link = Rc::new(DaemonLink::start(&options)?);
-    let host = build_host(&options, link.transport())?;
+    let host = build_host(&options, link.transport(), Path::is_file)?;
     let store = LayoutStore::on_disk(options.state_dir().join("layout.json"));
     let state = ShellState::new(host, store)?;
     let preferences_path = options.state_dir().join("sidebar.json");

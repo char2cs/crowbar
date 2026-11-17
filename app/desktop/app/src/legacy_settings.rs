@@ -23,13 +23,13 @@ pub(crate) fn import_old_settings(
 mod tests {
     use super::*;
 
+    const ABSENT_HOME: &str = "/nonexistent-crowbar-home";
+
     #[test]
     fn a_home_without_the_old_app_changes_nothing() {
-        let dir = tempfile::tempdir().unwrap();
-        let options = AppOptions::from_env(|key| {
-            (key == "CROWBAR_HOME").then(|| dir.path().join("h").display().to_string())
-        });
-        import_old_settings(Some(dir.path().to_path_buf()), &options);
+        let options =
+            AppOptions::from_env(|key| (key == "CROWBAR_HOME").then(|| format!("{ABSENT_HOME}/h")));
+        import_old_settings(Some(PathBuf::from(ABSENT_HOME)), &options);
         assert!(!options.state_dir().exists());
     }
 }
