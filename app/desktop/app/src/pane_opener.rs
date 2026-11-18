@@ -25,6 +25,24 @@ pub(crate) fn open_commands(
     Ok(vec![crate::stack_policy::place(tab, instance)])
 }
 
+pub(crate) fn open_view_commands(
+    layout: &Layout,
+    pane: (PaneTypeId, Params),
+    serials: &Serials,
+) -> Result<Vec<Command>> {
+    let (type_id, params) = pane;
+    if let Some(existing) = layout.find_pane(&type_id, &params) {
+        return Ok(focus_commands(layout, &existing.pane_id));
+    }
+    let instance = PaneInstance {
+        pane_id: PaneId::new(serials.next_pane())?,
+        type_id,
+        params,
+        state: PaneState::default(),
+    };
+    Ok(open_in_new_tab(serials.next_tab(), instance))
+}
+
 pub(crate) fn open_at(
     pane: (PaneTypeId, Params),
     (tab, placement): (TabId, Placement),

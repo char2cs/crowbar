@@ -9,6 +9,11 @@ pub(crate) const NARROW_BELOW: f32 = 640.0;
 pub(crate) const KEY_STEP: f32 = 16.0;
 pub(crate) const KEY_STEP_LARGE: f32 = 64.0;
 pub(crate) const HEADER_HEIGHT: f32 = 42.0;
+// PLATFORM: macOS draws its traffic lights over the top-left of the header.
+#[cfg(target_os = "macos")]
+pub(crate) const TRAFFIC_LIGHT_RESERVE: f32 = 72.0;
+#[cfg(not(target_os = "macos"))]
+pub(crate) const TRAFFIC_LIGHT_RESERVE: f32 = 0.0;
 pub(crate) const SWITCHER_HEIGHT: f32 = 44.0;
 pub(crate) const FOOT_HEIGHT: f32 = 40.0;
 pub(crate) const ROW_HEIGHT: f32 = 36.0;

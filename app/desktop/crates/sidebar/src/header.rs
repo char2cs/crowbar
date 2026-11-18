@@ -13,7 +13,7 @@ use crate::host::Host;
 use crate::host_picker::host_picker;
 use crate::icon_button::IconButton;
 use crate::intent::Intent;
-use crate::metrics::HEADER_HEIGHT;
+use crate::metrics::{HEADER_HEIGHT, TRAFFIC_LIGHT_RESERVE};
 use crate::row_action::RowAction;
 use crate::scale::{SPACE_LG, SPACE_MD, SPACE_XS};
 use crate::sidebar::Sidebar;
@@ -39,6 +39,7 @@ impl Sidebar {
             .when(side == DockSide::Right, |d| {
                 d.flex_row_reverse().pr(SPACE_LG).pl(SPACE_MD)
             })
+            .child(div().flex_none().w(px(traffic_light_reserve(side))))
             .child(Self::settings_button(cx))
             .child(div().flex().flex_1().justify_center().children(picker))
             .child(self.toggle_button(cx))
@@ -103,11 +104,32 @@ impl Sidebar {
     }
 }
 
+fn traffic_light_reserve(side: DockSide) -> f32 {
+    if side == DockSide::Right {
+        return 0.0;
+    }
+    TRAFFIC_LIGHT_RESERVE
+}
+
 #[cfg(test)]
 mod tests {
+    use super::traffic_light_reserve;
+    use crate::dock_side::DockSide;
+    use crate::metrics::TRAFFIC_LIGHT_RESERVE;
     use crate::sidebar::Sidebar;
     use crate::test_support::prelude::*;
     use crate::visibility::Visibility;
+
+    #[test]
+    fn only_a_left_dock_reserves_room_for_the_traffic_lights() {
+        let cases = [
+            (DockSide::Left, TRAFFIC_LIGHT_RESERVE),
+            (DockSide::Right, 0.0),
+        ];
+        for (side, reserve) in cases {
+            assert_eq!(traffic_light_reserve(side), reserve, "{side:?}");
+        }
+    }
 
     #[gpui::test]
     fn the_toggle_closes_and_reopens_the_sidebar(cx: &mut TestAppContext) {

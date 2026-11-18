@@ -121,6 +121,7 @@ mod terminal_preferences;
 #[cfg(test)]
 mod test_support;
 mod titles;
+mod traffic_lights;
 mod transport_book;
 mod unsaved_dialog;
 mod view_life;

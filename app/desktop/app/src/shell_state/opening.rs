@@ -3,7 +3,7 @@ use protocol::{PaneTypeId, Params};
 
 use super::ShellState;
 use crate::core_panes::{chat_params, chat_type};
-use crate::pane_opener::{open_at, open_commands};
+use crate::pane_opener::{open_at, open_commands, open_view_commands};
 use crate::pane_spec::PaneSpec;
 
 impl ShellState {
@@ -15,6 +15,17 @@ impl ShellState {
         match open_commands(self.history.layout(), (type_id, params), &self.serials) {
             Ok(commands) => self.apply(commands),
             Err(error) => tracing::warn!(%error, "could not open the pane"),
+        }
+    }
+
+    pub(crate) fn open_view(
+        &mut self,
+        type_id: PaneTypeId,
+        params: Params,
+    ) {
+        match open_view_commands(self.history.layout(), (type_id, params), &self.serials) {
+            Ok(commands) => self.apply(commands),
+            Err(error) => tracing::warn!(%error, "could not open the view"),
         }
     }
 
@@ -67,6 +78,27 @@ mod tests {
             let title = rig.shell.titles().get(&pane).map(|t| t.to_string());
             assert_eq!(title.as_deref(), Some(expected), "{folder}");
         }
+    }
+
+    #[test]
+    fn an_opened_chat_gets_its_own_view_and_an_open_one_is_revealed() {
+        let mut rig = shell_rig();
+        let open = |rig: &mut crate::test_support::ShellRig, chat: &str| {
+            rig.shell
+                .open_view(chat_type().unwrap(), chat_params(chat).unwrap());
+        };
+        open(&mut rig, "t1");
+        open(&mut rig, "t2");
+        assert_eq!(rig.shell.layout().tabs().len(), 2, "a view per chat");
+        assert_eq!(rig.shell.layout().pane_count(), 2);
+        open(&mut rig, "t1");
+        assert_eq!(
+            rig.shell.layout().tabs().len(),
+            2,
+            "t1 revealed, not copied"
+        );
+        let active = rig.shell.layout().active_tab().map(model::Tab::id);
+        assert_eq!(active, Some(rig.shell.layout().tabs()[0].id()));
     }
 
     #[test]

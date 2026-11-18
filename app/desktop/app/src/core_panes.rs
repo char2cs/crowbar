@@ -80,7 +80,7 @@ pub(crate) fn register_core_panes(
         title: "Chat".into(),
         entry: chat_entry.into(),
         kind: PaneKind::Web,
-        lifecycle: PaneLifecycle::Parkable,
+        lifecycle: PaneLifecycle::KeepAlive,
         multiplicity: Multiplicity::PerParams,
     })?;
     for spec in TYPES {
@@ -127,6 +127,13 @@ mod tests {
             let pane_type = registry.get(&PaneTypeId::new(id).unwrap()).unwrap();
             assert_eq!(!pane_type.entry.is_empty(), bundled, "{id}");
         }
+    }
+
+    #[test]
+    fn a_chat_stays_mounted_when_it_is_not_showing() {
+        let registry = registered();
+        let chat = registry.get(&chat_type().unwrap()).unwrap();
+        assert_eq!(chat.lifecycle, PaneLifecycle::KeepAlive, "never parked");
     }
 
     #[test]
