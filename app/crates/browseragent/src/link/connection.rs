@@ -29,14 +29,14 @@ mod tests {
     use super::*;
     use crate::shell::AgentOp;
     use crate::shell::TabCommands;
-    use crate::shell::TabInfo;
+    use crate::shell::TabSummary;
     use crate::test_support::{Daemon, RecordingShell, line, tab};
     use crate::wait::Delivery;
     use crate::wait::Replies;
 
     struct Rig {
         daemon: Daemon,
-        tabs: watch::Sender<Vec<TabInfo>>,
+        tabs: watch::Sender<Vec<TabSummary>>,
         shell: Arc<RecordingShell>,
         replies: Arc<Replies>,
     }

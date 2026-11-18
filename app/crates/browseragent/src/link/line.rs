@@ -14,15 +14,15 @@ use crate::link::peer_session::PeerSession;
 use crate::link::peer_stream::PeerStream;
 use crate::shell::AgentCommand;
 use crate::shell::AgentOp;
-use crate::shell::TabInfo;
+use crate::shell::TabSummary;
 
 type Finished = (String, AgentAnswer);
 
 pub(crate) struct Line<'a> {
     session: &'a PeerSession,
-    tabs: watch::Receiver<Vec<TabInfo>>,
+    tabs: watch::Receiver<Vec<TabSummary>>,
     requests: JoinSet<Finished>,
-    heard: Option<Vec<TabInfo>>,
+    heard: Option<Vec<TabSummary>>,
 }
 
 impl<'a> Line<'a> {
@@ -91,7 +91,7 @@ impl<'a> Line<'a> {
 async fn next_event<S: PeerStream>(
     stream: &mut S,
     requests: &mut JoinSet<Finished>,
-    tabs: &mut watch::Receiver<Vec<TabInfo>>,
+    tabs: &mut watch::Receiver<Vec<TabSummary>>,
 ) -> ConnectionEvent {
     tokio::select! {
         frame = stream.recv() => frame.map_or(ConnectionEvent::Lost, ConnectionEvent::Frame),

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use browser::{AgentAnswer, PageUrl};
-use browseragent::{PeerSession, TabCommands, TabInfo};
+use browseragent::{PeerSession, TabCommands, TabSummary};
 use layout::Command;
 use protocol::PaneId;
 use serde_json::{Value, json};
@@ -15,7 +15,7 @@ use crate::pane_spec::PaneSpec;
 const TAB_CLOSED: &str = "the tab was closed before the page loaded";
 
 impl ShellState {
-    pub(crate) fn browser_tabs(&self) -> Vec<TabInfo> {
+    pub(crate) fn browser_tabs(&self) -> Vec<TabSummary> {
         browser_tabs(self.history.layout(), &self.pages)
     }
 
@@ -101,8 +101,8 @@ impl ShellState {
 }
 
 fn replace_if_changed(
-    current: &mut Vec<TabInfo>,
-    tabs: Vec<TabInfo>,
+    current: &mut Vec<TabSummary>,
+    tabs: Vec<TabSummary>,
 ) -> bool {
     if *current == tabs {
         return false;

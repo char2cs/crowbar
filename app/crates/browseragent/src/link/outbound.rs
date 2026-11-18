@@ -1,11 +1,11 @@
 use browser::AgentAnswer;
 use serde_json::json;
 
-use crate::shell::TabInfo;
+use crate::shell::TabSummary;
 
 const TYPE: &str = "type";
 
-pub(crate) fn tabs_frame(tabs: &[TabInfo]) -> String {
+pub(crate) fn tabs_frame(tabs: &[TabSummary]) -> String {
     json!({ TYPE: "tabs", "tabs": tabs }).to_string()
 }
 
@@ -30,8 +30,8 @@ mod tests {
 
     use super::*;
 
-    fn tab() -> TabInfo {
-        TabInfo {
+    fn tab() -> TabSummary {
+        TabSummary {
             id: "b1".into(),
             chat_id: "c1".into(),
             url: "https://a.test/".into(),

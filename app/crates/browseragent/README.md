@@ -10,7 +10,7 @@ to the requests that wait for them.
 
 - `run_peer`: the connection loop of one window's peer link.
 - Ports: `PeerConnector` and `PeerStream` (the socket), `TabCommands` (what the shell does).
-- `PeerSession`, `AgentCommand`, `AgentOp`, `DomOp`, `TabInfo`: what the shell is asked.
+- `PeerSession`, `AgentCommand`, `AgentOp`, `DomOp`, `TabSummary`: what the shell is asked.
 - `Replies`, `Expectation`, `Arming`, `Delivery`: answers matched to waiting requests.
 - `Error`.
 

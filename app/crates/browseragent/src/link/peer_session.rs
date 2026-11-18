@@ -3,14 +3,14 @@ use std::sync::Arc;
 use tokio::sync::watch;
 
 use crate::shell::TabCommands;
-use crate::shell::TabInfo;
+use crate::shell::TabSummary;
 use crate::wait::Replies;
 
 /// What a window shares with the loop that attaches it to the daemon.
 #[derive(Debug, Clone)]
 pub struct PeerSession {
     /// The window's tabs; the loop reports each change to the daemon.
-    pub tabs: watch::Receiver<Vec<TabInfo>>,
+    pub tabs: watch::Receiver<Vec<TabSummary>>,
     /// Where the loop hands the requests it receives.
     pub commands: Arc<dyn TabCommands>,
     /// The requests waiting for the shell.

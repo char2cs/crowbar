@@ -1,5 +1,5 @@
 use browser::PageState;
-use browseragent::TabInfo;
+use browseragent::TabSummary;
 use layout::{Layout, Tab};
 use protocol::PaneId;
 
@@ -105,9 +105,9 @@ fn tab_info(
     layout: &Layout,
     pages: &BrowserPages,
     (pane, chat_id): (PaneId, String),
-) -> TabInfo {
+) -> TabSummary {
     let state = pages.get(&pane);
-    TabInfo {
+    TabSummary {
         url: address_of(layout, pages, &pane),
         title: state
             .and_then(PageState::title)
@@ -122,7 +122,7 @@ fn tab_info(
 pub(crate) fn browser_tabs(
     layout: &Layout,
     pages: &BrowserPages,
-) -> Vec<TabInfo> {
+) -> Vec<TabSummary> {
     let browsers = layout.tabs().iter().flat_map(browsers_of);
     browsers
         .map(|browser| tab_info(layout, pages, browser))

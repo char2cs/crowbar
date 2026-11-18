@@ -50,7 +50,7 @@ pub(crate) struct ShellState {
     pages: BrowserPages,
     replies: Arc<Replies>,
     pending_loads: crate::pending_loads::PendingLoads,
-    tabs_out: tokio::sync::watch::Sender<Vec<browseragent::TabInfo>>,
+    tabs_out: tokio::sync::watch::Sender<Vec<browseragent::TabSummary>>,
 }
 
 impl std::fmt::Debug for ShellState {

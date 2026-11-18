@@ -2,7 +2,7 @@ use serde::Serialize;
 
 /// One browser tab as the daemon's `browser_tabs` tool shows it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct TabInfo {
+pub struct TabSummary {
     /// The tab id the tools take.
     pub id: String,
     /// The chat the tab belongs to.
