@@ -7,9 +7,6 @@ use crate::view::Id;
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum Error {
-    /// This platform cannot host web views.
-    #[error("web views are not supported on this platform")]
-    UnsupportedPlatform,
     /// The parent window's handle is of a kind this platform cannot embed into.
     #[error("unsupported parent window handle: {0}")]
     UnsupportedParent(&'static str),

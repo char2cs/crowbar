@@ -34,8 +34,7 @@ impl Host {
     /// Starts the backend for the current platform. Call it on the main thread.
     ///
     /// # Errors
-    /// [`Error::UnsupportedPlatform`](crate::Error::UnsupportedPlatform), or the error of the
-    /// backend failing to start.
+    /// The error of the backend failing to start.
     pub fn native(config: HostConfig) -> Result<Self> {
         Ok(Self::with_platform(start_native(config)?))
     }
@@ -103,11 +102,6 @@ fn start_native(config: HostConfig) -> Result<Rc<dyn Platform>> {
 #[cfg(target_os = "macos")]
 fn start_native(config: HostConfig) -> Result<Rc<dyn Platform>> {
     Ok(Rc::new(crate::backend::AppkitPlatform::start(config)?))
-}
-
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn start_native(_config: HostConfig) -> Result<Rc<dyn Platform>> {
-    Err(crate::error::Error::UnsupportedPlatform)
 }
 
 #[cfg(test)]
