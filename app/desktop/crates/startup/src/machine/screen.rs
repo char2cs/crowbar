@@ -4,45 +4,32 @@ use crate::machine::halt_reason::HaltReason;
 use crate::machine::migration_step::MigrationStep;
 use crate::machine::outage::Outage;
 
-/// What the full-screen view shows right now.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
-pub enum Screen {
-    /// Waiting for the daemon to answer.
+pub(crate) enum Screen {
     Starting,
-    /// The daemon upgrades its data.
     Migrating {
-        /// The latest step reported.
         step: Option<MigrationStep>,
-        /// Overall progress, never lower than an earlier value; `None` while unknown.
         fraction: Option<f32>,
     },
-    /// The daemon refused to start.
     Halted {
-        /// Why.
         reason: HaltReason,
-        /// What the daemon said.
         message: String,
     },
-    /// The daemon is not serving.
     Unavailable(Outage),
-    /// The daemon serves; the view hands over to the layout.
     Ready,
 }
 
 impl Screen {
-    /// Whether this screen is part of a normal start (as opposed to a failure or the end).
-    pub fn is_waiting(&self) -> bool {
+    pub(crate) fn is_waiting(&self) -> bool {
         matches!(self, Self::Starting | Self::Migrating { .. })
     }
 
-    /// Whether this screen reports a failure that must show at once.
-    pub fn is_failure(&self) -> bool {
+    pub(crate) fn is_failure(&self) -> bool {
         matches!(self, Self::Halted { .. } | Self::Unavailable(_))
     }
 
-    /// The headline, also the window title.
-    pub fn headline(&self) -> &'static str {
+    pub(crate) fn headline(&self) -> &'static str {
         match self {
             Self::Starting => "Starting Crowbar",
             Self::Migrating { .. } => "Upgrading your data",
@@ -52,8 +39,7 @@ impl Screen {
         }
     }
 
-    /// The text a screen reader should announce for this screen.
-    pub fn announcement(&self) -> String {
+    pub(crate) fn announcement(&self) -> String {
         match self {
             Self::Starting => "Starting Crowbar. Waiting for the background service.".to_owned(),
             Self::Migrating { step, fraction } => {
@@ -67,8 +53,7 @@ impl Screen {
         }
     }
 
-    /// The app phase this screen corresponds to.
-    pub fn phase(&self) -> AppPhase {
+    pub(crate) fn phase(&self) -> AppPhase {
         match self {
             Self::Starting => AppPhase::Starting,
             Self::Migrating { step, fraction } => AppPhase::Migrating {

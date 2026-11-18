@@ -1,17 +1,8 @@
 use std::mem::discriminant;
 use std::time::Duration;
 
-/// Turns the stream of supervisor inputs into the screen to show.
-///
-/// Time is a `Duration` since any fixed origin that the caller passes with every call; the
-/// machine never reads a clock and never waits. Rules:
-///
-/// - Progress never goes backwards within one daemon run, and a stale step is ignored.
-/// - Nothing is drawn for the first `reveal_delay`, so a start that finishes at once shows no view.
-/// - Once drawn, a normal screen stays `min_visible` before a different normal screen replaces it;
-///   only the latest queued screen survives. Failures and updates of the same screen apply at once.
 #[derive(Debug, Clone)]
-pub struct Machine {
+pub(crate) struct Machine {
     timing: Timing,
     shown: Screen,
     shown_at: Duration,
@@ -36,12 +27,11 @@ pub use halt_reason::HaltReason;
 pub use input::Input;
 pub use migration_step::MigrationStep;
 pub use outage::Outage;
-pub use screen::Screen;
+pub(crate) use screen::Screen;
 pub use timing::Timing;
 
 impl Machine {
-    /// A machine showing [`Screen::Starting`] from `now`.
-    pub fn new(
+    pub(crate) fn new(
         timing: Timing,
         now: Duration,
     ) -> Self {
@@ -56,9 +46,7 @@ impl Machine {
             now,
         }
     }
-
-    /// Feeds one supervisor input observed at `now`.
-    pub fn apply(
+    pub(crate) fn apply(
         &mut self,
         input: Input,
         now: Duration,
@@ -68,28 +56,20 @@ impl Machine {
         self.admit(target);
         self.settle();
     }
-
-    /// Lets time pass: shows a queued screen once it is due.
-    pub fn tick(
+    pub(crate) fn tick(
         &mut self,
         now: Duration,
     ) {
         self.now = self.now.max(now);
         self.settle();
     }
-
-    /// The screen to draw.
-    pub fn screen(&self) -> &Screen {
+    pub(crate) fn screen(&self) -> &Screen {
         &self.shown
     }
-
-    /// Whether the screen is drawn yet; false during the initial blank time.
-    pub fn is_revealed(&self) -> bool {
+    pub(crate) fn is_revealed(&self) -> bool {
         self.now >= self.revealed_at
     }
-
-    /// The next time `tick` changes what is shown or drawn, if anything is pending.
-    pub fn deadline(&self) -> Option<Duration> {
+    pub(crate) fn deadline(&self) -> Option<Duration> {
         let reveal = (self.shown.is_waiting() && !self.is_revealed()).then_some(self.revealed_at);
         let release = self.queued.as_ref().map(|_| self.release_at());
         [reveal, release].into_iter().flatten().min()

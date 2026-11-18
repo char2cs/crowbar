@@ -12,7 +12,6 @@ gpui-free state machine (phases, timing, migration steps, outages and halts).
   production).
 - `Input`, `Timing`, `AppPhase`, `MigrationStep`, `Outage`, `HaltReason`: what the
   shell feeds it.
-- `Machine`, `Screen` (exported today; only the crate uses them).
 - `startupgallery` binary (`src/bin/gallery/`): every phase of the view, or a demo run.
 
 ## Depends on

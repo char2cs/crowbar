@@ -2,8 +2,8 @@
 //!
 //! Entry: [`View`]. The shell feeds it [`Input`]s derived from the daemon
 //! supervisor's events, answers its [`Command`]s through [`Actions`], and removes
-//! it when it emits [`Event::HandedOver`]. [`Machine`] is the pure state machine
-//! underneath and can be driven without a window.
+//! it when it emits [`Event::HandedOver`]. A pure state machine underneath turns the inputs
+//! into the screen to show and never reads a clock.
 
 mod actions;
 mod command;
@@ -14,5 +14,5 @@ mod view;
 
 pub use actions::Actions;
 pub use command::Command;
-pub use machine::{AppPhase, HaltReason, Input, Machine, MigrationStep, Outage, Screen, Timing};
+pub use machine::{AppPhase, HaltReason, Input, MigrationStep, Outage, Timing};
 pub use view::{Clock, Event, MonotonicClock, View};
