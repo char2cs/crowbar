@@ -6,10 +6,12 @@ use protocol::{DaemonTransport, HostId};
 
 use crate::core_origin::CORE_ORIGIN;
 use crate::daemon_client::DaemonClient;
-use crate::dial::{Dial, Dialled};
+use crate::dial::Dial;
 use crate::host_slot::HostSlot;
 use crate::host_spec::HostSpec;
 use crate::relay_dial::RelayDial;
+
+pub(crate) type Dialled = (HostSpec, Arc<dyn Dial>);
 
 pub(crate) fn addressable(text: &str) -> Option<HostId> {
     HostId::new(text)

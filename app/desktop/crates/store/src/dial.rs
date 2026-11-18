@@ -2,15 +2,11 @@
 
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
 
 use crate::connection::Connection;
 use crate::error::Result;
-use crate::host_spec::HostSpec;
 
 pub(crate) type Opening<'a> = Pin<Box<dyn Future<Output = Result<Connection>> + Send + 'a>>;
-
-pub(crate) type Dialled = (HostSpec, Arc<dyn Dial>);
 
 pub(crate) trait Dial: Send + Sync {
     /// Connects, or says why it could not.
