@@ -242,6 +242,51 @@ def cmd_shot(a):
     print(a.out)
 
 
+def cmd_drag(a):
+    """Press at (x1, y1), move to (x2, y2) in steps, hold, release: one X client does the input and
+    reads the frames, so captures never race the drag (window-relative points, XTest input)."""
+    s = Screen()
+    rect = s.rect_of(int(a.window))
+    src = (a.src_x, a.src_y) if a.src_x is not None else (rect[0] + a.x1, rect[1] + a.y1)
+    dst = (rect[0] + a.x2, rect[1] + a.y2)
+    names = {"ctrl": "Control_L", "shift": "Shift_L", "alt": "Alt_L", "super": "Super_L"}
+    mods = [s.d.keysym_to_keycode(XK.string_to_keysym(names.get(m, m))) for m in a.mods.split("+") if m]
+    shots = []
+
+    def capture(tag):
+        if a.frames:
+            path = os.path.join(a.out, f"{a.app}-{len(shots):02d}-{tag}.png")
+            to_image(s.grab(rect)).save(path)
+            shots.append(path)
+
+    s.move(*src)
+    time.sleep(0.05)
+    for code in mods:
+        xtest.fake_input(s.d, X.KeyPress, code)
+    xtest.fake_input(s.d, X.ButtonPress, a.button)
+    s.d.flush()
+    time.sleep(a.hold / 1000)
+    for i in range(1, a.steps + 1):
+        s.move(round(src[0] + (dst[0] - src[0]) * i / a.steps), round(src[1] + (dst[1] - src[1]) * i / a.steps))
+        time.sleep(a.step_ms / 1000)
+        if i == a.steps // 2:
+            time.sleep(0.1)
+            capture("mid")
+    for _ in range(max(a.frames - 1, 0)):
+        time.sleep(a.every / 1000)
+        capture("held")
+    time.sleep(a.hold / 1000)
+    xtest.fake_input(s.d, X.ButtonRelease, a.button)
+    for code in reversed(mods):
+        xtest.fake_input(s.d, X.KeyRelease, code)
+    s.d.flush()
+    if a.frames:
+        time.sleep(0.5)
+        capture("dropped")
+    for path in shots:
+        print(path)
+
+
 def cmd_compose(a):
     left, right = Image.open(a.left).convert("RGB"), Image.open(a.right).convert("RGB")
     label, gap = 28, 16
@@ -484,6 +529,16 @@ def main():
     p = argparse.ArgumentParser()
     sub = p.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("shot"); c.add_argument("window"); c.add_argument("out"); c.set_defaults(f=cmd_shot)
+    c = sub.add_parser("drag")
+    c.add_argument("app"); c.add_argument("window")
+    for name in ("x1", "y1", "x2", "y2"):
+        c.add_argument(name, type=int)
+    c.add_argument("--steps", type=int, default=20); c.add_argument("--step-ms", type=float, default=20)
+    c.add_argument("--button", type=int, default=1); c.add_argument("--hold", type=float, default=150)
+    c.add_argument("--mods", default=""); c.add_argument("--frames", type=int, default=0)
+    c.add_argument("--every", type=float, default=100); c.add_argument("--out", default=os.path.expanduser("~/shots/drag"))
+    c.add_argument("--src-x", type=int); c.add_argument("--src-y", type=int)  # a root-window start point
+    c.set_defaults(f=cmd_drag)
     c = sub.add_parser("compose")
     for name in ("left", "right", "left_label", "right_label", "out"):
         c.add_argument(name)

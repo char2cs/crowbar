@@ -2,10 +2,18 @@
 # The daemon binary both apps run (Tauri's sidecar /usr/bin/crowbar-api links here; the Rust shell
 # gets it via CROWBAR_API_BIN). `paths` and `serve` hand each app ($RIG_APP) its own proxy socket in
 # front of the rig's one shared daemon; every other subcommand runs the real daemon binary.
+# In `rig daemon mode own` every subcommand is the real daemon's (in the app's own CROWBAR_HOME),
+# and `rig daemon crashloop on <app>` SIGKILLs each daemon the app starts after about 2 s.
 set -euo pipefail
 real=/opt/crowbar/crowbar-api.real
 app=${RIG_APP:-other}
 socket=$HOME/.rig/$app/daemon.sock
+if [[ -e $HOME/.rig/daemon.own ]]; then
+  if [[ ${1:-} == serve && -e $HOME/.rig/$app/daemon.crashloop ]]; then
+    (sleep 2; kill -KILL $$) >/dev/null 2>&1 &
+  fi
+  exec "$real" "$@"
+fi
 case ${1:-} in
   paths)
     exec python3 -c 'import json, sys

@@ -31,6 +31,23 @@ proxy, so its cost (one Python hop) is identical for both; perf commands exclude
 process trees they measure. The proxy can also inject request-level faults (see Fault injection);
 with no fault rules it splices exactly as described.
 
+## App-supervised daemons
+
+`rig daemon mode own` stops both apps, pauses the shared daemon, copies its home to
+`~/.crowbar-rig-tauri` and `~/.crowbar-rig-rust` and starts each app with its own `CROWBAR_HOME`;
+the wrapper then runs the real daemon for `serve` and `paths`, so each app spawns, supervises and
+logs its own daemon as on a desktop (Tauri's sidecar log: `$CROWBAR_HOME/logs/daemon.log`). Both
+copies point at the same checkouts under `~/.crowbar-rig`, so mutate through one app at a time.
+In this mode `rig daemon` acts on the apps' daemons:
+
+    rig daemon status [app]             # each app's daemon pid and health
+    rig daemon kill|wedge|unwedge [app] # SIGKILL / SIGSTOP / SIGCONT the app's daemon
+    rig daemon crashloop on|off [app]   # every daemon the app starts is SIGKILLed after about 2 s
+
+`rig api`, `rig agent` and `rig ledger` talk to the shared daemon, which is paused; point them at an
+app's with `CROWBAR_HOME=~/.crowbar-rig-<app> rig api ...`. `rig daemon mode shared` (and any `rig
+seed`) deletes the copies, resumes the shared daemon and runs `rig init`.
+
 ## Build
 
     tools/docker/novnc-shell/build.sh                 # compile everything, then build the image
@@ -60,7 +77,7 @@ inside the container: `docker exec crowbar-novnc-shell rig <command>`. Copy scre
 results out with `docker cp crowbar-novnc-shell:/home/user/shots .` and
 `docker cp crowbar-novnc-shell:/home/user/.rig/perf .`.
 
-Logs: `~/.rig/daemon.log` (the shared daemon), `~/.rig/http.log` (web fixture), `~/.rig/ibus.log`, `~/.rig/keyring.log`, `~/.rig/<app>/app.log`, `~/.rig/<app>/daemon.log`
+Logs: `~/.rig/daemon.log` (the shared daemon), `~/.rig/http.log` (web fixture), `~/.rig/ibus.log`, `~/.rig/fcitx5.log`, `~/.rig/keyring.log`, `~/.rig/remote{,2}{,-proxy}.log`, `~/.rig/<app>/app.log`, `~/.rig/<app>/daemon.log`
 (what each app's supervisor saw), `~/.rig/entrypoint.log`, `$CROWBAR_HOME/shell/logs/crowbar.log`.
 
 ## Driver
@@ -78,7 +95,8 @@ Logs: `~/.rig/daemon.log` (the shared daemon), `~/.rig/http.log` (web fixture), 
     rig daemon wedge|unwedge            # SIGSTOP/SIGCONT: the socket accepts, nothing answers
     rig daemon crashloop on|off         # the loop SIGKILLs every start after about 2 s
     rig daemon nogit on|off             # restarts the daemon without (with) git on its PATH; it finds none
-    rig fault <method> <path-regex> <status|drop|delay ms>   # see Fault injection
+    rig daemon mode own|shared          # each app supervises its own daemon, or back (see App-supervised daemons)
+    rig fault <method> <path-regex> <status|drop|delay ms|refuse>   # see Fault injection
     rig fault list|clear
     rig size [app] standard             # 1280x800 (RIG_WxRIG_H): the size every comparison uses
     rig size [app] default              # each app's own default: Tauri 1200x800, Rust 1280x800
@@ -90,7 +108,10 @@ Logs: `~/.rig/daemon.log` (the shared daemon), `~/.rig/http.log` (web fixture), 
     rig type <app> <text>
     rig click <app> <x> <y> [button]
     rig scroll <app> <x> <y> [up|down] [clicks]
-    rig drag <app> <x1> <y1> <x2> <y2> [steps] [button] [hold-ms]   # press, move in steps (20), release
+    rig drag <app> <x1> <y1> <x2> <y2> [steps] [button] [hold-ms] [--mods M] [--frames N] [--every ms]
+                                        # press (with modifiers M, e.g. shift+alt), move in steps (20),
+                                        # hold, release; --frames: ~/shots/drag/<app>-NN-{mid,held,dropped}.png
+    rig dragfile <app> <x> <y> <file>...  # an OS file drag (XDND) from a GTK drag source onto (x, y)
     rig pick <app> <path>               # the open file chooser: ctrl+L, the path, Enter (see File choosers)
     rig shot <app> [file.png]           # one window to PNG (default ~/shots/<app>-<time>.png)
     rig pair <row-id>                   # ~/shots/<row-id>/{tauri,rust,side-by-side}.png
@@ -115,13 +136,26 @@ Environment and input (each setting that the apps read at start restarts them):
     rig clip uri <path>                 # text/uri-list
     rig clip lines|image                # ~/fixtures/clipboard/lines.txt (12 lines) or image.png
     rig clip get [target] | targets | clear
+    rig clip deny|hang                  # an owner that refuses every read / never answers one
     rig http start|stop|status|url [path]   # web fixture on 127.0.0.1:8088 (RIG_HTTP_PORT), see below
     rig motion reduced|full [app]       # gtk-enable-animations in ~/.config/gtk-3.0/settings.ini
-    rig ime on [engine]|off|engine <e>|engines|status   # ibus (libpinyin by default) on a session bus
+    rig ime on [fcitx|ibus] [engine]|off|engine <e>|engines|status   # an input method with pinyin (fcitx5 by default)
     rig keys compose|deadkeys|reset|show    # setxkbmap: Compose on Right Alt; `deadkeys` = us intl
     rig a11y on|off|status              # AT-SPI registry on a session bus, the apps' bridge on
     rig a11y dump <app> [--depth N]     # the app's accessibility tree (role, name, extents, states)
     rig a11y apps                       # applications registered on the AT-SPI bus
+
+`rig clip deny` and `rig clip hang` leave a helper (`clipowner.py`) owning CLIPBOARD that refuses
+every conversion (TARGETS included) or answers none, until something else takes the selection
+(`rig clip set`, a copy in either app). A clipboard write cannot be made to fail under X: whoever
+writes simply becomes the owner.
+
+**Drags.** `rig drag` does the press, the moves and the release from one X client that also reads
+the frames (from the root window, as `rig perf` does), so captures during a held drag never race it;
+`--frames N --every ms` saves one frame half-way, N-1 at the destination while the button is still
+down, and one after the drop. `rig dragfile` opens `dragsource.py` (a GTK 3 window offering the files
+as `text/uri-list` and `text/plain`, as a file manager does) below the app, drags from it onto the
+app's point with XTest and reports whether the drag ended.
 
 `rig ime`, `rig a11y` and `rig motion` leave the apps' extra environment in `~/.rig/app.env`
 (`NAME=value` or `-u NAME` lines). The session bus is started at boot (`rig _session`); its address
@@ -130,10 +164,18 @@ is in `~/.rig/bus.env` and, as `DBUS_SESSION_BUS_ADDRESS`, in `app.env`.
 - **Reduced motion.** WebKitGTK maps `gtk-enable-animations=false` to `prefers-reduced-motion:
   reduce`, so it reaches Tauri and the panes webview inside the Rust shell. GPUI has no OS motion
   input on Linux: the shell's own animations (`app/desktop/crates/ui/src/motion.rs`) ignore it.
-- **IME.** `rig ime on` starts `ibus-daemon --xim` with the pinyin engine and restarts the apps with
-  `GTK_IM_MODULE=ibus XMODIFIERS=@im=ibus`. Typing latin letters into a focused field then opens the
-  candidate window; `rig key <app> space` commits the first candidate. `rig ime engine xkb:us::eng`
-  switches to plain latin without leaving ibus.
+- **IME.** `rig ime on` starts fcitx5 (`rig ime on ibus`: `ibus-daemon --xim`) with pinyin on the
+  session bus and restarts the apps with `GTK_IM_MODULE`, `XMODIFIERS=@im=<server>` and
+  `QT_IM_MODULE` set. Webviews (Tauri; the panes webview in the Rust shell) use the server's GTK 3
+  module (`im-fcitx5.so`, `im-ibus.so`); GPUI's X11 backend speaks only XIM, with
+  `PREEDIT_CALLBACKS` (on-the-spot). fcitx5's XIM frontend is set on-the-spot
+  (`~/.config/fcitx5/conf/xim.conf`), so GPUI fields (the native terminal, text inputs) draw the
+  preedit inline with the candidate window at the cursor. ibus-x11 never converts for GPUI (GPUI
+  does not focus its input context and ibus ignores unfocused ones), which is why fcitx5 is the
+  default. Typing latin letters into a focused field then opens the candidate window; `rig key <app>
+  space` commits the first candidate, Escape cancels. `rig ime engine keyboard-us` (ibus:
+  `xkb:us::eng`) switches to plain latin without leaving the IME. `fonts-wqy-microhei` draws the CJK
+  text. GTK's `xim` module is not offered for webviews: Tauri's webview renders blank with it.
 - **Accessibility.** The image sets `NO_AT_BRIDGE=1`; `rig a11y on` unsets it for the apps and sets
   `GTK_A11Y=atspi`. `a11y-dump.py` (pyatspi) prints what each app exposes.
 
@@ -152,12 +194,14 @@ Daemon data and chats (all through the daemon's HTTP API, over its socket):
     rig provider list|enable <id>|disable <id>
     rig forge signed-in|signed-out|status [glab|gh|all]
     rig remote start|stop|restart|status    # a second daemon as a paired remote host (see Remote host)
+    rig remote fault <method> <path-regex> <status|drop|delay ms|refuse> | list | clear   # on that host
     rig remote code                     # a one-time pairing code, the fingerprint and the addresses
     rig remote clients|revoke           # paired clients; revoke them all (the app then gets 401)
     rig remote rekey                    # new TLS key: the pinned fingerprint stops matching
     rig remote providers on|off         # every provider on the remote disabled or not
     rig remote api <METHOD> <path> [json]   # the remote daemon's API, over its own socket
     rig remote wipe                     # its home deleted; the next start seeds it again
+    rig remote2 <any remote subcommand> # a second paired host (port 4757), same commands
     rig keyring [status]                # the Secret Service: collections, locked or not, saved items (no secrets)
     rig keyring off|on                  # no Secret Service on the bus (until `on`, across restarts) / back, unlocked
     rig keyring reset                   # apps stopped, every saved token gone (a new empty login keyring)
@@ -280,13 +324,21 @@ image carries it (`typescript-language-server@4.3.3` with `typescript@5.6.3`, on
 ## Remote host
 
 `rig remote start` runs a second daemon in the container with its own home (`~/.crowbar-remote`)
-listening on `tcp://:4747` (`RIG_REMOTE_PORT`). A non-loopback bind makes the daemon terminate TLS
-and accept only paired clients, exactly as a remote machine does; it answers on `127.0.0.1:4747`,
-`localhost:4747` and the container's own address. Its first start seeds it (`seed/remote.py`: the
+on `tcp://:4748`, behind `rig-proxy.py` on `4747` (`RIG_REMOTE_PORT`). A non-loopback bind makes the
+daemon terminate TLS and accept only paired clients, exactly as a remote machine does; the proxy
+terminates TLS with the daemon's own key and certificate (`tls/{cert,key}.pem`, so the fingerprint a
+client pins is the daemon's) and re-encrypts to it. It answers on `127.0.0.1:4747`,
+`localhost:4747` and the container's own address. `rig remote fault ...` injects faults there
+exactly as `rig fault` does locally (rules in `~/.rig/faults-remote`): e.g. `rig remote fault DELETE
+'^/v0/clients/' delay 5000` holds a revoke in flight, `rig remote fault GET '^/v0/projects' delay
+5000` the projects snapshot, `rig remote fault GET '/browse' 500` a failing folder listing, `rig
+remote fault GET '^/v0/stream' 503` an event stream the host refuses.
+`rig remote2` is a second paired host on `4757` (daemon on `4758`, home `~/.crowbar-remote2`, project
+"Second Remote Project", faults in `~/.rig/faults-remote2`), for rows that need two hosts. Its first start seeds it (`seed/remote.py`: the
 scripted descriptors, project "Remote Project" with repo `remote-app` and one chat). Pair from
 either app with the code and fingerprint `rig remote code` prints. Host states: down (`stop`),
 answering 401 (`revoke`), re-keyed (`rekey`), without providers (`providers off`), reachable by
-two addresses (pair once by `127.0.0.1`, once by `localhost`). `rig seed` stops and wipes it.
+two addresses (pair once by `127.0.0.1`, once by `localhost`). `rig seed` stops and wipes both.
 
 Pairing saves the host's token in the keyring (see Keyring), so pairing needs it on.
 
@@ -342,10 +394,27 @@ first matching rule wins; faults apply to both apps until cleared, e.g.
     rig fault GET '^/v0/projects' delay 3000
     rig fault clear
 
+`delay` holds a request rather than failing it, so loading states (spinners, skeletons,
+"Loading…") stay on screen long enough to capture: `rig fault GET '^/v0/projects' delay 8000`, then
+`rig restart <app>` and shoot.
+
 With no rules (the default) the proxy splices each connection byte for byte, as before. While
 rules exist it parses each request head; a spliced keep-alive connection switches to parsing at
-its next request, so no app restart is needed. WebSocket connections are never parsed after the
-upgrade.
+its next request, so no app restart is needed. Terminal and browser WebSockets are spliced after
+the upgrade.
+
+**Event-stream messages.** The `/v0/stream` WebSocket is relayed message by message, so one kind of
+message can be faulted while every other live update keeps flowing. Method `WS` matches messages
+from the daemon by `"<t> <scope> [kind]"` (`row chat:<id>`, `delta chat:<id>`, `synced chat:<id>`,
+`entity projects workspace`, `signal workspace:<id> git_status`, ...); `WS-SEND` matches the app's
+requests by `"<op> <scope>"` (`sub chat:<id>`). Their actions are `drop` (the message is not
+delivered), `delay <ms>` (that message alone arrives late) and `refuse` (the message is dropped and
+the app gets `{"t": "closed", "scope": ..., "reason": "refused"}`). The rules apply to streams opened
+after they are added (`rig restart <app>` reopens them). For example:
+
+    rig fault WS '^(row|delta) chat:' drop    # transcripts stop updating; the sidebar still does
+    rig fault WS '^synced chat:' drop         # a chat that never finishes loading
+    rig fault WS-SEND '^sub chat:' refuse     # the daemon refusing a chat's scope
 
 ## Web fixture
 

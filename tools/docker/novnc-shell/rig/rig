@@ -8,12 +8,10 @@ SHOTS=${RIG_SHOTS:-$HOME/shots}
 RIGX=/opt/rig/bin/rigx.py
 PROFILES=/opt/rig/profiles
 HTTP_PORT=${RIG_HTTP_PORT:-8088}
-REMOTE_HOME=$HOME/.crowbar-remote
 REMOTE_PORT=${RIG_REMOTE_PORT:-4747}
 KEYRING_PASSWORD=rig
 KEYRINGS=$HOME/.local/share/keyrings
 TAURI_DB=$HOME/.local/share/software.rabbyte.crowbar/localstorage/tauri_localhost_0.localstorage
-RUST_SETTINGS=$CROWBAR_HOME/shell/settings.json
 # shellcheck source=points.conf
 source /opt/rig/points.conf
 [[ -f $RIG_DIR/points.conf ]] && source "$RIG_DIR/points.conf"
@@ -41,6 +39,24 @@ pid_of() {
 }
 running() { pid_of "$1" >/dev/null; }
 socket() { /opt/crowbar/crowbar-api.real paths | python3 -c 'import json,sys; print(json.load(sys.stdin)["socket"])'; }
+SHARED_SERVE="crowbar-api.real serve --host unix://$(socket)" # the shared daemon's command line
+
+# `rig daemon mode own`: each app supervises its own daemon (the wrapper execs the real one) in its
+# own home, a copy of the shared one; the shared daemon is paused meanwhile.
+own_mode() { [[ -e $RIG_DIR/daemon.own ]]; }
+app_home() { if own_mode; then echo "$HOME/.crowbar-rig-$1"; else echo "$CROWBAR_HOME"; fi; }
+app_socket() { CROWBAR_HOME=$(app_home "$1") socket; }
+own_daemon_pid() { # the app's own daemon: the crowbar-api.real descendant of the app
+  local pid todo
+  todo=$(pid_of "$1") || return 1
+  while [[ -n $todo ]]; do
+    for pid in $todo; do
+      grep -qa "crowbar-api.real" "/proc/$pid/cmdline" 2>/dev/null && { echo "$pid"; return 0; }
+    done
+    todo=$(for pid in $todo; do pgrep -P "$pid"; done)
+  done
+  return 1
+}
 
 winid() { # the app's largest visible window carrying its _NET_WM_PID (both apps set it)
   local pid w g best="" area=0
@@ -99,7 +115,7 @@ start_app() {
   cmd=$(cmd_of "$app")
   (
     cd "$HOME"
-    exec setsid env $(app_env) RIG_APP="$app" "$cmd" >>"$RIG_DIR/$app/app.log" 2>&1 </dev/null
+    exec setsid env $(app_env) CROWBAR_HOME="$(app_home "$app")" RIG_APP="$app" "$cmd" >>"$RIG_DIR/$app/app.log" 2>&1 </dev/null
   ) &
   echo $! >"$RIG_DIR/$app/pid"
   if [[ ${RIG_NO_PLACE:-} == 1 ]]; then return; fi
@@ -188,7 +204,7 @@ set_setting() { # set_setting <key> <value> <apps...>
   for app; do
     case $app in
       tauri) tauri_db_ready && python3 "$RIGX" tauri-set "$TAURI_DB" "$key" "$value" ;;
-      rust) python3 "$RIGX" rust-set "$RUST_SETTINGS" "$key" "$value" ;;
+      rust) python3 "$RIGX" rust-set "$(app_home rust)/shell/settings.json" "$key" "$value" ;;
     esac
     echo "$app: $key = $value"
   done
@@ -261,9 +277,11 @@ extract_profile() {
 seed_profile() {
   stop_app tauri
   stop_app rust
+  rm -f "$RIG_DIR/daemon.own" "$RIG_DIR"/*/daemon.crashloop
+  chmod -R u+rwX "$HOME"/.crowbar-rig-* 2>/dev/null || true
+  rm -rf "$HOME"/.crowbar-rig-*
   daemon_stop >/dev/null
-  remote_stop
-  rm -rf "$REMOTE_HOME" "$HOME/remote-host"
+  for n in 1 2; do remote_select "$n"; remote_wipe; done
   rm -rf "$HOME/.local/share/software.rabbyte.crowbar" "$HOME/.cache/software.rabbyte.crowbar" "$RIG_DIR/initialised"
   keyring_reset
   extract_profile "$1"
@@ -273,40 +291,155 @@ seed_profile() {
 }
 reset_state() { seed_profile "$(profile)"; }
 
-# The paired-host daemon (`rig remote`): its own home and TLS listener, no supervisor loop, so a
-# stop is a host that is down until started again.
-remote() { CROWBAR_HOME=$REMOTE_HOME "$@"; }
+# The paired-host daemons (`rig remote`, `rig remote2`): each its own home and an inner TLS
+# listener, fronted on the public port by rig-proxy.py with the daemon's own TLS key (so remote
+# faults can be injected); no supervisor loop, so a stop is a host that is down until started.
+remote_select() { # remote_select 1|2: R_HOME, R_PORT (public), R_INNER (the daemon's), R_FAULTS, R_NAME
+  local n=$1
+  R_N=$n
+  R_HOME=$HOME/.crowbar-remote$([[ $n == 1 ]] || echo "$n")
+  R_PORT=$((REMOTE_PORT + 10 * (n - 1)))
+  R_INNER=$((R_PORT + 1))
+  R_FAULTS=$RIG_DIR/faults-remote$([[ $n == 1 ]] || echo "$n")
+  R_NAME=$([[ $n == 1 ]] && echo "Remote Project" || echo "Second Remote Project")
+  R_ROOT=$HOME/remote-host$([[ $n == 1 ]] || echo "$n")/remote-app$([[ $n == 1 ]] || echo "-$n")
+}
+remote() { CROWBAR_HOME=$R_HOME "$@"; }
 remote_addresses() { # every address the remote host answers on
-  local a=(127.0.0.1:$REMOTE_PORT localhost:$REMOTE_PORT) ip
-  for ip in $(hostname -I 2>/dev/null); do a+=("$ip:$REMOTE_PORT"); done
+  local a=(127.0.0.1:$R_PORT localhost:$R_PORT) ip
+  for ip in $(hostname -I 2>/dev/null); do a+=("$ip:$R_PORT"); done
   echo "${a[*]}"
 }
-remote_pid() { pgrep -f "crowbar-api.real serve --host tcp://:$REMOTE_PORT"; }
+remote_pid() { pgrep -f "crowbar-api.real serve --host tcp://:$R_INNER"; }
+remote_proxy_pid() { pgrep -f "rig-proxy.py tcp::$R_PORT "; }
 remote_start() {
-  remote_pid >/dev/null && return
+  remote_pid >/dev/null && remote_proxy_pid >/dev/null && return
   local fresh=
-  [[ -d $REMOTE_HOME/state ]] || fresh=1
-  (cd "$HOME" && CROWBAR_HOME=$REMOTE_HOME exec setsid /opt/crowbar/crowbar-api.real serve --host "tcp://:$REMOTE_PORT" \
-    >>"$RIG_DIR/remote.log" 2>&1 </dev/null) &
-  remote python3 -c 'import sys; sys.path.insert(0, "/opt/rig/bin"); import rigapi; rigapi.Api().healthy(30)'
-  [[ -z $fresh ]] || remote python3 /opt/rig/seed/remote.py
+  [[ -d $R_HOME/state ]] || fresh=1
+  if ! remote_pid >/dev/null; then
+    (cd "$HOME" && CROWBAR_HOME=$R_HOME exec setsid /opt/crowbar/crowbar-api.real serve --host "tcp://:$R_INNER" \
+      >>"$RIG_DIR/remote$R_N.log" 2>&1 </dev/null) &
+    remote python3 -c 'import sys; sys.path.insert(0, "/opt/rig/bin"); import rigapi; rigapi.Api().healthy(30)'
+  fi
+  (exec setsid python3 /opt/rig/bin/rig-proxy.py "tcp::$R_PORT" "tcp:127.0.0.1:$R_INNER" --faults "$R_FAULTS" \
+    --tls "$R_HOME/tls/cert.pem" "$R_HOME/tls/key.pem" >>"$RIG_DIR/remote$R_N-proxy.log" 2>&1 </dev/null) &
+  for _ in $(seq 50); do (exec 3<>"/dev/tcp/127.0.0.1/$R_PORT") 2>/dev/null && break; sleep 0.1; done
+  [[ -z $fresh ]] || remote python3 /opt/rig/seed/remote.py "$R_NAME" "$R_ROOT"
 }
 remote_stop() {
-  pkill -f "crowbar-api.real serve --host tcp://:$REMOTE_PORT" || true
-  while remote_pid >/dev/null; do sleep 0.2; done
+  pkill -f "rig-proxy.py tcp::$R_PORT " || true
+  pkill -f "crowbar-api.real serve --host tcp://:$R_INNER" || true
+  while remote_pid >/dev/null || remote_proxy_pid >/dev/null; do sleep 0.2; done
+}
+remote_wipe() { remote_stop; rm -rf "$R_HOME" "$(dirname "$R_ROOT")" "$R_FAULTS"; }
+remote_cmd() { # remote_cmd <1|2> <subcommand...>
+  remote_select "$1"
+  shift
+  case ${1:-status} in
+    start) remote_start; echo "remote host $R_N up: $(remote_addresses)" ;;
+    stop) remote_stop; echo "remote host $R_N down" ;;
+    restart) remote_stop; remote_start; echo "remote host $R_N up" ;;
+    code) # a one-time pairing code and the fingerprint to enter in the app
+      remote_pid >/dev/null || remote_start
+      remote /opt/crowbar/crowbar-api.real pair
+      echo "Address         $(remote_addresses)"
+      ;;
+    clients) remote python3 /opt/rig/bin/rigapi.py GET /v0/clients ;;
+    revoke) # every paired client: the app's next call gets 401
+      remote python3 - <<'PY'
+import sys; sys.path.insert(0, "/opt/rig/bin")
+import rigapi
+api = rigapi.Api()
+for c in api.get("/v0/clients") or []:
+    api.delete(f"/v0/clients/{c['id']}")
+    print("revoked", c["id"])
+PY
+      ;;
+    rekey) # a new TLS key and certificate: the pinned fingerprint no longer matches
+      remote_stop; rm -rf "$R_HOME/tls"; remote_start
+      echo "remote host $R_N re-keyed: $(remote /opt/crowbar/crowbar-api.real pair | sed -n 's/^Fingerprint *//p')"
+      ;;
+    providers)
+      case ${2:-} in
+        off | on) remote python3 - "$2" <<'PY'
+import sys; sys.path.insert(0, "/opt/rig/bin")
+import rigapi
+api = rigapi.Api()
+cur = api.get("/v0/settings/chat/providers")
+api.put("/v0/settings/chat/providers", {"providers": [
+    {"id": p["id"], "disabled": sys.argv[1] == "off", "mcpDisabled": not p["mcpEnabled"]} for p in cur]})
+print("remote providers", sys.argv[1])
+PY
+          ;;
+        *) die "remote providers on|off" ;;
+      esac
+      ;;
+    fault) shift; fault_cmd "$R_FAULTS" "$@" ;;
+    api) shift; remote python3 /opt/rig/bin/rigapi.py "$@" ;;
+    wipe) remote_wipe; echo "remote host $R_N wiped (next start seeds it)" ;;
+    status) remote_pid >/dev/null && echo "remote host $R_N up: $(remote_addresses)" || echo "remote host $R_N down" ;;
+    *) die "remote start|stop|restart|code|clients|revoke|rekey|providers on|off|fault ...|api ...|wipe|status" ;;
+  esac
 }
 
 daemon_stop() {
   touch "$RIG_DIR/daemon.paused"
-  pkill -CONT -f "crowbar-api.real serve --host unix" || true
-  pkill -f "crowbar-api.real serve --host unix" || true
-  while pgrep -f "crowbar-api.real serve --host unix" >/dev/null; do sleep 0.2; done
+  pkill -CONT -f "$SHARED_SERVE" || true
+  pkill -f "$SHARED_SERVE" || true
+  while pgrep -f "$SHARED_SERVE" >/dev/null; do sleep 0.2; done
   echo "daemon stopped (the apps see it gone; \`rig daemon start\` brings it back)"
 }
 daemon_start() {
   rm -f "$RIG_DIR/daemon.paused" "$RIG_DIR/daemon.crashloop"
   echo "daemon starting"
 }
+# own_on / own_off: switch between the shared daemon behind the proxy and app-supervised daemons.
+own_on() {
+  local app
+  stop_app tauri >/dev/null; stop_app rust >/dev/null
+  daemon_stop >/dev/null
+  for app in tauri rust; do
+    chmod -R u+rwX "$HOME/.crowbar-rig-$app" 2>/dev/null || true
+    rm -rf "$HOME/.crowbar-rig-$app" "$RIG_DIR/$app/daemon.crashloop"
+    cp -a "$CROWBAR_HOME" "$HOME/.crowbar-rig-$app" 2>/dev/null || true # mode-000 fixtures are skipped
+  done
+  touch "$RIG_DIR/daemon.own"
+  for app in tauri rust; do start_app "$app"; done
+}
+own_off() {
+  own_mode || return 0
+  local app
+  stop_app tauri >/dev/null; stop_app rust >/dev/null
+  rm -f "$RIG_DIR/daemon.own"
+  for app in tauri rust; do
+    chmod -R u+rwX "$HOME/.crowbar-rig-$app" 2>/dev/null || true
+    rm -rf "$HOME/.crowbar-rig-$app" "$RIG_DIR/$app/daemon.crashloop"
+  done
+  daemon_start >/dev/null
+  "$0" _wait-daemon
+}
+# own_daemon <verb> [app]: status|kill|wedge|unwedge|crashloop on|off on each app's own daemon.
+own_daemon() {
+  local verb=$1 arg=${2:-} app pid
+  [[ $verb == crashloop ]] && arg=${3:-all}
+  for app in $(apps_of "${arg:-all}"); do
+    pid=$(own_daemon_pid "$app") || pid=""
+    case $verb in
+      status) printf '%-6s %s %s\n' "$app" "${pid:-no daemon}" "$(python3 "$RIGX" health "$(app_socket "$app")" 2>&1)" ;;
+      kill) [[ -n $pid ]] && kill -KILL "$pid"; echo "$app: daemon killed (the app's supervisor sees it exit)" ;;
+      wedge) [[ -n $pid ]] && kill -STOP "$pid"; echo "$app: daemon wedged (\`rig daemon unwedge $app\` resumes it)" ;;
+      unwedge) [[ -n $pid ]] && kill -CONT "$pid"; echo "$app: daemon resumed" ;;
+      crashloop)
+        case ${2:-on} in
+          on) touch "$RIG_DIR/$app/daemon.crashloop"; [[ -n $pid ]] && kill -KILL "$pid"; echo "$app: every daemon the app starts is SIGKILLed after about 2 s" ;;
+          off) rm -f "$RIG_DIR/$app/daemon.crashloop"; echo "$app: crash loop off (the next start stays up)" ;;
+          *) die "daemon crashloop on|off [app]" ;;
+        esac
+        ;;
+    esac
+  done
+}
+
 # daemon_path: the shared daemon's PATH; `rig daemon nogit` drops the one directory holding git
 # (the image keeps git only there, so the daemon's fallback to /usr/bin finds none either).
 daemon_path() {
@@ -357,21 +490,33 @@ pick() {
   echo "$1: picked $2"
 }
 
-# fault rules for rig-proxy.py: one JSON object per line in $RIG_DIR/faults, reloaded on SIGUSR1.
+# fault rules for rig-proxy.py: one JSON object per line in a faults file (the apps' proxies read
+# $RIG_DIR/faults, a remote host's its own), reloaded on SIGUSR1.
 fault_signal() { pkill -USR1 -f /opt/rig/bin/rig-proxy.py || true; }
-fault_add() { # fault_add <method> <path-regex> <status|drop|delay> [ms]
-  local action=$3 value=null
+fault_cmd() { # fault_cmd <faults file> list|clear|<method> <path-regex> <action> [ms]
+  local file=$1
+  shift
+  case ${1:-list} in
+    clear) rm -f "$file"; fault_signal; echo "faults cleared" ;;
+    list) [[ -s $file ]] && cat "$file" || echo "no faults" ;;
+    *) fault_add "$file" "$1" "${2:?fault <method> <path-regex> <status|drop|delay ms|refuse>}" "${3:-}" "${4:-}"; cat "$file" ;;
+  esac
+}
+fault_add() { # fault_add <file> <method> <path-regex> <status|drop|delay|refuse> [ms]
+  local file=$1 method=${2^^} action=$4 value=null
+  shift
   case $3 in
     drop) ;;
     delay) value=${4:?fault <method> <path-regex> delay <ms>}; [[ $value =~ ^[0-9]+$ ]] || die "delay takes milliseconds" ;;
-    [1-5][0-9][0-9]) action=status value=$3 ;;
-    *) die "fault <method> <path-regex> <status|drop|delay ms>" ;;
+    refuse) [[ $method == WS || $method == WS-SEND ]] || die "refuse is for WS and WS-SEND rules" ;;
+    [1-5][0-9][0-9]) [[ $method != WS* ]] || die "WS rules take drop, delay <ms> or refuse"; action=status value=$3 ;;
+    *) die "fault <method> <path-regex> <status|drop|delay ms|refuse>" ;;
   esac
   python3 -c 'import json, re, sys
 m, path, action, value = sys.argv[1:]
 re.compile(path)
-print(json.dumps({"method": "*" if m.upper() in ("*", "ANY") else m.upper(), "path": path, "action": action, "value": json.loads(value)}))' \
-    "$1" "$2" "$action" "$value" >>"$RIG_DIR/faults" || die "bad fault rule"
+print(json.dumps({"method": "*" if m in ("*", "ANY") else m, "path": path, "action": action, "value": json.loads(value)}))' \
+    "$method" "$2" "$action" "$value" >>"$file" || die "bad fault rule"
   fault_signal
 }
 
@@ -438,7 +583,7 @@ case $sub in
         printf '%-6s stopped\n' "$app"
       fi
     done
-    printf 'daemon %s\n' "$(python3 "$RIGX" health "$(socket)" 2>&1)"
+    if own_mode; then own_daemon status | sed 's/^/daemon /'; else printf 'daemon %s\n' "$(python3 "$RIGX" health "$(socket)" 2>&1)"; fi
     ;;
   start) for app in $(apps_of "${1:-all}"); do start_app "$app"; done ;;
   stop) for app in $(apps_of "${1:-all}"); do stop_app "$app"; done ;;
@@ -513,33 +658,50 @@ case $sub in
     ;;
   daemon)
     case ${1:-status} in
+      mode)
+        case ${2:-} in
+          own) own_mode && { echo "daemon mode: already own"; exit 0; }; own_on; echo "daemon mode: own (each app supervises its own daemon)" ;;
+          shared) own_off; init >/dev/null; echo "daemon mode: shared (one daemon behind the rig proxy)" ;;
+          "") own_mode && echo "own" || echo "shared" ;;
+          *) die "daemon mode [own|shared]" ;;
+        esac
+        exit 0
+        ;;
+    esac
+    if own_mode; then
+      case ${1:-status} in
+        status | kill | wedge | unwedge | crashloop) own_daemon "${1:-status}" "${@:2}"; exit 0 ;;
+        *) die "in own mode: daemon status|kill|wedge|unwedge [app], crashloop on|off [app], mode shared" ;;
+      esac
+    fi
+    case ${1:-status} in
       status) python3 "$RIGX" health "$(socket)" ;;
       stop) daemon_stop ;;
       start) daemon_start; "$0" _wait-daemon && echo "daemon up" ;;
-      restart) rm -f "$RIG_DIR/daemon.paused"; pkill -f "crowbar-api.real serve --host unix" || true; echo "daemon restarting" ;;
-      kill) pkill -KILL -f "crowbar-api.real serve --host unix" || true; echo "daemon killed (the loop respawns it)" ;;
+      restart) rm -f "$RIG_DIR/daemon.paused"; pkill -f "$SHARED_SERVE" || true; echo "daemon restarting" ;;
+      kill) pkill -KILL -f "$SHARED_SERVE" || true; echo "daemon killed (the loop respawns it)" ;;
       wedge) # alive with its socket open, answering nothing (SIGSTOP)
-        pkill -STOP -f "crowbar-api.real serve --host unix"; echo "daemon wedged (\`rig daemon unwedge\` resumes it)" ;;
-      unwedge) pkill -CONT -f "crowbar-api.real serve --host unix"; echo "daemon resumed" ;;
+        pkill -STOP -f "$SHARED_SERVE"; echo "daemon wedged (\`rig daemon unwedge\` resumes it)" ;;
+      unwedge) pkill -CONT -f "$SHARED_SERVE"; echo "daemon resumed" ;;
       nogit)
         case ${2:-on} in
           on) touch "$RIG_DIR/daemon.nogit" ;;
           off) rm -f "$RIG_DIR/daemon.nogit" ;;
           *) die "daemon nogit on|off" ;;
         esac
-        old=$(pgrep -f "crowbar-api.real serve --host unix" || true)
-        pkill -f "crowbar-api.real serve --host unix" || true
+        old=$(pgrep -f "$SHARED_SERVE" || true)
+        pkill -f "$SHARED_SERVE" || true
         for p in $old; do while kill -0 "$p" 2>/dev/null; do sleep 0.1; done; done
         "$0" _wait-daemon && echo "daemon restarted $([[ ${2:-on} == on ]] && echo without || echo with) git"
         ;;
       crashloop)
         case ${2:-on} in
-          on) touch "$RIG_DIR/daemon.crashloop"; pkill -KILL -f "crowbar-api.real serve --host unix" || true; echo "daemon crash-looping" ;;
+          on) touch "$RIG_DIR/daemon.crashloop"; pkill -KILL -f "$SHARED_SERVE" || true; echo "daemon crash-looping" ;;
           off) rm -f "$RIG_DIR/daemon.crashloop"; echo "daemon crash loop off (the next start stays up)" ;;
           *) die "daemon crashloop on|off" ;;
         esac
         ;;
-      *) die "daemon status|stop|start|restart|kill|wedge|unwedge|crashloop on|off|nogit on|off" ;;
+      *) die "daemon status|stop|start|restart|kill|wedge|unwedge|crashloop on|off|nogit on|off|mode own|shared" ;;
     esac
     ;;
   seed)
@@ -552,18 +714,42 @@ case $sub in
     esac
     ;;
   drag)
-    # drag <app> <x1> <y1> <x2> <y2> [steps] [button] [hold-ms]: press, move in steps, release (XTest).
+    # drag <app> <x1> <y1> <x2> <y2> [steps] [button] [hold-ms] [--mods M] [--frames N] [--every ms]:
+    # press, move in steps, hold, release, all from one X client (rigx.py), which also captures the
+    # frames: one mid-path, N-1 held at the end (every ms apart), one after the drop.
     one_app "${1:-}"
-    w=$(activate "$1")
-    x1=$2 y1=$3 x2=$4 y2=$5 steps=${6:-20} button=${7:-1} hold=${8:-150}
-    xdotool mousemove --window "$w" "$x1" "$y1" mousedown "$button"
-    sleep "$(awk -v ms="$hold" 'BEGIN { print ms / 1000 }')"
-    for i in $(seq 1 "$steps"); do
-      xdotool mousemove --window "$w" $((x1 + (x2 - x1) * i / steps)) $((y1 + (y2 - y1) * i / steps))
-      sleep 0.02
-    done
-    sleep "$(awk -v ms="$hold" 'BEGIN { print ms / 1000 }')"
-    xdotool mouseup "$button"
+    app=$1 w=$(activate "$1")
+    shift
+    pos=() flags=()
+    while (($#)); do if [[ $1 == --* ]]; then flags+=("$1" "${2:?$1 takes a value}"); shift 2; else pos+=("$1"); shift; fi; done
+    ((${#pos[@]} >= 4)) || die "drag <app> <x1> <y1> <x2> <y2> [steps] [button] [hold-ms] [--mods M] [--frames N] [--every ms]"
+    mkdir -p "$SHOTS/drag" && rm -f "$SHOTS/drag/$app-"*.png
+    python3 "$RIGX" drag "$app" "$w" "${pos[@]:0:4}" --steps "${pos[4]:-20}" --button "${pos[5]:-1}" \
+      --hold "${pos[6]:-150}" --out "$SHOTS/drag" "${flags[@]}"
+    ;;
+  dragfile)
+    # dragfile <app> <x> <y> <file>...: an OS file drag (XDND) from a GTK drag source window below
+    # the app onto the app's point (x, y), as from a file manager.
+    one_app "${1:-}"
+    app=$1 x=${2:?dragfile <app> <x> <y> <file>...} y=${3:?dragfile <app> <x> <y> <file>...}
+    shift 3
+    (($#)) || die "dragfile <app> <x> <y> <file>..."
+    w=$(activate "$app")
+    pkill -f "/opt/rig/bin/dragsource.py" || true
+    log=$RIG_DIR/dragsource.log
+    : >"$log"
+    setsid python3 /opt/rig/bin/dragsource.py "$@" >>"$log" 2>&1 </dev/null &
+    src=""
+    for _ in $(seq 100); do src=$(xdotool search --onlyvisible --name '^rig drag source$' 2>/dev/null | head -1) && [[ -n $src ]] && break; sleep 0.1; done
+    [[ -n $src ]] || die "the drag source did not open; see $log"
+    xdotool windowmove "$src" $(($(slot_x "$app") + 40)) $((RIG_H + 20))
+    sleep 0.5
+    eval "$(xdotool getwindowgeometry --shell "$src")"
+    python3 "$RIGX" drag "$app" "$w" 0 0 "$x" "$y" --src-x $((X + WIDTH / 2)) --src-y $((Y + HEIGHT / 2)) \
+      --steps 30 --step-ms 30 --hold 300
+    for _ in $(seq 30); do grep -q "drag ended" "$log" && break; sleep 0.1; done
+    grep -q "drag ended" "$log" && echo "$app: dropped $* at $x,$y" || echo "$app: the drag did not end (no drop target answered?)"
+    pkill -f "/opt/rig/bin/dragsource.py" || true
     ;;
   clip)
     # The CLIPBOARD selection, served by xclip until something else owns it.
@@ -583,7 +769,14 @@ case $sub in
       get) xclip -selection clipboard -o ${2:+-t "$2"} ;;
       targets) xclip -selection clipboard -o -t TARGETS ;;
       clear) printf '' | xclip -selection clipboard -i ;;
-      *) die "clip set <text>|file <path> [mime]|copy-file <path>|uri <path>|lines|image|get [target]|targets|clear" ;;
+      deny | hang) # an owner that refuses every read (deny) or never answers one (hang)
+        pkill -f "clipowner.py" || true
+        setsid python3 /opt/rig/bin/clipowner.py "$1" >>"$RIG_DIR/clipowner.log" 2>&1 </dev/null &
+        for _ in $(seq 50); do grep -q "owned, $1" "$RIG_DIR/clipowner.log" 2>/dev/null && break; sleep 0.1; done
+        : >"$RIG_DIR/clipowner.log"
+        if [[ $1 == deny ]]; then echo "CLIPBOARD: every read refused"; else echo "CLIPBOARD: every read left unanswered"; fi
+        ;;
+      *) die "clip set <text>|file <path> [mime]|copy-file <path>|uri <path>|lines|image|get [target]|targets|clear|deny|hang" ;;
     esac
     ;;
   http)
@@ -616,31 +809,58 @@ case $sub in
     echo "gtk-enable-animations=$v"
     ;;
   ime)
-    # ibus with pinyin (CJK) on a session bus; the apps restart with GTK_IM_MODULE/XMODIFIERS set.
+    # An input method on the session bus: fcitx5 (default) or ibus, each with pinyin. Webviews (Tauri,
+    # the Rust shell's panes) reach it through its GTK 3 module; GPUI's X11 backend speaks only XIM,
+    # which both servers also serve (fcitx5 on-the-spot, so GPUI gets the preedit inline). Webviews
+    # are not offered GTK's xim module: Tauri's webview renders blank with it.
+    server=$(cat "$RIG_DIR/ime.server" 2>/dev/null || echo fcitx)
+    ime_up() { pgrep -x fcitx5 >/dev/null || pgrep -r R,S,D -x ibus-daemon >/dev/null; }
+    ime_engine() { # ime_engine [name]: set it, then print the current one
+      if [[ $server == fcitx ]]; then
+        [[ -z ${1:-} ]] || env $(app_env) fcitx5-remote -s "$1"
+        env $(app_env) fcitx5-remote -n 2>/dev/null
+      else
+        [[ -z ${1:-} ]] || env $(app_env) ibus engine "$1" 2>/dev/null || true
+        env $(app_env) ibus engine 2>/dev/null
+      fi
+    }
+    ime_kill() { pkill -x fcitx5 || true; pkill -x ibus-daemon || true; while pgrep -x fcitx5 >/dev/null || pgrep -x ibus-daemon >/dev/null; do sleep 0.1; done; }
     case ${1:-status} in
       on)
+        case ${2:-fcitx} in fcitx | ibus) server=${2:-fcitx} ;; *) die "ime on [fcitx|ibus] [engine]" ;; esac
+        engine=${3:-$([[ $server == fcitx ]] && echo pinyin || echo libpinyin)}
         bus_up
-        pgrep -r R,S,D -x ibus-daemon >/dev/null || (setsid env $(app_env) ibus-daemon --xim --daemonize --replace >>"$RIG_DIR/ibus.log" 2>&1)
-        # The engine process starts lazily: setting it can report failure until it is up.
-        for _ in $(seq 40); do
-          env $(app_env) ibus engine "${2:-libpinyin}" 2>/dev/null || true
-          [[ $(env $(app_env) ibus engine 2>/dev/null) == "${2:-libpinyin}" ]] && break
-          sleep 0.25
-        done
-        env_set GTK_IM_MODULE ibus; env_set XMODIFIERS @im=ibus; env_set QT_IM_MODULE ibus
+        ime_kill
+        echo "$server" >"$RIG_DIR/ime.server"
+        if [[ $server == fcitx ]]; then
+          (setsid env $(app_env) fcitx5 -d --disable=wayland,notificationitem >>"$RIG_DIR/fcitx5.log" 2>&1 </dev/null)
+        else
+          (setsid env $(app_env) ibus-daemon --xim --daemonize --replace >>"$RIG_DIR/ibus.log" 2>&1 </dev/null)
+        fi
+        # The engine loads lazily: setting it can fail until the server is up.
+        for _ in $(seq 60); do [[ $(ime_engine "$engine") == "$engine" ]] && break; sleep 0.25; done
+        env_set GTK_IM_MODULE "$server"; env_set XMODIFIERS "@im=$server"; env_set QT_IM_MODULE "$server"
         read -ra targets <<<"$(apps_of all)"; with_stopped "${targets[@]}" -- true
-        echo "ibus on, engine $(env $(app_env) ibus engine 2>/dev/null)"
+        echo "$server on, engine $(ime_engine)"
         ;;
-      engine) env $(app_env) ibus engine "${2:?ime engine <name>}" || true; echo "engine $(env $(app_env) ibus engine)" ;;
-      engines) env $(app_env) ibus list-engine | grep -E 'pinyin|xkb:us' ;;
+      engine) ime_up || die "ime is off"; echo "engine $(ime_engine "${2:?ime engine <name>}")" ;;
+      engines)
+        if [[ $server == fcitx ]]; then echo "pinyin keyboard-us"; else env $(app_env) ibus list-engine | grep -E 'pinyin|xkb:us'; fi
+        ;;
       off)
-        pkill -x ibus-daemon || true
+        ime_kill
         env_clear GTK_IM_MODULE; env_clear XMODIFIERS; env_clear QT_IM_MODULE
         read -ra targets <<<"$(apps_of all)"; with_stopped "${targets[@]}" -- true
-        echo "ibus off"
+        echo "ime off"
         ;;
-      status) pgrep -r R,S,D -x ibus-daemon >/dev/null && echo "ibus on, engine $(env $(app_env) ibus engine 2>/dev/null)" || echo "ibus off" ;;
-      *) die "ime on [engine]|off|engine <name>|engines|status" ;;
+      status)
+        if ime_up; then
+          echo "$server on, engine $(ime_engine), webviews GTK_IM_MODULE=$(sed -n 's/^GTK_IM_MODULE=//p' "$RIG_DIR/app.env"), GPUI XMODIFIERS=$(sed -n 's/^XMODIFIERS=//p' "$RIG_DIR/app.env")"
+        else
+          echo "ime off"
+        fi
+        ;;
+      *) die "ime on [fcitx|ibus] [engine]|engine <name>|engines|off|status" ;;
     esac
     ;;
   keys)
@@ -697,53 +917,8 @@ case $sub in
       *) die "keyring status|on|off|reset" ;;
     esac
     ;;
-  remote)
-    # A second daemon on this container as a remote host: TLS on 0.0.0.0:$REMOTE_PORT, paired clients only.
-    case ${1:-status} in
-      start) remote_start; echo "remote host up: $(remote_addresses)" ;;
-      stop) remote_stop; echo "remote host down" ;;
-      restart) remote_stop; remote_start; echo "remote host up" ;;
-      code) # a one-time pairing code and the fingerprint to enter in the app
-        remote_pid >/dev/null || remote_start
-        remote /opt/crowbar/crowbar-api.real pair
-        echo "Address         $(remote_addresses)"
-        ;;
-      clients) remote python3 /opt/rig/bin/rigapi.py GET /v0/clients ;;
-      revoke) # every paired client: the app's next call gets 401
-        remote python3 - <<'PY'
-import sys; sys.path.insert(0, "/opt/rig/bin")
-import rigapi
-api = rigapi.Api()
-for c in api.get("/v0/clients") or []:
-    api.delete(f"/v0/clients/{c['id']}")
-    print("revoked", c["id"])
-PY
-        ;;
-      rekey) # a new TLS key and certificate: the pinned fingerprint no longer matches
-        remote_stop; rm -rf "$REMOTE_HOME/tls"; remote_start
-        echo "remote host re-keyed: $(remote /opt/crowbar/crowbar-api.real pair | sed -n 's/^Fingerprint *//p')"
-        ;;
-      providers)
-        case ${2:-} in
-          off | on) remote python3 - "$2" <<'PY'
-import sys; sys.path.insert(0, "/opt/rig/bin")
-import rigapi
-api = rigapi.Api()
-cur = api.get("/v0/settings/chat/providers")
-api.put("/v0/settings/chat/providers", {"providers": [
-    {"id": p["id"], "disabled": sys.argv[1] == "off", "mcpDisabled": not p["mcpEnabled"]} for p in cur]})
-print("remote providers", sys.argv[1])
-PY
-            ;;
-          *) die "remote providers on|off" ;;
-        esac
-        ;;
-      api) shift; remote python3 /opt/rig/bin/rigapi.py "$@" ;;
-      wipe) remote_stop; rm -rf "$REMOTE_HOME" "$HOME/remote-host"; echo "remote host wiped (next start seeds it)" ;;
-      status) remote_pid >/dev/null && echo "remote host up: $(remote_addresses)" || echo "remote host down" ;;
-      *) die "remote start|stop|restart|code|clients|revoke|rekey|providers on|off|api ...|wipe|status" ;;
-    esac
-    ;;
+  remote) remote_cmd 1 "$@" ;;   # a second daemon on this container as a paired remote host (TLS, paired clients only)
+  remote2) remote_cmd 2 "$@" ;;  # another one, on the next port pair: two paired hosts
   forge)
     # The forge CLI stand-ins (forge/forge as glab and gh): signed in or out, and what they report.
     case ${2:-all} in
@@ -766,13 +941,7 @@ PY
     done
     ;;
   pick) one_app "${1:-}"; pick "$1" "${2:?pick <app> <path>}" ;;
-  fault)
-    case ${1:-list} in
-      clear) rm -f "$RIG_DIR/faults"; fault_signal; echo "faults cleared" ;;
-      list) [[ -s $RIG_DIR/faults ]] && cat "$RIG_DIR/faults" || echo "no faults" ;;
-      *) fault_add "$1" "${2:?fault <method> <path-regex> <status|drop|delay ms>}" "${3:-}" "${4:-}"; cat "$RIG_DIR/faults" ;;
-    esac
-    ;;
+  fault) fault_cmd "$RIG_DIR/faults" "$@" ;;
   api) python3 /opt/rig/bin/rigapi.py "$@" ;;
   ledger) python3 /opt/rig/bin/rigapi.py ledger "${1:?ledger <chat-id>}" ;;
   agent) python3 /opt/rig/bin/rigops.py "$@" ;;
