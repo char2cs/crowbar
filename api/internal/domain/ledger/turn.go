@@ -56,6 +56,8 @@ type TurnEnded struct {
 	Effort   string `json:"effort,omitempty"`
 	// Diff is the provider's last whole diff of the turn's changes.
 	Diff string `json:"diff,omitempty"`
+	// ProviderTurnID is the id the end named; a prompt typed meanwhile names it too.
+	ProviderTurnID string `json:"providerTurnId,omitempty"`
 }
 
 // TurnFailed is the body of a turn_failed row: the provider could not finish
@@ -161,6 +163,9 @@ func (s *State) applyTurnEnded(r Row) {
 		return
 	}
 	s.turn.Status, s.turn.closeSeq = next, r.Seq
+	if body.ProviderTurnID != "" {
+		s.keys.provider[body.ProviderTurnID] = r.TurnID
+	}
 	if body.Effort != "" {
 		s.effort = body.Effort
 	}

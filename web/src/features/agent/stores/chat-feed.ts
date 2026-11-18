@@ -19,6 +19,7 @@ import {
   refoldFeed,
   type LiveFrame,
 } from '@/features/agent/stores/chat-store'
+import { forgetWithChat } from '@/features/agent/stores/chat-lifecycle'
 import { streamFailureWords } from '@/features/hosts/lib/host-failure-notice'
 
 interface Attachment {
@@ -38,10 +39,15 @@ interface Attachment {
 
 /** A long chat opens on its newest rows; older ones replay as the reader reaches them.
  *  Rows, not turns: one turn of a heavy chat can hold a thousand of them. */
-const OPEN_ROWS = 1500
-const OLDER_ROWS = 3000
+const OPEN_ROWS = 200
+const OLDER_ROWS = 1000
+
+/** How many chats keep their folded feed after their last view detaches. */
+const KEPT_FEEDS = 8
 
 const attachments = new Map<string, Attachment>()
+/** chat → the host of a feed kept with no view, oldest first. */
+const kept = new Map<string, string>()
 /** host → the daemon run its stream's ready named: a feed synced under another drops its live tail. */
 const epochs = new Map<string, string>()
 
@@ -121,6 +127,19 @@ function checkHead(chatId: string, attachment: Attachment, head: number | undefi
   resubscribe(attachment.hostId, scopeOf(chatId))
 }
 
+/** Drops the kept feeds of `hostId`: their rows belong to a ledger this client no longer follows. */
+function dropKeptOn(hostId: string) {
+  for (const [chatId, on] of kept) {
+    if (on !== hostId) continue
+    kept.delete(chatId)
+    dropFeed(chatId)
+  }
+}
+
+forgetWithChat((chatId) => {
+  kept.delete(chatId)
+})
+
 registerScopeKind('chat', {
   // Rows after the head the feed holds, or (a negative since) a window of the newest rows.
   since: (hostId, chatId) => {
@@ -128,11 +147,15 @@ registerScopeKind('chat', {
     const held = attachment?.hostId === hostId && !attachment.widening
     return (held && chatStore.getState().feeds[chatId]?.seq) || -(attachment?.rows ?? OPEN_ROWS)
   },
+  // A kept feed's seq means nothing in another run's ledger: it replays from the newest rows.
   epoch: (hostId, next) => {
+    const was = epochs.get(hostId)
     epochs.set(hostId, next)
+    if (was !== undefined && was !== next) dropKeptOn(hostId)
   },
   forget: (hostId) => {
     epochs.delete(hostId)
+    dropKeptOn(hostId)
   },
   frame(hostId, f) {
     if (!('scope' in f)) return
@@ -157,8 +180,21 @@ export function loadOlder(chatId: string) {
   resubscribe(attachment.hostId, scopeOf(chatId))
 }
 
-/** Holds the chat's ledger scope on `hostId` while anything attached to it is mounted; the
- *  last detach drops its state, and the next attach replays its newest turns afresh. */
+/** Keeps a detached chat's live feed so its next attach shows it at once and resumes from its
+ *  seq; a feed still replaying, or past the newest few, is dropped. */
+function keepOrDrop(chatId: string, hostId: string) {
+  kept.delete(chatId)
+  if (!foldsLive(chatId)) return dropFeed(chatId)
+  kept.set(chatId, hostId)
+  for (const [oldest] of kept) {
+    if (kept.size <= KEPT_FEEDS) break
+    kept.delete(oldest)
+    dropFeed(oldest)
+  }
+}
+
+/** Holds the chat's ledger scope on `hostId` while anything attached to it is mounted. The
+ *  last detach keeps the feed, and the next attach resumes it from its seq. */
 export function attachFeed(hostId: string, chatId: string): () => void {
   let attachment = attachments.get(chatId)
   if (!attachment) {
@@ -175,6 +211,9 @@ export function attachFeed(hostId: string, chatId: string): () => void {
     }
     attachment = fresh
     attachments.set(chatId, fresh)
+    const keptOn = kept.get(chatId)
+    if (keptOn && keptOn !== hostId) dropFeed(chatId)
+    kept.delete(chatId)
     openFeed(chatId)
     // A deleted chat's scope is closed as gone, an unknown one's as refused.
     const stopWatch = watchScope(hostId, scope, {
@@ -203,7 +242,8 @@ export function attachFeed(hostId: string, chatId: string): () => void {
     detached = true
     held.refs -= 1
     if (held.refs > 0 || attachments.get(chatId) !== held) return
+    flush(chatId, held)
     release(chatId, held)
-    dropFeed(chatId)
+    keepOrDrop(chatId, hostId)
   }
 }

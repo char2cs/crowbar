@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { getHomeTree, resolveHomeRowScope } from '@/core/entities/home-rows'
 import {
+  chatEntity,
+  putEntities,
   resetEntities,
   seedHome,
   seedHomeTree,
   seedRepos,
+  workspaceDTO,
 } from '@/__tests__/__fixtures__/sidebar-entities'
 
 beforeEach(() => {
@@ -39,6 +42,24 @@ describe('a project-home row', () => {
       homeWorkspaceId: 'ws-home',
     })
     expect(resolveHomeRowScope('f-home')).toMatchObject({ kind: 'folder', projectId: 'p1' })
+  })
+
+  it('resolves a home chat of a remote host, whose rows are stored under a host-qualified key', () => {
+    putEntities(
+      'chat',
+      [chatEntity({ id: 'c-remote', projectId: 'p2', repoId: '', title: 'Far' })],
+      'remote-1',
+    )
+    putEntities(
+      'workspace',
+      [workspaceDTO({ id: 'ws-remote', projectId: 'p2', kind: 'home' })],
+      'remote-1',
+    )
+    expect(resolveHomeRowScope('c-remote')).toEqual({
+      kind: 'chat',
+      projectId: 'p2',
+      homeWorkspaceId: 'ws-remote',
+    })
   })
 
   it("never claims a repo's row or one the store does not hold", () => {

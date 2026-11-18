@@ -72,9 +72,13 @@ export function handleComposerKey(
   if (isSendKey(event) && (targets.enterSends || !plainEnter || slash.highlighted)) {
     event.preventDefault()
     // Enter completes when there is a completion, else sends: the catalogue is
-    // incomplete by declaration, so a built-in like /compact matches nothing.
-    if (slash.highlighted) targets.selectSlashItem(slash.highlighted)
-    else targets.send(readMarkdown())
+    // incomplete by declaration. A command already typed in full has nothing to complete.
+    const draft = readMarkdown()
+    const { highlighted } = slash
+    const typedInFull =
+      highlighted?.insertText.startsWith('/') && draft.trim() === highlighted.insertText.trim()
+    if (highlighted && !typedInFull) targets.selectSlashItem(highlighted)
+    else targets.send(draft)
     return
   }
   // The terminal's reverse search; in a browser ctrl+r would reload the page.

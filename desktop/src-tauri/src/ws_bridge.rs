@@ -37,6 +37,9 @@ pub const WS_CLOSE_SENTINEL: &str = "\u{0}crowbar-ws-close";
 pub enum Frame {
     /// A text frame (a JSON DTO), or the close sentinel.
     Text(String),
+    /// Text frames that were already waiting behind one another, delivered as one webview
+    /// message (a JSON array of strings) so a replay does not cross the boundary row by row.
+    Texts(Vec<String>),
     /// A binary frame (terminal PTY output), forwarded as raw bytes.
     Binary(Vec<u8>),
 }
@@ -54,6 +57,10 @@ impl FrameSink for Channel<InvokeResponseBody> {
             // A JSON string literal: the webview receives it as a JS string, exactly
             // what a `Channel<String>` delivered before binary frames existed.
             Frame::Text(text) => match serde_json::to_string(&text) {
+                Ok(json) => InvokeResponseBody::Json(json),
+                Err(_) => return,
+            },
+            Frame::Texts(texts) => match serde_json::to_string(&texts) {
                 Ok(json) => InvokeResponseBody::Json(json),
                 Err(_) => return,
             },

@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { attachFeed as attachReal, loadOlder } from '@/features/agent/stores/chat-feed'
+import { forgetEntities } from '@/core/entities/entity-store'
+import { followChatLifecycle } from '@/features/agent/stores/chat-lifecycle'
 import { chatStore } from '@/features/agent/stores/chat-store'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { heldScopes, streamDaemon, streamDaemonFor } from '@/__tests__/__fixtures__/stream-daemon'
+import { writeChat } from '@/__tests__/__fixtures__/agent-chat'
 import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 import { delta, ledger } from '@/__tests__/__fixtures__/ledger-rows'
 import { getOrCreateHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
@@ -34,13 +38,82 @@ describe('attachFeed', () => {
   it('attaching a feed holds chat:<id> and detaching releases it', () => {
     const a = attachFeed('chat-1')
     const b = attachFeed('chat-1')
-    expect(subs()).toEqual([{ op: 'sub', scope: SCOPE, since: -1500 }])
+    expect(subs()).toEqual([{ op: 'sub', scope: SCOPE, since: -200 }])
     a()
     a()
     expect(heldScopes('chat:')).toEqual([SCOPE])
     b()
     expect(heldScopes('chat:')).toEqual([])
+  })
+
+  it('keeps a live feed after its last view detaches and resumes it from its seq', () => {
+    const detach = attachFeed('chat-1')
+    push({ t: 'row', row: ledger().prompt('r1', 'hi') })
+    push({ t: 'synced', seq: 1 })
+    detach()
+    expect(feed()).toMatchObject({ status: 'live', order: ['p:r1'] })
+    expect(heldScopes('chat:')).toEqual([])
+
+    streamDaemon.sent.length = 0
+    attachFeed('chat-1')
+    expect(feed()).toMatchObject({ status: 'live', order: ['p:r1'] })
+    expect(subs()).toEqual([{ op: 'sub', scope: SCOPE, since: 1 }])
+  })
+
+  it('drops a feed that detaches before its replay lands', () => {
+    attachFeed('chat-1')()
     expect(feed()).toBeUndefined()
+  })
+
+  it('keeps only the newest detached feeds', () => {
+    for (let i = 0; i < 9; i++) {
+      attachFeed(`c${i}`)
+      push({ t: 'synced' }, `chat:c${i}`)
+      held.pop()!()
+    }
+    expect(feed('c0')).toBeUndefined()
+    expect(feed('c1')).toBeDefined()
+    expect(feed('c8')).toBeDefined()
+  })
+
+  it('a deleted chat leaves its kept slot to the others', () => {
+    writeChat({ id: 'c3' })
+    const stopLifecycle = followChatLifecycle()
+    for (let i = 0; i < 8; i++) {
+      attachFeed(`c${i}`)
+      push({ t: 'synced' }, `chat:c${i}`)
+      held.pop()!()
+    }
+    forgetEntities('chat', ['c3'])
+    attachFeed('c8')
+    push({ t: 'synced' }, 'chat:c8')
+    held.pop()!()
+    stopLifecycle()
+    expect(feed('c3')).toBeUndefined()
+    expect(feed('c0')).toBeDefined()
+  })
+
+  it('a feed kept under an older ledger epoch is dropped, so its return replays from the newest rows', () => {
+    const detach = attachFeed('chat-1')
+    push({ t: 'row', row: ledger().prompt('r1', 'hi') })
+    push({ t: 'synced', seq: 1 })
+    detach()
+
+    streamDaemon.drop()
+    streamDaemon.deliver({ t: 'ready', epoch: 'e2' })
+    streamDaemon.sent.length = 0
+    attachFeed('chat-1')
+    expect(feed()).toMatchObject({ status: 'connecting', order: [] })
+    expect(subs()).toEqual([{ op: 'sub', scope: SCOPE, since: -200 }])
+  })
+
+  it('does not resume a kept feed from another host’s seq', () => {
+    const detach = attachFeed('chat-1')
+    push({ t: 'row', row: ledger().prompt('r1', 'hi') })
+    push({ t: 'synced', seq: 1 })
+    detach()
+    held.push(attachReal('host-9', 'chat-1'))
+    expect(feed()).toMatchObject({ status: 'connecting', order: [] })
   })
 
   it('publishes replayed rows once, at synced', () => {
@@ -80,7 +153,7 @@ describe('attachFeed', () => {
     push({ t: 'row', row: l.prompt('r2', 'again') })
     push({ t: 'synced', seq: 2 })
     push({ t: 'closed', reason: 'resync', seq: 1 })
-    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: -1500 })
+    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: -200 })
     expect(feed()?.order).toEqual([])
   })
 
@@ -93,14 +166,14 @@ describe('attachFeed', () => {
       l.start('turn-41', 'r41'),
     ]
     attachFeed('chat-1')
-    expect(subs()).toEqual([{ op: 'sub', scope: SCOPE, since: -1500 }])
+    expect(subs()).toEqual([{ op: 'sub', scope: SCOPE, since: -200 }])
     push({ t: 'row', row: p41, from: 40 })
     push({ t: 'row', row: s41 })
     push({ t: 'synced', seq: 42 })
     expect(feed()).toMatchObject({ status: 'live', from: 40, seq: 42, order: ['p:r41'] })
 
     loadOlder('chat-1')
-    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: -4500 })
+    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: -1200 })
     // The old sub's live row lands before the wider replay: it is not the window's start.
     push({ t: 'row', row: l.prompt('r43', 'live') })
     push({ t: 'row', row: p39, from: 38 })
@@ -188,7 +261,7 @@ describe('attachFeed', () => {
     attachFeed('chat-1')
     push({ t: 'row', row: ledger().prompt('r1', 'hi') })
     push({ t: 'closed', reason: 'resync', seq: 1 })
-    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: -1500 })
+    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: -200 })
     push({ t: 'row', row: ledger().prompt('r9', 'replayed') })
     push({ t: 'synced', seq: 1 })
     expect(feed()?.order).toEqual(['p:r9'])
@@ -276,13 +349,12 @@ describe('attachFeed', () => {
     hidden.mockRestore()
   })
 
-  it('drops what is queued with the feed when the last view detaches', () => {
+  it('applies what is queued as the last view detaches, so the kept feed resumes after it', () => {
     const detach = attachFeed('chat-1')
     push({ t: 'synced' })
     push({ t: 'row', row: ledger('chat-1').prompt('r1', 'hi') })
     detach()
-    vi.advanceTimersToNextFrame()
-    expect(feed()).toBeUndefined()
+    expect(feed()?.order).toEqual(['p:r1'])
   })
 })
 
@@ -294,12 +366,25 @@ describe("a paired host's chat", () => {
     resetHostWorld()
   })
 
+  it('removing the host drops the feeds it kept', async () => {
+    pairRemoteHost('host-1')
+    await Promise.resolve()
+    host1.answer = () => []
+    const detach = attachReal('host-1', 'chat-1')
+    host1.deliver({ t: 'synced', scope: SCOPE })
+    detach()
+    expect(feed()).toBeDefined()
+
+    useHostConfigStore.getState().removeHost('host-1')
+    expect(feed()).toBeUndefined()
+  })
+
   it('subs on its host and resumes from its seq when that host reconnects, not when local does', async () => {
     pairRemoteHost('host-1')
     await Promise.resolve()
     host1.answer = () => []
     held.push(attachReal('host-1', 'chat-1'))
-    expect(subsOn()).toEqual([{ op: 'sub', scope: SCOPE, since: -1500 }])
+    expect(subsOn()).toEqual([{ op: 'sub', scope: SCOPE, since: -200 }])
     expect(subs()).toEqual([])
     const l = ledger()
     host1.deliver({ t: 'row', scope: SCOPE, row: l.prompt('r1', 'hi') })

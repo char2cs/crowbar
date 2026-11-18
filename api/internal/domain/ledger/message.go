@@ -87,6 +87,26 @@ func (s State) Reply(turnID string) (messageID, text string, ok bool) {
 	return id, s.WholeText("", id), true
 }
 
+// ReplyBefore is the turn kept just before turnID and the reply its end recorded
+// while nothing has said it since, when turnID has said nothing yet: a message
+// that agrees with it is that reply, come late, and not turnID's own.
+func (s State) ReplyBefore(turnID string) (prev, reply string, ok bool) {
+	if _, spoke := s.keys.lastMain[turnID]; spoke {
+		return "", "", false
+	}
+	turns := s.keys.turns
+	i := slices.IndexFunc(turns, func(t keptTurn) bool { return t.id == turnID })
+	if i < 1 || turns[i-1].runnerID != turns[i].runnerID {
+		return "", "", false
+	}
+	prev = turns[i-1].id
+	id := ReplyID(prev)
+	if s.keys.lastMain[prev] != id || !s.HasChunk("", id, IndexComplete) {
+		return "", "", false
+	}
+	return prev, s.WholeText("", id), true
+}
+
 // WholeText is the text the message's complete rows hold; "" when it has none.
 func (s State) WholeText(scope, messageID string) string {
 	return s.keys.messages[ref(scope, messageID)].whole
