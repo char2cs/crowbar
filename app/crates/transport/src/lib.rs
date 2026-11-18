@@ -7,116 +7,29 @@
 //! binary. [`ShellTransport`] implements `protocol::DaemonTransport` over both. Replacing the
 //! relay with daemon-issued tokens changes only the [`StreamAccess`] implementor.
 
-mod accept_loop;
-mod acceptor;
-mod access_scope;
-mod adapters;
-mod admission;
-mod async_stream;
 mod blocking;
-mod bridge;
-mod bridge_limits;
-mod cached_token_store;
-mod clock;
-mod close_message;
-mod connection_book;
-mod connection_guard;
-mod connection_release;
-mod credential;
-mod credential_io;
-mod daemon_wire;
-mod dial;
-mod ending;
-mod endpoint;
 mod error;
-mod exact_origins;
-mod farewell;
-mod fingerprint;
-mod first_connected;
-mod gate;
-mod host_entry;
-mod host_limits;
-mod host_registry;
-mod host_target;
-mod hosts_document;
-mod hosts_storage;
-mod http_conn;
-mod keychain;
-mod live;
-mod local;
-mod local_get;
-mod memory_token_store;
-mod origin_policy;
-mod outcome;
-mod pair_request;
-mod paired_host;
+mod hosts;
 mod pairing;
-mod pin;
-mod pinned_verifier;
-mod probe;
-mod read_error;
-mod redeemed;
-mod registry;
 mod relay;
-mod relay_config;
-mod relay_protocol;
-mod relay_state;
-mod remote;
-mod remote_host;
-mod reply;
 mod response;
-mod session;
-mod shell_transport;
-mod socket_locator;
-mod socket_trust;
-mod stream_access;
-#[cfg(feature = "loopback")]
-mod text_loopback;
-mod text_stream;
-mod tls_config;
-mod token_book;
-mod token_store;
 mod transport;
-mod unpinned_probe_verifier;
-mod unrecorded;
-mod upstream;
-mod upstream_request;
 
-#[cfg(feature = "os-keychain")]
-mod os_keychain;
-
-#[cfg(test)]
-mod test_support;
-
-pub use acceptor::Acceptor;
-pub use access_scope::EXTENSION_HEADER;
-pub use cached_token_store::CachedTokenStore;
-pub use endpoint::Endpoint;
 pub use error::Error;
-pub use exact_origins::ExactOrigins;
-pub use fingerprint::fingerprint_of;
-pub use host_registry::HostRegistry;
-pub use keychain::Keychain;
-pub use local_get::local_get;
-pub use memory_token_store::MemoryTokenStore;
-pub use origin_policy::OriginPolicy;
-pub use pair_request::PairRequest;
-pub use pairing::pair_remote_host;
-pub use probe::probe_fingerprint;
-pub use read_error::ReadError;
-pub use relay::Relay;
-pub use relay_config::RelayConfig;
-pub use relay_protocol::{IDLE_SUBPROTOCOL_PREFIX, RELAY_SUBPROTOCOL, TOKEN_SUBPROTOCOL_PREFIX};
+pub use hosts::{Endpoint, HostRegistry};
+pub use pairing::{PairRequest, pair_remote_host, probe_fingerprint};
+pub use relay::{
+    Acceptor, ExactOrigins, IDLE_SUBPROTOCOL_PREFIX, OriginPolicy, RELAY_SUBPROTOCOL, Relay,
+    RelayConfig, TOKEN_SUBPROTOCOL_PREFIX,
+};
 pub use response::{
     DAEMON_UNAVAILABLE, HOST_IDENTITY_CHANGED, HOST_UNREACHABLE, NO_CREDENTIAL, PROXY_HEADER,
     UNKNOWN_HOST, marker_of,
 };
-pub use shell_transport::ShellTransport;
-pub use socket_locator::SocketLocator;
-pub use stream_access::StreamAccess;
-pub use text_stream::TextStream;
-pub use token_store::TokenStore;
-pub use transport::Transport;
+pub use transport::{
+    CachedTokenStore, EXTENSION_HEADER, Keychain, MemoryTokenStore, ReadError, ShellTransport,
+    SocketLocator, StreamAccess, TextStream, TokenStore, Transport, fingerprint_of, local_get,
+};
 
 #[cfg(feature = "os-keychain")]
-pub use os_keychain::OsKeychain;
+pub use transport::OsKeychain;

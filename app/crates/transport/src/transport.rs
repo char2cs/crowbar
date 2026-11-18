@@ -1,3 +1,27 @@
+pub(crate) mod access_scope;
+mod async_stream;
+mod http_conn;
+mod local;
+mod port;
+pub(crate) mod remote;
+mod websocket;
+
+pub use access_scope::EXTENSION_HEADER;
+pub(crate) use http_conn::{Channel, open_channel, send};
+pub use local::{SocketLocator, local_get};
+pub use port::{ShellTransport, StreamAccess};
+#[cfg(feature = "os-keychain")]
+pub use remote::OsKeychain;
+pub use remote::{
+    CachedTokenStore, Keychain, MemoryTokenStore, ReadError, TokenStore, fingerprint_of,
+};
+pub(crate) use remote::{
+    CertificateDigest, Credential, DIGEST_BYTES, Pin, REMOTE_BODY_LIMIT, RemoteHost, SERVER_NAME,
+    UnpinnedProbeVerifier, bearer, certificate_digest, client_config_with, dial,
+};
+pub use websocket::TextStream;
+pub(crate) use websocket::{UpstreamRequest, UpstreamSocket, ws_config};
+
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -5,17 +29,14 @@ use http::{Request, Response, StatusCode, header};
 use protocol::{HostId, PaneOrigin};
 use tokio::sync::broadcast;
 
-use crate::access_scope;
-use crate::credential_io;
 use crate::error::Error;
-use crate::host_registry::HostRegistry;
-use crate::host_target::HostTarget;
-use crate::http_conn::strip_pane_headers;
-use crate::local::{connect_retry_delay, forward_local};
-use crate::remote::forward_remote;
+use crate::hosts::HostRegistry;
+use crate::hosts::HostTarget;
 use crate::response::{Forwarded, error_response, proxy_answer, readable_by};
-use crate::socket_locator::SocketLocator;
-use crate::token_store::TokenStore;
+use crate::transport::http_conn::strip_pane_headers;
+use crate::transport::local::{connect_retry_delay, forward_local};
+use crate::transport::remote::forward_remote;
+use crate::transport::remote::secrets::credential_io;
 
 pub(crate) const PROXY_TIMEOUT: Duration = Duration::from_secs(300);
 const REMOVAL_BACKLOG: usize = 16;
@@ -179,8 +200,8 @@ fn target_of(uri: &http::Uri) -> Result<HostTarget, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory_token_store::MemoryTokenStore;
     use crate::response::marker_of;
+    use crate::transport::remote::MemoryTokenStore;
 
     fn transport(socket: std::path::PathBuf) -> Transport {
         Transport::new(
@@ -285,7 +306,7 @@ mod tests {
         registry
             .insert(
                 id.clone(),
-                crate::endpoint::Endpoint::parse("10.0.0.2:1").unwrap(),
+                crate::hosts::Endpoint::parse("10.0.0.2:1").unwrap(),
             )
             .await
             .unwrap();

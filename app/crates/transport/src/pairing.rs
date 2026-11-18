@@ -1,3 +1,11 @@
+mod pair_request;
+mod probe;
+mod redeemed;
+mod unrecorded;
+
+pub use pair_request::PairRequest;
+pub use probe::probe_fingerprint;
+
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
@@ -7,22 +15,21 @@ use protocol::HostId;
 use tokio::net::TcpStream;
 use tokio_rustls::client::TlsStream;
 
-use crate::credential::Credential;
-use crate::credential_io;
-use crate::dial::dial;
-use crate::endpoint::Endpoint;
 use crate::error::Error;
-use crate::fingerprint::{CertificateDigest, certificate_digest};
-use crate::host_registry::HostRegistry;
-use crate::host_target::check_registrable;
-use crate::http_conn::{open_channel, send};
-use crate::pair_request::PairRequest;
-use crate::pin::Pin;
-use crate::redeemed::Redeemed;
-use crate::remote::{REMOTE_BODY_LIMIT, bearer};
-use crate::remote_host::RemoteHost;
-use crate::token_store::TokenStore;
-use crate::unrecorded::Unrecorded;
+use crate::hosts::Endpoint;
+use crate::hosts::HostRegistry;
+use crate::hosts::check_registrable;
+use crate::pairing::redeemed::Redeemed;
+use crate::pairing::unrecorded::Unrecorded;
+use crate::transport::Credential;
+use crate::transport::Pin;
+use crate::transport::RemoteHost;
+use crate::transport::TokenStore;
+use crate::transport::dial;
+use crate::transport::remote::secrets::credential_io;
+use crate::transport::{CertificateDigest, certificate_digest};
+use crate::transport::{REMOTE_BODY_LIMIT, bearer};
+use crate::transport::{open_channel, send};
 
 const PAIR_TIMEOUT: Duration = Duration::from_secs(30);
 

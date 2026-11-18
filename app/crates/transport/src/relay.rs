@@ -1,3 +1,17 @@
+mod accept_loop;
+mod acceptor;
+mod connections;
+mod grants;
+mod relay_config;
+mod relay_state;
+mod session;
+mod subprotocol;
+
+pub use acceptor::Acceptor;
+pub use grants::{ExactOrigins, OriginPolicy};
+pub use relay_config::RelayConfig;
+pub use subprotocol::{IDLE_SUBPROTOCOL_PREFIX, RELAY_SUBPROTOCOL, TOKEN_SUBPROTOCOL_PREFIX};
+
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
 
@@ -6,16 +20,13 @@ use tokio::net::TcpListener;
 use tokio::sync::broadcast::{self, error::RecvError};
 use tokio_util::sync::CancellationToken;
 
-use crate::accept_loop::accept_loop;
-use crate::acceptor::Acceptor;
-use crate::adapters::tokio_now;
-use crate::connection_book::ConnectionBook;
 use crate::error::Error;
-use crate::origin_policy::OriginPolicy;
-use crate::relay_config::RelayConfig;
-use crate::relay_state::RelayState;
-use crate::stream_access::StreamAccess;
-use crate::token_book::TokenBook;
+use crate::relay::accept_loop::accept_loop;
+use crate::relay::connections::connection_book::ConnectionBook;
+use crate::relay::grants::token_book::TokenBook;
+use crate::relay::relay_state::RelayState;
+use crate::relay::relay_state::adapters::tokio_clock::tokio_now;
+use crate::transport::StreamAccess;
 use crate::transport::Transport;
 
 /// The loopback WebSocket relay: listens on `127.0.0.1` on a random port, checks each pane's
@@ -144,9 +155,9 @@ mod tests {
     use tokio::sync::broadcast;
 
     use super::*;
-    use crate::exact_origins::ExactOrigins;
-    use crate::host_registry::HostRegistry;
-    use crate::memory_token_store::MemoryTokenStore;
+    use crate::hosts::HostRegistry;
+    use crate::relay::grants::ExactOrigins;
+    use crate::transport::MemoryTokenStore;
 
     fn transport() -> Arc<Transport> {
         Arc::new(Transport::new(
