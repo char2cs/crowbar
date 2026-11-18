@@ -1,6 +1,9 @@
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 
-use crate::search_engine::SearchEngine;
+use crate::address::SearchEngine;
+
+/// The pane type id of the browser pane.
+pub const BROWSER_PANE_TYPE: &str = "core.browser";
 
 const COMPONENT: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'-')

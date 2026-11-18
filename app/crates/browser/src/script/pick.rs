@@ -1,4 +1,4 @@
-use crate::page_calls::op_body;
+use crate::script::page_calls::op_body;
 
 /// The script that starts a pick in the page. It posts the finished pick, or the failure, with
 /// `window.ipc.postMessage`, which is the only way the page answers.

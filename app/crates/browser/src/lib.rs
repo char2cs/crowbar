@@ -8,34 +8,23 @@
 //! report of what happened in the page and [`PageState`] folds those reports into what the
 //! address bar, title and reload button show.
 
-mod agent_answer;
-mod agent_script;
+mod address;
 mod browser;
-mod browser_url;
 mod error;
-mod page_calls;
-mod page_state;
-mod page_update;
-mod pick_report;
-mod pick_script;
-mod pointer_item;
-mod pointer_text;
-mod search_engine;
-mod tab_name;
+mod script;
+mod selection;
+mod state;
 
-pub use agent_answer::AgentAnswer;
-pub use agent_script::{agent_script, eval_script};
-pub use browser::resolve_address;
-pub use browser_url::BrowserUrl;
+pub use address::BrowserUrl;
+pub use address::SearchEngine;
+pub use browser::{BROWSER_PANE_TYPE, resolve_address};
 pub use error::Error;
-pub use page_state::PageState;
-pub use page_update::PageUpdate;
-pub use pick_report::PickReport;
-pub use pick_script::{cancel_pick_script, pick_script};
-pub use pointer_item::PointerItem;
-pub use pointer_text::{pick_count, pointer_text};
-pub use search_engine::SearchEngine;
-pub use tab_name::tab_name;
-
-/// The pane type id of the browser pane.
-pub const BROWSER_PANE_TYPE: &str = "core.browser";
+pub use script::{agent_script, eval_script};
+pub use script::{cancel_pick_script, pick_script};
+pub use selection::PickReport;
+pub use selection::PointerItem;
+pub use selection::{pick_count, pointer_text};
+pub use state::AgentAnswer;
+pub use state::PageState;
+pub use state::PageUpdate;
+pub use state::tab_name;

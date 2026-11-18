@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use crate::pick_report::PickReport;
+use crate::selection::pick_report::PickReport;
 
 const QUOTE_LABEL_CHARS: usize = 40;
 const ELEMENT: &str = "element";
@@ -83,7 +83,7 @@ fn headline(
 
 fn item_line(
     index: usize,
-    item: &crate::pointer_item::PointerItem,
+    item: &crate::selection::pointer_item::PointerItem,
 ) -> String {
     let what = [&item.name, &item.text]
         .into_iter()
@@ -119,7 +119,7 @@ fn data_line(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pointer_item::PointerItem;
+    use crate::selection::pointer_item::PointerItem;
 
     fn item(
         role: &str,

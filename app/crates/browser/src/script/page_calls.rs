@@ -1,6 +1,6 @@
-const PAGE_AGENT: &str = include_str!("../../../panes/src/features/browser/lib/page-agent.js");
+const PAGE_AGENT: &str = include_str!("../../../../panes/src/features/browser/lib/page-agent.js");
 const POINTER_AGENT: &str =
-    include_str!("../../../panes/src/features/browser/lib/pointer-agent.js");
+    include_str!("../../../../panes/src/features/browser/lib/pointer-agent.js");
 
 pub(crate) fn op_body(
     op: &str,

@@ -1,5 +1,5 @@
-use crate::page_update::PageUpdate;
-use crate::tab_name::tab_name;
+use crate::state::page_update::PageUpdate;
+use crate::state::tab_name::tab_name;
 
 /// What the browser chrome shows for one page: address, title and whether it is loading.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

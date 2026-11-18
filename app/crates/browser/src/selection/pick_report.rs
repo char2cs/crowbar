@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::pointer_item::PointerItem;
+use crate::selection::pointer_item::PointerItem;
 
 /// What the page returns for a finished pick.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

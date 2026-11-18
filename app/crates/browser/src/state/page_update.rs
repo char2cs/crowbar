@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use crate::agent_answer::AgentAnswer;
-use crate::browser_url::BrowserUrl;
-use crate::pick_report::PickReport;
+use crate::address::BrowserUrl;
+use crate::selection::PickReport;
+use crate::state::agent_answer::AgentAnswer;
 
 const MAX_TITLE_CHARS: usize = 200;
 const MAX_FAILURE_CHARS: usize = 200;
