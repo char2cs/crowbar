@@ -9,6 +9,9 @@ pub enum Error {
     /// The daemon or the transport refused the request.
     #[error("terminal session: {0}")]
     Daemon(String),
+    /// The daemon refused the request or answered something that is not its envelope.
+    #[error("terminal session: {0}")]
+    Api(#[from] daemonapi::Error),
     /// The daemon answered without a session id.
     #[error("terminal session: the daemon answered without a session id")]
     NoSessionId,

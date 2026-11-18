@@ -5365,6 +5365,7 @@ name = "ptysession"
 version = "0.1.0"
 dependencies = [
  "async-channel 2.5.0",
+ "daemonapi",
  "futures-util",
  "protocol",
  "serde_json",

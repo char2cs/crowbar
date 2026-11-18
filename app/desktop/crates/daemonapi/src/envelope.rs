@@ -20,7 +20,15 @@ struct Envelope {
 
 pub(crate) const FIRST_ERROR_STATUS: u16 = 400;
 
-pub(crate) fn unwrap(
+/// The `data` of a daemon answer to `path`, or why the daemon refused.
+///
+/// An empty body with a success status reads as `null`.
+///
+/// # Errors
+///
+/// [`Error::Refused`] when the status is an error or the envelope says `success: false` (with the
+/// daemon's message when it sent one), and [`Error::Body`] when a success body is not an envelope.
+pub fn unwrap(
     path: &str,
     response: &DaemonResponse,
 ) -> Result<Value> {

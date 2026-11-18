@@ -16,7 +16,8 @@ speaks the daemon's API through it.
 - `Call`: `get`, `post`, `put`, `patch`, `delete`, then `json`, `yaml`, `form`, `idempotent`,
   `discarding_work`.
 - `Error` (Request, Refused, Body, Json, Stream) and `Result`.
-- Routes and reading: `routes` (project, repos, scope, chats, folders), `document_route::content`,
+- Routes and reading: `routes` (project, repos, scope, chats, folders), `envelope::unwrap`,
+  `document_route::content`,
   `query_encode::encode`, `daemon_read::read`, `typed::typed`, `new_id::uuid`,
   `multipart::file_field`.
 - The stream: `Dial` and `Opening`, `RelayDial`, `Connection`, `Frame` and `frame::decode`,

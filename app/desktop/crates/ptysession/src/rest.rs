@@ -6,12 +6,11 @@ use protocol::{
     DaemonRequest, DaemonResponse, DaemonTransport, HostId, HttpMethod, PaneOrigin, RequestTarget,
     Responder,
 };
+use serde_json::Value;
 use tokio::sync::oneshot;
 
 use crate::error::{Error, Result};
 use crate::session_base::SessionBase;
-
-const FIRST_ERROR_STATUS: u16 = 400;
 
 #[derive(Clone)]
 pub(crate) struct Rest {
@@ -24,9 +23,10 @@ impl Rest {
         &self,
         base: &SessionBase,
     ) -> Result<String> {
-        let body = self.send("POST", base.create_path()).await?;
-        let parsed: serde_json::Value = serde_json::from_slice(&body).map_err(daemon_error)?;
-        let id = parsed.pointer("/data/sessionId").and_then(|id| id.as_str());
+        let path = base.create_path();
+        let response = self.send("POST", path).await?;
+        let data = daemonapi::envelope::unwrap(path, &response)?;
+        let id = data.pointer("/sessionId").and_then(Value::as_str);
         id.map(str::to_owned).ok_or(Error::NoSessionId)
     }
 
@@ -35,7 +35,9 @@ impl Rest {
         base: &SessionBase,
         session: &str,
     ) -> Result<()> {
-        self.send("DELETE", &base.kill_path(session)).await?;
+        let path = base.kill_path(session);
+        let response = self.send("DELETE", &path).await?;
+        daemonapi::envelope::unwrap(&path, &response)?;
         Ok(())
     }
 
@@ -43,26 +45,17 @@ impl Rest {
         &self,
         method: &str,
         path: &str,
-    ) -> Result<Vec<u8>> {
+    ) -> Result<DaemonResponse> {
         let target = RequestTarget::new(path).map_err(daemon_error)?;
         let method = HttpMethod::new(method).map_err(daemon_error)?;
         let request = DaemonRequest::new(self.host.clone(), PaneOrigin::Core, method, target);
         let (respond, answer) = oneshot::channel();
         self.transport.request(request, reply(respond));
-        let response = answer
+        answer
             .await
             .map_err(Error::TransportStopped)?
-            .map_err(daemon_error)?;
-        checked(response)
+            .map_err(daemon_error)
     }
-}
-
-fn checked(response: DaemonResponse) -> Result<Vec<u8>> {
-    let status = response.status();
-    if status >= FIRST_ERROR_STATUS {
-        return Err(Error::Daemon(format!("the daemon answered {status}")));
-    }
-    Ok(response.into_body())
 }
 
 fn reply(respond: oneshot::Sender<protocol::Result<DaemonResponse>>) -> Responder {
@@ -150,10 +143,18 @@ mod tests {
         );
     }
 
-    const FAILURES: [(u16, &str); 2] = [(CREATED, r#"{"success":true,"data":{}}"#), (404, "")];
-    const EXPECTED: [&str; 2] = [
+    const FAILURES: [(u16, &str); 3] = [
+        (CREATED, r#"{"success":true,"data":{}}"#),
+        (404, ""),
+        (
+            409,
+            r#"{"success":false,"error":"the chat has no terminal"}"#,
+        ),
+    ];
+    const EXPECTED: [&str; 3] = [
         "terminal session: the daemon answered without a session id",
         "terminal session: the daemon answered 404",
+        "terminal session: the chat has no terminal",
     ];
 
     #[tokio::test]

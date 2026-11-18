@@ -13,7 +13,7 @@ pub mod daemon_read;
 mod dial;
 pub mod document_route;
 mod entry_kind;
-mod envelope;
+pub mod envelope;
 mod error;
 pub mod frame;
 pub mod multipart;
