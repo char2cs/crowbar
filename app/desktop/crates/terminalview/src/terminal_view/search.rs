@@ -3,9 +3,9 @@
 use gpui::{AppContext, Context, Window};
 use terminal::{SearchQuery, SearchSummary};
 
+use crate::search_bar::Event;
 use crate::search_bar::SearchBar;
-use crate::search_bar::SearchBarEvent;
-use crate::search_bar::SearchSession;
+use crate::search_bar::Session;
 use crate::terminal_view::TerminalView;
 
 impl TerminalView {
@@ -22,7 +22,7 @@ impl TerminalView {
         let events = cx.subscribe_in(&bar, window, |this, _bar, event, window, cx| {
             this.on_search_event(event, window, cx);
         });
-        self.search = Some(SearchSession {
+        self.search = Some(Session {
             bar,
             _events: events,
         });
@@ -42,21 +42,21 @@ impl TerminalView {
 
     fn on_search_event(
         &mut self,
-        event: &SearchBarEvent,
+        event: &Event,
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
         match event {
-            SearchBarEvent::QueryChanged(query) => self.search_for(query.clone(), cx),
-            SearchBarEvent::Next => {
+            Event::QueryChanged(query) => self.search_for(query.clone(), cx),
+            Event::Next => {
                 let summary = self.terminal.search_next();
                 self.show_summary(summary, cx);
             },
-            SearchBarEvent::Previous => {
+            Event::Previous => {
                 let summary = self.terminal.search_previous();
                 self.show_summary(summary, cx);
             },
-            SearchBarEvent::Close => self.close_search(window, cx),
+            Event::Close => self.close_search(window, cx),
         }
     }
 
@@ -94,7 +94,7 @@ mod tests {
 
     use terminal::{SearchOptions, SearchQuery};
 
-    use crate::search_bar::SearchBarEvent;
+    use crate::search_bar::Event;
     use crate::test_support::{draw, feed, focus, open};
 
     #[gpui::test]
@@ -113,7 +113,7 @@ mod tests {
             options: SearchOptions::NONE,
         };
         if let Some(bar) = bar {
-            bar.update(cx, |_, cx| cx.emit(SearchBarEvent::QueryChanged(query)));
+            bar.update(cx, |_, cx| cx.emit(Event::QueryChanged(query)));
         }
         let total = harness
             .view

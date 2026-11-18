@@ -5,12 +5,12 @@ use terminal::{ClientMessage, DaemonFrame};
 
 /// Where the host puts frames read from the PTY websocket and takes messages to write to it.
 #[derive(Debug, Clone)]
-pub struct TerminalPeer {
+pub struct Peer {
     frames: Sender<DaemonFrame>,
     messages: Receiver<ClientMessage>,
 }
 
-impl TerminalPeer {
+impl Peer {
     pub(crate) fn new(
         frames: Sender<DaemonFrame>,
         messages: Receiver<ClientMessage>,
@@ -58,13 +58,13 @@ impl TerminalPeer {
 
 #[cfg(test)]
 mod tests {
-    use crate::daemon::terminal_link::TerminalLink;
+    use crate::daemon::link::Link;
 
     use super::*;
 
     #[test]
     fn the_channel_ends_carry_the_same_traffic() {
-        let (link, peer) = TerminalLink::open();
+        let (link, peer) = Link::open();
         let (frames, _messages) = peer.into_channels();
         assert!(frames.send_blocking(DaemonFrame::Exit(1)).is_ok());
         drop(link);
@@ -73,7 +73,7 @@ mod tests {
 
     #[test]
     fn a_dropped_view_ends_both_directions() {
-        let (link, peer) = TerminalLink::open();
+        let (link, peer) = Link::open();
         drop(link);
         assert!(!peer.deliver_blocking(DaemonFrame::Exit(0)));
         assert_eq!(peer.next_message_blocking(), None);

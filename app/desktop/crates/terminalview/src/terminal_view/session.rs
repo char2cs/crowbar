@@ -3,11 +3,11 @@
 use gpui::{AsyncApp, ClipboardItem, Context, WeakEntity, Window};
 use terminal::{ClientMessage, DaemonFrame, sanitize_title};
 
-use crate::terminal_settings::{hex_text, is_dark, terminal_palette};
+use crate::settings::{hex_text, is_dark, terminal_palette};
 use crate::terminal_view::TerminalView;
+use crate::terminal_view::event::Event;
 use crate::terminal_view::paint::BLINK_INTERVAL;
 use crate::terminal_view::paint::FocusState;
-use crate::terminal_view::terminal_view_event::TerminalViewEvent;
 
 impl TerminalView {
     pub(crate) fn apply_frames(
@@ -45,15 +45,15 @@ impl TerminalView {
     ) {
         match event {
             terminal::Event::Title(title) => {
-                cx.emit(TerminalViewEvent::TitleChanged(sanitize_title(&title)));
+                cx.emit(Event::TitleChanged(sanitize_title(&title)));
             },
-            terminal::Event::ResetTitle => cx.emit(TerminalViewEvent::TitleChanged(String::new())),
-            terminal::Event::Bell => cx.emit(TerminalViewEvent::Bell),
+            terminal::Event::ResetTitle => cx.emit(Event::TitleChanged(String::new())),
+            terminal::Event::Bell => cx.emit(Event::Bell),
             terminal::Event::ClipboardStore(text) => {
-                cx.emit(TerminalViewEvent::ClipboardWritten(text.len()));
+                cx.emit(Event::ClipboardWritten(text.len()));
                 cx.write_to_clipboard(ClipboardItem::new_string(text));
             },
-            terminal::Event::Exit(code) => cx.emit(TerminalViewEvent::Exited(code)),
+            terminal::Event::Exit(code) => cx.emit(Event::Exited(code)),
         }
     }
 
@@ -165,23 +165,23 @@ mod tests {
     use gpui::TestAppContext;
 
     use crate::terminal_view::TerminalView;
+    use crate::terminal_view::event::Event;
     use crate::terminal_view::paint::BLINK_INTERVAL;
-    use crate::terminal_view::terminal_view_event::TerminalViewEvent;
     use crate::test_support::{feed, focus, open, record_events, sent, typed};
 
     #[gpui::test]
     fn title_bell_and_exit_become_view_events(cx: &mut TestAppContext) {
         let (harness, cx) = open(cx);
-        let events = record_events::<TerminalView, TerminalViewEvent>(cx, &harness.view);
+        let events = record_events::<TerminalView, Event>(cx, &harness.view);
         feed(&harness, cx, "\x1b]0;build\x07\x07");
         harness
             .peer
             .deliver_blocking(terminal::DaemonFrame::Exit(2));
         cx.run_until_parked();
         let expected = [
-            TerminalViewEvent::TitleChanged("build".into()),
-            TerminalViewEvent::Bell,
-            TerminalViewEvent::Exited(2),
+            Event::TitleChanged("build".into()),
+            Event::Bell,
+            Event::Exited(2),
         ];
         assert_eq!(events.borrow().as_slice(), expected);
     }
@@ -189,12 +189,9 @@ mod tests {
     #[gpui::test]
     fn an_osc_52_store_writes_the_clipboard_and_tells_the_host(cx: &mut TestAppContext) {
         let (harness, cx) = open(cx);
-        let events = record_events::<TerminalView, TerminalViewEvent>(cx, &harness.view);
+        let events = record_events::<TerminalView, Event>(cx, &harness.view);
         feed(&harness, cx, "\x1b]52;c;aGk=\x07");
-        assert_eq!(
-            events.borrow().as_slice(),
-            [TerminalViewEvent::ClipboardWritten(2)]
-        );
+        assert_eq!(events.borrow().as_slice(), [Event::ClipboardWritten(2)]);
     }
 
     #[gpui::test]

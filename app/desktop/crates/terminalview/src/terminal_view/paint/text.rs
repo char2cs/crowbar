@@ -3,7 +3,7 @@
 use gpui::{App, Bounds, Pixels, ShapedLine, Window, fill, point, px, size};
 use terminal::{BackgroundSpan, Row};
 
-use crate::terminal_settings::hsla_of;
+use crate::settings::hsla_of;
 use crate::terminal_view::paint::frame::Frame;
 use crate::terminal_view::paint::shaping::LineCache;
 use crate::terminal_view::paint::shaping::RowInput;

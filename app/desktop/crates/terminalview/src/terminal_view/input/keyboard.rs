@@ -3,10 +3,10 @@
 use gpui::{ClipboardItem, Context, KeyDownEvent, Window};
 
 use crate::terminal_view::TerminalView;
+use crate::terminal_view::event::Event;
 use crate::terminal_view::input::key_conversion::key_input;
 use crate::terminal_view::input::page_direction::PageDirection;
 use crate::terminal_view::input::shortcut::{Shortcut, shortcut_for};
-use crate::terminal_view::terminal_view_event::TerminalViewEvent;
 
 const ZOOM_STEP: f32 = 2.0;
 
@@ -98,7 +98,7 @@ impl TerminalView {
     ) {
         self.settings.font_size = size;
         self.cache.clear();
-        cx.emit(TerminalViewEvent::FontSizeChanged(size));
+        cx.emit(Event::FontSizeChanged(size));
         cx.notify();
     }
 
@@ -120,7 +120,7 @@ mod tests {
     use gpui::{ClipboardItem, TestAppContext};
 
     use crate::terminal_view::TerminalView;
-    use crate::terminal_view::terminal_view_event::TerminalViewEvent;
+    use crate::terminal_view::event::Event;
     use crate::test_support::{feed, first_row, focus, open, record_events, typed};
 
     #[gpui::test]
@@ -153,12 +153,9 @@ mod tests {
     fn zoom_reports_the_new_font_size_and_clear_drops_history(cx: &mut TestAppContext) {
         let (harness, cx) = open(cx);
         focus(&harness, cx);
-        let events = record_events::<TerminalView, TerminalViewEvent>(cx, &harness.view);
+        let events = record_events::<TerminalView, Event>(cx, &harness.view);
         cx.simulate_keystrokes("ctrl-=");
-        assert_eq!(
-            events.borrow().as_slice(),
-            [TerminalViewEvent::FontSizeChanged(16.0)]
-        );
+        assert_eq!(events.borrow().as_slice(), [Event::FontSizeChanged(16.0)]);
         feed(&harness, cx, &"x\r\n".repeat(200));
         harness.view.update(cx, TerminalView::clear_scrollback);
         let history = harness

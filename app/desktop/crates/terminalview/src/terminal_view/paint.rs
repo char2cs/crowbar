@@ -1,30 +1,30 @@
 //! Layout and painting of the grid.
 
+pub(crate) mod colors;
 pub(crate) mod cursor;
 mod frame;
 mod highlights;
-pub(crate) mod paint_colors;
-mod paint_layers;
-pub(crate) mod paint_request;
+mod layers;
+pub(crate) mod request;
 mod scrollbar;
 pub(crate) mod shaping;
 mod text;
 pub(crate) mod view_layout;
 
-pub(crate) use cursor::{BLINK_INTERVAL, CursorLook, FocusState, PreeditSite, cursor_bounds};
+pub(crate) use cursor::{BLINK_INTERVAL, FocusState, Look, PreeditSite, cursor_bounds};
 
 use gpui::{App, Bounds, Context, ElementInputHandler, Pixels, Window, px};
 use terminal::{ScrollbarThumb, Snapshot};
 
-use crate::terminal_settings::base_font;
-use crate::terminal_settings::terminal_palette;
+use crate::settings::base_font;
+use crate::settings::terminal_palette;
 use crate::terminal_view::TerminalView;
+use crate::terminal_view::paint::colors::Colors;
 use crate::terminal_view::paint::cursor::paint_cursor;
 use crate::terminal_view::paint::frame::Frame;
 use crate::terminal_view::paint::highlights::{paint_fills, paint_underlines};
-use crate::terminal_view::paint::paint_colors::PaintColors;
-use crate::terminal_view::paint::paint_layers::PaintLayers;
-use crate::terminal_view::paint::paint_request::PaintRequest;
+use crate::terminal_view::paint::layers::Layers;
+use crate::terminal_view::paint::request::Request;
 use crate::terminal_view::paint::scrollbar::paint_scrollbar;
 use crate::terminal_view::paint::shaping::Shaping;
 use crate::terminal_view::paint::text::{paint_backgrounds, paint_rows};
@@ -121,20 +121,20 @@ impl TerminalView {
 
     pub(crate) fn paint_frame(
         &mut self,
-        request: PaintRequest,
+        request: Request,
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        let PaintRequest { bounds, frame } = request;
+        let Request { bounds, frame } = request;
         let Some(frame) = frame else {
             return;
         };
-        let colors = PaintColors::of(cx);
+        let colors = Colors::of(cx);
         paint_backgrounds(&frame, window);
         Self::paint_highlights(&frame, &colors, window);
         paint_rows(&frame, &mut self.cache, window, cx);
         self.paint_links(&frame, &colors, window);
-        let layers = PaintLayers {
+        let layers = Layers {
             frame: &frame,
             colors: &colors,
         };
@@ -146,7 +146,7 @@ impl TerminalView {
 
     fn paint_highlights(
         frame: &Frame,
-        colors: &PaintColors,
+        colors: &Colors,
         window: &mut Window,
     ) {
         let layers = [
@@ -162,7 +162,7 @@ impl TerminalView {
     fn paint_links(
         &self,
         frame: &Frame,
-        colors: &PaintColors,
+        colors: &Colors,
         window: &mut Window,
     ) {
         paint_underlines(
@@ -175,11 +175,11 @@ impl TerminalView {
 
     fn paint_cursor_cell(
         &self,
-        layers: PaintLayers<'_>,
+        layers: Layers<'_>,
         window: &mut Window,
         cx: &mut App,
     ) {
-        let PaintLayers { frame, colors } = layers;
+        let Layers { frame, colors } = layers;
         let Some(cell) = frame.snapshot.cursor else {
             return;
         };
@@ -188,9 +188,9 @@ impl TerminalView {
         }
         let palette = terminal_palette(cx);
         let focus = FocusState::from(self.focused);
-        let look = CursorLook {
+        let look = Look {
             color: colors.foreground,
-            glyph_color: crate::terminal_settings::hsla_of(palette.background),
+            glyph_color: crate::settings::hsla_of(palette.background),
             backdrop: colors.pane,
             thickness: self.settings.cursor_width,
             focus,
@@ -214,7 +214,7 @@ impl TerminalView {
 
     fn paint_scrollbar_thumb(
         frame: &Frame,
-        colors: &PaintColors,
+        colors: &Colors,
         window: &mut Window,
     ) {
         let snapshot = &frame.snapshot;

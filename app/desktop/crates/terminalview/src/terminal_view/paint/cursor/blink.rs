@@ -5,17 +5,17 @@ use std::time::Duration;
 pub(crate) const BLINK_INTERVAL: Duration = Duration::from_millis(530);
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct CursorBlink {
+pub(crate) struct Blink {
     shown: bool,
 }
 
-impl Default for CursorBlink {
+impl Default for Blink {
     fn default() -> Self {
         Self { shown: true }
     }
 }
 
-impl CursorBlink {
+impl Blink {
     pub(crate) fn tick(&mut self) {
         self.shown = !self.shown;
     }
@@ -35,7 +35,7 @@ mod tests {
 
     #[test]
     fn ticks_alternate_and_typing_restarts_the_phase() {
-        let mut blink = CursorBlink::default();
+        let mut blink = Blink::default();
         assert!(blink.is_shown());
         blink.tick();
         assert!(!blink.is_shown());

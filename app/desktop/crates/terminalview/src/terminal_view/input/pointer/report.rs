@@ -6,7 +6,7 @@ use terminal::{MouseButton, ViewPoint};
 use crate::terminal_view::input::key_conversion::terminal_modifiers;
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct PointerReport {
+pub(crate) struct Report {
     pub(crate) button: MouseButton,
     pub(crate) point: ViewPoint,
     pub(crate) modifiers: terminal::Modifiers,
@@ -25,8 +25,8 @@ pub(crate) fn pointer_report(
     button: MouseButton,
     point: ViewPoint,
     modifiers: gpui::Modifiers,
-) -> PointerReport {
-    PointerReport {
+) -> Report {
+    Report {
         button,
         point,
         modifiers: terminal_modifiers(modifiers),

@@ -2,8 +2,8 @@
 
 use gpui::{Context, SharedString, Window};
 
-use crate::terminal_settings::TerminalSettings;
-use crate::terminal_settings::terminal_config;
+use crate::settings::Settings;
+use crate::settings::terminal_config;
 use crate::terminal_view::TerminalView;
 
 impl TerminalView {
@@ -18,7 +18,7 @@ impl TerminalView {
     /// Applies new settings: font, spacing, scrollback, cursor.
     pub fn set_settings(
         &mut self,
-        settings: TerminalSettings,
+        settings: Settings,
         cx: &mut Context<'_, Self>,
     ) {
         let config = terminal_config(&settings, cx);
@@ -115,7 +115,7 @@ impl TerminalView {
 mod tests {
     use gpui::TestAppContext;
 
-    use crate::terminal_settings::TerminalSettings;
+    use crate::settings::Settings;
     use crate::terminal_view::TerminalView;
     use crate::test_support::{feed, open, typed};
 
@@ -128,7 +128,7 @@ mod tests {
         harness.view.update(cx, TerminalView::select_all);
         let selected = harness.view.read_with(cx, |view, _| view.selected_text());
         assert!(selected.is_some_and(|text| text.starts_with("all of it")));
-        let settings = TerminalSettings::default().zoomed(2.0);
+        let settings = Settings::default().zoomed(2.0);
         harness
             .view
             .update(cx, |view, cx| view.set_settings(settings, cx));

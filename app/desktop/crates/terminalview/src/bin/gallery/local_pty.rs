@@ -1,4 +1,4 @@
-//! A local PTY wired to a `TerminalPeer`, standing in for the daemon's websocket.
+//! A local PTY wired to a `Peer`, standing in for the daemon's websocket.
 
 use std::collections::HashMap;
 use std::thread;
@@ -10,14 +10,14 @@ use rustix::fd::{AsFd, OwnedFd};
 use rustix::fs::{OFlags, fcntl_getfl, fcntl_setfl};
 use rustix::io::{dup, read, write};
 use terminal::{ClientMessage, DaemonFrame};
-use terminalview::TerminalPeer;
+use terminalview::Peer;
 
 const READ_CHUNK: usize = 65_536;
 const CELL_PIXELS: u16 = 8;
 const LINE_PIXELS: u16 = 17;
 
 pub(crate) fn spawn_local_pty(
-    peer: TerminalPeer,
+    peer: Peer,
     width: u16,
     height: u16,
 ) -> std::io::Result<()> {
@@ -49,7 +49,7 @@ fn blocking_clone(file: &impl AsFd) -> std::io::Result<OwnedFd> {
 
 fn pump_output(
     reader: &OwnedFd,
-    peer: &TerminalPeer,
+    peer: &Peer,
 ) {
     let mut buffer = vec![0_u8; READ_CHUNK];
     while forward_chunk(reader, &mut buffer, peer) {}
@@ -58,7 +58,7 @@ fn pump_output(
 fn forward_chunk(
     reader: &OwnedFd,
     buffer: &mut [u8],
-    peer: &TerminalPeer,
+    peer: &Peer,
 ) -> bool {
     let count = read(reader, &mut *buffer).unwrap_or(0);
     if count == 0 {
@@ -72,7 +72,7 @@ fn forward_chunk(
 fn pump_input(
     mut pty: Pty,
     writer: &OwnedFd,
-    peer: &TerminalPeer,
+    peer: &Peer,
 ) {
     let mut messages = std::iter::from_fn(|| peer.next_message_blocking());
     messages.all(|message| handle_message(message, &mut pty, writer));

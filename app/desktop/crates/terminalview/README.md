@@ -9,9 +9,9 @@ that joins a view to its daemon session.
 ## Public interface
 
 - `TerminalView`: `new`, `focus`, `set_settings`, `run_after_attach`, `grid_size`; it emits
-  `TerminalViewEvent`.
-- `TerminalSettings`: the theme and font a view draws with.
-- `TerminalLink` (the view end) and `TerminalPeer` (the host end) of the daemon channel.
+  `Event`.
+- `Settings`: the theme and font a view draws with.
+- `Link` (the view end) and `Peer` (the host end) of the daemon channel.
 - `terminalgallery` binary (`src/bin/gallery/`, feature `gallery`): a real shell over a local PTY
   that stands in for the daemon.
 

@@ -4,7 +4,7 @@ use gpui::{Pixels, Point};
 
 /// Events the host acts on; the view never opens anything itself.
 #[derive(Debug, Clone, PartialEq)]
-pub enum TerminalViewEvent {
+pub enum Event {
     /// The program set a (sanitised, non-empty) title; an empty string clears it.
     TitleChanged(String),
     /// The bell rang.

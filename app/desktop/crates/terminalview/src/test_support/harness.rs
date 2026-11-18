@@ -6,9 +6,9 @@ use std::rc::Rc;
 use gpui::{Entity, TestAppContext, VisualTestContext, point, px};
 use terminal::{ClientMessage, DaemonFrame};
 
-use crate::daemon::TerminalLink;
-use crate::daemon::TerminalPeer;
-use crate::terminal_settings::TerminalSettings;
+use crate::daemon::Link;
+use crate::daemon::Peer;
+use crate::settings::Settings;
 use crate::terminal_view::TerminalView;
 
 const LEFT_OF_CENTER: f32 = 0.25;
@@ -16,15 +16,14 @@ const HALF_CELL: f32 = 0.5;
 
 pub(crate) struct Harness {
     pub(crate) view: Entity<TerminalView>,
-    pub(crate) peer: TerminalPeer,
+    pub(crate) peer: Peer,
 }
 
 pub(crate) fn open(cx: &mut TestAppContext) -> (Harness, &mut VisualTestContext) {
     cx.update(|cx| ui::init(cx).unwrap_or_else(|error| panic!("{error}")));
-    let (link, peer) = TerminalLink::open();
-    let (view, cx) = cx.add_window_view(|window, cx| {
-        TerminalView::new(link, TerminalSettings::default(), window, cx)
-    });
+    let (link, peer) = Link::open();
+    let (view, cx) =
+        cx.add_window_view(|window, cx| TerminalView::new(link, Settings::default(), window, cx));
     cx.update(|window, _| window.activate_window());
     draw(cx);
     (Harness { view, peer }, cx)

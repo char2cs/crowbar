@@ -10,7 +10,7 @@ const THUMB_LIGHTNESS: f32 = 0.44;
 const THUMB_ALPHA: f32 = 0.42;
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct PaintColors {
+pub(crate) struct Colors {
     pub(crate) pane: Hsla,
     pub(crate) foreground: Hsla,
     pub(crate) selection: Hsla,
@@ -20,7 +20,7 @@ pub(crate) struct PaintColors {
     pub(crate) notice_text: Hsla,
 }
 
-impl PaintColors {
+impl Colors {
     pub(crate) fn of(cx: &App) -> Self {
         let tokens = Theme::of(cx).palette(Surface::Window);
         let thumb = hsla(0.0, 0.0, THUMB_LIGHTNESS, 1.0);
@@ -45,7 +45,7 @@ mod tests {
     #[gpui::test]
     fn highlights_are_translucent_versions_of_theme_colours(cx: &mut TestAppContext) {
         cx.update(|cx| ui::init(cx).unwrap_or_else(|error| panic!("{error}")));
-        let colors = cx.update(|cx| PaintColors::of(cx));
+        let colors = cx.update(|cx| Colors::of(cx));
         assert_eq!(colors.selection.a, SELECTION_ALPHA);
         assert_eq!(colors.current_match.a, CURRENT_MATCH_ALPHA);
         assert_ne!(colors.pane, colors.foreground);

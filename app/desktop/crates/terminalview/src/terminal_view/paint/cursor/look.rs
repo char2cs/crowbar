@@ -6,7 +6,7 @@ use crate::terminal_view::paint::cursor::focus_state::FocusState;
 use crate::terminal_view::paint::shaping::Shaping;
 use crate::terminal_view::paint::view_layout::ViewLayout;
 
-pub(crate) struct CursorLook<'a> {
+pub(crate) struct Look<'a> {
     pub(crate) color: Hsla,
     pub(crate) glyph_color: Hsla,
     pub(crate) backdrop: Hsla,

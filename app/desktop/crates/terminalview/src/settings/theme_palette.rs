@@ -4,9 +4,9 @@ use gpui::{App, Hsla, Rgba};
 use terminal::Rgb;
 use ui::{Surface, Theme};
 
-use crate::terminal_settings::TerminalSettings;
-use crate::terminal_settings::ansi_colors::ansi_colors;
-use crate::terminal_settings::channel_byte::channel_byte;
+use crate::settings::Settings;
+use crate::settings::ansi_colors::ansi_colors;
+use crate::settings::channel_byte::channel_byte;
 
 const BYTE_RANGE: f32 = 255.0;
 
@@ -51,7 +51,7 @@ const INITIAL_COLUMNS: usize = 80;
 const INITIAL_LINES: usize = 24;
 
 pub(crate) fn terminal_config(
-    settings: &TerminalSettings,
+    settings: &Settings,
     cx: &App,
 ) -> terminal::Config {
     terminal::Config {

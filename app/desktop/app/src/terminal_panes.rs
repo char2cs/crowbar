@@ -5,7 +5,7 @@ use gpui::{AnyView, App, AppContext as _, Entity, Window};
 use protocol::PaneId;
 use ptysession::{Ends, TerminalSessions};
 use terminal::DaemonFrame;
-use terminalview::{TerminalLink, TerminalSettings, TerminalView};
+use terminalview::TerminalView;
 
 use crate::chat_terminals::ChatTerminals;
 use crate::plan::Plan;
@@ -21,7 +21,7 @@ pub(crate) struct TerminalPanes {
     chats: ChatTerminals,
     views: RefCell<BTreeMap<PaneId, Entity<TerminalView>>>,
     waiting: RefCell<BTreeSet<PaneId>>,
-    settings: RefCell<TerminalSettings>,
+    settings: RefCell<terminalview::Settings>,
 }
 
 impl TerminalPanes {
@@ -41,7 +41,7 @@ impl TerminalPanes {
 
     pub(crate) fn apply(
         &self,
-        settings: TerminalSettings,
+        settings: terminalview::Settings,
         cx: &mut App,
     ) {
         let views: Vec<_> = self.views.borrow().values().cloned().collect();
@@ -82,7 +82,7 @@ impl TerminalPanes {
         window: &mut Window,
         cx: &mut App,
     ) -> Entity<TerminalView> {
-        let (link, peer) = TerminalLink::open();
+        let (link, peer) = terminalview::Link::open();
         let view = cx.new(|cx| TerminalView::new(link, self.settings.borrow().clone(), window, cx));
         let (frames, messages) = peer.into_channels();
         self.connect((pane, owner), Ends { frames, messages });
@@ -262,9 +262,9 @@ mod tests {
             shown.0.clone().downcast::<TerminalView>().unwrap()
         });
         let before = cx.read_entity(&terminal, |view, _| view.grid_size());
-        let larger = TerminalSettings {
+        let larger = terminalview::Settings {
             font_size: 28.0,
-            ..TerminalSettings::default()
+            ..terminalview::Settings::default()
         };
         cx.update(|_, cx| panes.apply(larger, cx));
         cx.run_until_parked();

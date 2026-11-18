@@ -1,13 +1,13 @@
 //! Paints the cursor.
 
-pub(crate) mod cursor_blink;
-pub(crate) mod cursor_look;
+pub(crate) mod blink;
 pub(crate) mod focus_state;
+pub(crate) mod look;
 pub(crate) mod preedit_site;
 
-pub(crate) use cursor_blink::BLINK_INTERVAL;
-pub(crate) use cursor_look::CursorLook;
+pub(crate) use blink::BLINK_INTERVAL;
 pub(crate) use focus_state::FocusState;
+pub(crate) use look::Look;
 pub(crate) use preedit_site::PreeditSite;
 
 use gpui::{
@@ -36,7 +36,7 @@ pub(crate) fn cursor_bounds(
 
 pub(crate) fn paint_cursor(
     cell: &CursorCell,
-    look: &CursorLook<'_>,
+    look: &Look<'_>,
     window: &mut Window,
     cx: &mut App,
 ) {
@@ -62,7 +62,7 @@ pub(crate) fn paint_cursor(
 
 fn paint_block(
     cell: &CursorCell,
-    look: &CursorLook<'_>,
+    look: &Look<'_>,
     window: &mut Window,
     cx: &mut App,
 ) {

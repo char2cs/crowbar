@@ -3,7 +3,7 @@
 use terminal::SearchQuery;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum SearchBarEvent {
+pub(crate) enum Event {
     QueryChanged(SearchQuery),
     Next,
     Previous,

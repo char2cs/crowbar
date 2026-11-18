@@ -2,10 +2,10 @@ use gpui::{Context, MouseButton, MouseUpEvent, Pixels, Point};
 use terminal::{LinkTarget, MouseAction, ViewPoint, resolve_file_path};
 
 use crate::terminal_view::TerminalView;
+use crate::terminal_view::event::Event;
 use crate::terminal_view::input::pointer::button_event::ButtonEvent;
 use crate::terminal_view::input::pointer::drag_state::DragState;
-use crate::terminal_view::input::pointer::pointer_report::pointer_report;
-use crate::terminal_view::terminal_view_event::TerminalViewEvent;
+use crate::terminal_view::input::pointer::report::pointer_report;
 
 impl TerminalView {
     pub(crate) fn on_mouse_up(
@@ -57,7 +57,7 @@ impl TerminalView {
             return false;
         };
         match link.target {
-            LinkTarget::Url(url) => cx.emit(TerminalViewEvent::OpenUrl { url, position }),
+            LinkTarget::Url(url) => cx.emit(Event::OpenUrl { url, position }),
             LinkTarget::File { path, line } => self.open_file(&path, line, cx),
         }
         true
@@ -70,8 +70,8 @@ impl TerminalView {
         cx: &mut Context<'_, Self>,
     ) {
         match resolve_file_path(path, self.working_directory.as_deref()) {
-            Some(path) => cx.emit(TerminalViewEvent::OpenFile { path, line }),
-            None => cx.emit(TerminalViewEvent::UnresolvedFile(path.to_owned())),
+            Some(path) => cx.emit(Event::OpenFile { path, line }),
+            None => cx.emit(Event::UnresolvedFile(path.to_owned())),
         }
     }
 

@@ -1,6 +1,5 @@
 use settings::Value;
 use terminal::CursorShape;
-use terminalview::TerminalSettings;
 
 use crate::single_precision::single_precision;
 
@@ -21,14 +20,14 @@ const LETTER_SPACING: (f64, f64) = (-5.0, 5.0);
 const SCROLLBACK: (f64, f64) = (1000.0, 100_000.0);
 const CURSOR_WIDTH: (f64, f64) = (1.0, 6.0);
 
-pub(crate) fn terminal_settings(read: impl Fn(&str) -> Option<Value>) -> TerminalSettings {
-    let base = TerminalSettings::default();
+pub(crate) fn terminal_settings(read: impl Fn(&str) -> Option<Value>) -> terminalview::Settings {
+    let base = terminalview::Settings::default();
     let number = |key: &str, (low, high): (f64, f64)| {
         read(key)
             .and_then(|value| value.as_number())
             .map(|value| value.clamp(low, high))
     };
-    TerminalSettings {
+    terminalview::Settings {
         font_family: family(read("terminalFontFamily").as_ref()).unwrap_or(base.font_family),
         font_size: narrowed(number("terminalFontSize", FONT_SIZE), base.font_size),
         line_height: narrowed(number("terminalLineHeight", LINE_HEIGHT), base.line_height),
@@ -93,7 +92,7 @@ mod tests {
     #[test]
     fn nothing_stored_keeps_every_default() {
         let settings = terminal_settings(|_| None);
-        assert_eq!(settings, TerminalSettings::default());
+        assert_eq!(settings, terminalview::Settings::default());
     }
 
     #[test]
@@ -119,10 +118,10 @@ mod tests {
         assert!((settings.cursor_width - 3.0).abs() < f32::EPSILON);
     }
 
-    type Case = (&'static str, &'static str, Value, TerminalSettings);
+    type Case = (&'static str, &'static str, Value, terminalview::Settings);
 
-    fn clamped(edit: impl FnOnce(&mut TerminalSettings)) -> TerminalSettings {
-        let mut settings = TerminalSettings::default();
+    fn clamped(edit: impl FnOnce(&mut terminalview::Settings)) -> terminalview::Settings {
+        let mut settings = terminalview::Settings::default();
         edit(&mut settings);
         settings
     }
@@ -152,13 +151,13 @@ mod tests {
                 "odd shape",
                 "terminalCursorStyle",
                 Value::Text("wavy".into()),
-                TerminalSettings::default(),
+                terminalview::Settings::default(),
             ),
             (
                 "blank font",
                 "terminalFontFamily",
                 Value::Text("  ".into()),
-                TerminalSettings::default(),
+                terminalview::Settings::default(),
             ),
         ];
         for (name, key, value, expected) in cases {

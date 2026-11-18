@@ -6,7 +6,7 @@ mod arguments;
 mod local_pty;
 
 use gpui::{App, AppContext, Application, Bounds, WindowBounds, WindowOptions, px, size};
-use terminalview::{TerminalLink, TerminalSettings, TerminalView};
+use terminalview::{Link, Settings, TerminalView};
 use ui::Theme;
 
 use crate::arguments::Arguments;
@@ -58,7 +58,7 @@ fn open_session(
     window: &mut gpui::Window,
     cx: &mut App,
 ) -> gpui::Entity<TerminalView> {
-    let (link, peer) = TerminalLink::open();
+    let (link, peer) = Link::open();
     if let Err(error) = spawn_local_pty(peer, arguments.width, arguments.height) {
         tracing::error!(%error, "shell could not start");
     }
@@ -68,12 +68,12 @@ fn open_session(
 }
 
 fn attached_view(
-    link: TerminalLink,
+    link: Link,
     command: String,
     window: &mut gpui::Window,
     cx: &mut gpui::Context<'_, TerminalView>,
 ) -> TerminalView {
-    let mut view = TerminalView::new(link, TerminalSettings::default(), window, cx);
+    let mut view = TerminalView::new(link, Settings::default(), window, cx);
     view.run_after_attach(command);
     view
 }

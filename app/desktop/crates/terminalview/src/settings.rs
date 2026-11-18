@@ -19,7 +19,7 @@ const DEFAULT_CURSOR_WIDTH: f32 = 2.0;
 
 /// Font, spacing, scrollback and cursor of a terminal view.
 #[derive(Debug, Clone, PartialEq)]
-pub struct TerminalSettings {
+pub struct Settings {
     /// Font family; Geist Mono unless the user chose another.
     pub font_family: String,
     /// Font size in pixels, 8 to 32.
@@ -38,7 +38,7 @@ pub struct TerminalSettings {
     pub cursor_width: f32,
 }
 
-impl Default for TerminalSettings {
+impl Default for Settings {
     fn default() -> Self {
         Self {
             font_family: MONO_FAMILY.to_owned(),
@@ -53,7 +53,7 @@ impl Default for TerminalSettings {
     }
 }
 
-impl TerminalSettings {
+impl Settings {
     /// The same settings with the font size moved by `delta` and kept within 8 to 32.
     #[must_use]
     pub fn zoomed(
@@ -82,7 +82,7 @@ mod tests {
 
     #[test]
     fn zoom_is_clamped_and_resettable() {
-        let settings = TerminalSettings::default();
+        let settings = Settings::default();
         assert!((settings.zoomed(2.0).font_size - 16.0).abs() < f32::EPSILON);
         assert!((settings.zoomed(-100.0).font_size - 8.0).abs() < f32::EPSILON);
         assert!((settings.zoomed(100.0).font_size - 32.0).abs() < f32::EPSILON);

@@ -3,11 +3,11 @@
 
 mod daemon;
 mod search_bar;
-mod terminal_settings;
+mod settings;
 mod terminal_view;
 #[cfg(test)]
 mod test_support;
 
-pub use daemon::{TerminalLink, TerminalPeer};
-pub use terminal_settings::TerminalSettings;
-pub use terminal_view::{TerminalView, TerminalViewEvent};
+pub use daemon::{Link, Peer};
+pub use settings::Settings;
+pub use terminal_view::{Event, TerminalView};

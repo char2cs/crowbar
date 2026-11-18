@@ -6,8 +6,8 @@ use terminal::{MouseAction, ScrollbarThumb, ViewPoint, WheelRoute, route_wheel};
 use crate::terminal_view::TerminalView;
 use crate::terminal_view::input::key_conversion::terminal_modifiers;
 use crate::terminal_view::input::pointer::drag_state::DragState;
-use crate::terminal_view::input::pointer::pointer_report::PointerReport;
-use crate::terminal_view::input::pointer::pointer_report::pointer_report;
+use crate::terminal_view::input::pointer::report::Report;
+use crate::terminal_view::input::pointer::report::pointer_report;
 
 const WHEEL_LINES_PER_NOTCH: f32 = 3.0;
 const HALF: f32 = 2.0;
@@ -101,7 +101,7 @@ impl TerminalView {
     pub(crate) fn report_wheel(
         &mut self,
         lines: i32,
-        template: PointerReport,
+        template: Report,
         cx: &mut Context<'_, Self>,
     ) {
         let button = match lines.cmp(&0) {
@@ -109,7 +109,7 @@ impl TerminalView {
             _ => terminal::MouseButton::WheelDown,
         };
         for _ in 0..lines.unsigned_abs() {
-            let report = PointerReport { button, ..template };
+            let report = Report { button, ..template };
             self.report(MouseAction::Press, report, cx);
         }
     }

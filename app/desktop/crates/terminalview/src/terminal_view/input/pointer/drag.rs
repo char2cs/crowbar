@@ -5,7 +5,7 @@ use crate::terminal_view::TerminalView;
 use crate::terminal_view::input::key_conversion::link_modifier_held;
 use crate::terminal_view::input::pointer::auto_scroll::AutoScroll;
 use crate::terminal_view::input::pointer::drag_state::DragState;
-use crate::terminal_view::input::pointer::pointer_report::{PointerReport, pointer_report};
+use crate::terminal_view::input::pointer::report::{Report, pointer_report};
 
 const AUTO_SCROLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(50);
 
@@ -31,7 +31,7 @@ impl TerminalView {
 
     pub(crate) fn report_drag(
         &mut self,
-        report: PointerReport,
+        report: Report,
         cx: &mut Context<'_, Self>,
     ) {
         self.report(MouseAction::Drag, report, cx);

@@ -3,7 +3,7 @@
 use gpui::{Font, FontFallbacks, FontStyle, FontWeight, font};
 use terminal::StyleFlags;
 
-use crate::terminal_settings::TerminalSettings;
+use crate::settings::Settings;
 
 const FALLBACKS: [&str; 7] = [
     "Symbols Nerd Font Mono",
@@ -15,7 +15,7 @@ const FALLBACKS: [&str; 7] = [
     "DejaVu Sans Mono",
 ];
 
-pub(crate) fn base_font(settings: &TerminalSettings) -> Font {
+pub(crate) fn base_font(settings: &Settings) -> Font {
     let mut base = font(settings.font_family.clone());
     base.fallbacks = Some(FontFallbacks::from_fonts(
         FALLBACKS
@@ -46,7 +46,7 @@ mod tests {
 
     #[test]
     fn styles_apply_on_top_of_the_base_font() {
-        let base = base_font(&TerminalSettings::default());
+        let base = base_font(&Settings::default());
         assert_eq!(base.family.as_ref(), "Geist Mono");
         assert!(base.fallbacks.is_some());
         let bold_italic = styled_font(&base, StyleFlags::BOLD.with(StyleFlags::ITALIC));

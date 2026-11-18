@@ -1,13 +1,13 @@
 //! The terminal as a GPUI view: grid painting, keyboard, mouse, IME, find bar and scrollbar.
 
 mod api;
+mod event;
 mod input;
 mod paint;
 mod search;
 mod session;
-mod terminal_view_event;
 
-pub use terminal_view_event::TerminalViewEvent;
+pub use event::Event;
 
 use std::time::Instant;
 
@@ -22,27 +22,27 @@ use terminal::{
 };
 use ui::Theme;
 
-use crate::daemon::TerminalLink;
+use crate::daemon;
 use crate::daemon::take_batch;
-use crate::search_bar::SearchSession;
-use crate::terminal_settings::TerminalSettings;
-use crate::terminal_settings::terminal_config;
+use crate::search_bar::Session;
+use crate::settings::Settings;
+use crate::settings::terminal_config;
 use crate::terminal_view::input::pointer::auto_scroll::AutoScroll;
 use crate::terminal_view::input::pointer::button_event::ButtonEvent;
 use crate::terminal_view::input::pointer::drag_state::DragState;
-use crate::terminal_view::paint::cursor::cursor_blink::CursorBlink;
-use crate::terminal_view::paint::paint_colors::PaintColors;
-use crate::terminal_view::paint::paint_request::PaintRequest;
+use crate::terminal_view::paint::colors::Colors;
+use crate::terminal_view::paint::cursor::blink::Blink;
+use crate::terminal_view::paint::request::Request;
 use crate::terminal_view::paint::shaping::line_cache::LineCache;
 use crate::terminal_view::paint::view_layout::ViewLayout;
 
 const NOTICE_BACKDROP_ALPHA: f32 = 0.8;
 
-/// A terminal attached to a daemon PTY through a [`TerminalLink`].
+/// A terminal attached to a daemon PTY through a [`daemon::Link`].
 pub struct TerminalView {
     pub(crate) terminal: Terminal,
     pub(crate) outbound: Sender<ClientMessage>,
-    pub(crate) settings: TerminalSettings,
+    pub(crate) settings: Settings,
     pub(crate) focus: FocusHandle,
     pub(crate) focused: bool,
     pub(crate) layout: Option<ViewLayout>,
@@ -52,8 +52,8 @@ pub struct TerminalView {
     pub(crate) wheel: ScrollAccumulator,
     pub(crate) drag: DragState,
     pub(crate) hovered: Option<Link>,
-    pub(crate) blink: CursorBlink,
-    pub(crate) search: Option<SearchSession>,
+    pub(crate) blink: Blink,
+    pub(crate) search: Option<Session>,
     pub(crate) preedit: Option<String>,
     pub(crate) pending_command: Option<String>,
     pub(crate) working_directory: Option<String>,
@@ -79,7 +79,7 @@ impl std::fmt::Debug for TerminalView {
     }
 }
 
-impl EventEmitter<TerminalViewEvent> for TerminalView {}
+impl EventEmitter<Event> for TerminalView {}
 
 impl Focusable for TerminalView {
     fn focus_handle(
@@ -93,8 +93,8 @@ impl Focusable for TerminalView {
 impl TerminalView {
     /// A terminal reading frames from `link` and writing input, size and theme to it.
     pub fn new(
-        link: TerminalLink,
-        settings: TerminalSettings,
+        link: daemon::Link,
+        settings: Settings,
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> Self {
@@ -113,7 +113,7 @@ impl TerminalView {
             wheel: ScrollAccumulator::default(),
             drag: DragState::Idle,
             hovered: None,
-            blink: CursorBlink::default(),
+            blink: Blink::default(),
             search: None,
             preedit: None,
             pending_command: None,
@@ -179,7 +179,7 @@ impl Render for TerminalView {
         _: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
-        let colors = PaintColors::of(cx);
+        let colors = Colors::of(cx);
         let root = self.root(&colors, cx);
         root.children(self.search.as_ref().map(|session| session.bar.clone()))
             .children(self.notice_element(&colors))
@@ -195,7 +195,7 @@ impl TerminalView {
                 laid_out.update(cx, |this, cx| this.lay_out(bounds, window, cx))
             },
             move |bounds, frame, window, cx| {
-                let request = PaintRequest::new(bounds, frame);
+                let request = Request::new(bounds, frame);
                 view.update(cx, |this, cx| this.paint_frame(request, window, cx));
             },
         )
@@ -204,7 +204,7 @@ impl TerminalView {
 
     fn root(
         &self,
-        colors: &PaintColors,
+        colors: &Colors,
         cx: &mut Context<'_, Self>,
     ) -> Stateful<Div> {
         let root = div()
@@ -228,7 +228,7 @@ impl TerminalView {
 
     fn notice_element(
         &self,
-        colors: &PaintColors,
+        colors: &Colors,
     ) -> Option<impl IntoElement + use<>> {
         let message = self.notice.clone()?;
         Some(

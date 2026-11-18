@@ -4,8 +4,8 @@ pub(crate) mod auto_scroll;
 pub(crate) mod button_event;
 mod drag;
 pub(crate) mod drag_state;
-mod pointer_report;
 mod release;
+mod report;
 mod wheel;
 
 use gpui::{Context, CursorStyle, MouseButton, MouseDownEvent, Pixels, Point, Window};
@@ -16,8 +16,8 @@ use crate::terminal_view::TerminalView;
 use crate::terminal_view::input::key_conversion::link_modifier_held;
 use crate::terminal_view::input::pointer::button_event::ButtonEvent;
 use crate::terminal_view::input::pointer::drag_state::DragState;
-use crate::terminal_view::input::pointer::pointer_report::PointerReport;
-use crate::terminal_view::input::pointer::pointer_report::{pointer_report, reported_button};
+use crate::terminal_view::input::pointer::report::Report;
+use crate::terminal_view::input::pointer::report::{pointer_report, reported_button};
 
 impl TerminalView {
     pub(crate) fn pointer_style(&self) -> CursorStyle {
@@ -77,7 +77,7 @@ impl TerminalView {
 
     pub(crate) fn report_press(
         &mut self,
-        report: Option<PointerReport>,
+        report: Option<Report>,
         cx: &mut Context<'_, Self>,
     ) {
         let Some(report) = report else {
@@ -90,7 +90,7 @@ impl TerminalView {
     pub(crate) fn report(
         &mut self,
         action: MouseAction,
-        report: PointerReport,
+        report: Report,
         cx: &mut Context<'_, Self>,
     ) {
         let event = MouseEvent {
@@ -145,7 +145,7 @@ mod tests {
     use gpui::{Modifiers, TestAppContext};
 
     use crate::terminal_view::TerminalView;
-    use crate::terminal_view::terminal_view_event::TerminalViewEvent;
+    use crate::terminal_view::event::Event;
     use crate::test_support::{cell_position, feed, open, press, record_events};
 
     const MULTI_CLICK_WINDOW: Duration = Duration::from_millis(500);
@@ -154,7 +154,7 @@ mod tests {
     fn a_modifier_click_on_a_url_asks_the_host_to_open_it(cx: &mut TestAppContext) {
         let (harness, cx) = open(cx);
         feed(&harness, cx, "see https://x.dev/a now");
-        let events = record_events::<TerminalView, TerminalViewEvent>(cx, &harness.view);
+        let events = record_events::<TerminalView, Event>(cx, &harness.view);
         let position = cell_position(&harness, cx, 8);
         let modifiers = Modifiers {
             control: true,
@@ -162,7 +162,10 @@ mod tests {
             ..Modifiers::default()
         };
         cx.simulate_event(press(position, modifiers));
-        let opened = events.borrow().iter().any(|event| matches!(event, TerminalViewEvent::OpenUrl { url, .. } if url == "https://x.dev/a"));
+        let opened = events
+            .borrow()
+            .iter()
+            .any(|event| matches!(event, Event::OpenUrl { url, .. } if url == "https://x.dev/a"));
         assert!(opened, "{:?}", events.borrow());
     }
 

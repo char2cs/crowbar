@@ -1,11 +1,11 @@
 //! The find bar over the terminal's top-right corner.
 
-mod search_bar_event;
-mod search_session;
+mod event;
+mod session;
 mod toggle_spec;
 
-pub(crate) use search_bar_event::SearchBarEvent;
-pub(crate) use search_session::SearchSession;
+pub(crate) use event::Event;
+pub(crate) use session::Session;
 
 use gpui::{
     AppContext, Context, Div, Entity, EventEmitter, FontWeight, IntoElement, ParentElement, Render,
@@ -33,7 +33,7 @@ pub(crate) struct SearchBar {
     _input_events: Subscription,
 }
 
-impl EventEmitter<SearchBarEvent> for SearchBar {}
+impl EventEmitter<Event> for SearchBar {}
 
 impl SearchBar {
     pub(crate) fn new(
@@ -91,8 +91,8 @@ impl SearchBar {
     ) {
         match event {
             TextInputEvent::Changed(_) => self.emit_query(cx),
-            TextInputEvent::Submitted => cx.emit(SearchBarEvent::Next),
-            TextInputEvent::Cancelled => cx.emit(SearchBarEvent::Close),
+            TextInputEvent::Submitted => cx.emit(Event::Next),
+            TextInputEvent::Cancelled => cx.emit(Event::Close),
             _ => {},
         }
     }
@@ -102,7 +102,7 @@ impl SearchBar {
         cx: &mut Context<'_, Self>,
     ) {
         let query = self.query(cx);
-        cx.emit(SearchBarEvent::QueryChanged(query));
+        cx.emit(Event::QueryChanged(query));
     }
 
     fn toggle(
@@ -146,7 +146,7 @@ impl SearchBar {
     fn event_button(
         id: &'static str,
         icon: IconName,
-        event: SearchBarEvent,
+        event: Event,
         cx: &mut Context<'_, Self>,
     ) -> Button {
         let me = cx.entity();
@@ -169,19 +169,19 @@ impl SearchBar {
             .child(Self::event_button(
                 "search-previous",
                 IconName::CaretUp,
-                SearchBarEvent::Previous,
+                Event::Previous,
                 cx,
             ))
             .child(Self::event_button(
                 "search-next",
                 IconName::CaretDown,
-                SearchBarEvent::Next,
+                Event::Next,
                 cx,
             ))
             .child(Self::event_button(
                 "search-close",
                 IconName::X,
-                SearchBarEvent::Close,
+                Event::Close,
                 cx,
             ))
             .flex()
@@ -235,14 +235,14 @@ mod tests {
     fn toggling_an_option_emits_the_new_query(cx: &mut TestAppContext) {
         let (_, cx) = open(cx);
         let (bar, cx) = cx.add_window_view(SearchBar::new);
-        let queries = record_events::<SearchBar, SearchBarEvent>(cx, &bar);
+        let queries = record_events::<SearchBar, Event>(cx, &bar);
         bar.update(cx, |bar, cx| bar.toggle(SearchOptions::REGEX, cx));
         let emitted = queries.borrow().first().cloned();
         let expected = SearchQuery {
             text: String::new(),
             options: SearchOptions::REGEX,
         };
-        assert_eq!(emitted, Some(SearchBarEvent::QueryChanged(expected)));
+        assert_eq!(emitted, Some(Event::QueryChanged(expected)));
         let summary = SearchSummary {
             current: 1,
             total: 2,

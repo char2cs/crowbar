@@ -3,8 +3,8 @@
 use gpui::{ShapedLine, SharedString, TextRun, UnderlineStyle, Window, px};
 use terminal::{Row, Segment, StyleFlags, StyleSpan, Underline};
 
-use crate::terminal_settings::hsla_of;
-use crate::terminal_settings::styled_font;
+use crate::settings::hsla_of;
+use crate::settings::styled_font;
 use crate::terminal_view::paint::shaping::Shaping;
 use crate::terminal_view::paint::shaping::cached_row::CachedRow;
 use crate::terminal_view::paint::shaping::row_input::RowInput;
@@ -116,8 +116,8 @@ mod tests {
     use terminal::{CursorShape, DaemonFrame, Rgb, Terminal};
 
     use super::*;
-    use crate::terminal_settings::TerminalSettings;
-    use crate::terminal_settings::base_font;
+    use crate::settings::Settings;
+    use crate::settings::base_font;
     use crate::test_support::open;
 
     fn first_row(output: &str) -> Row {
@@ -148,7 +148,7 @@ mod tests {
     #[gpui::test]
     fn one_line_is_shaped_per_segment_and_clear_forgets_them(cx: &mut TestAppContext) {
         let (_, cx) = open(cx);
-        let settings = TerminalSettings::default();
+        let settings = Settings::default();
         let shaping = Shaping {
             font: base_font(&settings),
             font_size: px(settings.font_size),

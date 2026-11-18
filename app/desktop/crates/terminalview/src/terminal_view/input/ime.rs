@@ -8,7 +8,7 @@ use gpui::{
 };
 
 use crate::terminal_view::TerminalView;
-use crate::terminal_view::paint::CursorLook;
+use crate::terminal_view::paint::Look;
 use crate::terminal_view::paint::PreeditSite;
 use crate::terminal_view::paint::cursor_bounds;
 
@@ -40,7 +40,7 @@ impl TerminalView {
 
 fn shape_preedit(
     text: &str,
-    look: &CursorLook<'_>,
+    look: &Look<'_>,
     window: &Window,
 ) -> gpui::ShapedLine {
     let underline = UnderlineStyle {
