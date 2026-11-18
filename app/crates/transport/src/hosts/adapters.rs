@@ -1,3 +1,3 @@
-mod file_hosts_storage;
+mod file_storage;
 
-pub(crate) use file_hosts_storage::FileHostsStorage;
+pub(crate) use file_storage::FileStorage;

@@ -5,7 +5,7 @@ use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::{WebSocketStream, client_async_with_config};
 
 use crate::error::Error;
-use crate::hosts::HostTarget;
+use crate::hosts::Target;
 use crate::transport::Transport;
 use crate::transport::access_scope::stamp_extension_header;
 use crate::transport::async_stream::BoxedStream;
@@ -34,15 +34,15 @@ fn upgrade_request(
 
 async fn connect(
     transport: &Transport,
-    target: &HostTarget,
+    target: &Target,
     request: &mut http::Request<()>,
 ) -> Result<BoxedStream, Error> {
     match target {
-        HostTarget::Local => {
+        Target::Local => {
             let socket = crate::transport::local::connect_once(transport.locator()).await?;
             Ok(Box::new(socket))
         },
-        HostTarget::Remote(id) => {
+        Target::Remote(id) => {
             let paired = paired_host(transport.registry(), transport.tokens(), id).await?;
             request
                 .headers_mut()

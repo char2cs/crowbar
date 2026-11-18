@@ -6,16 +6,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::Error;
 use crate::hosts::endpoint::Endpoint;
-use crate::hosts::host_entry::HostEntry;
-use crate::hosts::host_target::check_registrable;
-use crate::hosts::hosts_storage::HostsStorage;
+use crate::hosts::entry::Entry;
+use crate::hosts::storage::Storage;
+use crate::hosts::target::check_registrable;
 
 const FILE_VERSION: u32 = 1;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct HostsDocument {
+pub(crate) struct Document {
     version: u32,
-    hosts: Vec<HostEntry>,
+    hosts: Vec<Entry>,
 }
 
 fn unsupported_version(
@@ -29,15 +29,15 @@ fn unsupported_version(
     }
 }
 
-fn entries(hosts: &BTreeMap<HostId, Endpoint>) -> Vec<HostEntry> {
-    let entry = |(id, endpoint): (&HostId, &Endpoint)| HostEntry {
+fn entries(hosts: &BTreeMap<HostId, Endpoint>) -> Vec<Entry> {
+    let entry = |(id, endpoint): (&HostId, &Endpoint)| Entry {
         id: id.clone(),
         endpoint: endpoint.clone(),
     };
     hosts.iter().map(entry).collect()
 }
 
-impl HostsDocument {
+impl Document {
     pub(crate) fn parse(
         path: &Path,
         bytes: &[u8],
@@ -58,7 +58,7 @@ impl HostsDocument {
     }
 
     pub(crate) fn save(
-        storage: &dyn HostsStorage,
+        storage: &dyn Storage,
         hosts: &BTreeMap<HostId, Endpoint>,
     ) -> Result<(), Error> {
         let io = |source| Error::HostsIo {
@@ -73,7 +73,7 @@ impl HostsDocument {
         storage.store(&bytes).map_err(io)
     }
 
-    pub(crate) fn load(storage: &dyn HostsStorage) -> Result<BTreeMap<HostId, Endpoint>, Error> {
+    pub(crate) fn load(storage: &dyn Storage) -> Result<BTreeMap<HostId, Endpoint>, Error> {
         let stored = storage.load().map_err(|source| Error::HostsIo {
             path: storage.location().to_path_buf(),
             source,
@@ -88,7 +88,7 @@ impl HostsDocument {
 fn insert_registrable_host(
     path: &Path,
     hosts: &mut BTreeMap<HostId, Endpoint>,
-    entry: HostEntry,
+    entry: Entry,
 ) -> Result<(), Error> {
     let invalid = |why: String| Error::HostsInvalid {
         path: path.to_path_buf(),
@@ -106,7 +106,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::hosts::test_support::memory_hosts_storage::MemoryHostsStorage;
+    use crate::hosts::test_support::memory_storage::MemoryStorage;
 
     fn one_host() -> BTreeMap<HostId, Endpoint> {
         let mut hosts = BTreeMap::new();
@@ -119,20 +119,20 @@ mod tests {
 
     #[test]
     fn a_saved_list_reads_back_and_nothing_stored_is_an_empty_list() {
-        let storage = MemoryHostsStorage::shared();
-        assert!(HostsDocument::load(storage.as_ref()).unwrap().is_empty());
-        HostsDocument::save(storage.as_ref(), &one_host()).unwrap();
-        assert_eq!(HostsDocument::load(storage.as_ref()).unwrap(), one_host());
+        let storage = MemoryStorage::shared();
+        assert!(Document::load(storage.as_ref()).unwrap().is_empty());
+        Document::save(storage.as_ref(), &one_host()).unwrap();
+        assert_eq!(Document::load(storage.as_ref()).unwrap(), one_host());
     }
 
     #[test]
     fn a_failed_save_names_the_storage_and_keeps_the_stored_list() {
-        let storage = MemoryHostsStorage::shared();
-        HostsDocument::save(storage.as_ref(), &one_host()).unwrap();
+        let storage = MemoryStorage::shared();
+        Document::save(storage.as_ref(), &one_host()).unwrap();
         storage.fail_writes();
-        let error = HostsDocument::save(storage.as_ref(), &BTreeMap::new()).unwrap_err();
+        let error = Document::save(storage.as_ref(), &BTreeMap::new()).unwrap_err();
         assert!(matches!(error, Error::HostsIo { .. }), "{error}");
-        assert_eq!(HostsDocument::load(storage.as_ref()).unwrap(), one_host());
+        assert_eq!(Document::load(storage.as_ref()).unwrap(), one_host());
     }
 
     const CASES: [(&str, &str); 6] = [
@@ -160,7 +160,7 @@ mod tests {
     fn a_corrupt_newer_or_unregistrable_file_is_an_error() {
         let path = PathBuf::from("hosts.json");
         for (text, wanted) in CASES {
-            let err = HostsDocument::parse(&path, text.as_bytes()).unwrap_err();
+            let err = Document::parse(&path, text.as_bytes()).unwrap_err();
             assert!(err.to_string().contains(wanted), "{text}: {err}");
         }
     }

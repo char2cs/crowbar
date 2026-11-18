@@ -1,7 +1,7 @@
-pub(crate) mod bridge_limits;
 pub(crate) mod close_message;
 mod ending;
 mod farewell;
+pub(crate) mod limits;
 mod outcome;
 #[cfg(test)]
 mod test_support;
@@ -18,9 +18,9 @@ use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::{Error as WsError, Message};
 use tokio_util::sync::CancellationToken;
 
-use crate::relay::session::bridge::bridge_limits::BridgeLimits;
 use crate::relay::session::bridge::ending::Ending;
 use crate::relay::session::bridge::farewell::{finish, settle};
+use crate::relay::session::bridge::limits::Limits;
 use crate::relay::session::bridge::outcome::Outcome;
 use crate::transport::UpstreamSocket;
 
@@ -158,7 +158,7 @@ pub(crate) async fn bridge<S>(
     client: WebSocketStream<S>,
     upstream: UpstreamSocket,
     cancel: CancellationToken,
-    limits: BridgeLimits,
+    limits: Limits,
 ) where
     S: AsyncRead + AsyncWrite + Unpin,
 {

@@ -3,18 +3,18 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use protocol::{HostId, PaneId, RelayScope};
 use tokio_util::sync::CancellationToken;
 
-use crate::relay::connections::connection_guard::ConnectionGuard;
-use crate::relay::connections::connection_release::ConnectionRelease;
+use crate::relay::connections::guard::Guard;
 use crate::relay::connections::live::Live;
 use crate::relay::connections::registry::Registry;
+use crate::relay::connections::release::Release;
 
-pub(crate) struct ConnectionBook {
+pub(crate) struct Book {
     registry: Mutex<Registry>,
     max_total: usize,
     max_per_pane: usize,
 }
 
-impl ConnectionBook {
+impl Book {
     pub(crate) fn new(
         max_total: usize,
         max_per_pane: usize,
@@ -30,7 +30,7 @@ impl ConnectionBook {
         self: &Arc<Self>,
         scope: &RelayScope,
         parent: &CancellationToken,
-    ) -> Option<ConnectionGuard> {
+    ) -> Option<Guard> {
         let mut registry = self.lock();
         let same_pane = registry
             .live
@@ -51,11 +51,7 @@ impl ConnectionBook {
                 cancel: cancel.clone(),
             },
         );
-        Some(ConnectionGuard::new(
-            Arc::clone(self) as Arc<dyn ConnectionRelease>,
-            id,
-            cancel,
-        ))
+        Some(Guard::new(Arc::clone(self) as Arc<dyn Release>, id, cancel))
     }
 
     pub(crate) fn close_pane(
@@ -96,7 +92,7 @@ impl ConnectionBook {
     }
 }
 
-impl ConnectionRelease for ConnectionBook {
+impl Release for Book {
     fn release(
         &self,
         id: u64,
@@ -124,7 +120,7 @@ mod tests {
 
     #[test]
     fn the_total_and_per_pane_limits_hold_and_free_up_on_drop() {
-        let book = ConnectionBook::new(3, 2);
+        let book = Book::new(3, 2);
         let root = CancellationToken::new();
         let first = book.register(&scope("p1", "local"), &root).unwrap();
         let _second = book.register(&scope("p1", "local"), &root).unwrap();
@@ -141,7 +137,7 @@ mod tests {
         assert!(book.register(&scope("p3", "local"), &root).is_some());
     }
 
-    type Closer = fn(&ConnectionBook, &CancellationToken);
+    type Closer = fn(&Book, &CancellationToken);
 
     /// (closer, whether p1/local, p2/host-1 and p3/host-2 end up cancelled)
     const CASES: [(Closer, [bool; 3]); 4] = [
@@ -163,7 +159,7 @@ mod tests {
     #[test]
     fn each_close_cancels_only_the_connections_it_names() {
         for (close, expected) in CASES {
-            let book = ConnectionBook::new(10, 10);
+            let book = Book::new(10, 10);
             let root = CancellationToken::new();
             let guards = [
                 book.register(&scope("p1", "local"), &root).unwrap(),

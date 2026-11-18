@@ -7,14 +7,14 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Semaphore;
 
 use crate::relay::acceptor::Acceptor;
-use crate::relay::relay_state::RelayState;
 use crate::relay::session;
+use crate::relay::state::State;
 
 const ACCEPT_BACKOFF: Duration = Duration::from_millis(50);
 
 pub(crate) async fn accept_loop<A: Acceptor>(
     mut acceptor: A,
-    state: Arc<RelayState>,
+    state: Arc<State>,
 ) {
     let handshakes = Arc::new(Semaphore::new(state.config.max_handshakes));
     while let Some(accepted) = state.shutdown.run_until_cancelled(acceptor.accept()).await {
@@ -36,7 +36,7 @@ impl Acceptor for TcpListener {
 }
 
 async fn greet<S>(
-    state: &Arc<RelayState>,
+    state: &Arc<State>,
     handshakes: &Arc<Semaphore>,
     accepted: io::Result<S>,
 ) where

@@ -5,7 +5,7 @@ use protocol::PaneOrigin;
 use tokio_tungstenite::tungstenite::{Error as WsError, Message};
 
 use crate::error::Error;
-use crate::hosts::HostTarget;
+use crate::hosts::Target;
 use crate::transport::Transport;
 use crate::transport::websocket::upstream::UpstreamSocket;
 use crate::transport::websocket::upstream_request::UpstreamRequest;
@@ -80,7 +80,7 @@ impl Transport {
         path: &str,
     ) -> Result<TextStream, Error> {
         let wanted = UpstreamRequest {
-            target: HostTarget::Local,
+            target: Target::Local,
             origin: PaneOrigin::Core,
             path_and_query: path.to_owned(),
             max_message: MAX_FRAME,

@@ -16,7 +16,7 @@ pub use remote::{
     CachedTokenStore, Keychain, MemoryTokenStore, ReadError, TokenStore, fingerprint_of,
 };
 pub(crate) use remote::{
-    CertificateDigest, Credential, DIGEST_BYTES, Pin, REMOTE_BODY_LIMIT, RemoteHost, SERVER_NAME,
+    CertificateDigest, Credential, DIGEST_BYTES, Host, Pin, REMOTE_BODY_LIMIT, SERVER_NAME,
     UnpinnedProbeVerifier, bearer, certificate_digest, client_config_with, dial,
 };
 pub use websocket::TextStream;
@@ -31,7 +31,7 @@ use tokio::sync::broadcast;
 
 use crate::error::Error;
 use crate::hosts::HostRegistry;
-use crate::hosts::HostTarget;
+use crate::hosts::Target;
 use crate::response::{Forwarded, error_response, proxy_answer, readable_by};
 use crate::transport::http_conn::strip_pane_headers;
 use crate::transport::local::{connect_retry_delay, forward_local};
@@ -156,10 +156,8 @@ impl Transport {
         strip_pane_headers(request.headers_mut());
         access_scope::stamp_extension_header(request.headers_mut(), origin);
         match target {
-            HostTarget::Local => self.forward_to_local(request).await,
-            HostTarget::Remote(id) => {
-                forward_remote(&self.registry, &self.tokens, &id, request).await
-            },
+            Target::Local => self.forward_to_local(request).await,
+            Target::Remote(id) => forward_remote(&self.registry, &self.tokens, &id, request).await,
         }
     }
 
@@ -181,7 +179,7 @@ fn timed_out() -> Response<Vec<u8>> {
     )
 }
 
-fn target_of(uri: &http::Uri) -> Result<HostTarget, Error> {
+fn target_of(uri: &http::Uri) -> Result<Target, Error> {
     let host = uri.host().unwrap_or_default();
     let bare = uri
         .authority()
@@ -192,8 +190,8 @@ fn target_of(uri: &http::Uri) -> Result<HostTarget, Error> {
         ));
     }
     match host {
-        "" | "localhost" => Ok(HostTarget::Local),
-        other => Ok(HostTarget::of(&HostId::new(other)?)),
+        "" | "localhost" => Ok(Target::Local),
+        other => Ok(Target::of(&HostId::new(other)?)),
     }
 }
 
@@ -338,6 +336,6 @@ mod tests {
             assert!(target_of(&uri).is_err(), "{uri}");
         }
         let local: http::Uri = "crowbar://localhost/v0/x".parse().unwrap();
-        assert_eq!(target_of(&local).unwrap(), HostTarget::Local);
+        assert_eq!(target_of(&local).unwrap(), Target::Local);
     }
 }

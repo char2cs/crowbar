@@ -9,8 +9,8 @@ use tokio_tungstenite::tungstenite::handshake::server::{
     Callback, ErrorResponse, Request, Response,
 };
 
-use crate::relay::relay_state::RelayState;
 use crate::relay::session::admission::Admission;
+use crate::relay::state::State;
 use crate::relay::subprotocol::{
     IDLE_SUBPROTOCOL_PREFIX, RELAY_SUBPROTOCOL, TOKEN_SUBPROTOCOL_PREFIX,
 };
@@ -20,13 +20,13 @@ const MIN_IDLE_SECONDS: u64 = 5;
 const MAX_IDLE_SECONDS: u64 = 3600;
 
 pub(crate) struct Gate {
-    state: Arc<RelayState>,
+    state: Arc<State>,
     admitted: oneshot::Sender<Admission>,
 }
 
 impl Gate {
     pub(crate) fn new(
-        state: Arc<RelayState>,
+        state: Arc<State>,
         admitted: oneshot::Sender<Admission>,
     ) -> Self {
         Self { state, admitted }
@@ -69,7 +69,7 @@ fn refusal(status: StatusCode) -> ErrorResponse {
 }
 
 fn inspect(
-    state: &RelayState,
+    state: &State,
     request: &Request,
 ) -> Result<Admission, StatusCode> {
     check_host(request, state.port)?;
@@ -96,7 +96,7 @@ fn inspect(
 }
 
 fn permitted(
-    state: &RelayState,
+    state: &State,
     scope: &RelayScope,
     origin: &str,
     path_and_query: &str,
@@ -170,11 +170,11 @@ mod tests {
 
     use super::*;
     use crate::hosts::HostRegistry;
-    use crate::relay::connections::ConnectionBook;
+    use crate::relay::connections::Book;
     use crate::relay::grants::ExactOrigins;
     use crate::relay::grants::TokenBook;
     use crate::relay::relay_config::RelayConfig;
-    use crate::relay::relay_state::adapters::tokio_clock::tokio_now;
+    use crate::relay::state::adapters::tokio_clock::tokio_now;
     use crate::transport::MemoryTokenStore;
     use crate::transport::Transport;
     use std::sync::Arc;
@@ -184,13 +184,13 @@ mod tests {
     const PORT: u16 = 4242;
     const ORIGIN: &str = "crowbar://app";
 
-    fn state() -> Arc<RelayState> {
+    fn state() -> Arc<State> {
         let transport = Transport::new(
             Arc::new(std::path::PathBuf::from("/nonexistent/cb-gate.sock")),
             Arc::new(HostRegistry::in_memory()),
             Arc::new(MemoryTokenStore::default()),
         );
-        Arc::new(RelayState {
+        Arc::new(State {
             transport: Arc::new(transport),
             config: RelayConfig::default(),
             policy: Arc::new(ExactOrigins::new(
@@ -198,7 +198,7 @@ mod tests {
                 "crowbar-ext://{extension}",
             )),
             tokens: Mutex::new(TokenBook::new(Duration::from_secs(60))),
-            connections: ConnectionBook::new(4, 4),
+            connections: Book::new(4, 4),
             port: PORT,
             shutdown: CancellationToken::new(),
             clock: Arc::new(tokio_now),
@@ -206,7 +206,7 @@ mod tests {
     }
 
     fn issue(
-        state: &RelayState,
+        state: &State,
         origin: PaneOrigin,
     ) -> String {
         let scope = RelayScope::new(
@@ -317,7 +317,7 @@ mod tests {
     ];
 
     fn assert_each_check_refuses(
-        state: &RelayState,
+        state: &State,
         token: &str,
     ) {
         for (name, spoil, status) in CASES {
@@ -348,7 +348,7 @@ mod tests {
     }
 
     fn assert_routes(
-        state: &RelayState,
+        state: &State,
         mut dial: Dial<'_>,
     ) {
         let routes = [
@@ -403,7 +403,7 @@ mod tests {
     }
 
     fn with_idle(
-        state: &RelayState,
+        state: &State,
         token: &str,
         seconds: &str,
     ) -> Result<Admission, StatusCode> {
@@ -414,7 +414,7 @@ mod tests {
     }
 
     fn assert_bad_idles_refused(
-        state: &RelayState,
+        state: &State,
         token: &str,
     ) {
         for bad in ["", "-1", "soon", "1.5"] {

@@ -1,11 +1,11 @@
 mod dial;
+mod host;
 mod paired_host;
-mod remote_host;
 pub(crate) mod secrets;
 mod tls;
 
 pub(crate) use dial::{SERVER_NAME, dial};
-pub(crate) use remote_host::RemoteHost;
+pub(crate) use host::Host;
 pub(crate) use secrets::Credential;
 #[cfg(feature = "os-keychain")]
 pub use secrets::OsKeychain;
@@ -47,7 +47,7 @@ pub(crate) async fn paired_host(
     let credential = load(tokens, host_id).await?;
     Ok(PairedHost {
         authorization: bearer(credential.token())?,
-        host: RemoteHost::paired(endpoint, &credential),
+        host: Host::paired(endpoint, &credential),
     })
 }
 

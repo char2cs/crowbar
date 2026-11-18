@@ -2,17 +2,17 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use crate::hosts::hosts_storage::HostsStorage;
+use crate::hosts::storage::Storage;
 
 /// An in-memory hosts document that can be told to fail its next writes.
 #[derive(Debug, Default)]
-pub(crate) struct MemoryHostsStorage {
+pub(crate) struct MemoryStorage {
     path: PathBuf,
     bytes: Mutex<Option<Vec<u8>>>,
     failing: Mutex<bool>,
 }
 
-impl MemoryHostsStorage {
+impl MemoryStorage {
     pub(crate) fn shared() -> Arc<Self> {
         Arc::new(Self {
             path: PathBuf::from("hosts.json"),
@@ -25,7 +25,7 @@ impl MemoryHostsStorage {
     }
 }
 
-impl HostsStorage for MemoryHostsStorage {
+impl Storage for MemoryStorage {
     fn location(&self) -> &Path {
         &self.path
     }

@@ -6,9 +6,9 @@ use futures_util::{Sink, SinkExt};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
-use crate::relay::session::bridge::bridge_limits::BridgeLimits;
 use crate::relay::session::bridge::close_message::close_message;
 use crate::relay::session::bridge::ending::Ending;
+use crate::relay::session::bridge::limits::Limits;
 use crate::relay::session::bridge::outcome::Outcome;
 
 pub(crate) async fn settle<U, D>(
@@ -121,7 +121,7 @@ pub(crate) async fn finish<C, U>(
     outcome: Outcome,
     client: &mut C,
     upstream: &mut U,
-    limits: BridgeLimits,
+    limits: Limits,
 ) where
     C: Sink<Message, Error: Debug> + Unpin,
     U: Sink<Message, Error: Debug> + Unpin,
@@ -141,8 +141,8 @@ mod tests {
     const WRITE: Duration = Duration::from_secs(10);
     const GRACE: Duration = Duration::from_secs(2);
 
-    fn limits() -> BridgeLimits {
-        BridgeLimits {
+    fn limits() -> Limits {
+        Limits {
             client_idle: None,
             upstream_idle: None,
             write_timeout: WRITE,

@@ -22,8 +22,8 @@ use crate::hosts::check_registrable;
 use crate::pairing::redeemed::Redeemed;
 use crate::pairing::unrecorded::Unrecorded;
 use crate::transport::Credential;
+use crate::transport::Host;
 use crate::transport::Pin;
-use crate::transport::RemoteHost;
 use crate::transport::TokenStore;
 use crate::transport::dial;
 use crate::transport::remote::secrets::credential_io;
@@ -49,7 +49,7 @@ pub async fn pair_remote_host(
 ) -> Result<String, Error> {
     let host_id = HostId::new(request.host_id)?;
     check_registrable(&host_id)?;
-    let host = RemoteHost {
+    let host = Host {
         endpoint: Endpoint::parse(request.endpoint)?,
         pin: Pin::Confirmed(request.fingerprint.to_owned()),
     };
@@ -154,7 +154,7 @@ async fn revoke(redeemed: &mut Redeemed) -> Result<(), Error> {
 }
 
 async fn redeem(
-    host: &RemoteHost,
+    host: &Host,
     request: &PairRequest<'_>,
 ) -> Result<Redeemed, Error> {
     let exchange_failed = |source| Error::PairExchange {

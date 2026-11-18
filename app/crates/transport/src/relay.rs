@@ -3,8 +3,8 @@ mod acceptor;
 mod connections;
 mod grants;
 mod relay_config;
-mod relay_state;
 mod session;
+mod state;
 mod subprotocol;
 
 pub use acceptor::Acceptor;
@@ -22,10 +22,10 @@ use tokio_util::sync::CancellationToken;
 
 use crate::error::Error;
 use crate::relay::accept_loop::accept_loop;
-use crate::relay::connections::connection_book::ConnectionBook;
+use crate::relay::connections::book::Book;
 use crate::relay::grants::token_book::TokenBook;
-use crate::relay::relay_state::RelayState;
-use crate::relay::relay_state::adapters::tokio_clock::tokio_now;
+use crate::relay::state::State;
+use crate::relay::state::adapters::tokio_clock::tokio_now;
 use crate::transport::StreamAccess;
 use crate::transport::Transport;
 
@@ -33,7 +33,7 @@ use crate::transport::Transport;
 /// token, `Host` and `Origin` before dialling the daemon, then bridges frames unchanged so
 /// binary stays binary. Dropping it closes every stream.
 pub struct Relay {
-    state: Arc<RelayState>,
+    state: Arc<State>,
 }
 
 impl Relay {
@@ -66,8 +66,8 @@ impl Relay {
     ) -> Result<Self, Error> {
         let port = acceptor.local_port().map_err(Error::Bind)?;
         let removals = transport.removed_hosts();
-        let state = Arc::new(RelayState {
-            connections: ConnectionBook::new(config.max_connections, config.max_per_pane),
+        let state = Arc::new(State {
+            connections: Book::new(config.max_connections, config.max_per_pane),
             tokens: Mutex::new(TokenBook::new(config.token_ttl)),
             shutdown: CancellationToken::new(),
             clock: Arc::new(tokio_now),
@@ -134,7 +134,7 @@ impl StreamAccess for Relay {
 }
 
 async fn follow_removals(
-    state: Arc<RelayState>,
+    state: Arc<State>,
     mut removed: broadcast::Receiver<HostId>,
 ) {
     while let Some(host) = state.shutdown.run_until_cancelled(removed.recv()).await {

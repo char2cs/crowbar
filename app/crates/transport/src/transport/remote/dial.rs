@@ -8,7 +8,7 @@ use tokio_rustls::TlsConnector;
 use tokio_rustls::client::TlsStream;
 
 use crate::error::Error;
-use crate::transport::remote::remote_host::RemoteHost;
+use crate::transport::remote::host::Host;
 use crate::transport::remote::tls::pinned_client_config;
 
 pub(crate) const SERVER_NAME: &str = "crowbar-remote";
@@ -19,7 +19,7 @@ const KEEPALIVE_IDLE: Duration = Duration::from_secs(15);
 
 const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(5);
 
-pub(crate) async fn dial(host: &RemoteHost) -> Result<TlsStream<TcpStream>, Error> {
+pub(crate) async fn dial(host: &Host) -> Result<TlsStream<TcpStream>, Error> {
     let dialled = tokio::time::timeout(DIAL_TIMEOUT, connect_pinned(host)).await;
     dialled.map_err(|elapsed| {
         tracing::debug!("dial deadline: {elapsed}");
@@ -30,7 +30,7 @@ pub(crate) async fn dial(host: &RemoteHost) -> Result<TlsStream<TcpStream>, Erro
     })?
 }
 
-async fn connect_pinned(host: &RemoteHost) -> Result<TlsStream<TcpStream>, Error> {
+async fn connect_pinned(host: &Host) -> Result<TlsStream<TcpStream>, Error> {
     let unreachable = |why: String| Error::HostUnreachable(why);
     let tcp = host
         .endpoint
@@ -55,7 +55,7 @@ fn enable_keepalive(tcp: &TcpStream) -> io::Result<()> {
 }
 
 fn handshake_failure(
-    host: &RemoteHost,
+    host: &Host,
     e: &io::Error,
 ) -> Error {
     let rejected = e
@@ -77,7 +77,7 @@ mod tests {
 
     #[test]
     fn a_certificate_the_verifier_rejected_is_an_identity_change_not_an_outage() {
-        let host = RemoteHost {
+        let host = Host {
             endpoint: crate::hosts::Endpoint::parse("1.2.3.4:1").unwrap(),
             pin: crate::transport::remote::tls::Pin::Paired([0; 32]),
         };

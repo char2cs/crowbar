@@ -11,27 +11,27 @@ use http::StatusCode;
 use protocol::{HostId, PaneId, RelayScope};
 use tokio_util::sync::CancellationToken;
 
-use crate::hosts::HostTarget;
-use crate::relay::connections::ConnectionBook;
-use crate::relay::connections::ConnectionGuard;
+use crate::hosts::Target;
+use crate::relay::connections::Book;
+use crate::relay::connections::Guard;
 use crate::relay::grants::OriginPolicy;
 use crate::relay::grants::TokenBook;
 use crate::relay::relay_config::RelayConfig;
-use crate::relay::relay_state::clock::Clock;
+use crate::relay::state::clock::Clock;
 use crate::transport::Transport;
 
-pub(crate) struct RelayState {
+pub(crate) struct State {
     pub(crate) transport: Arc<Transport>,
     pub(crate) config: RelayConfig,
     pub(crate) policy: Arc<dyn OriginPolicy>,
     pub(crate) tokens: Mutex<TokenBook>,
-    pub(crate) connections: Arc<ConnectionBook>,
+    pub(crate) connections: Arc<Book>,
     pub(crate) port: u16,
     pub(crate) shutdown: CancellationToken,
     pub(crate) clock: Clock,
 }
 
-impl RelayState {
+impl State {
     pub(crate) fn tokens(&self) -> MutexGuard<'_, TokenBook> {
         self.tokens.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -40,7 +40,7 @@ impl RelayState {
         &self,
         token: &str,
         accept: impl FnOnce(&RelayScope) -> Result<(), StatusCode>,
-    ) -> Result<(RelayScope, ConnectionGuard), StatusCode> {
+    ) -> Result<(RelayScope, Guard), StatusCode> {
         let mut tokens = self.tokens();
         let scope = tokens
             .authorize(token, (self.clock)())
@@ -73,9 +73,9 @@ impl RelayState {
 
     pub(crate) fn revoke_unregistered_hosts(&self) {
         let registry = self.transport.registry();
-        let registered = |host: &HostId| match HostTarget::of(host) {
-            HostTarget::Local => true,
-            HostTarget::Remote(id) => registry.get(&id).is_some(),
+        let registered = |host: &HostId| match Target::of(host) {
+            Target::Local => true,
+            Target::Remote(id) => registry.get(&id).is_some(),
         };
         let mut tokens = self.tokens();
         tokens.retain_hosts(registered);
@@ -92,21 +92,21 @@ mod tests {
     use crate::hosts::Endpoint;
     use crate::hosts::HostRegistry;
     use crate::relay::grants::ExactOrigins;
-    use crate::relay::relay_state::adapters::tokio_clock::tokio_now;
+    use crate::relay::state::adapters::tokio_clock::tokio_now;
     use crate::transport::MemoryTokenStore;
 
-    fn state_with(registry: HostRegistry) -> RelayState {
+    fn state_with(registry: HostRegistry) -> State {
         let transport = Transport::new(
             Arc::new(std::path::PathBuf::from("/nonexistent/cb-relay-state.sock")),
             Arc::new(registry),
             Arc::new(MemoryTokenStore::default()),
         );
-        RelayState {
+        State {
             transport: Arc::new(transport),
             config: RelayConfig::default(),
             policy: Arc::new(ExactOrigins::new(vec![], "crowbar-ext://{extension}")),
             tokens: Mutex::new(TokenBook::new(std::time::Duration::from_secs(60))),
-            connections: ConnectionBook::new(4, 4),
+            connections: Book::new(4, 4),
             port: 1,
             shutdown: CancellationToken::new(),
             clock: Arc::new(tokio_now),
@@ -125,7 +125,7 @@ mod tests {
     }
 
     fn issue(
-        state: &RelayState,
+        state: &State,
         scope: RelayScope,
     ) -> String {
         state.tokens().issue(scope, Instant::now()).unwrap()
@@ -167,13 +167,13 @@ mod tests {
         );
     }
 
-    type Revoke = fn(&RelayState);
+    type Revoke = fn(&State);
 
     /// Both ways a host leaves (it is removed, or the follower fell behind and reconciles) must
     /// cancel exactly the streams and tokens of hosts the registry no longer lists.
     const CASES: [Revoke; 2] = [
         |state| state.revoke_host(&HostId::new("gone").unwrap()),
-        RelayState::revoke_unregistered_hosts,
+        State::revoke_unregistered_hosts,
     ];
 
     fn assert_only_the_departed_host_is_revoked(revoke: Revoke) {

@@ -2,17 +2,17 @@ use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
 
-use crate::relay::connections::connection_release::ConnectionRelease;
+use crate::relay::connections::release::Release;
 
-pub(crate) struct ConnectionGuard {
-    book: Arc<dyn ConnectionRelease>,
+pub(crate) struct Guard {
+    book: Arc<dyn Release>,
     id: u64,
     cancel: CancellationToken,
 }
 
-impl ConnectionGuard {
+impl Guard {
     pub(crate) fn new(
-        book: Arc<dyn ConnectionRelease>,
+        book: Arc<dyn Release>,
         id: u64,
         cancel: CancellationToken,
     ) -> Self {
@@ -24,7 +24,7 @@ impl ConnectionGuard {
     }
 }
 
-impl Drop for ConnectionGuard {
+impl Drop for Guard {
     fn drop(&mut self) {
         self.book.release(self.id);
     }
@@ -35,7 +35,7 @@ mod tests {
     use protocol::{HostId, PaneId, PaneOrigin, RelayScope};
 
     use super::*;
-    use crate::relay::connections::connection_book::ConnectionBook;
+    use crate::relay::connections::book::Book;
 
     fn scope() -> RelayScope {
         RelayScope::new(
@@ -47,7 +47,7 @@ mod tests {
 
     #[test]
     fn dropping_the_guard_frees_its_slot() {
-        let book = ConnectionBook::new(1, 1);
+        let book = Book::new(1, 1);
         let root = CancellationToken::new();
         let guard = book.register(&scope(), &root).unwrap();
         assert!(book.register(&scope(), &root).is_none());
@@ -57,7 +57,7 @@ mod tests {
 
     #[test]
     fn the_guard_hands_out_the_cancellation_of_its_own_stream() {
-        let book = ConnectionBook::new(2, 2);
+        let book = Book::new(2, 2);
         let root = CancellationToken::new();
         let guard = book.register(&scope(), &root).unwrap();
         let cancelled = guard.cancelled();

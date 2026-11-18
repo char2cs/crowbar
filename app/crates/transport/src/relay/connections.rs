@@ -1,10 +1,10 @@
 //! Live relay connections and their cancellation.
 
-pub(crate) mod connection_book;
-mod connection_guard;
-mod connection_release;
+pub(crate) mod book;
+mod guard;
 mod live;
 mod registry;
+mod release;
 
-pub(crate) use connection_book::ConnectionBook;
-pub(crate) use connection_guard::ConnectionGuard;
+pub(crate) use book::Book;
+pub(crate) use guard::Guard;

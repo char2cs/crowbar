@@ -6,7 +6,7 @@ use protocol::{
 use tokio::runtime::Handle;
 
 use crate::error::Error;
-use crate::hosts::HostTarget;
+use crate::hosts::Target;
 use crate::transport::port::daemon_wire::{from_http, refusal, to_http};
 use crate::transport::port::host_limits::HostLimits;
 use crate::transport::port::reply::Reply;
@@ -96,7 +96,7 @@ impl DaemonTransport for ShellTransport {
         &self,
         scope: &RelayScope,
     ) -> protocol::Result<RelayEndpoint> {
-        if let HostTarget::Remote(id) = HostTarget::of(scope.host())
+        if let Target::Remote(id) = Target::of(scope.host())
             && self.transport.registry().get(&id).is_none()
         {
             return Err(protocol::Error::UnknownHost(id.as_str().to_owned()));

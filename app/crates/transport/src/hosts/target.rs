@@ -5,12 +5,12 @@ use crate::error::Error;
 const LOCAL_IDS: [&str; 2] = ["local", "localhost"];
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) enum HostTarget {
+pub(crate) enum Target {
     Local,
     Remote(HostId),
 }
 
-impl HostTarget {
+impl Target {
     pub(crate) fn of(host: &HostId) -> Self {
         if LOCAL_IDS.contains(&host.as_str()) {
             return Self::Local;
@@ -40,23 +40,23 @@ mod tests {
     #[derive(Clone, Copy)]
     enum Names {
         LocalDaemon,
-        RemoteHost,
+        Host,
     }
 
     const CASES: [(&str, Names); 3] = [
         ("local", Names::LocalDaemon),
         ("localhost", Names::LocalDaemon),
-        ("host-1", Names::RemoteHost),
+        ("host-1", Names::Host),
     ];
 
     #[test]
     fn local_and_localhost_name_the_local_daemon() {
         for (text, names) in CASES {
             let expected = match names {
-                Names::LocalDaemon => HostTarget::Local,
-                Names::RemoteHost => HostTarget::Remote(id(text)),
+                Names::LocalDaemon => Target::Local,
+                Names::Host => Target::Remote(id(text)),
             };
-            assert_eq!(HostTarget::of(&id(text)), expected, "{text}");
+            assert_eq!(Target::of(&id(text)), expected, "{text}");
         }
     }
 

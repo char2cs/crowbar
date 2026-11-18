@@ -12,18 +12,18 @@ use tokio_tungstenite::{WebSocketStream, accept_hdr_async_with_config};
 use tokio_util::sync::CancellationToken;
 
 use crate::error::Error;
-use crate::hosts::HostTarget;
-use crate::relay::relay_state::RelayState;
+use crate::hosts::Target;
 use crate::relay::session::admission::Admission;
 use crate::relay::session::bridge::bridge;
-use crate::relay::session::bridge::bridge_limits::BridgeLimits;
 use crate::relay::session::bridge::close_message::close_message;
+use crate::relay::session::bridge::limits::Limits;
 use crate::relay::session::gate::Gate;
+use crate::relay::state::State;
 use crate::transport::UpstreamRequest;
 use crate::transport::{UpstreamSocket, ws_config};
 
 pub(crate) async fn run<S>(
-    state: Arc<RelayState>,
+    state: Arc<State>,
     stream: S,
     handshake_slot: OwnedSemaphorePermit,
 ) where
@@ -46,7 +46,7 @@ pub(crate) async fn run<S>(
 }
 
 async fn open_unless_revoked(
-    state: &RelayState,
+    state: &State,
     wanted: &UpstreamRequest,
     cancel: &CancellationToken,
 ) -> Option<Result<UpstreamSocket, Error>> {
@@ -57,7 +57,7 @@ async fn open_unless_revoked(
 }
 
 async fn refuse_upstream<S>(
-    state: &RelayState,
+    state: &State,
     client: WebSocketStream<S>,
     error: &Error,
 ) where
@@ -69,7 +69,7 @@ async fn refuse_upstream<S>(
 }
 
 async fn serve<S>(
-    state: &RelayState,
+    state: &State,
     client: WebSocketStream<S>,
     admission: Admission,
 ) where
@@ -83,7 +83,7 @@ async fn serve<S>(
     } = admission;
     let cancel = guard.cancelled();
     let wanted = UpstreamRequest {
-        target: HostTarget::of(scope.host()),
+        target: Target::of(scope.host()),
         origin: scope.origin().clone(),
         path_and_query,
         max_message: state.config.max_message_bytes,
@@ -91,7 +91,7 @@ async fn serve<S>(
     match open_unless_revoked(state, &wanted, &cancel).await {
         None => say_close(client, CloseCode::Policy, "revoked", state).await,
         Some(Ok(upstream)) => {
-            let limits = BridgeLimits::of(&state.config, upstream_idle);
+            let limits = Limits::of(&state.config, upstream_idle);
             bridge(client, upstream, cancel, limits).await;
         },
         Some(Err(e)) => refuse_upstream(state, client, &e).await,
@@ -117,7 +117,7 @@ async fn say_close<S>(
     mut client: WebSocketStream<S>,
     code: CloseCode,
     reason: &'static str,
-    state: &RelayState,
+    state: &State,
 ) where
     S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -140,15 +140,15 @@ mod tests {
 
     use super::*;
     use crate::hosts::HostRegistry;
-    use crate::relay::connections::ConnectionBook;
+    use crate::relay::connections::Book;
     use crate::relay::grants::ExactOrigins;
     use crate::relay::grants::TokenBook;
     use crate::relay::relay_config::RelayConfig;
-    use crate::relay::relay_state::adapters::tokio_clock::tokio_now;
+    use crate::relay::state::adapters::tokio_clock::tokio_now;
     use crate::transport::MemoryTokenStore;
     use crate::transport::Transport;
 
-    fn state(handshake_timeout: Duration) -> Arc<RelayState> {
+    fn state(handshake_timeout: Duration) -> Arc<State> {
         let transport = Transport::new(
             Arc::new(std::path::PathBuf::from("/nonexistent/cb-session.sock")),
             Arc::new(HostRegistry::in_memory()),
@@ -158,12 +158,12 @@ mod tests {
             handshake_timeout,
             ..RelayConfig::default()
         };
-        Arc::new(RelayState {
+        Arc::new(State {
             transport: Arc::new(transport),
             config,
             policy: Arc::new(ExactOrigins::new(vec![], "crowbar-ext://{extension}")),
             tokens: Mutex::new(TokenBook::new(Duration::from_secs(60))),
-            connections: ConnectionBook::new(4, 4),
+            connections: Book::new(4, 4),
             port: 1,
             shutdown: CancellationToken::new(),
             clock: Arc::new(tokio_now),

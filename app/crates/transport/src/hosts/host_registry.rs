@@ -6,11 +6,11 @@ use protocol::HostId;
 
 use crate::blocking::run_blocking;
 use crate::error::Error;
-use crate::hosts::adapters::FileHostsStorage;
+use crate::hosts::adapters::FileStorage;
+use crate::hosts::document::Document;
 use crate::hosts::endpoint::Endpoint;
-use crate::hosts::host_target::check_registrable;
-use crate::hosts::hosts_document::HostsDocument;
-use crate::hosts::hosts_storage::HostsStorage;
+use crate::hosts::storage::Storage;
+use crate::hosts::target::check_registrable;
 
 type Hosts = BTreeMap<HostId, Endpoint>;
 
@@ -22,7 +22,7 @@ type Hosts = BTreeMap<HostId, Endpoint>;
 pub struct HostRegistry {
     hosts: RwLock<Hosts>,
     writer: Mutex<()>,
-    storage: Option<Arc<dyn HostsStorage>>,
+    storage: Option<Arc<dyn Storage>>,
 }
 
 impl HostRegistry {
@@ -40,11 +40,11 @@ impl HostRegistry {
     /// [`Error::HostsIo`], [`Error::HostsCorrupt`], [`Error::HostsInvalid`] or
     /// [`Error::HostsVersion`] when the file cannot be read or understood.
     pub fn open(path: impl Into<PathBuf>) -> Result<Self, Error> {
-        Self::with_storage(Arc::new(FileHostsStorage::new(path.into())))
+        Self::with_storage(Arc::new(FileStorage::new(path.into())))
     }
 
-    pub(crate) fn with_storage(storage: Arc<dyn HostsStorage>) -> Result<Self, Error> {
-        let hosts = HostsDocument::load(storage.as_ref())?;
+    pub(crate) fn with_storage(storage: Arc<dyn Storage>) -> Result<Self, Error> {
+        let hosts = Document::load(storage.as_ref())?;
         Ok(Self {
             hosts: RwLock::new(hosts),
             writer: Mutex::new(()),
@@ -124,7 +124,7 @@ impl HostRegistry {
         let mut next = self.read().clone();
         edit(&mut next);
         if let Some(storage) = &self.storage {
-            HostsDocument::save(storage.as_ref(), &next)?;
+            Document::save(storage.as_ref(), &next)?;
         }
         *self.write() = next;
         Ok(())
@@ -142,7 +142,7 @@ impl HostRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hosts::test_support::memory_hosts_storage::MemoryHostsStorage;
+    use crate::hosts::test_support::memory_storage::MemoryStorage;
 
     fn id(text: &str) -> HostId {
         HostId::new(text).unwrap()
@@ -178,14 +178,14 @@ mod tests {
         assert_eq!(registry.list().len(), 0);
     }
 
-    fn reopened(storage: &Arc<MemoryHostsStorage>) -> HostRegistry {
-        let shared: Arc<dyn HostsStorage> = Arc::<MemoryHostsStorage>::clone(storage);
+    fn reopened(storage: &Arc<MemoryStorage>) -> HostRegistry {
+        let shared: Arc<dyn Storage> = Arc::<MemoryStorage>::clone(storage);
         HostRegistry::with_storage(shared).unwrap()
     }
 
     #[test]
     fn hosts_survive_a_restart() {
-        let storage = MemoryHostsStorage::shared();
+        let storage = MemoryStorage::shared();
         let first = reopened(&storage);
         first
             .insert_blocking(id("host-2"), at("[::1]:4000"))
@@ -202,12 +202,12 @@ mod tests {
 
     #[test]
     fn nothing_stored_is_an_empty_list() {
-        assert_eq!(reopened(&MemoryHostsStorage::shared()).list().len(), 0);
+        assert_eq!(reopened(&MemoryStorage::shared()).list().len(), 0);
     }
 
     #[test]
     fn a_failed_write_leaves_the_list_as_it_was() {
-        let storage = MemoryHostsStorage::shared();
+        let storage = MemoryStorage::shared();
         let registry = reopened(&storage);
         storage.fail_writes();
 
@@ -219,7 +219,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_async_writers_persist_through_the_blocking_pool() {
-        let storage = MemoryHostsStorage::shared();
+        let storage = MemoryStorage::shared();
         let registry = Arc::new(reopened(&storage));
         registry
             .insert(id("host-1"), at("1.2.3.4:1"))
@@ -250,7 +250,7 @@ mod tests {
 
     #[test]
     fn readers_are_not_blocked_while_a_write_is_on_disk() {
-        let registry = reopened(&MemoryHostsStorage::shared());
+        let registry = reopened(&MemoryStorage::shared());
         registry
             .insert_blocking(id("host-1"), at("1.2.3.4:1"))
             .unwrap();
