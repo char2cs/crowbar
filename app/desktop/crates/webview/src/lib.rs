@@ -43,9 +43,6 @@
 //! # Ok::<(), webview::Error>(())
 //! ```
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
-compile_error!("webview hosts web views on Linux and macOS only");
-
 mod backend;
 mod error;
 mod host;

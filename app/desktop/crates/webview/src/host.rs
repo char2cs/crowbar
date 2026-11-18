@@ -94,6 +94,9 @@ impl Host {
     }
 }
 
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+compile_error!("webview hosts web views on Linux and macOS only");
+
 #[cfg(target_os = "linux")]
 fn start_native(config: HostConfig) -> Result<Rc<dyn Platform>> {
     Ok(Rc::new(crate::backend::GtkPlatform::start(config)?))
