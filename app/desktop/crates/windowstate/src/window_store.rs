@@ -1,10 +1,14 @@
+mod adapters;
+mod state_file;
+mod test_support;
+
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::adapters::disk_file::DiskFile;
 use crate::error::Error;
-use crate::state_file::StateFile;
 use crate::window_state::WindowState;
+use crate::window_store::adapters::disk_file::DiskFile;
+use crate::window_store::state_file::StateFile;
 
 /// The file the window state is kept in.
 #[derive(Debug, Clone)]
@@ -78,7 +82,7 @@ impl WindowStore {
 mod tests {
     use super::*;
     use crate::rect::Rect;
-    use crate::test_support::MemoryFile;
+    use crate::window_store::test_support::MemoryFile;
 
     const STATE: WindowState = WindowState {
         bounds: Rect {

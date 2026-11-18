@@ -2,7 +2,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use crate::state_file::StateFile;
+use crate::window_store::state_file::StateFile;
 
 /// A state file kept in memory.
 #[derive(Debug)]

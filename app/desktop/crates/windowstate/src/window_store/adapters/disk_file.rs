@@ -1,7 +1,7 @@
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 
-use crate::state_file::StateFile;
+use crate::window_store::state_file::StateFile;
 
 #[derive(Debug)]
 pub(crate) struct DiskFile {
