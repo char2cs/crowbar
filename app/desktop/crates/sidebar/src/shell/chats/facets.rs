@@ -1,0 +1,25 @@
+//! What a chats row carries: activity, presence, titling, nesting, expansion, lock, worktree, workspace and operation.
+
+mod activity;
+mod expansion;
+mod lock;
+mod nesting;
+mod operation;
+mod operation_phase;
+mod presence;
+mod titling;
+mod workspace;
+mod workspace_status;
+mod worktree;
+
+pub use activity::Activity;
+pub use expansion::Expansion;
+pub use lock::Lock;
+pub use nesting::Nesting;
+pub use operation::Operation;
+pub use operation_phase::OperationPhase;
+pub use presence::Presence;
+pub use titling::Titling;
+pub use workspace::Workspace;
+pub use workspace_status::WorkspaceStatus;
+pub use worktree::Worktree;

@@ -1,0 +1,19 @@
+//! The Changes panel and the merge box: changed files, merge strategies, work and facts.
+
+mod after_merge;
+mod changed_file;
+mod changes;
+mod changes_source;
+mod merge_box;
+mod merge_facts;
+mod merge_strategy;
+mod merge_work;
+
+pub use after_merge::AfterMerge;
+pub use changed_file::ChangedFile;
+pub use changes::Changes;
+pub use changes_source::ChangesSource;
+pub use merge_box::MergeBox;
+pub use merge_facts::MergeFacts;
+pub use merge_strategy::MergeStrategy;
+pub use merge_work::MergeWork;

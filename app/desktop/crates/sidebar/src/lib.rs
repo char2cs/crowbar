@@ -3,222 +3,39 @@
 //! (tree folds, inline edits, removal countdowns, drop policy, Files keys and clipboard, panel
 //! geometry, peek zone, the preferences file). The `sidebarview` crate draws it with gpui.
 
-mod active_space;
-mod activity;
-mod adapters;
-mod after_merge;
-mod avatar_tint;
-mod changed_file;
-mod changes;
-mod changes_source;
-mod clip_mode;
-mod command;
-mod command_sink;
-mod confirmation;
-mod deadline;
-#[cfg(feature = "fixtures")]
-mod demo_data;
-#[cfg(feature = "fixtures")]
-mod demo_panel_reads;
-#[cfg(feature = "fixtures")]
-mod demo_rows;
-#[cfg(feature = "fixtures")]
-mod demo_space_reads;
-mod dock_side;
-mod drop_mode;
-mod drop_modes;
-mod drop_policy;
-mod editing;
 mod error;
-mod expansion;
-mod file_access;
-mod file_action;
-mod file_clipboard;
-mod file_density;
-mod file_dialog;
-mod file_filter;
-mod file_key;
-mod file_kind;
-mod file_properties;
-mod file_row;
-mod file_steps;
-mod file_tree_flag;
-mod file_tree_view;
-mod files_source;
-mod files_state;
-mod focus;
-mod folder_chain;
-mod folder_target;
-mod git_status;
-mod hidden_pattern;
-mod hold;
-mod host;
-mod host_id;
-mod host_kind;
-mod host_state;
-mod host_tone;
-mod icon_choice;
-mod icon_theme;
-mod intent;
-mod key_step;
-mod lock;
-mod mark;
-mod menu_context;
-mod menu_scope;
-mod merge_box;
-mod merge_facts;
-mod merge_strategy;
-mod merge_work;
-mod metrics;
-mod mode;
-mod move_target;
-mod nesting;
-mod new_entry;
-mod notice;
-mod operation;
-mod operation_phase;
-mod pane_focus;
-mod panel;
-mod peek_zone;
-mod preference_file;
-mod preferences;
-mod presence;
-mod presentation;
-mod project;
-mod project_id;
-mod project_tree;
-mod question;
-mod reach;
-mod removal_kind;
-mod removal_target;
-mod removal_tray;
-mod removals;
-mod resize_drag;
-mod resize_key;
-mod resizing;
-mod row;
-mod row_actions;
-mod row_id;
-mod row_kind;
-mod running_agent;
-mod scope_sync;
-mod shell_answers;
-mod shifts;
+mod explorer;
+mod fixtures;
+mod frame;
+mod shell;
 mod sidebar;
-mod sidebar_data;
-mod space_facts;
-mod space_icon;
-mod space_list;
-mod terminal_threads;
-#[cfg(test)]
-mod test_support;
-mod titling;
-mod tree_editing;
 mod tree_state;
-mod visibility;
-mod visible_row;
-mod work_at_risk;
-mod workspace;
-mod workspace_status;
-mod worktree;
 
-pub use crate::sidebar::{absolute, base, join, parent};
-pub use active_space::ActiveSpace;
-pub use activity::Activity;
-pub use after_merge::AfterMerge;
-pub use avatar_tint::AvatarTint;
-pub use changed_file::ChangedFile;
-pub use changes::Changes;
-pub use changes_source::ChangesSource;
-pub use clip_mode::ClipMode;
-pub use command::Command;
-pub use command_sink::CommandSink;
-pub use confirmation::Confirmation;
-pub use deadline::Deadline;
-#[cfg(feature = "fixtures")]
-pub use demo_data::DemoData;
-pub use dock_side::DockSide;
-pub use drop_mode::DropMode;
-pub use drop_modes::DropModes;
-pub use editing::Editing;
 pub use error::Error;
-pub use expansion::Expansion;
-pub use file_access::FileAccess;
-pub use file_action::FileAction;
-pub use file_clipboard::FileClipboard;
-pub use file_density::FileDensity;
-pub use file_dialog::FileDialog;
-pub use file_key::FileKey;
-pub use file_kind::FileKind;
-pub use file_properties::FileProperties;
-pub use file_row::FileRow;
-pub use file_tree_flag::FileTreeFlag;
-pub use file_tree_view::FileTreeView;
-pub use files_source::FilesSource;
-pub use files_state::FilesState;
-pub use focus::Focus;
-pub use folder_target::FolderTarget;
-pub use git_status::GitStatus;
-pub use hold::Hold;
-pub use host::Host;
-pub use host_id::HostId;
-pub use host_kind::HostKind;
-pub use host_state::HostState;
-pub use host_tone::HostTone;
-pub use icon_theme::IconTheme;
-pub use intent::Intent;
-pub use key_step::KeyStep;
-pub use lock::Lock;
-pub use mark::Mark;
-pub use menu_context::MenuContext;
-pub use menu_scope::MenuScope;
-pub use merge_box::MergeBox;
-pub use merge_facts::MergeFacts;
-pub use merge_strategy::MergeStrategy;
-pub use merge_work::MergeWork;
-pub use metrics::{HEADER_HEIGHT, PEEK_INSET};
-pub use mode::Mode;
-pub use move_target::MoveTarget;
-pub use nesting::Nesting;
-pub use new_entry::NewEntry;
-pub use notice::Notice;
-pub use operation::Operation;
-pub use operation_phase::OperationPhase;
-pub use pane_focus::PaneFocus;
-pub use panel::Panel;
-pub use peek_zone::PeekZone;
-pub use preferences::Preferences;
-pub use presence::Presence;
-pub use presentation::Presentation;
-pub use project::Project;
-pub use project_id::ProjectId;
-pub use project_tree::ProjectTree;
-pub use question::Question;
-pub use reach::Reach;
-pub use removal_kind::RemovalKind;
-pub use removal_target::RemovalTarget;
-pub use removal_tray::RemovalTray;
-pub use removals::Removals;
-pub use resize_drag::ResizeDrag;
-pub use resize_key::ResizeKey;
-pub use resizing::Resizing;
-pub use row::Row;
-pub use row_actions::RowActions;
-pub use row_id::RowId;
-pub use row_kind::RowKind;
-pub use running_agent::RunningAgent;
-pub use scope_sync::ScopeSync;
-pub use shell_answers::ShellAnswers;
-pub use sidebar_data::SidebarData;
-pub use space_facts::SpaceFacts;
-pub use space_icon::SpaceIcon;
-pub use space_list::SpaceList;
-pub use terminal_threads::TerminalThreads;
-pub use titling::Titling;
-pub use tree_state::TreeState;
-pub use visibility::Visibility;
-pub use visible_row::VisibleRow;
-pub use work_at_risk::WorkAtRisk;
-pub use workspace::Workspace;
-pub use workspace_status::WorkspaceStatus;
-pub use worktree::Worktree;
+pub use explorer::{
+    FileAction, FileClipboard, FileDialog, FileKey, FileProperties, MenuScope, ShellAnswers,
+};
+#[cfg(feature = "fixtures")]
+pub use fixtures::DemoData;
+pub use frame::{
+    DockSide, HEADER_HEIGHT, KeyStep, Mode, PEEK_INSET, Panel, PeekZone, Preferences, Presentation,
+    ResizeDrag, ResizeKey, Resizing, Visibility,
+};
+pub use shell::{
+    ActiveSpace, Activity, AfterMerge, AvatarTint, ChangedFile, Changes, ChangesSource, ClipMode,
+    Command, CommandSink,
+};
+pub use shell::{
+    DropMode, Expansion, FileAccess, FileDensity, FileKind, FileRow, FileTreeFlag, FileTreeView,
+    FilesSource, Focus, GitStatus, Host, HostId, HostKind, HostState, HostTone, IconTheme, Intent,
+    Lock, Mark, MergeBox, MergeFacts, MergeStrategy, MergeWork, MoveTarget, Nesting, NewEntry,
+    Notice, Operation, OperationPhase, PaneFocus, Presence, Project, ProjectId, ProjectTree,
+    Question, Reach, Row, RowActions, RowId, RowKind, RunningAgent, ScopeSync, SidebarData,
+    SpaceFacts, SpaceIcon, SpaceList, Titling, Workspace, WorkspaceStatus, Worktree,
+};
+pub use sidebar::{absolute, base, join, parent};
+pub use tree_state::{Confirmation, Deadline};
+pub use tree_state::{
+    DropModes, Editing, FilesState, FolderTarget, Hold, MenuContext, RemovalKind, RemovalTarget,
+    RemovalTray, Removals, TerminalThreads, TreeState, VisibleRow, WorkAtRisk,
+};

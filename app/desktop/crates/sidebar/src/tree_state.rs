@@ -1,17 +1,31 @@
 //! The shell-owned view state of the chats tree: folds, inline input and removal.
 
+mod deletion;
+mod editing;
+mod files_state;
+mod inline_inputs;
+mod menu_context;
+mod reorder;
+mod terminal_threads;
+mod visible_row;
+
+pub use deletion::{
+    Confirmation, Deadline, Hold, RemovalKind, RemovalTarget, RemovalTray, Removals, WorkAtRisk,
+};
+pub use editing::Editing;
+pub use files_state::FilesState;
+pub use menu_context::MenuContext;
+pub use reorder::{DropModes, FolderTarget};
+pub use terminal_threads::TerminalThreads;
+pub use visible_row::VisibleRow;
+
 use std::collections::BTreeSet;
 use std::time::Instant;
 
-use crate::deadline::Deadline;
-use crate::editing::Editing;
-use crate::expansion::Expansion;
-use crate::files_state::FilesState;
-use crate::nesting::Nesting;
-use crate::removals::Removals;
-use crate::row::Row;
-use crate::row_id::RowId;
-use crate::visible_row::VisibleRow;
+use crate::shell::Expansion;
+use crate::shell::Nesting;
+use crate::shell::Row;
+use crate::shell::RowId;
 
 /// The chats tree's view state owned by the shell: folded rows, the inline input, the Files
 /// panel and the removals in progress.
@@ -135,10 +149,10 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::confirmation::Confirmation;
-    use crate::removal_target::RemovalTarget;
-    use crate::removal_tray::RemovalTray;
-    use crate::row_kind::RowKind;
+    use crate::shell::RowKind;
+    use crate::tree_state::deletion::Confirmation;
+    use crate::tree_state::deletion::RemovalTarget;
+    use crate::tree_state::deletion::RemovalTray;
 
     fn rows() -> Vec<Row> {
         let mut repo = Row::new("repo", RowKind::RepoHeader, 0, "demo");
