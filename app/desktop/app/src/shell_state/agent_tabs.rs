@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Context as _;
-use browser::{AgentAnswer, BrowserUrl};
+use browser::{AgentAnswer, PageUrl};
 use browseragent::{PeerSession, TabCommands, TabInfo};
 use layout::Command;
 use protocol::PaneId;
@@ -41,10 +41,10 @@ impl ShellState {
     pub(crate) fn open_agent_browser(
         &mut self,
         chat: &str,
-        url: Option<&BrowserUrl>,
+        url: Option<&PageUrl>,
     ) -> anyhow::Result<PaneId> {
         let id = self.serials.next_browser();
-        let spec = PaneSpec::agent_browser(&id, chat, url.map(BrowserUrl::as_str))
+        let spec = PaneSpec::agent_browser(&id, chat, url.map(PageUrl::as_str))
             .with_context(|| format!("the browser pane {id} could not be described"))?;
         let tab = chat_tab(self.history.layout(), chat)
             .with_context(|| format!("chat {chat} has no tab to hold the browser"))?;
@@ -142,7 +142,7 @@ mod tests {
         open_chat(&mut rig.shell, "c1");
         let session = rig.shell.peer_session(Arc::new(Nobody));
         assert!(session.tabs.borrow().is_empty());
-        let url = BrowserUrl::parse("http://a.test/").unwrap();
+        let url = PageUrl::parse("http://a.test/").unwrap();
         let pane = rig.shell.open_agent_browser("c1", Some(&url)).unwrap();
         assert!(pane.as_str().starts_with('b'), "a browser id");
         rig.shell.publish_tabs();

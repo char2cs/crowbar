@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use browser::BrowserUrl;
+use browser::PageUrl;
 use serde_json::Value;
 
 use crate::error::Error;
@@ -23,14 +23,14 @@ pub enum AgentOp {
     /// Opens a tab in the chat's pane, or reuses one, at an address.
     Open {
         /// Where to go, when given.
-        url: Option<BrowserUrl>,
+        url: Option<PageUrl>,
         /// Open another tab even when the chat has one.
         new_tab: bool,
     },
     /// Loads an address.
     Navigate {
         /// Where to go.
-        url: BrowserUrl,
+        url: PageUrl,
     },
     /// Closes the tab.
     Close,
@@ -162,7 +162,7 @@ fn eval_of(args: &Value) -> Result<AgentOp, Error> {
 fn required_url(
     op: &'static str,
     args: &Value,
-) -> Result<BrowserUrl, Error> {
+) -> Result<PageUrl, Error> {
     let text = args
         .get("url")
         .and_then(Value::as_str)
@@ -172,7 +172,7 @@ fn required_url(
             name: URL,
             expected: "a string",
         })?;
-    BrowserUrl::parse(text).map_err(|source| Error::Address {
+    PageUrl::parse(text).map_err(|source| Error::Address {
         text: text.to_owned(),
         source,
     })
@@ -184,8 +184,8 @@ mod tests {
 
     use super::*;
 
-    fn url(text: &str) -> BrowserUrl {
-        BrowserUrl::parse(text).unwrap()
+    fn url(text: &str) -> PageUrl {
+        PageUrl::parse(text).unwrap()
     }
 
     #[test]

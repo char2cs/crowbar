@@ -1,4 +1,4 @@
-use browser::{BrowserUrl, PageState};
+use browser::{PageState, PageUrl};
 use panehost::BrowseAction;
 use protocol::PaneId;
 use webview::ParentWindow;
@@ -21,7 +21,7 @@ impl ShellState {
         pane: &PaneId,
     ) -> AgentProgress {
         let address = self.page_address(pane);
-        if address.is_empty() || BrowserUrl::is_blank(&address) {
+        if address.is_empty() || PageUrl::is_blank(&address) {
             return failed(NO_PAGE);
         }
         match self.bring_up(call.parent, pane) {
@@ -97,7 +97,7 @@ impl ShellState {
 
 #[cfg(test)]
 mod tests {
-    use browser::{AgentAnswer, BrowserUrl, PageUpdate};
+    use browser::{AgentAnswer, PageUpdate, PageUrl};
     use browseragent::{AgentCommand, AgentOp, Delivery, DomOp};
     use serde_json::json;
     use webview::{Call, ParentWindow};
@@ -123,7 +123,7 @@ mod tests {
     fn rig_with_a_page() -> (ShellRig, String) {
         let mut rig = shell_rig();
         open_chat(&mut rig.shell, "c1");
-        let url = BrowserUrl::parse("http://a.test/").unwrap();
+        let url = PageUrl::parse("http://a.test/").unwrap();
         let open = AgentOp::Open {
             url: Some(url),
             new_tab: false,

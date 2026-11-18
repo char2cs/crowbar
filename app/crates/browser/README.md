@@ -10,7 +10,7 @@ chrome shows (address, title, loading, back/forward).
 
 - `resolve_address`: turns typed text into a URL or a search.
 - `BROWSER_PANE_TYPE`: the pane type id of the browser pane.
-- `BrowserUrl`: the only URL form a browser pane loads.
+- `PageUrl`: the only URL form a browser pane loads.
 - `SearchEngine`: search URL templates.
 - `agent_script`, `eval_script`, `pick_script`, `cancel_pick_script`: scripts injected into the page.
 - `PickReport`, `PointerItem`, `pointer_text`, `pick_count`: elements the user picked, as chat text.

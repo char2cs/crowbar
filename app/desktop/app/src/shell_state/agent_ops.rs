@@ -1,4 +1,4 @@
-use browser::{AgentAnswer, BrowserUrl};
+use browser::{AgentAnswer, PageUrl};
 use browseragent::{AgentCommand, AgentOp, Arming, Delivery};
 use panehost::BrowseAction;
 use protocol::PaneId;
@@ -104,7 +104,7 @@ impl ShellState {
     ) -> AgentProgress {
         let answer = json!({ TAB: pane.as_str(), REUSED: false });
         let address = self.page_address(pane);
-        if address.is_empty() || BrowserUrl::is_blank(&address) {
+        if address.is_empty() || PageUrl::is_blank(&address) {
             return done(answer);
         }
         if let Err(error) = self.bring_up(call.parent, pane) {
@@ -188,7 +188,7 @@ impl ShellState {
 
 fn only_the_fragment_differs(
     current: &str,
-    target: &BrowserUrl,
+    target: &PageUrl,
 ) -> bool {
     let wanted = target.as_str();
     let moves_within = wanted.contains(FRAGMENT) && !current.is_empty();
@@ -198,7 +198,7 @@ fn only_the_fragment_differs(
 
 #[cfg(test)]
 mod tests {
-    use browser::{AgentAnswer, BrowserUrl, PageUpdate};
+    use browser::{AgentAnswer, PageUpdate, PageUrl};
     use browseragent::AgentOp;
     use serde_json::json;
     use webview::{Call, ParentWindow};
@@ -223,7 +223,7 @@ mod tests {
 
     fn open_op(url: Option<&str>) -> AgentOp {
         AgentOp::Open {
-            url: url.map(|url| BrowserUrl::parse(url).unwrap()),
+            url: url.map(|url| PageUrl::parse(url).unwrap()),
             new_tab: false,
         }
     }
@@ -336,7 +336,7 @@ mod tests {
 
     fn go(url: &str) -> AgentOp {
         AgentOp::Navigate {
-            url: BrowserUrl::parse(url).unwrap(),
+            url: PageUrl::parse(url).unwrap(),
         }
     }
 

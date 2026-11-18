@@ -7,9 +7,9 @@ const BLANK: &str = "about:blank";
 /// A URL a browser pane may load: `http`, `https` or `about:blank`. `file:`, `javascript:`,
 /// `data:` and the shell's own `crowbar:` scheme are never loadable in a browser pane.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BrowserUrl(String);
+pub struct PageUrl(String);
 
-impl BrowserUrl {
+impl PageUrl {
     /// Whether `text` is the empty page every browser view starts on, which no request waits for.
     #[must_use]
     pub fn is_blank(text: &str) -> bool {
@@ -69,17 +69,17 @@ mod tests {
             "",
         ];
         for text in allowed {
-            assert!(BrowserUrl::is_loadable(text), "{text}");
+            assert!(PageUrl::is_loadable(text), "{text}");
         }
         for text in refused {
-            assert!(!BrowserUrl::is_loadable(text), "{text}");
+            assert!(!PageUrl::is_loadable(text), "{text}");
         }
     }
 
     #[test]
     fn a_refused_scheme_is_named() {
         assert_eq!(
-            BrowserUrl::parse("file:///x"),
+            PageUrl::parse("file:///x"),
             Err(Error::Scheme("file".to_owned()))
         );
     }

@@ -1,4 +1,4 @@
-use browser::{BrowserUrl, SearchEngine, resolve_address};
+use browser::{PageUrl, SearchEngine, resolve_address};
 use protocol::PaneState;
 use serde_json::json;
 
@@ -10,7 +10,7 @@ pub(crate) fn homepage_state(
 ) -> PaneState {
     let url = stored
         .and_then(|typed| resolve_address(typed, engine))
-        .and_then(|address| BrowserUrl::parse(&address).ok());
+        .and_then(|address| PageUrl::parse(&address).ok());
     match url {
         Some(url) => PaneState::new(json!({ "url": url.as_str() })).unwrap_or_default(),
         None => PaneState::default(),

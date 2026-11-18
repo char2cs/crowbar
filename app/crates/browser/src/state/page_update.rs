@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::address::BrowserUrl;
+use crate::address::PageUrl;
 use crate::selection::PickReport;
 use crate::state::agent_answer::AgentAnswer;
 
@@ -72,7 +72,7 @@ impl PageUpdate {
         let update: Self = serde_json::from_str(text).ok()?;
         match &update {
             Self::Loading { url } | Self::Loaded { url } => {
-                BrowserUrl::is_loadable(url).then_some(update)
+                PageUrl::is_loadable(url).then_some(update)
             },
             Self::Title { .. }
             | Self::Picked { .. }

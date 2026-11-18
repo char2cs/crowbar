@@ -1,10 +1,10 @@
-use browser::BrowserUrl;
+use browser::PageUrl;
 
 /// What the shell asks of a browser pane's web view.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BrowseAction {
     /// Load a page a browser pane may load.
-    Go(BrowserUrl),
+    Go(PageUrl),
     /// One page back in the view's history.
     Back,
     /// One page forward in the view's history.

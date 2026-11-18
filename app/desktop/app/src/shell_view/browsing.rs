@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use browser::{BrowserUrl, SearchEngine, resolve_address};
+use browser::{PageUrl, SearchEngine, resolve_address};
 use browseragent::{AgentCommand, run_peer};
 use browserbar::BrowserBarEvent;
 use gpui::Context;
@@ -92,7 +92,7 @@ fn action_for(
     match event {
         BrowserBarEvent::Go(typed) => {
             let address = resolve_address(&typed, engine)?;
-            BrowserUrl::parse(&address).ok().map(BrowseAction::Go)
+            PageUrl::parse(&address).ok().map(BrowseAction::Go)
         },
         BrowserBarEvent::Back => Some(BrowseAction::Back),
         BrowserBarEvent::Forward => Some(BrowseAction::Forward),

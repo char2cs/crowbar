@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use browser::BrowserUrl;
+use browser::PageUrl;
 use panehost::{HostEvent, IpcMessage, LayoutSnapshot, VisiblePane};
 use protocol::PaneId;
 use webview::ParentWindow;
@@ -127,7 +127,7 @@ impl ShellState {
         pane: &PaneId,
         url: &str,
     ) {
-        if !BrowserUrl::is_blank(url) {
+        if !PageUrl::is_blank(url) {
             self.replies.loading(pane.as_str());
         }
     }
@@ -138,7 +138,7 @@ impl ShellState {
         url: &str,
         outcome: &mut Outcome,
     ) {
-        if BrowserUrl::is_blank(url) {
+        if PageUrl::is_blank(url) {
             return;
         }
         self.replies.loaded(pane.as_str(), &self.page_shown(pane));

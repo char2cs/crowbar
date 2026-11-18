@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use browser::{BROWSER_PANE_TYPE, BrowserUrl, PageUpdate};
+use browser::{BROWSER_PANE_TYPE, PageUpdate, PageUrl};
 use protocol::{PaneState, PaneTypeId};
 use webview::{IpcHandler, PageEvent, PageHandler};
 
@@ -19,7 +19,7 @@ pub(crate) fn first_url(state: Option<&PaneState>) -> String {
     state
         .and_then(|state| state.as_value().get(URL_KEY))
         .and_then(serde_json::Value::as_str)
-        .and_then(|wanted| BrowserUrl::parse(wanted).ok())
+        .and_then(|wanted| PageUrl::parse(wanted).ok())
         .map_or_else(|| BLANK_URL.to_owned(), |url| url.as_str().to_owned())
 }
 
@@ -70,7 +70,7 @@ fn on_page(
     event: PageEvent,
 ) -> bool {
     let update = match event {
-        PageEvent::Navigating(url) => return BrowserUrl::is_loadable(&url),
+        PageEvent::Navigating(url) => return PageUrl::is_loadable(&url),
         PageEvent::Loading(url) => PageUpdate::Loading { url },
         PageEvent::Loaded(url) => PageUpdate::Loaded { url },
         PageEvent::Title(title) => PageUpdate::title(&title),
