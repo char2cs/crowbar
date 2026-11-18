@@ -65,9 +65,7 @@ describe('an action that failed because of its remote host', () => {
     )
     expect(description).toMatch(/reinstalled or reset, or someone may be intercepting/)
     expect(description).toMatch(/refused to connect/)
-    expect(description).toMatch(
-      /confirm its new fingerprint with whoever runs it: run crowbar pair/,
-    )
+    expect(description).toMatch(/confirm its new fingerprint with whoever runs it: remove it here/)
     expect(statusOf('h1')).toBe('needs-repair')
   })
 

@@ -38,8 +38,9 @@ func newServeCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&host, "host", "unix://", "listen address: unix://; tcp://127.0.0.1:3737 is local development only — "+
-		"plaintext and unauthenticated, never reverse-proxy or port-forward it; a non-loopback tcp:// address terminates TLS, "+
-		"requires paired clients, and also binds the local socket that crowbar pair dials")
+		"plaintext and unauthenticated, never reverse-proxy or port-forward it; a non-loopback tcp:// address opens the device "+
+		"listener at start (TLS, paired clients only) and also binds the local socket the daemon's own callbacks and crowbar pair dial; "+
+		"device connections can also be switched at runtime from Settings")
 	return cmd
 }
 

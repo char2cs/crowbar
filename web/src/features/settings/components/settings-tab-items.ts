@@ -1,5 +1,6 @@
 import {
   Bug,
+  DeviceMobile,
   CodeBlock,
   Globe,
   GitBranch,
@@ -27,6 +28,8 @@ export interface SettingsTabItem {
 
 const HOSTS_TAB: SettingsTabItem = { id: 'hosts', label: 'Hosts', icon: HardDrives }
 
+const DEVICES_TAB: SettingsTabItem = { id: 'devices', label: 'Devices', icon: DeviceMobile }
+
 const SHARED_TAB_ITEMS: SettingsTabItem[] = [
   { id: 'appearance', label: 'Appearance', icon: PaintBrush },
   { id: 'editor', label: 'Editor', icon: CodeBlock },
@@ -44,7 +47,7 @@ const SHARED_TAB_ITEMS: SettingsTabItem[] = [
 export const SETTINGS_TAB_ITEMS: SettingsTabItem[] = [
   ...SHARED_TAB_ITEMS,
   // Remote hosts dial through the Tauri bridge, so a browser tab has nothing to show here.
-  ...(isTauri() ? [HOSTS_TAB] : []),
+  ...(isTauri() ? [HOSTS_TAB, DEVICES_TAB] : []),
   ...(import.meta.env.DEV
     ? [{ id: 'developer' as SettingsTabItem['id'], label: 'Developer', icon: Bug }]
     : []),

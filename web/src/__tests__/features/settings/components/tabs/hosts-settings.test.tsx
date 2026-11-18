@@ -218,7 +218,9 @@ describe('HostsSettings', () => {
 
       const dialog = await screen.findByRole('dialog')
       expect(dialog).toHaveTextContent('Revoke homelab?')
-      expect(dialog).toHaveTextContent('To use it again you’ll need to run crowbar pair on it.')
+      expect(dialog).toHaveTextContent(
+        'To use it again you’ll need a new code from Settings → Devices on it (or crowbar pair on a headless host).',
+      )
       await waitFor(() => expect(screen.getByRole('button', { name: 'Keep it' })).toHaveFocus())
       await user.keyboard(key)
       await dialogGone()

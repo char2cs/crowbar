@@ -12,6 +12,10 @@ describe('problemOf', () => {
 
   it('an ApiError without a code takes the category of its status', () => {
     expect(problemOf(new ApiError('gone', 404))).toEqual({ code: 'not_found', message: 'gone' })
+    expect(problemOf(new ApiError('no token', 401))).toEqual({
+      code: 'unauthorized',
+      message: 'no token',
+    })
     expect(problemOf(new ApiError('odd', 418))).toEqual({ code: 'internal', message: 'odd' })
   })
 

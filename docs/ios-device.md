@@ -7,7 +7,7 @@ One-time setup:
 1. Xcode > Settings > Accounts: sign in with your Apple ID, then Manage Certificates > + > Apple Development.
 2. iPhone: plug in, unlock, tap "Trust This Computer".
 3. iPhone: Settings > Privacy & Security > Developer Mode > On (restarts).
-4. Install Tailscale on the iPhone and join the same tailnet as the Mac.
+4. Make sure the iPhone can reach the Mac over the network, then in the desktop app open Settings > Devices, turn on Allow device connections and tap Add a device; enter the address and code in the iPhone app.
 
 Then:
 

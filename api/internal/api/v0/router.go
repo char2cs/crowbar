@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	accessPkg "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/access"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/browser"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat"
 	chathandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat/handlers"
@@ -44,7 +45,7 @@ func (c *Container) Register(
 	rg.Use(rejectEmptyPathParams())
 
 	// Open routes go BEFORE requireBearerAuth: gin fixes a route's middleware
-	// chain at registration, so these never carry it. Only pairing belongs here
+	// chain at registration, so these never carry it. Only redeeming a code belongs here
 	// (it mints the credential); health is guarded so a revoked token reads 401.
 	pairingPkg.RegisterOpen(rg, c.pairing, newSourceLimiter(5, time.Minute, time.Now).handle)
 
@@ -53,6 +54,7 @@ func (c *Container) Register(
 	rg.Use(requireBearerAuth(c.app.GORM.Clients, c.conns))
 	health.Register(rg, c.app.Usecases.AgentTurn)
 	pairingPkg.RegisterGuarded(rg, c.pairing)
+	accessPkg.Register(rg, c.access)
 	system.Register(rg)
 	operations.Register(rg, c.app.Operations)
 	stream.Register(rg, c.app.Stream)

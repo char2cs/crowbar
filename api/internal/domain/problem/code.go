@@ -14,6 +14,7 @@ type Code string
 // The category codes. Every specific code below ranks as one of them.
 const (
 	InvalidArgument  Code = "invalid_argument"
+	Unauthorized     Code = "unauthorized"
 	Forbidden        Code = "forbidden"
 	NotFound         Code = "not_found"
 	Conflict         Code = "conflict"
@@ -79,6 +80,8 @@ func (c Code) Status() int {
 	switch c {
 	case InvalidArgument:
 		return http.StatusBadRequest
+	case Unauthorized:
+		return http.StatusUnauthorized
 	case Forbidden, HostDocumentRequiresLocalTransport, DaemonStateDocument:
 		return http.StatusForbidden
 	case NotFound:
@@ -109,7 +112,7 @@ func (c Code) Status() int {
 }
 
 var categories = []Code{
-	InvalidArgument, Forbidden, NotFound, Conflict, TooLarge, Unprocessable,
+	InvalidArgument, Unauthorized, Forbidden, NotFound, Conflict, TooLarge, Unprocessable,
 	FailedDependency, BadGateway, Unavailable, Timeout,
 }
 

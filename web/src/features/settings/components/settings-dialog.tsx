@@ -15,6 +15,7 @@ import { DeveloperSettings } from './tabs/developer-settings'
 import { KeybindingsSettings } from './tabs/keybindings-settings'
 import { ActiveSessionsSettings } from './tabs/active-sessions-settings'
 import { HostsSettings } from './tabs/hosts-settings'
+import { DevicesSettings } from './tabs/devices-settings'
 
 interface SettingsDialogProps {
   isOpen: boolean
@@ -92,6 +93,8 @@ function SettingsTabContent({ tab }: { tab: SettingsTab }) {
       return <ActiveSessionsSettings />
     case 'hosts':
       return <HostsSettings />
+    case 'devices':
+      return <DevicesSettings />
     case 'developer':
       return <DeveloperSettings />
     default:

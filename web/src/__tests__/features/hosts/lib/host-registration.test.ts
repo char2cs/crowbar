@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Host } from '@/features/hosts/types'
 
 const host = (id: string): Host => ({
@@ -7,6 +7,12 @@ const host = (id: string): Host => ({
   endpoint: `${id}.lan:3737`,
   pairedFingerprint: 'ff',
   clientId: `client-${id}`,
+})
+
+// The first import transforms the module graph; a cold one inside a test can outlast its timeout.
+beforeAll(async () => {
+  await import('@/features/hosts/stores/host-config-store')
+  await import('@/features/hosts/lib/host-registration')
 })
 
 let invoke: ReturnType<typeof vi.fn>

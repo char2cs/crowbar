@@ -12,7 +12,7 @@ func TestRunPair_PrintsCodeAndFingerprint(t *testing.T) {
 	socket := unixTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(envelope[mintCodeResponse]{
 			Success: true,
-			Data:    mintCodeResponse{Code: "123456", ServerFingerprint: fingerprint},
+			Data:    mintCodeResponse{Code: "123456", ServerFingerprint: fingerprint, Addresses: []string{"192.168.1.20:3737"}},
 		})
 	})
 	var out bytes.Buffer
@@ -21,6 +21,9 @@ func TestRunPair_PrintsCodeAndFingerprint(t *testing.T) {
 	}
 	if !bytes.Contains(out.Bytes(), []byte("123456")) {
 		t.Fatalf("expected the code in output, got: %s", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("192.168.1.20:3737")) {
+		t.Fatalf("expected the address a device dials in output, got: %s", out.String())
 	}
 	if !bytes.Contains(out.Bytes(), []byte(fingerprint)) {
 		t.Fatalf("expected the daemon's fingerprint in output, got: %s", out.String())

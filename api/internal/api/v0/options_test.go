@@ -3,6 +3,7 @@
 package v0_test
 
 import (
+	"github.com/char2cs/crowbar/api/internal/testutil/accessfake"
 	"log/slog"
 	"net/http/httptest"
 	"strings"
@@ -27,7 +28,7 @@ func TestConsoleLogs_WithRing_StreamsReplayReadyAndLiveRedacted(t *testing.T) {
 	log := slog.New(ring.Wrap(slog.NewTextHandler(&strings.Builder{}, nil)))
 	log.Info("old", "component", "boot")
 	r := gin.New()
-	c := v0.New(tc.app, tc.eng, "", v0.WithLogs(ring))
+	c := v0.New(tc.app, tc.eng, accessfake.Closed(), v0.WithLogs(ring))
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)

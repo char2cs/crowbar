@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/char2cs/crowbar/api/internal/testutil/accessfake"
 	"io"
 	"log/slog"
 	"net"
@@ -27,8 +28,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/logring"
 )
 
-// testFingerprint stands in for a network-exposed daemon's TLS identity: one
-// without an identity mints no pairing codes.
+// testFingerprint stands in for the TLS identity of a daemon with device
+// connections on: one with them off mints no pairing codes.
 const testFingerprint = "SHA256:aaaa bbbb cccc dddd eeee ffff"
 
 // daemonEngine builds the production HTTP surface, so routes mounted on the
@@ -59,7 +60,7 @@ func daemonEngineWith(
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
-	daemon, err := crowbarapi.New(tc.app, tc.eng, nil, testFingerprint, preAuthReadTimeout, v0.WithLogs(ring))
+	daemon, err := crowbarapi.New(tc.app, tc.eng, nil, accessfake.Listening(testFingerprint), preAuthReadTimeout, v0.WithLogs(ring))
 	require.NoError(t, err)
 	engine, ok := daemon.Handler().(*gin.Engine)
 	require.True(t, ok, "the api container serves a gin engine")
@@ -147,7 +148,6 @@ func TestRouter_TLSNoAuth_OnlyPairingAndPprofAreOpen(t *testing.T) {
 
 	open := map[string]int{
 		"POST /v0/pair":           http.StatusBadRequest,
-		"POST /v0/pair/code":      http.StatusForbidden,
 		"GET /debug/pprof/*rest":  http.StatusForbidden,
 		"POST /debug/pprof/*rest": http.StatusForbidden,
 	}
@@ -170,6 +170,7 @@ func TestRouter_TLSNoAuth_OnlyPairingAndPprofAreOpen(t *testing.T) {
 		assert.Equalf(t, http.StatusUnauthorized, rec.Code, "%s over TLS with no token: %s", route, rec.Body.String())
 		assert.Containsf(t, rec.Body.String(), "client is not paired",
 			"%s must be refused by the bearer guard, not by its own handler", route)
+		assert.Containsf(t, rec.Body.String(), `"code":"unauthorized"`, "%s: a 401 names its own category", route)
 	}
 	assert.Equal(t, len(open), seenOpen, "every open route must still be registered")
 }

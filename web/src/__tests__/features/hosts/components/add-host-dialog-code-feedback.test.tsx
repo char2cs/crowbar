@@ -13,13 +13,15 @@ import { probeRemoteFingerprint } from '@/lib/crowbar-bridge'
 import { AddHostDialog } from '@/features/hosts/components/add-host-dialog'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 
-const PLAIN_HINT = 'The 6-digit code crowbar pair printed on the host.'
+const PLAIN_HINT = 'The 6-digit code shown on the host.'
 const CORRECTION = 'A pairing code is exactly 6 digits.'
 const WRONG_CODE = 'the host refused pairing (401 Unauthorized): pairing code is not valid'
 
 const firstSlot = () => screen.getByRole('textbox', { name: 'Pairing code' })
 const slot = (n: number) => screen.getByRole('textbox', { name: `Character ${n} of 6` })
 const pairButton = () => screen.getByRole('button', { name: /^Pair(ing…)?$/ })
+// The first slot carries the field's label; autofill and an input method write the whole code there.
+const codeSlot = () => screen.findByRole('textbox', { name: 'Pairing code' })
 const slotValues = () =>
   screen.getAllByRole('textbox').map((input) => (input as HTMLInputElement).value)
 
@@ -144,5 +146,180 @@ describe('AddHostDialog hint while a code is typed', () => {
     await user.keyboard('6')
     expect(screen.getByRole('status')).toBeEmptyDOMElement()
     expect(pairButton()).not.toHaveAttribute('aria-disabled')
+  })
+})
+
+describe('AddHostDialog code entry', () => {
+  // A code copied from a terminal often carries a space; the host wants exactly six digits.
+  it('a pasted code loses its spaces, and Pair waits for exactly six digits', async () => {
+    const user = userEvent.setup()
+    await reachCodeStage()
+    const pair = screen.getByRole('button', { name: 'Pair' })
+    expect(await codeSlot()).toHaveAccessibleDescription('The 6-digit code shown on the host.')
+
+    await pasteText(user, ' 123 456\n')
+    expect(slotValues()).toEqual(['1', '2', '3', '4', '5', '6'])
+    expect(pair).not.toHaveAttribute('aria-disabled')
+
+    await user.keyboard('{Backspace}')
+    expect(slotValues()).toEqual(['1', '2', '3', '4', '5', ''])
+    expect(pair).toHaveAttribute('aria-disabled', 'true')
+    // Merely incomplete is not wrong: the hint stays, and nothing is announced.
+    expect(
+      screen.getAllByRole('textbox', {
+        description: 'The 6-digit code shown on the host.',
+      }),
+    ).toHaveLength(6)
+    expect(screen.getByRole('status')).toBeEmptyDOMElement()
+  })
+
+  // A wrong code costs one of ten guesses before the host burns it: only the user's Pair sends one.
+  it('redeems the typed digits on Enter, never on the sixth keystroke', async () => {
+    vi.mocked(redeemPairingCode).mockResolvedValueOnce(undefined)
+    const user = userEvent.setup()
+    await reachCodeStage()
+    const pair = screen.getByRole('button', { name: 'Pair' })
+    expect(pair).toHaveAttribute('aria-disabled', 'true')
+
+    await user.keyboard('12345{Enter}')
+    expect(redeemPairingCode).not.toHaveBeenCalled()
+    expect(pair).toHaveAttribute('aria-disabled', 'true')
+
+    await user.keyboard('6')
+    expect(slotValues()).toEqual(['1', '2', '3', '4', '5', '6'])
+    expect(pair).not.toHaveAttribute('aria-disabled')
+    expect(redeemPairingCode).not.toHaveBeenCalled()
+
+    await user.keyboard('{Enter}')
+    await waitFor(() =>
+      expect(redeemPairingCode).toHaveBeenCalledWith(
+        expect.any(String),
+        '1.2.3.4:3737',
+        'SHA256:aaaa',
+        '123456',
+        'homelab',
+      ),
+    )
+    expect(redeemPairingCode).toHaveBeenCalledTimes(1)
+  })
+
+  it('a pasted six-digit code fills every slot and waits for Pair', async () => {
+    const user = userEvent.setup()
+    await reachCodeStage()
+
+    await pasteText(user, '654321')
+
+    expect(slotValues()).toEqual(['6', '5', '4', '3', '2', '1'])
+    expect(screen.getByRole('button', { name: 'Pair' })).not.toHaveAttribute('aria-disabled')
+    expect(redeemPairingCode).not.toHaveBeenCalled()
+  })
+
+  // Each wrong code costs one of ten guesses: more digits than a code holds is no code at all.
+  it('refuses a paste of more than six digits instead of cutting it down to a code', async () => {
+    const user = userEvent.setup()
+    await reachCodeStage()
+    const pair = screen.getByRole('button', { name: 'Pair' })
+
+    await pasteText(user, 'code for host 2 is 482913')
+    expect(slotValues()).toEqual(['', '', '', '', '', ''])
+    expect(pair).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.getByRole('status')).toHaveTextContent('A pairing code is exactly 6 digits.')
+
+    await pasteText(user, '48')
+    expect(slotValues()).toEqual(['4', '8', '', '', '', ''])
+    expect(pair).toHaveAttribute('aria-disabled', 'true')
+  })
+
+  it('takes the code out of the words pasted around it', async () => {
+    const user = userEvent.setup()
+    await reachCodeStage()
+
+    await pasteText(user, 'Code: 482913')
+
+    expect(slotValues()).toEqual(['4', '8', '2', '9', '1', '3'])
+    expect(screen.getByRole('button', { name: 'Pair' })).not.toHaveAttribute('aria-disabled')
+  })
+
+  // After a refused code focus sits on the last slot; a code pasted there must not splice into it.
+  it('refuses a paste that runs past the last slot, then takes it into the emptied field', async () => {
+    const user = userEvent.setup()
+    await reachCodeStage()
+    await user.keyboard('123456')
+    const pair = screen.getByRole('button', { name: 'Pair' })
+
+    await pasteText(user, '482913')
+    expect(slotValues()).toEqual(['', '', '', '', '', ''])
+    expect(pair).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.getByRole('status')).toHaveTextContent('A pairing code is exactly 6 digits.')
+    expect(await codeSlot()).toHaveFocus()
+
+    await pasteText(user, '482913')
+    expect(slotValues()).toEqual(['4', '8', '2', '9', '1', '3'])
+    expect(pair).not.toHaveAttribute('aria-disabled')
+  })
+
+  // An input method's text is not entered until committed: rewriting it or moving focus first aborts it.
+  it('leaves an input method composing alone and takes its digits once committed', async () => {
+    const user = userEvent.setup()
+    await reachCodeStage()
+    await user.keyboard('12')
+    const slot = screen.getByRole('textbox', { name: 'Character 3 of 6' })
+    expect(slot).toHaveFocus()
+
+    fireEvent.compositionStart(slot)
+    fireEvent.input(slot, { target: { value: '３' }, isComposing: true })
+    fireEvent.keyDown(slot, { key: 'ArrowLeft', isComposing: true })
+    expect(slot).toHaveValue('３')
+    expect(slot).toHaveFocus()
+
+    fireEvent.compositionEnd(slot, { data: '３' })
+    expect(slotValues()).toEqual(['1', '2', '3', '', '', ''])
+    expect(screen.getByRole('textbox', { name: 'Character 4 of 6' })).toHaveFocus()
+  })
+
+  it('refuses digits an input method commits past the last slot', async () => {
+    const user = userEvent.setup()
+    await reachCodeStage()
+    await user.keyboard('12')
+    const slot = screen.getByRole('textbox', { name: 'Character 3 of 6' })
+
+    fireEvent.compositionStart(slot)
+    fireEvent.input(slot, { target: { value: '３４５６７' }, isComposing: true })
+    fireEvent.compositionEnd(slot, { data: '３４５６７' })
+
+    expect(slotValues()).toEqual(['', '', '', '', '', ''])
+    expect(screen.getByRole('button', { name: 'Pair' })).toHaveAttribute('aria-disabled', 'true')
+  })
+
+  it('takes digits only, from the keyboard and from a paste', async () => {
+    const user = userEvent.setup()
+    await reachCodeStage()
+
+    await user.keyboard('1a2-b3')
+    expect(slotValues()).toEqual(['1', '2', '3', '', '', ''])
+
+    await pasteText(user, 'x9y')
+    expect(slotValues()).toEqual(['1', '2', '3', '9', '', ''])
+    expect(screen.getByRole('button', { name: 'Pair' })).toHaveAttribute('aria-disabled', 'true')
+  })
+
+  // An East Asian input method types full-width digits (and spaces) unless switched out of it.
+  it('reads a code typed in full-width digits as the digits it is', async () => {
+    vi.mocked(redeemPairingCode).mockResolvedValueOnce(undefined)
+    await reachCodeStage()
+
+    fireEvent.change(await codeSlot(), { target: { value: '１２３\u3000４５６' } })
+    expect(slotValues()).toEqual(['1', '2', '3', '4', '5', '6'])
+    fireEvent.click(screen.getByRole('button', { name: 'Pair' }))
+
+    await waitFor(() =>
+      expect(redeemPairingCode).toHaveBeenCalledWith(
+        expect.any(String),
+        '1.2.3.4:3737',
+        'SHA256:aaaa',
+        '123456',
+        'homelab',
+      ),
+    )
   })
 })

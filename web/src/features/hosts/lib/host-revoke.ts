@@ -13,7 +13,7 @@ import { toast } from '@/features/window/stores/toast-store'
 // would drop the only credential that can ever revoke this client there. Whether the host went.
 export async function revokeHost(host: Host): Promise<boolean> {
   const confirmed = await primitiveConfirm(
-    'To use it again you’ll need to run crowbar pair on it.',
+    'To use it again you’ll need a new code from Settings → Devices on it (or crowbar pair on a headless host).',
     {
       title: `Revoke ${host.name}?`,
       confirmLabel: 'Revoke',

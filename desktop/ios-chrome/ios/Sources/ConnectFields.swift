@@ -26,7 +26,7 @@ struct ConnectFields: View {
 
   private var address: some View {
     VStack(alignment: .leading, spacing: 14) {
-      Text("Run crowbar pair on the host first: it shows the fingerprint and the code you’ll need.")
+      Text("On the host, open Settings → Devices and tap Add a device (or run crowbar pair on a headless host): it shows the address, fingerprint and code you’ll need.")
         .font(.subheadline)
         .foregroundStyle(secondaryText)
       field("Name") {
@@ -51,7 +51,7 @@ struct ConnectFields: View {
 
   private var fingerprintCheck: some View {
     VStack(alignment: .leading, spacing: 12) {
-      Text("Confirm this matches the fingerprint printed by that host’s CLI:")
+      Text("Confirm this matches the fingerprint shown on that host:")
         .font(.subheadline)
         .foregroundStyle(secondaryText)
       Text(fingerprint)

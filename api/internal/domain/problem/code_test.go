@@ -12,6 +12,7 @@ import (
 func TestCode_StatusTable(t *testing.T) {
 	cases := map[problem.Code]int{
 		problem.InvalidArgument:  http.StatusBadRequest,
+		problem.Unauthorized:     http.StatusUnauthorized,
 		problem.Forbidden:        http.StatusForbidden,
 		problem.NotFound:         http.StatusNotFound,
 		problem.Conflict:         http.StatusConflict,
@@ -76,5 +77,6 @@ func TestCode_UnknownCodeIsInternal(t *testing.T) {
 func TestCategoryFor_NamesTheCategoryOfAStatus(t *testing.T) {
 	assert.Equal(t, problem.NotFound, problem.CategoryFor(http.StatusNotFound))
 	assert.Equal(t, problem.Conflict, problem.CategoryFor(http.StatusConflict))
+	assert.Equal(t, problem.Unauthorized, problem.CategoryFor(http.StatusUnauthorized))
 	assert.Equal(t, problem.Internal, problem.CategoryFor(http.StatusTeapot))
 }
