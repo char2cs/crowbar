@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 
-use browser_chrome::{BrowserBar, BrowserBarEvent};
+use browserbar::{BrowserBar, BrowserBarEvent};
 use gpui::{AnyView, App, AppContext as _, Entity};
 use panehost::BrowseAction;
 use protocol::PaneId;

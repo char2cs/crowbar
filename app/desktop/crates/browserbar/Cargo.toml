@@ -1,5 +1,5 @@
 [package]
-name = "browser_chrome"
+name = "browserbar"
 description = "The address bar strip above a browser pane of the Crowbar shell: back, forward, reload and an address field."
 version.workspace = true
 edition.workspace = true

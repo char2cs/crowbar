@@ -29,7 +29,7 @@ startup_view = { path = "desktop/crates/startup_view" }
 settings_ui = { path = "desktop/crates/settings_ui" }
 shell_data = { path = "desktop/crates/shell_data" }
 keymap = { path = "desktop/crates/keymap" }
-browser_chrome = { path = "desktop/crates/browser_chrome" }
+browserbar = { path = "desktop/crates/browserbar" }
 branch_import_view = { path = "desktop/crates/branch_import_view" }
 pairing_view = { path = "desktop/crates/pairing_view" }
 oobe_view = { path = "desktop/crates/oobe_view" }

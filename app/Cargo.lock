@@ -821,14 +821,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "browser_chrome"
-version = "0.1.0"
-dependencies = [
- "gpui",
- "ui",
-]
-
-[[package]]
 name = "browseragent"
 version = "0.1.0"
 dependencies = [
@@ -838,6 +830,14 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "browserbar"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "ui",
 ]
 
 [[package]]
@@ -1495,8 +1495,8 @@ dependencies = [
  "base64",
  "branch_import_view",
  "browser",
- "browser_chrome",
  "browseragent",
+ "browserbar",
  "diagnostics",
  "gpui",
  "image",
