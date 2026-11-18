@@ -51,7 +51,7 @@ bunx @tauri-apps/cli@2.12.4 build --bundles deb \
   --config "{\"build\":{\"beforeBuildCommand\":\"\"},\"bundle\":{\"macOS\":{\"files\":{}}}}"
 cp target/release/bundle/deb/*.deb /rig/stage/crowbar-desktop.deb'
   "$repo/tools/scripts/rbuild.sh" env CARGO_TARGET_DIR=/tmp/rig-target \
-    cargo build --release -p crowbar_desktop --bin crowbar
+    cargo build --release -p crowbar --bin crowbar
   docker cp crowbar-build:/tmp/rig-target/release/crowbar "$out/crowbar"
 }
 
