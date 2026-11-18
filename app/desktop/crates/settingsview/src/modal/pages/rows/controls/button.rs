@@ -15,11 +15,14 @@ pub(crate) fn button_control(
     row: &Row,
     spec: &ButtonSpec,
 ) -> impl IntoElement {
-    let button = Button::new(element_id("button", row.key.as_str()), spec.label.clone())
-        .variant(ButtonVariant::Outline)
-        .size(ButtonSize::Sm)
-        .on_click(frame.sink.send(Intent::Button(spec.clone())));
-    let button = match spec.icon.as_deref().and_then(icon_named) {
+    let button = Button::new(
+        element_id("button", row.key().as_str()),
+        spec.label().to_owned(),
+    )
+    .variant(ButtonVariant::Outline)
+    .size(ButtonSize::Sm)
+    .on_click(frame.sink.send(Intent::Button(spec.clone())));
+    let button = match spec.icon_stem().and_then(icon_named) {
         Some(icon) => button.icon(icon),
         None => button,
     };
@@ -36,11 +39,12 @@ mod tests {
     #[gpui::test]
     fn the_row_button_is_enabled_when_the_backend_offers_its_capability(cx: &mut TestAppContext) {
         let (harness, cx) = open(cx, "browser");
-        let Control::Button(spec) = row("browserClearData").control else {
+        let clear = row("browserClearData");
+        let Control::Button(spec) = clear.control() else {
             panic!("browserClearData is a button row");
         };
         assert!(inspect(&harness, cx, |modal| modal
             .state
-            .button_enabled(&spec)));
+            .button_enabled(spec)));
     }
 }

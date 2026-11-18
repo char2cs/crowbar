@@ -24,7 +24,7 @@ mod tests {
     fn every_icon_the_catalog_names_is_embedded() {
         let schema = default_schema().unwrap();
         for page in schema.pages() {
-            assert!(icon_named(&page.icon).is_some(), "page {}", page.id());
+            assert!(icon_named(page.icon()).is_some(), "page {}", page.id());
         }
     }
 }

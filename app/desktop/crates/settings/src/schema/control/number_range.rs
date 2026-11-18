@@ -5,15 +5,25 @@ use crate::schema::control::nudge::Nudge;
 /// The allowed numbers of a field: `min..=max` in increments of `step`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct NumberRange {
-    /// The smallest allowed number.
-    pub min: f64,
-    /// The largest allowed number.
-    pub max: f64,
+    pub(crate) min: f64,
+    pub(crate) max: f64,
     pub(crate) step: f64,
     snaps: bool,
 }
 
 impl NumberRange {
+    /// The smallest allowed number.
+    #[must_use]
+    pub fn min(&self) -> f64 {
+        self.min
+    }
+
+    /// The largest allowed number.
+    #[must_use]
+    pub fn max(&self) -> f64 {
+        self.max
+    }
+
     /// A range; typed values are rounded to the precision of `step` and clamped.
     pub fn new(
         min: f64,

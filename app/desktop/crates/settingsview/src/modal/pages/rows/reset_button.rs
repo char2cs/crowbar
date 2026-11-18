@@ -24,7 +24,7 @@ pub(crate) fn reset_button(
         return slot.into_any_element();
     }
     let palette = Theme::of(cx).palette(Surface::Window);
-    let id = element_id("reset", row.key.as_str());
+    let id = element_id("reset", row.key().as_str());
     let button = div()
         .id(id.clone())
         .flex()
@@ -40,7 +40,7 @@ pub(crate) fn reset_button(
                 .size(px(ICON))
                 .color(palette.muted_foreground()),
         );
-    slot.child(Tooltip::new(id, format!("Reset {}", row.label), button))
+    slot.child(Tooltip::new(id, format!("Reset {}", row.label()), button))
         .into_any_element()
 }
 

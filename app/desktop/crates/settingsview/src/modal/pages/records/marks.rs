@@ -34,7 +34,7 @@ pub(crate) fn dot_box(
         .border_1()
         .border_color(palette.muted_foreground());
     let success = palette.success();
-    let dot = dot.when(flag.on, |dot| dot.bg(success).border_color(success));
+    let dot = dot.when(flag.is_on(), |dot| dot.bg(success).border_color(success));
     div().flex().justify_center().w(px(FLAG_COLUMN)).child(dot)
 }
 

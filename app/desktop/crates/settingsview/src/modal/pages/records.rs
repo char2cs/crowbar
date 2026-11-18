@@ -29,9 +29,8 @@ pub(crate) fn list_view(
     (window, cx): (&mut Window, &mut App),
 ) -> impl IntoElement {
     let header = list
-        .title
-        .as_deref()
-        .map(|title| title_block(title, list.intro.as_deref(), cx));
+        .title()
+        .map(|title| title_block(title, list.intro_text(), cx));
     let body = list_body(frame, list, (window, cx));
     div().px(spacing::TIGHT).children(header).child(body)
 }
@@ -41,12 +40,12 @@ fn list_body(
     list: &ListBlock,
     (window, cx): (&mut Window, &mut App),
 ) -> AnyElement {
-    match frame.records.records(&list.source) {
+    match frame.records.records(list.source()) {
         Records::Loading => div()
             .flex()
             .flex_col()
             .gap(spacing::COMFORTABLE)
-            .child(note_text(&list.loading, cx))
+            .child(note_text(list.loading(), cx))
             .child(Skeleton::new(
                 "list-skeleton",
                 px(SKELETON_WIDTH),
@@ -55,7 +54,7 @@ fn list_body(
             .into_any_element(),
         Records::Failed => failed(frame, list, cx).into_any_element(),
         Records::Ready(records) if records.is_empty() => {
-            note_text(&list.empty, cx).into_any_element()
+            note_text(list.empty(), cx).into_any_element()
         },
         Records::Ready(records) => table(frame, (list, &records), (window, cx)).into_any_element(),
     }
@@ -71,13 +70,13 @@ fn failed(
         .flex_col()
         .items_start()
         .gap(spacing::COMFORTABLE)
-        .child(note_text(&list.failed, cx))
+        .child(note_text(list.failed(), cx))
         .child(
             Button::new("list-retry", "Retry")
                 .variant(ButtonVariant::Outline)
                 .size(ButtonSize::Sm)
                 .icon(IconName::ArrowCounterClockwise)
-                .on_click(frame.sink.send(Intent::Retry(list.source.clone()))),
+                .on_click(frame.sink.send(Intent::Retry(list.source().to_owned()))),
         )
 }
 
@@ -91,7 +90,7 @@ fn table(
     for (index, record) in records.iter().enumerate() {
         let row = record_view(
             frame,
-            ListedRecord::new(&list.source, record, index),
+            ListedRecord::new(list.source(), record, index),
             (&mut *window, &mut *cx),
         );
         rows.push(row.into_any_element());
@@ -109,9 +108,9 @@ fn flag_header(
 ) -> impl IntoElement {
     let labels = records.first().map(|record| {
         record
-            .flags
+            .flags()
             .iter()
-            .map(|flag| flag.label.clone())
+            .map(settings::RecordFlag::label)
             .collect::<Vec<_>>()
     });
     let cells: Vec<AnyElement> = labels
@@ -122,7 +121,7 @@ fn flag_header(
                 .w(px(FLAG_COLUMN))
                 .flex()
                 .justify_center()
-                .child(note_text(&label, cx))
+                .child(note_text(label, cx))
                 .into_any_element()
         })
         .collect();

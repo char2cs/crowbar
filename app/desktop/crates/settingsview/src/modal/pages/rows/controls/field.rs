@@ -9,14 +9,14 @@ pub(crate) fn field_control(
     frame: &Frame<'_>,
     row: &Row,
 ) -> impl IntoElement {
-    let width = match &row.control {
+    let width = match &row.control() {
         Control::Text { width, .. } | Control::TextList { width, .. } => width.pixels(),
         _ => 0.0,
     };
     div()
         .w(px(width))
         .max_w_full()
-        .children(frame.fields.get(&row.key).cloned())
+        .children(frame.fields.get(row.key()).cloned())
 }
 
 #[cfg(test)]

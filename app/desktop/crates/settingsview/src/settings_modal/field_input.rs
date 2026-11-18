@@ -24,7 +24,7 @@ pub(crate) fn build<Owner: Runner>(
     (window, cx): (&mut Window, &mut Context<'_, Owner>),
 ) {
     let (row, text) = content;
-    let Some((placeholder, style)) = placeholder_and_style(&row.control) else {
+    let Some((placeholder, style)) = placeholder_and_style(row.control()) else {
         return;
     };
     let input = cx.new(|cx| TextInput::new(placeholder.to_owned(), cx).style(style));
@@ -42,7 +42,7 @@ pub(crate) fn build<Owner: Runner>(
     let leaving = cx.on_blur(&focus, window, move |modal, window, cx| {
         modal.run(Intent::Commit(blurred.clone()), window, cx);
     });
-    fields.add(row.key.clone(), input, vec![typing, leaving]);
+    fields.add(row.key().clone(), input, vec![typing, leaving]);
 }
 
 #[cfg(test)]

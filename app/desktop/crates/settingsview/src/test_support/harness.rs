@@ -65,7 +65,7 @@ pub(crate) fn row(key: &str) -> Row {
     default_schema()
         .unwrap()
         .rows()
-        .find(|row| row.key.as_str() == key)
+        .find(|row| row.key().as_str() == key)
         .cloned()
         .unwrap()
 }

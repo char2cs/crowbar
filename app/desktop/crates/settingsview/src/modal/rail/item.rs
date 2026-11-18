@@ -24,9 +24,12 @@ pub(crate) fn rail_item(
     (window, cx): (&mut Window, &mut App),
 ) -> impl IntoElement {
     let palette = Theme::of(cx).palette(Surface::Window);
-    let selected = frame.state.page().filter(|selected| selected.id == page.id);
+    let selected = frame
+        .state
+        .page()
+        .filter(|selected| selected.id() == page.id());
     let active = selected.is_some();
-    let id = ElementId::from(SharedString::from(format!("rail-{}", page.id)));
+    let id = ElementId::from(SharedString::from(format!("rail-{}", page.id())));
     let color = selected.map_or(palette.muted_foreground(), |_| palette.foreground());
     let base = div()
         .flex()
@@ -45,9 +48,9 @@ pub(crate) fn rail_item(
             item.hover(move |style| style.text_color(foreground))
         })
         .cursor_pointer()
-        .on_click(frame.sink.send(Intent::Select(page.id.clone())))
+        .on_click(frame.sink.send(Intent::Select(page.id().clone())))
         .children(
-            icon_named(&page.icon)
+            icon_named(page.icon())
                 .map(|icon| Icon::new(icon).weight(IconWeight::Duotone).size(px(ICON))),
         )
         .child(label(page, Theme::of(cx).heading_family()))
@@ -63,7 +66,7 @@ fn label(
         .line_height(px(HEIGHT))
         .overflow_hidden()
         .whitespace_nowrap()
-        .child(page.label.clone())
+        .child(page.label().to_owned())
 }
 
 #[cfg(test)]
@@ -75,7 +78,7 @@ mod tests {
     use crate::test_support::{inspect, open, run};
 
     fn selected_page(modal: &crate::settings_modal::SettingsModal) -> Option<String> {
-        modal.state.page().map(|page| page.id.to_string())
+        modal.state.page().map(|page| page.id().to_string())
     }
 
     #[gpui::test]

@@ -24,7 +24,7 @@ pub(crate) fn content(
     (window, cx): (&mut Window, &mut App),
 ) -> impl IntoElement {
     let inner = match frame.state.page() {
-        Some(page) => blocks(frame, &page.blocks, (window, cx)).into_any_element(),
+        Some(page) => blocks(frame, page.blocks(), (window, cx)).into_any_element(),
         None => empty_view(cx).into_any_element(),
     };
     div()

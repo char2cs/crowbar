@@ -5,15 +5,30 @@ use crate::records::tone::Tone;
 /// A line of text with its tone and family.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Line {
-    /// The text shown.
-    pub text: String,
-    /// Whether the text uses the monospace family.
-    pub mono: bool,
-    /// The tone the text is coloured in.
-    pub tone: Tone,
+    pub(crate) text: String,
+    pub(crate) mono: bool,
+    pub(crate) tone: Tone,
 }
 
 impl Line {
+    /// The tone the text is coloured in.
+    #[must_use]
+    pub fn tone(&self) -> Tone {
+        self.tone
+    }
+
+    /// The text shown.
+    #[must_use]
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    /// Whether the text uses the monospace family.
+    #[must_use]
+    pub fn is_mono(&self) -> bool {
+        self.mono
+    }
+
     /// A muted line of plain text.
     pub fn plain(text: impl Into<String>) -> Self {
         Self {

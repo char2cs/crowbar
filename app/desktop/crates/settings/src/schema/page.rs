@@ -9,18 +9,26 @@ use crate::schema::row::Row;
 /// A rail entry and the blocks it shows.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Page {
-    /// The id that names the page.
-    pub id: PageId,
-    /// The label shown in the rail.
-    pub label: String,
-    /// File stem of the Phosphor icon shown in the rail.
-    pub icon: String,
+    pub(crate) id: PageId,
+    pub(crate) label: String,
+    pub(crate) icon: String,
     pub(crate) when: Option<Condition>,
-    /// The blocks the page shows, in order.
-    pub blocks: Vec<Block>,
+    pub(crate) blocks: Vec<Block>,
 }
 
 impl Page {
+    /// File stem of the Phosphor icon shown in the rail.
+    #[must_use]
+    pub fn icon(&self) -> &str {
+        &self.icon
+    }
+
+    /// The blocks the page shows, in order.
+    #[must_use]
+    pub fn blocks(&self) -> &[Block] {
+        &self.blocks
+    }
+
     /// A page `id` labelled `label` with the Phosphor icon whose file stem is `icon`.
     pub fn new(
         id: impl Into<PageId>,

@@ -16,7 +16,7 @@ pub(crate) fn shortcuts_view(
     (window, cx): (&mut Window, &mut App),
 ) -> Option<AnyElement> {
     let shown: Vec<_> = group
-        .shortcuts
+        .shortcuts()
         .iter()
         .filter(|shortcut| frame.state.shortcut_visible(shortcut))
         .collect();
@@ -29,7 +29,7 @@ pub(crate) fn shortcuts_view(
             shortcut_row(frame, (group, shortcut), (&mut *window, &mut *cx)).into_any_element(),
         );
     }
-    let title = title_block(&group.title, None, cx);
+    let title = title_block(group.title(), None, cx);
     Some(
         div()
             .px(spacing::TIGHT)

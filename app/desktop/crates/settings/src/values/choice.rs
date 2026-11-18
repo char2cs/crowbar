@@ -4,8 +4,7 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Choice {
     pub(crate) value: String,
-    /// The label the select shows for this choice.
-    pub label: String,
+    pub(crate) label: String,
 }
 
 impl Choice {

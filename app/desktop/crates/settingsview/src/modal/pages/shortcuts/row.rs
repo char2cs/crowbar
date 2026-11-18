@@ -30,7 +30,7 @@ pub(crate) fn shortcut_row(
     let (group, shortcut) = entry;
     let theme = *Theme::of(cx);
     let palette = theme.palette(Surface::Window);
-    let command = shortcut.command.clone();
+    let command = shortcut.command().to_owned();
     let (chord, source) = frame.state.chord(group, shortcut);
     let conflicts = frame.state.conflicts(group, shortcut);
     let note = (!conflicts.is_empty()).then(|| format!("Also used by {}", conflicts.join(", ")));
@@ -79,7 +79,7 @@ fn label(
         .child(
             div()
                 .text_color(palette.foreground())
-                .child(shortcut.label.clone()),
+                .child(shortcut.label().to_owned()),
         )
         .children(note.map(|text| div().text_color(palette.warning()).child(text)))
 }

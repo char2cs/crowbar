@@ -20,7 +20,7 @@ pub(crate) fn select_control(
         placeholder,
         hint,
         ..
-    } = &row.control
+    } = &row.control()
     else {
         return div();
     };
@@ -28,12 +28,12 @@ pub(crate) fn select_control(
         .state
         .choices(row)
         .into_iter()
-        .map(|choice| SharedString::from(choice.label))
+        .map(|choice| SharedString::from(choice.label().to_owned()))
         .collect();
     let sink = frame.sink.clone();
     let target = row.clone();
     let select = Select::new(
-        element_id("select", row.key.as_str()),
+        element_id("select", row.key().as_str()),
         labels,
         frame.state.selected_index(row),
     )
@@ -55,7 +55,7 @@ fn info_icon(
     row: &Row,
     text: &str,
 ) -> impl IntoElement {
-    let id = element_id("hint", row.key.as_str());
+    let id = element_id("hint", row.key().as_str());
     Tooltip::new(
         id,
         text.to_owned(),

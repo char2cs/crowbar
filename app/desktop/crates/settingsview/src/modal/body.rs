@@ -85,7 +85,7 @@ mod tests {
             modal
                 .state
                 .page()
-                .map_or_else(String::new, |page| page.id.to_string())
+                .map_or_else(String::new, |page| page.id().to_string())
         })
     }
 

@@ -30,7 +30,7 @@ mod tests {
         let record = Record::new("a", "Title");
         let reference = ListedRecord::new("projects", &record, 3);
         assert_eq!(reference.source, "projects");
-        assert_eq!(reference.record.id, "a");
+        assert_eq!(reference.record.id(), "a");
         assert_eq!(reference.index, 3);
     }
 }

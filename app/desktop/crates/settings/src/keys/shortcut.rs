@@ -5,15 +5,19 @@ use chord::Chord;
 /// A command with its default chord; users rebind it through the keybindings page.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Shortcut {
-    /// The command id.
-    pub command: String,
-    /// The name of the command shown to the user.
-    pub label: String,
+    pub(crate) command: String,
+    pub(crate) label: String,
     pub(crate) default: Option<Chord>,
     pub(crate) presets: Vec<(String, Chord)>,
 }
 
 impl Shortcut {
+    /// The name of the command shown to the user.
+    #[must_use]
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+
     /// A shortcut for `command`; an empty or unparsable `default` leaves it unbound.
     pub fn new(
         command: impl Into<String>,

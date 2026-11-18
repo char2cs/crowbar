@@ -171,7 +171,13 @@ impl SettingsModal {
                 source,
                 record,
                 action,
-            } => (source, record, RecordCommand::Run { action: action.id }),
+            } => (
+                source,
+                record,
+                RecordCommand::Run {
+                    action: action.id().to_owned(),
+                },
+            ),
             Intent::Retry(source) => (source, String::new(), RecordCommand::Refresh),
             _ => return None,
         };

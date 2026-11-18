@@ -14,14 +14,14 @@ pub(crate) fn number_control(
     frame: &Frame<'_>,
     row: &Row,
 ) -> impl IntoElement {
-    let Control::Number { range, width } = &row.control else {
+    let Control::Number { range, width } = &row.control() else {
         return div();
     };
     let typed = range.parse(&frame.state.field_text(row));
-    let at_min = typed.is_some_and(|value| value <= range.min);
-    let at_max = typed.is_some_and(|value| value >= range.max);
+    let at_min = typed.is_some_and(|value| value <= range.min());
+    let at_max = typed.is_some_and(|value| value >= range.max());
     let step = |name: &str, icon: IconName, nudge: Nudge| {
-        Button::icon_only(element_id(name, row.key.as_str()), icon)
+        Button::icon_only(element_id(name, row.key().as_str()), icon)
             .on_click(frame.sink.send(Intent::Nudge(row.clone(), nudge)))
     };
     div()
@@ -34,7 +34,7 @@ pub(crate) fn number_control(
             div()
                 .flex_1()
                 .min_w_0()
-                .children(frame.fields.get(&row.key).cloned()),
+                .children(frame.fields.get(row.key()).cloned()),
         )
         .child(step("plus", IconName::Plus, Nudge::Up).when(at_max, Button::disabled))
 }

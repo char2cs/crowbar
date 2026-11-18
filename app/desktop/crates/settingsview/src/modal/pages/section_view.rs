@@ -14,7 +14,7 @@ pub(crate) fn section_view(
     (window, cx): (&mut Window, &mut App),
 ) -> Option<AnyElement> {
     let rows: Vec<&Row> = section
-        .rows
+        .rows()
         .iter()
         .filter(|row| frame.state.row_visible(row))
         .collect();
@@ -22,8 +22,8 @@ pub(crate) fn section_view(
         return None;
     }
     let header = section
-        .show_header
-        .then(|| title_block(&section.title, section.description.as_deref(), cx));
+        .show_header()
+        .then(|| title_block(section.title(), section.description(), cx));
     let mut body: Vec<AnyElement> = Vec::with_capacity(rows.len());
     for row in rows {
         body.push(row_view(frame, row, (&mut *window, &mut *cx)).into_any_element());

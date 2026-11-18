@@ -24,7 +24,7 @@ pub(crate) fn control_view(
     row: &Row,
     (window, cx): (&mut Window, &mut App),
 ) -> AnyElement {
-    match &row.control {
+    match &row.control() {
         Control::Switch { .. } => switch_control(frame, row).into_any_element(),
         Control::Select { .. } => select_control(frame, row).into_any_element(),
         Control::Number { .. } => number_control(frame, row).into_any_element(),
@@ -43,7 +43,7 @@ fn switch_control(
     let sink = frame.sink.clone();
     let target = row.clone();
     Switch::new(
-        element_id("switch", row.key.as_str()),
+        element_id("switch", row.key().as_str()),
         frame.state.switch_on(row),
     )
     .on_change(move |_, window, cx| {
@@ -69,7 +69,7 @@ fn readout_control(
     let theme = *Theme::of(cx);
     div()
         .max_w(px(READOUT_WIDTH))
-        .font_family(readout_family(&row.control, &theme))
+        .font_family(readout_family(row.control(), &theme))
         .text_size(ScaledText::Sm.size(&theme))
         .text_color(theme.palette(Surface::Window).muted_foreground())
         .child(frame.state.field_text(row))
@@ -90,7 +90,7 @@ mod tests {
             .unwrap()
             .pages()
             .iter()
-            .map(|page| page.id.clone())
+            .map(|page| page.id().clone())
             .collect();
         for id in ids {
             run(&harness, Intent::Select(id), cx);

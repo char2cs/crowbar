@@ -5,17 +5,37 @@ use crate::schema::row::Row;
 /// Rows under a heading; the first section of a page usually hides its heading.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Section {
-    /// The heading text, also used for search when the heading is hidden.
-    pub title: String,
-    /// The text under the heading, if any.
-    pub description: Option<String>,
-    /// Whether the heading is drawn.
-    pub show_header: bool,
-    /// The rows of the section, in order.
-    pub rows: Vec<Row>,
+    pub(crate) title: String,
+    pub(crate) description: Option<String>,
+    pub(crate) show_header: bool,
+    pub(crate) rows: Vec<Row>,
 }
 
 impl Section {
+    /// The heading text, also used for search when the heading is hidden.
+    #[must_use]
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
+    /// Whether the heading is drawn.
+    #[must_use]
+    pub fn show_header(&self) -> bool {
+        self.show_header
+    }
+
+    /// The rows of the section, in order.
+    #[must_use]
+    pub fn rows(&self) -> &[Row] {
+        &self.rows
+    }
+
+    /// The text under the heading, if any.
+    #[must_use]
+    pub fn description(&self) -> Option<&str> {
+        self.description.as_deref()
+    }
+
     /// A section titled `title` with a visible heading.
     pub fn new(title: impl Into<String>) -> Self {
         Self {

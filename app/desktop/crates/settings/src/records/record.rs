@@ -5,29 +5,21 @@ use crate::records::record_action::RecordAction;
 use crate::records::record_flag::RecordFlag;
 use crate::records::tone::Tone;
 
+mod accessors;
+
 /// A record the backend lists: a title, lines of detail, optional status, badge, switches and one action.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Record {
-    /// The id the backend knows the record by.
-    pub id: String,
-    /// The title text.
-    pub title: String,
-    /// File stem of the Phosphor icon drawn before the title, if any.
-    pub icon: Option<String>,
-    /// SVG markup drawn before the title in place of a Phosphor icon, if any.
-    pub artwork: Option<String>,
-    /// The tone of the status dot on the icon, if any.
-    pub status: Option<Tone>,
-    /// Detail lines under the title, in order.
-    pub lines: Vec<Line>,
-    /// A badge shown after the title, if any.
-    pub badge: Option<Line>,
-    /// Switches, each shown in the column of the same position.
-    pub flags: Vec<RecordFlag>,
-    /// The one action the record offers, if any.
-    pub action: Option<RecordAction>,
-    /// Whether the user can drag the record to reorder the list.
-    pub movable: bool,
+    pub(crate) id: String,
+    pub(crate) title: String,
+    pub(crate) icon: Option<String>,
+    pub(crate) artwork: Option<String>,
+    pub(crate) status: Option<Tone>,
+    pub(crate) lines: Vec<Line>,
+    pub(crate) badge: Option<Line>,
+    pub(crate) flags: Vec<RecordFlag>,
+    pub(crate) action: Option<RecordAction>,
+    pub(crate) movable: bool,
 }
 
 impl Record {
@@ -126,11 +118,6 @@ impl Record {
     pub fn movable(mut self) -> Self {
         self.movable = true;
         self
-    }
-
-    /// The record id.
-    pub fn id(&self) -> &str {
-        &self.id
     }
 }
 

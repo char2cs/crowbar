@@ -43,7 +43,7 @@ pub(crate) fn row_view(
         .font_family(theme.ui_family())
         .text_size(text_size);
     HoverFill::new(
-        element_id("row", row.key.as_str()),
+        element_id("row", row.key().as_str()),
         palette.muted().opacity(WASH),
     )
     .apply(base, (&mut *window, &mut *cx))
@@ -69,7 +69,7 @@ fn label_line(
         .child(
             div()
                 .text_color(palette.foreground())
-                .child(row.label.clone()),
+                .child(row.label().to_owned()),
         )
         .child(reset_button(frame, row, cx))
         .into_any_element()

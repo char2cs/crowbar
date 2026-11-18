@@ -8,20 +8,23 @@ use crate::values::Value;
 /// A label, description and control bound to one setting key.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Row {
-    /// The setting this row edits.
-    pub key: Key,
-    /// The label shown to the user.
-    pub label: String,
+    pub(crate) key: Key,
+    pub(crate) label: String,
     pub(crate) description: Option<String>,
     pub(crate) invalid_description: Option<String>,
-    /// The control that edits the value.
-    pub control: Control,
+    pub(crate) control: Control,
     pub(crate) default: Option<Value>,
     pub(crate) when: Option<Condition>,
     pub(crate) keywords: Vec<String>,
 }
 
 impl Row {
+    /// The control that edits the value.
+    #[must_use]
+    pub fn control(&self) -> &Control {
+        &self.control
+    }
+
     /// A row for `key` shown as `label` with `control`.
     pub fn new(
         key: impl Into<Key>,

@@ -131,7 +131,7 @@ impl SettingsModal {
     ) {
         let missing: Vec<settings::Row> = self.state.page().map_or_else(Vec::new, |page| {
             page.rows()
-                .filter(|row| self.fields.get(&row.key).is_none())
+                .filter(|row| self.fields.get(row.key()).is_none())
                 .cloned()
                 .collect()
         });
@@ -243,7 +243,7 @@ mod tests {
         let target = row("sidebarFollowsFocus");
         harness.backend.refuse_writes();
         run(&harness, Intent::Toggle(target.clone()), cx);
-        assert_eq!(harness.backend.get(&target.key), None);
+        assert_eq!(harness.backend.get(target.key()), None);
         assert!(!inspect(&harness, cx, |modal| modal
             .state
             .switch_on(&target)));
@@ -279,7 +279,7 @@ mod tests {
                 .state
                 .visible_pages()
                 .iter()
-                .map(|page| page.id.clone())
+                .map(|page| page.id().clone())
                 .collect()
         });
         assert_eq!(pages.len(), 10);
@@ -289,7 +289,7 @@ mod tests {
                 inspect(&harness, cx, |modal| modal
                     .state
                     .page()
-                    .map(|page| page.id.clone())),
+                    .map(|page| page.id().clone())),
                 Some(page)
             );
         }

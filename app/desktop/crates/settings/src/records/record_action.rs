@@ -5,17 +5,32 @@ use crate::schema::Confirm;
 /// The action a record offers, such as Kill or Revoke.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecordAction {
-    /// The id of the action.
-    pub id: String,
-    /// A label shown next to the icon, if any.
-    pub label: Option<String>,
-    /// File stem of the Phosphor icon the action is drawn as.
-    pub icon: String,
+    pub(crate) id: String,
+    pub(crate) label: Option<String>,
+    pub(crate) icon: String,
     pub(crate) tooltip: String,
     pub(crate) confirm: Option<Confirm>,
 }
 
 impl RecordAction {
+    /// A label shown next to the icon, if any.
+    #[must_use]
+    pub fn label(&self) -> Option<&str> {
+        self.label.as_deref()
+    }
+
+    /// The id of the action.
+    #[must_use]
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    /// File stem of the Phosphor icon the action is drawn as.
+    #[must_use]
+    pub fn icon(&self) -> &str {
+        &self.icon
+    }
+
     /// An action `id` drawn as the icon with file stem `icon`, explained by `tooltip`.
     pub fn new(
         id: impl Into<String>,

@@ -9,7 +9,7 @@ pub(crate) fn heading_view(
     heading: &Heading,
     cx: &App,
 ) -> impl IntoElement {
-    title_block(&heading.title, Some(&heading.description), cx)
+    title_block(heading.title(), Some(heading.description()), cx)
 }
 
 #[cfg(test)]

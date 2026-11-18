@@ -5,17 +5,37 @@ use crate::records::flag_look::FlagLook;
 /// An on/off value a record carries, shown as a switch in the column of the same position.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordFlag {
-    /// The id of the flag.
-    pub id: String,
-    /// The name of the flag for assistive technology and tooltips.
-    pub label: String,
-    /// Whether the flag is on.
-    pub on: bool,
-    /// How the flag is drawn.
-    pub look: FlagLook,
+    pub(crate) id: String,
+    pub(crate) label: String,
+    pub(crate) on: bool,
+    pub(crate) look: FlagLook,
 }
 
 impl RecordFlag {
+    /// The name of the flag for assistive technology and tooltips.
+    #[must_use]
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+
+    /// Whether the flag is on.
+    #[must_use]
+    pub fn is_on(&self) -> bool {
+        self.on
+    }
+
+    /// How the flag is drawn.
+    #[must_use]
+    pub fn look(&self) -> FlagLook {
+        self.look
+    }
+
+    /// The id of the flag.
+    #[must_use]
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
     /// A flag `id`, off; `label` names it for assistive technology and tooltips.
     pub fn new(
         id: impl Into<String>,

@@ -46,7 +46,7 @@ mod tests {
         cx: &mut gpui::VisualTestContext,
     ) -> Option<String> {
         inspect(harness, cx, |modal| {
-            modal.state.page().map(|page| page.id.to_string())
+            modal.state.page().map(|page| page.id().to_string())
         })
     }
 

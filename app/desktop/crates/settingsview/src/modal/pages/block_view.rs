@@ -35,7 +35,7 @@ mod tests {
     use ui::TextInputEvent;
 
     fn visible_blocks(modal: &crate::settings_modal::SettingsModal) -> usize {
-        let count = modal.state.page().map_or(0, |page| page.blocks.len());
+        let count = modal.state.page().map_or(0, |page| page.blocks().len());
         (0..count)
             .filter(|&index| modal.state.block_visible(index))
             .count()

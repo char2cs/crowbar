@@ -23,7 +23,7 @@ pub(crate) fn prompt_view(
                 .on_click(sink.send(Intent::Dismiss)),
         )
         .child(
-            Button::new("prompt-accept", prompt.confirm.action.clone())
+            Button::new("prompt-accept", prompt.confirm().action().to_owned())
                 .variant(ButtonVariant::Destructive)
                 .size(ButtonSize::Sm)
                 .on_click(sink.send(Intent::Accept)),
@@ -45,10 +45,11 @@ mod tests {
     use crate::test_support::{inspect, open, row, run};
 
     fn clear_data() -> settings::ButtonSpec {
-        let Control::Button(spec) = row("browserClearData").control else {
+        let clear = row("browserClearData");
+        let Control::Button(spec) = clear.control() else {
             panic!("browserClearData is a button row");
         };
-        spec
+        spec.clone()
     }
 
     #[gpui::test]

@@ -8,12 +8,17 @@ use crate::state::effect::Effect;
 /// A question asked before `then` happens.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Prompt {
-    /// The wording of the question.
-    pub confirm: Confirm,
+    pub(crate) confirm: Confirm,
     pub(crate) then: Effect,
 }
 
 impl Prompt {
+    /// The wording of the question.
+    #[must_use]
+    pub fn confirm(&self) -> &Confirm {
+        &self.confirm
+    }
+
     /// The title of the question.
     pub fn title(&self) -> &str {
         &self.confirm.title

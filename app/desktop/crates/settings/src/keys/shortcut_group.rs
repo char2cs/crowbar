@@ -6,15 +6,25 @@ use crate::values::Key;
 /// A category of shortcuts; custom chords of every group live in the map stored under `overrides`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShortcutGroup {
-    /// The category title.
-    pub title: String,
+    pub(crate) title: String,
     pub(crate) overrides: Key,
-    /// The shortcuts of the group, in order.
-    pub shortcuts: Vec<Shortcut>,
+    pub(crate) shortcuts: Vec<Shortcut>,
     pub(crate) preset: Option<Key>,
 }
 
 impl ShortcutGroup {
+    /// The category title.
+    #[must_use]
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
+    /// The shortcuts of the group, in order.
+    #[must_use]
+    pub fn shortcuts(&self) -> &[Shortcut] {
+        &self.shortcuts
+    }
+
     /// An empty group titled `title`.
     pub fn new(
         title: impl Into<String>,

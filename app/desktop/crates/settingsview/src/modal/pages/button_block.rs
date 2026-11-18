@@ -15,14 +15,14 @@ pub(crate) fn button_block(
     frame: &Frame<'_>,
     spec: &ButtonSpec,
 ) -> Option<impl IntoElement> {
-    if matches!(spec.action, Action::ResetOverrides(_)) && !frame.state.has_custom_chords() {
+    if matches!(spec.action(), Action::ResetOverrides(_)) && !frame.state.has_custom_chords() {
         return None;
     }
-    let button = Button::new(element_id("block", &spec.label), spec.label.clone())
+    let button = Button::new(element_id("block", spec.label()), spec.label().to_owned())
         .variant(ButtonVariant::Outline)
         .size(ButtonSize::Sm)
         .on_click(frame.sink.send(Intent::Button(spec.clone())));
-    let button = match spec.icon.as_deref().and_then(icon_named) {
+    let button = match spec.icon_stem().and_then(icon_named) {
         Some(icon) => button.icon(icon),
         None => button,
     };
@@ -45,9 +45,9 @@ mod tests {
         let spec = schema
             .pages()
             .iter()
-            .flat_map(|page| page.blocks.iter())
+            .flat_map(|page| page.blocks().iter())
             .find_map(|block| match block {
-                Block::Button(spec) if spec.label == "Add host" => Some(spec.clone()),
+                Block::Button(spec) if spec.label() == "Add host" => Some(spec.clone()),
                 _ => None,
             })
             .unwrap();
@@ -78,9 +78,9 @@ mod tests {
         let spec = schema
             .pages()
             .iter()
-            .flat_map(|page| page.blocks.iter())
+            .flat_map(|page| page.blocks().iter())
             .find_map(|block| match block {
-                Block::Button(spec) if spec.label.starts_with("Reset") => Some(spec.clone()),
+                Block::Button(spec) if spec.label().starts_with("Reset") => Some(spec.clone()),
                 _ => None,
             })
             .unwrap();

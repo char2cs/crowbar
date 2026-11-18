@@ -36,16 +36,16 @@ pub(crate) fn record_view(
     let theme = *Theme::of(cx);
     let palette = theme.palette(Surface::Window);
     let leading = leading_icon(record, palette);
-    let artwork = record.artwork.as_deref().map(artwork_image);
+    let artwork = record.artwork_svg().map(artwork_image);
     let badge = record
-        .badge
+        .badge_line()
         .as_ref()
-        .map(|line| Badge::new(line.text.clone()).variant(ui::BadgeVariant::Secondary));
+        .map(|line| Badge::new(line.text().to_owned()).variant(ui::BadgeVariant::Secondary));
     let text = text_column(record, &theme);
     let flags = flag_boxes(frame, entry, palette);
-    let grip = record.movable.then(|| grip(palette));
+    let grip = record.is_movable().then(|| grip(palette));
     let row = div()
-        .id(element_id("record", &format!("{source}-{}", record.id)))
+        .id(element_id("record", &format!("{source}-{}", record.id())))
         .flex()
         .items_center()
         .gap(spacing::ROOMY)
@@ -62,11 +62,11 @@ pub(crate) fn record_view(
         .children(flags)
         .children(
             record
-                .action
+                .offered_action()
                 .as_ref()
                 .map(|action| action_button(frame, (source, record), action)),
         );
-    if record.movable {
+    if record.is_movable() {
         return draggable(row, frame, entry).into_any_element();
     }
     row.into_any_element()
@@ -79,7 +79,7 @@ fn flag_boxes(
 ) -> Vec<AnyElement> {
     entry
         .record
-        .flags
+        .flags()
         .iter()
         .map(|flag| flag_box(frame, entry, (flag, palette)))
         .collect()
@@ -97,8 +97,8 @@ fn draggable(
     } = entry;
     let drag = DragRecord {
         source: source.to_owned(),
-        record: record.id.clone(),
-        title: record.title.clone(),
+        record: record.id().to_owned(),
+        title: record.title().to_owned(),
     };
     let sink = frame.sink.clone();
     let target = source.to_owned();
@@ -119,9 +119,9 @@ fn leading_icon(
     record: &Record,
     palette: &ui::Palette,
 ) -> Option<Icon> {
-    let icon = record.icon.as_deref().and_then(icon_named)?;
+    let icon = record.icon_stem().and_then(icon_named)?;
     let color = record
-        .status
+        .status_tone()
         .map_or(palette.muted_foreground(), |tone| tone_color(tone, palette));
     Some(Icon::new(icon).size(px(ICON)).color(color))
 }
@@ -132,7 +132,7 @@ fn text_column(
 ) -> impl IntoElement {
     let palette = theme.palette(Surface::Window);
     let lines: Vec<AnyElement> = record
-        .lines
+        .lines()
         .iter()
         .map(|line| line_text(line, theme).into_any_element())
         .collect();
@@ -145,7 +145,7 @@ fn text_column(
         .child(
             div()
                 .text_color(palette.foreground())
-                .child(record.title.clone()),
+                .child(record.title().to_owned()),
         )
         .children(lines)
 }
@@ -154,7 +154,7 @@ fn line_family(
     line: &Line,
     theme: &Theme,
 ) -> &'static str {
-    if line.mono {
+    if line.is_mono() {
         return theme.mono_family();
     }
     theme.ui_family()
@@ -168,8 +168,8 @@ fn line_text(
     div()
         .font_family(line_family(line, theme))
         .text_size(ScaledText::Xs.size(theme))
-        .text_color(tone_color(line.tone, palette))
-        .child(line.text.clone())
+        .text_color(tone_color(line.tone(), palette))
+        .child(line.text().to_owned())
 }
 
 fn flag_box(
@@ -178,13 +178,13 @@ fn flag_box(
     (flag, palette): (&RecordFlag, &ui::Palette),
 ) -> AnyElement {
     let ListedRecord { source, record, .. } = entry;
-    let id = element_id("flag", &format!("{}-{}", record.id, flag.id));
-    if flag.look == FlagLook::Dot {
+    let id = element_id("flag", &format!("{}-{}", record.id(), flag.id()));
+    if flag.look() == FlagLook::Dot {
         return dot_box(flag, palette).into_any_element();
     }
-    let toggled = flag_intent(source, record, &flag.id);
+    let toggled = flag_intent(source, record, flag.id());
     let sink = frame.sink.clone();
-    let switch = Switch::new(id, flag.on)
+    let switch = Switch::new(id, flag.is_on())
         .on_change(move |on, window, cx| sink.deliver(toggled(bool::from(on)), (window, cx)));
     div()
         .flex()
@@ -199,7 +199,7 @@ fn flag_intent(
     record: &Record,
     flag: &str,
 ) -> impl Fn(bool) -> Intent + 'static {
-    let (source, record, flag) = (source.to_owned(), record.id.clone(), flag.to_owned());
+    let (source, record, flag) = (source.to_owned(), record.id().to_owned(), flag.to_owned());
     move |on| Intent::Flag {
         source: source.clone(),
         record: record.clone(),
@@ -213,15 +213,15 @@ fn action_button(
     (source, record): (&str, &Record),
     action: &settings::RecordAction,
 ) -> impl IntoElement {
-    let id = element_id("record-action", &format!("{}-{}", record.id, action.id));
+    let id = element_id("record-action", &format!("{}-{}", record.id(), action.id()));
     let intent = Intent::RunRecord {
         source: source.to_owned(),
-        record: record.id.clone(),
+        record: record.id().to_owned(),
         action: action.clone(),
     };
-    let icon = icon_named(&action.icon).unwrap_or(IconName::Trash);
-    let button = match &action.label {
-        Some(label) => Button::new(id, label.clone()).icon(icon),
+    let icon = icon_named(action.icon()).unwrap_or(IconName::Trash);
+    let button = match action.label() {
+        Some(label) => Button::new(id, label.to_owned()).icon(icon),
         None => Button::icon_only(id, icon),
     };
     button

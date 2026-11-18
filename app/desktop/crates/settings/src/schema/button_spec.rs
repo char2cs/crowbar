@@ -11,18 +11,33 @@ use crate::schema::condition::Condition;
 /// A labelled button that runs an [`Action`], optionally after a confirmation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ButtonSpec {
-    /// The text on the button.
-    pub label: String,
-    /// File stem of the Phosphor icon shown before the label, if any.
-    pub icon: Option<String>,
-    /// What the button does when pressed.
-    pub action: Action,
+    pub(crate) label: String,
+    pub(crate) icon: Option<String>,
+    pub(crate) action: Action,
     pub(crate) confirm: Option<Confirm>,
     pub(crate) enabled: Option<Condition>,
     pub(crate) disabled_note: Option<String>,
 }
 
 impl ButtonSpec {
+    /// The text on the button.
+    #[must_use]
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+
+    /// File stem of the Phosphor icon shown before the label, if any.
+    #[must_use]
+    pub fn icon_stem(&self) -> Option<&str> {
+        self.icon.as_deref()
+    }
+
+    /// What the button does when pressed.
+    #[must_use]
+    pub fn action(&self) -> &Action {
+        &self.action
+    }
+
     /// A button labelled `label` that runs `action`.
     pub fn new(
         label: impl Into<String>,

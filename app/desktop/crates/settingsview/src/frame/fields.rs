@@ -39,7 +39,7 @@ impl Fields {
         state
             .schema()
             .rows()
-            .filter_map(|row| Some((row, self.inputs.get(&row.key)?)))
+            .filter_map(|row| Some((row, self.inputs.get(row.key())?)))
             .for_each(|(row, input)| show(input, &state.field_text(row), cx));
     }
 }

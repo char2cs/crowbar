@@ -5,11 +5,16 @@
 pub struct Confirm {
     pub(crate) title: String,
     pub(crate) message: String,
-    /// The label of the confirming button.
-    pub action: String,
+    pub(crate) action: String,
 }
 
 impl Confirm {
+    /// The label of the confirming button.
+    #[must_use]
+    pub fn action(&self) -> &str {
+        &self.action
+    }
+
     /// A confirmation with a title, an explanation and the label of the confirming button.
     pub fn new(
         title: impl Into<String>,
