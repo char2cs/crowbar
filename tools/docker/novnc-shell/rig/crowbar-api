@@ -1,0 +1,22 @@
+#!/bin/bash
+# The daemon binary both apps run (Tauri's sidecar /usr/bin/crowbar-api links here; the Rust shell
+# gets it via CROWBAR_API_BIN). `paths` and `serve` hand each app ($RIG_APP) its own proxy socket in
+# front of the rig's one shared daemon; every other subcommand runs the real daemon binary.
+set -euo pipefail
+real=/opt/crowbar/crowbar-api.real
+app=${RIG_APP:-other}
+socket=$HOME/.rig/$app/daemon.sock
+case ${1:-} in
+  paths)
+    exec python3 -c 'import json, sys
+paths = json.loads(sys.stdin.read())
+paths.update(socket=sys.argv[1], log=sys.argv[2])
+print(json.dumps(paths))' "$socket" "$HOME/.rig/$app/daemon.log" < <("$real" paths)
+    ;;
+  serve)
+    [[ ${2:-} == --host && ${3:-} == unix://?* ]] && socket=${3#unix://}
+    upstream=$("$real" paths | python3 -c 'import json, sys; print(json.load(sys.stdin)["socket"])')
+    exec python3 /opt/rig/bin/rig-proxy.py "$socket" "$upstream"
+    ;;
+  *) exec "$real" "$@" ;;
+esac

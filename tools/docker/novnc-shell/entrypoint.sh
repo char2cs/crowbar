@@ -1,12 +1,26 @@
 #!/bin/bash
-# Xvfb + openbox + passwordless x11vnc + websockify/noVNC on 0.0.0.0:6080; the shell restarts if it exits.
-set -euo pipefail
+# Xvfb wide enough for both app windows side by side, openbox, passwordless x11vnc, noVNC on 6080,
+# the one shared daemon, then both apps at the rig's standard size.
+set -uo pipefail
 unset XAUTHORITY
+W=${RIG_W:-1280} H=${RIG_H:-800} GAP=${RIG_GAP:-20}
+mkdir -p "$HOME/.rig"
+[[ -d $CROWBAR_HOME ]] || tar -xf /opt/rig/seeded-home.tar -C "$HOME"
 rm -f /tmp/.X1-lock /tmp/.X11-unix/X1
-Xvfb :1 -screen 0 "${GEOMETRY:-1440x900}x24" -nolisten tcp &
-for _ in $(seq 100); do [ -S /tmp/.X11-unix/X1 ] && break; sleep 0.1; done
-openbox &
+Xvfb :1 -screen 0 "$((2 * W + GAP + 20))x$((H + 100))x24" -nolisten tcp &
+essential=($!)
+for _ in $(seq 100); do [[ -S /tmp/.X11-unix/X1 ]] && break; sleep 0.1; done
+openbox --config-file /opt/rig/rc.xml &
+essential+=($!)
 x11vnc -display :1 -nopw -forever -shared -rfbport 5900 -localhost -noxdamage -quiet &
+essential+=($!)
 websockify --web /usr/share/novnc 6080 localhost:5900 &
-(while true; do /opt/crowbar/crowbar || true; sleep 1; done) &
-wait -n
+essential+=($!)
+rig _daemon-loop &
+essential+=($!)
+(
+  rig _wait-daemon || exit 1
+  if [[ -e $HOME/.rig/initialised ]]; then rig start all; else rig init; fi
+) >>"$HOME/.rig/entrypoint.log" 2>&1 &
+# The container lives as long as the desktop and the daemon loop do (the apps come and go).
+wait -n "${essential[@]}"

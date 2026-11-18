@@ -1,0 +1,363 @@
+#!/bin/bash
+# Drives the Tauri app (develop) and the Rust shell (this branch) side by side. See README.md.
+set -euo pipefail
+export DISPLAY=${DISPLAY:-:1}
+RIG_W=${RIG_W:-1280} RIG_H=${RIG_H:-800} RIG_GAP=${RIG_GAP:-20}
+RIG_DIR=$HOME/.rig
+SHOTS=${RIG_SHOTS:-$HOME/shots}
+RIGX=/opt/rig/bin/rigx.py
+TAURI_DB=$HOME/.local/share/software.rabbyte.crowbar/localstorage/tauri_localhost_0.localstorage
+RUST_SETTINGS=$CROWBAR_HOME/shell/settings.json
+# shellcheck source=points.conf
+source /opt/rig/points.conf
+[[ -f $RIG_DIR/points.conf ]] && source "$RIG_DIR/points.conf"
+
+die() { echo "rig: $*" >&2; exit 1; }
+apps_of() {
+  case ${1:-all} in
+    all) echo tauri rust ;;
+    tauri | rust) echo "$1" ;;
+    *) die "unknown app '$1' (tauri, rust or all)" ;;
+  esac
+}
+one_app() { [[ ${1:-} == tauri || ${1:-} == rust ]] || die "name one app: tauri or rust"; }
+cmd_of() {
+  case $1 in
+    tauri) echo /usr/bin/crowbar-desktop ;;
+    rust) echo /opt/crowbar/crowbar ;;
+  esac
+}
+slot_x() { [[ $1 == tauri ]] && echo 0 || echo $((RIG_W + RIG_GAP)); }
+pid_of() {
+  local pid
+  pid=$(cat "$RIG_DIR/$1/pid" 2>/dev/null) || return 1
+  [[ -d /proc/$pid ]] && grep -qF "$(cmd_of "$1")" "/proc/$pid/cmdline" 2>/dev/null && echo "$pid"
+}
+running() { pid_of "$1" >/dev/null; }
+socket() { /opt/crowbar/crowbar-api.real paths | python3 -c 'import json,sys; print(json.load(sys.stdin)["socket"])'; }
+
+winid() { # the app's largest visible window carrying its _NET_WM_PID (both apps set it)
+  local pid w g best="" area=0
+  pid=$(pid_of "$1") || die "$1 is not running"
+  for w in $(xdotool search --onlyvisible --pid "$pid" 2>/dev/null); do
+    g=$(xdotool getwindowgeometry "$w" | awk '/Geometry/ {print $2}')
+    ((${g%x*} * ${g#*x} > area)) && area=$((${g%x*} * ${g#*x})) && best=$w
+  done
+  ((area > 0)) || return 1
+  echo "$best"
+}
+
+# min_size <app>: the minimum the app declares in WM_NORMAL_HINTS, else $RIG_MIN (the Rust shell's).
+min_size() {
+  local hint
+  hint=$(xprop -id "$(winid "$1")" WM_NORMAL_HINTS | sed -n 's/.*minimum size: \([0-9]*\) by \([0-9]*\).*/\1x\2/p')
+  if [[ -n $hint && $hint != 0x0 && $hint != 1x1 ]]; then echo "$hint"; return; fi
+  echo "$1 declares no minimum size; using RIG_MIN=${RIG_MIN:-640x480}" >&2
+  echo "${RIG_MIN:-640x480}"
+}
+
+wait_window() {
+  local i
+  for i in $(seq 600); do
+    winid "$1" 2>/dev/null && return
+    running "$1" || die "$1 exited during startup; see $RIG_DIR/$1/app.log"
+    sleep 0.1
+  done
+  die "$1 opened no window in 60s; see $RIG_DIR/$1/app.log"
+}
+
+place() { # place <app> <w> <h>
+  local w
+  w=$(winid "$1") || die "$1 has no window"
+  xdotool windowmove "$w" "$(slot_x "$1")" 0 windowsize "$w" "$2" "$3"
+  local i g
+  for i in $(seq 50); do
+    g=$(xdotool getwindowgeometry "$w" | awk '/Geometry/ {print $2}')
+    [[ $g == "$2x$3" ]] && break
+    sleep 0.1
+  done
+  # The client rectangle (inside openbox's border), which `perf startup` samples before a window exists.
+  local X Y WIDTH HEIGHT WINDOW SCREEN
+  eval "$(xdotool getwindowgeometry --shell "$w")"
+  echo "$X,$Y,$WIDTH,$HEIGHT" >"$RIG_DIR/$1/rect"
+  echo "$1 $X,$Y ${WIDTH}x$HEIGHT"
+}
+
+start_app() {
+  local app=$1 cmd
+  running "$app" && { echo "$app is already running (pid $(pid_of "$app"))"; return; }
+  mkdir -p "$RIG_DIR/$app"
+  cmd=$(cmd_of "$app")
+  (
+    cd "$HOME"
+    exec setsid env RIG_APP="$app" "$cmd" >>"$RIG_DIR/$app/app.log" 2>&1 </dev/null
+  ) &
+  echo $! >"$RIG_DIR/$app/pid"
+  if [[ ${RIG_NO_PLACE:-} == 1 ]]; then return; fi
+  wait_window "$app" >/dev/null
+  place "$app" "$RIG_W" "$RIG_H" >/dev/null
+  echo "$app started (pid $(pid_of "$app"))"
+}
+
+stop_app() {
+  local app=$1 pid i
+  pid=$(pid_of "$app") || { echo "$app is not running"; return; }
+  kill -TERM "$pid" 2>/dev/null || true
+  for i in $(seq 100); do [[ -d /proc/$pid ]] || break; sleep 0.1; done
+  kill -KILL -- "-$pid" 2>/dev/null || true
+  rm -f "$RIG_DIR/$app/pid"
+  echo "$app stopped"
+}
+
+# with_stopped <apps> -- <command...>: stop the running ones, run the command, restart them.
+with_stopped() {
+  local apps=() was=() app
+  while [[ $1 != -- ]]; do apps+=("$1"); shift; done
+  shift
+  for app in "${apps[@]}"; do running "$app" && was+=("$app") && stop_app "$app" >/dev/null; done
+  "$@"
+  for app in "${was[@]}"; do start_app "$app"; done
+}
+
+# WebKit discards a localStorage database it did not create itself, so let Tauri create it once.
+tauri_db_ready() {
+  [[ -f $TAURI_DB ]] && return
+  start_app tauri >/dev/null
+  for _ in $(seq 300); do [[ -f $TAURI_DB ]] && break; sleep 0.1; done
+  sleep 2
+  stop_app tauri >/dev/null
+  [[ -f $TAURI_DB ]] || die "Tauri did not create its localStorage at $TAURI_DB"
+}
+
+set_setting() { # set_setting <key> <value> <apps...>
+  local key=$1 value=$2 app
+  shift 2
+  for app; do
+    case $app in
+      tauri) tauri_db_ready && python3 "$RIGX" tauri-set "$TAURI_DB" "$key" "$value" ;;
+      rust) python3 "$RIGX" rust-set "$RUST_SETTINGS" "$key" "$value" ;;
+    esac
+    echo "$app: $key = $value"
+  done
+}
+
+shot() { # shot <app> <file>
+  local w
+  w=$(winid "$1") || die "$1 has no window"
+  xdotool windowraise "$w"
+  python3 "$RIGX" shot "$w" "$2" >/dev/null
+  echo "$2"
+}
+
+activate() {
+  local w
+  w=$(winid "$1") || die "$1 has no window"
+  xdotool windowactivate --sync "$w" 2>/dev/null || xdotool windowfocus --sync "$w"
+  echo "$w"
+}
+
+point() { # point <app> <name>  -> "x,y" from points.conf
+  local var="${1}_$2"
+  [[ -n ${!var:-} ]] || die "no point '$2' for $1: set ${var}=x,y in $RIG_DIR/points.conf"
+  echo "${!var}"
+}
+
+click_point() { # click_point <app> <name>: click a points.conf point in the app's window
+  local w xy
+  w=$(activate "$1")
+  xy=$(point "$1" "$2")
+  xdotool mousemove --window "$w" "${xy%,*}" "${xy#*,}" click 1
+}
+
+# init: the state every comparison starts from — same theme and sidebar side in both apps, both
+# seeded chats open as tabs with "Perf fixture" active (both apps restore their tabs on restart).
+initial_settings() {
+  set_setting themeMode "${RIG_THEME:-dark}" tauri rust
+  set_setting sidebarPosition left tauri rust
+}
+init() {
+  local app
+  with_stopped tauri rust -- initial_settings
+  for app in tauri rust; do running "$app" || start_app "$app"; done
+  for app in tauri rust; do
+    click_point "$app" perf_chat; sleep 3
+    click_point "$app" untitled_chat; sleep 3
+    click_point "$app" switch_a; sleep 1
+  done
+  touch "$RIG_DIR/initialised"
+}
+
+# reset_state: the seeded home back, both apps' own storage wiped, then `init`.
+reset_state() {
+  stop_app tauri
+  stop_app rust
+  touch "$RIG_DIR/daemon.paused"
+  pkill -f "crowbar-api.real serve" || true
+  while pgrep -f "crowbar-api.real serve" >/dev/null; do sleep 0.2; done
+  rm -rf "$CROWBAR_HOME" "$HOME/.local/share/software.rabbyte.crowbar" "$HOME/.cache/software.rabbyte.crowbar" \
+    "$RIG_DIR/initialised"
+  tar -xf /opt/rig/seeded-home.tar -C "$HOME"
+  rm -f "$RIG_DIR/daemon.paused"
+  "$0" _wait-daemon
+  init
+}
+
+# perf_one <metric> <app> [extra rigx args]: the other app is stopped while one is measured.
+perf_one() {
+  local metric=$1 app=$2 other
+  shift 2
+  other=$([[ $app == tauri ]] && echo rust || echo tauri)
+  local other_was=0
+  if [[ ${RIG_KEEP_OTHER:-0} != 1 ]] && running "$other"; then other_was=1; stop_app "$other" >/dev/null; fi
+  case $metric in
+    startup)
+      stop_app "$app" >/dev/null
+      rect=$(cat "$RIG_DIR/$app/rect" 2>/dev/null || echo "$(slot_x "$app"),0,$RIG_W,$RIG_H")
+      python3 "$RIGX" startup "$app" --slot "$rect" "$@"
+      ;;
+    input)
+      running "$app" || start_app "$app" >/dev/null
+      click_point "$app" switch_a
+      python3 "$RIGX" input "$app" --focus "$(point "$app" composer)" "$@"
+      ;;
+    switch)
+      running "$app" || start_app "$app" >/dev/null
+      activate "$app" >/dev/null
+      python3 "$RIGX" switch "$app" --a "$(point "$app" switch_a)" --b "$(point "$app" switch_b)" "$@"
+      ;;
+    scroll)
+      running "$app" || start_app "$app" >/dev/null
+      click_point "$app" switch_a
+      python3 "$RIGX" scroll "$app" --at "$(point "$app" scroll)" "$@"
+      ;;
+    idle)
+      running "$app" || start_app "$app" >/dev/null
+      python3 "$RIGX" idle "$app" --pid "$(pid_of "$app")" "$@"
+      ;;
+    memory)
+      stop_app "$app" >/dev/null
+      start_app "$app" >/dev/null
+      activate "$app" >/dev/null
+      python3 "$RIGX" memory "$app" --pid "$(pid_of "$app")" --focus "$(point "$app" switch_a)" "$@"
+      # Both apps persist the tabs it opened and a terminal swallows mod+w: put the seeded state back.
+      [[ ${RIG_NO_RESET:-0} == 1 ]] || reset_state >/dev/null
+      ;;
+    *) die "unknown metric '$metric'" ;;
+  esac
+  ((other_was)) && start_app "$other" >/dev/null
+  return 0
+}
+
+usage() {
+  sed -n '/^## Driver/,/^## Performance/p' /opt/rig/README.md 2>/dev/null | grep '^    rig' || true
+}
+
+sub=${1:-help}
+shift || true
+case $sub in
+  status)
+    for app in tauri rust; do
+      if running "$app"; then
+        w=$(winid "$app" 2>/dev/null || echo none)
+        printf '%-6s running pid %s window %s %s\n' "$app" "$(pid_of "$app")" "$w" \
+          "$([[ $w != none ]] && xdotool getwindowgeometry "$w" | awk '/Position|Geometry/ {printf "%s ", $2}')"
+      else
+        printf '%-6s stopped\n' "$app"
+      fi
+    done
+    printf 'daemon %s\n' "$(python3 "$RIGX" health "$(socket)" 2>&1)"
+    ;;
+  start) for app in $(apps_of "${1:-all}"); do start_app "$app"; done ;;
+  stop) for app in $(apps_of "${1:-all}"); do stop_app "$app"; done ;;
+  restart) for app in $(apps_of "${1:-all}"); do stop_app "$app"; start_app "$app"; done ;;
+  init) init ;;
+  winid) one_app "${1:-}"; winid "$1" ;;
+  size)
+    for app in $(apps_of "${1:-all}"); do
+      case ${2:-standard} in
+        standard) place "$app" "$RIG_W" "$RIG_H" ;;
+        default) [[ $app == tauri ]] && place "$app" 1200 800 || place "$app" 1280 800 ;;
+        min) m=$(min_size "$app") && place "$app" "${m%x*}" "${m#*x}" ;;
+        *x*) place "$app" "${2%x*}" "${2#*x}" ;;
+        *) die "size: standard, default, min or WxH" ;;
+      esac
+    done
+    ;;
+  theme)
+    [[ ${1:-} == light || ${1:-} == dark || ${1:-} == system ]] || die "theme light|dark|system [app|all]"
+    read -ra targets <<<"$(apps_of "${2:-all}")"
+    with_stopped "${targets[@]}" -- set_setting themeMode "$1" "${targets[@]}"
+    ;;
+  sidebar)
+    [[ ${1:-} == left || ${1:-} == right ]] || die "sidebar left|right [app|all]"
+    read -ra targets <<<"$(apps_of "${2:-all}")"
+    with_stopped "${targets[@]}" -- set_setting sidebarPosition "$1" "${targets[@]}"
+    ;;
+  key)
+    one_app "${1:-}"
+    w=$(activate "$1")
+    shift
+    # XTest to the focused window: WebKit ignores synthetic (XSendEvent) key events.
+    xdotool key --clearmodifiers "$@"
+    ;;
+  type)
+    one_app "${1:-}"
+    w=$(activate "$1")
+    xdotool type --delay 30 "$2"
+    ;;
+  click)
+    one_app "${1:-}"
+    w=$(activate "$1")
+    xdotool mousemove --window "$w" "$2" "$3" click "${4:-1}"
+    ;;
+  scroll)
+    one_app "${1:-}"
+    w=$(activate "$1")
+    [[ ${4:-down} == up ]] && b=4 || b=5
+    xdotool mousemove --window "$w" "$2" "$3" click --repeat "${5:-5}" --delay 50 "$b"
+    ;;
+  shot)
+    one_app "${1:-}"
+    mkdir -p "$SHOTS"
+    shot "$1" "${2:-$SHOTS/$1-$(date +%H%M%S).png}"
+    ;;
+  pair)
+    row=${1:?pair <row-id>}
+    mkdir -p "$SHOTS/$row"
+    shot tauri "$SHOTS/$row/tauri.png" >/dev/null
+    shot rust "$SHOTS/$row/rust.png" >/dev/null
+    python3 "$RIGX" compose "$SHOTS/$row/tauri.png" "$SHOTS/$row/rust.png" \
+      "Tauri (develop)" "Rust shell (branch)" "$SHOTS/$row/side-by-side.png" >/dev/null
+    ls "$SHOTS/$row"/*.png
+    ;;
+  perf)
+    metric=${1:?perf <startup|input|switch|scroll|idle|memory|all> <app|all> [options]}
+    shift
+    targets=$(apps_of "${1:-all}")
+    shift || true
+    [[ $metric == all ]] && metrics="startup input switch scroll idle memory" || metrics=$metric
+    for m in $metrics; do for app in $targets; do perf_one "$m" "$app" "$@"; done; done
+    ;;
+  daemon)
+    case ${1:-status} in
+      status) python3 "$RIGX" health "$(socket)" ;;
+      restart) pkill -f "crowbar-api.real serve" || true; echo "daemon restarting" ;;
+      *) die "daemon status|restart" ;;
+    esac
+    ;;
+  _daemon-loop)
+    sock=$(socket)
+    while true; do
+      while [[ -e $RIG_DIR/daemon.paused ]]; do sleep 0.5; done
+      /opt/crowbar/crowbar-api.real serve --host "unix://$sock" >>"$RIG_DIR/daemon.log" 2>&1 || true
+      sleep 1
+    done
+    ;;
+  _wait-daemon)
+    for _ in $(seq 300); do python3 "$RIGX" health "$(socket)" >/dev/null 2>&1 && exit 0; sleep 0.2; done
+    die "the daemon did not become healthy"
+    ;;
+  reset) reset_state ;;
+  help | -h | --help) usage ;;
+  *) usage; die "unknown command '$sub'" ;;
+esac
