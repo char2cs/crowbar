@@ -3,7 +3,7 @@
 #
 # The builder keeps cargo's target directory in RAM (tmpfs) so builds do not hit the disk, mounts
 # this worktree at /w and the cargo registry from a named volume, and serialises callers with a
-# lock. Usage: tools/scripts/rbuild.sh cargo test -p model
+# lock. Usage: tools/scripts/rbuild.sh cargo test -p layout
 #        tools/scripts/rbuild.sh --reset   # recreate the container (empties the RAM target)
 set -euo pipefail
 

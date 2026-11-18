@@ -1,5 +1,5 @@
 [package]
-name = "crowbar_desktop"
+name = "crowbar"
 description = "The Crowbar desktop shell: a GPUI window that hosts panes as web views."
 version.workspace = true
 edition.workspace = true

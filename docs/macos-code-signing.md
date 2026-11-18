@@ -2,9 +2,9 @@
 
 > **Status (2026-11-17).** Tauri is mobile-only, so `nightly.yml`, `prerelease.yml` and
 > `stable-release.yml` no longer build a macOS DMG or a Linux AppImage/deb. The GPUI desktop
-> shell (`crowbar_desktop`) has no release pipeline yet: the owner accepted that as out of
+> shell (`crowbar`) has no release pipeline yet: the owner accepted that as out of
 > scope for now, so none exists and desktop users build it from source
-> (`cd app && cargo build --release -p crowbar_desktop`). Packaging, signing and notarizing it
+> (`cd app && cargo build --release -p crowbar`). Packaging, signing and notarizing it
 > is future work; the steps below describe the retired Tauri DMG flow and are kept as the
 > starting point for that work.
 

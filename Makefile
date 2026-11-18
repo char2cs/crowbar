@@ -46,10 +46,10 @@ dev-api:
 dev-web:
 	$(MAKE) -C app/panes dev
 
-# The GPUI shell (crowbar_desktop). Its panes are the web bundle, so the web deps are
+# The GPUI shell (crowbar). Its panes are the web bundle, so the web deps are
 # installed first; it talks to the daemon `make dev-api` runs.
 dev-desktop: web-install
-	cd app && cargo run -p crowbar_desktop
+	cd app && cargo run -p crowbar
 
 # Fills the RUNNING dev daemon with a throwaway repo, project, repo, feature
 # workspace with a real diff, and review threads — so a new workspace does not
@@ -102,7 +102,7 @@ build:
 	@echo "Building Go daemon..."
 	@$(MAKE) -C api build
 	@echo "Building the desktop shell..."
-	cd app && cargo build --release -p crowbar_desktop
+	cd app && cargo build --release -p crowbar
 
 test:
 	@$(MAKE) -C api test

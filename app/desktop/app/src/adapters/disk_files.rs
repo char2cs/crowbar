@@ -52,12 +52,7 @@ mod tests {
     #[test]
     fn reading_returns_the_text_and_a_missing_file_is_not_found() {
         let files = DiskFiles::default();
-        assert!(
-            files
-                .read(Path::new(MANIFEST))
-                .unwrap()
-                .contains("crowbar_desktop")
-        );
+        assert!(files.read(Path::new(MANIFEST)).unwrap().contains("crowbar"));
         assert!(
             !files.read_bytes(Path::new(MANIFEST)).unwrap().is_empty(),
             "bytes"

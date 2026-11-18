@@ -78,39 +78,38 @@ tests/<crate>.rs         public-API tests; tests/support/ shared fakes
 | crate | owns |
 | --- | --- |
 | `protocol` (shared) | control frames (`sdk@1` JSON text), lifecycle, ids, the 64 KiB `PaneState` cap, `AppPhase`, `DaemonTransport` |
-| `model` (shared) | tabs, pane slots, the split tree, pane instances and `DragSubject` as a pure state machine with undo |
+| `layout` (shared) | tabs, pane slots, the split tree, pane instances and `DragSubject` as a pure state machine with undo |
 | `transport` (shared) | `ShellTransport`, the implementation of `DaemonTransport`: HTTP to the daemon, paired hosts and tokens, certificate pinning, the WebSocket relay |
-| `browser_nav` (shared) | address-bar interpretation, which URLs a browser pane may load, page state for the native chrome |
+| `browser` (shared) | address-bar interpretation, which URLs a browser pane may load, page state for the native chrome |
 | `webview` | the only platform crate: create, place, show, hide, eval and destroy web views; GTK thread on Linux |
-| `pane_host` | pane registry, slot pool, park and restore, focus routing, overlay hiding, the `crowbar://` protocol |
-| `daemon_supervisor` | find, spawn, health-check, recover and stop the daemon sidecar (desktop only; iOS has no sidecar) |
+| `panehost` | pane registry, slot pool, park and restore, focus routing, overlay hiding, the `crowbar://` protocol |
+| `supervisor` | find, spawn, health-check, recover and stop the daemon sidecar (desktop only; iOS has no sidecar) |
 | `ui` | GPUI design system: theme tokens, fonts, icons, motion (`Glide`), `DragGhost`, `Overlays`, base components |
-| `tab_bar` | the tab strip: pills, reorder and merge drags, drop line, context menu |
-| `layout_view` | the pane layout: frames, handles, accent ring, sashes, drop zones; `pane_holes` gives the web view rectangles |
+| `viewtabs` | the tab strip: pills, reorder and merge drags, drop line, context menu |
+| `layoutview` | the pane layout: frames, handles, accent ring, sashes, drop zones; `pane_holes` gives the web view rectangles |
 | `sidebar` | frame, header, space switcher, mode bar, chats tree, files and changes panels |
 | `settings_ui` | schema-driven native settings modal |
-| `startup_view` | full-screen startup and data-migration view |
-| `command_palette` | fuzzy matcher over command titles and the list view |
-| `terminal` / `terminal_view` | terminal emulation (alacritty grid, daemon frame feed, selection, search, key encoding) without GPUI, and its GPUI view |
-| `shell_data` | daemon-backed data for the shell: sidebar entities and commands, settings and records |
-| `shell_keys` | which chords the shell owns and how a key typed in a pane reaches it |
-| `shell_platform` | open a link in the system browser, reveal a path, the rule for where a link may go |
-| `shell_diagnostics` | rotated log file and a report file for every panic |
-| `window_state` | remembers window size, position and maximized state |
-| `crowbar_desktop` (`desktop/app`) | the binary: GPUI window, native chrome regions, wiring of all of the above |
+| `startup` | full-screen startup and data-migration view |
+| `terminal` / `terminalview` | terminal emulation (alacritty grid, daemon frame feed, selection, search, key encoding) without GPUI, and its GPUI view |
+| `store` | daemon-backed data for the shell: sidebar entities and commands, settings and records |
+| `keymap` | which chords the shell owns and how a key typed in a pane reaches it |
+| `platform` | open a link in the system browser, reveal a path, the rule for where a link may go |
+| `diagnostics` | rotated log file and a report file for every panic |
+| `windowstate` | remembers window size, position and maximized state |
+| `crowbar` (`desktop/app`) | the binary: GPUI window, native chrome regions, wiring of all of the above |
 
 ## wiring
 
-- `pane_host::PaneProtocol::new(scheme, transport, bundles, extension_bundles, origins)` takes an `Arc<dyn protocol::DaemonTransport>`; `crowbar_desktop` passes `transport::ShellTransport`. Every `crowbar://<host>/v0/...` request from a pane becomes a `DaemonRequest` answered through the `Responder`; `relay_endpoint` serves WebSocket access.
-- `tab_bar` and `layout_view` render the model and issue `model::Command`s. The app applies them to `Layout` and pushes the new state back (`TabBar::set_tabs`, `LayoutView::set_tab`); neither keeps layout state of its own.
+- `panehost::PaneProtocol::new(scheme, transport, bundles, extension_bundles, origins)` takes an `Arc<dyn protocol::DaemonTransport>`; `crowbar` passes `transport::ShellTransport`. Every `crowbar://<host>/v0/...` request from a pane becomes a `DaemonRequest` answered through the `Responder`; `relay_endpoint` serves WebSocket access.
+- `viewtabs` and `layoutview` render the model and issue `layout::Command`s. The app applies them to `Layout` and pushes the new state back (`TabBar::set_tabs`, `LayoutView::set_tab`); neither keeps layout state of its own.
 - `LayoutView::new(Rc<dyn PaneSource>)`: the app implements `PaneSource`. Pane content is an empty element because the web view covers the hole.
-- `layout_view::pane_holes_with(tab, content, ChromeContext, &dyn PaneSource)` is `pane_holes` plus the source's say: a pane the source reports `is_native` gets no hole (a native view fills its whole rect, no web view is placed), and a pane with `chrome_height > 0` gets a hole that starts that far below the content top while `PaneSource::chrome` is drawn in the strip.
-- `layout_view::pane_holes(tab, content, ChromeContext)` returns the inset hole rect of every pane; the app builds `pane_host::LayoutSnapshot::from_layout(..)` and replaces each `visible` bound with the matching hole.
+- `layoutview::pane_holes_with(tab, content, ChromeContext, &dyn PaneSource)` is `pane_holes` plus the source's say: a pane the source reports `is_native` gets no hole (a native view fills its whole rect, no web view is placed), and a pane with `chrome_height > 0` gets a hole that starts that far below the content top while `PaneSource::chrome` is drawn in the strip.
+- `layoutview::pane_holes(tab, content, ChromeContext)` returns the inset hole rect of every pane; the app builds `panehost::LayoutSnapshot::from_layout(..)` and replaces each `visible` bound with the matching hole.
 - Web views are native child windows, so GPUI never sees the pointer over them: the app calls `LayoutView::set_hovered_pane` from the pane host's hover notifications. `ui::Overlays` hides web views while a drag is over the layout and while the pane handle is shown.
 
 ## reuse by mobile
 
-`transport` depends on neither gpui nor tauri, so `app/mobile/src-tauri` can use it by path instead of its own `api_proxy`, `hosts`, `host_tokens`, `tls_pin` and `ws_bridge`. Mobile (the only Tauri app left) still carries its own copies; `crowbar_desktop` is the only user of this crate today, and the originals stay until mobile is rewired. What mobile supplies: a `SocketLocator`, a `TokenStore` (`OsKeychain` behind the `os-keychain` feature, or its own), an `OriginPolicy` (`ExactOrigins` with the iOS webview origins), and either a `ShellTransport` or `Transport::handle` called from its custom protocol handler, plus a `Relay` if its panes open WebSockets.
+`transport` depends on neither gpui nor tauri, so `app/mobile/src-tauri` can use it by path instead of its own `api_proxy`, `hosts`, `host_tokens`, `tls_pin` and `ws_bridge`. Mobile (the only Tauri app left) still carries its own copies; `crowbar` is the only user of this crate today, and the originals stay until mobile is rewired. What mobile supplies: a `SocketLocator`, a `TokenStore` (`OsKeychain` behind the `os-keychain` feature, or its own), an `OriginPolicy` (`ExactOrigins` with the iOS webview origins), and either a `ShellTransport` or `Transport::handle` called from its custom protocol handler, plus a `Relay` if its panes open WebSockets.
 
 ## known gaps
 
