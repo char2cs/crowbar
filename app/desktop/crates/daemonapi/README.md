@@ -17,8 +17,8 @@ speaks the daemon's API through it.
   `discarding_work`.
 - `Error` (Request, Refused, Body, Json, Stream) and `Result`.
 - Routes and reading: `routes` (project, repos, scope, chats, folders), `envelope::unwrap`,
-  `document_route::content`,
-  `query_encode::encode`, `daemon_read::read`, `typed::typed`, `new_id::uuid`,
+  `routes::document::content`, `routes::query::encode`, `read::read`, `decode::typed`,
+  `new_id::uuid`,
   `multipart::file_field`.
 - The stream: `Dial` and `Opening`, `RelayDial`, `Connection`, `Frame` and `frame::decode`,
   `CORE_ORIGIN`.

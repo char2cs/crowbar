@@ -1,5 +1,8 @@
 //! The daemon's route prefixes for a project home or a repository.
 
+pub mod document;
+pub mod query;
+
 /// The route of the project `project`.
 pub fn project(project: &str) -> String {
     format!("/v0/projects/{project}")

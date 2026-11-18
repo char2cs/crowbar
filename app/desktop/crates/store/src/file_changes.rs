@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use daemonapi::{Call, DaemonClient, daemon_read::read, query_encode::encode};
+use daemonapi::{Call, DaemonClient, read::read, routes::query::encode};
 use serde_json::json;
 use sidebar::Error;
 

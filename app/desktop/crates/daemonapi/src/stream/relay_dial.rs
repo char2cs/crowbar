@@ -14,9 +14,9 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::{WebSocketStream, client_async};
 
-use crate::connection::Connection;
-use crate::dial::{Dial, Opening};
 use crate::error::{Error, Result};
+use crate::stream::connection::Connection;
+use crate::stream::dial::{Dial, Opening};
 
 const RELAY_SUBPROTOCOL: &str = "crowbar.relay.v1";
 const TOKEN_PREFIX: &str = "crowbar.token.";

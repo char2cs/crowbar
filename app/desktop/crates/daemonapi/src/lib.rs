@@ -5,39 +5,27 @@
 //! daemon's `/v0/stream` ([`RelayDial`] through the shell's loopback relay) as a [`Connection`]
 //! of [`Frame`]s.
 
-mod call;
-mod connection;
-mod core_origin;
 mod daemon_client;
-pub mod daemon_read;
-mod dial;
-pub mod document_route;
 mod entry_kind;
-pub mod envelope;
 mod error;
-pub mod frame;
-pub mod multipart;
 pub mod new_id;
 mod problem;
-pub mod query_encode;
-mod relay_dial;
 pub mod routes;
+mod stream;
 mod switch;
 #[cfg(feature = "fake")]
 mod test_support;
-pub mod typed;
 
-pub use call::Call;
-pub use connection::Connection;
-pub use core_origin::CORE_ORIGIN;
-pub use daemon_client::DaemonClient;
-pub use dial::Dial;
-pub use dial::Opening;
+pub use self::daemon_client::decode;
+pub use self::daemon_client::envelope;
+pub use self::daemon_client::multipart;
+pub use self::daemon_client::read;
+pub use self::stream::frame;
+pub use daemon_client::{Call, DaemonClient};
 pub use entry_kind::EntryKind;
 pub use error::{Error, Result};
-pub use frame::Frame;
 pub use problem::Problem;
-pub use relay_dial::RelayDial;
+pub use stream::{CORE_ORIGIN, Connection, Dial, Frame, Opening, RelayDial};
 pub use switch::Switch;
 #[cfg(feature = "fake")]
 pub use test_support::{FakeDaemon, Seen};

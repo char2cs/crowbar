@@ -1,6 +1,6 @@
 //! The daemon route of a workspace document.
 
-use crate::query_encode::encode;
+use crate::routes::query::encode;
 
 /// The route of the content of the document at `path` in `workspace`, both percent-encoded.
 pub fn content(

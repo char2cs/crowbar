@@ -1,6 +1,6 @@
 //! Filling the Files and Changes panels for the focused chat.
 
-use daemonapi::{DaemonClient, daemon_read::read};
+use daemonapi::{DaemonClient, read::read};
 
 use crate::file_entry::FileEntry;
 use crate::git_diff_body::GitDiffBody;

@@ -1,6 +1,6 @@
 //! The agents a host can start a chat with.
 
-use daemonapi::{Call, DaemonClient, typed::typed};
+use daemonapi::{Call, DaemonClient, decode::typed};
 use serde_json::Value;
 
 use crate::error::Result;

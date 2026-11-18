@@ -2,10 +2,10 @@
 
 use serde::de::DeserializeOwned;
 
-use crate::call::Call;
 use crate::daemon_client::DaemonClient;
+use crate::daemon_client::call::Call;
+use crate::daemon_client::decode::typed;
 use crate::error::Result;
-use crate::typed::typed;
 
 /// Gets `path` through `client` and returns the answer's `data` as the type the route promises.
 ///

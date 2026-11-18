@@ -1,5 +1,13 @@
 //! Requests to one daemon host through the shell's transport.
 
+mod call;
+pub mod decode;
+pub mod envelope;
+pub mod multipart;
+pub mod read;
+
+pub use call::Call;
+
 use std::sync::Arc;
 
 use protocol::{
@@ -9,8 +17,6 @@ use protocol::{
 use serde_json::Value;
 use tokio::sync::oneshot;
 
-use crate::call::Call;
-use crate::envelope;
 use crate::error::{Error, Result};
 
 /// Sends [`Call`]s to one daemon host through the shell's transport.

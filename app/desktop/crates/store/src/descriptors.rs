@@ -1,6 +1,6 @@
 //! The agent descriptors a computer loads, and installing another.
 
-use daemonapi::{Call, DaemonClient, typed::typed};
+use daemonapi::{Call, DaemonClient, decode::typed};
 
 use crate::descriptor_report::DescriptorReport;
 use crate::error::Result;

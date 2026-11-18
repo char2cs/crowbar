@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use daemonapi::{daemon_read::read, query_encode::encode};
+use daemonapi::{read::read, routes::query::encode};
 use sidebar::HostState;
 use tokio::runtime::Handle;
 

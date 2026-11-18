@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use daemonapi::{Call, Switch, typed::typed};
+use daemonapi::{Call, Switch, decode::typed};
 use settings::{Change, Error, RecordCommand};
 
 use crate::agent_records::{self, ENABLED, TOOLS};

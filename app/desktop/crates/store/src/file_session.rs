@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use daemonapi::{Call, DaemonClient, daemon_read::read};
+use daemonapi::{Call, DaemonClient, read::read};
 use serde_json::json;
 
 use crate::document_body::DocumentBody;
@@ -133,7 +133,7 @@ impl FileSession {
         &self,
         path: &str,
     ) -> String {
-        daemonapi::document_route::content(&self.target.workspace, path)
+        daemonapi::routes::document::content(&self.target.workspace, path)
     }
 }
 
