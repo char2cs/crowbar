@@ -178,7 +178,7 @@ mod tests {
 
     #[gpui::test]
     fn a_drop_after_the_threshold_sends_the_placement(cx: &mut TestAppContext) {
-        let (recorder, sidebar, cx) = open(cx, DemoData::rich());
+        let (recorder, sidebar, cx) = open(cx, DemoShell::rich());
         sidebar.update(cx, |this, cx| {
             this.press_row(press("working"));
             this.drag_over(&over("working", "folder", (20.0, 18.0)), cx);
@@ -194,7 +194,7 @@ mod tests {
 
     #[gpui::test]
     fn a_release_below_the_threshold_is_not_a_drop(cx: &mut TestAppContext) {
-        let (recorder, sidebar, cx) = open(cx, DemoData::rich());
+        let (recorder, sidebar, cx) = open(cx, DemoShell::rich());
         sidebar.update(cx, |this, cx| {
             this.press_row(press("working"));
             this.drag_over(&over("working", "folder", (2.0, 2.0)), cx);
@@ -205,7 +205,7 @@ mod tests {
 
     #[gpui::test]
     fn the_gallery_preview_marks_the_source_and_the_target(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::rich());
+        let (_, sidebar, cx) = open(cx, DemoShell::rich());
         let (subject, target) = (RowId::from("working"), RowId::from("folder"));
         sidebar.update(cx, |this, cx| {
             this.preview_drag((subject.clone(), target.clone(), DropMode::After), cx);
@@ -216,7 +216,7 @@ mod tests {
 
     #[gpui::test]
     fn a_release_anywhere_ends_a_drag_that_never_reached_a_row(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::rich());
+        let (_, sidebar, cx) = open(cx, DemoShell::rich());
         sidebar.update(cx, |this, cx| {
             this.press_row(press("working"));
             this.drag_over(&over("working", "folder", (20.0, 18.0)), cx);
@@ -229,7 +229,7 @@ mod tests {
 
     #[gpui::test]
     fn hovering_selects_a_hint_and_ending_clears_it(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::rich());
+        let (_, sidebar, cx) = open(cx, DemoShell::rich());
         sidebar.update(cx, |this, cx| {
             this.press_row(press("working"));
             this.drag_over(&over("working", "folder", (20.0, 18.0)), cx);

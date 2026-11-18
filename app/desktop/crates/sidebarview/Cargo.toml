@@ -9,7 +9,7 @@ repository.workspace = true
 publish.workspace = true
 
 [features]
-# DemoData of the sidebar crate, for the gallery.
+# DemoShell of the sidebar crate, for the gallery.
 fixtures = ["sidebar/fixtures"]
 
 [[bin]]

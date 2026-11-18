@@ -5,7 +5,7 @@ use crate::shell::command::Command;
 
 /// Implemented by the shell. A refusal comes back as [`Error::Refused`] so the view can keep an
 /// inline input open with the reason.
-pub trait CommandSink {
+pub trait Sink {
     /// Performs `command`.
     ///
     /// # Errors
@@ -21,12 +21,12 @@ pub trait CommandSink {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::DemoData;
+    use crate::fixtures::DemoShell;
     use crate::shell::chats::RowId;
 
     #[test]
     fn a_sink_may_refuse_a_command_with_a_reason() {
-        let data = DemoData::reference();
+        let data = DemoShell::reference();
         let refused = data.dispatch(Command::Rename {
             row: RowId::from("chat"),
             name: "main".into(),
@@ -36,7 +36,7 @@ mod tests {
 
     #[test]
     fn a_sink_accepts_a_valid_command() {
-        let data = DemoData::reference();
+        let data = DemoShell::reference();
         assert!(data.dispatch(Command::OpenRow(RowId::from("chat"))).is_ok());
     }
 }

@@ -30,7 +30,7 @@ use crate::shell::RowId;
 /// The chats tree's view state owned by the shell: folded rows, the inline input, the Files
 /// panel and the removals in progress.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct TreeState {
+pub struct Tree {
     pub(crate) folded: BTreeSet<RowId>,
     pub(crate) editing: Editing,
     /// The Files panel's view state.
@@ -39,7 +39,7 @@ pub struct TreeState {
     pub removals: Removals,
 }
 
-impl TreeState {
+impl Tree {
     pub(crate) fn with_folded(folded: impl IntoIterator<Item = RowId>) -> Self {
         Self {
             folded: folded.into_iter().collect(),
@@ -150,9 +150,9 @@ mod tests {
 
     use super::*;
     use crate::shell::RowKind;
-    use crate::tree_state::deletion::Confirmation;
-    use crate::tree_state::deletion::RemovalTarget;
-    use crate::tree_state::deletion::RemovalTray;
+    use crate::tree::deletion::Confirmation;
+    use crate::tree::deletion::RemovalTarget;
+    use crate::tree::deletion::RemovalTray;
 
     fn rows() -> Vec<Row> {
         let mut repo = Row::new("repo", RowKind::RepoHeader, 0, "demo");
@@ -168,7 +168,7 @@ mod tests {
     }
 
     fn indices(
-        state: &TreeState,
+        state: &Tree,
         rows: &[Row],
     ) -> Vec<usize> {
         state.visible(rows).iter().map(|row| row.index).collect()
@@ -187,8 +187,8 @@ mod tests {
         ),
     ];
 
-    fn toggled(ids: &[&str]) -> TreeState {
-        let mut state = TreeState::default();
+    fn toggled(ids: &[&str]) -> Tree {
+        let mut state = Tree::default();
         for id in ids {
             state.toggle_fold(&RowId::from(*id));
         }
@@ -207,7 +207,7 @@ mod tests {
     #[test]
     fn a_draft_unfolds_its_parent() {
         let rows = rows();
-        let mut state = TreeState::default();
+        let mut state = Tree::default();
         state.toggle_fold(&rows[1].id);
         state.start_draft(&rows[1].id);
         assert_eq!(indices(&state, &rows), vec![0, 1, 2, 3], "parent unfolded");
@@ -222,7 +222,7 @@ mod tests {
     fn a_chat_removal_counts_down_keeps_its_slot_and_hides_children() {
         let rows = rows();
         let now = Instant::now();
-        let mut state = TreeState::default();
+        let mut state = Tree::default();
         state.request_removal(&rows[1], now);
         let visible = state.visible(&rows);
         assert_eq!(
@@ -246,7 +246,7 @@ mod tests {
     fn due_removals_are_sent_and_then_hidden_until_the_tombstone() {
         let rows = rows();
         let now = Instant::now();
-        let mut state = TreeState::default();
+        let mut state = Tree::default();
         state.request_removal(&rows[3], now);
         assert!(
             state
@@ -272,7 +272,7 @@ mod tests {
     #[test]
     fn repositories_ask_and_cancelling_brings_the_row_back() {
         let rows = rows();
-        let mut state = TreeState::default();
+        let mut state = Tree::default();
         state.request_removal(&rows[0], Instant::now());
         assert_eq!(
             state.removals.confirmation().map(Confirmation::title),

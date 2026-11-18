@@ -58,7 +58,7 @@ mod tests {
 
     #[gpui::test]
     fn picking_an_icon_sets_it_on_the_active_space(cx: &mut TestAppContext) {
-        let (recorder, sidebar, cx) = open(cx, DemoData::reference());
+        let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
         let icon = SpaceIcon::Emoji("🚀".into());
         sidebar.update(cx, |this, cx| this.set_space_icon(icon, cx));
         let want = Command::SetSpaceIcon {

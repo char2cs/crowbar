@@ -254,13 +254,13 @@ mod tests {
     use ui::IconName;
 
     use super::*;
-    use sidebar::{DemoData, RowId};
+    use sidebar::{DemoShell, RowId};
 
     use crate::test_support::open;
 
     #[gpui::test]
     fn hovering_an_entry_highlights_it_and_clicking_applies_it(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
         let entries = vec![MenuEntry::action(
             "Keep",
             IconName::Check,

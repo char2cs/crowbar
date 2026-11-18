@@ -1,18 +1,18 @@
 //! Everything the sidebar asks the rest of the shell to do.
 
 mod clip_mode;
-mod command_sink;
 mod intent;
 mod new_entry;
 mod question;
 mod row_actions;
+mod sink;
 
 pub use clip_mode::ClipMode;
-pub use command_sink::CommandSink;
 pub use intent::Intent;
 pub use new_entry::NewEntry;
 pub use question::Question;
 pub use row_actions::RowActions;
+pub use sink::Sink;
 
 use crate::shell::chats::DropMode;
 use crate::shell::chats::RowId;

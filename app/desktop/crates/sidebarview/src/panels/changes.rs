@@ -142,7 +142,7 @@ mod tests {
 
     #[gpui::test]
     fn the_changes_panel_renders_the_changed_files(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
         sidebar.update(cx, |this, cx| this.set_mode(Mode::Changes, cx));
         cx.run_until_parked();
         assert_eq!(

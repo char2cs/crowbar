@@ -81,7 +81,7 @@ mod tests {
 
     #[gpui::test]
     fn a_copy_pastes_into_a_directory_and_a_cut_is_consumed(cx: &mut TestAppContext) {
-        let (recorder, sidebar, cx) = open(cx, DemoData::reference());
+        let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
         let stage = |mode| Intent::StageFile {
             path: "README.md".into(),
             mode,

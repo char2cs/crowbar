@@ -25,11 +25,11 @@ pub trait ActiveSpace {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::DemoData;
+    use crate::fixtures::DemoShell;
 
     #[test]
     fn only_the_active_space_holds_rows() {
-        let data = DemoData::reference();
+        let data = DemoShell::reference();
         let active = data.active_project().expect("an active space");
         assert!(data.tree(&active).rows.len() > 1);
         assert_eq!(data.tree(&ProjectId::from("elsewhere")).rows.len(), 0);

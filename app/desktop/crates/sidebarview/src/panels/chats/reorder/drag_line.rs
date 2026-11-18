@@ -60,7 +60,7 @@ mod tests {
 
     #[gpui::test]
     fn the_line_sits_on_the_laid_out_target_row(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::rich());
+        let (_, sidebar, cx) = open(cx, DemoShell::rich());
         let (subject, target) = (RowId::from("working"), RowId::from("folder"));
         sidebar.update(cx, |this, cx| {
             this.preview_drag((subject, target, DropMode::Before), cx);

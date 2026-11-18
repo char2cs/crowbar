@@ -3,10 +3,10 @@ use crate::shell::NewEntry;
 use crate::shell::Row;
 use crate::shell::RowId;
 use crate::shell::RowKind;
-use crate::tree_state::TreeState;
-use crate::tree_state::editing::Editing;
+use crate::tree::Tree;
+use crate::tree::editing::Editing;
 
-impl TreeState {
+impl Tree {
     /// The inline input a tree row is showing, if any.
     pub fn editing(&self) -> &Editing {
         &self.editing
@@ -73,7 +73,7 @@ mod tests {
         let chat = Row::new("chat", RowKind::Chat, 2, "Untitled");
         let mut locked = Row::new("main", RowKind::Branch, 1, "main");
         locked.lock = Lock::Locked;
-        let mut state = TreeState::default();
+        let mut state = Tree::default();
         state.start_rename(&chat);
         assert_eq!(
             state.editing(),

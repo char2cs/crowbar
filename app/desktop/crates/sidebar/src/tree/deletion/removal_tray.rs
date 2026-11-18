@@ -4,9 +4,9 @@ use std::time::{Duration, Instant};
 
 use crate::frame::REMOVAL_DRAIN_SECONDS;
 use crate::shell::RowId;
-use crate::tree_state::deletion::deadline::Deadline;
-use crate::tree_state::deletion::hold::Hold;
-use crate::tree_state::deletion::removal_kind::RemovalKind;
+use crate::tree::deletion::deadline::Deadline;
+use crate::tree::deletion::hold::Hold;
+use crate::tree::deletion::removal_kind::RemovalKind;
 
 /// The removal holds in progress, at most one per row.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

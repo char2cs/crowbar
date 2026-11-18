@@ -4,17 +4,17 @@ use std::fmt;
 use std::rc::Rc;
 
 use crate::shell::Command;
-use crate::shell::SidebarData;
+use crate::shell::Source;
 
 /// A handle on the shell's sidebar data for menu questions; the default has no shell.
 #[derive(Clone, Default)]
 pub struct ShellAnswers {
-    data: Option<Rc<dyn SidebarData>>,
+    data: Option<Rc<dyn Source>>,
 }
 
 impl ShellAnswers {
     /// Answers from `data`, sharing it.
-    pub fn of(data: &Rc<dyn SidebarData>) -> Self {
+    pub fn of(data: &Rc<dyn Source>) -> Self {
         Self {
             data: Some(Rc::clone(data)),
         }

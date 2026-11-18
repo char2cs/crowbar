@@ -1,6 +1,6 @@
 //! What the demo data answers about its spaces, hosts and rows.
 
-use crate::fixtures::demo_data::DemoData;
+use crate::fixtures::demo_shell::DemoShell;
 use crate::shell::ActiveSpace;
 use crate::shell::AvatarTint;
 use crate::shell::Command;
@@ -21,7 +21,7 @@ use crate::shell::RunningAgent;
 use crate::shell::ScopeSync;
 use crate::shell::SpaceList;
 
-impl SpaceList for DemoData {
+impl SpaceList for DemoShell {
     fn sync(&self) -> ScopeSync {
         self.sync
     }
@@ -72,7 +72,7 @@ impl SpaceList for DemoData {
     }
 }
 
-impl ActiveSpace for DemoData {
+impl ActiveSpace for DemoShell {
     fn active_project(&self) -> Option<ProjectId> {
         Some(self.active.borrow().clone())
     }
@@ -89,7 +89,7 @@ impl ActiveSpace for DemoData {
     }
 }
 
-impl PaneFocus for DemoData {
+impl PaneFocus for DemoShell {
     fn focus(&self) -> Focus {
         self.focus
     }
@@ -103,7 +103,7 @@ impl PaneFocus for DemoData {
     }
 }
 
-impl RowActions for DemoData {
+impl RowActions for DemoShell {
     fn move_targets(
         &self,
         _row: &RowId,
@@ -130,11 +130,11 @@ impl RowActions for DemoData {
 mod tests {
     use super::*;
 
-    type CountCase = (&'static str, fn() -> DemoData, usize, usize);
+    type CountCase = (&'static str, fn() -> DemoShell, usize, usize);
 
     const COUNT_CASES: &[CountCase] = &[
-        ("the reference data", DemoData::reference, 2, 1),
-        ("the rich data", DemoData::rich, 3, 2),
+        ("the reference data", DemoShell::reference, 2, 1),
+        ("the rich data", DemoShell::rich, 3, 2),
     ];
 
     #[test]

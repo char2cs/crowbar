@@ -157,7 +157,7 @@ mod tests {
 
     #[gpui::test]
     fn the_row_handler_forwards_actions_to_the_sidebar(cx: &mut TestAppContext) {
-        let (recorder, sidebar, cx) = open(cx, DemoData::reference());
+        let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
         let handler = sidebar.update(cx, |_, cx| Sidebar::row_handler(cx));
         cx.update(|window, cx| handler(RowAction::Open(RowId::from("main")), window, cx));
         cx.run_until_parked();
@@ -166,7 +166,7 @@ mod tests {
 
     #[gpui::test]
     fn selecting_a_space_makes_it_the_active_one(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::rich());
+        let (_, sidebar, cx) = open(cx, DemoShell::rich());
         let other = sidebar.read_with(cx, |this, _| {
             let active = this.data.active_project();
             this.data
@@ -188,7 +188,7 @@ mod tests {
 
     #[gpui::test]
     fn the_loading_state_renders_a_skeleton_instead_of_rows(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::loading());
+        let (_, sidebar, cx) = open(cx, DemoShell::loading());
         cx.run_until_parked();
         assert_eq!(sidebar.read_with(cx, |this, _| this.mode), Mode::Chats);
     }

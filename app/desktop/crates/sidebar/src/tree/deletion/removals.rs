@@ -7,11 +7,11 @@ use crate::shell::ProjectId;
 use crate::shell::Row;
 use crate::shell::RowId;
 use crate::shell::RowKind;
-use crate::tree_state::deletion::confirmation::Confirmation;
-use crate::tree_state::deletion::removal_kind::RemovalKind;
-use crate::tree_state::deletion::removal_target::RemovalTarget;
-use crate::tree_state::deletion::removal_tray::RemovalTray;
-use crate::tree_state::deletion::work_at_risk::WorkAtRisk;
+use crate::tree::deletion::confirmation::Confirmation;
+use crate::tree::deletion::removal_kind::RemovalKind;
+use crate::tree::deletion::removal_target::RemovalTarget;
+use crate::tree::deletion::removal_tray::RemovalTray;
+use crate::tree::deletion::work_at_risk::WorkAtRisk;
 
 /// The rows held behind an undo countdown and the confirmation being asked, if any.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

@@ -112,7 +112,7 @@ mod tests {
 
     #[gpui::test]
     fn deleting_asks_first_and_sends_only_when_confirmed(cx: &mut TestAppContext) {
-        let (recorder, sidebar, cx) = open(cx, DemoData::reference());
+        let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
         let ask = Intent::RequestFileDelete {
             path: "src/lib.rs".into(),
             is_dir: false,
@@ -136,7 +136,7 @@ mod tests {
 
     #[gpui::test]
     fn properties_open_and_close_without_asking_the_shell(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
         sidebar.update_in(cx, |this, window, cx| {
             this.apply(Intent::ShowProperties("src/main.rs".into()), window, cx);
         });

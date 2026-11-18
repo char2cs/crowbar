@@ -269,7 +269,7 @@ mod tests {
 
     #[gpui::test]
     fn the_buttons_send_the_commands_the_box_describes(cx: &mut TestAppContext) {
-        let (recorder, sidebar, cx) = open(cx, DemoData::reference().with_merge_box(open_box()));
+        let (recorder, sidebar, cx) = open(cx, DemoShell::reference().with_merge_box(open_box()));
         sidebar.update(cx, |this, cx| {
             this.toggle_path("b.rs", cx);
             this.set_after(AfterMerge::DeleteBranch, cx);
@@ -293,7 +293,7 @@ mod tests {
 
     #[gpui::test]
     fn submitting_the_message_commits_the_ticked_files(cx: &mut TestAppContext) {
-        let (recorder, sidebar, cx) = open(cx, DemoData::reference().with_merge_box(open_box()));
+        let (recorder, sidebar, cx) = open(cx, DemoShell::reference().with_merge_box(open_box()));
         sidebar.update(cx, |this, cx| {
             this.merge
                 .message
@@ -315,7 +315,7 @@ mod tests {
             work: MergeWork::Committing,
             ..open_box()
         };
-        let (recorder, sidebar, cx) = open(cx, DemoData::reference().with_merge_box(busy));
+        let (recorder, sidebar, cx) = open(cx, DemoShell::reference().with_merge_box(busy));
         sidebar.update(cx, |this, cx| {
             this.merge
                 .message
@@ -327,7 +327,7 @@ mod tests {
 
     #[gpui::test]
     fn an_empty_message_commits_nothing(cx: &mut TestAppContext) {
-        let (recorder, sidebar, cx) = open(cx, DemoData::reference().with_merge_box(open_box()));
+        let (recorder, sidebar, cx) = open(cx, DemoShell::reference().with_merge_box(open_box()));
         sidebar.update(cx, Sidebar::commit_changes);
         assert_eq!(recorder.sent(), Vec::<Command>::new());
     }

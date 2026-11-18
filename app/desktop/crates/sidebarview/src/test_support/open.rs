@@ -5,13 +5,13 @@ use std::rc::Rc;
 use gpui::{AppContext as _, Entity, TestAppContext, VisualTestContext, px, size};
 
 use super::{Recorder, blank::Blank};
-use sidebar::{DemoData, Preferences};
+use sidebar::{DemoShell, Preferences};
 
 use crate::sidebar::Sidebar;
 
 pub(crate) fn open(
     cx: &mut TestAppContext,
-    data: DemoData,
+    data: DemoShell,
 ) -> (Rc<Recorder>, Entity<Sidebar>, &mut VisualTestContext) {
     cx.update(|cx| ui::init(cx).expect("ui installs"));
     let recorder = Rc::new(Recorder::new(data));

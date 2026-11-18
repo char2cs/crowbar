@@ -239,7 +239,7 @@ mod tests {
 
     #[gpui::test]
     fn confirming_a_rename_sends_it_and_closes_the_input(cx: &mut TestAppContext) {
-        let (recorder, sidebar, cx) = open(cx, DemoData::reference());
+        let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
         start(&sidebar, cx);
         type_name(&sidebar, "Fresh name", cx);
         sidebar.update(cx, |this, cx| this.finish_edit(EditOutcome::Confirm, cx));
@@ -253,7 +253,7 @@ mod tests {
 
     #[gpui::test]
     fn a_refused_name_keeps_the_input_open_with_the_reason(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
         start(&sidebar, cx);
         type_name(&sidebar, "main", cx);
         sidebar.update(cx, |this, cx| this.finish_edit(EditOutcome::Confirm, cx));
@@ -265,7 +265,7 @@ mod tests {
 
     #[gpui::test]
     fn cancelling_sends_nothing(cx: &mut TestAppContext) {
-        let (recorder, sidebar, cx) = open(cx, DemoData::reference());
+        let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
         start(&sidebar, cx);
         type_name(&sidebar, "ignored", cx);
         sidebar.update(cx, |this, cx| this.finish_edit(EditOutcome::Cancel, cx));
@@ -275,7 +275,7 @@ mod tests {
 
     #[gpui::test]
     fn branching_sends_make_branch(cx: &mut TestAppContext) {
-        let (recorder, sidebar, cx) = open(cx, DemoData::reference());
+        let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
         sidebar.update_in(cx, |this, window, cx| {
             this.start_branching(&RowId::from("chat"), window, cx);
         });
@@ -290,7 +290,7 @@ mod tests {
 
     #[gpui::test]
     fn drafting_sends_a_fork(cx: &mut TestAppContext) {
-        let (recorder, sidebar, cx) = open(cx, DemoData::reference());
+        let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
         sidebar.update_in(cx, |this, window, cx| {
             this.start_draft(&RowId::from("main"), window, cx);
         });
@@ -304,7 +304,7 @@ mod tests {
     }
     #[gpui::test]
     fn renaming_a_file_sends_the_new_path_beside_the_old_one(cx: &mut TestAppContext) {
-        let (recorder, sidebar, cx) = open(cx, DemoData::reference());
+        let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
         sidebar.update_in(cx, |this, window, cx| {
             this.start_file_rename("src/lib.rs".into(), window, cx);
         });
@@ -346,7 +346,7 @@ mod tests {
             ),
         ];
         for (entry, expected) in cases {
-            let (recorder, sidebar, cx) = open(cx, DemoData::reference());
+            let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
             create_named(&sidebar, (entry, "new"), cx);
             assert_eq!(recorder.sent(), vec![expected], "{entry:?}");
         }
@@ -356,7 +356,7 @@ mod tests {
     fn creating_at_the_root_uses_the_bare_name_and_an_empty_name_creates_nothing(
         cx: &mut TestAppContext
     ) {
-        let (recorder, sidebar, cx) = open(cx, DemoData::reference());
+        let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
         sidebar.update_in(cx, |this, window, cx| {
             this.start_file_create((String::new(), NewEntry::File), window, cx);
         });

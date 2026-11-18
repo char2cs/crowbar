@@ -1,9 +1,9 @@
 //! The last question before a repository or space is deleted.
 
-use crate::tree_state::deletion::hold::Hold;
-use crate::tree_state::deletion::removal_kind::RemovalKind;
-use crate::tree_state::deletion::removal_target::RemovalTarget;
-use crate::tree_state::deletion::work_at_risk::WorkAtRisk;
+use crate::tree::deletion::hold::Hold;
+use crate::tree::deletion::removal_kind::RemovalKind;
+use crate::tree::deletion::removal_target::RemovalTarget;
+use crate::tree::deletion::work_at_risk::WorkAtRisk;
 
 const PROJECT_CASCADE: (&str, &str) = (
     "All repositories and workspaces inside it will be deleted.",

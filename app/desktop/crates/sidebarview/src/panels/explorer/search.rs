@@ -186,7 +186,7 @@ mod tests {
 
     #[gpui::test]
     fn typing_in_the_box_filters_the_files_and_escape_restores_them(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
         sidebar.update(cx, |this, cx| this.set_mode(Mode::Files, cx));
         cx.run_until_parked();
         let all = names(&sidebar, cx);
@@ -201,7 +201,7 @@ mod tests {
 
     #[gpui::test]
     fn slash_in_the_files_panel_opens_the_box(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
         sidebar.update(cx, |this, cx| this.set_mode(Mode::Files, cx));
         cx.run_until_parked();
         sidebar.update_in(cx, |this, window, _| window.focus(&this.files_focus));

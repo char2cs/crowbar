@@ -223,7 +223,7 @@ mod tests {
 
     #[gpui::test]
     fn opening_a_row_sends_the_open_command(cx: &mut TestAppContext) {
-        let (recorder, sidebar, cx) = open(cx, DemoData::reference());
+        let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
         sidebar.update_in(cx, |this, window, cx| {
             this.act(RowAction::Open(RowId::from("chat")), window, cx);
         });
@@ -232,7 +232,7 @@ mod tests {
 
     #[gpui::test]
     fn the_row_menu_opens_at_the_pointer(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
         let at = point(px(40.0), px(200.0));
         let action = RowAction::Menu {
             row: RowId::from("chat"),
@@ -245,7 +245,7 @@ mod tests {
 
     #[gpui::test]
     fn a_menu_for_a_missing_row_stays_closed(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
         let action = RowAction::Menu {
             row: RowId::from("gone"),
             at: point(px(0.0), px(0.0)),
@@ -256,7 +256,7 @@ mod tests {
 
     #[gpui::test]
     fn toggling_a_fold_hides_the_children_and_is_remembered(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
         sidebar.update_in(cx, |this, window, cx| {
             this.apply(Intent::ToggleFold(RowId::from("demo")), window, cx);
         });
@@ -270,7 +270,7 @@ mod tests {
 
     #[gpui::test]
     fn a_refused_command_leaves_the_sidebar_unchanged(cx: &mut TestAppContext) {
-        let (recorder, sidebar, cx) = open(cx, DemoData::reference());
+        let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
         let command = Command::Rename {
             row: RowId::from("chat"),
             name: "main".into(),

@@ -2,7 +2,7 @@ use chord::{Keystroke, Modifier};
 use gpui::{Context, KeyDownEvent, Window};
 use keymap::ShellCommand;
 use layout::Command;
-use sidebar::{ActiveSpace as _, CommandSink as _, Mode, PaneFocus as _, SpaceList as _};
+use sidebar::{ActiveSpace as _, Mode, PaneFocus as _, Sink as _, SpaceList as _};
 use sidebarview::Sidebar;
 
 use super::ShellView;

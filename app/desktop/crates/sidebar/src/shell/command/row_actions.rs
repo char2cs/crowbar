@@ -32,11 +32,11 @@ pub trait RowActions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::DemoData;
+    use crate::fixtures::DemoShell;
 
     #[test]
     fn nothing_is_refused_or_removable_unless_the_demo_says_so() {
-        let data = DemoData::reference();
+        let data = DemoShell::reference();
         assert!(data.serves(&Command::SelectProject("inv".into())));
         assert!(!data.can_remove_folder("src"));
         assert_eq!(data.move_targets(&RowId::from("chat")).len(), 0);

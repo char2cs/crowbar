@@ -16,11 +16,11 @@ pub trait ChangesSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::DemoData;
+    use crate::fixtures::DemoShell;
 
     #[test]
     fn the_demo_workspace_has_changes_and_no_merge_box() {
-        let data = DemoData::reference();
+        let data = DemoShell::reference();
         assert_eq!(data.changes().files.len(), 1);
         assert_eq!(data.merge_box(), None);
     }

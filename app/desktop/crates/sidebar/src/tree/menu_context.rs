@@ -1,7 +1,7 @@
 //! What a row menu needs to know beyond the row.
 
 use crate::shell::MoveTarget;
-use crate::tree_state::terminal_threads::TerminalThreads;
+use crate::tree::terminal_threads::TerminalThreads;
 
 /// The facts about the rest of the sidebar that decide a row menu's entries.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

@@ -1,7 +1,7 @@
 //! Command line of the sidebar gallery.
 
 use gpui::App;
-use sidebar::{DemoData, DropMode, MergeBox, Mode, Preferences, RowId, Visibility};
+use sidebar::{DemoShell, DropMode, MergeBox, Mode, Preferences, RowId, Visibility};
 use ui::{Theme, ThemeId, ThemeMode, ToastContent, ToastKind, ToastLifetime};
 
 const DEFAULT_SIZE: (f32, f32) = (1200.0, 800.0);
@@ -73,17 +73,17 @@ impl Arguments {
         self.size
     }
 
-    pub(crate) fn data(&self) -> DemoData {
+    pub(crate) fn data(&self) -> DemoShell {
         match self.data.as_str() {
-            "rich" => DemoData::rich(),
-            "loading" => DemoData::loading(),
-            "merge" => DemoData::reference().with_merge_box(MergeBox {
+            "rich" => DemoShell::rich(),
+            "loading" => DemoShell::loading(),
+            "merge" => DemoShell::reference().with_merge_box(MergeBox {
                 parent: Some("main".into()),
                 uncommitted: vec!["README.md".into(), "new.txt".into()],
                 blocked: Some("2 uncommitted changes — commit them first.".into()),
                 ..MergeBox::default()
             }),
-            _ => DemoData::reference(),
+            _ => DemoShell::reference(),
         }
     }
 

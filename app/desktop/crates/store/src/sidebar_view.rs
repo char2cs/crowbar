@@ -19,7 +19,7 @@ use crate::{
     sidebar_view::hosts as host_reads,
 };
 
-/// What `sidebar::SidebarData` reads, answered from the entities the streams delivered.
+/// What `sidebar::Source` reads, answered from the entities the streams delivered.
 #[derive(Debug, Clone)]
 pub struct SidebarView {
     pub(crate) hub: Arc<Hub>,

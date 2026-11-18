@@ -126,7 +126,7 @@ mod tests {
 
     #[gpui::test]
     fn the_files_panel_renders_the_workspace_files(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
         sidebar.update(cx, |this, cx| this.set_mode(Mode::Files, cx));
         cx.run_until_parked();
         assert!(!sidebar.read_with(cx, |this, _| this.data.files().is_empty()));
@@ -165,7 +165,7 @@ mod tests {
 
     #[gpui::test]
     fn choosing_new_file_from_the_menu_leaves_the_input_focused(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
         sidebar.update(cx, |this, cx| this.set_mode(Mode::Files, cx));
         cx.run_until_parked();
         let mut step = 0_u8;

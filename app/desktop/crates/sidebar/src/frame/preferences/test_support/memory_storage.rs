@@ -2,16 +2,16 @@ use std::cell::RefCell;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::frame::preferences::preference_file::PreferenceFile;
+use crate::frame::preferences::storage::Storage;
 
 /// A preferences file kept in memory.
 #[derive(Debug)]
-pub(crate) struct MemoryPreferences {
+pub(crate) struct MemoryStorage {
     path: PathBuf,
     text: RefCell<Option<String>>,
 }
 
-impl MemoryPreferences {
+impl MemoryStorage {
     pub(crate) fn with(text: Option<&str>) -> Self {
         Self {
             path: PathBuf::from("preferences.json"),
@@ -20,7 +20,7 @@ impl MemoryPreferences {
     }
 }
 
-impl PreferenceFile for MemoryPreferences {
+impl Storage for MemoryStorage {
     fn path(&self) -> &Path {
         &self.path
     }

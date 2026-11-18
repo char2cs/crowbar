@@ -286,7 +286,7 @@ mod tests {
 
     #[gpui::test]
     fn creating_a_space_needs_a_folder_then_sends_and_closes(cx: &mut TestAppContext) {
-        let (recorder, sidebar, cx) = open(cx, DemoData::reference());
+        let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
         sidebar.update_in(cx, |this, window, cx| {
             this.apply(Intent::StartCreateSpace, window, cx);
         });
@@ -315,7 +315,7 @@ mod tests {
 
     #[gpui::test]
     fn cancelling_closes_the_panel(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::rich());
+        let (_, sidebar, cx) = open(cx, DemoShell::rich());
         assert!(start(&sidebar, cx));
         sidebar.update_in(cx, Sidebar::cancel_create_space);
         assert!(sidebar.read_with(cx, |this, _| this.space.is_none()));
@@ -323,7 +323,7 @@ mod tests {
 
     #[gpui::test]
     fn selecting_a_space_closes_the_panel(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::rich());
+        let (_, sidebar, cx) = open(cx, DemoShell::rich());
         assert!(start(&sidebar, cx));
         let select = Command::SelectProject(ProjectId::from("website"));
         sidebar.update_in(cx, |this, window, cx| {
@@ -336,7 +336,7 @@ mod tests {
     fn a_remote_host_asks_the_shell_to_browse_its_disk_and_the_answer_fills_the_folder(
         cx: &mut TestAppContext
     ) {
-        let (recorder, sidebar, cx) = open(cx, DemoData::rich());
+        let (recorder, sidebar, cx) = open(cx, DemoShell::rich());
         assert!(start(&sidebar, cx));
         let remote = sidebar.update(cx, |this, cx| {
             let remote = this.data.hosts()[1].id.clone();

@@ -5,7 +5,7 @@ Layer L1 (logic, gpui-free). See `docs/plans/2026-11-18-rust-tree.md` section 4.
 ## Owns
 
 The sidebar's data contract with the shell and every rule its views apply, without a window: the
-ports the shell implements (`SidebarData` and the per-surface sources, `CommandSink`) and the data
+ports the shell implements (`Source` and the per-surface sources, `Sink`) and the data
 in their signatures (rows, spaces, hosts, files, changes, merge box), plus the behaviour the views
 drive: tree folds and visible rows, inline edits, removal countdowns and confirmations, drag
 threshold, edge scrolling and drop policy, Files keys, clipboard, filter and folder chains, panel width, dock, peek zone and mode, and
@@ -15,8 +15,8 @@ root exports free functions).
 
 ## Public interface
 
-- Contract: `SidebarData` (read side, with `ActiveSpace`, `SpaceList`, `PaneFocus`, `FilesSource`,
-  `ChangesSource`, `RowActions`), `CommandSink` and `Command` (write side), `Intent`, `Question`,
+- Contract: `Source` (read side, with `ActiveSpace`, `SpaceList`, `PaneFocus`, `FilesSource`,
+  `ChangesSource`, `RowActions`), `Sink` and `Command` (write side), `Intent`, `Question`,
   `ClipMode`, `NewEntry`, `Error`.
 - Chats tree rows: `Row`, `RowId`, `RowKind`, `MoveTarget`, `DropMode`, `ProjectTree`, `Notice`,
   `Reach`, `Mark`, `AvatarTint`, `Activity`, `Presence`, `Titling`, `Nesting`, `Expansion`, `Lock`,
@@ -27,14 +27,14 @@ root exports free functions).
   `FileDensity`, `IconTheme`, `GitStatus`, `Changes`, `ChangedFile`, `MergeBox`, `MergeStrategy`,
   `MergeWork`, `AfterMerge`, `MergeFacts`, and the path functions `join`, `parent`, `base`,
   `absolute`.
-- Behaviour the views drive: `TreeState`, `Editing`, `VisibleRow`, `FilesState`, `MenuContext`,
+- Behaviour the views drive: `Tree`, `Editing`, `VisibleRow`, `FilesState`, `MenuContext`,
   `TerminalThreads`, `Removals`, `RemovalTray`, `Hold`, `Deadline`, `RemovalKind`,
   `RemovalTarget`, `Confirmation`, `WorkAtRisk`, `DropModes`, `FolderTarget`, `FileAction`,
   `FileClipboard`, `FileDialog`, `FileProperties`, `FileKey`, `ShellAnswers`, `MenuScope`,
   `Panel`, `DockSide`, `Visibility`, `Presentation`, `PeekZone`, `Mode`, `ResizeDrag`,
   `ResizeKey`, `Resizing`, `KeyStep`, `Preferences`, `HEADER_HEIGHT`, `PEEK_INSET`, and the row
   drag rules `drag_started` (the drag threshold) and `pull` (edge-scroll speed).
-- Feature `fixtures`: `DemoData`, an in-memory workspace for tests and the `sidebarview` gallery.
+- Feature `fixtures`: `DemoShell`, an in-memory workspace for tests and the `sidebarview` gallery.
 
 ## Depends on
 

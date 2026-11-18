@@ -3,18 +3,18 @@
 use std::cell::RefCell;
 
 use sidebar::{
-    ActiveSpace, Changes, ChangesSource, Command, CommandSink, DemoData, Error, FileAccess,
-    FileRow, FilesSource, Focus, Host, MergeBox, MoveTarget, PaneFocus, Project, ProjectId,
-    ProjectTree, RowActions, RowId, RunningAgent, ScopeSync, SpaceList,
+    ActiveSpace, Changes, ChangesSource, Command, DemoShell, Error, FileAccess, FileRow,
+    FilesSource, Focus, Host, MergeBox, MoveTarget, PaneFocus, Project, ProjectId, ProjectTree,
+    RowActions, RowId, RunningAgent, ScopeSync, SpaceList,
 };
 
 pub(crate) struct Recorder {
-    data: DemoData,
+    data: DemoShell,
     sent: RefCell<Vec<Command>>,
 }
 
 impl Recorder {
-    pub(crate) fn new(data: DemoData) -> Self {
+    pub(crate) fn new(data: DemoShell) -> Self {
         Self {
             data,
             sent: RefCell::new(Vec::new()),
@@ -26,7 +26,7 @@ impl Recorder {
     }
 }
 
-impl CommandSink for Recorder {
+impl sidebar::Sink for Recorder {
     fn dispatch(
         &self,
         command: Command,

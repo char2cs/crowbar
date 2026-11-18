@@ -90,7 +90,7 @@ mod tests {
     #[gpui::test]
     fn unticking_a_path_leaves_it_out_and_ticking_again_restores_it(cx: &mut gpui::TestAppContext) {
         use crate::test_support::prelude::*;
-        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
         let all = vec!["a.rs".to_owned(), "b.rs".to_owned()];
         sidebar.update(cx, |this, _| {
             this.merge.toggle("a.rs");

@@ -1,6 +1,6 @@
 //! What the demo data answers about its files and changes.
 
-use crate::fixtures::demo_data::DemoData;
+use crate::fixtures::demo_shell::DemoShell;
 use crate::fixtures::rows::MAIN;
 use crate::shell::ChangedFile;
 use crate::shell::Changes;
@@ -13,7 +13,7 @@ use crate::shell::FilesSource;
 use crate::shell::GitStatus;
 use crate::shell::MergeBox;
 
-impl FilesSource for DemoData {
+impl FilesSource for DemoShell {
     fn files(&self) -> Vec<FileRow> {
         let file = |path: &str, name: &str, depth, kind, status| FileRow {
             path: path.to_owned(),
@@ -53,7 +53,7 @@ impl FilesSource for DemoData {
     }
 }
 
-impl ChangesSource for DemoData {
+impl ChangesSource for DemoShell {
     fn merge_box(&self) -> Option<MergeBox> {
         self.merge.clone()
     }
@@ -73,7 +73,7 @@ impl ChangesSource for DemoData {
     }
 }
 
-impl FileAccess for DemoData {}
+impl FileAccess for DemoShell {}
 
 #[cfg(test)]
 mod tests {
@@ -81,7 +81,7 @@ mod tests {
 
     #[test]
     fn the_files_and_changes_describe_one_workspace() {
-        let data = DemoData::reference();
+        let data = DemoShell::reference();
         let files = data.files();
         assert!(files.iter().any(|row| row.path == "src/lib.rs"));
         let changes = data.changes();

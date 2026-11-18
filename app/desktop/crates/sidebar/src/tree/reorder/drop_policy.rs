@@ -5,7 +5,7 @@ use crate::shell::Lock;
 use crate::shell::Row;
 use crate::shell::RowKind;
 use crate::shell::Worktree;
-use crate::tree_state::reorder::drop_modes::DropModes;
+use crate::tree::reorder::drop_modes::DropModes;
 
 impl DropModes {
     /// The placements allowed when `subject` (an index into `rows`) is dragged over `target`.

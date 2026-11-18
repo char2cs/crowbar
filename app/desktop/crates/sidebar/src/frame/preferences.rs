@@ -1,7 +1,7 @@
 //! The sidebar's shell-local preferences, stored in one JSON file.
 
 mod adapters;
-mod preference_file;
+mod storage;
 #[cfg(test)]
 mod test_support;
 
@@ -14,11 +14,11 @@ use crate::error::Error;
 use crate::frame::dock_side::DockSide;
 use crate::frame::mode::Mode;
 use crate::frame::panel::Panel;
-use crate::frame::preferences::adapters::disk_preferences::DiskPreferences;
-use crate::frame::preferences::preference_file::PreferenceFile;
+use crate::frame::preferences::adapters::disk_storage::DiskStorage;
+use crate::frame::preferences::storage::Storage;
 use crate::frame::visibility::Visibility;
 use crate::shell::RowId;
-use crate::tree_state::TreeState;
+use crate::tree::Tree;
 
 /// Width, visibility, dock side, chosen mode, folded rows, host filter and the last space per
 /// host. None of it goes to the daemon.
@@ -74,7 +74,7 @@ impl Preferences {
     /// [`Error::ReadPreferences`] when the file exists but cannot be read, and
     /// [`Error::ParsePreferences`] when it is not valid JSON of this shape.
     pub fn load(path: &Path) -> Result<Self, Error> {
-        Self::load_from(&DiskPreferences::at(path))
+        Self::load_from(&DiskStorage::at(path))
     }
 
     /// Writes the file, replacing it.
@@ -86,10 +86,10 @@ impl Preferences {
         &self,
         path: &Path,
     ) -> Result<(), Error> {
-        self.save_to(&DiskPreferences::at(path))
+        self.save_to(&DiskStorage::at(path))
     }
 
-    fn load_from(file: &dyn PreferenceFile) -> Result<Self, Error> {
+    fn load_from(file: &dyn Storage) -> Result<Self, Error> {
         let path = file.path();
         let stored = file.read().map_err(|source| unreadable(path, source))?;
         let Some(text) = stored else {
@@ -103,7 +103,7 @@ impl Preferences {
 
     fn save_to(
         &self,
-        file: &dyn PreferenceFile,
+        file: &dyn Storage,
     ) -> Result<(), Error> {
         let write = |source| Error::WritePreferences {
             path: file.path().to_owned(),
@@ -120,8 +120,8 @@ impl Preferences {
     }
 
     /// A tree state with the stored rows folded.
-    pub fn tree(&self) -> TreeState {
-        TreeState::with_folded(self.folded.iter().map(|id| RowId::from(id.as_str())))
+    pub fn tree(&self) -> Tree {
+        Tree::with_folded(self.folded.iter().map(|id| RowId::from(id.as_str())))
     }
 
     /// A copy with the panel, mode and folded rows taken from the running sidebar; the host
@@ -131,7 +131,7 @@ impl Preferences {
         &self,
         panel: Panel,
         mode: Mode,
-        tree: &TreeState,
+        tree: &Tree,
     ) -> Self {
         Self {
             visibility: panel.visibility(),
@@ -147,7 +147,7 @@ impl Preferences {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::frame::preferences::test_support::MemoryPreferences;
+    use crate::frame::preferences::test_support::MemoryStorage;
 
     type Check = fn(&Result<Preferences, Error>) -> bool;
 
@@ -181,7 +181,7 @@ mod tests {
     ];
 
     fn load_file(content: Option<&str>) -> Result<Preferences, Error> {
-        Preferences::load_from(&MemoryPreferences::with(content))
+        Preferences::load_from(&MemoryStorage::with(content))
     }
 
     #[test]
@@ -194,8 +194,8 @@ mod tests {
 
     #[test]
     fn saving_and_loading_round_trips_every_field() {
-        let file = MemoryPreferences::with(None);
-        let mut tree = TreeState::default();
+        let file = MemoryStorage::with(None);
+        let mut tree = Tree::default();
         tree.toggle_fold(&RowId::from("row"));
         let mut panel = Panel::default();
         panel.commit(400.0);

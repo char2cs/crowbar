@@ -5,7 +5,7 @@ use std::sync::atomic::AtomicBool;
 use gpui::{AppContext as _, Context, Entity};
 use layoutview::LayoutView;
 use ptysession::TerminalSessions;
-use sidebar::{Preferences, SidebarData};
+use sidebar::Preferences;
 use sidebarview::Sidebar;
 use startup::MonotonicClock;
 use store::{ShellData, ShellWiring};
@@ -105,7 +105,7 @@ pub(super) fn build_sidebar<V: 'static>(
     let workspace = wiring.workspace.clone();
     cx.new(|cx| {
         Sidebar::new(
-            view as Rc<dyn SidebarData>,
+            view as Rc<dyn sidebar::Source>,
             sink,
             workspace.into(),
             (preferences, cx),

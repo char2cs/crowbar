@@ -67,7 +67,7 @@ mod tests {
     fn an_automatic_toast_goes_away_a_pinned_one_stays_and_clear_takes_it_down(
         cx: &mut TestAppContext
     ) {
-        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
         sidebar.update(cx, |this, cx| {
             this.toast(info("Saved"), (None, ToastLifetime::Auto), cx);
             this.toast(
@@ -94,7 +94,7 @@ mod tests {
 
     #[gpui::test]
     fn a_refused_command_shows_its_reason(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
         let rename = Command::Rename {
             row: RowId::from("chat"),
             name: "main".into(),
@@ -105,7 +105,7 @@ mod tests {
 
     #[gpui::test]
     fn docking_to_the_other_edge_moves_the_column(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
         sidebar.update(cx, |this, cx| this.dock_to(DockSide::Right, cx));
         let queue = sidebar.read_with(cx, |this, _| this.toasts.clone());
         let placement = queue.read_with(cx, |queue, _| queue.placement());

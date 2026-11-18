@@ -121,7 +121,7 @@ mod tests {
 
     #[gpui::test]
     fn cancelling_drops_the_question_and_sends_nothing(cx: &mut TestAppContext) {
-        let (recorder, sidebar, cx) = open(cx, DemoData::rich());
+        let (recorder, sidebar, cx) = open(cx, DemoShell::rich());
         ask(&sidebar, cx);
         sidebar.update(cx, Sidebar::cancel_confirmation);
         assert!(sidebar.read_with(cx, |this, _| this.tree.removals.confirmation().is_none()));
@@ -130,7 +130,7 @@ mod tests {
 
     #[gpui::test]
     fn accepting_deletes_the_space(cx: &mut TestAppContext) {
-        let (recorder, sidebar, cx) = open(cx, DemoData::rich());
+        let (recorder, sidebar, cx) = open(cx, DemoShell::rich());
         ask(&sidebar, cx);
         sidebar.update(cx, Sidebar::accept_confirmation);
         assert_eq!(
@@ -141,7 +141,7 @@ mod tests {
 
     #[gpui::test]
     fn the_layer_exists_only_while_a_question_is_pending(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::rich());
+        let (_, sidebar, cx) = open(cx, DemoShell::rich());
         assert!(!sidebar.read_with(cx, |this, _| this.tree.removals.confirmation().is_some()));
         ask(&sidebar, cx);
         assert!(sidebar.read_with(cx, |this, _| this.tree.removals.confirmation().is_some()));

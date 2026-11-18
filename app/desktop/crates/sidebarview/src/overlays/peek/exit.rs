@@ -32,13 +32,13 @@ mod tests {
     use gpui::{Modifiers, MouseExitEvent, point, px};
 
     use super::*;
-    use sidebar::DemoData;
+    use sidebar::DemoShell;
 
     use crate::test_support::open;
 
     #[gpui::test]
     fn the_pointer_leaving_the_window_dismisses_the_peek_card(cx: &mut gpui::TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
         sidebar.update(cx, Sidebar::toggle);
         sidebar.update(cx, Sidebar::begin_peek);
         cx.simulate_event(MouseExitEvent {

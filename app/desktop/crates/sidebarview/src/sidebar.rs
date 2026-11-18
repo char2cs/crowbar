@@ -21,10 +21,7 @@ pub use sidebar_event::SidebarEvent;
 use std::rc::Rc;
 
 use gpui::{AnyView, AppContext as _, Context, Entity, EventEmitter, FocusHandle};
-use sidebar::{
-    CommandSink, Mode, Panel, Preferences, Question, Resizing, RowId, SidebarData, TreeState,
-    WorkAtRisk,
-};
+use sidebar::{Mode, Panel, Preferences, Question, Resizing, RowId, WorkAtRisk};
 use ui::{CubicBezier, Glide, ToastQueue};
 
 use crate::column::switcher::icon_editor::IconEditor;
@@ -45,14 +42,14 @@ const CAROUSEL_SPAN: std::time::Duration = std::time::Duration::from_millis(300)
 /// The sidebar and the frame around it: it lays out the sidebar column, the resize handle and
 /// `content`, owns width and mode, and renders the data the shell provides.
 pub struct Sidebar {
-    pub(crate) data: Rc<dyn SidebarData>,
-    pub(crate) sink: Rc<dyn CommandSink>,
+    pub(crate) data: Rc<dyn sidebar::Source>,
+    pub(crate) sink: Rc<dyn sidebar::Sink>,
     pub(crate) content: AnyView,
     pub(crate) preferences: Preferences,
     pub(crate) panel: Panel,
     pub(crate) resizing: Option<Resizing>,
     pub(crate) mode: Mode,
-    pub(crate) tree: TreeState,
+    pub(crate) tree: sidebar::Tree,
     pub(crate) inline: Option<InlineEdit>,
     pub(crate) menu: Option<OpenMenu>,
     pub(crate) carousel: Glide,
@@ -77,8 +74,8 @@ impl Sidebar {
     /// A sidebar over `data` that sends commands to `sink` and frames `content`, restoring the
     /// width, mode and folds from `preferences`.
     pub fn new(
-        data: Rc<dyn SidebarData>,
-        sink: Rc<dyn CommandSink>,
+        data: Rc<dyn sidebar::Source>,
+        sink: Rc<dyn sidebar::Sink>,
         content: AnyView,
         setup: (Preferences, &mut Context<'_, Self>),
     ) -> Self {
@@ -197,7 +194,7 @@ mod tests {
 
     #[gpui::test]
     fn changes_to_the_geometry_are_reported_as_preferences(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
         let events = Rc::new(std::cell::Cell::new(0));
         let seen = Rc::clone(&events);
         let _subscription =
@@ -212,7 +209,7 @@ mod tests {
 
     #[gpui::test]
     fn a_refused_removal_asks_again_naming_the_loss(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
         let risk = WorkAtRisk {
             branch: "b".into(),
             uncommitted_files: 2,
@@ -230,7 +227,7 @@ mod tests {
 
     #[gpui::test]
     fn toggling_twice_restores_the_sidebar(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
         let before = sidebar.read_with(cx, |this, _| this.panel.visibility());
         sidebar.update(cx, |this, cx| {
             this.toggle(cx);

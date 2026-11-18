@@ -73,7 +73,7 @@ mod tests {
 
     #[gpui::test]
     fn a_question_sends_its_command_only_when_accepted(cx: &mut TestAppContext) {
-        let (recorder, sidebar, cx) = open(cx, DemoData::reference());
+        let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
         ask(&sidebar, cx);
         sidebar.update(cx, Sidebar::cancel_question);
         assert!(recorder.sent().is_empty(), "cancelling sends nothing");

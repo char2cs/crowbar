@@ -3,8 +3,8 @@
 use std::time::{Duration, Instant};
 
 use crate::shell::RowId;
-use crate::tree_state::deletion::deadline::Deadline;
-use crate::tree_state::deletion::removal_kind::RemovalKind;
+use crate::tree::deletion::deadline::Deadline;
+use crate::tree::deletion::removal_kind::RemovalKind;
 
 const MILLIS_PER_SECOND: u128 = 1000;
 

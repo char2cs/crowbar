@@ -6,7 +6,6 @@ use std::cell::RefCell;
 use crate::error::Error;
 use crate::fixtures::rows::{reference_rows, rich_rows};
 use crate::shell::Command;
-use crate::shell::CommandSink;
 use crate::shell::Focus;
 use crate::shell::MergeBox;
 use crate::shell::ProjectId;
@@ -14,13 +13,14 @@ use crate::shell::Row;
 use crate::shell::RowId;
 use crate::shell::RunningAgent;
 use crate::shell::ScopeSync;
+use crate::shell::Sink;
 use crate::shell::Titling;
 
 const RICH_COUNTS: (usize, usize) = (3, 2);
 
 /// The fixed workspace of the gallery; rows can be renamed and removed through the sink.
 #[derive(Debug)]
-pub struct DemoData {
+pub struct DemoShell {
     pub(crate) rows: RefCell<Vec<Row>>,
     pub(crate) active: RefCell<ProjectId>,
     pub(crate) spaces: usize,
@@ -33,7 +33,7 @@ pub struct DemoData {
     pub(crate) running: Vec<RunningAgent>,
 }
 
-impl DemoData {
+impl DemoShell {
     /// Two spaces and one host with a locked `main` and one provisional chat that owns a worktree,
     /// as in the reference capture.
     pub fn reference() -> Self {
@@ -133,7 +133,7 @@ fn already_exists(name: &str) -> Error {
     }
 }
 
-impl DemoData {
+impl DemoShell {
     fn rename(
         &self,
         row: &RowId,
@@ -154,7 +154,7 @@ impl DemoData {
     }
 }
 
-impl CommandSink for DemoData {
+impl Sink for DemoShell {
     fn dispatch(
         &self,
         command: Command,
@@ -176,7 +176,7 @@ mod tests {
 
     #[test]
     fn renaming_to_a_taken_name_is_refused_and_leaves_the_tree_alone() {
-        let data = DemoData::reference();
+        let data = DemoShell::reference();
         let refused = data.dispatch(Command::Rename {
             row: RowId::from("chat"),
             name: "main".into(),
@@ -194,7 +194,7 @@ mod tests {
 
     #[test]
     fn committing_a_removal_drops_the_row() {
-        let data = DemoData::reference();
+        let data = DemoShell::reference();
         data.dispatch(Command::CommitRemoval(RowId::from("chat")))
             .expect("accepted");
         assert!(

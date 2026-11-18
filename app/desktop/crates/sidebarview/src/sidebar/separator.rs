@@ -112,7 +112,7 @@ mod tests {
 
     #[gpui::test]
     fn dragging_changes_the_live_width_and_releasing_stores_it(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
         sidebar.update_in(cx, |this, window, cx| {
             this.begin_resize(px(294.0), window, cx);
         });
@@ -135,7 +135,7 @@ mod tests {
 
     #[gpui::test]
     fn dragging_below_half_the_minimum_collapses(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
         sidebar.update_in(cx, |this, window, cx| {
             this.begin_resize(px(294.0), window, cx);
         });
@@ -154,7 +154,7 @@ mod tests {
 
     #[gpui::test]
     fn the_home_key_collapses_and_end_widens(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
         let press = |key: &str| KeyDownEvent {
             keystroke: gpui::Keystroke::parse(key).expect("a key"),
             is_held: false,
@@ -174,7 +174,7 @@ mod tests {
 
     #[gpui::test]
     fn toggling_flips_between_open_and_closed(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
         sidebar.update(cx, Sidebar::toggle_collapsed);
         assert_eq!(
             sidebar.read_with(cx, |this, _| this.panel.visibility()),

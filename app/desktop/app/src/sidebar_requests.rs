@@ -7,7 +7,7 @@ pub(crate) struct SidebarRequests {
     pub(crate) data: store::SidebarCommands,
 }
 
-impl sidebar::CommandSink for SidebarRequests {
+impl sidebar::Sink for SidebarRequests {
     fn dispatch(
         &self,
         command: sidebar::Command,
@@ -28,7 +28,7 @@ mod tests {
     use std::sync::Arc;
 
     use protocol::{DaemonRequest, DaemonTransport, RelayEndpoint, RelayScope, Responder};
-    use sidebar::{Command, CommandSink as _, ProjectId};
+    use sidebar::{Command, ProjectId, Sink as _};
 
     use super::*;
 

@@ -90,7 +90,7 @@ mod tests {
     fn closed_sidebar(
         cx: &mut TestAppContext
     ) -> (gpui::Entity<Sidebar>, &mut gpui::VisualTestContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
         sidebar.update(cx, Sidebar::toggle);
         (sidebar, cx)
     }
@@ -116,7 +116,7 @@ mod tests {
 
     #[gpui::test]
     fn an_open_sidebar_ignores_peeking(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
         sidebar.update(cx, Sidebar::begin_peek);
         assert!(!sidebar.read_with(cx, |this, _| this.peek.is_wanted()));
     }

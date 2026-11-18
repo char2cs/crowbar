@@ -82,7 +82,7 @@ mod tests {
 
     #[gpui::test]
     fn an_open_menu_renders_over_the_sidebar_and_closes_on_escape(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
         let entries = vec![MenuEntry::action(
             "Keep",
             IconName::Check,

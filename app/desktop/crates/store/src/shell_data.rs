@@ -216,7 +216,7 @@ mod tests {
 
     use protocol::DaemonTransport;
     use sidebar::{
-        ActiveSpace as _, Command, CommandSink as _, ProjectId, RowId, ScopeSync, SpaceList as _,
+        ActiveSpace as _, Command, ProjectId, RowId, ScopeSync, Sink as _, SpaceList as _,
     };
     use tokio::sync::{Notify, mpsc};
 

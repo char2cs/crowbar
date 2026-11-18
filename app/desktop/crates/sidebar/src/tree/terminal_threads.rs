@@ -1,6 +1,6 @@
 //! Whether threads can start in a terminal.
 
-use crate::shell::SidebarData;
+use crate::shell::Source;
 
 /// Whether the sidebar offers to start a thread in a terminal; `Unavailable` is the default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -14,7 +14,7 @@ pub enum TerminalThreads {
 
 impl TerminalThreads {
     /// Whether the data source can start a thread in a terminal.
-    pub fn of(data: &dyn SidebarData) -> Self {
+    pub fn of(data: &dyn Source) -> Self {
         if data.can_start_terminal_thread() {
             return Self::Available;
         }
@@ -28,7 +28,7 @@ mod tests {
 
     #[test]
     fn a_provider_that_can_start_terminal_threads_is_available() {
-        let data = crate::fixtures::DemoData::reference();
+        let data = crate::fixtures::DemoShell::reference();
         assert_eq!(TerminalThreads::of(&data), TerminalThreads::Available);
     }
 

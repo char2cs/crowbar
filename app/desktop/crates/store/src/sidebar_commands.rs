@@ -19,7 +19,7 @@ pub use new_entry::NewEntry;
 
 use std::sync::Arc;
 
-use sidebar::{Command, CommandSink, Error};
+use sidebar::{Command, Error, Sink};
 use tokio::runtime::Handle;
 
 use crate::live::FileStore;
@@ -148,7 +148,7 @@ impl SidebarCommands {
     }
 }
 
-impl CommandSink for SidebarCommands {
+impl Sink for SidebarCommands {
     fn dispatch(
         &self,
         command: Command,

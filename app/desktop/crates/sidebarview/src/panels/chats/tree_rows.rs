@@ -158,14 +158,14 @@ mod tests {
 
     #[gpui::test]
     fn every_visible_row_is_drawn(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::rich());
+        let (_, sidebar, cx) = open(cx, DemoShell::rich());
         let (shown, listed) = drawn(&sidebar, cx);
         assert!(shown > 0 && shown <= listed + 1);
     }
 
     #[gpui::test]
     fn folding_a_parent_draws_fewer_rows(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::rich());
+        let (_, sidebar, cx) = open(cx, DemoShell::rich());
         let (before, _) = drawn(&sidebar, cx);
         sidebar.update(cx, |this, _| this.tree.toggle_fold(&RowId::from("demo")));
         assert!(drawn(&sidebar, cx).0 < before);

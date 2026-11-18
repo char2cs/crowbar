@@ -1,7 +1,7 @@
 //! A row that survived folding and removal, ready to draw.
 
 use crate::shell::Expansion;
-use crate::tree_state::deletion::Hold;
+use crate::tree::deletion::Hold;
 
 /// A tree row to draw, with how it is folded and any removal pending on it.
 #[derive(Debug, Clone, PartialEq, Eq)]

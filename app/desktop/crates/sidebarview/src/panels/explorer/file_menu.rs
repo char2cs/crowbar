@@ -214,9 +214,7 @@ fn menu_row(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sidebar::{
-        Command as Cmd, DemoData, Expansion, GitStatus, Lock, ShellAnswers, SidebarData,
-    };
+    use sidebar::{Command as Cmd, DemoShell, Expansion, GitStatus, Lock, ShellAnswers};
     use std::rc::Rc;
 
     fn entry(
@@ -431,8 +429,8 @@ mod tests {
         );
     }
 
-    fn asked(data: DemoData) -> MenuScope {
-        let data: Rc<dyn SidebarData> = Rc::new(data);
+    fn asked(data: DemoShell) -> MenuScope {
+        let data: Rc<dyn sidebar::Source> = Rc::new(data);
         MenuScope {
             answers: ShellAnswers::of(&data),
             ..scope()
@@ -442,24 +440,24 @@ mod tests {
     #[test]
     fn entries_the_shell_does_not_serve_are_hidden_with_their_separators() {
         let refresh = Cmd::RefreshDirectory { path: "src".into() };
-        let declined = asked(DemoData::reference().refusing(refresh));
+        let declined = asked(DemoShell::reference().refusing(refresh));
         let items = labels(&directory("src"), &declined);
         assert!(!items.contains(&"Refresh"));
         assert!(items.contains(&"Open All Files"));
         let create = Cmd::CreateFile {
             path: String::new(),
         };
-        let read_only = asked(DemoData::reference().refusing(create));
+        let read_only = asked(DemoShell::reference().refusing(create));
         assert!(!labels(&directory("src"), &read_only).contains(&"New File"));
         assert_eq!(
-            labels(&directory("src"), &asked(DemoData::reference()))[0],
+            labels(&directory("src"), &asked(DemoShell::reference()))[0],
             "New File"
         );
     }
 
     #[test]
     fn a_folder_of_a_multi_folder_workspace_can_be_removed_from_it() {
-        let several = asked(DemoData::reference().with_removable_folder("src"));
+        let several = asked(DemoShell::reference().with_removable_folder("src"));
         assert!(labels(&directory("src"), &several).contains(&"Remove From Workspace"));
         assert!(!labels(&directory("src"), &scope()).contains(&"Remove From Workspace"));
     }

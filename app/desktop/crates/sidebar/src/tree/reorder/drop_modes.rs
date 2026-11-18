@@ -1,7 +1,7 @@
 //! The set of placements a drop policy allows.
 
 use crate::shell::DropMode;
-use crate::tree_state::reorder::folder_target::FolderTarget;
+use crate::tree::reorder::folder_target::FolderTarget;
 
 const BEFORE: u8 = 1;
 const AFTER: u8 = 2;
