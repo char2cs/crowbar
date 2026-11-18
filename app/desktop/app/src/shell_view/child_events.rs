@@ -3,8 +3,8 @@ use layout::Command;
 use layout_view::LayoutEvent;
 use sidebar::{Sidebar, SidebarEvent};
 use startup_view::StartupEvent;
-use tab_bar::{TabBar, TabBarEvent};
 use ui::ToastKind;
+use viewtabs::{TabBar, TabBarEvent};
 
 use super::ShellView;
 use super::built::Built;

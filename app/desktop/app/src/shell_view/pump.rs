@@ -2,7 +2,7 @@ use gpui::{Context, Window};
 use panehost::IpcMessage;
 use protocol::PaneId;
 use startup_view::StartupInput;
-use tab_bar::{MemberKind, MemberView};
+use viewtabs::{MemberKind, MemberView};
 
 use super::ShellView;
 use crate::shell_request::ShellRequest;

@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use gpui::Entity;
 use layout_view::LayoutView;
-use tab_bar::TabBar;
+use viewtabs::TabBar;
 
 use crate::shell_pane_source::ShellPaneSource;
 use crate::workspace::Workspace;

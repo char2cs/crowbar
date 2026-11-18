@@ -14,8 +14,8 @@ use settings_ui::SettingsModal;
 use shell_data::{SettingsAdapter, ShellData};
 use sidebar::Sidebar;
 use startup_view::StartupView;
-use tab_bar::{SidebarState, TabBar};
 use ui::{Surface, Theme, ToastQueue};
+use viewtabs::{SidebarState, TabBar};
 
 mod appearance_settings;
 mod browsing;

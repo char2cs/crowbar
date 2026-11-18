@@ -1,7 +1,7 @@
 use gpui::Context;
 use layout::Tab;
 use settings_ui::{Key, SettingsRead as _};
-use tab_bar::TabView;
+use viewtabs::TabView;
 
 use super::ShellView;
 use super::pump::member;

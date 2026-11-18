@@ -3,8 +3,8 @@ use gpui::{
     Subscription, Window, div, px,
 };
 use layout::{Layout, LayoutHistory, PaneInstance};
-use tab_bar::{SidebarState, TabBar, TabBarEvent, TabView};
 use ui::{Surface, Theme};
+use viewtabs::{SidebarState, TabBar, TabBarEvent, TabView};
 
 use crate::chip::chip;
 use crate::scenario;

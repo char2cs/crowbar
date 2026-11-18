@@ -1,5 +1,5 @@
 [package]
-name = "tab_bar"
+name = "viewtabs"
 description = "The view-tab strip of the Crowbar shell: one pill per tab, reorder and merge by drag, driven by the model's commands."
 version.workspace = true
 edition.workspace = true

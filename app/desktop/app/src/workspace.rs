@@ -3,7 +3,7 @@ use gpui::{
     Window, canvas, div,
 };
 use layout_view::LayoutView;
-use tab_bar::TabBar;
+use viewtabs::TabBar;
 
 use crate::workspace_event::WorkspaceEvent;
 

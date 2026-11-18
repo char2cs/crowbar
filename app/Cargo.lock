@@ -1517,7 +1517,6 @@ dependencies = [
  "smallvec",
  "startup_view",
  "supervisor",
- "tab_bar",
  "terminal",
  "terminal_view",
  "thiserror 2.0.21",
@@ -1525,6 +1524,7 @@ dependencies = [
  "tracing",
  "transport",
  "ui",
+ "viewtabs",
  "webview",
  "windowstate",
 ]
@@ -7073,16 +7073,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tab_bar"
-version = "0.1.0"
-dependencies = [
- "gpui",
- "layout",
- "protocol",
- "ui",
-]
-
-[[package]]
 name = "taffy"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7941,6 +7931,16 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "viewtabs"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "layout",
+ "protocol",
+ "ui",
+]
 
 [[package]]
 name = "vswhom"

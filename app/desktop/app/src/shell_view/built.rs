@@ -7,8 +7,8 @@ use layout_view::LayoutView;
 use shell_data::ShellData;
 use sidebar::Sidebar;
 use startup_view::StartupView;
-use tab_bar::TabBar;
 use ui::ToastQueue;
+use viewtabs::TabBar;
 
 use crate::shell_pane_source::ShellPaneSource;
 use crate::workspace::Workspace;

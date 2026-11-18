@@ -22,7 +22,7 @@ panehost = { path = "desktop/crates/panehost" }
 ui = { path = "desktop/crates/ui" }
 sidebar = { path = "desktop/crates/sidebar" }
 layout_view = { path = "desktop/crates/layout_view" }
-tab_bar = { path = "desktop/crates/tab_bar" }
+viewtabs = { path = "desktop/crates/viewtabs" }
 transport = { path = "crates/transport" }
 supervisor = { path = "desktop/crates/supervisor" }
 startup_view = { path = "desktop/crates/startup_view" }

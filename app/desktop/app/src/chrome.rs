@@ -1,6 +1,6 @@
 use layout_view::{ChromeContext, SidebarEdge};
 use sidebar::{DockSide, Preferences, Visibility};
-use tab_bar::SidebarState;
+use viewtabs::SidebarState;
 
 pub(crate) fn of(preferences: &Preferences) -> (ChromeContext, SidebarState) {
     let (edge, state) = match (preferences.visibility, preferences.side) {

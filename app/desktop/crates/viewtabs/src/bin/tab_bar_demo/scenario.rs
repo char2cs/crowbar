@@ -1,6 +1,6 @@
 use layout::{Command, Layout, PaneInstance, TabId};
 use protocol::{PaneId, PaneState, PaneTypeId, Params};
-use tab_bar::MemberView;
+use viewtabs::MemberView;
 
 pub(crate) type DemoResult<T> = Result<T, Box<dyn std::error::Error>>;
 
@@ -33,7 +33,7 @@ pub(crate) fn member(pane: &PaneId) -> MemberView {
         label: title.to_owned().into(),
         provisional: pane.as_str() == "p1",
         working: pane.as_str() == "p3",
-        kind: tab_bar::MemberKind::Chat,
+        kind: viewtabs::MemberKind::Chat,
     }
 }
 
