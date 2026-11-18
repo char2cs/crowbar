@@ -67,7 +67,7 @@ async fn add_dumps(
     for (name, target) in DUMPS {
         let fetched = tokio::time::timeout(
             DUMP_TIMEOUT,
-            daemon_supervisor::fetch(socket, target, DUMP_LIMIT_BYTES),
+            supervisor::fetch(socket, target, DUMP_LIMIT_BYTES),
         )
         .await;
         match fetched {

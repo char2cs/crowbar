@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use daemon_supervisor::{DaemonPaths, Supervisor};
+use supervisor::{DaemonPaths, Supervisor};
 use tokio::sync::{MutexGuard as TurnGuard, watch};
 
 use crate::launched::Launched;
@@ -65,7 +65,7 @@ impl LinkState {
 
 #[cfg(test)]
 mod tests {
-    use daemon_supervisor::SupervisorConfig;
+    use supervisor::SupervisorConfig;
 
     use super::*;
 

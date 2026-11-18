@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use daemon_supervisor::{DaemonEvent, DaemonPaths, Supervisor, SupervisorConfig, locate_binary};
 use startup_view::StartupInput;
+use supervisor::{DaemonEvent, DaemonPaths, Supervisor, SupervisorConfig, locate_binary};
 use tokio::sync::watch;
 
 use crate::app_options::AppOptions;

@@ -24,7 +24,7 @@ sidebar = { path = "desktop/crates/sidebar" }
 layout_view = { path = "desktop/crates/layout_view" }
 tab_bar = { path = "desktop/crates/tab_bar" }
 transport = { path = "crates/transport" }
-daemon_supervisor = { path = "desktop/crates/daemon_supervisor" }
+supervisor = { path = "desktop/crates/supervisor" }
 startup_view = { path = "desktop/crates/startup_view" }
 settings_ui = { path = "desktop/crates/settings_ui" }
 shell_data = { path = "desktop/crates/shell_data" }

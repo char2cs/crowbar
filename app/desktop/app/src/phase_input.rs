@@ -1,5 +1,5 @@
-use daemon_supervisor::DaemonEvent;
 use startup_view::{MigrationStep, Outage, StartupInput};
+use supervisor::DaemonEvent;
 
 pub(crate) fn phase_input(event: &DaemonEvent) -> StartupInput {
     match event {

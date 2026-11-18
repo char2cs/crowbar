@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use daemon_supervisor::Supervisor;
+use supervisor::Supervisor;
 
 #[derive(Debug, Default)]
 pub(crate) struct Launched {

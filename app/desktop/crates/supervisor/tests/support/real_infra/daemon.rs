@@ -1,7 +1,7 @@
 use std::io;
 use std::time::Duration;
 
-use daemon_supervisor::{DaemonEvent, DaemonPaths, SupervisorConfig, Timings};
+use supervisor::{DaemonEvent, DaemonPaths, SupervisorConfig, Timings};
 use tempfile::TempDir;
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::broadcast::error::RecvError;

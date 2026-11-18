@@ -20,7 +20,7 @@ mod tests {
     fn a_small_file_is_read_whole() {
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
         let text = read_tail(&manifest).unwrap();
-        assert!(text.contains("daemon_supervisor"), "{text}");
+        assert!(text.contains("supervisor"), "{text}");
     }
 
     #[test]

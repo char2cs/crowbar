@@ -1,11 +1,11 @@
-//! Public-API tests of `daemon_supervisor` against a fake `crowbar-api` binary.
+//! Public-API tests of `supervisor` against a fake `crowbar-api` binary.
 
 #[path = "support/real_infra/daemon.rs"]
 mod support;
 
-use daemon_supervisor::{DaemonEvent, Error, Supervisor, Timings};
 use std::path::PathBuf;
 use std::time::Duration;
+use supervisor::{DaemonEvent, Error, Supervisor, Timings};
 use support::{config, fast_timings, next_matching};
 use tokio::sync::broadcast::Receiver;
 

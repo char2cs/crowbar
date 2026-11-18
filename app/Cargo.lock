@@ -1497,7 +1497,6 @@ dependencies = [
  "browser",
  "browser_agent",
  "browser_chrome",
- "daemon_supervisor",
  "gpui",
  "image",
  "layout_view",
@@ -1516,6 +1515,7 @@ dependencies = [
  "sidebar",
  "smallvec",
  "startup_view",
+ "supervisor",
  "tab_bar",
  "terminal",
  "terminal_session",
@@ -1603,23 +1603,6 @@ name = "cursor-icon"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
-
-[[package]]
-name = "daemon_supervisor"
-version = "0.1.0"
-dependencies = [
- "daemon_supervisor",
- "http-body-util",
- "hyper",
- "hyper-util",
- "rustix 1.1.6",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "tokio-util",
- "tracing",
-]
 
 [[package]]
 name = "data-encoding"
@@ -6840,6 +6823,23 @@ name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
+
+[[package]]
+name = "supervisor"
+version = "0.1.0"
+dependencies = [
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "rustix 1.1.6",
+ "serde_json",
+ "supervisor",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
 
 [[package]]
 name = "sval"
