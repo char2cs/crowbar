@@ -43,7 +43,7 @@ Numbers match the owner manifest (M#) so a finding can cite either.
 | M17 | Dependency direction is one way: `app/crates/*` <- `app/desktop/crates/*` <- `app/desktop/app`. A back-edge is wrong placement. | script `cargo-layer`; cargo rejects cycles |
 | M18-19 | (Go internal/ semantics, import cycles) covered by M15, M17 and by Cargo, which refuses dependency cycles. | cargo |
 | M20 | No cycles between modules inside a crate. | lint `cyclic_dependencies` is not in clippy; review of `mod` graph |
-| M21 | Crate and module names: short, lowercase `snake_case`, no stutter (`transport::Client`, not `transport::TransportClient`). | lint `module_name_repetitions`; C-CASE |
+| M21 | Crate names: one lowercase word, no `_` or `-` (`atomicfile`, `windowstate`; two words are joined only when one cannot name the job). Module names: short, lowercase `snake_case`. No stutter (`transport::Client`, not `transport::TransportClient`). | lint `module_name_repetitions`; C-CASE |
 | M22 | No module, file or crate named `util(s)`, `common`, `helper(s)`, `base` or `misc`. Name the concept. | script `module-name` |
 | M23 | Re-exports and names read the same from the crate root (C-WORD-ORDER). | review |
 | M24 | No global mutable state, no init magic: no `static mut`, `lazy_static!`, `thread_local!`, `OnceLock`/`LazyLock`/`Mutex`/`Atomic*` statics, no `ctor`/`inventory`. State is passed in. | script `global`; lint `static_mut_refs`; deny bans |
