@@ -9,9 +9,9 @@ use crate::intent::Intent;
 type Delivery = dyn Fn(Intent, &mut Window, &mut App);
 
 #[derive(Clone)]
-pub(crate) struct IntentSink(Rc<Delivery>);
+pub(crate) struct Sink(Rc<Delivery>);
 
-impl IntentSink {
+impl Sink {
     pub(crate) fn new(delivery: impl Fn(Intent, &mut Window, &mut App) + 'static) -> Self {
         Self(Rc::new(delivery))
     }
@@ -38,7 +38,7 @@ mod tests {
     use gpui::TestAppContext;
 
     use super::*;
-    use crate::intent::intent_runner::IntentRunner as _;
+    use crate::intent::runner::Runner as _;
     use crate::test_support::{inspect, open};
 
     fn selected(
@@ -54,7 +54,7 @@ mod tests {
     fn deliver_and_send_both_reach_the_modal(cx: &mut TestAppContext) {
         let (harness, cx) = open(cx, "appearance");
         let owner = harness.modal.clone();
-        let sink = IntentSink::new(move |intent, window, cx| {
+        let sink = Sink::new(move |intent, window, cx| {
             owner.update(cx, |modal, cx| modal.run(intent, window, cx));
         });
         cx.update(|window, cx| sink.deliver(Intent::Select("git".into()), (window, cx)));

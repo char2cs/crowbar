@@ -10,7 +10,7 @@ use settings::{
 };
 
 use crate::intent::Intent;
-use crate::intent::IntentRunner as _;
+use crate::intent::Runner as _;
 use crate::settings_modal::ModalConfig;
 use crate::settings_modal::SettingsModal;
 

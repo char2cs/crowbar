@@ -1,9 +1,9 @@
 //! A list of backend records with its loading, failed and empty states.
 
 mod drag_record;
+mod listed_record;
 mod marks;
 mod note_text;
-mod record_ref;
 mod tone_color;
 mod view;
 
@@ -14,9 +14,9 @@ use ui::{Button, ButtonSize, ButtonVariant, IconName, Skeleton};
 use crate::frame::Frame;
 use crate::frame::spacing;
 use crate::intent::Intent;
+use crate::modal::pages::records::listed_record::ListedRecord;
 use crate::modal::pages::records::marks::FLAG_COLUMN;
 use crate::modal::pages::records::note_text::note_text;
-use crate::modal::pages::records::record_ref::RecordRef;
 use crate::modal::pages::records::view::record_view;
 use crate::modal::pages::title_block::title_block;
 
@@ -91,7 +91,7 @@ fn table(
     for (index, record) in records.iter().enumerate() {
         let row = record_view(
             frame,
-            RecordRef::new(&list.source, record, index),
+            ListedRecord::new(&list.source, record, index),
             (&mut *window, &mut *cx),
         );
         rows.push(row.into_any_element());

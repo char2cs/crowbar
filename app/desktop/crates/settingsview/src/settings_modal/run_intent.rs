@@ -5,10 +5,10 @@ use settings::{Effect, Key, RecordCommand, Value};
 use ui::TextInputEvent;
 
 use crate::intent::Intent;
-use crate::intent::IntentRunner;
+use crate::intent::Runner;
 use crate::settings_modal::SettingsModal;
 
-impl IntentRunner for SettingsModal {
+impl Runner for SettingsModal {
     fn run(
         &mut self,
         intent: Intent,

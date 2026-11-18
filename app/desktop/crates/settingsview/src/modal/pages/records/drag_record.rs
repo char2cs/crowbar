@@ -3,7 +3,7 @@
 use gpui::{App, Window};
 
 use crate::intent::Intent;
-use crate::intent::IntentSink;
+use crate::intent::Sink;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DragRecord {
@@ -28,7 +28,7 @@ impl DragRecord {
 impl DragRecord {
     pub(crate) fn deliver(
         &self,
-        sink: &IntentSink,
+        sink: &Sink,
         target: (&str, usize),
         (window, cx): (&mut Window, &mut App),
     ) {

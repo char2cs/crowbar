@@ -6,7 +6,7 @@ use ui::{TextInput, TextInputEvent, TextInputStyle};
 
 use crate::frame::Fields;
 use crate::intent::Intent;
-use crate::intent::IntentRunner;
+use crate::intent::Runner;
 
 fn placeholder_and_style(control: &Control) -> Option<(&str, TextInputStyle)> {
     match control {
@@ -18,7 +18,7 @@ fn placeholder_and_style(control: &Control) -> Option<(&str, TextInputStyle)> {
     }
 }
 
-pub(crate) fn build<Owner: IntentRunner>(
+pub(crate) fn build<Owner: Runner>(
     fields: &mut Fields,
     content: (&Row, &str),
     (window, cx): (&mut Window, &mut Context<'_, Owner>),

@@ -6,10 +6,10 @@ use ui::{Button, ButtonSize, ButtonVariant, Dialog};
 
 use crate::frame::spacing;
 use crate::intent::Intent;
-use crate::intent::IntentSink;
+use crate::intent::Sink;
 
 pub(crate) fn prompt_view(
-    sink: &IntentSink,
+    sink: &Sink,
     prompt: &Prompt,
 ) -> impl IntoElement {
     let buttons = div()

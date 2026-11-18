@@ -7,8 +7,8 @@ use gpui::{
 
 use crate::frame::Frame;
 use crate::intent::Intent;
-use crate::intent::IntentSink;
-use crate::modal::key_routing::KeyMode;
+use crate::intent::Sink;
+use crate::modal::key_routing::Mode;
 use crate::modal::key_routing::route;
 use crate::modal::pages::content;
 use crate::modal::rail::rail;
@@ -19,7 +19,7 @@ pub(crate) fn body(
 ) -> AnyElement {
     let focus = frame.focus;
     let sink = frame.sink.clone();
-    let capture = frame.state.capturing().map(|_| KeyMode::Capturing);
+    let capture = frame.state.capturing().map(|_| Mode::Capturing);
     let focused = focus.clone();
     div()
         .id("settings-body")
@@ -40,15 +40,15 @@ pub(crate) fn body(
 fn rail_or_page(
     focus: &FocusHandle,
     window: &Window,
-) -> KeyMode {
+) -> Mode {
     if focus.is_focused(window) {
-        return KeyMode::Rail;
+        return Mode::Rail;
     }
-    KeyMode::Page
+    Mode::Page
 }
 
 fn deliver_key(
-    sink: &IntentSink,
+    sink: &Sink,
     intent: Option<Intent>,
     (window, cx): (&mut Window, &mut App),
 ) {

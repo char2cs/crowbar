@@ -1,13 +1,13 @@
 use settings::Record;
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct RecordRef<'a> {
+pub(crate) struct ListedRecord<'a> {
     pub(crate) source: &'a str,
     pub(crate) record: &'a Record,
     pub(crate) index: usize,
 }
 
-impl<'a> RecordRef<'a> {
+impl<'a> ListedRecord<'a> {
     pub(crate) fn new(
         source: &'a str,
         record: &'a Record,
@@ -28,7 +28,7 @@ mod tests {
     #[test]
     fn keeps_the_list_the_record_and_the_position() {
         let record = Record::new("a", "Title");
-        let reference = RecordRef::new("projects", &record, 3);
+        let reference = ListedRecord::new("projects", &record, 3);
         assert_eq!(reference.source, "projects");
         assert_eq!(reference.record.id, "a");
         assert_eq!(reference.index, 3);

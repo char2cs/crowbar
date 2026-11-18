@@ -1,10 +1,10 @@
 //! What the user asked of the modal.
 
-mod intent_runner;
-mod intent_sink;
+mod runner;
+mod sink;
 
-pub(crate) use intent_runner::IntentRunner;
-pub(crate) use intent_sink::IntentSink;
+pub(crate) use runner::Runner;
+pub(crate) use sink::Sink;
 
 use ui::TextInputEvent;
 

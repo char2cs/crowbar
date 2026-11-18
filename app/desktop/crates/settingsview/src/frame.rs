@@ -12,12 +12,12 @@ pub(crate) use icon_stem::icon_named;
 use gpui::{FocusHandle, ScrollHandle};
 use settings::RecordBackend;
 
-use crate::intent::IntentSink;
+use crate::intent::Sink;
 
 #[derive(Clone, Copy)]
 pub(crate) struct Frame<'a> {
     pub(crate) state: &'a settings::State,
-    pub(crate) sink: &'a IntentSink,
+    pub(crate) sink: &'a Sink,
     pub(crate) fields: &'a Fields,
     pub(crate) records: &'a dyn RecordBackend,
     pub(crate) focus: &'a FocusHandle,

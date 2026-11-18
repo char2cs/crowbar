@@ -20,7 +20,7 @@ use crate::frame::element_id;
 use crate::frame::icon_named;
 use crate::frame::spacing;
 use crate::intent::Intent;
-use crate::modal::pages::records::record_ref::RecordRef;
+use crate::modal::pages::records::listed_record::ListedRecord;
 use crate::modal::pages::records::tone_color::tone_color;
 
 const DROP_LINE: f32 = 2.0;
@@ -29,10 +29,10 @@ const ROW_MIN_HEIGHT: f32 = 44.0;
 
 pub(crate) fn record_view(
     frame: &Frame<'_>,
-    entry: RecordRef<'_>,
+    entry: ListedRecord<'_>,
     (_, cx): (&mut Window, &mut App),
 ) -> impl IntoElement {
-    let RecordRef { source, record, .. } = entry;
+    let ListedRecord { source, record, .. } = entry;
     let theme = *Theme::of(cx);
     let palette = theme.palette(Surface::Window);
     let leading = leading_icon(record, palette);
@@ -74,7 +74,7 @@ pub(crate) fn record_view(
 
 fn flag_boxes(
     frame: &Frame<'_>,
-    entry: RecordRef<'_>,
+    entry: ListedRecord<'_>,
     palette: &ui::Palette,
 ) -> Vec<AnyElement> {
     entry
@@ -88,9 +88,9 @@ fn flag_boxes(
 fn draggable(
     row: gpui::Stateful<gpui::Div>,
     frame: &Frame<'_>,
-    entry: RecordRef<'_>,
+    entry: ListedRecord<'_>,
 ) -> impl IntoElement {
-    let RecordRef {
+    let ListedRecord {
         source,
         record,
         index,
@@ -174,10 +174,10 @@ fn line_text(
 
 fn flag_box(
     frame: &Frame<'_>,
-    entry: RecordRef<'_>,
+    entry: ListedRecord<'_>,
     (flag, palette): (&RecordFlag, &ui::Palette),
 ) -> AnyElement {
-    let RecordRef { source, record, .. } = entry;
+    let ListedRecord { source, record, .. } = entry;
     let id = element_id("flag", &format!("{}-{}", record.id, flag.id));
     if flag.look == FlagLook::Dot {
         return dot_box(flag, palette).into_any_element();

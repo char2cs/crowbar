@@ -22,8 +22,8 @@ use crate::settings_modal::close_handler::CloseHandler;
 use crate::frame::Fields;
 use crate::frame::Frame;
 use crate::intent::Intent;
-use crate::intent::IntentRunner as _;
-use crate::intent::IntentSink;
+use crate::intent::Runner as _;
+use crate::intent::Sink;
 use crate::modal::notice_view;
 use crate::modal::prompt_view;
 use crate::modal::{extent, search_field};
@@ -145,8 +145,8 @@ impl SettingsModal {
     }
 }
 
-fn sink_to(owner: Entity<SettingsModal>) -> IntentSink {
-    IntentSink::new(move |intent, window, cx| {
+fn sink_to(owner: Entity<SettingsModal>) -> Sink {
+    Sink::new(move |intent, window, cx| {
         owner.update(cx, |modal, cx| modal.run(intent, window, cx));
     })
 }
