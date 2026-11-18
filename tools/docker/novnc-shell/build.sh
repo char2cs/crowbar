@@ -12,16 +12,20 @@ image=${RIG_IMAGE:-crowbar-novnc-shell:latest}
 builder=${RIG_BUILDER_IMAGE:-desksplit-rust:latest}
 develop=${RIG_DEVELOP_REF:-origin/develop}
 work=$(mktemp -d "${TMPDIR:-/tmp}/crowbar-rig.XXXXXX")
+compiled=
 cleanup() {
   # The builder writes as uid 1000 inside the container; remove through a container too.
-  docker run --rm -v "$work:/w" alpine rm -rf /w/develop /w/branch /w/cache >/dev/null 2>&1 || true
-  docker exec crowbar-build rm -rf /tmp/rig-target >/dev/null 2>&1 || true
+  if [[ -n $compiled ]]; then
+    docker run --rm -v "$work:/w" alpine rm -rf /w/develop /w/branch /w/cache >/dev/null 2>&1 || true
+    docker exec crowbar-build rm -rf /tmp/rig-target >/dev/null 2>&1 || true
+  fi
   rm -rf "$work"
 }
 trap cleanup EXIT
 
 compile() {
   local out=$work/stage
+  compiled=1
   mkdir -p "$work"/{develop,branch,stage} "$work"/cache/{gomod,gocache,bun,cargo-registry,cargo-git}
   git -C "$repo" archive "$develop" desktop web | tar -x -C "$work/develop"
   git -C "$repo" archive HEAD api app/panes | tar -x -C "$work/branch"

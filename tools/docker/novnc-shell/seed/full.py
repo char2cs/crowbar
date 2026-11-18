@@ -95,6 +95,33 @@ def providers():
     note(f"  providers  {', '.join(order)}")
 
 
+def github_origin(path):
+    """side-app's origin says "github.com" (a file:// URL, so the daemon can parse a slug), so the
+    daemon asks the gh stand-in (forge/forge) for its pull requests. Set before the repo is added:
+    the daemon caches a repo's forge kind."""
+    remote = f"{FIXTURES}/remote/github.com/rig/side-app.git"
+    files.git(FIXTURES, "clone", "-q", "--bare", path, remote)
+    files.git(path, "remote", "add", "origin", f"file://{remote}")
+    files.git(path, "push", "-q", "origin", "main")
+
+
+def github_pr(repo, parent_chat):
+    """One side-app workspace with an open pull request, read through gh."""
+    branch = "feature/side-pr"
+    _, ws = repo.fork(parent_chat, branch, "PR open (github)")
+    files.write(f"{ws['localPath']}/side-pr.md", f"# {branch}\n")
+    files.commit(ws["localPath"], f"Work for {branch}")
+    files.git(ws["localPath"], "push", "-q", "origin", branch)
+    pr = {"number": 7, "state": "OPEN", "url": "http://127.0.0.1:8088/pr/7", "title": f"Fixture PR: {branch}",
+          "headRefName": branch, "baseRefName": "main", "headRefOid": files.git(ws["localPath"], "rev-parse", "HEAD")}
+    user = {"login": "crowbar-seed", "name": "Crowbar Seed", "avatar_url": "http://127.0.0.1:8088/logo.png"}
+    files.write(f"{FIXTURES}/forge/pull-requests.json",
+                json.dumps({"protected": ["main"], "pull_requests": [pr], "user": user}, indent=1))
+    hold(api.sock, [f"forge:{ws['id']}"], 8)
+    states = {w["branch"]: w.get("status") for w in repo.workspaces() if w["id"] == ws["id"]}
+    note(f"  forge      side-app pull requests via forge/forge as gh: {states}")
+
+
 def main():
     providers()
     project = next(p for p in api.get("/v0/projects") if p["name"] == "Crowbar Seed")
@@ -105,7 +132,7 @@ def main():
     feature = seed.ws("feature/pricing-rounding")
 
     # --- a remote with protected, imported and new branches -------------------------------------
-    # "gitlab" in the remote's path is what makes the daemon ask the forge CLI (forge/glab) for PRs.
+    # "gitlab" in the remote's path is what makes the daemon ask the forge CLI (forge/forge as glab) for PRs.
     remote = f"{FIXTURES}/remote/gitlab-fixture/checkout.git"
     if not os.path.isdir(remote):
         files.git(FIXTURES, "clone", "-q", "--bare", checkout, remote)
@@ -194,7 +221,7 @@ def main():
     files.write(f"{FIXTURES}/forge/merge-requests.json", json.dumps({"protected": ["main", "release/1.0"], "merge_requests": mrs}, indent=1))
     hold(api.sock, [f"forge:{w}" for w in pr_ws], 8)
     states = {w["branch"]: w.get("status") for w in seed.workspaces() if w["id"] in pr_ws}
-    note(f"  forge      merge requests via forge/glab: {states}")
+    note(f"  forge      merge requests via forge/forge as glab: {states}")
 
     # --- review threads -------------------------------------------------------------------------
     identity = api.get(f"/v0/chats/{review_chat}/identity") or {}
@@ -318,13 +345,16 @@ def main():
         files.git(side_repo_path, "init", "-q", "-b", "main")
         files.write(f"{side_repo_path}/README.md", "# Side app\n")
         files.commit(side_repo_path, "Side app")
+        github_origin(side_repo_path)
     side = add_project("Side Project", side_path)
     side_rid = add_repo(side, "side-app", side_repo_path)
     side_repo = Repo(side, side_rid)
     side_ws = api.until("side-app home workspace", lambda: next((w for w in side_repo.workspaces() if w.get("isDefault")), None))
+    side_chats = []
     for title in ("Side chat A", "Side chat B"):
-        cid = side_repo.chat(side_ws["id"], title)
-        play(cid, f"Hello from {title}.", prefix=side_repo.prefix)
+        side_chats.append(side_repo.chat(side_ws["id"], title))
+        play(side_chats[-1], f"Hello from {title}.", prefix=side_repo.prefix)
+    github_pr(side_repo, side_chats[0])
     add_project("Empty Space", f"{HOME}/seed/empty-space")
     note("  projects   Crowbar Seed (+ second-repo, home chats, home folder Notes), Side Project (side-app, 2 chats), Empty Space (no repos)")
 

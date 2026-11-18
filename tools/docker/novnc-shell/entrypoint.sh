@@ -20,6 +20,7 @@ rig _daemon-loop &
 essential+=($!)
 (
   rig http start
+  rig _session
   rig _wait-daemon || exit 1
   if [[ -e $HOME/.rig/initialised ]]; then rig start all; else rig init; fi
 ) >>"$HOME/.rig/entrypoint.log" 2>&1 &

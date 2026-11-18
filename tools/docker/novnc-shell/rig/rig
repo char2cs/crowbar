@@ -42,9 +42,11 @@ socket() { /opt/crowbar/crowbar-api.real paths | python3 -c 'import json,sys; pr
 
 winid() { # the app's largest visible window carrying its _NET_WM_PID (both apps set it)
   local pid w g best="" area=0
-  pid=$(pid_of "$1") || die "$1 is not running"
+  # return, not die: wait_window polls this before the forked shell has exec'd the app
+  pid=$(pid_of "$1") || { echo "rig: $1 is not running" >&2; return 1; }
   for w in $(xdotool search --onlyvisible --pid "$pid" 2>/dev/null); do
-    g=$(xdotool getwindowgeometry "$w" | awk '/Geometry/ {print $2}')
+    g=$(xdotool getwindowgeometry "$w" 2>/dev/null | awk '/Geometry/ {print $2}')
+    [[ $g == *x* ]] || continue # the window went away since the search
     ((${g%x*} * ${g#*x} > area)) && area=$((${g%x*} * ${g#*x})) && best=$w
   done
   ((area > 0)) || return 1
@@ -61,10 +63,11 @@ min_size() {
 }
 
 wait_window() {
-  local i
+  local i pid
+  pid=$(cat "$RIG_DIR/$1/pid")
   for i in $(seq 600); do
     winid "$1" 2>/dev/null && return
-    running "$1" || die "$1 exited during startup; see $RIG_DIR/$1/app.log"
+    [[ -d /proc/$pid ]] || die "$1 exited during startup; see $RIG_DIR/$1/app.log"
     sleep 0.1
   done
   die "$1 opened no window in 60s; see $RIG_DIR/$1/app.log"
@@ -128,7 +131,7 @@ stop_app() {
   echo "$app stopped"
 }
 
-# bus_up: a D-Bus session bus for ibus and AT-SPI, started once; the apps get its address.
+# bus_up: the session bus (file-chooser portal, ibus, AT-SPI), started once; the apps get its address.
 bus_up() {
   if [[ -f $RIG_DIR/bus.env ]] && kill -0 "$(sed -n 's/^PID=//p' "$RIG_DIR/bus.env")" 2>/dev/null; then return; fi
   local out
@@ -207,8 +210,9 @@ init() {
   local app
   with_stopped tauri rust -- initial_settings
   for app in tauri rust; do running "$app" || start_app "$app"; done
-  # points.conf names the baseline's sidebar rows; the other profiles start on what each app restores.
-  if [[ $(profile) == baseline ]]; then
+  # points.conf names the baseline's sidebar rows (noproviders shares them); the other profiles
+  # start on what each app restores.
+  if [[ $(profile) == baseline || $(profile) == noproviders ]]; then
     for app in tauri rust; do
       click_point "$app" perf_chat; sleep 3
       click_point "$app" untitled_chat; sleep 3
@@ -279,6 +283,73 @@ daemon_stop() {
 daemon_start() {
   rm -f "$RIG_DIR/daemon.paused" "$RIG_DIR/daemon.crashloop"
   echo "daemon starting"
+}
+# daemon_path: the shared daemon's PATH; `rig daemon nogit` drops the one directory holding git
+# (the image keeps git only there, so the daemon's fallback to /usr/bin finds none either).
+daemon_path() {
+  if [[ -e $RIG_DIR/daemon.nogit ]]; then tr : '\n' <<<"$PATH" | grep -vx /opt/rig/git-bin | paste -sd:; else echo "$PATH"; fi
+}
+
+# chooser <app>: the open file-chooser window — Tauri's own GTK dialog, or the portal's (GTK) dialog
+# that the Rust shell asks xdg-desktop-portal for — the largest visible window of that process
+# other than the app's own.
+chooser() {
+  local pid main="" w g best="" area=0
+  if [[ $1 == tauri ]]; then
+    pid=$(pid_of tauri) || return 1
+    main=$(winid tauri)
+  else
+    pid=$(pgrep -f /usr/libexec/xdg-desktop-portal-gtk | head -1) || return 1
+  fi
+  for w in $(xdotool search --onlyvisible --pid "$pid" 2>/dev/null); do
+    [[ $w == "$main" ]] && continue
+    g=$(xdotool getwindowgeometry "$w" 2>/dev/null | awk '/Geometry/ {print $2}')
+    [[ $g == *x* ]] || continue # the window went away since the search
+    ((${g%x*} * ${g#*x} > area)) && area=$((${g%x*} * ${g#*x})) && best=$w
+  done
+  ((area > 0)) && echo "$best"
+}
+
+# pick <app> <path>: types the path into the open chooser's location bar and confirms it. The
+# chooser opens on "Recent", where Enter on a typed path does nothing: alt+Home leaves it first. A
+# folder chooser may only enter the folder on the first Enter; the second one selects it.
+pick() {
+  local w="" i
+  for i in $(seq 100); do w=$(chooser "$1") && break; sleep 0.1; done
+  [[ -n $w ]] || die "no file chooser is open for $1"
+  xdotool windowactivate --sync "$w" 2>/dev/null || xdotool windowfocus --sync "$w"
+  xdotool key --clearmodifiers alt+Home
+  sleep 0.3
+  xdotool key --clearmodifiers ctrl+l
+  sleep 0.3
+  xdotool key --clearmodifiers ctrl+a
+  xdotool type --delay 20 "$2"
+  sleep 0.3
+  for i in 1 2 3; do
+    xdotool windowfocus --sync "$w" 2>/dev/null || break
+    xdotool key --clearmodifiers Return
+    for _ in $(seq 20); do xdotool getwindowname "$w" >/dev/null 2>&1 && chooser "$1" >/dev/null || break 2; sleep 0.1; done
+  done
+  chooser "$1" >/dev/null && die "the chooser is still open: $2 was not accepted (rig shot cannot see it; check noVNC)"
+  echo "$1: picked $2"
+}
+
+# fault rules for rig-proxy.py: one JSON object per line in $RIG_DIR/faults, reloaded on SIGUSR1.
+fault_signal() { pkill -USR1 -f /opt/rig/bin/rig-proxy.py || true; }
+fault_add() { # fault_add <method> <path-regex> <status|drop|delay> [ms]
+  local action=$3 value=null
+  case $3 in
+    drop) ;;
+    delay) value=${4:?fault <method> <path-regex> delay <ms>}; [[ $value =~ ^[0-9]+$ ]] || die "delay takes milliseconds" ;;
+    [1-5][0-9][0-9]) action=status value=$3 ;;
+    *) die "fault <method> <path-regex> <status|drop|delay ms>" ;;
+  esac
+  python3 -c 'import json, re, sys
+m, path, action, value = sys.argv[1:]
+re.compile(path)
+print(json.dumps({"method": "*" if m.upper() in ("*", "ANY") else m.upper(), "path": path, "action": action, "value": json.loads(value)}))' \
+    "$1" "$2" "$action" "$value" >>"$RIG_DIR/faults" || die "bad fault rule"
+  fault_signal
 }
 
 # perf_one <metric> <app> [extra rigx args]: the other app is stopped while one is measured.
@@ -427,6 +498,17 @@ case $sub in
       wedge) # alive with its socket open, answering nothing (SIGSTOP)
         pkill -STOP -f "crowbar-api.real serve --host unix"; echo "daemon wedged (\`rig daemon unwedge\` resumes it)" ;;
       unwedge) pkill -CONT -f "crowbar-api.real serve --host unix"; echo "daemon resumed" ;;
+      nogit)
+        case ${2:-on} in
+          on) touch "$RIG_DIR/daemon.nogit" ;;
+          off) rm -f "$RIG_DIR/daemon.nogit" ;;
+          *) die "daemon nogit on|off" ;;
+        esac
+        old=$(pgrep -f "crowbar-api.real serve --host unix" || true)
+        pkill -f "crowbar-api.real serve --host unix" || true
+        for p in $old; do while kill -0 "$p" 2>/dev/null; do sleep 0.1; done; done
+        "$0" _wait-daemon && echo "daemon restarted $([[ ${2:-on} == on ]] && echo without || echo with) git"
+        ;;
       crashloop)
         case ${2:-on} in
           on) touch "$RIG_DIR/daemon.crashloop"; pkill -KILL -f "crowbar-api.real serve --host unix" || true; echo "daemon crash-looping" ;;
@@ -434,14 +516,14 @@ case $sub in
           *) die "daemon crashloop on|off" ;;
         esac
         ;;
-      *) die "daemon status|stop|start|restart|kill|wedge|unwedge|crashloop on|off" ;;
+      *) die "daemon status|stop|start|restart|kill|wedge|unwedge|crashloop on|off|nogit on|off" ;;
     esac
     ;;
   seed)
     case ${1:-} in
       "" | list)
         echo "current: $(profile)"
-        for t in "$PROFILES"/*.tar; do printf '  %-9s %s\n' "$(basename "$t" .tar)" "$(numfmt --to=iec "$(stat -c %s "$t")")"; done
+        for t in "$PROFILES"/*.tar; do printf '  %-12s %s\n' "$(basename "$t" .tar)" "$(numfmt --to=iec "$(stat -c %s "$t")")"; done
         ;;
       *) seed_profile "$1" ;;
     esac
@@ -623,12 +705,32 @@ PY
     esac
     ;;
   forge)
-    # The forge CLI stand-in (forge/glab): signed in or out, and the merge requests it reports.
-    case ${1:-status} in
-      signed-in) rm -f "$HOME/fixtures/forge/signed-out"; echo "forge: signed in" ;;
-      signed-out) mkdir -p "$HOME/fixtures/forge"; touch "$HOME/fixtures/forge/signed-out"; echo "forge: signed out" ;;
-      status) glab auth status; glab mr list --state all --output json | python3 -m json.tool ;;
-      *) die "forge signed-in|signed-out|status" ;;
+    # The forge CLI stand-ins (forge/forge as glab and gh): signed in or out, and what they report.
+    case ${2:-all} in
+      all) clis="glab gh" ;;
+      glab | gh) clis=$2 ;;
+      *) die "forge signed-in|signed-out|status [glab|gh|all]" ;;
+    esac
+    mkdir -p "$HOME/fixtures/forge"
+    for cli in $clis; do
+      case ${1:-status} in
+        signed-in) rm -f "$HOME/fixtures/forge/$cli.signed-out"; echo "$cli: signed in" ;;
+        signed-out) touch "$HOME/fixtures/forge/$cli.signed-out"; echo "$cli: signed out" ;;
+        status)
+          "$cli" auth status 2>&1 || true
+          if [[ $cli == glab ]]; then glab mr list --state all --output json; else gh pr list --state all --json number,state,headRefName,baseRefName,url,title; fi |
+            python3 -m json.tool 2>/dev/null || true
+          ;;
+        *) die "forge signed-in|signed-out|status [glab|gh|all]" ;;
+      esac
+    done
+    ;;
+  pick) one_app "${1:-}"; pick "$1" "${2:?pick <app> <path>}" ;;
+  fault)
+    case ${1:-list} in
+      clear) rm -f "$RIG_DIR/faults"; fault_signal; echo "faults cleared" ;;
+      list) [[ -s $RIG_DIR/faults ]] && cat "$RIG_DIR/faults" || echo "no faults" ;;
+      *) fault_add "$1" "${2:?fault <method> <path-regex> <status|drop|delay ms>}" "${3:-}" "${4:-}"; cat "$RIG_DIR/faults" ;;
     esac
     ;;
   api) python3 /opt/rig/bin/rigapi.py "$@" ;;
@@ -657,15 +759,19 @@ PY
       while [[ -e $RIG_DIR/daemon.paused ]]; do sleep 0.5; done
       if [[ -e $RIG_DIR/daemon.crashloop ]]; then
         # `rig daemon crashloop`: up for about 2 s, then SIGKILL, over and over.
-        /opt/crowbar/crowbar-api.real serve --host "unix://$sock" >>"$RIG_DIR/daemon.log" 2>&1 &
+        PATH=$(daemon_path) /opt/crowbar/crowbar-api.real serve --host "unix://$sock" >>"$RIG_DIR/daemon.log" 2>&1 &
         sleep 2
         kill -KILL $! 2>/dev/null || true
         wait $! 2>/dev/null || true
       else
-        /opt/crowbar/crowbar-api.real serve --host "unix://$sock" >>"$RIG_DIR/daemon.log" 2>&1 || true
+        PATH=$(daemon_path) /opt/crowbar/crowbar-api.real serve --host "unix://$sock" >>"$RIG_DIR/daemon.log" 2>&1 || true
       fi
       sleep 1
     done
+    ;;
+  _session) # at boot: a fresh session bus for the apps (the file-chooser portal is D-Bus activated)
+    rm -f "$RIG_DIR/bus.env"
+    bus_up
     ;;
   _wait-daemon)
     for _ in $(seq 300); do python3 "$RIGX" health "$(socket)" >/dev/null 2>&1 && exit 0; sleep 0.2; done

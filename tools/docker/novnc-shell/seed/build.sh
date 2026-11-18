@@ -4,6 +4,7 @@
 #   empty     a migrated home with no projects; the scripted providers installed
 #   baseline  empty + crowbar-seed (Crowbar Seed project) + crowbar-seed-chat (30-turn chat)
 #   full      baseline + seed/full.py (everything the audit's Seed: cells ask for)
+#   noproviders  baseline with every provider disabled
 set -euo pipefail
 real=/opt/crowbar/crowbar-api.real
 here=$(cd "$(dirname "$0")" && pwd)
@@ -53,6 +54,23 @@ start
 python3 "$here/full.py"
 stop
 save full
+
+chmod -R u+rwX "$CROWBAR_HOME" "$HOME/fixtures" 2>/dev/null || true
+rm -rf "$CROWBAR_HOME" "$HOME/.scripted-agent" "$HOME/fixtures"
+tar -S -xf "$profiles/baseline.tar" -C "$HOME"
+start
+python3 - <<'PY'
+import sys; sys.path.insert(0, "/opt/rig/bin")
+import rigapi
+api = rigapi.Api()
+cur = api.get("/v0/settings/chat/providers")
+api.put("/v0/settings/chat/providers", {"providers": [{"id": p["id"], "disabled": True, "mcpDisabled": not p["mcpEnabled"]} for p in cur]})
+left = [p["id"] for p in api.get("/v0/settings/chat/providers") if p["enabled"]]
+assert not left, f"providers still enabled: {left}"
+print(f"seed: every provider disabled ({len(cur)})")
+PY
+stop
+save noproviders
 
 # The image keeps only the tars; the entrypoint and `rig seed` extract one.
 rm -rf "$CROWBAR_HOME" "$HOME/.scripted-agent" "$HOME/fixtures" "$HOME/.rig-unreadable"

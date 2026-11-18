@@ -7,13 +7,14 @@ and one instance of each app:
 - **Rust** — the GPUI shell built from this branch (`app/desktop/app`, Release), right half.
 - **Daemon** — `api/cmd/crowbar` from this branch, one `CROWBAR_HOME=/home/user/.crowbar-rig`, one
   socket. Its home comes from a seed profile (see Seed profiles): `baseline` unless the container
-  is started with `RIG_PROFILE=empty|full`.
+  is started with `RIG_PROFILE=empty|full|noproviders`.
 
 Both windows are 1280x800 (`RIG_W`/`RIG_H`), undecorated, side by side on a 2600x900 Xvfb screen, with
 the same theme (dark by default) and the sidebar on the left. The container has no host mounts, no
 docker socket, no host network and no credentials. No real agent CLI is installed: chats run the
 **scripted provider**, a deterministic stand-in (see Scripted provider), and pull-request state
-comes from a stand-in forge CLI (see Forge stand-in).
+comes from stand-in forge CLIs (see Forge stand-ins). A session D-Bus with `xdg-desktop-portal` and
+its GTK backend gives both apps working file choosers (see File choosers).
 
 ## How both apps share one daemon
 
@@ -26,7 +27,8 @@ and rewrites only the `pid` in `/v0/health` replies to its own (the Rust shell r
 whose pid is not the child it spawned). The real daemon is run by the entrypoint (`rig
 _daemon-loop`), so stopping or restarting an app never touches it. Both apps go through the same
 proxy, so its cost (one Python hop) is identical for both; perf commands exclude it from the
-process trees they measure.
+process trees they measure. The proxy can also inject request-level faults (see Fault injection);
+with no fault rules it splices exactly as described.
 
 ## Build
 
@@ -51,7 +53,8 @@ dir, its caches and `/tmp/rig-target` are deleted when it exits. `--stage <dir>`
 
 Open `http://<host>:6090/` (redirects to `vnc.html?autoconnect=true&resize=scale`). On first boot the
 entrypoint extracts the `RIG_PROFILE` profile (default `baseline`) and runs `rig init` (about 20 s);
-later boots run `rig start all`. Every boot starts the web fixture (`rig http start`). Everything below runs
+later boots run `rig start all`. Every boot starts the web fixture (`rig http start`) and a fresh
+session D-Bus for the apps (`rig _session`). Everything below runs
 inside the container: `docker exec crowbar-novnc-shell rig <command>`. Copy screenshots and perf
 results out with `docker cp crowbar-novnc-shell:/home/user/shots .` and
 `docker cp crowbar-novnc-shell:/home/user/.rig/perf .`.
@@ -67,12 +70,15 @@ Logs: `~/.rig/daemon.log` (the shared daemon), `~/.rig/http.log` (web fixture), 
     rig start|stop|restart [app]        # exactly one instance each; start waits for the window and places it
     rig init                            # same theme + sidebar in both; on baseline, both seeded chats open as tabs
     rig seed [list]                     # the current profile and the ones built into the image
-    rig seed empty|baseline|full        # apps stopped, daemon paused, that profile restored, apps' storage wiped, init
+    rig seed empty|baseline|full|noproviders   # apps stopped, daemon paused, that profile restored, apps' storage wiped, init
     rig reset                           # rig seed <current profile>
     rig daemon status|stop|start|restart|kill   # the one shared daemon: stop holds it down until start;
                                         # restart and kill let the daemon loop bring it straight back
     rig daemon wedge|unwedge            # SIGSTOP/SIGCONT: the socket accepts, nothing answers
     rig daemon crashloop on|off         # the loop SIGKILLs every start after about 2 s
+    rig daemon nogit on|off             # restarts the daemon without (with) git on its PATH; it finds none
+    rig fault <method> <path-regex> <status|drop|delay ms>   # see Fault injection
+    rig fault list|clear
     rig size [app] standard             # 1280x800 (RIG_WxRIG_H): the size every comparison uses
     rig size [app] default              # each app's own default: Tauri 1200x800, Rust 1280x800
     rig size [app] min                  # the minimum the app declares (WM_NORMAL_HINTS), else RIG_MIN
@@ -84,6 +90,7 @@ Logs: `~/.rig/daemon.log` (the shared daemon), `~/.rig/http.log` (web fixture), 
     rig click <app> <x> <y> [button]
     rig scroll <app> <x> <y> [up|down] [clicks]
     rig drag <app> <x1> <y1> <x2> <y2> [steps] [button] [hold-ms]   # press, move in steps (20), release
+    rig pick <app> <path>               # the open file chooser: ctrl+L, the path, Enter (see File choosers)
     rig shot <app> [file.png]           # one window to PNG (default ~/shots/<app>-<time>.png)
     rig pair <row-id>                   # ~/shots/<row-id>/{tauri,rust,side-by-side}.png
     rig perf <metric|all> [app] [opts]  # see Performance
@@ -116,7 +123,8 @@ Environment and input (each setting that the apps read at start restarts them):
     rig a11y apps                       # applications registered on the AT-SPI bus
 
 `rig ime`, `rig a11y` and `rig motion` leave the apps' extra environment in `~/.rig/app.env`
-(`NAME=value` or `-u NAME` lines) and the session bus address in `~/.rig/bus.env`.
+(`NAME=value` or `-u NAME` lines). The session bus is started at boot (`rig _session`); its address
+is in `~/.rig/bus.env` and, as `DBUS_SESSION_BUS_ADDRESS`, in `app.env`.
 
 - **Reduced motion.** WebKitGTK maps `gtk-enable-animations=false` to `prefers-reduced-motion:
   reduce`, so it reaches Tauri and the panes webview inside the Rust shell. GPUI has no OS motion
@@ -141,7 +149,7 @@ Daemon data and chats (all through the daemon's HTTP API, over its socket):
     rig agent answer <chat> <option-id[,id]> [ask-id]
     rig agent stop <chat>
     rig provider list|enable <id>|disable <id>
-    rig forge signed-in|signed-out|status
+    rig forge signed-in|signed-out|status [glab|gh|all]
     rig remote start|stop|restart|status    # a second daemon as a paired remote host (see Remote host)
     rig remote code                     # a one-time pairing code, the fingerprint and the addresses
     rig remote clients|revoke           # paired clients; revoke them all (the app then gets 401)
@@ -163,6 +171,8 @@ unreadable are archived readable and locked again on restore (`~/.rig-unreadable
 
 - **empty** — a fresh daemon: no projects, the two scripted descriptors installed, providers in
   their default order. For first-run and empty states.
+- **noproviders** — baseline with every provider disabled (`PUT /v0/settings/chat/providers`);
+  same sidebar rows, so `rig init` opens the same two tabs.
 - **baseline** — what the rig always had: `crowbar-seed` (project "Crowbar Seed", repo `checkout`,
   workspaces `main` and `feature/pricing-rounding`, two review threads) and `crowbar-seed-chat` (the
   30-turn "Perf fixture" chat). `points.conf` and `rig perf` assume it.
@@ -198,6 +208,8 @@ unreadable are archived readable and locked again on restore (`~/.rig-unreadable
   - **Sidebar**: folders `Experiments` and `Archive` (nested) and 24 filler chats in the repo.
   - **Projects**: "Crowbar Seed" (+ repo `second-repo` on `develop`, a home chat, a home folder
     `Notes` with two notes), "Side Project" (repo `side-app`, two chats), "Empty Space" (no repos).
+  - **GitHub forge**: `side-app`'s origin is `file://~/fixtures/remote/github.com/rig/side-app.git`
+    (so the daemon asks `gh`), with workspace `feature/side-pr` ("PR open (github)") and open PR #7.
   - **Fixtures** in `~/fixtures`: `drop/` (files to drag in, one with spaces, a script, a 26 MB
     sparse file), `clipboard/`, `import/` (a spare git repo to import, an icon), `settings/` (an
     export, an invalid json, a provider descriptor to upload), `forge/`.
@@ -236,14 +248,23 @@ A scenario is `{"description", "steps": [...]}`; each step is one of `text`, `ec
 `hang`, `stop`, `fail`, `exit`, `slow-exit`, `lose-session`, `mcp` (see `Turn.do_*` in `agent/scripted-agent`). Drop a new JSON file into the scenarios
 directory to add one. `SCRIPTED_SPEED` scales every delay (`0` plays instantly; the seed uses it).
 
-## Forge stand-in
+## Forge stand-ins
 
 The daemon reads pull-request state through the forge's CLI, chosen from the repo's `origin` URL
-(`gh` for github, `glab` for gitlab), and only while a client holds the workspace's `forge:` scope.
-`forge/glab` is installed as `/usr/local/bin/glab`; the full profile's remote has `gitlab` in its
-path, so the daemon asks it. It answers `auth status`, `mr list` and the protected-branches call
-from `~/fixtures/forge/merge-requests.json`. `rig forge signed-out` makes `auth status` fail (forge
-present but signed out); edit the json to change a merge request's state.
+(`gh` for `github.com`, `glab` for gitlab), and only while a client holds the workspace's `forge:`
+scope. `forge/forge` is installed as both `/usr/local/bin/glab` and `/usr/local/bin/gh` and answers
+as the name it was run by:
+
+- **glab** — `--version`, `auth status`, `mr list` and the protected-branches call, from
+  `~/fixtures/forge/merge-requests.json`. The full profile's `checkout` remote has `gitlab` in its path.
+- **gh** — `--version`, `auth status`, `api user` (the daemon's source for the user's identity,
+  everywhere: login `crowbar-seed`, name `Crowbar Seed`), `api repos/<slug>` (owner avatar),
+  `api repos/<slug>/branches` (protected), `pr list --head|--state ... --json`, from
+  `~/fixtures/forge/pull-requests.json`. The full profile's `side-app` remote says `github.com`.
+
+`rig forge signed-out [glab|gh]` (both by default) makes that CLI fail `auth status` and every other
+call, as a signed-out CLI does (`~/fixtures/forge/<cli>.signed-out`); `signed-in` undoes it. Edit
+the json to change a pull request's state.
 
 ## Language server
 
@@ -263,10 +284,50 @@ either app with the code and fingerprint `rig remote code` prints. Host states: 
 answering 401 (`revoke`), re-keyed (`rekey`), without providers (`providers off`), reachable by
 two addresses (pair once by `127.0.0.1`, once by `localhost`). `rig seed` stops and wipes it.
 
-Tauri keeps host tokens in the OS keyring (`keyring` crate, kernel keyutils + Secret Service). The
-docker default seccomp profile refuses `keyctl`, so in this container there is no working keyring:
-that is the "no keyring" state, and a "working keyring" capture needs the container run with a
-seccomp profile that allows `keyctl` plus a Secret Service (not in the image).
+Both apps keep host tokens in the OS keyring through the same backend: `keyring` 3 with
+`linux-native-sync-persistent` and `keyring::Entry::new` (Tauri: `desktop/src-tauri/src/host_tokens.rs`
+on develop; Rust shell: `app/crates/transport/src/os_keychain.rs`, feature `os-keychain`). That
+store is the kernel keyutils session keyring with a Secret Service copy behind it: building an
+entry already calls `keyctl` (the session keyring), and a save writes keyutils first. Docker's
+default seccomp profile refuses `keyctl` (EPERM), so pairing fails at "keychain couldn't save" in
+both apps whether or not a Secret Service is running: that is the "no keyring" state. A "working
+keyring" capture needs the container run with a seccomp profile that allows `keyctl`/`add_key`/
+`request_key` plus an unlocked Secret Service (gnome-keyring) on the session bus; neither is in
+the image or `run.sh`.
+
+## File choosers
+
+The Rust shell asks for paths over D-Bus (GPUI's `prompt_for_paths`: ashpd's
+`org.freedesktop.portal.FileChooser`), so the image carries `xdg-desktop-portal` and
+`xdg-desktop-portal-gtk`, D-Bus activated on the session bus the entrypoint starts;
+`~/.config/xdg-desktop-portal/portals.conf` picks the gtk backend (no `XDG_CURRENT_DESKTOP`). The
+dialog is a window of `xdg-desktop-portal-gtk`, transient for the shell. Tauri (`tauri-plugin-dialog`,
+`rfd` on GTK 3) opens its own `GtkFileChooserDialog` in-process. Both are the same GTK 3 chooser.
+It opens on "Recent", which is empty and not a folder, so a folder chooser's Open stays disabled
+until a location is chosen, and Enter on a path typed there does nothing. `rig pick <app> <path>`
+waits for the app's chooser, leaves "Recent" (alt+Home), presses ctrl+L, types the path and Enter
+(again if the first only entered the folder) and waits for the dialog to close. Dialogs are
+separate windows: `rig shot` captures only the app's own window.
+
+## Fault injection
+
+`rig fault <method> <path-regex> <action>` adds a rule to `~/.rig/faults` and signals every app's
+proxy (SIGUSR1) to reload; `rig fault clear` removes them all, `rig fault list` prints them. The
+method is `GET`, `POST`, ... or `*` (every method but CORS preflight `OPTIONS`); the regex is
+searched in the request target (path and query). The action is a status (`500`: answered by the proxy with that status and a daemon-shaped error
+envelope, `{"success": false, "error": "rig fault: injected 500", "code": "internal"}`, plus the
+daemon's CORS headers when the request has an `Origin`: Tauri's webview needs them), `drop`
+(the connection is closed without an answer) or `delay <ms>` (the request is held, then sent). The
+first matching rule wins; faults apply to both apps until cleared, e.g.
+
+    rig fault POST '/chats/[^/]+/rename$' 500
+    rig fault GET '^/v0/projects' delay 3000
+    rig fault clear
+
+With no rules (the default) the proxy splices each connection byte for byte, as before. While
+rules exist it parses each request head; a spliced keep-alive connection switches to parsing at
+its next request, so no app restart is needed. WebSocket connections are never parsed after the
+upgrade.
 
 ## Web fixture
 
