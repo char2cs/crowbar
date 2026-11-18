@@ -45,16 +45,6 @@ impl ModalConfig {
         self
     }
 
-    /// Labels and captures chords for `primary` instead of the platform default.
-    #[must_use]
-    pub fn primary(
-        mut self,
-        primary: Primary,
-    ) -> Self {
-        self.primary = primary;
-        self
-    }
-
     /// Calls `handler` when the user closes the modal (close button, scrim, Escape).
     #[must_use]
     pub fn on_close(
@@ -100,13 +90,9 @@ mod tests {
     }
 
     #[test]
-    fn builders_set_the_page_the_primary_and_the_handler() {
-        let config = config()
-            .page(PageId::from("git"))
-            .primary(Primary::Platform)
-            .on_close(|_, _| {});
+    fn builders_set_the_page_and_the_handler() {
+        let config = config().page(PageId::from("git")).on_close(|_, _| {});
         assert_eq!(config.page, Some(PageId::from("git")));
-        assert_eq!(config.primary, Primary::Platform);
         assert!(config.on_close.is_some());
     }
 }
