@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use platform::XlibParent;
 use protocol::ExtensionId;
 use wry::{WebContext, WebViewBuilder, WebViewBuilderExtUnix, WebViewExtUnix};
 
@@ -16,7 +17,6 @@ use crate::remembered_place::RememberedPlace;
 use crate::web_view_config::WebViewConfig;
 use crate::web_view_id::WebViewId;
 use crate::web_view_kind::WebViewKind;
-use crate::xlib_parent::XlibParent;
 
 const BROWSER_DIR: &str = "browser";
 
@@ -57,8 +57,8 @@ impl GtkState {
         let kind = config.kind.clone();
         let builder = self.builder_for(&kind);
         let id_text = id.to_string();
-        let view =
-            common_attributes(builder, &id_text, config).build_as_child(&XlibParent(window))?;
+        let view = common_attributes(builder, &id_text, config)
+            .build_as_child(&XlibParent::new(window))?;
         let wanted = to_rect(config.bounds);
         self.views.insert(
             id,

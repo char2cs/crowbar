@@ -5,9 +5,9 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use objc2_foundation::MainThreadMarker;
+use platform::AppkitParent;
 use wry::{WebView, WebViewBuilder, WebViewBuilderExtDarwin};
 
-use crate::appkit_parent::AppkitParent;
 use crate::bounds::Bounds;
 use crate::builder_support::{common_attributes, register_scheme, to_rect};
 use crate::color::Color;
@@ -94,8 +94,8 @@ impl ViewLifecycle for MacosPlatform {
             .ok_or(Error::UnsupportedParent("null NSView"))?;
         let builder = self.builder_for(&config.kind);
         let id_text = id.to_string();
-        let web_view =
-            common_attributes(builder, &id_text, &config).build_as_child(&AppkitParent(view))?;
+        let web_view = common_attributes(builder, &id_text, &config)
+            .build_as_child(&AppkitParent::new(view))?;
         self.views.borrow_mut().insert(id, Rc::new(web_view));
         self.kinds.borrow_mut().insert(id, config.kind);
         self.last_parent.set(Some(address));

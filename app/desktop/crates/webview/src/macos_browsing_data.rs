@@ -1,9 +1,9 @@
 use std::ptr::NonNull;
 use std::rc::Rc;
 
+use platform::AppkitParent;
 use wry::{WebView, WebViewBuilder, WebViewBuilderExtDarwin};
 
-use crate::appkit_parent::AppkitParent;
 use crate::browsing_data::BrowsingData;
 use crate::error::{Error, Result};
 use crate::macos_data_store::BROWSER_STORE;
@@ -16,7 +16,7 @@ fn scratch_browser_view(address: Option<usize>) -> Result<WebView> {
         .ok_or(Error::UnsupportedParent("null NSView"))?;
     Ok(WebViewBuilder::new()
         .with_data_store_identifier(BROWSER_STORE)
-        .build_as_child(&AppkitParent(view))?)
+        .build_as_child(&AppkitParent::new(view))?)
 }
 
 impl BrowsingData for MacosPlatform {

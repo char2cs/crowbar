@@ -2,11 +2,19 @@ use raw_window_handle::{
     HandleError, HasWindowHandle, RawWindowHandle, WindowHandle, XlibWindowHandle,
 };
 
+/// An X11 window that a native web view can be embedded into, presented as an Xlib window handle.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct XlibParent(pub(crate) u32);
+pub struct XlibParent(u32);
+
+impl XlibParent {
+    /// The parent for the X11 window with id `window`.
+    pub fn new(window: u32) -> Self {
+        Self(window)
+    }
+}
 
 impl HasWindowHandle for XlibParent {
-    #[allow(
+    #[expect(
         unsafe_code,
         reason = "WindowHandle::borrow_raw is unsafe; the id is a plain value"
     )]
@@ -23,7 +31,7 @@ mod tests {
 
     #[test]
     fn presents_the_id_as_an_xlib_window() {
-        let handle = XlibParent(0x42).window_handle().unwrap().as_raw();
+        let handle = XlibParent::new(0x42).window_handle().unwrap().as_raw();
         assert!(
             matches!(handle, RawWindowHandle::Xlib(h) if h.window == 0x42),
             "{handle:?}"

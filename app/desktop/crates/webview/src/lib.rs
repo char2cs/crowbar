@@ -107,11 +107,7 @@ mod placed;
 mod remembered_place;
 #[cfg(target_os = "linux")]
 mod surface_pixels;
-#[cfg(target_os = "linux")]
-mod xlib_parent;
 
-#[cfg(target_os = "macos")]
-mod appkit_parent;
 #[cfg(target_os = "macos")]
 mod macos_browsing_data;
 #[cfg(target_os = "macos")]
@@ -119,6 +115,7 @@ mod macos_data_store;
 #[cfg(target_os = "macos")]
 mod macos_platform;
 
+pub use crate::platform::Platform;
 pub use bounds::Bounds;
 pub use browsing_data::BrowsingData;
 pub use color::Color;
@@ -127,7 +124,6 @@ pub use host_config::HostConfig;
 pub use page_control::PageControl;
 pub use page_event::{PageEvent, PageHandler};
 pub use parent_window::ParentWindow;
-pub use platform::Platform;
 pub use protocol_handler::{ProtocolHandler, ProtocolResponder};
 pub use protocol_request::ProtocolRequest;
 pub use protocol_response::ProtocolResponse;

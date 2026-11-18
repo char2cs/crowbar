@@ -103,7 +103,7 @@ Exceptions, all in the script: `lib.rs` is declaration-only; `main.rs`, `build.r
 
 ## Lint table for `app/Cargo.toml`
 
-Owner of `app/Cargo.toml` pastes this verbatim; every member crate then has `[lints] workspace = true`. Thresholds live in `app/clippy.toml`. An exception is a crate-level `#![allow(lint, reason = "...")]` or `#[expect]` with a reason (script `allow`), e.g. `unsafe_code` in `webview`.
+Owner of `app/Cargo.toml` pastes this verbatim; every member crate then has `[lints] workspace = true`. Thresholds live in `app/clippy.toml`. An exception is a crate-level `#![allow(lint, reason = "...")]` or `#[expect]` with a reason (script `allow`), e.g. `unsafe_code` in `platform`, the one crate that holds `unsafe`.
 
 ```toml
 [workspace.lints.rust]
