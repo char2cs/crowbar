@@ -9,6 +9,7 @@ pub use modal_config::ModalConfig;
 
 use std::rc::Rc;
 
+use chord::Primary;
 use gpui::{
     AppContext as _, AsyncApp, Context, Entity, FocusHandle, IntoElement, ParentElement, Render,
     ScrollHandle, WeakEntity, Window, div,
@@ -58,7 +59,7 @@ impl SettingsModal {
             config.schema,
             snapshot,
             config.page.as_ref(),
-            config.primary,
+            Primary::native(),
         );
         let search = cx.new(|cx| {
             TextInput::new(SEARCH_PLACEHOLDER, cx)
