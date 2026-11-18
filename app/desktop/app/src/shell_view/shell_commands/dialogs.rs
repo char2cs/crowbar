@@ -89,7 +89,7 @@ impl ShellView {
     pub(in crate::shell_view) fn open_log(&self) {
         let data_dir = data_dir_of(&self.preferences_path);
         let log = LogPaths::in_data_dir(data_dir).current();
-        if let Err(error) = shell_platform::open_path(&log) {
+        if let Err(error) = platform::open_path(&log) {
             tracing::warn!(%error, "the log file could not be opened");
         }
     }

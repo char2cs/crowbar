@@ -19,7 +19,7 @@ impl ShellView {
             tracing::warn!(path = relative, "a reveal path left the workspace");
             return;
         };
-        if let Err(error) = shell_platform::reveal_in_file_manager(&target) {
+        if let Err(error) = platform::reveal_in_file_manager(&target) {
             tracing::warn!(%error, "the file manager could not be opened");
         }
     }

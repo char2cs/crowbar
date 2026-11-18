@@ -79,7 +79,7 @@ async fn add_dumps(
 }
 
 fn reveal(path: &Path) {
-    if let Err(error) = shell_platform::reveal_in_file_manager(path) {
+    if let Err(error) = platform::reveal_in_file_manager(path) {
         tracing::warn!(%error, "the diagnostics bundle could not be shown");
     }
 }

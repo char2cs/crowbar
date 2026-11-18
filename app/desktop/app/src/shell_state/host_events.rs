@@ -79,10 +79,10 @@ impl ShellState {
             HostEvent::PageFocused { pane } => outcome.focused.push(pane),
             HostEvent::SettingRequested { key, value, .. } => outcome.settings.push((key, value)),
             HostEvent::OpenExternal { url } => {
-                log_failure(shell_platform::open_external(url.as_str()).map_err(|e| e.to_string()));
+                log_failure(platform::open_external(url.as_str()).map_err(|e| e.to_string()));
             },
             HostEvent::Reveal { path } => log_failure(
-                shell_platform::reveal_in_file_manager(Path::new(path.as_str()))
+                platform::reveal_in_file_manager(Path::new(path.as_str()))
                     .map_err(|e| e.to_string()),
             ),
             HostEvent::FilesDropped { pane, paths }

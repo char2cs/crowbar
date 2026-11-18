@@ -35,7 +35,7 @@ pairing_view = { path = "desktop/crates/pairing_view" }
 oobe_view = { path = "desktop/crates/oobe_view" }
 remote_folder_picker = { path = "desktop/crates/remote_folder_picker" }
 window_state = { path = "desktop/crates/window_state" }
-shell_platform = { path = "desktop/crates/shell_platform" }
+platform = { path = "desktop/crates/platform" }
 diagnostics = { path = "desktop/crates/diagnostics" }
 terminal = { path = "desktop/crates/terminal" }
 terminal_view = { path = "desktop/crates/terminal_view" }

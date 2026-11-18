@@ -1505,13 +1505,13 @@ dependencies = [
  "oobe_view",
  "pairing_view",
  "pane_host",
+ "platform",
  "protocol",
  "remote_folder_picker",
  "serde_json",
  "settings_ui",
  "shell_data",
  "shell_keys",
- "shell_platform",
  "sidebar",
  "smallvec",
  "startup_view",
@@ -5056,6 +5056,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
+name = "platform"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "thiserror 2.0.21",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "png"
 version = "0.17.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6457,16 +6467,6 @@ name = "shell_keys"
 version = "0.1.0"
 dependencies = [
  "protocol",
-]
-
-[[package]]
-name = "shell_platform"
-version = "0.1.0"
-dependencies = [
- "tempfile",
- "thiserror 2.0.21",
- "tracing",
- "url",
 ]
 
 [[package]]

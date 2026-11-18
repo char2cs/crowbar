@@ -1,5 +1,5 @@
 [package]
-name = "shell_platform"
+name = "platform"
 description = "Desktop services of the Crowbar shell: open a link in the system browser, reveal a path in the file manager, and the rule that decides where a link may go."
 version.workspace = true
 edition.workspace = true

@@ -36,7 +36,7 @@ pub(crate) fn build_host(
         host: HostId::new("local")?,
         max_idle_slots: 2,
         page_handler: Some(Arc::new(|event| match event {
-            webview::PageEvent::Navigating(link) => shell_platform::follow_link(&link, None),
+            webview::PageEvent::Navigating(link) => platform::follow_link(&link, None),
             _ => true,
         })),
     };

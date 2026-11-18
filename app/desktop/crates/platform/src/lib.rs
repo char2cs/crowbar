@@ -9,10 +9,10 @@ mod desktop;
 mod error;
 mod launch;
 mod link_target;
-mod shell_platform;
+mod platform;
 
 pub use desktop::Desktop;
 pub use error::Error;
 pub use launch::Launch;
 pub use link_target::{LinkTarget, classify};
-pub use shell_platform::{follow_link, open_external, open_path, reveal_in_file_manager};
+pub use platform::{follow_link, open_external, open_path, reveal_in_file_manager};
