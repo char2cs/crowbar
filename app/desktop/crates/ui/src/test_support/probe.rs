@@ -7,8 +7,8 @@ use gpui::{
     Render, Styled, TestAppContext, VisualTestContext, Window, div,
 };
 
-use crate::motion::Motion;
-use crate::theme::Theme;
+use crate::foundation::Motion;
+use crate::foundation::Theme;
 
 type Build = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
 
@@ -41,9 +41,9 @@ pub(crate) fn open<E: IntoElement>(
     cx.update(|cx| {
         cx.set_global(Theme::default());
         cx.set_global(Motion::default());
-        cx.bind_keys(crate::menu_actions::bindings());
-        cx.bind_keys(crate::popover_actions::bindings());
-        cx.bind_keys(crate::text_input_actions::bindings());
+        cx.bind_keys(crate::floating::menu_bindings());
+        cx.bind_keys(crate::floating::popover_bindings());
+        cx.bind_keys(crate::control::text_input_bindings());
     });
     let build: Build = Rc::new(move |window, cx| build(window, cx).into_any_element());
     let (_, cx) = cx.add_window_view(move |_, _| Probe { build });

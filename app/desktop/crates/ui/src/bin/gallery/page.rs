@@ -1,5 +1,17 @@
 //! The gallery window.
 
+mod buttons;
+mod feedback;
+mod icons;
+mod inputs;
+mod overlays;
+mod section;
+mod structure;
+mod text_area;
+mod toasts;
+mod toggles;
+mod typography;
+
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, Entity, InteractiveElement, IntoElement, ParentElement, Render,
@@ -7,10 +19,7 @@ use gpui::{
 };
 use ui::{Surface, TextArea, TextInput, Theme, ToastQueue, spacing};
 
-use crate::section::section;
-use crate::{
-    buttons, feedback, icons, inputs, overlays, structure, textarea, toasts, toggles, typography,
-};
+use section::section;
 
 pub(crate) struct Page {
     only: Option<String>,
@@ -38,7 +47,7 @@ impl Page {
             segment: 0,
             choice: Some(1),
             input: TextInput::build("Search", cx),
-            areas: textarea::areas(cx),
+            areas: text_area::areas(cx),
             queues: toasts::queues(cx),
             scroll: ScrollHandle::new(),
         }
@@ -65,7 +74,7 @@ impl Page {
             (
                 "textarea",
                 "TEXT AREA",
-                textarea::textarea(&self.areas).into_any_element(),
+                text_area::textarea(&self.areas).into_any_element(),
             ),
             (
                 "toasts",

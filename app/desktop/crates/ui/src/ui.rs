@@ -2,12 +2,12 @@
 
 use gpui::App;
 
-use crate::appearance::Appearance;
+use crate::display::ShimmerClock;
 use crate::error::Error;
-use crate::font;
-use crate::motion::Motion;
-use crate::shimmer_clock::ShimmerClock;
-use crate::theme::Theme;
+use crate::foundation::Appearance;
+use crate::foundation::Motion;
+use crate::foundation::Theme;
+use crate::foundation::tokens::font;
 
 /// Registers fonts, installs the default [`Theme`] and the [`Motion`] preference.
 ///
@@ -23,10 +23,10 @@ pub fn init(cx: &mut App) -> Result<(), Error> {
     cx.set_global(Theme::default().with_system(system));
     cx.set_global(Motion::default());
     cx.set_global(ShimmerClock::starting_now());
-    cx.bind_keys(crate::menu_actions::bindings());
-    cx.bind_keys(crate::popover_actions::bindings());
-    cx.bind_keys(crate::text_input_actions::bindings());
-    cx.bind_keys(crate::text_area_actions::bindings());
+    cx.bind_keys(crate::floating::menu_bindings());
+    cx.bind_keys(crate::floating::popover_bindings());
+    cx.bind_keys(crate::control::text_input_bindings());
+    cx.bind_keys(crate::control::text_area_bindings());
     Ok(())
 }
 
@@ -35,7 +35,7 @@ mod tests {
     use gpui::TestAppContext;
 
     use super::*;
-    use crate::assets::assets;
+    use crate::foundation::assets;
 
     #[gpui::test]
     fn init_installs_the_globals_and_registers_fonts(cx: &mut TestAppContext) {

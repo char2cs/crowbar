@@ -26,7 +26,7 @@ Status: `verified` = implemented, unit tested and rendered in the gallery (crowb
 
 | Area | Items | Status |
 | --- | --- | --- |
-| Theme | `Theme`, `ThemeId`, `ThemeMode`, `Appearance`, `Surface`, `Palette` (53 colour tokens as accessors returning `Hsla`), `contrast_ratio` | verified |
+| Theme | `Theme`, `ThemeId`, `ThemeMode`, `Appearance`, `Surface`, `Palette` (53 colour tokens as accessors returning `Hsla`) | verified |
 | Metrics | `radius::{SM,MD,LG,XL,XXL,FULL}`, `text_size::{XS..XL, UiText}`, `shadow::{xs,sm,md,lg,xs_tinted,dropdown,handle}`, `layer::*` (z order), `timing::*` (durations) | unverified |
 | Fonts | `font::{register, UI_FAMILY, HEADING_FAMILY, MONO_FAMILY}` (Cal Sans UI, Instrument Serif, Geist Mono) | verified |
 | Icons | `Icon`, `IconName`, `IconWeight`, `assets()` (Phosphor: 56 icons, 92 weight files) | verified |

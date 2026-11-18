@@ -3,26 +3,15 @@
 //! Usage: `gallery [--theme crowbar|frosted] [--mode light|dark] [--section NAME] [--size WxH]`.
 
 mod arguments;
-mod buttons;
-mod feedback;
-mod icons;
-mod inputs;
-mod overlays;
 mod page;
-mod section;
-mod structure;
-mod textarea;
-mod toasts;
-mod toggles;
-mod typography;
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use gpui::{App, AppContext as _, Application, Bounds, WindowBounds, WindowOptions, px, size};
 
-use crate::arguments::Arguments;
-use crate::page::Page;
+use arguments::Arguments;
+use page::Page;
 
 type FailureSlot = Rc<RefCell<Option<Failure>>>;
 
