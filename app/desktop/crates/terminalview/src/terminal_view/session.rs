@@ -1,7 +1,7 @@
 //! The daemon side of the view: frames in, input, size and theme out, focus and blink.
 
 use gpui::{AsyncApp, ClipboardItem, Context, WeakEntity, Window};
-use terminal::{ClientMessage, DaemonFrame, TerminalEvent, sanitize_title};
+use terminal::{ClientMessage, DaemonFrame, sanitize_title};
 
 use crate::terminal_settings::{hex_text, is_dark, terminal_palette};
 use crate::terminal_view::TerminalView;
@@ -40,20 +40,20 @@ impl TerminalView {
     }
 
     fn handle_event(
-        event: TerminalEvent,
+        event: terminal::Event,
         cx: &mut Context<'_, Self>,
     ) {
         match event {
-            TerminalEvent::Title(title) => {
+            terminal::Event::Title(title) => {
                 cx.emit(TerminalViewEvent::TitleChanged(sanitize_title(&title)));
             },
-            TerminalEvent::ResetTitle => cx.emit(TerminalViewEvent::TitleChanged(String::new())),
-            TerminalEvent::Bell => cx.emit(TerminalViewEvent::Bell),
-            TerminalEvent::ClipboardStore(text) => {
+            terminal::Event::ResetTitle => cx.emit(TerminalViewEvent::TitleChanged(String::new())),
+            terminal::Event::Bell => cx.emit(TerminalViewEvent::Bell),
+            terminal::Event::ClipboardStore(text) => {
                 cx.emit(TerminalViewEvent::ClipboardWritten(text.len()));
                 cx.write_to_clipboard(ClipboardItem::new_string(text));
             },
-            TerminalEvent::Exit(code) => cx.emit(TerminalViewEvent::Exited(code)),
+            terminal::Event::Exit(code) => cx.emit(TerminalViewEvent::Exited(code)),
         }
     }
 

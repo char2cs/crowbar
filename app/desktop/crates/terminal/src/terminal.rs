@@ -1,5 +1,7 @@
 //! The terminal emulator: an alacritty grid fed by daemon frames and read as render snapshots.
 
+mod config;
+mod event;
 mod event_sink;
 mod grid_size;
 mod modes;
@@ -7,15 +9,13 @@ mod scrolling;
 mod searching;
 mod selecting;
 pub(crate) mod snapshot_builder;
-mod terminal_config;
-mod terminal_event;
 mod title;
 mod wire;
 
+pub use config::Config;
+pub use event::Event;
 pub(crate) use event_sink::{EventQueue, EventSink};
 pub(crate) use grid_size::GridSize;
-pub use terminal_config::TerminalConfig;
-pub use terminal_event::TerminalEvent;
 pub use title::sanitize_title;
 pub(crate) use wire::Feed;
 pub use wire::{ClientMessage, DaemonFrame};
@@ -23,7 +23,7 @@ pub use wire::{ClientMessage, DaemonFrame};
 use std::sync::Arc;
 
 use alacritty_terminal::Term;
-use alacritty_terminal::event::Event;
+use alacritty_terminal::event::Event as EmulatorEvent;
 use alacritty_terminal::grid::Dimensions;
 
 use crate::find::SearchState;
@@ -36,7 +36,7 @@ pub struct Terminal {
     pub(crate) term: Term<EventSink>,
     pub(crate) feed: Feed,
     pub(crate) events: EventQueue,
-    pub(crate) config: TerminalConfig,
+    pub(crate) config: Config,
     pub(crate) search: Option<SearchState>,
 }
 
@@ -54,7 +54,7 @@ impl std::fmt::Debug for Terminal {
 
 impl Terminal {
     /// An empty terminal of the configured size.
-    pub fn new(config: TerminalConfig) -> Self {
+    pub fn new(config: Config) -> Self {
         let events = EventQueue::default();
         let size = GridSize {
             columns: config.columns,
@@ -78,7 +78,7 @@ impl Terminal {
     pub fn apply(
         &mut self,
         frame: &DaemonFrame,
-    ) -> Vec<TerminalEvent> {
+    ) -> Vec<Event> {
         self.apply_batch(std::slice::from_ref(frame))
     }
 
@@ -87,7 +87,7 @@ impl Terminal {
     pub fn apply_batch(
         &mut self,
         frames: &[DaemonFrame],
-    ) -> Vec<TerminalEvent> {
+    ) -> Vec<Event> {
         let exits: Vec<i32> = frames
             .iter()
             .filter_map(|frame| self.feed.apply(&mut self.term, frame))
@@ -96,11 +96,11 @@ impl Terminal {
             search.refresh(&self.term);
         }
         let mut events = self.drain_events();
-        events.extend(exits.into_iter().map(TerminalEvent::Exit));
+        events.extend(exits.into_iter().map(Event::Exit));
         events
     }
 
-    fn drain_events(&self) -> Vec<TerminalEvent> {
+    fn drain_events(&self) -> Vec<Event> {
         let Ok(mut queue) = self.events.lock() else {
             return Vec::new();
         };
@@ -127,11 +127,11 @@ impl Terminal {
     /// Applies new settings (colours, scrollback, cursor); the grid size is kept.
     pub fn reconfigure(
         &mut self,
-        config: TerminalConfig,
+        config: Config,
     ) {
         let (columns, lines) = self.size();
         self.term.set_options(config.emulator_config());
-        self.config = TerminalConfig {
+        self.config = Config {
             columns,
             lines,
             ..config
@@ -146,13 +146,13 @@ impl Terminal {
 
 const MAX_CLIPBOARD_BYTES: usize = 64 * 1024;
 
-fn terminal_event(event: Event) -> Option<TerminalEvent> {
+fn terminal_event(event: EmulatorEvent) -> Option<Event> {
     match event {
-        Event::Title(title) => Some(TerminalEvent::Title(title)),
-        Event::ResetTitle => Some(TerminalEvent::ResetTitle),
-        Event::Bell => Some(TerminalEvent::Bell),
-        Event::ClipboardStore(_, text) => {
-            (text.len() <= MAX_CLIPBOARD_BYTES).then_some(TerminalEvent::ClipboardStore(text))
+        EmulatorEvent::Title(title) => Some(Event::Title(title)),
+        EmulatorEvent::ResetTitle => Some(Event::ResetTitle),
+        EmulatorEvent::Bell => Some(Event::Bell),
+        EmulatorEvent::ClipboardStore(_, text) => {
+            (text.len() <= MAX_CLIPBOARD_BYTES).then_some(Event::ClipboardStore(text))
         },
         _ => None,
     }
@@ -218,16 +218,13 @@ mod tests {
             |encoded: &str| DaemonFrame::Output(format!("\x1b]52;c;{encoded}\x07").into_bytes());
         let over = "eHh4".repeat((MAX_CLIPBOARD_BYTES + 3) / 3);
         let cases = [
-            (
-                store("aGk="),
-                vec![TerminalEvent::ClipboardStore("hi".into())],
-            ),
+            (store("aGk="), vec![Event::ClipboardStore("hi".into())]),
             (store(&over), Vec::new()),
             (
                 DaemonFrame::Output(b"\x1b]0;hi\x07\x1b[6n\x1b[c".to_vec()),
-                vec![TerminalEvent::Title("hi".into())],
+                vec![Event::Title("hi".into())],
             ),
-            (DaemonFrame::Exit(3), vec![TerminalEvent::Exit(3)]),
+            (DaemonFrame::Exit(3), vec![Event::Exit(3)]),
         ];
         for (frame, expected) in cases {
             let mut terminal = empty_terminal(COLUMNS, LINES);

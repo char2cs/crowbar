@@ -113,7 +113,7 @@ fn text_run(
 #[cfg(test)]
 mod tests {
     use gpui::TestAppContext;
-    use terminal::{CursorShape, DaemonFrame, Rgb, Terminal, TerminalConfig, TerminalPalette};
+    use terminal::{CursorShape, DaemonFrame, Rgb, Terminal};
 
     use super::*;
     use crate::terminal_settings::TerminalSettings;
@@ -122,13 +122,13 @@ mod tests {
 
     fn first_row(output: &str) -> Row {
         let gray = Rgb::from_hex(0x80_8080);
-        let palette = TerminalPalette {
+        let palette = terminal::Palette {
             foreground: gray,
             background: Rgb::from_hex(0),
             cursor: gray,
             ansi: [gray; 16],
         };
-        let mut terminal = Terminal::new(TerminalConfig {
+        let mut terminal = Terminal::new(terminal::Config {
             columns: 20,
             lines: 2,
             scrollback: 0,

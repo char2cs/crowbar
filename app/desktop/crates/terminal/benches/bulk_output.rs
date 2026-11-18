@@ -8,7 +8,7 @@ use std::hint::black_box;
 use std::io::Write;
 
 use adapters::stopwatch::Stopwatch;
-use terminal::{CursorShape, DaemonFrame, Rgb, Terminal, TerminalConfig, TerminalPalette};
+use terminal::{Config, CursorShape, DaemonFrame, Palette, Rgb, Terminal};
 
 const COLUMNS: usize = 120;
 const LINES: usize = 40;
@@ -25,13 +25,13 @@ const MICROS_PER_SECOND: f64 = 1e6;
 
 fn terminal() -> Terminal {
     let gray = Rgb::from_hex(GRAY);
-    let palette = TerminalPalette {
+    let palette = Palette {
         foreground: gray,
         background: Rgb::from_hex(0),
         cursor: gray,
         ansi: [gray; ANSI_COLORS],
     };
-    Terminal::new(TerminalConfig {
+    Terminal::new(Config {
         columns: COLUMNS,
         lines: LINES,
         scrollback: SCROLLBACK,

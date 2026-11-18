@@ -51,9 +51,9 @@ impl Segment {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::snapshot::palette::Rgb;
     use crate::snapshot::row::style_flags::StyleFlags;
     use crate::snapshot::row::underline::Underline;
-    use crate::snapshot::terminal_palette::Rgb;
 
     fn segment(
         text: &str,

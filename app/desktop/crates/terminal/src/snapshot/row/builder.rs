@@ -4,24 +4,24 @@ use alacritty_terminal::grid::Row as GridRow;
 use alacritty_terminal::index::Column;
 use alacritty_terminal::term::cell::{Cell, Flags};
 
+use crate::snapshot::palette::ColorSource;
+use crate::snapshot::palette::Rgb;
 use crate::snapshot::row::Row;
 use crate::snapshot::row::background_span::BackgroundSpan;
 use crate::snapshot::row::segment::Segment;
 use crate::snapshot::row::style_flags::StyleFlags;
 use crate::snapshot::row::style_span::StyleSpan;
 use crate::snapshot::row::underline::Underline;
-use crate::snapshot::terminal_palette::ColorSource;
-use crate::snapshot::terminal_palette::Rgb;
 
 const WIDE_COLUMNS: usize = 2;
 
-pub(crate) struct RowBuilder<'a> {
+pub(crate) struct Builder<'a> {
     colors: ColorSource<'a>,
     row: Row,
     current: Option<Segment>,
 }
 
-impl<'a> RowBuilder<'a> {
+impl<'a> Builder<'a> {
     pub(crate) fn build(
         colors: ColorSource<'a>,
         cells: &GridRow<Cell>,

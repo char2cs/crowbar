@@ -1,6 +1,6 @@
 //! A filled rectangle behind cells.
 
-use crate::snapshot::terminal_palette::Rgb;
+use crate::snapshot::palette::Rgb;
 
 /// `columns` cells from `column` filled with a non-default background.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

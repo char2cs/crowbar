@@ -1,14 +1,14 @@
 //! One visible line of the grid, ready to draw.
 
 mod background_span;
-mod row_builder;
+mod builder;
 mod segment;
 mod style_flags;
 mod style_span;
 mod underline;
 
 pub use background_span::BackgroundSpan;
-pub(crate) use row_builder::{RowBuilder, cell_columns};
+pub(crate) use builder::{Builder, cell_columns};
 pub use segment::Segment;
 pub use style_flags::StyleFlags;
 pub use style_span::StyleSpan;

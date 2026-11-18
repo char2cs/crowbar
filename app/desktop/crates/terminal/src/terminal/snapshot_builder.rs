@@ -9,10 +9,10 @@ use crate::find::SearchState;
 use crate::snapshot::ColorSource;
 use crate::snapshot::CursorCell;
 use crate::snapshot::CursorShape;
+use crate::snapshot::Palette;
 use crate::snapshot::Snapshot;
-use crate::snapshot::TerminalPalette;
 use crate::snapshot::Viewport;
-use crate::snapshot::{RowBuilder, cell_columns};
+use crate::snapshot::{Builder, cell_columns};
 
 pub(crate) fn viewport_of<T: EventListener>(term: &Term<T>) -> Viewport {
     Viewport {
@@ -24,7 +24,7 @@ pub(crate) fn viewport_of<T: EventListener>(term: &Term<T>) -> Viewport {
 
 pub(crate) fn build_snapshot<T: EventListener>(
     term: &Term<T>,
-    palette: &TerminalPalette,
+    palette: &Palette,
     search: Option<&SearchState>,
 ) -> Snapshot {
     let viewport = viewport_of(term);
@@ -34,7 +34,7 @@ pub(crate) fn build_snapshot<T: EventListener>(
     };
     let rows = (0..viewport.lines)
         .map(|row| {
-            RowBuilder::build(
+            Builder::build(
                 colors,
                 &term.grid()[viewport.line_of(row)],
                 viewport.columns,
@@ -103,7 +103,7 @@ mod tests {
         let term = emulator_showing("hi\r\nthere", 10, 3);
         let viewport = viewport_of(&term);
         assert_eq!((viewport.columns, viewport.lines), (10, 3));
-        let reference = TerminalPalette {
+        let reference = Palette {
             foreground: Rgb::from_hex(1),
             background: Rgb::from_hex(2),
             cursor: Rgb::from_hex(3),

@@ -1,16 +1,16 @@
 //! Settings of a terminal.
 
-use alacritty_terminal::term::Config;
+use alacritty_terminal::term::Config as EmulatorConfig;
 use alacritty_terminal::vte::ansi::{CursorShape as EmulatorShape, CursorStyle};
 
 use crate::snapshot::CursorShape;
-use crate::snapshot::TerminalPalette;
+use crate::snapshot::Palette;
 
 const WORD_SEPARATORS: &str = " ()[]{}',\"`│|<>\t";
 
 /// Size, history, cursor and colours of a terminal.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TerminalConfig {
+pub struct Config {
     /// Grid width.
     pub columns: usize,
     /// Grid height.
@@ -22,11 +22,11 @@ pub struct TerminalConfig {
     /// Whether the cursor blinks when the program has not chosen.
     pub cursor_blink: bool,
     /// Colours.
-    pub palette: TerminalPalette,
+    pub palette: Palette,
 }
 
-impl TerminalConfig {
-    pub(crate) fn emulator_config(&self) -> Config {
+impl Config {
+    pub(crate) fn emulator_config(&self) -> EmulatorConfig {
         let shape = match self.cursor_shape {
             CursorShape::Block => EmulatorShape::Block,
             CursorShape::Underline => EmulatorShape::Underline,
@@ -36,11 +36,11 @@ impl TerminalConfig {
             shape,
             blinking: self.cursor_blink,
         };
-        Config {
+        EmulatorConfig {
             scrolling_history: self.scrollback,
             default_cursor_style: style,
             semantic_escape_chars: WORD_SEPARATORS.to_owned(),
-            ..Config::default()
+            ..EmulatorConfig::default()
         }
     }
 }
@@ -53,13 +53,13 @@ mod tests {
     #[test]
     fn emulator_config_carries_history_and_cursor() {
         let black = Rgb::from_hex(0);
-        let palette = TerminalPalette {
+        let palette = Palette {
             foreground: black,
             background: black,
             cursor: black,
             ansi: [black; 16],
         };
-        let config = TerminalConfig {
+        let config = Config {
             columns: 80,
             lines: 24,
             scrollback: 5000,

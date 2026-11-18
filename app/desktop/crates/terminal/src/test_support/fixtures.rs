@@ -1,17 +1,17 @@
 //! Terminals with known content for the unit tests.
 
 use alacritty_terminal::Term;
-use alacritty_terminal::term::Config;
+use alacritty_terminal::term::Config as EmulatorConfig;
 
 use crate::snapshot::CursorShape;
+use crate::snapshot::Palette;
 use crate::snapshot::Rgb;
 use crate::snapshot::Row;
-use crate::snapshot::TerminalPalette;
+use crate::terminal::Config;
 use crate::terminal::DaemonFrame;
 use crate::terminal::Feed;
 use crate::terminal::GridSize;
 use crate::terminal::Terminal;
-use crate::terminal::TerminalConfig;
 use crate::terminal::{EventQueue, EventSink};
 
 pub(crate) const FOREGROUND: u32 = 0xaa_aaaa;
@@ -27,13 +27,13 @@ pub(crate) fn empty_terminal(
     columns: usize,
     lines: usize,
 ) -> Terminal {
-    let palette = TerminalPalette {
+    let palette = Palette {
         foreground: Rgb::from_hex(FOREGROUND),
         background: Rgb::from_hex(BACKGROUND),
         cursor: Rgb::from_hex(FOREGROUND),
         ansi: std::array::from_fn(|index| ansi(u32::try_from(index).unwrap_or_default())),
     };
-    Terminal::new(TerminalConfig {
+    Terminal::new(Config {
         columns,
         lines,
         scrollback: SCROLLBACK,
@@ -70,7 +70,7 @@ pub(crate) fn emulator_showing(
 ) -> Term<EventSink> {
     let size = GridSize { columns, lines };
     let mut term = Term::new(
-        Config::default(),
+        EmulatorConfig::default(),
         &size,
         EventSink::new(EventQueue::default()),
     );

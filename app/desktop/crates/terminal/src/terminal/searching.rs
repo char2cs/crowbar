@@ -59,7 +59,7 @@ impl Terminal {
 mod tests {
     use super::*;
     use crate::find::SearchOptions;
-    use crate::terminal::terminal_event::TerminalEvent;
+    use crate::terminal::event::Event;
     use crate::terminal::wire::DaemonFrame;
     use crate::test_support::terminal_showing;
 
@@ -103,7 +103,7 @@ mod tests {
         ];
         let events = terminal.apply_batch(&frames);
         assert_eq!(terminal.search_next().total, 2);
-        assert_eq!(events, vec![TerminalEvent::Exit(0)]);
+        assert_eq!(events, vec![Event::Exit(0)]);
     }
 
     #[test]

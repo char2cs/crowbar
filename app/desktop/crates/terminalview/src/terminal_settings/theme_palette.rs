@@ -1,7 +1,7 @@
 //! The terminal palette of the installed theme.
 
 use gpui::{App, Hsla, Rgba};
-use terminal::{Rgb, TerminalConfig, TerminalPalette};
+use terminal::Rgb;
 use ui::{Surface, Theme};
 
 use crate::terminal_settings::TerminalSettings;
@@ -10,10 +10,10 @@ use crate::terminal_settings::channel_byte::channel_byte;
 
 const BYTE_RANGE: f32 = 255.0;
 
-pub(crate) fn terminal_palette(cx: &App) -> TerminalPalette {
+pub(crate) fn terminal_palette(cx: &App) -> terminal::Palette {
     let theme = Theme::of(cx);
     let tokens = theme.palette(Surface::Window);
-    TerminalPalette {
+    terminal::Palette {
         foreground: rgb_of(tokens.foreground()),
         background: rgb_of(tokens.pane_background()),
         cursor: rgb_of(tokens.foreground()),
@@ -53,8 +53,8 @@ const INITIAL_LINES: usize = 24;
 pub(crate) fn terminal_config(
     settings: &TerminalSettings,
     cx: &App,
-) -> TerminalConfig {
-    TerminalConfig {
+) -> terminal::Config {
+    terminal::Config {
         columns: INITIAL_COLUMNS,
         lines: INITIAL_LINES,
         scrollback: settings.scrollback,

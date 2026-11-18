@@ -4,8 +4,8 @@ use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::vte::ansi::{Color, NamedColor, Rgb as AnsiRgb};
 
-use crate::snapshot::terminal_palette::TerminalPalette;
-use crate::snapshot::terminal_palette::rgb::Rgb;
+use crate::snapshot::palette::Palette;
+use crate::snapshot::palette::rgb::Rgb;
 
 const NORMAL_COLORS: usize = 8;
 const DIM_FIRST: usize = NamedColor::DimBlack as usize;
@@ -16,7 +16,7 @@ const DIM_FOREGROUND: usize = NamedColor::DimForeground as usize;
 
 #[derive(Clone, Copy)]
 pub(crate) struct ColorSource<'a> {
-    pub(crate) palette: &'a TerminalPalette,
+    pub(crate) palette: &'a Palette,
     pub(crate) overrides: &'a Colors,
 }
 
@@ -94,11 +94,11 @@ fn from_ansi(color: AnsiRgb) -> Rgb {
 mod tests {
     use super::*;
 
-    fn palette() -> TerminalPalette {
+    fn palette() -> Palette {
         let ansi = std::array::from_fn(|index| {
             Rgb::from_hex(0x10_0000 + u32::try_from(index).unwrap_or_default())
         });
-        TerminalPalette {
+        Palette {
             foreground: Rgb::from_hex(0xaa_aaaa),
             background: Rgb::from_hex(0x11_1111),
             cursor: Rgb::from_hex(0xcc_cccc),
@@ -106,7 +106,7 @@ mod tests {
         }
     }
 
-    fn cases(palette: &TerminalPalette) -> Vec<(Color, Flags, Rgb)> {
+    fn cases(palette: &Palette) -> Vec<(Color, Flags, Rgb)> {
         let none = Flags::empty();
         let named = |color| Color::Named(color);
         vec![

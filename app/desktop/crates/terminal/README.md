@@ -9,7 +9,7 @@ mouse reports, paste and dropped paths.
 ## Public interface
 
 - `Terminal`: `apply`, `snapshot`, `resize` and the encode, scroll, search and select methods;
-  `TerminalConfig`, `TerminalEvent`, `TerminalPalette`, `sanitize_title`.
+  `Config`, `Event`, `Palette`, `sanitize_title`.
 - Wire: `DaemonFrame` (what the daemon sends) and `ClientMessage` (what goes back).
 - Snapshot model: `Snapshot`, `Row`, `Segment`, `StyleSpan`, `StyleFlags`, `Underline`,
   `BackgroundSpan`, `CursorCell`, `CursorShape`, `Highlight`, `Rgb`.

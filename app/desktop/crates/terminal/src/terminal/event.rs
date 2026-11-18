@@ -2,7 +2,7 @@
 
 /// Something the program in the terminal asked the shell to do.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TerminalEvent {
+pub enum Event {
     /// The program set the window title (raw, unsanitised).
     Title(String),
     /// The program asked to drop its title.

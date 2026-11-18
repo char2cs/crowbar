@@ -20,9 +20,7 @@ pub use input::{
     route_wheel,
 };
 pub use snapshot::{
-    BackgroundSpan, CursorCell, CursorShape, Highlight, Rgb, Row, Segment, Snapshot, StyleFlags,
-    StyleSpan, TerminalPalette, Underline,
+    BackgroundSpan, CursorCell, CursorShape, Highlight, Palette, Rgb, Row, Segment, Snapshot,
+    StyleFlags, StyleSpan, Underline,
 };
-pub use terminal::{
-    ClientMessage, DaemonFrame, Terminal, TerminalConfig, TerminalEvent, sanitize_title,
-};
+pub use terminal::{ClientMessage, Config, DaemonFrame, Event, Terminal, sanitize_title};

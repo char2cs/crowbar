@@ -7,13 +7,13 @@ mod xterm_color;
 pub(crate) use color_source::ColorSource;
 pub use rgb::Rgb;
 
-use crate::snapshot::terminal_palette::xterm_color::xterm_color;
+use crate::snapshot::palette::xterm_color::xterm_color;
 
 const ANSI_COLORS: usize = 16;
 
 /// Default text, default background, cursor and the 16 ANSI colours; the 240 others are fixed.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TerminalPalette {
+pub struct Palette {
     /// Colour of text with no explicit colour.
     pub foreground: Rgb,
     /// Colour behind everything; cells with this background are not filled.
@@ -24,7 +24,7 @@ pub struct TerminalPalette {
     pub ansi: [Rgb; ANSI_COLORS],
 }
 
-impl TerminalPalette {
+impl Palette {
     /// The colour of palette entry `index` (0 to 255).
     pub fn indexed(
         &self,
@@ -41,10 +41,10 @@ impl TerminalPalette {
 mod tests {
     use super::*;
 
-    fn palette() -> TerminalPalette {
+    fn palette() -> Palette {
         let ansi =
             std::array::from_fn(|index| Rgb::from_hex(u32::try_from(index).unwrap_or_default()));
-        TerminalPalette {
+        Palette {
             foreground: Rgb::from_hex(0xf2_f0ea),
             background: Rgb::from_hex(0x1c_1c1a),
             cursor: Rgb::from_hex(0xf2_f0ea),
