@@ -1503,7 +1503,7 @@ dependencies = [
  "keymap",
  "layout",
  "layoutview",
- "oobe_view",
+ "oobe",
  "pairing_view",
  "panehost",
  "platform",
@@ -4712,7 +4712,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "oobe_view"
+name = "oobe"
 version = "0.1.0"
 dependencies = [
  "gpui",

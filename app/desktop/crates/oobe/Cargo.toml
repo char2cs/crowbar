@@ -1,5 +1,5 @@
 [package]
-name = "oobe_view"
+name = "oobe"
 description = "The first-run screens of the Crowbar shell: tagline, system check, first space, add host."
 version.workspace = true
 edition.workspace = true
