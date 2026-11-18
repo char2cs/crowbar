@@ -31,7 +31,7 @@ shell_data = { path = "desktop/crates/shell_data" }
 keymap = { path = "desktop/crates/keymap" }
 browserbar = { path = "desktop/crates/browserbar" }
 branch_import_view = { path = "desktop/crates/branch_import_view" }
-pairing_view = { path = "desktop/crates/pairing_view" }
+pairing = { path = "desktop/crates/pairing" }
 oobe = { path = "desktop/crates/oobe" }
 remote_folder_picker = { path = "desktop/crates/remote_folder_picker" }
 windowstate = { path = "desktop/crates/windowstate" }

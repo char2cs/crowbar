@@ -3,7 +3,7 @@ use std::path::Path;
 use branch_import_view::{BranchImportView, ImportEvent};
 use diagnostics::LogPaths;
 use gpui::{AppContext as _, Context, Entity, Window};
-use pairing_view::{PairingEvent, PairingView};
+use pairing::{PairingEvent, PairingView};
 
 use super::ShellView;
 

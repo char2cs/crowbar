@@ -1504,7 +1504,7 @@ dependencies = [
  "layout",
  "layoutview",
  "oobe",
- "pairing_view",
+ "pairing",
  "panehost",
  "platform",
  "protocol",
@@ -4753,7 +4753,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "pairing_view"
+name = "pairing"
 version = "0.1.0"
 dependencies = [
  "gpui",

@@ -1,5 +1,5 @@
 [package]
-name = "pairing_view"
+name = "pairing"
 description = "The Add Host dialog of the Crowbar shell: name and address, fingerprint, one-time code."
 version.workspace = true
 edition.workspace = true

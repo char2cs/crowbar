@@ -77,7 +77,7 @@ pub(crate) struct ShellView {
     remote_folders: Option<Entity<remote_folder_picker::RemoteFolderPicker>>,
     file_prompt: Option<Entity<crate::file_prompt::FilePrompt>>,
     rename_prompt: Option<(protocol::PaneId, Entity<crate::rename_prompt::RenamePrompt>)>,
-    pairing: Option<Entity<pairing_view::PairingView>>,
+    pairing: Option<Entity<pairing::PairingView>>,
     first_run: Option<(crate::landing::Landing, Entity<oobe::OobeView>)>,
     window_title: String,
     unsaved: Option<Entity<crate::unsaved_dialog::UnsavedDialog>>,
