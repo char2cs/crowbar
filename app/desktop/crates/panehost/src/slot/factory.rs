@@ -6,28 +6,28 @@ use webview::{Bounds, Color, IpcHandler, Visibility};
 use crate::error::Result;
 use crate::slot::Slot;
 use crate::slot::bootstrap::bootstrap_script;
-use crate::slot::inbox::InboxGate;
+use crate::slot::config::Config;
+use crate::slot::id::Id;
+use crate::slot::inbox::Gate;
 use crate::slot::inbox::drop_handler;
 use crate::slot::inbox::open_envelope;
 use crate::slot::inbox::{page_handler, pick_handler};
-use crate::slot::pane_host_config::PaneHostConfig;
-use crate::slot::slot_id::SlotId;
-use crate::slot::slot_owner::SlotOwner;
-use crate::slot::slot_request::{BLANK_URL, SlotRequest};
+use crate::slot::owner::Owner;
+use crate::slot::request::{BLANK_URL, Request};
 
-pub(crate) struct SlotFactory {
+pub(crate) struct Factory {
     webviews: webview::Host,
-    config: PaneHostConfig,
-    gate: Arc<InboxGate>,
+    config: Config,
+    gate: Arc<Gate>,
     next: Cell<u64>,
     background: Cell<Option<Color>>,
 }
 
-impl SlotFactory {
+impl Factory {
     pub(crate) fn new(
         webviews: webview::Host,
-        config: PaneHostConfig,
-        gate: Arc<InboxGate>,
+        config: Config,
+        gate: Arc<Gate>,
     ) -> Self {
         Self {
             webviews,
@@ -58,16 +58,16 @@ impl SlotFactory {
 
     pub(crate) fn create(
         &self,
-        request: SlotRequest,
+        request: Request,
     ) -> Result<Slot> {
-        let SlotRequest {
+        let Request {
             parent,
             kind,
             bounds,
         } = request;
-        let id = SlotId(self.next.get());
+        let id = Id(self.next.get());
         self.next.set(id.0 + 1);
-        let owner = SlotOwner::default();
+        let owner = Owner::default();
         let config = self.config_for(&kind, bounds, &owner);
         let handle = self.webviews.create_in(parent, config)?;
         Ok(Slot {
@@ -82,7 +82,7 @@ impl SlotFactory {
         &self,
         kind: &webview::Kind,
         bounds: Bounds,
-        owner: &SlotOwner,
+        owner: &Owner,
     ) -> webview::Config {
         if *kind == webview::Kind::Browser {
             return self.browser_config(bounds, owner);
@@ -93,7 +93,7 @@ impl SlotFactory {
     fn browser_config(
         &self,
         bounds: Bounds,
-        owner: &SlotOwner,
+        owner: &Owner,
     ) -> webview::Config {
         webview::Config {
             url: BLANK_URL.into(),
@@ -110,7 +110,7 @@ impl SlotFactory {
     fn pane_config(
         &self,
         (kind, bounds): (webview::Kind, Bounds),
-        owner: &SlotOwner,
+        owner: &Owner,
     ) -> webview::Config {
         webview::Config {
             url: BLANK_URL.into(),
@@ -130,7 +130,7 @@ impl SlotFactory {
 
     fn ipc_for(
         &self,
-        owner: &SlotOwner,
+        owner: &Owner,
     ) -> IpcHandler {
         let owner = owner.clone();
         let gate = Arc::clone(&self.gate);
@@ -139,8 +139,8 @@ impl SlotFactory {
 }
 
 fn deliver(
-    owner: &SlotOwner,
-    gate: &InboxGate,
+    owner: &Owner,
+    gate: &Gate,
     text: &str,
 ) {
     let Some((generation, frame)) = open_envelope(text) else {
@@ -162,9 +162,9 @@ mod tests {
     use super::*;
     use crate::slot::inbox::IpcMessage;
 
-    fn factory(mock: &Rc<MockPlatform>) -> (SlotFactory, async_channel::Receiver<IpcMessage>) {
+    fn factory(mock: &Rc<MockPlatform>) -> (Factory, async_channel::Receiver<IpcMessage>) {
         let (sink, inbox) = async_channel::unbounded();
-        let config = PaneHostConfig {
+        let config = Config {
             scheme: "crowbar".into(),
             host: HostId::new("local").unwrap(),
             max_idle_slots: 1,
@@ -172,7 +172,7 @@ mod tests {
         };
         let webviews = webview::Host::with_platform(Rc::<MockPlatform>::clone(mock));
         (
-            SlotFactory::new(webviews, config, Arc::new(InboxGate::new(sink))),
+            Factory::new(webviews, config, Arc::new(Gate::new(sink))),
             inbox,
         )
     }
@@ -186,8 +186,8 @@ mod tests {
         }
     }
 
-    fn request() -> SlotRequest {
-        SlotRequest {
+    fn request() -> Request {
+        Request {
             parent: ParentWindow::X11(3),
             kind: webview::Kind::Core,
             bounds: square(),
@@ -208,12 +208,8 @@ mod tests {
             "{:?}",
             mock.calls()
         );
-        assert_eq!(slot.id, SlotId(0), "first slot id");
-        assert_eq!(
-            factory.create(request()).unwrap().id,
-            SlotId(1),
-            "ids advance"
-        );
+        assert_eq!(slot.id, Id(0), "first slot id");
+        assert_eq!(factory.create(request()).unwrap().id, Id(1), "ids advance");
     }
 
     const SURFACE: Color = Color {

@@ -1,7 +1,7 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use panehost::{OriginTable, PaneHost, PaneHostConfig};
+use panehost::{OriginTable, PaneHost};
 use protocol::HostId;
 use webview::MockPlatform;
 
@@ -9,7 +9,7 @@ use super::NoDaemon;
 use crate::core_panes::register_core_panes;
 
 pub(crate) fn mock_host(mock: &Rc<MockPlatform>) -> PaneHost {
-    let config = PaneHostConfig {
+    let config = panehost::Config {
         scheme: "crowbar".into(),
         host: HostId::new("local").unwrap(),
         max_idle_slots: 1,

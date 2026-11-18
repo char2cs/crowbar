@@ -33,4 +33,4 @@ pub use pane_host::{
 };
 pub use protocol::PaneOrigin;
 pub use scheme::{Assignment, OriginTable, PaneProtocol};
-pub use slot::{HostEvent, IpcMessage, PaneHostConfig};
+pub use slot::{Config, HostEvent, IpcMessage};

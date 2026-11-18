@@ -5,11 +5,11 @@ use protocol::PaneId;
 use crate::slot::owned_pane::OwnedPane;
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct SlotOwner {
+pub(crate) struct Owner {
     state: Arc<Mutex<OwnedPane>>,
 }
 
-impl SlotOwner {
+impl Owner {
     pub(crate) fn assign(
         &self,
         pane: PaneId,
@@ -52,7 +52,7 @@ mod tests {
 
     #[test]
     fn assignment_is_shared_between_clones() {
-        let owner = SlotOwner::default();
+        let owner = Owner::default();
         let reader = owner.clone();
         assert_eq!(reader.current(), None, "starts free");
         owner.assign(PaneId::new("p1").unwrap());
@@ -63,7 +63,7 @@ mod tests {
 
     #[test]
     fn only_the_current_generation_resolves() {
-        let owner = SlotOwner::default();
+        let owner = Owner::default();
         let first = owner.assign(PaneId::new("p1").unwrap());
         assert_eq!(owner.resolve(first), PaneId::new("p1").ok(), "current page");
         let second = owner.assign(PaneId::new("p2").unwrap());

@@ -6,8 +6,8 @@ use webview::{IpcHandler, PageEvent, PageHandler};
 
 use crate::slot::inbox::host_event::HostEvent;
 use crate::slot::inbox::ipc_message::IpcMessage;
-use crate::slot::slot_owner::SlotOwner;
-use crate::slot::slot_request::BLANK_URL;
+use crate::slot::owner::Owner;
+use crate::slot::request::BLANK_URL;
 
 const URL_KEY: &str = "url";
 
@@ -24,21 +24,21 @@ pub(crate) fn first_url(state: Option<&PaneState>) -> String {
 }
 
 pub(crate) fn page_handler(
-    owner: SlotOwner,
+    owner: Owner,
     sink: async_channel::Sender<IpcMessage>,
 ) -> PageHandler {
     Arc::new(move |event| on_page(&owner, &sink, event))
 }
 
 pub(crate) fn pick_handler(
-    owner: SlotOwner,
+    owner: Owner,
     sink: async_channel::Sender<IpcMessage>,
 ) -> IpcHandler {
     Arc::new(move |text| forward_pick(&owner, &sink, &text))
 }
 
 fn forward_pick(
-    owner: &SlotOwner,
+    owner: &Owner,
     sink: &async_channel::Sender<IpcMessage>,
     text: &str,
 ) {
@@ -48,7 +48,7 @@ fn forward_pick(
 }
 
 fn send_update(
-    owner: &SlotOwner,
+    owner: &Owner,
     sink: &async_channel::Sender<IpcMessage>,
     update: &PageUpdate,
 ) {
@@ -65,7 +65,7 @@ fn send_update(
 }
 
 fn on_page(
-    owner: &SlotOwner,
+    owner: &Owner,
     sink: &async_channel::Sender<IpcMessage>,
     event: PageEvent,
 ) -> bool {
@@ -120,7 +120,7 @@ mod tests {
     #[test]
     fn page_events_reach_the_owner_and_forbidden_navigation_is_cancelled() {
         let (sink, inbox) = async_channel::bounded(8);
-        let owner = SlotOwner::default();
+        let owner = Owner::default();
         let handler = page_handler(owner.clone(), sink);
         assert!(handler(PageEvent::Loaded("https://a.test/".into())));
         assert!(inbox.try_recv().is_err(), "nobody owns the view yet");
@@ -145,7 +145,7 @@ mod tests {
     #[test]
     fn a_page_can_post_only_the_result_of_a_pick() {
         let (sink, inbox) = async_channel::bounded(8);
-        let owner = SlotOwner::default();
+        let owner = Owner::default();
         owner.assign(PaneId::new("p1").unwrap());
         let handler = pick_handler(owner, sink);
         handler(r#"{"page":"loaded","url":"https://a.test/"}"#.into());

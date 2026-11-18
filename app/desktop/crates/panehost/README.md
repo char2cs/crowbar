@@ -11,7 +11,7 @@ authorization of every `crowbar://` request a page makes.
 - `PaneHost`: `new`, `sync` (with `LayoutSnapshot`, `VisiblePane`, `Keyboard`; returns
   `SyncReport`), `handle_ipc`, `display` (`PaneDisplay`), `send`, `inbox` (`HostEvent`,
   `IpcMessage`), overlays (`Overlay`, `FrozenPane`) and browser panes (`BrowseAction`).
-- `PaneHostConfig`, `Error`, `Result`.
+- `Config`, `Error`, `Result`.
 - Pane types: `PaneRegistry`, `PaneType`, `PaneKind`, `PaneLifecycle`, `Multiplicity`.
 - Pane pages: the `BundleSource` port, `BundleAsset`, `DirBundle`, `ExtensionBundles`,
   `PaneBundles`.

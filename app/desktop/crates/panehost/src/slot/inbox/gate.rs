@@ -11,12 +11,12 @@ pub(crate) const COALESCABLE_BACKLOG: usize = 256;
 pub(crate) const MAX_MESSAGE_BYTES: usize = 1 << 20;
 const COALESCABLE_KINDS: [&str; 3] = ["pane.setState", "pane.setTitle", "shell.hover"];
 
-pub(crate) struct InboxGate {
+pub(crate) struct Gate {
     sink: async_channel::Sender<IpcMessage>,
     dropped: Mutex<BTreeMap<PaneId, u64>>,
 }
 
-impl InboxGate {
+impl Gate {
     pub(crate) fn new(sink: async_channel::Sender<IpcMessage>) -> Self {
         Self {
             sink,
@@ -91,9 +91,9 @@ fn is_coalescable(text: &str) -> bool {
 mod tests {
     use super::*;
 
-    fn gate() -> (InboxGate, async_channel::Receiver<IpcMessage>) {
+    fn gate() -> (Gate, async_channel::Receiver<IpcMessage>) {
         let (sink, inbox) = async_channel::unbounded();
-        (InboxGate::new(sink), inbox)
+        (Gate::new(sink), inbox)
     }
 
     fn pane() -> PaneId {

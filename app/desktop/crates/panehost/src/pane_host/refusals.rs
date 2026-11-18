@@ -82,7 +82,7 @@ mod tests {
     use super::*;
     use crate::pane_host::reconcile::PaneDisplay;
     use crate::slot::IpcMessage;
-    use crate::slot::inbox::inbox_gate::COALESCABLE_BACKLOG;
+    use crate::slot::inbox::gate::COALESCABLE_BACKLOG;
     use crate::test_support::{Fixture, fixture, frames_sent, instance, register};
 
     fn started() -> Fixture {

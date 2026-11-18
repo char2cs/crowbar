@@ -3,13 +3,13 @@ use protocol::{Lifecycle, PaneId, PaneState, PaneTypeId, ShellFrame};
 
 use crate::pane_host::lifecycle::pane_phase::PanePhase;
 use crate::pane_host::lifecycle::stage::Stage;
-use crate::slot::SlotId;
+use crate::slot::Id;
 
 #[derive(Debug)]
 pub(crate) struct PaneRuntime {
     pub(crate) type_id: PaneTypeId,
     pub(crate) phase: PanePhase,
-    pub(crate) slot: Option<SlotId>,
+    pub(crate) slot: Option<Id>,
     pub(crate) stage: Stage,
     pub(crate) discard_state: bool,
     pub(crate) violations: u32,
@@ -175,7 +175,7 @@ mod tests {
     fn detach_returns_the_pane_to_parked() {
         let mut runtime = runtime();
         runtime.phase = PanePhase::Mounted;
-        runtime.slot = Some(SlotId(1));
+        runtime.slot = Some(Id(1));
         runtime.stage = Stage::Active;
         assert!(runtime.is_mounted(), "mounted");
         runtime.detach();

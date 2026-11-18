@@ -10,8 +10,8 @@ use crate::pane_host::PaneHost;
 use crate::pane_host::lifecycle::pane_phase::PanePhase;
 use crate::pane_host::lifecycle::stage::Stage;
 use crate::pane_host::reconcile::VisiblePane;
-use crate::slot::SlotId;
-use crate::slot::{BLANK_URL, SlotRequest};
+use crate::slot::Id;
+use crate::slot::{BLANK_URL, Request};
 use crate::slot::{first_url, is_browser};
 
 impl PaneHost {
@@ -109,7 +109,7 @@ impl PaneHost {
             None => webview::Kind::Core,
         };
         let url = self.page_url(pane_type, (visible, layout));
-        let request = SlotRequest {
+        let request = Request {
             parent,
             kind,
             bounds: visible.bounds,
@@ -138,8 +138,8 @@ impl PaneHost {
 
     pub(crate) fn take_slot(
         &mut self,
-        request: SlotRequest,
-    ) -> Result<SlotId> {
+        request: Request,
+    ) -> Result<Id> {
         let Some(free) = self.pool.find_free(&request.kind) else {
             let slot = self.factory.create(request)?;
             return Ok(self.pool.insert(slot));

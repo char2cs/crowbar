@@ -1,15 +1,15 @@
 use std::collections::BTreeMap;
 
 use crate::slot::Slot;
-use crate::slot::slot_id::SlotId;
+use crate::slot::id::Id;
 
 #[derive(Debug)]
-pub(crate) struct SlotPool {
-    slots: BTreeMap<SlotId, Slot>,
+pub(crate) struct Pool {
+    slots: BTreeMap<Id, Slot>,
     max_idle: usize,
 }
 
-impl SlotPool {
+impl Pool {
     pub(crate) fn new(max_idle: usize) -> Self {
         Self {
             slots: BTreeMap::new(),
@@ -20,7 +20,7 @@ impl SlotPool {
     pub(crate) fn find_free(
         &self,
         kind: &webview::Kind,
-    ) -> Option<SlotId> {
+    ) -> Option<Id> {
         self.slots
             .values()
             .find(|slot| &slot.kind == kind && slot.owner.current().is_none())
@@ -30,7 +30,7 @@ impl SlotPool {
     pub(crate) fn insert(
         &mut self,
         slot: Slot,
-    ) -> SlotId {
+    ) -> Id {
         let id = slot.id;
         self.slots.insert(id, slot);
         id
@@ -38,7 +38,7 @@ impl SlotPool {
 
     pub(crate) fn get(
         &self,
-        id: SlotId,
+        id: Id,
     ) -> Option<&Slot> {
         self.slots.get(&id)
     }
@@ -53,7 +53,7 @@ impl SlotPool {
 
     pub(crate) fn release(
         &mut self,
-        id: SlotId,
+        id: Id,
     ) {
         let Some(slot) = self.slots.get(&id) else {
             return;
@@ -66,7 +66,7 @@ impl SlotPool {
 
     pub(crate) fn discard(
         &mut self,
-        id: SlotId,
+        id: Id,
     ) {
         self.slots.remove(&id);
     }
@@ -86,7 +86,7 @@ mod tests {
     use webview::{MockPlatform, ParentWindow};
 
     use super::*;
-    use crate::slot::slot_owner::SlotOwner;
+    use crate::slot::owner::Owner;
     use crate::test_support::blank_config;
 
     fn slot(
@@ -97,10 +97,10 @@ mod tests {
         let config = blank_config(kind.clone());
         let handle = host.create_in(ParentWindow::X11(1), config).unwrap();
         Slot {
-            id: SlotId(id),
+            id: Id(id),
             kind,
             handle,
-            owner: SlotOwner::default(),
+            owner: Owner::default(),
         }
     }
 
@@ -111,7 +111,7 @@ mod tests {
     #[test]
     fn a_free_slot_of_the_right_kind_is_found() {
         let host = host();
-        let mut pool = SlotPool::new(2);
+        let mut pool = Pool::new(2);
         let ext = webview::Kind::Extension(protocol::ExtensionId::new("git").unwrap());
         let core = pool.insert(slot(&host, 1, webview::Kind::Core));
         pool.insert(slot(&host, 2, ext.clone()));
@@ -156,7 +156,7 @@ mod tests {
         released: u64,
     ) -> usize {
         let host = host();
-        let mut pool = SlotPool::new(limit);
+        let mut pool = Pool::new(limit);
         for n in 0..released {
             let id = pool.insert(slot(&host, n, kind.clone()));
             let owned = pool.get(id).unwrap();

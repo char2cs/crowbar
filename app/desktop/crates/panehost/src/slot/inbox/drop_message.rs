@@ -7,12 +7,12 @@ use webview::{PageEvent, PageHandler};
 
 use crate::slot::inbox::host_event::HostEvent;
 use crate::slot::inbox::ipc_message::IpcMessage;
-use crate::slot::slot_owner::SlotOwner;
+use crate::slot::owner::Owner;
 
 const DROP_KIND: &str = "shell.files-dropped";
 
 pub(crate) fn drop_handler(
-    owner: SlotOwner,
+    owner: Owner,
     sink: async_channel::Sender<IpcMessage>,
 ) -> PageHandler {
     Arc::new(move |event| {
@@ -22,7 +22,7 @@ pub(crate) fn drop_handler(
 }
 
 fn on_page(
-    owner: &SlotOwner,
+    owner: &Owner,
     sink: &async_channel::Sender<IpcMessage>,
     event: PageEvent,
 ) {

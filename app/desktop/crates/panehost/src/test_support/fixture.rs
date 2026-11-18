@@ -18,9 +18,9 @@ use crate::pane_host::LayoutSnapshot;
 use crate::pane_host::PaneHost;
 use crate::pane_host::VisiblePane;
 use crate::scheme::OriginTable;
+use crate::slot::Config;
 use crate::slot::HostEvent;
 use crate::slot::IpcMessage;
-use crate::slot::PaneHostConfig;
 use crate::test_support::Revocations;
 
 pub(crate) struct Fixture {
@@ -136,7 +136,7 @@ pub(crate) fn pane_type(
 
 pub(crate) fn fixture() -> Fixture {
     let mock = Rc::new(MockPlatform::default());
-    let config = PaneHostConfig {
+    let config = Config {
         scheme: "crowbar".into(),
         host: HostId::new("local").unwrap(),
         max_idle_slots: 1,

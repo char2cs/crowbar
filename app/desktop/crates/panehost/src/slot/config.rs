@@ -3,7 +3,7 @@ use webview::PageHandler;
 
 /// Static settings of a [`PaneHost`](crate::PaneHost).
 #[derive(Clone)]
-pub struct PaneHostConfig {
+pub struct Config {
     /// The custom scheme, without `://`.
     pub scheme: String,
     /// The daemon host panes talk to.
@@ -14,12 +14,12 @@ pub struct PaneHostConfig {
     pub page_handler: Option<PageHandler>,
 }
 
-impl std::fmt::Debug for PaneHostConfig {
+impl std::fmt::Debug for Config {
     fn fmt(
         &self,
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        f.debug_struct("PaneHostConfig")
+        f.debug_struct("Config")
             .field("scheme", &self.scheme)
             .field("host", &self.host)
             .field("max_idle_slots", &self.max_idle_slots)
@@ -34,8 +34,8 @@ mod tests {
 
     use super::*;
 
-    fn config(page_handler: Option<PageHandler>) -> PaneHostConfig {
-        PaneHostConfig {
+    fn config(page_handler: Option<PageHandler>) -> Config {
+        Config {
             scheme: "crowbar".into(),
             host: HostId::new("local").unwrap(),
             max_idle_slots: 2,

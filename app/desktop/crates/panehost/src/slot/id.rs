@@ -1,2 +1,2 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub(crate) struct SlotId(pub(crate) u64);
+pub(crate) struct Id(pub(crate) u64);

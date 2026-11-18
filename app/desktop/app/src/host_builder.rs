@@ -1,9 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use panehost::{
-    DirBundle, ExtensionBundles, OriginTable, PaneBundles, PaneHost, PaneHostConfig, PaneProtocol,
-};
+use panehost::{DirBundle, ExtensionBundles, OriginTable, PaneBundles, PaneHost, PaneProtocol};
 use protocol::{DaemonTransport, HostId};
 use webview::HostConfig;
 
@@ -31,7 +29,7 @@ pub(crate) fn build_host(
         protocol: Arc::new(protocol),
         data_dir: Some(options.state_dir().join("webview")),
     })?;
-    let config = PaneHostConfig {
+    let config = panehost::Config {
         scheme: SCHEME.into(),
         host: HostId::new("local")?,
         max_idle_slots: 2,

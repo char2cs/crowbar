@@ -24,13 +24,13 @@ use crate::pane_host::lifecycle::pane_phase::PanePhase;
 use crate::pane_host::lifecycle::pane_runtime::PaneRuntime;
 use crate::pane_host::reconcile::failures::Failures;
 use crate::scheme::OriginTable;
+use crate::slot::Config;
+use crate::slot::Factory;
+use crate::slot::Gate;
 use crate::slot::HostEvent;
-use crate::slot::InboxGate;
 use crate::slot::IpcMessage;
 use crate::slot::IpcNotice;
-use crate::slot::PaneHostConfig;
-use crate::slot::SlotFactory;
-use crate::slot::SlotPool;
+use crate::slot::Pool;
 use crate::slot::browser_event;
 use crate::slot::drop_report;
 use crate::slot::focus_report;
@@ -43,8 +43,8 @@ use crate::slot::parse_hover;
 /// [`LayoutSnapshot`] and reports changes as events.
 pub struct PaneHost {
     pub(crate) registry: PaneRegistry,
-    pub(crate) factory: SlotFactory,
-    pub(crate) pool: SlotPool,
+    pub(crate) factory: Factory,
+    pub(crate) pool: Pool,
     pub(crate) origins: OriginTable,
     pub(crate) transport: Arc<dyn DaemonTransport>,
     pub(crate) panes: BTreeMap<PaneId, PaneRuntime>,
@@ -55,8 +55,8 @@ pub struct PaneHost {
     pub(crate) focused: Option<PaneId>,
     pub(crate) keyboard: Keyboard,
     pub(crate) inbox: async_channel::Receiver<IpcMessage>,
-    pub(crate) gate: Arc<InboxGate>,
-    pub(crate) config: PaneHostConfig,
+    pub(crate) gate: Arc<Gate>,
+    pub(crate) config: Config,
 }
 
 impl std::fmt::Debug for PaneHost {
@@ -82,17 +82,17 @@ impl PaneHost {
     /// of `webviews` reads.
     #[must_use]
     pub fn new(
-        config: PaneHostConfig,
+        config: Config,
         webviews: webview::Host,
         origins: OriginTable,
         transport: Arc<dyn DaemonTransport>,
     ) -> Self {
         let (sink, inbox) = async_channel::unbounded();
-        let gate = Arc::new(InboxGate::new(sink));
+        let gate = Arc::new(Gate::new(sink));
         Self {
             registry: PaneRegistry::default(),
-            pool: SlotPool::new(config.max_idle_slots),
-            factory: SlotFactory::new(webviews, config.clone(), Arc::clone(&gate)),
+            pool: Pool::new(config.max_idle_slots),
+            factory: Factory::new(webviews, config.clone(), Arc::clone(&gate)),
             origins,
             transport,
             panes: BTreeMap::new(),
