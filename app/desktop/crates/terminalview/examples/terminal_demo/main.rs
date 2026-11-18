@@ -1,12 +1,12 @@
 //! A real shell in a native terminal view, over a local PTY that stands in for the daemon.
 //!
-//! `cargo run -p terminal_view --example terminal_demo -- --mode dark --type "ls --color" --size 1000x640`
+//! `cargo run -p terminalview --example terminal_demo -- --mode dark --type "ls --color" --size 1000x640`
 
 mod arguments;
 mod local_pty;
 
 use gpui::{App, AppContext, Application, Bounds, WindowBounds, WindowOptions, px, size};
-use terminal_view::{TerminalLink, TerminalSettings, TerminalView};
+use terminalview::{TerminalLink, TerminalSettings, TerminalView};
 use ui::Theme;
 
 use crate::arguments::Arguments;

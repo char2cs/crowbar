@@ -5,7 +5,7 @@ use gpui::{AnyView, App, AppContext as _, Entity, Window};
 use protocol::PaneId;
 use ptysession::{Ends, TerminalSessions};
 use terminal::DaemonFrame;
-use terminal_view::{TerminalLink, TerminalSettings, TerminalView};
+use terminalview::{TerminalLink, TerminalSettings, TerminalView};
 
 use crate::chat_terminals::ChatTerminals;
 use crate::plan::Plan;

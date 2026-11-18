@@ -1518,7 +1518,7 @@ dependencies = [
  "startup_view",
  "supervisor",
  "terminal",
- "terminal_view",
+ "terminalview",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
@@ -7168,7 +7168,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "terminal_view"
+name = "terminalview"
 version = "0.1.0"
 dependencies = [
  "alacritty_terminal",

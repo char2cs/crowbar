@@ -35,7 +35,7 @@ impl NativePanes {
 
     pub(crate) fn apply_terminal_settings(
         &self,
-        settings: terminal_view::TerminalSettings,
+        settings: terminalview::TerminalSettings,
         cx: &mut App,
     ) {
         self.terminals.apply(settings, cx);

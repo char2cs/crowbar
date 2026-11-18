@@ -1,6 +1,6 @@
 use settings_ui::Value;
 use terminal::CursorShape;
-use terminal_view::TerminalSettings;
+use terminalview::TerminalSettings;
 
 use crate::single_precision::single_precision;
 

@@ -10,7 +10,7 @@ use rustix::fd::{AsFd, OwnedFd};
 use rustix::fs::{OFlags, fcntl_getfl, fcntl_setfl};
 use rustix::io::{dup, read, write};
 use terminal::{ClientMessage, DaemonFrame};
-use terminal_view::TerminalPeer;
+use terminalview::TerminalPeer;
 
 const READ_CHUNK: usize = 65_536;
 const CELL_PIXELS: u16 = 8;

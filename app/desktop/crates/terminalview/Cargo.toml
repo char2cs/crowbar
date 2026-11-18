@@ -1,5 +1,5 @@
 [package]
-name = "terminal_view"
+name = "terminalview"
 description = "GPUI view of the Crowbar terminal: grid painting, input, selection, search bar, scrollbar."
 version.workspace = true
 edition.workspace = true
