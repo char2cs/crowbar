@@ -21,12 +21,12 @@ pub(crate) use verdict::Verdict;
 
 use std::sync::Arc;
 
+use crate::config::Config;
 use crate::supervisor::supervision::adapters::system_clock;
 use crate::supervisor::supervision::restart_budget::RestartBudget;
-use crate::supervisor_config::SupervisorConfig;
 
 pub(crate) struct Supervision {
-    pub(crate) config: SupervisorConfig,
+    pub(crate) config: Config,
     pub(crate) bus: Arc<Bus>,
     pub(crate) log: Option<Arc<DaemonLog>>,
     pub(crate) budget: RestartBudget,
@@ -35,7 +35,7 @@ pub(crate) struct Supervision {
 
 impl Supervision {
     pub(crate) fn new(
-        config: SupervisorConfig,
+        config: Config,
         bus: Arc<Bus>,
     ) -> Self {
         let log = match DaemonLog::open(&config.paths.log, config.timings.log_max_bytes) {
@@ -75,10 +75,10 @@ impl Supervision {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::supervisor_config::DaemonPaths;
+    use crate::config::DaemonPaths;
 
-    fn config(dir: &std::path::Path) -> SupervisorConfig {
-        SupervisorConfig::new(
+    fn config(dir: &std::path::Path) -> Config {
+        Config::new(
             "crowbar-api".into(),
             DaemonPaths {
                 socket: dir.join("d.sock"),

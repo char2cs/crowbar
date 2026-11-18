@@ -1,14 +1,14 @@
 mod adapters;
 mod exoneration;
 pub(crate) mod failure_tracker;
+mod guard;
 mod process_cpu;
 mod watch_context;
 mod watch_state;
-mod watchdog_guard;
 mod wedge;
 
+pub(crate) use guard::Guard;
 pub(crate) use watch_context::WatchContext;
-pub(crate) use watchdog_guard::WatchdogGuard;
 
 use std::time::Duration;
 
@@ -156,9 +156,9 @@ async fn announce_wedge(ctx: &WatchContext) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Timings;
     use crate::supervisor::supervision::Bus;
     use crate::supervisor::supervision::adapters::system_clock::system_clock;
-    use crate::supervisor_config::Timings;
     use std::sync::Arc;
     use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;

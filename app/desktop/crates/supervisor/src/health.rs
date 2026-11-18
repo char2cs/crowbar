@@ -13,11 +13,11 @@ use std::path::Path;
 
 use serde_json::Value;
 
+use crate::config::Timings;
 use crate::error::Error;
 use crate::health::announced::Announced;
 use crate::health::attempt::Attempt;
 use crate::health::client::Dial;
-use crate::supervisor_config::Timings;
 
 const HEALTH_BODY_LIMIT: usize = 1024 * 1024;
 const HEALTH_TARGET: &str = "/v0/health";

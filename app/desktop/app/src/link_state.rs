@@ -65,7 +65,6 @@ impl LinkState {
 
 #[cfg(test)]
 mod tests {
-    use supervisor::SupervisorConfig;
 
     use super::*;
 
@@ -96,7 +95,7 @@ mod tests {
             socket: PathBuf::from("/run/daemon.sock"),
             log: PathBuf::from("/run/daemon.log"),
         };
-        let config = SupervisorConfig::new(
+        let config = supervisor::Config::new(
             PathBuf::from("/nonexistent/daemon"),
             paths.clone(),
             None,

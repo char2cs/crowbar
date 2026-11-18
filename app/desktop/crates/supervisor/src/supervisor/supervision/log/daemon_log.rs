@@ -5,10 +5,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::error::Error;
-use crate::supervisor::supervision::log::log_message::LogMessage;
-use crate::supervisor::supervision::log::log_sink::LogSink;
+use crate::supervisor::supervision::log::message::Message;
+use crate::supervisor::supervision::log::sink::Sink;
 use crate::supervisor::supervision::reply::reply;
-use crate::supervisor::{spawn::private_dir, supervision::log::adapters::LogWriter};
+use crate::supervisor::{spawn::private_dir, supervision::log::adapters::Writer};
 
 const QUEUE_LINES: usize = 512;
 
@@ -23,7 +23,7 @@ pub(crate) const MAX_LINE_BYTES: usize = 16 * 1024;
 /// prompts, paths and stack traces.
 #[derive(Debug)]
 pub struct DaemonLog {
-    queue: mpsc::Sender<LogMessage>,
+    queue: mpsc::Sender<Message>,
     dropped: Arc<AtomicU64>,
 }
 
@@ -63,7 +63,7 @@ fn format_lines(
 }
 
 fn note_drops(
-    writer: &mut dyn LogSink,
+    writer: &mut dyn Sink,
     lost: u64,
 ) -> std::io::Result<()> {
     if lost == 0 {
@@ -75,12 +75,12 @@ fn note_drops(
 }
 
 fn write_message(
-    writer: &mut dyn LogSink,
-    message: LogMessage,
+    writer: &mut dyn Sink,
+    message: Message,
 ) -> std::io::Result<()> {
     match message {
-        LogMessage::Text(text) => writer.append(&text),
-        LogMessage::Flush(done) => {
+        Message::Text(text) => writer.append(&text),
+        Message::Flush(done) => {
             reply(done, ());
             Ok(())
         },
@@ -88,8 +88,8 @@ fn write_message(
 }
 
 fn run_writer(
-    mut writer: Box<dyn LogSink>,
-    mut queue: mpsc::Receiver<LogMessage>,
+    mut writer: Box<dyn Sink>,
+    mut queue: mpsc::Receiver<Message>,
     dropped: &AtomicU64,
     path: &Path,
 ) {
@@ -99,8 +99,8 @@ fn run_writer(
 }
 
 fn write_next(
-    writer: &mut dyn LogSink,
-    message: LogMessage,
+    writer: &mut dyn Sink,
+    message: Message,
     dropped: &AtomicU64,
     path: &Path,
 ) {
@@ -127,12 +127,12 @@ impl DaemonLog {
         if let Some(dir) = path.parent() {
             private_dir(dir).map_err(log_error)?;
         }
-        let writer = LogWriter::open(path, max_bytes).map_err(log_error)?;
+        let writer = Writer::open(path, max_bytes).map_err(log_error)?;
         Self::over(Box::new(writer), path).map_err(log_error)
     }
 
     pub(crate) fn over(
-        sink: Box<dyn LogSink>,
+        sink: Box<dyn Sink>,
         label: &Path,
     ) -> std::io::Result<Self> {
         let (queue, receiver) = mpsc::channel(QUEUE_LINES);
@@ -153,7 +153,7 @@ impl DaemonLog {
         text: &str,
     ) {
         let formatted = format_lines(prefix, text);
-        if self.queue.try_send(LogMessage::Text(formatted)).is_err() {
+        if self.queue.try_send(Message::Text(formatted)).is_err() {
             self.dropped.fetch_add(1, Ordering::Relaxed);
         }
     }
@@ -161,7 +161,7 @@ impl DaemonLog {
     /// Resolves once everything queued so far is on disk.
     pub async fn flush(&self) {
         let (done, written) = oneshot::channel();
-        if self.queue.send(LogMessage::Flush(done)).await.is_ok() && written.await.is_err() {
+        if self.queue.send(Message::Flush(done)).await.is_ok() && written.await.is_err() {
             tracing::debug!("the daemon log writer ended before a flush finished");
         }
     }

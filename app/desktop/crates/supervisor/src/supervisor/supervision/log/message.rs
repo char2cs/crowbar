@@ -1,6 +1,6 @@
 use tokio::sync::oneshot;
 
-pub(crate) enum LogMessage {
+pub(crate) enum Message {
     Text(String),
     Flush(oneshot::Sender<()>),
 }

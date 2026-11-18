@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use supervisor::{DaemonEvent, DaemonPaths, Supervisor, SupervisorConfig, locate_binary};
+use supervisor::{DaemonEvent, DaemonPaths, Supervisor, locate_binary};
 use tokio::sync::watch;
 
 use crate::app_options::AppOptions;
@@ -58,7 +58,7 @@ async fn launch(
     let paths = DaemonPaths::resolve(&binary, Some(&options.home))
         .await
         .map_err(|e| Error::Daemon(e.to_string()))?;
-    let config = SupervisorConfig::new(
+    let config = supervisor::Config::new(
         binary,
         paths.clone(),
         Some(options.home.clone()),

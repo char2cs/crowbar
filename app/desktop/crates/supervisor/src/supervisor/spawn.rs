@@ -61,9 +61,9 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     use super::*;
+    use crate::config::Config;
+    use crate::config::DaemonPaths;
     use crate::supervisor::supervision::Bus;
-    use crate::supervisor_config::DaemonPaths;
-    use crate::supervisor_config::SupervisorConfig;
     use crate::test_support::script::write_script;
     use std::sync::Arc;
 
@@ -75,8 +75,7 @@ mod tests {
             socket: dir.path().join("run").join("d.sock"),
             log: dir.path().join("d.log"),
         };
-        let config =
-            SupervisorConfig::new("/definitely/not/crowbar-api".into(), paths, None, "test");
+        let config = Config::new("/definitely/not/crowbar-api".into(), paths, None, "test");
         let supervision = Supervision::new(config, Arc::new(Bus::default()));
         let err = spawn_daemon(&supervision).unwrap_err();
         assert!(matches!(err, Error::Spawn { .. }), "{err}");
@@ -103,7 +102,7 @@ mod tests {
             socket: dir.path().join("run").join("d.sock"),
             log: dir.path().to_path_buf(),
         };
-        let config = SupervisorConfig::new(script, paths, None, "test");
+        let config = Config::new(script, paths, None, "test");
         let supervision = Supervision::new(config, Arc::new(Bus::default()));
         assert!(supervision.log.is_none(), "the log is not openable");
         let mut child = spawn_daemon(&supervision).unwrap();

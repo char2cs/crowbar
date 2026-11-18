@@ -5,7 +5,7 @@ pub(crate) mod watchdog;
 
 pub(crate) use running::Running;
 pub(crate) use stale_daemon::refuse;
-pub(crate) use watchdog::{WatchContext, WatchdogGuard, watch};
+pub(crate) use watchdog::{Guard, WatchContext, watch};
 
 use std::process::ExitStatus;
 

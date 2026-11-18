@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 /// What the supervisor needs to run one daemon.
 #[derive(Debug, Clone)]
-pub struct SupervisorConfig {
+pub struct Config {
     /// The `crowbar-api` binary.
     pub binary: PathBuf,
     /// Where the daemon binds and logs.
@@ -24,7 +24,7 @@ pub struct SupervisorConfig {
     pub timings: Timings,
 }
 
-impl SupervisorConfig {
+impl Config {
     /// A config with production timings.
     #[must_use]
     pub fn new(
@@ -55,7 +55,7 @@ mod tests {
             socket: PathBuf::from("/s.sock"),
             log: PathBuf::from("/l.log"),
         };
-        let config = SupervisorConfig::new(
+        let config = Config::new(
             PathBuf::from("/bin/crowbar-api"),
             paths,
             Some(PathBuf::from("/home")),

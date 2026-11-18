@@ -4,9 +4,9 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::supervisor::daemon_event::DaemonEvent;
+use crate::supervisor::monitoring::Guard;
 use crate::supervisor::monitoring::Running;
 use crate::supervisor::monitoring::WatchContext;
-use crate::supervisor::monitoring::WatchdogGuard;
 use crate::supervisor::monitoring::refuse;
 use crate::supervisor::monitoring::watch;
 use crate::supervisor::monitoring::{monitor, stop_child};
@@ -114,7 +114,7 @@ async fn become_ready(
     supervision.bus.emit(DaemonEvent::Ready { pid });
     let (wedged, watchdog) = start_watchdog(supervision, child.id());
     let running = Running {
-        _watchdog: WatchdogGuard::new(watchdog),
+        _watchdog: Guard::new(watchdog),
         child,
         wedged,
     };

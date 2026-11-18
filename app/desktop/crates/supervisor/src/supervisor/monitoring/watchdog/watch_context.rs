@@ -4,9 +4,9 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use crate::config::Timings;
 use crate::supervisor::supervision::Bus;
 use crate::supervisor::supervision::Clock;
-use crate::supervisor_config::Timings;
 
 pub(crate) struct WatchContext {
     pub(crate) socket: PathBuf,

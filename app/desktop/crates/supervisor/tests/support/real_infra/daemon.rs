@@ -3,7 +3,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use supervisor::{DaemonEvent, DaemonPaths, SupervisorConfig, Timings};
+use supervisor::{Config, DaemonEvent, DaemonPaths, Timings};
 use tempfile::TempDir;
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::broadcast::error::RecvError;
@@ -28,7 +28,7 @@ pub(crate) fn fast_timings() -> Timings {
 pub(crate) fn config(
     mode: &str,
     timings: Timings,
-) -> io::Result<(SupervisorConfig, TempDir)> {
+) -> io::Result<(Config, TempDir)> {
     let dir = tempfile::Builder::new().prefix("cb-sup-").tempdir()?;
     let script = dir.path().join("crowbar-api");
     let fake = env!("CARGO_BIN_EXE_fake_daemon");
@@ -38,7 +38,7 @@ pub(crate) fn config(
         socket: dir.path().join("d.sock"),
         log: dir.path().join("logs").join("daemon.log"),
     };
-    let mut config = SupervisorConfig::new(script, paths, None, "1.2.3-test");
+    let mut config = Config::new(script, paths, None, "1.2.3-test");
     config.timings = timings;
     Ok((config, dir))
 }

@@ -3,8 +3,8 @@
 mod adapters;
 mod crash_report;
 mod daemon_log;
-mod log_message;
-pub(crate) mod log_sink;
+mod message;
+pub(crate) mod sink;
 
 pub(crate) use crash_report::{crash_report, crash_summary};
 pub use daemon_log::DaemonLog;

@@ -1,6 +1,6 @@
 use std::io;
 
-pub(crate) trait LogSink: Send {
+pub(crate) trait Sink: Send {
     fn append(
         &mut self,
         text: &str,

@@ -29,9 +29,9 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+    use crate::config::Config;
+    use crate::config::DaemonPaths;
     use crate::supervisor::supervision::Bus;
-    use crate::supervisor_config::DaemonPaths;
-    use crate::supervisor_config::SupervisorConfig;
 
     #[tokio::test]
     #[ignore = "real-infra: stops a real child process"]
@@ -41,7 +41,7 @@ mod tests {
             socket: dir.path().join("d.sock"),
             log: dir.path().join("d.log"),
         };
-        let config = SupervisorConfig::new("sleep".into(), paths, None, "test");
+        let config = Config::new("sleep".into(), paths, None, "test");
         let supervision = Supervision::new(config, Arc::new(Bus::default()));
         let mut child = tokio::process::Command::new("sleep")
             .arg("60")

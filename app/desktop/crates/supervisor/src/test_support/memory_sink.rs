@@ -1,7 +1,7 @@
 use std::io;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use crate::supervisor::supervision::log::log_sink::LogSink;
+use crate::supervisor::supervision::log::sink::Sink;
 
 /// A log sink that keeps its text in memory, shared with the test that reads it back.
 #[derive(Debug, Clone, Default)]
@@ -18,7 +18,7 @@ impl MemorySink {
     }
 }
 
-impl LogSink for MemorySink {
+impl Sink for MemorySink {
     fn append(
         &mut self,
         text: &str,

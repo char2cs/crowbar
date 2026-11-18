@@ -14,12 +14,12 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
+use crate::config::Config;
 use crate::error::Error;
 use crate::supervisor::supervise::supervise;
 use crate::supervisor::supervision::Bus;
 use crate::supervisor::supervision::Command;
 use crate::supervisor::supervision::Supervision;
-use crate::supervisor_config::SupervisorConfig;
 
 const COMMAND_QUEUE: usize = 8;
 
@@ -44,7 +44,7 @@ fn stopped(why: impl std::fmt::Display) -> Error {
 impl Supervisor {
     /// Starts the daemon and supervises it until [`Supervisor::stop`].
     #[must_use]
-    pub fn start(config: SupervisorConfig) -> Self {
+    pub fn start(config: Config) -> Self {
         let bus = Arc::new(Bus::default());
         let (commands, receiver) = mpsc::channel(COMMAND_QUEUE);
         let supervision = Supervision::new(config, Arc::clone(&bus));
@@ -120,16 +120,16 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::supervisor_config::DaemonPaths;
+    use crate::config::DaemonPaths;
 
     const NOWHERE: &str = "/crowbar-test-missing";
 
-    fn missing_binary() -> SupervisorConfig {
+    fn missing_binary() -> Config {
         let paths = DaemonPaths {
             socket: PathBuf::from(NOWHERE).join("d.sock"),
             log: PathBuf::from(NOWHERE).join("d.log"),
         };
-        let mut config = SupervisorConfig::new(
+        let mut config = Config::new(
             PathBuf::from("/definitely/not/crowbar-api"),
             paths,
             None,
