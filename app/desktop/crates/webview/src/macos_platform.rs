@@ -1,6 +1,5 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
-use std::ptr::NonNull;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -33,17 +32,19 @@ pub(crate) struct MacosPlatform {
     pub(crate) views: RefCell<HashMap<WebViewId, Rc<WebView>>>,
     pub(crate) kinds: RefCell<HashMap<WebViewId, WebViewKind>>,
     pub(crate) last_parent: Cell<Option<usize>>,
+    pub(crate) main_thread: MainThreadMarker,
 }
 
 impl MacosPlatform {
     pub(crate) fn start(config: HostConfig) -> Result<Self> {
-        MainThreadMarker::new().ok_or(Error::NotMainThread)?;
+        let main_thread = MainThreadMarker::new().ok_or(Error::NotMainThread)?;
         Ok(Self {
             scheme: config.scheme,
             protocol: config.protocol,
             views: RefCell::new(HashMap::new()),
             kinds: RefCell::new(HashMap::new()),
             last_parent: Cell::new(None),
+            main_thread,
         })
     }
 
@@ -90,12 +91,11 @@ impl ViewLifecycle for MacosPlatform {
                 "a macOS host needs an AppKit window",
             ));
         };
-        let view = NonNull::new(std::ptr::with_exposed_provenance_mut(address))
-            .ok_or(Error::UnsupportedParent("null NSView"))?;
+        let view = AppkitParent::find(address, self.main_thread)
+            .ok_or(Error::UnsupportedParent("no open window shows that NSView"))?;
         let builder = self.builder_for(&config.kind);
         let id_text = id.to_string();
-        let web_view = common_attributes(builder, &id_text, &config)
-            .build_as_child(&AppkitParent::new(view))?;
+        let web_view = common_attributes(builder, &id_text, &config).build_as_child(&view)?;
         self.views.borrow_mut().insert(id, Rc::new(web_view));
         self.kinds.borrow_mut().insert(id, config.kind);
         self.last_parent.set(Some(address));
