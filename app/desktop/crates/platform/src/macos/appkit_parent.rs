@@ -38,13 +38,24 @@ fn view_at(
     view: Retained<NSView>,
     address: usize,
 ) -> Option<Retained<NSView>> {
-    if Retained::as_ptr(&view).addr() == address {
-        return Some(view);
+    first_in_tree(
+        view,
+        &|view: &Retained<NSView>| Retained::as_ptr(view).addr() == address,
+        &|view: &Retained<NSView>| view.subviews().to_vec(),
+    )
+}
+
+fn first_in_tree<T>(
+    node: T,
+    matches: &impl Fn(&T) -> bool,
+    children: &impl Fn(&T) -> Vec<T>,
+) -> Option<T> {
+    if matches(&node) {
+        return Some(node);
     }
-    view.subviews()
-        .to_vec()
+    children(&node)
         .into_iter()
-        .find_map(|child| view_at(child, address))
+        .find_map(|child| first_in_tree(child, matches, children))
 }
 
 impl HasWindowHandle for AppkitParent {
@@ -64,28 +75,24 @@ impl HasWindowHandle for AppkitParent {
 mod tests {
     use super::*;
 
-    #[test]
-    #[ignore = "real-infra: AppKit views exist only on the main thread (--test-threads=1)"]
-    fn presents_its_view_as_an_appkit_window() {
-        let main_thread = MainThreadMarker::new().unwrap();
-        let parent = AppkitParent(NSView::new(main_thread));
-        let view = Retained::as_ptr(&parent.0).addr();
-        let handle = parent.window_handle().unwrap().as_raw();
-        assert!(
-            matches!(handle, RawWindowHandle::AppKit(h) if h.ns_view.as_ptr().addr() == view),
-            "{handle:?}"
-        );
+    fn tree() -> impl Fn(&u8) -> Vec<u8> {
+        |id| match id {
+            1 => vec![2, 3],
+            3 => vec![4],
+            _ => Vec::new(),
+        }
     }
 
     #[test]
-    #[ignore = "real-infra: AppKit views exist only on the main thread (--test-threads=1)"]
-    fn a_view_no_open_window_shows_is_not_found() {
-        let main_thread = MainThreadMarker::new().unwrap();
-        let loose = NSView::new(main_thread);
-        let address = Retained::as_ptr(&loose).addr();
-        assert!(
-            AppkitParent::find(address, main_thread).is_none(),
-            "a view outside every window"
-        );
+    fn finds_the_first_matching_node_each_parent_before_its_children() {
+        let cases = [
+            ("a grandchild below the root", 4..=4, Some(4)),
+            ("a node in no branch", 9..=9, None),
+            ("a parent before its child", 3..=4, Some(3)),
+        ];
+        for (what, ids, found) in cases {
+            let matches = |id: &u8| ids.contains(id);
+            assert_eq!(first_in_tree(1, &matches, &tree()), found, "{what}");
+        }
     }
 }

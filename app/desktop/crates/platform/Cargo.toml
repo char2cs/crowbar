@@ -22,5 +22,14 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 [dev-dependencies]
 tempfile = "3"
 
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSViewController"] }
+
 [lints]
 workspace = true
+
+# AppKit views need the main thread, which libtest never gives a test, so main runs the cases.
+[[test]]
+name = "platform"
+path = "tests/platform.rs"
+harness = false
