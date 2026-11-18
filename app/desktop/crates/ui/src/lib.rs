@@ -17,7 +17,7 @@ pub use control::{
 };
 pub use display::{
     Badge, BadgeSize, BadgeVariant, EmptyState, Kbd, ProgressBar, ScrollArea, Skeleton, Spinner,
-    Toast, ToastContent, ToastId, ToastKind, ToastLifetime, ToastPhase, ToastPlacement, ToastQueue,
+    Toast, ToastContent, ToastId, ToastKind, ToastLifetime, ToastPlacement, ToastQueue,
     ToastQueueEvent, ToastSide,
 };
 pub use error::Error;
@@ -28,9 +28,8 @@ pub use floating::{
     TooltipSide,
 };
 pub use foundation::{
-    Appearance, CubicBezier, Glide, HoverFill, Icon, IconName, IconWeight, Keyframes, Motion,
-    Palette, Pose, Surface, Theme, ThemeId, ThemeMode, UiText, Vibrancy, Wordmark, assets,
-    focus_ring,
+    Appearance, CubicBezier, Glide, HoverFill, Icon, IconName, IconWeight, Motion, Palette, Pose,
+    Surface, Theme, ThemeId, ThemeMode, UiText, Vibrancy, Wordmark, assets, focus_ring,
 };
-pub use foundation::{font, layer, opacity, radius, shadow, spacing, text_size, timing};
+pub use foundation::{font, layer, radius, shadow, spacing, text_size, timing};
 pub use ui::init;

@@ -2,7 +2,7 @@
 
 pub mod font;
 pub mod layer;
-pub mod opacity;
+pub(crate) mod opacity;
 pub mod radius;
 pub mod shadow;
 pub mod spacing;

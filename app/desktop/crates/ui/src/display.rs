@@ -18,6 +18,6 @@ pub(crate) use skeleton::ShimmerClock;
 pub use skeleton::Skeleton;
 pub use spinner::Spinner;
 pub use toast::{
-    Toast, ToastContent, ToastId, ToastKind, ToastLifetime, ToastPhase, ToastPlacement, ToastQueue,
+    Toast, ToastContent, ToastId, ToastKind, ToastLifetime, ToastPlacement, ToastQueue,
     ToastQueueEvent, ToastSide,
 };

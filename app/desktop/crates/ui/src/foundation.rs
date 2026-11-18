@@ -13,11 +13,12 @@ pub(crate) use close_handler::CloseHandler;
 pub(crate) use direction::Direction;
 pub use icon::{Icon, IconName, IconWeight, Wordmark, assets};
 pub(crate) use index_handler::IndexHandler;
-pub use motion::{CubicBezier, Glide, HoverFill, Keyframes, Motion, Pose};
+pub(crate) use motion::Keyframes;
+pub use motion::{CubicBezier, Glide, HoverFill, Motion, Pose};
 pub(crate) use motion::{ToggleState, Tween};
 pub(crate) use opaque_debug::opaque_debug;
 pub(crate) use theme::mix;
 pub use theme::{
     Appearance, Palette, Surface, Theme, ThemeId, ThemeMode, UiText, Vibrancy, focus_ring,
 };
-pub use tokens::{font, layer, opacity, radius, shadow, spacing, text_size, timing};
+pub use tokens::{font, layer, radius, shadow, spacing, text_size, timing};

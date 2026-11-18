@@ -9,7 +9,7 @@ mod toast_phase;
 mod toast_queue;
 
 pub use toast_kind::ToastKind;
-pub use toast_phase::ToastPhase;
+pub(crate) use toast_phase::ToastPhase;
 pub use toast_queue::{
     ToastContent, ToastId, ToastLifetime, ToastPlacement, ToastQueue, ToastQueueEvent, ToastSide,
 };

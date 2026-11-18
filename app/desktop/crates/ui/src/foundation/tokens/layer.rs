@@ -1,13 +1,5 @@
 //! Paint priority of overlays; larger values paint on top (`z-index` of the spec).
 
-/// Pane content box.
-pub const CONTENT: usize = 1;
-/// Sidebar split handle, pane sash, dragged tab.
-pub const HANDLE: usize = 10;
-/// Pane handle tab and narrow-width sidebar scrim.
-pub const PANE_HANDLE: usize = 30;
-/// Sidebar peek card, drop tint.
-pub const PEEK: usize = 40;
 /// Popovers, selects, toasts.
 pub const OVERLAY: usize = 50;
 /// Tree drop indicator.

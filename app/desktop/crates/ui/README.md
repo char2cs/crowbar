@@ -30,11 +30,11 @@ Status: `verified` = implemented, unit tested and rendered in the gallery (crowb
 | Metrics | `radius::{SM,MD,LG,XL,XXL,FULL}`, `text_size::{XS..XL, UiText}`, `shadow::{xs,sm,md,lg,xs_tinted,dropdown,handle}`, `layer::*` (z order), `timing::*` (durations) | unverified |
 | Fonts | `font::{register, UI_FAMILY, HEADING_FAMILY, MONO_FAMILY}` (Cal Sans UI, Instrument Serif, Geist Mono) | verified |
 | Icons | `Icon`, `IconName`, `IconWeight`, `assets()` (Phosphor: 56 icons, 92 weight files) | verified |
-| Motion | `CubicBezier`, `Keyframes`, `Motion` (reduced motion, animation factory) | verified |
+| Motion | `CubicBezier`, `Motion` (reduced motion, animation factory) | verified |
 | Controls | `Button` (with `loading()`), `ButtonVariant`, `ButtonSize`, `Switch`, `Checkbox`, `TextInput`, `Select`, `Tabs`, `TabItem`, `TabsStyle` | verified |
 | Text area | `TextArea`, `TextAreaSize`, `TextAreaCondition` | unverified (no React golden at component level) |
 | Overlays | `OverlayHost`, `Overlays`, `OverlayGuard`, `Menu`, `MenuItem`, `MenuAction`, `DropdownMenu`, `ContextMenu` (right click, `MenuAction::submenu`, arrow/left/right keys), `Popover`, `Dialog`, `DialogSize`, `Tooltip`, `TooltipSide` | unverified |
-| Display | `Badge`, `Kbd`, `Toast`, `ToastKind`, `ToastQueue`, `ToastContent`, `ToastId`, `ToastLifetime`, `ToastPlacement`, `ToastSide`, `ToastPhase`, `ToastQueueEvent`, `Separator`, `Skeleton`, `Spinner`, `ProgressBar`, `EmptyState`, `ScrollArea`, `Sash`, `SashDrag`, `DragHandle`, `Axis` | verified |
+| Display | `Badge`, `Kbd`, `Toast`, `ToastKind`, `ToastQueue`, `ToastContent`, `ToastId`, `ToastLifetime`, `ToastPlacement`, `ToastSide`, `ToastQueueEvent`, `Separator`, `Skeleton`, `Spinner`, `ProgressBar`, `EmptyState`, `ScrollArea`, `Sash`, `SashDrag`, `DragHandle`, `Axis` | verified |
 
 ## Conventions for consumers
 

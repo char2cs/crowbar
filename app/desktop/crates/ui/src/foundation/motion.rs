@@ -14,7 +14,7 @@ mod tween;
 pub use cubic_bezier::CubicBezier;
 pub use glide::Glide;
 pub use hover_fill::HoverFill;
-pub use keyframes::Keyframes;
+pub(crate) use keyframes::Keyframes;
 pub use pose::Pose;
 pub(crate) use toggle_state::ToggleState;
 pub(crate) use tween::Tween;
