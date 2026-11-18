@@ -286,11 +286,15 @@ describe('DevicesSettings', () => {
     })
     renderTab()
 
-    fireEvent.click(await screen.findByRole('switch', { name: 'Allow device connections' }))
+    fireEvent.change(await screen.findByLabelText('Listen address'), {
+      target: { value: '0.0.0.0:3941' },
+    })
+    fireEvent.click(screen.getByRole('switch', { name: 'Allow device connections' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'That port is already in use. Pick another.',
     )
     expect(screen.getByLabelText('Listen address')).toBeEnabled()
+    expect(screen.getByLabelText('Listen address')).toHaveValue('0.0.0.0:3941')
   })
 })

@@ -90,8 +90,10 @@ export function DevicesSettings() {
     setBusy(true)
     setError(null)
     try {
-      setError(await view.setEnabled(enabled, address.trim()))
-      setDraft(null)
+      const failure = await view.setEnabled(enabled, address.trim())
+      setError(failure)
+      // A refused address stays as typed so it can be corrected rather than retyped.
+      if (!failure) setDraft(null)
     } finally {
       setBusy(false)
     }
