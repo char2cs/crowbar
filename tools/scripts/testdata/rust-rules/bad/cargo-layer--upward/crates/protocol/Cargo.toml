@@ -1,0 +1,8 @@
+[package]
+name = "protocol"
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+store = { path = "../store" }

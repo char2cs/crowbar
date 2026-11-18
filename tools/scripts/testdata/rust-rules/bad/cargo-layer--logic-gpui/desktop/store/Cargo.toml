@@ -1,0 +1,8 @@
+[package]
+name = "store"
+
+[lints]
+workspace = true
+
+[dependencies]
+gpui.workspace = true

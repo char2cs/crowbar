@@ -40,7 +40,7 @@ Numbers match the owner manifest (M#) so a finding can cite either.
 | M14 | `lib.rs` exposes only the entry, the `Error`, the traits and the types that appear in their signatures, via `pub use`. | lint `unreachable_pub`; review |
 | M15 | Everything else is a private `mod` or `pub(crate)`; sub-modules are never `pub mod` unless they are the API. Prefer `pub(crate)` over `pub` for crate-internal sharing. | lint `unreachable_pub`; script `mod-rs` (modern `foo.rs` + `foo/` layout only, lint `mod_module_files`) |
 | M16 | Peer crates talk through each other's public API only. Crates in the same layer never depend on each other. Shared crates (`app/crates/*`) never depend on `gpui*`, `tauri*`, `wry` or `gtk*`, nor on anything under `app/desktop`. | script `cargo-layer`; review |
-| M17 | Dependency direction is one way: `app/crates/*` <- `app/desktop/crates/*` <- `app/desktop/app`. A back-edge is wrong placement. | script `cargo-layer`; cargo rejects cycles |
+| M17 | Dependency direction is one way, down the five layers below; a crate may skip layers downward. Crates in the same layer never depend on each other, and logic crates never depend on `gpui` or on a gpui crate (only `ui`, the L3 views and the binary do). Every crate is listed in `tools/scripts/rust-layers.txt`; a crate missing from it fails. A back-edge is wrong placement. | script `cargo-layer` (`check-layers.py` over `rust-layers.txt`); cargo rejects cycles |
 | M18-19 | (Go internal/ semantics, import cycles) covered by M15, M17 and by Cargo, which refuses dependency cycles. | cargo |
 | M20 | No cycles between modules inside a crate. | lint `cyclic_dependencies` is not in clippy; review of `mod` graph |
 | M21 | Crate names: one lowercase word, no `_` or `-` (`atomicfile`, `windowstate`; two words are joined only when one cannot name the job). Module names: short, lowercase `snake_case`. No stutter (`transport::Client`, not `transport::TransportClient`). | lint `module_name_repetitions`; C-CASE |
@@ -83,6 +83,18 @@ Numbers match the owner manifest (M#) so a finding can cite either.
 | M43 | No free test files: `*_tests.rs`, `tests.rs`, `#[path]` wiring, `#[test]` outside the file's `mod tests`, and any `#[cfg(test)]` other than `mod tests {` / `mod test_support;` are rejected. `tests/<concern>.rs` is allowed only for public-API integration tests and needs `src/<concern>.rs` or the crate name. | script `test-sibling`, `test-in-src`, `cfg-test`, `test-orphan` |
 | M44 | A source file is at most **500 lines**, counted without blank lines, doc comments and the `#[cfg(test)] mod tests` block. No exceptions. | script `size` |
 | M45 | A file that outgrows 500 lines is the wrong abstraction: split by concept (M8), never by trimming comments or lines. | review |
+
+## Crate layers (M16, M17)
+
+The map of `docs/plans/2026-11-18-rust-tree.md` section 1. `tools/scripts/rust-layers.txt` holds the same table for the `cargo-layer` check.
+
+| Layer | Kind | Crates |
+|---|---|---|
+| L4 binary | composes everything below | `crowbar` |
+| L3 gpui views | gpui | `sidebarview`, `settingsview`, `terminalview`, `layoutview`, `viewtabs`, `ideshell`, `browserbar`, `startup`, `oobe`, `pairing`, `branchimport`, `folderpicker` |
+| L2 services | logic | `panehost`, `store`, `ptysession` |
+| L1 domain | logic | `layout`, `transport`, `browseragent`, `keymap`, `windowstate`, `daemonapi`, `webview`, `sidebar`, `settings` |
+| L0 foundation | logic, except `ui` (gpui) | `protocol`, `atomicfile`, `browser`, `terminal`, `supervisor`, `diagnostics`, `platform`, `chord`, `ui` |
 
 ## The test-file mapping (decision of 2026-11-15)
 

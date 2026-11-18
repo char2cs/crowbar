@@ -1,0 +1,37 @@
+# The crate layer table of docs/rust-style.md M17 (design: docs/plans/2026-11-18-rust-tree.md section 1).
+# crate        layer  kind     Dependencies point down: a crate depends only on crates of a lower layer.
+# A logic crate never depends on gpui; only ui, the L3 views and the binary do.
+protocol       L0     logic
+atomicfile     L0     logic
+browser        L0     logic
+terminal       L0     logic
+supervisor     L0     logic
+diagnostics    L0     logic
+platform       L0     logic
+chord          L0     logic
+ui             L0     gpui
+layout         L1     logic
+transport      L1     logic
+browseragent   L1     logic
+keymap         L1     logic
+windowstate    L1     logic
+daemonapi      L1     logic
+webview        L1     logic
+sidebar        L1     logic
+settings       L1     logic
+panehost       L2     logic
+store          L2     logic
+ptysession     L2     logic
+sidebarview    L3     gpui
+settingsview   L3     gpui
+terminalview   L3     gpui
+layoutview     L3     gpui
+viewtabs       L3     gpui
+ideshell       L3     gpui
+browserbar     L3     gpui
+startup        L3     gpui
+oobe           L3     gpui
+pairing        L3     gpui
+branchimport   L3     gpui
+folderpicker   L3     gpui
+crowbar        L4     binary

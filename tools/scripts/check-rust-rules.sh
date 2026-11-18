@@ -105,6 +105,13 @@ scan_cargo() {
   done < <(find "$root" -name Cargo.toml -not -path '*/target/*' -not -path '*/vendor/*' -not -path '*/node_modules/*' -not -path "$root/Cargo.toml" | LC_ALL=C sort)
 }
 
+scan_layers() {
+  local root=$1 layers="$here/rust-layers.txt"
+  # A fixture root carries its own layer table.
+  [[ -f $root/rust-layers.txt ]] && layers=$root/rust-layers.txt
+  python3 -I "$here/check-layers.py" "$layers" "$root" --complete || status=1
+}
+
 scan_cycles() {
   local root=$1 srcs
   mapfile -t srcs < <(find "$root" -type d -name src -not -path '*/target/*' -not -path '*/vendor/*' -not -path '*/test_support/*' | LC_ALL=C sort)
@@ -112,7 +119,7 @@ scan_cycles() {
   python3 -I "$here/check-cycles.py" rust "${srcs[@]}" | sed "s#^$root/##" ; [[ ${PIPESTATUS[0]} -eq 0 ]] || status=1
 }
 
-run_dir() { local r=${1%/}; scan_root "$r"; scan_cargo "$r"; scan_cycles "$r"; }
+run_dir() { local r=${1%/}; scan_root "$r"; scan_cargo "$r"; scan_layers "$r"; scan_cycles "$r"; }
 
 self_test() {
   local td="$here/testdata/rust-rules" rc=0 out case_dir tag tmp
