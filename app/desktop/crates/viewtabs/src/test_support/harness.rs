@@ -6,10 +6,10 @@ use layout::TabId;
 use protocol::PaneId;
 use ui::{Motion, Theme};
 
-use crate::member_view::MemberView;
+use crate::pill::MemberView;
+use crate::pill::TabView;
 use crate::tab_bar::TabBar;
 use crate::tab_bar_event::TabBarEvent;
-use crate::tab_view::TabView;
 
 pub(crate) struct Harness<'a> {
     pub(crate) bar: Entity<TabBar>,
@@ -28,7 +28,7 @@ pub(crate) fn view(
             label: (*name).to_owned().into(),
             provisional: false,
             working: false,
-            kind: crate::member_kind::MemberKind::Chat,
+            kind: crate::pill::MemberKind::Chat,
         })
         .collect();
     TabView {

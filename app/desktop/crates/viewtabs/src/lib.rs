@@ -6,41 +6,16 @@
 //! the strip and [`TabDrop`] turns a chat dropped from elsewhere into commands; the GPUI plumbing
 //! only forwards pointer events to them.
 
-mod clock;
-mod drag_session;
-mod incoming_drop;
-mod member_kind;
-mod member_view;
-mod new_tab;
-mod press;
-mod settle;
-mod shell_look;
-mod sidebar_glyph;
-mod sidebar_state;
+mod gesture;
+mod pill;
 mod span;
-mod strip_drag;
 mod strip_metrics;
 mod tab_bar;
 mod tab_bar_event;
-mod tab_bar_geometry;
-mod tab_bar_incoming;
-mod tab_bar_menu;
-mod tab_bar_pointer;
-mod tab_bar_render;
-mod tab_drop;
-mod tab_shell;
-mod tab_view;
 mod test_support;
 
-pub use clock::Clock;
-pub use member_kind::MemberKind;
-pub use member_view::MemberView;
-pub use new_tab::NewTab;
-pub use shell_look::ShellLook;
-pub use sidebar_state::SidebarState;
+pub use gesture::{NewTab, StripDrag, TabDrop};
+pub use pill::{MemberKind, MemberView, ShellLook, TabView};
 pub use span::Span;
-pub use strip_drag::StripDrag;
-pub use tab_bar::TabBar;
+pub use tab_bar::{Clock, SidebarState, TabBar};
 pub use tab_bar_event::TabBarEvent;
-pub use tab_drop::TabDrop;
-pub use tab_view::TabView;

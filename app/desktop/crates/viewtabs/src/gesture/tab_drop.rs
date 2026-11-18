@@ -1,8 +1,8 @@
 use layout::{Command, DragSubject, TabId};
 
-use crate::new_tab::NewTab;
+use crate::gesture::new_tab::NewTab;
+use crate::pill::TabView;
 use crate::span::Span;
-use crate::tab_view::TabView;
 
 const EDGE: f32 = 0.25;
 
@@ -138,7 +138,7 @@ mod tests {
     use protocol::{PaneId, PaneState, PaneTypeId, Params};
 
     use super::*;
-    use crate::member_view::MemberView;
+    use crate::pill::MemberView;
 
     fn spans() -> Vec<Span> {
         (0..3u16)
@@ -168,7 +168,7 @@ mod tests {
                 label: (*name).to_owned().into(),
                 provisional: false,
                 working: false,
-                kind: crate::member_kind::MemberKind::Chat,
+                kind: crate::pill::MemberKind::Chat,
             })
             .collect();
         TabView {

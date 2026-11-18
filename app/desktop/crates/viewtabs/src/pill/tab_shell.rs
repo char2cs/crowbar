@@ -7,9 +7,9 @@ use gpui::{
 };
 use ui::{Icon, IconName, IconWeight, Palette, Spinner, Surface, Theme, radius, shadow, text_size};
 
-use crate::member_kind::MemberKind;
-use crate::member_view::MemberView;
-use crate::shell_look::ShellLook;
+use crate::pill::member_kind::MemberKind;
+use crate::pill::member_view::MemberView;
+use crate::pill::shell_look::ShellLook;
 use crate::strip_metrics::TAB_HEIGHT;
 
 const GLYPH: f32 = 16.0;

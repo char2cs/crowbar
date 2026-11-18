@@ -1,7 +1,7 @@
 use gpui::SharedString;
 use protocol::PaneId;
 
-use crate::member_kind::MemberKind;
+use crate::pill::member_kind::MemberKind;
 
 /// One chat of a tab as the strip shows it.
 #[derive(Debug, Clone, PartialEq)]

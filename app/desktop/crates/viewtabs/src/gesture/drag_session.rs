@@ -3,7 +3,7 @@ use std::time::Instant;
 use gpui::{Pixels, Point};
 use ui::{CubicBezier, Glide, Motion, timing};
 
-use crate::strip_drag::StripDrag;
+use crate::gesture::strip_drag::StripDrag;
 
 #[derive(Debug)]
 pub(crate) struct DragSession {

@@ -2,10 +2,10 @@ use gpui::{Context, DragMoveEvent, Window};
 use layout::DragSubject;
 use ui::Motion;
 
-use crate::incoming_drop::IncomingDrop;
+use crate::gesture::IncomingDrop;
+use crate::gesture::TabDrop;
 use crate::tab_bar::TabBar;
 use crate::tab_bar_event::TabBarEvent;
-use crate::tab_drop::TabDrop;
 
 impl TabBar {
     pub(crate) fn drag_over(
@@ -95,9 +95,9 @@ mod tests {
     use layout::{Command, DragSubject, TabId};
     use protocol::PaneId;
 
-    use crate::incoming_drop::IncomingDrop;
+    use crate::gesture::IncomingDrop;
+    use crate::gesture::TabDrop;
     use crate::tab_bar_event::TabBarEvent;
-    use crate::tab_drop::TabDrop;
     use crate::test_support::{open, view};
 
     #[gpui::test]

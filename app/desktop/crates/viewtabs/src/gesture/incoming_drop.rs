@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use ui::{CubicBezier, Glide, Motion};
 
-use crate::tab_drop::TabDrop;
+use crate::gesture::tab_drop::TabDrop;
 
 const LINE_GLIDE: std::time::Duration = std::time::Duration::from_millis(60);
 

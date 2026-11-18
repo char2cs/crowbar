@@ -1,3 +1,15 @@
+mod clock;
+mod geometry;
+mod incoming;
+mod menu;
+mod pointer;
+mod render;
+mod sidebar_glyph;
+mod sidebar_state;
+
+pub use clock::Clock;
+pub use sidebar_state::SidebarState;
+
 use std::rc::Rc;
 use std::time::Instant;
 
@@ -5,15 +17,13 @@ use gpui::{Bounds, Context, Entity, EventEmitter, Pixels, Point, ScrollHandle};
 use layout::TabId;
 use ui::Menu;
 
-use crate::clock::Clock;
-use crate::drag_session::DragSession;
-use crate::incoming_drop::IncomingDrop;
-use crate::new_tab::NewTab;
-use crate::press::Press;
-use crate::settle::Settle;
-use crate::sidebar_state::SidebarState;
+use crate::gesture::DragSession;
+use crate::gesture::IncomingDrop;
+use crate::gesture::NewTab;
+use crate::gesture::Press;
+use crate::gesture::Settle;
+use crate::pill::TabView;
 use crate::tab_bar_event::TabBarEvent;
-use crate::tab_view::TabView;
 
 /// The strip of view tabs: one pill per model tab, drag to reorder, drop a chat on one to merge
 /// it, close with the x. It owns no tab state: it renders the [`TabView`]s it was last given and

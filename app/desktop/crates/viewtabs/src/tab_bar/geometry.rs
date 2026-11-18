@@ -1,9 +1,9 @@
 use gpui::{Pixels, px};
 
-use crate::sidebar_state::SidebarState;
 use crate::span::Span;
 use crate::strip_metrics::{ROW_GAP, ROW_PADDING, TOGGLE_SIZE, TRAFFIC_LIGHT_INSET, slots};
 use crate::tab_bar::TabBar;
+use crate::tab_bar::sidebar_state::SidebarState;
 
 impl TabBar {
     pub(crate) fn strip_left(&self) -> Pixels {
@@ -32,8 +32,8 @@ impl TabBar {
 mod tests {
     use gpui::TestAppContext;
 
-    use crate::sidebar_state::SidebarState;
     use crate::strip_metrics::TRAFFIC_LIGHT_INSET;
+    use crate::tab_bar::sidebar_state::SidebarState;
     use crate::test_support::{open, view};
 
     #[gpui::test]

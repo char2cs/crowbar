@@ -8,6 +8,10 @@ license-file.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[[bin]]
+name = "tabsgallery"
+path = "src/bin/gallery/main.rs"
+
 [dependencies]
 gpui.workspace = true
 layout.workspace = true

@@ -9,18 +9,18 @@ use gpui::{
 use layout::{Command, DragSubject, TabId};
 use ui::{Motion, Surface, Theme, layer};
 
-use crate::shell_look::ShellLook;
-use crate::sidebar_glyph::SidebarGlyph;
-use crate::sidebar_state::SidebarState;
+use crate::gesture::TabDrop;
+use crate::pill::ShellLook;
+use crate::pill::{CloseAction, TabShell};
 use crate::strip_metrics::{
     ROW_GAP, ROW_HEIGHT, ROW_PADDING, SCROLLER_PADDING, SHELL_MARGIN, TAB_HEIGHT, TOGGLE_SIZE,
     TRAFFIC_LIGHT_INSET,
 };
 use crate::tab_bar::TabBar;
+use crate::tab_bar::pointer::follow_pointer;
+use crate::tab_bar::sidebar_glyph::SidebarGlyph;
+use crate::tab_bar::sidebar_state::SidebarState;
 use crate::tab_bar_event::TabBarEvent;
-use crate::tab_bar_pointer::follow_pointer;
-use crate::tab_drop::TabDrop;
-use crate::tab_shell::{CloseAction, TabShell};
 
 const DROP_LINE_INSET: f32 = 4.0;
 
@@ -326,8 +326,8 @@ mod tests {
     use gpui::TestAppContext;
     use layout::TabId;
 
-    use crate::shell_look::ShellLook;
-    use crate::tab_drop::TabDrop;
+    use crate::gesture::TabDrop;
+    use crate::pill::ShellLook;
     use crate::test_support::{open, view};
 
     #[gpui::test]
@@ -339,7 +339,7 @@ mod tests {
             assert_eq!(bar.look_of(0), ShellLook::Idle, "idle");
         });
         bar.update(cx, |bar, _| {
-            bar.incoming = Some(crate::incoming_drop::IncomingDrop::new(
+            bar.incoming = Some(crate::gesture::IncomingDrop::new(
                 TabDrop::Merge(TabId(1)),
                 0.0,
             ));

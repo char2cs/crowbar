@@ -1,6 +1,6 @@
 //! Shows the tab strip over a fake model: pills, hover, close, reorder and merge by drag.
 //!
-//! Usage: `tab_bar_demo [--scenario one|three|many|closed] [--mode light|dark] [--size WxH]`. The
+//! Usage: `tabsgallery [--scenario one|three|many|closed] [--mode light|dark] [--size WxH]`. The
 //! left column holds chat chips that can be dragged onto the strip.
 
 mod arguments;

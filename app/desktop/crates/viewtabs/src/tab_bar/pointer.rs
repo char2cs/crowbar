@@ -5,10 +5,10 @@ use gpui::{
 use layout::Command;
 use ui::Motion;
 
-use crate::drag_session::DragSession;
-use crate::press::Press;
-use crate::settle::Settle;
-use crate::strip_drag::StripDrag;
+use crate::gesture::DragSession;
+use crate::gesture::Press;
+use crate::gesture::Settle;
+use crate::gesture::StripDrag;
 use crate::strip_metrics;
 use crate::tab_bar::TabBar;
 use crate::tab_bar_event::TabBarEvent;
@@ -167,7 +167,7 @@ mod tests {
     use crate::tab_bar_event::TabBarEvent;
     use crate::test_support::{open, view};
 
-    fn tabs() -> Vec<crate::tab_view::TabView> {
+    fn tabs() -> Vec<crate::pill::TabView> {
         vec![view(1, &["a"]), view(2, &["b"]), view(3, &["c"])]
     }
 

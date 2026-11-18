@@ -1,7 +1,7 @@
 use layout::{Tab, TabId};
 use protocol::PaneId;
 
-use crate::member_view::MemberView;
+use crate::pill::member_view::MemberView;
 
 /// One tab of the strip: a single chat, or a set of chats that share one pill.
 #[derive(Debug, Clone, PartialEq)]
@@ -67,7 +67,7 @@ mod tests {
             label: pane.as_str().to_uppercase().into(),
             provisional: false,
             working: false,
-            kind: crate::member_kind::MemberKind::Chat,
+            kind: crate::pill::member_kind::MemberKind::Chat,
         }
     }
 
