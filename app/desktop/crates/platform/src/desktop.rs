@@ -1,16 +1,12 @@
-/// The desktop the shell runs on. Windows is not supported.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Desktop {
-    /// A freedesktop desktop (`xdg-open`).
+pub(crate) enum Desktop {
     Linux,
-    /// macOS (`open`).
     MacOs,
 }
 
 impl Desktop {
-    /// The desktop this binary was built for.
     #[must_use]
-    pub fn current() -> Self {
+    pub(crate) fn current() -> Self {
         if cfg!(target_os = "macos") {
             return Self::MacOs;
         }

@@ -32,6 +32,10 @@ fn hand_to_browser(link: &str) {
 /// Decides a navigation request of a pane's web view: `true` lets the view load `link`;
 /// a web, mail or phone link is handed to the system browser instead and the view stays put,
 /// and anything else is refused.
+///
+/// `crowbar:` and `about:` links are the app's own, and so is `dev_origin`, the dev server of a
+/// development build. `data:`, `blob:`, `file:` and `javascript:` are never followed: a document
+/// of either of the first two has an opaque origin and must not replace the app.
 pub fn follow_link(
     link: &str,
     dev_origin: Option<&str>,

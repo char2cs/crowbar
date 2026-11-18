@@ -22,8 +22,6 @@ code, one minimal layer per OS: `src/linux/` and `src/macos/`.
 - `AppkitParent` (macOS): an `NSView` of an open window, held by a strong reference, presented as
   an `AppKit` window handle. `AppkitParent::find(address, main_thread)` looks the view up among the
   app's windows, so an address no window shows never becomes a parent.
-- `classify`, `LinkTarget`, `Launch`, `Desktop`: still public today; only this crate uses them
-  (they become `pub(crate)` in the narrowing step).
 
 ## Depends on
 

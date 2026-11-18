@@ -3,22 +3,15 @@ use url::Url;
 const APP_SCHEMES: &[&str] = &["crowbar", "about"];
 const EXTERNAL_SCHEMES: &[&str] = &["http", "https", "mailto", "tel"];
 
-/// What to do with a link a page asked to follow.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LinkTarget {
-    /// The link is the app's own; the web view may load it.
+pub(crate) enum LinkTarget {
     InApp,
-    /// The link leaves the app and goes to the system browser.
     SystemBrowser,
-    /// The link must not be followed at all.
     Refuse,
 }
 
-/// Decides where `link` goes. `dev_origin` is the dev server of a development build, which counts as the
-/// app's own origin. `data:`, `blob:`, `file:` and `javascript:` are never followed: a document of
-/// either of the first two has an opaque origin and must not replace the app.
 #[must_use]
-pub fn classify(
+pub(crate) fn classify(
     link: &str,
     dev_origin: Option<&str>,
 ) -> LinkTarget {
