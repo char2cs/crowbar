@@ -12,9 +12,12 @@ that joins a view to its daemon session.
   `TerminalViewEvent`.
 - `TerminalSettings`: the theme and font a view draws with.
 - `TerminalLink` (the view end) and `TerminalPeer` (the host end) of the daemon channel.
+- `terminalgallery` binary (`src/bin/gallery/`, feature `gallery`): a real shell over a local PTY
+  that stands in for the daemon.
 
 ## Depends on
 
 - `terminal`: the terminal model.
 - `ui`: the design system.
 - `gpui`.
+- Feature `gallery` only: alacritty_terminal (the local PTY), rustix, tracing-subscriber.

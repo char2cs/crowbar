@@ -1,6 +1,6 @@
 //! A real shell in a native terminal view, over a local PTY that stands in for the daemon.
 //!
-//! `cargo run -p terminalview --example terminal_demo -- --mode dark --type "ls --color" --size 1000x640`
+//! `cargo run -p terminalview --features gallery --bin terminalgallery -- --mode dark --type "ls --color" --size 1000x640`
 
 mod arguments;
 mod local_pty;
