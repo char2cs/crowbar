@@ -21,6 +21,7 @@ scan_root() {
     crate=$(echo "/$rel" | sed -E 's#^(.*)/(src|tests)/.*#\1#; t; s#/[^/]*$##')
     case "/$rel" in */target/*|*/vendor/*) continue ;; esac
     scan_names "$rel" "$root"
+    if [[ $base == test_support.rs ]] && declared_for_tests "$path"; then check_file "$rel" "$path" test "$stem" 0 1; continue; fi
     case "/$rel" in
       */tests/support/*|*/tests/fixtures/*|*/test_support/*) check_file "$rel" "$path" test "$stem" 0 1; continue ;;
       */tests/*) scan_integration "$rel" "$path" "$stem" "$root" "$crate"; continue ;;
@@ -31,6 +32,19 @@ scan_root() {
     fi
     scan_source "$rel" "$path" "$base" "$stem" "$root"
   done < <(cd "$root" && find . -name '*.rs' -not -path '*/target/*' -not -path '*/vendor/*' | LC_ALL=C sort)
+}
+
+# A lone src/.../test_support.rs is test code like a test_support/ folder when it compiles only under
+# cfg(test): an inner #![cfg(test)], or #[cfg(test)] on its `mod test_support;` in the parent module.
+declared_for_tests() {
+  local file=$1 dir parent
+  grep -qE '^#!\[cfg\(test\)\]' "$file" && return 0
+  dir=$(dirname "$file")
+  for parent in "$dir.rs" "$dir/lib.rs" "$dir/main.rs"; do
+    [[ -f $parent ]] || continue
+    awk 'prev ~ /^[ \t]*#\[cfg\(test\)\][ \t]*$/ && /^[ \t]*(pub(\([a-z]+\))? )?mod test_support;/ { found = 1 } { prev = $0 } END { exit !found }' "$parent" && return 0
+  done
+  return 1
 }
 
 # unsafe lives only in the OS layers of platform; the iOS plugin's C ABI file is the one exception (unsafe-home).
