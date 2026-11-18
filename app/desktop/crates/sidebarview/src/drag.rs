@@ -1,9 +1,8 @@
 //! The sidebar's side of a row drag: arming, hovering, dropping.
 
 use gpui::{Context, Window, px};
-use sidebar::{Command, DropMode, RowId};
+use sidebar::{Command, DropMode, RowId, drag_started};
 
-use crate::drag_arm::drag_started;
 use crate::drag_point::DragPoint;
 use crate::drag_press::DragPress;
 use crate::drop_hint::DropHint;

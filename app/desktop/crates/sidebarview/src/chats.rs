@@ -6,10 +6,9 @@ use gpui::{
     AnyElement, Context, DragMoveEvent, InteractiveElement, IntoElement, ParentElement,
     SharedString, Styled, Window, div, px,
 };
-use sidebar::{Notice, Project, ProjectTree, Row, ScopeSync};
+use sidebar::{Notice, Project, ProjectTree, Row, ScopeSync, pull};
 use ui::{DraggedRow, Motion, ScrollArea};
 
-use crate::edge_scroll::pull;
 use crate::notice_row::NoticeRow;
 use crate::row_action::{RowAction, RowHandler};
 use crate::scale::SPACE_MD;

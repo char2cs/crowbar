@@ -3,7 +3,7 @@
 const EDGE_BAND: f32 = 36.0;
 const EDGE_SPEED_MAX: f32 = 14.0;
 
-pub(crate) fn edge_speed(distance: f32) -> f32 {
+fn edge_speed(distance: f32) -> f32 {
     if !(0.0..EDGE_BAND).contains(&distance) {
         return 0.0;
     }
@@ -12,7 +12,9 @@ pub(crate) fn edge_speed(distance: f32) -> f32 {
         .max(1.0)
 }
 
-pub(crate) fn pull(
+/// The scroll speed, in pixels per frame, for a drag at height `y` in a tree spanning `top` to
+/// `bottom`: negative near the top, positive near the bottom and zero in the middle.
+pub fn pull(
     (top, bottom): (f32, f32),
     y: f32,
 ) -> f32 {

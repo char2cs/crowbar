@@ -2,7 +2,9 @@
 
 const DRAG_THRESHOLD: f32 = 8.0;
 
-pub(crate) fn drag_started(
+/// Whether a row pressed at `origin` and now under the pointer at `now` has moved far enough
+/// (8 px, measured as a straight line) to become a drag.
+pub fn drag_started(
     origin: (f32, f32),
     now: (f32, f32),
 ) -> bool {

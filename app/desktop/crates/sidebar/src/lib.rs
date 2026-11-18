@@ -37,5 +37,5 @@ pub use sidebar::{absolute, base, join, parent};
 pub use tree_state::{Confirmation, Deadline};
 pub use tree_state::{
     DropModes, Editing, FilesState, FolderTarget, Hold, MenuContext, RemovalKind, RemovalTarget,
-    RemovalTray, Removals, TerminalThreads, TreeState, VisibleRow, WorkAtRisk,
+    RemovalTray, Removals, TerminalThreads, TreeState, VisibleRow, WorkAtRisk, drag_started, pull,
 };

@@ -7,8 +7,7 @@ Layer L3 (gpui view). See `docs/plans/2026-11-18-rust-tree.md` section 4.5.
 The `Sidebar` gpui entity: it frames the content view and draws the header, space switcher, mode
 bar, the Chats, Files and Changes panels, menus, dialogs, peek card, toasts and row drags, and
 turns input into `sidebar` behaviour calls and `Command`s. Rendering details that only the views
-read stay here even when they are gpui-free (pixel scale, menu model, drag state, the drag
-threshold and edge-scroll speed).
+read stay here even when they are gpui-free (pixel scale, menu model, drag state).
 
 ## Public interface
 
