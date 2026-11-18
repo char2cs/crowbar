@@ -9,7 +9,7 @@ use terminal::{ClientMessage, DaemonFrame};
 use tokio::time::sleep;
 
 use crate::ends::Ends;
-use crate::reconnect::Reconnect;
+use crate::stream::reconnect::Reconnect;
 
 const WARNING_COLOR: &str = "\x1b[33m";
 const RESET: &str = "\x1b[0m";

@@ -2,7 +2,7 @@
 
 use crate::error::Result;
 use crate::rest::Rest;
-use crate::session_base::SessionBase;
+use crate::rest::session_base::SessionBase;
 
 #[derive(Debug, Clone)]
 pub(crate) enum Binding {

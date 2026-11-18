@@ -1,5 +1,11 @@
 //! Creating and killing sessions through the shell's transport.
 
+mod binding;
+mod session_base;
+
+pub(crate) use binding::Binding;
+pub use session_base::SessionBase;
+
 use std::sync::Arc;
 
 use protocol::{
@@ -10,7 +16,6 @@ use serde_json::Value;
 use tokio::sync::oneshot;
 
 use crate::error::{Error, Result};
-use crate::session_base::SessionBase;
 
 #[derive(Clone)]
 pub(crate) struct Rest {

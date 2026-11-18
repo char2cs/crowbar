@@ -8,18 +8,18 @@ use tokio::time::timeout;
 use tokio_tungstenite::client_async;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
-use crate::attachment::Attachment;
-use crate::binding::Binding;
-use crate::dial::{Dial, tcp_dial};
 use crate::ends::Ends;
 use crate::error::{Error, Result};
-use crate::handshake::{CONNECT_TIMEOUT, header, stream_error, within};
-use crate::reconnect::Reconnect;
-use crate::recovery::{notice, recover};
+use crate::rest::Binding;
 use crate::rest::Rest;
-use crate::session_base::SessionBase;
+use crate::rest::SessionBase;
+use crate::stream::Attachment;
+use crate::stream::Reconnect;
+use crate::stream::StreamEnd;
 use crate::stream::pump;
-use crate::stream_end::StreamEnd;
+use crate::stream::{CONNECT_TIMEOUT, header, stream_error, within};
+use crate::stream::{Dial, tcp_dial};
+use crate::stream::{notice, recover};
 
 const RELAY_SUBPROTOCOL: &str = "crowbar.relay.v1";
 const TOKEN_PREFIX: &str = "crowbar.token.";

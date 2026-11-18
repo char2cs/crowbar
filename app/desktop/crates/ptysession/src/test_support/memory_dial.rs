@@ -4,7 +4,10 @@ use std::sync::Arc;
 use tokio::io::{DuplexStream, duplex};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
-use crate::dial::{Dial, Dialing, Link};
+use crate::stream::{
+    Dial,
+    dial::{Dialing, Link},
+};
 
 const BUFFER: usize = 64 * 1024;
 

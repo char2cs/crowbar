@@ -1,5 +1,21 @@
 //! The terminal websocket: frames to the view, the view's messages to the daemon.
 
+mod attachment;
+pub(crate) mod dial;
+mod duplex;
+mod handshake;
+mod reconnect;
+mod recovery;
+mod stream_end;
+mod wire;
+
+pub(crate) use attachment::Attachment;
+pub(crate) use dial::{Dial, tcp_dial};
+pub(crate) use handshake::{CONNECT_TIMEOUT, header, stream_error, within};
+pub(crate) use reconnect::Reconnect;
+pub(crate) use recovery::{notice, recover};
+pub(crate) use stream_end::StreamEnd;
+
 use std::ops::ControlFlow;
 use std::pin::pin;
 
@@ -13,8 +29,7 @@ use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::ends::Ends;
-use crate::stream_end::StreamEnd;
-use crate::wire::{frame_of, message_of};
+use crate::stream::wire::{frame_of, message_of};
 
 pub(crate) async fn pump<S>(
     socket: WebSocketStream<S>,

@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use tokio::net::TcpStream;
 
-use crate::duplex::Duplex;
+use crate::stream::duplex::Duplex;
 
 pub(crate) type Link = Box<dyn Duplex>;
 
