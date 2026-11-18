@@ -17,7 +17,7 @@ threshold and edge-scroll speed).
   `end_peek`, `preview_drag`.
 - `SidebarEvent`: what the entity tells the shell.
 - `toast_side(DockSide)`: the toast edge for a dock edge (the shell's floating notices use it).
-- `gallery` binary (`src/bin/gallery/`, feature `fixtures`): the sidebar over demo data, for
+- `sidebargallery` binary (`src/bin/gallery/`, feature `fixtures`): the sidebar over demo data, for
   parity screenshots.
 
 ## Depends on

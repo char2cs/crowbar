@@ -49,7 +49,7 @@ Status: `verified` = implemented, unit tested and rendered in the gallery (crowb
 
 ## Gallery
 
-`cargo run -p ui --bin gallery -- --theme crowbar --mode dark --section buttons --size 1200x800` renders every
+`cargo run -p ui --bin uigallery -- --theme crowbar --mode dark --section buttons --size 1200x800` renders every
 component in every state. Sections: `buttons`, `inputs`, `toggles`, `feedback`, `structure`, `icons`,
 `overlays`, `dialog`, `textarea`, `toasts`. The Docker recipe lives in `app/desktop/tests/docker`.
 

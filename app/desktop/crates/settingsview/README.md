@@ -13,7 +13,7 @@ shortcut capture UI, key routing from GPUI keystrokes to the state machine, and 
 - `ModalConfig`: `new(schema, settings, records)`, then `page(PageId)`, `primary(Primary)` and
   `on_close(handler)`.
 - `SettingsModal`: `new(ModalConfig, window, cx)`, `focus`, `with_query`.
-- `gallery` binary (`src/bin/gallery/`, feature `fake`): the dialog over the `settings` crate's
+- `settingsgallery` binary (`src/bin/gallery/`, feature `fake`): the dialog over the `settings` crate's
   `FakeBackend`, for parity screenshots.
 
 ## Depends on

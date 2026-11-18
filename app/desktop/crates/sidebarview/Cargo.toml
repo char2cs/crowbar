@@ -13,7 +13,7 @@ publish.workspace = true
 fixtures = ["sidebar/fixtures"]
 
 [[bin]]
-name = "gallery"
+name = "sidebargallery"
 path = "src/bin/gallery/main.rs"
 required-features = ["fixtures"]
 
