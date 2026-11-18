@@ -96,24 +96,26 @@ fn act_on(
     }
 }
 
-pub(crate) fn step(
-    rows: &[FileRow],
-    selected: Option<&str>,
-    key: FileKey,
-) -> Option<Intent> {
-    let last = rows.len().checked_sub(1)?;
-    let index = rows
-        .iter()
-        .position(|row| Some(row.path.as_str()) == selected)
-        .unwrap_or(0);
-    match key {
-        FileKey::Up => at(rows, index.saturating_sub(1)),
-        FileKey::Down => at(rows, (index + 1).min(last)),
-        FileKey::Home => at(rows, 0),
-        FileKey::End => at(rows, last),
-        FileKey::Left => left(rows, index),
-        FileKey::Right => right(rows, index),
-        _ => act_on(rows.get(index)?, key),
+impl FileKey {
+    pub(crate) fn step(
+        self,
+        rows: &[FileRow],
+        selected: Option<&str>,
+    ) -> Option<Intent> {
+        let last = rows.len().checked_sub(1)?;
+        let index = rows
+            .iter()
+            .position(|row| Some(row.path.as_str()) == selected)
+            .unwrap_or(0);
+        match self {
+            FileKey::Up => at(rows, index.saturating_sub(1)),
+            FileKey::Down => at(rows, (index + 1).min(last)),
+            FileKey::Home => at(rows, 0),
+            FileKey::End => at(rows, last),
+            FileKey::Left => left(rows, index),
+            FileKey::Right => right(rows, index),
+            _ => act_on(rows.get(index)?, self),
+        }
     }
 }
 
@@ -178,7 +180,7 @@ mod tests {
             ("end", Some("src"), FileKey::End, select_of("docs")),
         ];
         for (name, selected, key, want) in cases {
-            assert_eq!(step(&rows(), selected, key), Some(want), "{name}");
+            assert_eq!(key.step(&rows(), selected), Some(want), "{name}");
         }
     }
 
@@ -212,7 +214,7 @@ mod tests {
             ),
         ];
         for (name, selected, key, want) in cases {
-            assert_eq!(step(&rows(), selected, key), Some(want), "{name}");
+            assert_eq!(key.step(&rows(), selected), Some(want), "{name}");
         }
     }
 
@@ -240,7 +242,7 @@ mod tests {
             ),
         ];
         for (name, selected, key, want) in cases {
-            assert_eq!(step(&rows(), selected, key), Some(want), "{name}");
+            assert_eq!(key.step(&rows(), selected), Some(want), "{name}");
         }
     }
 
@@ -255,9 +257,9 @@ mod tests {
             is_dir: true,
         };
         let paste = Intent::PasteFiles { dir: "src".into() };
-        assert_eq!(step(&rows(), Some("src/a.rs"), FileKey::Copy), Some(copy));
-        assert_eq!(step(&rows(), Some("src"), FileKey::Delete), Some(delete));
-        assert_eq!(step(&rows(), Some("src/a.rs"), FileKey::Paste), Some(paste));
-        assert_eq!(step(&[], None, FileKey::Down), None);
+        assert_eq!(FileKey::Copy.step(&rows(), Some("src/a.rs")), Some(copy));
+        assert_eq!(FileKey::Delete.step(&rows(), Some("src")), Some(delete));
+        assert_eq!(FileKey::Paste.step(&rows(), Some("src/a.rs")), Some(paste));
+        assert_eq!(FileKey::Down.step(&[], None), None);
     }
 }

@@ -7,30 +7,32 @@ use crate::row::Row;
 use crate::row_kind::RowKind;
 use crate::worktree::Worktree;
 
-/// The placements allowed when `subject` (an index into `rows`) is dragged over `target`.
-/// Illegal drops return [`DropModes::NONE`] and show no indicator.
-pub fn allowed_modes(
-    rows: &[Row],
-    subject: usize,
-    target: usize,
-) -> DropModes {
-    let (Some(dragged), Some(over)) = (rows.get(subject), rows.get(target)) else {
-        return DropModes::NONE;
-    };
-    let blocked = subject == target || is_busy(dragged) || is_busy(over);
-    if blocked {
-        return DropModes::NONE;
-    }
-    if is_inside(rows, subject, target) {
-        return DropModes::NONE;
-    }
-    if dragged.activity == Activity::Working {
-        return working(dragged, over);
-    }
-    match dragged.kind {
-        RowKind::Chat => chat(over),
-        RowKind::RepoHeader => repo(over),
-        RowKind::Folder | RowKind::Branch => container(rows, (subject, target)),
+impl DropModes {
+    /// The placements allowed when `subject` (an index into `rows`) is dragged over `target`.
+    /// Illegal drops return [`DropModes::NONE`] and show no indicator.
+    pub fn allowed(
+        rows: &[Row],
+        subject: usize,
+        target: usize,
+    ) -> Self {
+        let (Some(dragged), Some(over)) = (rows.get(subject), rows.get(target)) else {
+            return DropModes::NONE;
+        };
+        let blocked = subject == target || is_busy(dragged) || is_busy(over);
+        if blocked {
+            return DropModes::NONE;
+        }
+        if is_inside(rows, subject, target) {
+            return DropModes::NONE;
+        }
+        if dragged.activity == Activity::Working {
+            return working(dragged, over);
+        }
+        match dragged.kind {
+            RowKind::Chat => chat(over),
+            RowKind::RepoHeader => repo(over),
+            RowKind::Folder | RowKind::Branch => container(rows, (subject, target)),
+        }
     }
 }
 
@@ -88,7 +90,7 @@ fn container(
     if repo_of(rows, subject) != repo_of(rows, target) {
         return DropModes::NONE;
     }
-    let ownerless = is_ownerless(dragged);
+    let ownerless = dragged.is_ownerless();
     let siblings = parent_of(rows, subject) == parent_of(rows, target);
     match (siblings, over.kind, ownerless) {
         (true, _, _) => DropModes::REORDER,
@@ -97,8 +99,11 @@ fn container(
     }
 }
 
-pub(crate) fn is_ownerless(row: &Row) -> bool {
-    row.kind == RowKind::Branch && (row.lock == Lock::Locked || row.worktree == Worktree::Shared)
+impl Row {
+    pub(crate) fn is_ownerless(&self) -> bool {
+        self.kind == RowKind::Branch
+            && (self.lock == Lock::Locked || self.worktree == Worktree::Shared)
+    }
 }
 
 fn parent_of(
@@ -228,7 +233,11 @@ mod tests {
         for (name, setup, (subject, target), expected) in CASES {
             let mut rows = tree();
             setup(&mut rows);
-            assert_eq!(allowed_modes(&rows, *subject, *target), *expected, "{name}");
+            assert_eq!(
+                DropModes::allowed(&rows, *subject, *target),
+                *expected,
+                "{name}"
+            );
         }
     }
 }

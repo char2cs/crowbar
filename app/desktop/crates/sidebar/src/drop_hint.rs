@@ -2,7 +2,7 @@
 
 use crate::drag_point::DragPoint;
 use crate::drop_mode::DropMode;
-use crate::drop_policy::{allowed_modes, is_ownerless};
+use crate::drop_modes::DropModes;
 use crate::folder_target::FolderTarget;
 use crate::nesting::Nesting;
 use crate::row::Row;
@@ -32,7 +32,7 @@ impl DropHint {
             RowKind::Folder => FolderTarget::Yes,
             _ => FolderTarget::No,
         };
-        let mode = allowed_modes(rows, subject, target).at(ratio, folder)?;
+        let mode = DropModes::allowed(rows, subject, target).at(ratio, folder)?;
         let hint = Self {
             row: point.target.clone(),
             mode,
@@ -49,8 +49,8 @@ impl DropHint {
         (subject, parent): (usize, usize),
     ) -> Option<Self> {
         let child = rows.get(parent + 1)?;
-        let leaves_alone = rows.get(subject).is_some_and(is_ownerless);
-        let allowed = allowed_modes(rows, subject, parent + 1).contains(DropMode::Before);
+        let leaves_alone = rows.get(subject).is_some_and(Row::is_ownerless);
+        let allowed = DropModes::allowed(rows, subject, parent + 1).contains(DropMode::Before);
         if leaves_alone || !allowed {
             return None;
         }

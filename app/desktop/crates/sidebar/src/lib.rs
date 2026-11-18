@@ -237,7 +237,6 @@ pub use dock_side::DockSide;
 pub use drag_arm::drag_started;
 pub use drop_mode::DropMode;
 pub use drop_modes::DropModes;
-pub use drop_policy::allowed_modes;
 pub use edge_scroll::edge_speed;
 pub use error::Error;
 pub use expansion::Expansion;

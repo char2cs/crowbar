@@ -13,7 +13,6 @@ use ui::{
     radius,
 };
 
-use crate::icon_choice::{emoji_icon, image_icon};
 use crate::scale::{ICON_LARGE, SPACE_MD, SPACE_SM, TEXT_CAPTION};
 use crate::space_icon::SpaceIcon;
 
@@ -90,14 +89,14 @@ impl IconEditor {
         cx: &mut Context<'_, Self>,
     ) {
         let text = self.emoji.read(cx).text().to_owned();
-        if let Some(icon) = emoji_icon(&text) {
+        if let Some(icon) = SpaceIcon::emoji(&text) {
             self.choose(icon, cx);
         }
     }
 }
 
 fn first_image(paths: &[PathBuf]) -> Option<SpaceIcon> {
-    paths.first().and_then(|path| image_icon(path))
+    paths.first().and_then(|path| SpaceIcon::image(path))
 }
 
 fn preview(

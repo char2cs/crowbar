@@ -7,17 +7,19 @@ use crate::space_icon::SpaceIcon;
 const IMAGE_EXTENSIONS: [&str; 4] = ["png", "jpg", "jpeg", "webp"];
 const EMOJI_MAX_CHARS: usize = 4;
 
-pub(crate) fn emoji_icon(text: &str) -> Option<SpaceIcon> {
-    let text = text.trim();
-    let fits = !text.is_empty() && text.chars().count() <= EMOJI_MAX_CHARS;
-    fits.then(|| SpaceIcon::Emoji(text.to_owned()))
-}
+impl SpaceIcon {
+    pub(crate) fn emoji(text: &str) -> Option<Self> {
+        let text = text.trim();
+        let fits = !text.is_empty() && text.chars().count() <= EMOJI_MAX_CHARS;
+        fits.then(|| Self::Emoji(text.to_owned()))
+    }
 
-pub(crate) fn image_icon(path: &Path) -> Option<SpaceIcon> {
-    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
-    IMAGE_EXTENSIONS
-        .contains(&extension.as_str())
-        .then(|| SpaceIcon::Image(path.to_string_lossy().into_owned()))
+    pub(crate) fn image(path: &Path) -> Option<Self> {
+        let extension = path.extension()?.to_str()?.to_ascii_lowercase();
+        IMAGE_EXTENSIONS
+            .contains(&extension.as_str())
+            .then(|| Self::Image(path.to_string_lossy().into_owned()))
+    }
 }
 
 #[cfg(test)]
@@ -36,7 +38,7 @@ mod tests {
         ];
         for (text, want) in cases {
             let want = want.map(|text| SpaceIcon::Emoji(text.to_owned()));
-            assert_eq!(emoji_icon(text), want, "{text:?}");
+            assert_eq!(SpaceIcon::emoji(text), want, "{text:?}");
         }
     }
 
@@ -51,7 +53,11 @@ mod tests {
             ("/a/logo", false),
         ];
         for (path, accepted) in cases {
-            assert_eq!(image_icon(Path::new(path)).is_some(), accepted, "{path}");
+            assert_eq!(
+                SpaceIcon::image(Path::new(path)).is_some(),
+                accepted,
+                "{path}"
+            );
         }
     }
 }

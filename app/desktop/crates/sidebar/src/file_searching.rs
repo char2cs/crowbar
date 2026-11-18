@@ -6,12 +6,10 @@ use gpui::{
 };
 use ui::{IconName, Surface, TextInput, TextInputEvent, TextInputStyle};
 
-use crate::file_filter::visible;
 use crate::file_row::FileRow;
 use crate::file_search::{FileSearch, matching, step_match};
 use crate::filter_button::{ClickHandler, FilterButton};
 use crate::filter_menu::filter_menu;
-use crate::folder_chain::compacted;
 use crate::match_direction::MatchDirection;
 use crate::scale::{SPACE_SM, SPACE_XS};
 use crate::sidebar::Sidebar;
@@ -83,13 +81,13 @@ impl Sidebar {
 
     pub(crate) fn visible_files(&self) -> Vec<FileRow> {
         let view = self.data.file_tree_view();
-        let rows = visible(self.data.files(), &view);
+        let rows = view.visible(self.data.files());
         let rows = match &self.search {
             Some(search) => matching(rows, &search.query),
             None => rows,
         };
         if view.compact_folders {
-            return compacted(&rows);
+            return FileRow::compacted(&rows);
         }
         rows
     }

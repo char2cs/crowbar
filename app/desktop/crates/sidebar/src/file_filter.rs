@@ -68,14 +68,16 @@ fn keep(
     Some(decorated(row, view))
 }
 
-pub(crate) fn visible(
-    rows: Vec<FileRow>,
-    view: &FileTreeView,
-) -> Vec<FileRow> {
-    let mut skipping = None;
-    rows.into_iter()
-        .filter_map(|row| keep(row, view, &mut skipping))
-        .collect()
+impl FileTreeView {
+    pub(crate) fn visible(
+        &self,
+        rows: Vec<FileRow>,
+    ) -> Vec<FileRow> {
+        let mut skipping = None;
+        rows.into_iter()
+            .filter_map(|row| keep(row, self, &mut skipping))
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -211,16 +213,13 @@ mod tests {
             ("directory patterns", hide_directories, NO_VENDOR),
         ];
         for (name, setup, expected) in cases {
-            assert_eq!(paths(visible(tree(), &view(setup))), expected, "{name}");
+            assert_eq!(paths(view(setup).visible(tree())), expected, "{name}");
         }
     }
 
     #[test]
     fn git_status_off_clears_the_letters_but_keeps_ignored_files_dimmed() {
-        let rows = visible(
-            tree(),
-            &view(|view| turn_off(view, FileTreeFlag::GitStatus)),
-        );
+        let rows = view(|view| turn_off(view, FileTreeFlag::GitStatus)).visible(tree());
         let statuses: Vec<GitStatus> = rows.iter().map(|row| row.status).collect();
         assert!(
             statuses

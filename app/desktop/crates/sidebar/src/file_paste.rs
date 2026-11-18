@@ -6,7 +6,6 @@ use crate::clip_mode::ClipMode;
 use crate::file_clipboard::FileClipboard;
 use crate::file_key::FileKey;
 use crate::file_search::opens_search;
-use crate::file_steps::step;
 use crate::sidebar::Sidebar;
 
 impl Sidebar {
@@ -68,7 +67,7 @@ impl Sidebar {
         };
         let rows = self.visible_files();
         let selected = self.tree.files.selected.as_deref();
-        if let Some(intent) = step(&rows, selected, key) {
+        if let Some(intent) = key.step(&rows, selected) {
             cx.stop_propagation();
             self.apply(intent, window, cx);
         }

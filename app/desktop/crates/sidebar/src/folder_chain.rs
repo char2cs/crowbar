@@ -58,15 +58,17 @@ fn next_row<'a>(
     Some((row, after))
 }
 
-pub(crate) fn compacted(rows: &[FileRow]) -> Vec<FileRow> {
-    let mut shifts = Shifts::default();
-    let mut rest = rows;
-    std::iter::from_fn(|| {
-        let (row, after) = next_row(rest, &mut shifts)?;
-        rest = after;
-        Some(row)
-    })
-    .collect()
+impl FileRow {
+    pub(crate) fn compacted(rows: &[FileRow]) -> Vec<FileRow> {
+        let mut shifts = Shifts::default();
+        let mut rest = rows;
+        std::iter::from_fn(|| {
+            let (row, after) = next_row(rest, &mut shifts)?;
+            rest = after;
+            Some(row)
+        })
+        .collect()
+    }
 }
 
 #[cfg(test)]
@@ -89,7 +91,7 @@ mod tests {
     }
 
     fn shown(rows: &[FileRow]) -> Vec<(String, u8)> {
-        compacted(rows)
+        FileRow::compacted(rows)
             .into_iter()
             .map(|row| (row.name, row.depth))
             .collect()
@@ -133,7 +135,7 @@ mod tests {
         let open = FileKind::Directory(Expansion::Expanded);
         let shut = FileKind::Directory(Expansion::Collapsed);
         let rows = vec![row("a", 0, open), row("a/b", 1, shut)];
-        let out = compacted(&rows);
+        let out = FileRow::compacted(&rows);
         assert_eq!(out.len(), 1);
         assert_eq!(
             out.first()
