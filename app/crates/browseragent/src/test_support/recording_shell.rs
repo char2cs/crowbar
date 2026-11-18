@@ -2,8 +2,8 @@ use std::sync::Mutex;
 
 use tokio::sync::Notify;
 
-use crate::agent_command::AgentCommand;
-use crate::tab_commands::TabCommands;
+use crate::shell::AgentCommand;
+use crate::shell::TabCommands;
 
 #[derive(Debug, Default)]
 pub(crate) struct RecordingShell {

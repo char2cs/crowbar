@@ -1,4 +1,4 @@
-use crate::agent_op::AgentOp;
+use crate::shell::agent_op::AgentOp;
 
 /// A request handed to the shell, which owns the tabs and answers through [`Replies`](crate::Replies).
 #[derive(Debug, Clone, PartialEq, Eq)]

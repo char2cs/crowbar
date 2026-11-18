@@ -4,17 +4,17 @@ use browser::AgentAnswer;
 use tokio::sync::watch;
 use tokio::task::{JoinError, JoinSet};
 
-use crate::agent_command::AgentCommand;
-use crate::agent_op::AgentOp;
-use crate::agent_request::AgentRequest;
-use crate::connection_event::ConnectionEvent;
-use crate::ending::Ending;
 use crate::error::Error;
-use crate::outbound::{response_frame, tabs_frame};
-use crate::peer_frame::PeerFrame;
-use crate::peer_session::PeerSession;
-use crate::peer_stream::PeerStream;
-use crate::tab_info::TabInfo;
+use crate::link::agent_request::AgentRequest;
+use crate::link::connection_event::ConnectionEvent;
+use crate::link::ending::Ending;
+use crate::link::outbound::{response_frame, tabs_frame};
+use crate::link::peer_frame::PeerFrame;
+use crate::link::peer_session::PeerSession;
+use crate::link::peer_stream::PeerStream;
+use crate::shell::AgentCommand;
+use crate::shell::AgentOp;
+use crate::shell::TabInfo;
 
 type Finished = (String, AgentAnswer);
 
@@ -153,8 +153,8 @@ mod tests {
     use tokio::sync::watch;
 
     use super::*;
-    use crate::replies::Replies;
     use crate::test_support::{RecordingShell, line, tab};
+    use crate::wait::Replies;
 
     #[tokio::test(start_paused = true)]
     async fn a_frame_the_daemon_may_not_send_changes_nothing_and_a_hung_up_daemon_ends_the_line() {

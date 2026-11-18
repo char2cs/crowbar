@@ -1,7 +1,7 @@
 use std::future::Future;
 
 use crate::error::Error;
-use crate::peer_stream::PeerStream;
+use crate::link::peer_stream::PeerStream;
 
 /// Opens connections to the daemon's browser peer socket.
 pub trait PeerConnector: Send + Sync + 'static {

@@ -3,7 +3,7 @@ use std::future::Future;
 use tokio::sync::mpsc;
 
 use crate::error::Error;
-use crate::peer_stream::PeerStream;
+use crate::link::PeerStream;
 
 pub(crate) struct FakeStream {
     inbound: mpsc::UnboundedReceiver<String>,

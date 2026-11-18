@@ -2,7 +2,7 @@ mod daemon;
 mod fake_connector;
 mod fake_stream;
 mod recording_shell;
-mod tab;
+pub(crate) mod tab;
 
 pub(crate) use daemon::{Daemon, line};
 pub(crate) use fake_connector::FakeConnector;

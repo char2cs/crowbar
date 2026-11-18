@@ -3,7 +3,7 @@ use std::future::Future;
 use std::sync::Mutex;
 
 use crate::error::Error;
-use crate::peer_connector::PeerConnector;
+use crate::link::PeerConnector;
 use crate::test_support::FakeStream;
 
 pub(crate) struct FakeConnector {

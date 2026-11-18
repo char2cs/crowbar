@@ -1,8 +1,8 @@
 use browser::AgentAnswer;
 use tokio::sync::oneshot;
 
-use crate::delivery::Delivery;
-use crate::reply_scope::ReplyScope;
+use crate::wait::delivery::Delivery;
+use crate::wait::reply_scope::ReplyScope;
 
 #[derive(Debug)]
 pub(crate) struct PendingReply {

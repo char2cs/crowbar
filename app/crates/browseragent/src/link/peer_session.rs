@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use tokio::sync::watch;
 
-use crate::replies::Replies;
-use crate::tab_commands::TabCommands;
-use crate::tab_info::TabInfo;
+use crate::shell::TabCommands;
+use crate::shell::TabInfo;
+use crate::wait::Replies;
 
 /// What a window shares with the loop that attaches it to the daemon.
 #[derive(Debug, Clone)]

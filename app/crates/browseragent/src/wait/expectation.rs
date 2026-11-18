@@ -4,7 +4,7 @@ use std::time::Duration;
 use browser::AgentAnswer;
 use tokio::sync::oneshot;
 
-use crate::pending_forget::PendingForget;
+use crate::wait::pending_forget::PendingForget;
 
 /// A request's wait for its answer. Dropping it, or giving up, forgets the request.
 pub struct Expectation {

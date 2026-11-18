@@ -1,7 +1,7 @@
 use browser::AgentAnswer;
 use serde_json::json;
 
-use crate::tab_info::TabInfo;
+use crate::shell::TabInfo;
 
 const TYPE: &str = "type";
 

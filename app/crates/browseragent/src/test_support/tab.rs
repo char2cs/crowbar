@@ -1,4 +1,4 @@
-use crate::tab_info::TabInfo;
+use crate::shell::TabInfo;
 
 pub(crate) fn tab(url: &str) -> TabInfo {
     TabInfo {

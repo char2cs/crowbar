@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::agent_request::AgentRequest;
+use crate::link::agent_request::AgentRequest;
 
 const HELLO: &str = "hello";
 const REQUEST: &str = "request";

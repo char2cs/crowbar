@@ -6,12 +6,12 @@ use browser::AgentAnswer;
 use serde_json::Value;
 use tokio::sync::oneshot;
 
-use crate::arming::Arming;
-use crate::delivery::Delivery;
-use crate::expectation::Expectation;
-use crate::pending_forget::PendingForget;
-use crate::pending_reply::PendingReply;
-use crate::reply_scope::{ReplyScope, merged};
+use crate::wait::arming::Arming;
+use crate::wait::delivery::Delivery;
+use crate::wait::expectation::Expectation;
+use crate::wait::pending_forget::PendingForget;
+use crate::wait::pending_reply::PendingReply;
+use crate::wait::reply_scope::{ReplyScope, merged};
 
 /// The requests that wait for an answer, shared by the loop that serves the daemon and the shell
 /// that does the work.

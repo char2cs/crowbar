@@ -1,9 +1,9 @@
 use std::time::Duration;
 
-use crate::connection::serve;
-use crate::ending::Ending;
-use crate::peer_connector::PeerConnector;
-use crate::peer_session::PeerSession;
+use crate::link::Ending;
+use crate::link::PeerConnector;
+use crate::link::PeerSession;
+use crate::link::serve;
 
 const RECONNECT_AFTER: Duration = Duration::from_secs(2);
 
@@ -46,8 +46,8 @@ mod tests {
 
     use super::*;
     use crate::error::Error;
-    use crate::replies::Replies;
     use crate::test_support::{FakeConnector, FakeStream, RecordingShell, line, tab};
+    use crate::wait::Replies;
 
     async fn attach(
         lines: Vec<Result<FakeStream, Error>>,

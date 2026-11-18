@@ -1,9 +1,9 @@
 use std::ops::ControlFlow;
 
-use crate::ending::Ending;
-use crate::line::Line;
-use crate::peer_session::PeerSession;
-use crate::peer_stream::PeerStream;
+use crate::link::ending::Ending;
+use crate::link::line::Line;
+use crate::link::peer_session::PeerSession;
+use crate::link::peer_stream::PeerStream;
 
 pub(crate) async fn serve<S: PeerStream>(
     stream: &mut S,
@@ -27,12 +27,12 @@ mod tests {
     use tokio::sync::watch;
 
     use super::*;
-    use crate::agent_op::AgentOp;
-    use crate::delivery::Delivery;
-    use crate::replies::Replies;
-    use crate::tab_commands::TabCommands;
-    use crate::tab_info::TabInfo;
+    use crate::shell::AgentOp;
+    use crate::shell::TabCommands;
+    use crate::shell::TabInfo;
     use crate::test_support::{Daemon, RecordingShell, line, tab};
+    use crate::wait::Delivery;
+    use crate::wait::Replies;
 
     struct Rig {
         daemon: Daemon,

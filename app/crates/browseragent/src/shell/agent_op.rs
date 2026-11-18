@@ -3,8 +3,8 @@ use std::time::Duration;
 use browser::BrowserUrl;
 use serde_json::Value;
 
-use crate::dom_op::DomOp;
 use crate::error::Error;
+use crate::shell::dom_op::DomOp;
 
 const DEFAULT_WAIT_MS: u64 = 10_000;
 const MAX_WAIT_MS: u64 = 30_000;
