@@ -1,5 +1,5 @@
 [package]
-name = "window_state"
+name = "windowstate"
 description = "Remembers the size, position and maximized state of the shell window in the shell data directory."
 version.workspace = true
 edition.workspace = true

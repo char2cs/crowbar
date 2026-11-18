@@ -4,7 +4,7 @@ use gpui::{
     App, Bounds, Pixels, SharedString, TitlebarOptions, Window, WindowBounds, WindowOptions, point,
     px, size,
 };
-use window_state::{DEFAULT_SIZE, MIN_SIZE, Placement, Rect, WindowState, WindowStore};
+use windowstate::{DEFAULT_SIZE, MIN_SIZE, Placement, Rect, WindowState, WindowStore};
 
 pub(crate) const WINDOW_TITLE: &str = "Crowbar";
 
