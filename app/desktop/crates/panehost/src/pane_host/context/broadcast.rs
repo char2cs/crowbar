@@ -85,20 +85,6 @@ impl PaneHost {
         }
         failures.into_first().map_or(Ok(()), Err)
     }
-
-    /// Gives keyboard focus back to the shell, for example after a click on native chrome.
-    ///
-    /// # Errors
-    /// [`Error::WebView`](crate::error::Error::WebView) when the web view cannot be driven.
-    pub fn focus_shell(&self) -> Result<()> {
-        let slot = self
-            .focused
-            .as_ref()
-            .and_then(|pane| self.panes.get(pane))
-            .and_then(|runtime| runtime.slot)
-            .and_then(|id| self.pool.get(id));
-        Ok(slot.map_or(Ok(()), |slot| slot.handle.focus_parent())?)
-    }
 }
 
 #[cfg(test)]
