@@ -1,8 +1,14 @@
 # ui
 
-GPUI design system of the Crowbar shell. Every visual value comes from `docs/plans/shell-spec/00-tokens*.md`
-(colour, type, radii, shadows, motion, z-order, primitives). The sidebar, tab bar, layout and settings crates
-build on this crate and add no styling of their own.
+Layer L0 (the one gpui crate of the foundation). See `docs/plans/2026-11-18-rust-tree.md` section 4.4.
+
+## Owns
+
+The GPUI design system of the Crowbar shell: theme, palettes, tokens, fonts, icons, motion primitives
+and the base components (controls, text fields, display, overlays, toasts). Every visual value comes
+from `docs/plans/shell-spec/00-tokens*.md` (colour, type, radii, shadows, motion, z-order,
+primitives). The sidebar, tab bar, layout and settings crates build on this crate and add no styling
+of their own.
 
 ## Setup
 
@@ -20,7 +26,10 @@ application.run(|cx| {
 appearance call `Theme::with_system(Appearance::from(window.appearance()))` from
 `Window::observe_window_appearance`.
 
-## Public API
+## Public interface
+
+`init` (fonts, theme, motion, key bindings), `assets`, `Error`, the component types and the token
+modules below.
 
 Status: `verified` = implemented, unit tested and rendered in the gallery (crowbar light/dark); `unverified` = implemented and unit tested but not yet compared against the React original; `missing` = not implemented.
 
@@ -35,6 +44,11 @@ Status: `verified` = implemented, unit tested and rendered in the gallery (crowb
 | Text area | `TextArea`, `TextAreaSize`, `TextAreaCondition` | unverified (no React golden at component level) |
 | Overlays | `OverlayHost`, `Overlays`, `OverlayGuard`, `Menu`, `MenuItem`, `MenuAction`, `DropdownMenu`, `ContextMenu` (right click, `MenuAction::submenu`, arrow/left/right keys), `Popover`, `Dialog`, `DialogSize`, `Tooltip`, `TooltipSide` | unverified |
 | Display | `Badge`, `Kbd`, `Toast`, `ToastKind`, `ToastQueue`, `ToastContent`, `ToastId`, `ToastLifetime`, `ToastPlacement`, `ToastSide`, `ToastQueueEvent`, `Separator`, `Skeleton`, `Spinner`, `ProgressBar`, `EmptyState`, `ScrollArea`, `Sash`, `SashDrag`, `DragHandle`, `Axis` | verified |
+
+## Depends on
+
+No workspace crate. External: `gpui` (rendering, layout, text, windows), `thiserror` (`Error`),
+`tracing` (the toast timer), `unicode-segmentation` (the text buffer's grapheme steps).
 
 ## Conventions for consumers
 
