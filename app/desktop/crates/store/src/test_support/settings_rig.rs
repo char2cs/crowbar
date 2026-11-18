@@ -10,8 +10,8 @@ use crate::live::Fleet;
 use crate::live::Hub;
 use crate::live::LinkState;
 use crate::live::{Outcome, OutcomeSink};
-use crate::store::SettingsCore;
 use crate::store::SystemFonts;
+use crate::store::settings_core::SettingsCore;
 use crate::store::settings_core::json_file::JsonFile;
 use crate::store::settings_core::parts::Parts;
 

@@ -54,8 +54,7 @@ impl SettingsCore {
         self.push(Change::Records(DESCRIPTORS.to_owned()));
     }
 
-    /// Installs the YAML descriptor `text` as a new agent, then reloads the agents and the checks.
-    pub fn upload_descriptor(
+    pub(crate) fn upload_descriptor(
         self: &Arc<Self>,
         text: Vec<u8>,
     ) {

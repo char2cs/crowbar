@@ -40,9 +40,7 @@ const UPLOAD_DESCRIPTOR: &str = "agents.uploadDescriptor";
 const ADD_HOST: &str = "hosts.add";
 const CLEAR_BROWSING_DATA: &str = "browser.clearData";
 
-/// Thread-safe state behind the settings modal's backend: it holds the values, the agent list,
-/// and the changes the UI thread has yet to be told about.
-pub struct SettingsCore {
+pub(crate) struct SettingsCore {
     pub(crate) file: JsonFile,
     pub(crate) values: Mutex<BTreeMap<String, Value>>,
     pub(crate) agents: Mutex<Loadable<Vec<Provider>>>,
@@ -115,21 +113,11 @@ impl SettingsCore {
         (self.signal)();
     }
 
-    /// The changes made since the last call, for the UI thread to deliver.
-    pub fn take_changes(&self) -> Vec<Change> {
+    pub(crate) fn take_changes(&self) -> Vec<Change> {
         std::mem::take(&mut *locked(&self.outbox))
     }
 
-    /// The hub changed, so the lists that read it may have.
-    pub fn hub_changed(&self) {
-        locked(&self.outbox).extend([
-            Change::Records(SESSIONS.to_owned()),
-            Change::Records(HOSTS.to_owned()),
-        ]);
-    }
-
-    /// Everything the modal needs before its first paint.
-    pub fn snapshot(&self) -> Snapshot {
+    pub(crate) fn snapshot(&self) -> Snapshot {
         let mut values = Values::default();
         for (key, value) in locked(&self.values).iter() {
             values.set(Key::new(key.as_str()), value.clone());
@@ -142,19 +130,14 @@ impl SettingsCore {
             .with_choices("terminalFonts", font_choices::monospace(&self.fonts))
     }
 
-    /// The stored value of `key`.
-    pub fn get(
+    pub(crate) fn get(
         &self,
         key: &Key,
     ) -> Option<Value> {
         locked(&self.values).get(key.as_str()).cloned()
     }
 
-    /// Stores `value`; the permission level goes to the daemon, everything else to the file.
-    ///
-    /// # Errors
-    /// [`Error::Unavailable`] when the settings file cannot be written.
-    pub fn set(
+    pub(crate) fn set(
         self: &Arc<Self>,
         key: &Key,
         value: Value,
@@ -175,11 +158,7 @@ impl SettingsCore {
         Ok(())
     }
 
-    /// Runs the backend action `id`.
-    ///
-    /// # Errors
-    /// [`Error::Unavailable`] for an action this shell does not offer.
-    pub fn invoke(
+    pub(crate) fn invoke(
         &self,
         id: &str,
     ) -> Result<(), Error> {

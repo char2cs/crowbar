@@ -35,8 +35,7 @@ impl std::fmt::Debug for SettingsAdapter {
 }
 
 impl SettingsAdapter {
-    /// An adapter of `core`, to be used on the UI thread only.
-    pub fn new(core: Arc<SettingsCore>) -> Self {
+    pub(crate) fn new(core: Arc<SettingsCore>) -> Self {
         Self {
             core,
             listeners: Rc::default(),
@@ -143,7 +142,10 @@ mod tests {
     use super::*;
     use crate::live::ChangeSignal;
     use crate::live::OutcomeSink;
+    use settings::Change;
+
     use crate::store::settings_core::parts::Parts;
+    use crate::store::settings_core::{HOSTS, SESSIONS};
     use crate::test_support::{FakeFiles, state};
 
     fn quiet_signal() -> ChangeSignal {
@@ -152,6 +154,11 @@ mod tests {
 
     fn quiet_outcome() -> OutcomeSink {
         Arc::new(|_| {})
+    }
+
+    fn lists_changed(core: &SettingsCore) {
+        core.push(Change::Records(SESSIONS.to_owned()));
+        core.push(Change::Records(HOSTS.to_owned()));
     }
 
     #[tokio::test]
@@ -180,11 +187,11 @@ mod tests {
         let heard = Rc::new(Cell::new(0));
         let counter = Rc::clone(&heard);
         let subscription = adapter.subscribe(Rc::new(move |_| counter.set(counter.get() + 1)));
-        core.hub_changed();
+        lists_changed(&core);
         adapter.deliver_pending();
         assert_eq!(heard.get(), 2, "sessions and hosts");
         drop(subscription);
-        core.hub_changed();
+        lists_changed(&core);
         adapter.deliver_pending();
         assert_eq!(heard.get(), 2);
         adapter

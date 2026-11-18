@@ -12,7 +12,7 @@ pub use branch_import::{Availability, BranchImport, BranchListing, ImportBranch,
 pub use folder_browse::{BrowseEntry, FolderBrowse, FolderChoice, FolderListing, ROOT_PATH};
 pub use pairing_session::{PairingPending, PairingSession, PairingStage, PairingState};
 pub use ports::Ports;
-pub use settings_core::{LegacyImport, SettingsAdapter, SettingsCore, SystemFonts};
+pub use settings_core::{LegacyImport, SettingsAdapter, SystemFonts};
 pub use system_check::{SystemCheck, Tool, ToolReport};
 
 use std::sync::Arc;

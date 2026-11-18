@@ -89,8 +89,7 @@ impl FolderBrowse {
         self.host.name.clone()
     }
 
-    /// How the host's stream stands now.
-    pub fn reach(&self) -> HostState {
+    pub(crate) fn reach(&self) -> HostState {
         let id = &self.host.id;
         self.hub.read(|state| {
             state

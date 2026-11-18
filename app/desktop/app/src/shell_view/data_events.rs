@@ -145,7 +145,6 @@ impl ShellView {
             .settings(file, signal, self.system_fonts.clone())
             .inspect_err(|error| tracing::error!(%error, "the settings could not be opened"))
             .ok()
-            .map(SettingsAdapter::new)
     }
 
     pub(super) fn show_settings(

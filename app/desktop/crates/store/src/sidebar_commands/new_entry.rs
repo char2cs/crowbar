@@ -1,8 +1,7 @@
 //! What a "new" file operation makes.
 
-/// A new file or a new directory.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NewEntry {
+pub(crate) enum NewEntry {
     /// An empty file.
     File,
     /// An empty directory.

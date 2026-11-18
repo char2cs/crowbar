@@ -18,9 +18,8 @@ pub struct HostNotes {
 }
 
 impl HostNotes {
-    /// The folder the notes file lives in.
     #[must_use]
-    pub fn directory(&self) -> PathBuf {
+    pub(crate) fn directory(&self) -> PathBuf {
         self.path.parent().map_or_else(PathBuf::new, PathBuf::from)
     }
 
@@ -66,19 +65,14 @@ impl HostNotes {
         self.held().get(host).cloned()
     }
 
-    /// Every host that has a note, with it.
-    pub fn all(&self) -> Vec<(String, Note)> {
+    pub(crate) fn all(&self) -> Vec<(String, Note)> {
         self.held()
             .iter()
             .map(|(host, note)| (host.clone(), note.clone()))
             .collect()
     }
 
-    /// Keeps `note` for `host`.
-    ///
-    /// # Errors
-    /// [`Error::File`] when the file cannot be written; the note is then not kept.
-    pub fn put(
+    pub(crate) fn put(
         &self,
         host: &str,
         note: Note,
@@ -88,11 +82,7 @@ impl HostNotes {
         })
     }
 
-    /// Forgets the note of `host`.
-    ///
-    /// # Errors
-    /// [`Error::File`] when the file cannot be written; the note is then still kept.
-    pub fn remove(
+    pub(crate) fn remove(
         &self,
         host: &str,
     ) -> Result<()> {

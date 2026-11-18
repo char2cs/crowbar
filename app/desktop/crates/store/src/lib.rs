@@ -19,13 +19,11 @@ pub use live::{
     BookError, BookFuture, ChangeSignal, ChatPhase, ChatSurface, ChatTerminal, HostBook, HostDesk,
     HostNotes, HostSpec, Note, Outcome, OutcomeSink, PairingRequest,
 };
-pub use sidebar_commands::{
-    FileDone, FileError, NewEntry, Overwrite, SidebarCommands, TemplateOutcome,
-};
+pub use sidebar_commands::{FileDone, FileError, Overwrite, SidebarCommands, TemplateOutcome};
 pub use sidebar_view::SidebarView;
 pub use store::{
     Availability, BranchImport, BranchListing, BrowseEntry, FolderBrowse, FolderChoice,
     FolderListing, ImportBranch, ImportPlan, LegacyImport, PairingPending, PairingSession,
-    PairingStage, PairingState, Ports, ROOT_PATH, SettingsAdapter, SettingsCore, Store,
-    SystemCheck, SystemFonts, Tool, ToolReport,
+    PairingStage, PairingState, Ports, ROOT_PATH, SettingsAdapter, Store, SystemCheck, SystemFonts,
+    Tool, ToolReport,
 };

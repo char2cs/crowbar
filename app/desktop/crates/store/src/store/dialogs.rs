@@ -14,8 +14,8 @@ use crate::store::folder_browse::{FolderChoice, folder_choice};
 use crate::store::pairing_session::PairingSession;
 use crate::store::settings_core::JsonFile;
 use crate::store::settings_core::Parts;
-use crate::store::settings_core::SettingsCore;
 use crate::store::settings_core::SystemFonts;
+use crate::store::settings_core::{SettingsAdapter, SettingsCore};
 use crate::store::system_check::SystemCheck;
 
 impl Store {
@@ -62,7 +62,8 @@ impl Store {
         FolderBrowse::open_on((&self.hub, &self.commands.handle), host, signal)
     }
 
-    /// The settings the modal edits: the shell's file at `file`, and this computer's daemon.
+    /// The settings the modal edits: the shell's file at `file`, and this computer's daemon,
+    /// behind an adapter for the UI thread.
     ///
     /// # Errors
     /// [`Error::File`] or [`Error::Json`] when the settings file exists and cannot be read, and
@@ -72,7 +73,7 @@ impl Store {
         file: std::path::PathBuf,
         signal: ChangeSignal,
         fonts: SystemFonts,
-    ) -> Result<Arc<SettingsCore>> {
+    ) -> Result<SettingsAdapter> {
         let local = self
             .hub
             .read(State::local_client)
@@ -90,7 +91,7 @@ impl Store {
         })?;
         let reading = Arc::clone(&core);
         self.settings.install(move |key| reading.get(key));
-        Ok(core)
+        Ok(SettingsAdapter::new(core))
     }
 
     /// Probes git and the forge CLIs on this computer's daemon, signalling `signal` as each answers.

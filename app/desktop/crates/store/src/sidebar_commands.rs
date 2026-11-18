@@ -15,7 +15,6 @@ mod new_entry;
 pub use env_template_file::{Overwrite, TemplateOutcome};
 pub use file_done::FileDone;
 pub use file_error::FileError;
-pub use new_entry::NewEntry;
 
 use std::sync::Arc;
 

@@ -12,10 +12,10 @@ branch import and folder picker dialogs. It never depends on gpui.
   `commands()` (`SidebarCommands`), `settings()` (`SettingsAdapter`), `pairing()`,
   `branch_import()`, `folder_browse()`, `system_check()`.
 - `Error`, `Result`, `ChangeSignal`, `Outcome` and `OutcomeSink`.
-- Hosts: `HostSpec`, `HostDesk`, `HostBook`, `BookFuture`, `BookError`, `HostNotes`,
-  `PairingRequest`; chats' terminals: `ChatTerminal`, `ChatPhase`, `ChatSurface`.
+- Hosts: `HostSpec`, `HostDesk`, `HostBook`, `BookFuture`, `BookError`, `HostNotes` (and the `Note` it
+  returns), `PairingRequest`; chats' terminals: `ChatTerminal`, `ChatPhase`, `ChatSurface`.
 - Files panel commands: `FileDone`, `FileError`, `Overwrite`, `TemplateOutcome`.
-- Settings: `SettingsCore`, `SettingsAdapter`, `SystemFonts`, `LegacyImport`.
+- Settings: `SettingsAdapter`, `SystemFonts`, `LegacyImport`.
 - Dialog data: `PairingSession`, `PairingState`, `PairingStage`, `PairingPending`;
   `BranchImport`, `BranchListing`, `ImportBranch`, `ImportPlan`, `Availability`; `FolderBrowse`,
   `ROOT_PATH`, `FolderChoice`, `FolderListing`, `BrowseEntry` (and `EntryKind`); `SystemCheck`,

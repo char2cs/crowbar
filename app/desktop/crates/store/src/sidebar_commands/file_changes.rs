@@ -64,11 +64,7 @@ impl SidebarCommands {
         Ok(())
     }
 
-    /// Makes an empty file or directory at the workspace-relative `path`.
-    ///
-    /// # Errors
-    /// [`Error::Refused`] when no workspace is open.
-    pub fn create_entry(
+    pub(crate) fn create_entry(
         &self,
         path: &str,
         entry: NewEntry,
@@ -79,11 +75,7 @@ impl SidebarCommands {
         })
     }
 
-    /// Copies `source` to `destination`, both workspace-relative.
-    ///
-    /// # Errors
-    /// [`Error::Refused`] when no workspace is open.
-    pub fn duplicate_file(
+    pub(crate) fn duplicate_file(
         &self,
         source: &str,
         destination: &str,
@@ -95,11 +87,7 @@ impl SidebarCommands {
         })
     }
 
-    /// Renames `path` to `new_path`, both workspace-relative.
-    ///
-    /// # Errors
-    /// [`Error::Refused`] when no workspace is open.
-    pub fn rename_file(
+    pub(crate) fn rename_file(
         &self,
         path: &str,
         new_path: &str,
@@ -113,11 +101,7 @@ impl SidebarCommands {
         })
     }
 
-    /// Deletes the workspace-relative `path`.
-    ///
-    /// # Errors
-    /// [`Error::Refused`] when no workspace is open.
-    pub fn delete_file(
+    pub(crate) fn delete_file(
         &self,
         path: &str,
     ) -> Result<(), Error> {
@@ -130,11 +114,7 @@ impl SidebarCommands {
         })
     }
 
-    /// Reads the workspace-relative `path`; the shell is handed its text to put on the clipboard.
-    ///
-    /// # Errors
-    /// [`Error::Refused`] when no workspace is open.
-    pub fn copy_file_content(
+    pub(crate) fn copy_file_content(
         &self,
         path: &str,
     ) -> Result<(), Error> {

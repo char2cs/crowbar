@@ -22,8 +22,7 @@ async fn end_session(
 }
 
 impl SettingsCore {
-    /// The content of the list `source`.
-    pub fn records(
+    pub(crate) fn records(
         &self,
         source: &str,
     ) -> Records {
@@ -36,11 +35,7 @@ impl SettingsCore {
         }
     }
 
-    /// Applies `command` to `record` of `source`.
-    ///
-    /// # Errors
-    /// [`Error::Unavailable`] when the list is not editable or the owner is not loaded.
-    pub fn apply(
+    pub(crate) fn apply(
         self: &Arc<Self>,
         source: &str,
         record: &str,
