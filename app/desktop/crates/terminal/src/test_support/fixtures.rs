@@ -3,16 +3,16 @@
 use alacritty_terminal::Term;
 use alacritty_terminal::term::Config;
 
-use crate::cursor_shape::CursorShape;
-use crate::daemon_frame::DaemonFrame;
-use crate::event_sink::{EventQueue, EventSink};
-use crate::feed::Feed;
-use crate::grid_size::GridSize;
-use crate::rgb::Rgb;
-use crate::row::Row;
+use crate::snapshot::CursorShape;
+use crate::snapshot::Rgb;
+use crate::snapshot::Row;
+use crate::snapshot::TerminalPalette;
+use crate::terminal::DaemonFrame;
+use crate::terminal::Feed;
+use crate::terminal::GridSize;
 use crate::terminal::Terminal;
-use crate::terminal_config::TerminalConfig;
-use crate::terminal_palette::TerminalPalette;
+use crate::terminal::TerminalConfig;
+use crate::terminal::{EventQueue, EventSink};
 
 pub(crate) const FOREGROUND: u32 = 0xaa_aaaa;
 const BACKGROUND: u32 = 0x11_1111;

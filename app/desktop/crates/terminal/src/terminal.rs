@@ -1,20 +1,34 @@
 //! The terminal emulator: an alacritty grid fed by daemon frames and read as render snapshots.
 
+mod event_sink;
+mod grid_size;
+mod modes;
+mod scrolling;
+mod searching;
+mod selecting;
+pub(crate) mod snapshot_builder;
+mod terminal_config;
+mod terminal_event;
+mod title;
+mod wire;
+
+pub(crate) use event_sink::{EventQueue, EventSink};
+pub(crate) use grid_size::GridSize;
+pub use terminal_config::TerminalConfig;
+pub use terminal_event::TerminalEvent;
+pub use title::sanitize_title;
+pub(crate) use wire::Feed;
+pub use wire::{ClientMessage, DaemonFrame};
+
 use std::sync::Arc;
 
 use alacritty_terminal::Term;
 use alacritty_terminal::event::Event;
 use alacritty_terminal::grid::Dimensions;
 
-use crate::daemon_frame::DaemonFrame;
-use crate::event_sink::{EventQueue, EventSink};
-use crate::feed::Feed;
-use crate::grid_size::GridSize;
-use crate::search_state::SearchState;
+use crate::find::SearchState;
 use crate::snapshot::Snapshot;
-use crate::snapshot_builder::build_snapshot;
-use crate::terminal_config::TerminalConfig;
-use crate::terminal_event::TerminalEvent;
+use crate::terminal::snapshot_builder::build_snapshot;
 
 /// A terminal emulator. It never answers the program itself: the daemon's PTY already does, so queries
 /// the emulator would reply to are dropped.

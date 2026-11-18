@@ -1,8 +1,20 @@
 //! Everything the view needs to draw one frame.
 
-use crate::cursor_cell::CursorCell;
-use crate::highlight::Highlight;
-use crate::row::Row;
+mod cursor_cell;
+mod cursor_shape;
+mod highlight;
+mod row;
+mod terminal_palette;
+mod viewport;
+
+pub use cursor_cell::CursorCell;
+pub use cursor_shape::CursorShape;
+pub use highlight::Highlight;
+pub use row::{BackgroundSpan, Row, Segment, StyleFlags, StyleSpan, Underline};
+pub(crate) use row::{RowBuilder, cell_columns};
+pub(crate) use terminal_palette::ColorSource;
+pub use terminal_palette::{Rgb, TerminalPalette};
+pub(crate) use viewport::Viewport;
 
 /// The visible grid, the cursor, and the selection and search overlays, all in viewport coordinates.
 #[derive(Debug, Clone, PartialEq, Eq)]
