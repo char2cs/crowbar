@@ -8,7 +8,7 @@ branch import and folder picker dialogs. It never depends on gpui.
 
 ## Public interface
 
-- `ShellData`: `start(handle, transport, hosts, ShellWiring)`, then `view()` (`SidebarView`),
+- `Store`: `start(handle, transport, hosts, Ports)`, then `view()` (`SidebarView`),
   `commands()` (`SidebarCommands`), `settings()` (`SettingsAdapter`), `pairing()`,
   `branch_import()`, `folder_browse()`, `system_check()`.
 - `Error`, `Result`, `ChangeSignal`, `Outcome` and `OutcomeSink`.

@@ -1,6 +1,6 @@
 //! The data the state holds, with no async and no hub: host slots and specs, links, pending rows, icons, settings, entities and panel state.
 
-mod entity_store;
+mod entities;
 mod host_slot;
 mod host_spec;
 mod icon_cache;
@@ -9,9 +9,9 @@ mod panel_state;
 mod pending_row;
 mod settings_slot;
 
-pub(crate) use entity_store::{
-    ChatRecord, EntityStore, FolderRecord, OperationItem, OperationRecord, PROJECTS_SCOPE,
-    ProjectRecord, RepoRecord, WorkspaceRecord,
+pub(crate) use entities::{
+    ChatRecord, Entities, FolderRecord, Item, OperationRecord, PROJECTS_SCOPE, ProjectRecord,
+    RepoRecord, WorkspaceRecord,
 };
 pub(crate) use host_slot::HostSlot;
 pub use host_spec::HostSpec;

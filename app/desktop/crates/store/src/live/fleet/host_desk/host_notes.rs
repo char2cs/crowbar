@@ -5,16 +5,16 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use crate::error::{Error, Result};
-use crate::live::file_store::DiskFiles;
-use crate::live::file_store::{FileStore, read_text};
-use crate::live::fleet::host_desk::host_note::HostNote;
+use crate::live::files::DiskFiles;
+use crate::live::files::{Files, read_text};
+use crate::live::fleet::host_desk::note::Note;
 
 /// The paired hosts' notes, loaded once and written through on every change.
 #[derive(Debug)]
 pub struct HostNotes {
     path: PathBuf,
-    files: Arc<dyn FileStore>,
-    notes: Mutex<BTreeMap<String, HostNote>>,
+    files: Arc<dyn Files>,
+    notes: Mutex<BTreeMap<String, Note>>,
 }
 
 impl HostNotes {
@@ -34,7 +34,7 @@ impl HostNotes {
 
     pub(crate) fn open_on(
         path: PathBuf,
-        files: Arc<dyn FileStore>,
+        files: Arc<dyn Files>,
     ) -> Result<Self> {
         let text = read_text(files.as_ref(), &path).map_err(|source| Error::File {
             path: path.clone(),
@@ -54,7 +54,7 @@ impl HostNotes {
         })
     }
 
-    fn held(&self) -> MutexGuard<'_, BTreeMap<String, HostNote>> {
+    fn held(&self) -> MutexGuard<'_, BTreeMap<String, Note>> {
         self.notes.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -62,12 +62,12 @@ impl HostNotes {
     pub fn get(
         &self,
         host: &str,
-    ) -> Option<HostNote> {
+    ) -> Option<Note> {
         self.held().get(host).cloned()
     }
 
     /// Every host that has a note, with it.
-    pub fn all(&self) -> Vec<(String, HostNote)> {
+    pub fn all(&self) -> Vec<(String, Note)> {
         self.held()
             .iter()
             .map(|(host, note)| (host.clone(), note.clone()))
@@ -81,7 +81,7 @@ impl HostNotes {
     pub fn put(
         &self,
         host: &str,
-        note: HostNote,
+        note: Note,
     ) -> Result<()> {
         self.change(|notes| {
             notes.insert(host.to_owned(), note);
@@ -103,7 +103,7 @@ impl HostNotes {
 
     fn change(
         &self,
-        edit: impl FnOnce(&mut BTreeMap<String, HostNote>),
+        edit: impl FnOnce(&mut BTreeMap<String, Note>),
     ) -> Result<()> {
         let mut held = self.held();
         let mut next = held.clone();
@@ -115,7 +115,7 @@ impl HostNotes {
 
     fn write(
         &self,
-        notes: &BTreeMap<String, HostNote>,
+        notes: &BTreeMap<String, Note>,
     ) -> Result<()> {
         let text = serde_json::to_string_pretty(notes).map_err(|source| Error::Json {
             path: self.path.clone(),
@@ -135,8 +135,8 @@ mod tests {
     use super::*;
     use crate::test_support::FakeFiles;
 
-    fn note(name: &str) -> HostNote {
-        HostNote {
+    fn note(name: &str) -> Note {
+        Note {
             name: name.into(),
             client_id: "c".into(),
             fingerprint: "f".into(),

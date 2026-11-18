@@ -22,7 +22,7 @@ use std::sync::Arc;
 use sidebar::{Command, Error, Sink};
 use tokio::runtime::Handle;
 
-use crate::live::FileStore;
+use crate::live::Files;
 use crate::live::Fleet;
 use crate::live::Hub;
 use crate::live::OutcomeSink;
@@ -43,7 +43,7 @@ pub struct SidebarCommands {
     pub(crate) handle: Handle,
     pub(crate) outcome: OutcomeSink,
     pub(crate) fleet: Arc<Fleet>,
-    pub(crate) files: Arc<dyn FileStore>,
+    pub(crate) files: Arc<dyn Files>,
 }
 
 impl std::fmt::Debug for SidebarCommands {

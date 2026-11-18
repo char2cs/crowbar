@@ -3,7 +3,7 @@
 use serde_json::json;
 use sidebar::Command;
 
-use crate::live::FileStore;
+use crate::live::Files;
 use crate::live::PlanError;
 use crate::live::State;
 use crate::live::Surface;
@@ -17,7 +17,7 @@ use crate::reads::active_project;
 use daemonapi::new_id;
 
 pub(crate) fn plan(
-    (state, files): (&State, &dyn FileStore),
+    (state, files): (&State, &dyn Files),
     command: &Command,
 ) -> Result<Plan, PlanError> {
     let id = new_id::uuid();
@@ -37,7 +37,7 @@ pub(crate) fn plan(
 }
 
 fn creation(
-    (state, files): (&State, &dyn FileStore),
+    (state, files): (&State, &dyn Files),
     command: &Command,
     id: &str,
 ) -> Result<Plan, PlanError> {
@@ -80,7 +80,7 @@ fn creation(
 }
 
 fn space_icon(
-    (state, files): (&State, &dyn FileStore),
+    (state, files): (&State, &dyn Files),
     project: &sidebar::ProjectId,
     icon: &sidebar::SpaceIcon,
 ) -> Result<Plan, PlanError> {
@@ -92,7 +92,7 @@ fn space_icon(
 }
 
 fn edit(
-    (state, files): (&State, &dyn FileStore),
+    (state, files): (&State, &dyn Files),
     command: &Command,
 ) -> Result<Plan, PlanError> {
     match command {

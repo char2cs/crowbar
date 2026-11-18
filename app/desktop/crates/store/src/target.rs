@@ -1,11 +1,11 @@
 //! Finding the entity a row id names.
 
-mod target_kind;
+mod kind;
 
-pub(crate) use target_kind::TargetKind;
+pub(crate) use kind::Kind;
 
 use crate::live::ChatRecord;
-use crate::live::EntityStore;
+use crate::live::Entities;
 use crate::live::PlanError;
 use crate::live::State;
 use crate::live::WorkspaceRecord;
@@ -16,25 +16,25 @@ pub(crate) struct Target {
     pub(crate) id: String,
     pub(crate) project: String,
     pub(crate) repo: String,
-    pub(crate) kind: TargetKind,
+    pub(crate) kind: Kind,
 }
 
 impl Target {
     pub(crate) fn chat(&self) -> Result<&str, PlanError> {
         match &self.kind {
-            TargetKind::Branch { owner, .. } if owner.is_empty() => Err(PlanError::ChatLoading),
-            TargetKind::Branch { owner, .. } => Ok(owner),
-            TargetKind::Folder => Err(PlanError::FolderHasNoChat),
+            Kind::Branch { owner, .. } if owner.is_empty() => Err(PlanError::ChatLoading),
+            Kind::Branch { owner, .. } => Ok(owner),
+            Kind::Folder => Err(PlanError::FolderHasNoChat),
             _ => Ok(&self.id),
         }
     }
 
     pub(crate) fn workspace(&self) -> Option<&str> {
         match &self.kind {
-            TargetKind::RepoHeader { workspace }
-            | TargetKind::Branch { workspace, .. }
-            | TargetKind::Chat { workspace } => Some(workspace),
-            TargetKind::Folder => None,
+            Kind::RepoHeader { workspace }
+            | Kind::Branch { workspace, .. }
+            | Kind::Chat { workspace } => Some(workspace),
+            Kind::Folder => None,
         }
     }
 }
@@ -50,15 +50,11 @@ pub(crate) fn resolve(
 }
 
 fn resolve_in(
-    store: &EntityStore,
+    store: &Entities,
     id: &str,
 ) -> Option<Target> {
     if let Some(folder) = store.folders.get(id) {
-        return Some(of(
-            id,
-            (&folder.project_id, &folder.repo_id),
-            TargetKind::Folder,
-        ));
+        return Some(of(id, (&folder.project_id, &folder.repo_id), Kind::Folder));
     }
     if let Some(chat) = store.chats.get(id) {
         return Some(chat_target(store, chat));
@@ -72,7 +68,7 @@ fn resolve_in(
 }
 
 fn chat_target(
-    store: &EntityStore,
+    store: &Entities,
     chat: &ChatRecord,
 ) -> Target {
     let scope = (chat.project_id.as_str(), chat.repo_id.as_str());
@@ -83,7 +79,7 @@ fn chat_target(
 fn of(
     id: &str,
     (project, repo): (&str, &str),
-    kind: TargetKind,
+    kind: Kind,
 ) -> Target {
     Target {
         id: id.to_owned(),
@@ -93,8 +89,8 @@ fn of(
     }
 }
 
-fn branch(ws: &WorkspaceRecord) -> TargetKind {
-    TargetKind::Branch {
+fn branch(ws: &WorkspaceRecord) -> Kind {
+    Kind::Branch {
         workspace: ws.id.clone(),
         owner: ws.owning_chat_id.clone(),
         locked: workspace_view::is_locked(ws),
@@ -102,28 +98,28 @@ fn branch(ws: &WorkspaceRecord) -> TargetKind {
 }
 
 fn chat_kind(
-    store: &EntityStore,
+    store: &Entities,
     chat: &ChatRecord,
-) -> TargetKind {
+) -> Kind {
     let checkout = scope_items::default_workspace(store, (&chat.project_id, &chat.repo_id));
     let header = checkout
         .filter(|ws| ws.owning_chat_id == chat.id && !chat.repo_id.is_empty())
-        .map(|ws| TargetKind::RepoHeader {
+        .map(|ws| Kind::RepoHeader {
             workspace: ws.id.clone(),
         });
     header.unwrap_or_else(|| owned_kind(store, chat))
 }
 
 fn owned_kind(
-    store: &EntityStore,
+    store: &Entities,
     chat: &ChatRecord,
-) -> TargetKind {
+) -> Kind {
     let owned = store
         .workspaces
         .values()
         .find(|ws| ws.owning_chat_id == chat.id && !ws.is_default && !ws.repo_id.is_empty());
     owned.map_or_else(
-        || TargetKind::Chat {
+        || Kind::Chat {
             workspace: chat.workspace_id.clone(),
         },
         branch,
@@ -139,16 +135,16 @@ mod tests {
     fn a_row_id_resolves_to_what_it_stands_for() {
         let (state, _) = state();
         let kind = |id: &str| resolve(&state, id).map(|target| target.kind);
-        assert_eq!(kind("f"), Some(TargetKind::Folder));
+        assert_eq!(kind("f"), Some(Kind::Folder));
         assert_eq!(
             kind("rdo"),
-            Some(TargetKind::RepoHeader {
+            Some(Kind::RepoHeader {
                 workspace: "rd".into()
             })
         );
         assert_eq!(
             kind("bo"),
-            Some(TargetKind::Branch {
+            Some(Kind::Branch {
                 workspace: "b".into(),
                 owner: "bo".into(),
                 locked: false
@@ -156,13 +152,13 @@ mod tests {
         );
         assert_eq!(
             kind("t"),
-            Some(TargetKind::Chat {
+            Some(Kind::Chat {
                 workspace: "b".into()
             })
         );
         assert_eq!(
             kind("hc"),
-            Some(TargetKind::Chat {
+            Some(Kind::Chat {
                 workspace: "hw".into()
             })
         );

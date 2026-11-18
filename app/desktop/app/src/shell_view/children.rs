@@ -8,7 +8,6 @@ use ptysession::TerminalSessions;
 use sidebar::Preferences;
 use sidebarview::Sidebar;
 use startup::MonotonicClock;
-use store::{ShellData, ShellWiring};
 use ui::{Overlays, ToastQueue};
 use viewtabs::TabBar;
 
@@ -43,15 +42,15 @@ pub(super) fn overlay_channel<V: 'static>(
 pub(super) fn start_data(
     link: &DaemonLink,
     requests: &async_channel::Sender<ShellRequest>,
-) -> (Rc<ShellData>, Arc<AtomicBool>) {
+) -> (Rc<store::Store>, Arc<AtomicBool>) {
     let queued = Arc::new(AtomicBool::new(false));
     let (signal, outcome) = crate::data_signal::callbacks(requests, &queued);
-    let wiring = ShellWiring {
+    let wiring = store::Ports {
         desk: link.desk(),
         signal,
         outcome,
     };
-    let data = ShellData::start(&link.handle(), &link.transport(), link.hosts(), wiring);
+    let data = store::Store::start(&link.handle(), &link.transport(), link.hosts(), wiring);
     (Rc::new(data), queued)
 }
 

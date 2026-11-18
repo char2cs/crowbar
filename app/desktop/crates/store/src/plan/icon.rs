@@ -6,7 +6,7 @@ use daemonapi::Call;
 use serde_json::json;
 use sidebar::SpaceIcon;
 
-use crate::live::FileStore;
+use crate::live::Files;
 use crate::live::PlanError;
 use daemonapi::multipart;
 
@@ -28,7 +28,7 @@ fn mime_of(path: &str) -> Result<&'static str, PlanError> {
 }
 
 fn upload(
-    files: &dyn FileStore,
+    files: &dyn Files,
     base: &str,
     path: &str,
 ) -> Result<Call, PlanError> {
@@ -45,7 +45,7 @@ fn upload(
 }
 
 pub(crate) fn calls(
-    files: &dyn FileStore,
+    files: &dyn Files,
     project: &str,
     icon: &SpaceIcon,
 ) -> Result<Vec<Call>, PlanError> {

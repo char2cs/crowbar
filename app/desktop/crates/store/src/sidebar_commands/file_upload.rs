@@ -6,7 +6,7 @@ use std::sync::Arc;
 use futures_util::{StreamExt as _, TryStreamExt as _};
 use sidebar::Error;
 
-use crate::live::FileStore;
+use crate::live::Files;
 use crate::live::Hub;
 use crate::sidebar_commands::SidebarCommands;
 use crate::sidebar_commands::file_done::FileDone;
@@ -21,7 +21,7 @@ fn name_of(source: &Path) -> Result<String, FileError> {
 }
 
 async fn read_local(
-    files: &Arc<dyn FileStore>,
+    files: &Arc<dyn Files>,
     source: &Path,
 ) -> Result<Vec<u8>, FileError> {
     let (files, owned) = (Arc::clone(files), source.to_path_buf());
@@ -35,7 +35,7 @@ async fn read_local(
 struct FileUpload {
     session: FileSession,
     hub: Arc<Hub>,
-    files: Arc<dyn FileStore>,
+    files: Arc<dyn Files>,
     directory: String,
 }
 

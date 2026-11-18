@@ -1,7 +1,7 @@
 //! The create operations the daemon reports, as rows to draw until their entities arrive.
 
-use crate::live::EntityStore;
-use crate::live::OperationItem;
+use crate::live::Entities;
+use crate::live::Item;
 use crate::live::OperationRecord;
 use crate::live::PendingRow;
 
@@ -10,7 +10,7 @@ const FAILED: &str = "failed";
 const SUCCEEDED: &str = "succeeded";
 const NOT_SAID: &str = "the daemon did not say why";
 
-pub(crate) fn of(store: &EntityStore) -> Vec<PendingRow> {
+pub(crate) fn of(store: &Entities) -> Vec<PendingRow> {
     store
         .operations
         .values()
@@ -26,22 +26,22 @@ pub(crate) fn of(store: &EntityStore) -> Vec<PendingRow> {
 }
 
 fn arrived(
-    store: &EntityStore,
-    item: &OperationItem,
+    store: &Entities,
+    item: &Item,
 ) -> bool {
     store.chats.get(&item.target.id).is_some()
 }
 
 fn deleted_since(
     op: &OperationRecord,
-    item: &OperationItem,
+    item: &Item,
 ) -> bool {
     item.state == SUCCEEDED || op.state == SUCCEEDED
 }
 
 fn failure(
     op: &OperationRecord,
-    item: &OperationItem,
+    item: &Item,
 ) -> Option<String> {
     let failed = item.state == FAILED || item.error.is_some() || op.state == FAILED;
     let reason = item.error.as_ref().or(op.error.as_ref());
@@ -49,9 +49,9 @@ fn failure(
 }
 
 fn row(
-    store: &EntityStore,
+    store: &Entities,
     op: &OperationRecord,
-    item: &OperationItem,
+    item: &Item,
 ) -> PendingRow {
     let parent = item.parent_id.clone().unwrap_or_default();
     PendingRow {
@@ -65,7 +65,7 @@ fn row(
 }
 
 fn scope_of(
-    store: &EntityStore,
+    store: &Entities,
     op: &OperationRecord,
     parent: &str,
 ) -> String {
@@ -83,7 +83,7 @@ fn scope_of(
 }
 
 fn subject_scope(
-    store: &EntityStore,
+    store: &Entities,
     op: &OperationRecord,
 ) -> String {
     match op.subject.kind.as_str() {
@@ -103,8 +103,8 @@ mod tests {
     use super::*;
     use daemonapi::Frame;
 
-    fn store_with(op: serde_json::Value) -> EntityStore {
-        let mut store = EntityStore::default();
+    fn store_with(op: serde_json::Value) -> Entities {
+        let mut store = Entities::default();
         store.apply(Frame::Entity {
             scope: "projects".into(),
             kind: "operation".into(),

@@ -13,7 +13,7 @@ use crate::plan::Plan;
 use crate::plan::relocate::placement::slot_for;
 use crate::plan::relocate::slot::Slot;
 use crate::reads::{active_project, host_of, tree};
-use crate::target::TargetKind;
+use crate::target::Kind;
 use crate::target::resolve;
 use daemonapi::routes;
 
@@ -40,8 +40,8 @@ fn place(
     let (project, repo) = (&moved.project, &moved.repo);
     let body = json!({"parentId": slot.parent, "order": slot.index});
     let path = match &moved.kind {
-        TargetKind::Folder => format!("{}/{row}", routes::folders(project, repo)),
-        TargetKind::Branch {
+        Kind::Folder => format!("{}/{row}", routes::folders(project, repo)),
+        Kind::Branch {
             workspace,
             locked: true,
             ..
@@ -51,14 +51,14 @@ fn place(
                 routes::scope(project, repo)
             )
         },
-        TargetKind::Branch { .. } | TargetKind::Chat { .. } => {
+        Kind::Branch { .. } | Kind::Chat { .. } => {
             format!(
                 "{}/{}/placement",
                 routes::chats(project, repo),
                 moved.chat()?
             )
         },
-        TargetKind::RepoHeader { .. } => {
+        Kind::RepoHeader { .. } => {
             return Err(PlanError::RepositoryNotDraggable);
         },
     };

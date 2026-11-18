@@ -3,21 +3,21 @@
 use std::collections::HashMap;
 
 use crate::live::ChatRecord;
-use crate::live::EntityStore;
+use crate::live::Entities;
 use crate::live::FolderRecord;
 use crate::live::PendingRow;
 use crate::live::WorkspaceRecord;
-use crate::rows::forest::ForestItem;
+use crate::rows::forest::Item;
 use crate::rows::forest::ItemKind;
 
 #[derive(Debug, Default)]
 pub(crate) struct ScopeItems {
-    pub(crate) items: Vec<ForestItem>,
+    pub(crate) items: Vec<Item>,
     pub(crate) owners: HashMap<String, String>,
 }
 
 pub(crate) fn of(
-    store: &EntityStore,
+    store: &Entities,
     (project, repo): (&str, &str),
     pending: &[PendingRow],
 ) -> ScopeItems {
@@ -60,7 +60,7 @@ pub(crate) fn of(
 }
 
 pub(crate) fn default_workspace<'a>(
-    store: &'a EntityStore,
+    store: &'a Entities,
     (project, repo): (&str, &str),
 ) -> Option<&'a WorkspaceRecord> {
     store.workspaces.values().find(|ws| {
@@ -79,8 +79,8 @@ fn listed(
         && ws.status != "deleted"
 }
 
-fn workspace_item(ws: &WorkspaceRecord) -> ForestItem {
-    ForestItem {
+fn workspace_item(ws: &WorkspaceRecord) -> Item {
+    Item {
         id: ws.id.clone(),
         kind: ItemKind::Workspace,
         order: ws.order,
@@ -90,8 +90,8 @@ fn workspace_item(ws: &WorkspaceRecord) -> ForestItem {
     }
 }
 
-fn folder_item(folder: &FolderRecord) -> ForestItem {
-    ForestItem {
+fn folder_item(folder: &FolderRecord) -> Item {
+    Item {
         id: folder.id.clone(),
         kind: ItemKind::Folder,
         order: folder.order,
@@ -101,8 +101,8 @@ fn folder_item(folder: &FolderRecord) -> ForestItem {
     }
 }
 
-fn chat_item(chat: &ChatRecord) -> ForestItem {
-    ForestItem {
+fn chat_item(chat: &ChatRecord) -> Item {
+    Item {
         id: chat.id.clone(),
         kind: ItemKind::Chat,
         order: chat.order,
@@ -112,8 +112,8 @@ fn chat_item(chat: &ChatRecord) -> ForestItem {
     }
 }
 
-fn pending_item(row: &PendingRow) -> ForestItem {
-    ForestItem {
+fn pending_item(row: &PendingRow) -> Item {
+    Item {
         id: row.id.clone(),
         kind: ItemKind::Chat,
         order: i64::MAX,
@@ -177,7 +177,7 @@ mod tests {
         ("folder", "f", r#"{"id":"f","projectId":"p","repoId":"r"}"#),
     ];
 
-    fn store() -> EntityStore {
+    fn store() -> Entities {
         store_of(&ROWS)
     }
 

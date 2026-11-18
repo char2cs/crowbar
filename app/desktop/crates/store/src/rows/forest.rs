@@ -1,13 +1,13 @@
 //! Placing folders, workspaces and chats into one tree, as the daemon's placement rules read.
 
 mod created_key;
-mod forest_item;
-mod forest_tree;
+mod item;
 mod item_kind;
+mod tree;
 
-pub(crate) use forest_item::ForestItem;
-pub(crate) use forest_tree::ForestTree;
+pub(crate) use item::Item;
 pub(crate) use item_kind::ItemKind;
+pub(crate) use tree::Tree;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -15,14 +15,14 @@ use crate::rows::forest::created_key::created_key;
 
 type Parents = HashMap<String, Option<String>>;
 
-pub(crate) fn build(items: &[ForestItem]) -> Vec<ForestTree> {
-    let by_id: HashMap<&str, &ForestItem> = items.iter().map(|i| (i.id.as_str(), i)).collect();
+pub(crate) fn build(items: &[Item]) -> Vec<Tree> {
+    let by_id: HashMap<&str, &Item> = items.iter().map(|i| (i.id.as_str(), i)).collect();
     let mut parents = Parents::new();
     for item in items {
         parents.insert(item.id.clone(), parent_of(item, &by_id, &parents));
     }
     let children = items.iter().fold(
-        BTreeMap::<String, Vec<&ForestItem>>::new(),
+        BTreeMap::<String, Vec<&Item>>::new(),
         |mut children, item| {
             let parent = parents.get(&item.id).cloned().flatten();
             let rooted = closes_cycle(&item.id, &parents);
@@ -37,8 +37,8 @@ pub(crate) fn build(items: &[ForestItem]) -> Vec<ForestTree> {
 }
 
 fn parent_of(
-    item: &ForestItem,
-    by_id: &HashMap<&str, &ForestItem>,
+    item: &Item,
+    by_id: &HashMap<&str, &Item>,
     parents: &Parents,
 ) -> Option<String> {
     let exists = |id: &str| {
@@ -56,7 +56,7 @@ fn parent_of(
 
 fn workspace_parent(
     (folder, fork): (&Option<String>, &Option<String>),
-    (by_id, parents): (&HashMap<&str, &ForestItem>, &Parents),
+    (by_id, parents): (&HashMap<&str, &Item>, &Parents),
 ) -> Option<String> {
     let Some(folder) = folder else {
         return fork.clone();
@@ -70,7 +70,7 @@ fn workspace_parent(
 
 fn anchor_of(
     id: &str,
-    by_id: &HashMap<&str, &ForestItem>,
+    by_id: &HashMap<&str, &Item>,
     parents: &Parents,
 ) -> Option<String> {
     let (chain, _) = ancestry(id, parents);
@@ -105,13 +105,13 @@ fn closes_cycle(
 
 fn level(
     parent: &str,
-    children: &BTreeMap<String, Vec<&ForestItem>>,
-) -> Vec<ForestTree> {
-    let mut members: Vec<&ForestItem> = children.get(parent).cloned().unwrap_or_default();
+    children: &BTreeMap<String, Vec<&Item>>,
+) -> Vec<Tree> {
+    let mut members: Vec<&Item> = children.get(parent).cloned().unwrap_or_default();
     members.sort_by_cached_key(|item| (item.order, item.kind, created_key(&item.created)));
     members
         .into_iter()
-        .map(|item| ForestTree {
+        .map(|item| Tree {
             id: item.id.clone(),
             kind: item.kind,
             children: level(&item.id, children),
@@ -120,9 +120,9 @@ fn level(
 }
 
 pub(crate) fn fold_owners(
-    roots: Vec<ForestTree>,
+    roots: Vec<Tree>,
     owners: &HashMap<String, String>,
-) -> Vec<ForestTree> {
+) -> Vec<Tree> {
     let owner_ids: HashSet<&str> = owners.values().map(String::as_str).collect();
     let mut detached = HashMap::new();
     let kept = strip(roots, &owner_ids, &mut detached);
@@ -130,13 +130,13 @@ pub(crate) fn fold_owners(
 }
 
 fn strip(
-    level: Vec<ForestTree>,
+    level: Vec<Tree>,
     owner_ids: &HashSet<&str>,
-    detached: &mut HashMap<String, ForestTree>,
-) -> Vec<ForestTree> {
-    let (owners, kept): (Vec<ForestTree>, Vec<ForestTree>) = level
+    detached: &mut HashMap<String, Tree>,
+) -> Vec<Tree> {
+    let (owners, kept): (Vec<Tree>, Vec<Tree>) = level
         .into_iter()
-        .map(|node| ForestTree {
+        .map(|node| Tree {
             children: strip(node.children, owner_ids, detached),
             ..node
         })
@@ -146,10 +146,10 @@ fn strip(
 }
 
 fn merge(
-    level: Vec<ForestTree>,
+    level: Vec<Tree>,
     owners: &HashMap<String, String>,
-    detached: &HashMap<String, ForestTree>,
-) -> Vec<ForestTree> {
+    detached: &HashMap<String, Tree>,
+) -> Vec<Tree> {
     level
         .into_iter()
         .map(|node| fold(node, owners, detached))
@@ -157,10 +157,10 @@ fn merge(
 }
 
 fn fold(
-    mut node: ForestTree,
+    mut node: Tree,
     owners: &HashMap<String, String>,
-    detached: &HashMap<String, ForestTree>,
-) -> ForestTree {
+    detached: &HashMap<String, Tree>,
+) -> Tree {
     node.children = merge(node.children, owners, detached);
     let owner = (node.kind == ItemKind::Workspace)
         .then(|| owners.get(&node.id).and_then(|chat| detached.get(chat)))
@@ -178,8 +178,8 @@ mod tests {
         id: &str,
         kind: ItemKind,
         (filed, ground): (&str, &str),
-    ) -> ForestItem {
-        ForestItem {
+    ) -> Item {
+        Item {
             id: id.into(),
             kind,
             order: 0,
@@ -189,7 +189,7 @@ mod tests {
         }
     }
 
-    fn ids(trees: &[ForestTree]) -> Vec<String> {
+    fn ids(trees: &[Tree]) -> Vec<String> {
         trees
             .iter()
             .map(|tree| format!("{}[{}]", tree.id, ids(&tree.children).join(",")))
@@ -213,10 +213,10 @@ mod tests {
         (id, kind, parents, (0, ""))
     }
 
-    fn items(specs: &[Spec]) -> Vec<ForestItem> {
+    fn items(specs: &[Spec]) -> Vec<Item> {
         specs
             .iter()
-            .map(|(id, kind, parents, (order, created))| ForestItem {
+            .map(|(id, kind, parents, (order, created))| Item {
                 order: *order,
                 created: (*created).to_owned(),
                 ..item(id, *kind, *parents)

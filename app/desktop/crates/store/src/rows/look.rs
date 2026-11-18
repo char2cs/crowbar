@@ -4,12 +4,12 @@ use daemonapi::Switch;
 use sidebar::{Activity, Lock, Nesting, Titling};
 
 use crate::live::WorkspaceRecord;
-use crate::rows::forest::ForestTree;
+use crate::rows::forest::Tree;
 use crate::rows::workspace_view;
 
 pub(crate) const UNTITLED_CHAT: &str = "Untitled chat";
 
-pub(crate) fn nesting_of(children: &[ForestTree]) -> Nesting {
+pub(crate) fn nesting_of(children: &[Tree]) -> Nesting {
     nesting_for(children.len())
 }
 

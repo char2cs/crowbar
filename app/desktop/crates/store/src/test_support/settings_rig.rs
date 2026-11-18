@@ -10,10 +10,10 @@ use crate::live::Fleet;
 use crate::live::Hub;
 use crate::live::LinkState;
 use crate::live::{Outcome, OutcomeSink};
-use crate::shell_data::SettingsCore;
-use crate::shell_data::SystemFonts;
-use crate::shell_data::settings_core::setting_file::SettingFile;
-use crate::shell_data::settings_core::settings_wiring::SettingsWiring;
+use crate::store::SettingsCore;
+use crate::store::SystemFonts;
+use crate::store::settings_core::json_file::JsonFile;
+use crate::store::settings_core::parts::Parts;
 
 pub(crate) const SETTINGS_PATH: &str = "/state/settings.json";
 
@@ -65,8 +65,8 @@ impl SettingsRig {
         let hub = Hub::new(state, Arc::clone(&signal));
         hub.edit(|state| state.link("local", link));
         let transport: Arc<dyn protocol::DaemonTransport> = Arc::<FakeDaemon>::clone(&daemon);
-        let wiring = SettingsWiring {
-            file: SettingFile::new(SETTINGS_PATH.into(), Arc::<FakeFiles>::clone(&files)),
+        let wiring = Parts {
+            file: JsonFile::new(SETTINGS_PATH.into(), Arc::<FakeFiles>::clone(&files)),
             local: hub.read(|state| state.hosts[0].client.clone()),
             fleet: Fleet::new(&Handle::current(), &hub, &transport),
             desk: super::desk(),

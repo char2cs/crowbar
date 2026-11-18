@@ -12,7 +12,7 @@ impl sidebar::Sink for SidebarRequests {
         &self,
         command: sidebar::Command,
     ) -> Result<(), sidebar::Error> {
-        if store::ShellData::serves(&command) {
+        if store::Store::serves(&command) {
             return self.data.dispatch(command);
         }
         self.requests
@@ -62,14 +62,14 @@ mod tests {
         }
     }
 
-    fn data(runtime: &tokio::runtime::Runtime) -> store::ShellData {
+    fn data(runtime: &tokio::runtime::Runtime) -> store::Store {
         let transport: Arc<dyn DaemonTransport> = Arc::new(NoDaemon);
-        let wiring = store::ShellWiring {
+        let wiring = store::Ports {
             desk: desk(),
             signal: Arc::new(|| {}),
             outcome: Arc::new(|_| {}),
         };
-        store::ShellData::start(runtime.handle(), &transport, Vec::new(), wiring)
+        store::Store::start(runtime.handle(), &transport, Vec::new(), wiring)
     }
 
     #[test]

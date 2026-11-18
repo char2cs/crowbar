@@ -2,17 +2,17 @@
 
 mod book_error;
 mod host_book;
-mod host_note;
 mod host_notes;
-mod host_roster;
+mod note;
 mod pairing_request;
+mod roster;
 
 pub use book_error::BookError;
 pub use host_book::{BookFuture, HostBook};
-pub use host_note::HostNote;
 pub use host_notes::HostNotes;
-pub(crate) use host_roster::HostRoster;
+pub use note::Note;
 pub use pairing_request::PairingRequest;
+pub(crate) use roster::Roster;
 
 use std::sync::Arc;
 

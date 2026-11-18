@@ -10,7 +10,7 @@ use crate::live::State;
 use crate::plan::Plan;
 use crate::reads::host_of;
 use crate::rows::pending as pending_rows;
-use crate::target::TargetKind;
+use crate::target::Kind;
 use crate::target::{Target, resolve};
 use daemonapi::{new_id, routes};
 
@@ -32,12 +32,12 @@ pub(crate) fn rename(
     let (target, host) = locate(state, row)?;
     let (project, repo) = (&target.project, &target.repo);
     let call = match &target.kind {
-        TargetKind::Folder => Call::patch(format!("{}/{row}", routes::folders(project, repo)))
+        Kind::Folder => Call::patch(format!("{}/{row}", routes::folders(project, repo)))
             .json(json!({"name": name})),
-        TargetKind::RepoHeader { .. } => {
+        Kind::RepoHeader { .. } => {
             Call::patch(routes::scope(project, repo)).json(json!({"name": name}))
         },
-        TargetKind::Branch { locked: true, .. } => Call::patch(format!(
+        Kind::Branch { locked: true, .. } => Call::patch(format!(
             "{}/{}/branch",
             routes::chats(project, repo),
             target.chat()?
@@ -60,8 +60,8 @@ pub(crate) fn remove(
     let (target, host) = locate(state, row)?;
     let (project, repo) = (&target.project, &target.repo);
     let call = match &target.kind {
-        TargetKind::Folder => Call::delete(format!("{}/{row}", routes::folders(project, repo))),
-        TargetKind::RepoHeader { .. } => {
+        Kind::Folder => Call::delete(format!("{}/{row}", routes::folders(project, repo))),
+        Kind::RepoHeader { .. } => {
             Call::delete(routes::scope(project, repo)).idempotent(&new_id::uuid())
         },
         _ => Call::delete(format!(

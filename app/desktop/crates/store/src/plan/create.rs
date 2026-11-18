@@ -15,7 +15,7 @@ use crate::plan::Plan;
 use crate::plan::after::After;
 use crate::reads::host_of;
 use crate::rows::default_workspace;
-use crate::target::TargetKind;
+use crate::target::Kind;
 use crate::target::{Target, resolve};
 use daemonapi::routes;
 
@@ -61,7 +61,7 @@ pub(crate) fn thread(
 }
 
 fn parent_chat(target: &Target) -> Result<String, PlanError> {
-    if matches!(target.kind, TargetKind::Branch { .. }) {
+    if matches!(target.kind, Kind::Branch { .. }) {
         return target.chat().map(str::to_owned);
     }
     Ok(target.id.clone())

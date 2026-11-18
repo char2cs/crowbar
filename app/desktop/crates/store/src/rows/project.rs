@@ -2,17 +2,17 @@
 
 use sidebar::{Row, RowKind};
 
-use crate::live::EntityStore;
+use crate::live::Entities;
 use crate::live::PendingRow;
 use crate::live::RepoRecord;
 use crate::live::WorkspaceRecord;
+use crate::rows::emitter::Emitter;
 use crate::rows::look::{activity_of, nesting_for};
-use crate::rows::row_emitter::RowEmitter;
 use crate::rows::{forest, repo_mark};
 use crate::rows::{scope_items, scope_items::ScopeItems};
 
 pub(crate) fn of(
-    store: &EntityStore,
+    store: &Entities,
     project: &str,
     pending: &[PendingRow],
 ) -> Vec<Row> {
@@ -32,14 +32,14 @@ pub(crate) fn of(
 }
 
 fn scope_rows(
-    store: &EntityStore,
+    store: &Entities,
     (project, repo): (&str, &str),
     pending: &[PendingRow],
 ) -> Vec<Row> {
     let depth = u8::from(!repo.is_empty());
     let ScopeItems { items, owners } = scope_items::of(store, (project, repo), pending);
     let trees = forest::fold_owners(forest::build(&items), &owners);
-    let emitter = RowEmitter {
+    let emitter = Emitter {
         store,
         pending,
         owners: &owners,
@@ -48,7 +48,7 @@ fn scope_rows(
 }
 
 fn header(
-    store: &EntityStore,
+    store: &Entities,
     repo: &RepoRecord,
     children: usize,
 ) -> Row {
@@ -137,7 +137,7 @@ mod tests {
         ),
     ];
 
-    fn store() -> EntityStore {
+    fn store() -> Entities {
         store_of(&ROWS)
     }
 
@@ -176,7 +176,7 @@ mod tests {
             r#"{"t":"entity","scope":"projects","kind":"chat","id":"o","v":43,"data":{"id":"o","workspaceId":"w","title":"","type":"chat","liveRunnerId":"","working":false,"parentId":"","order":0,"createdAt":"2026-11-15T02:12:37.288453053Z","version":1794708732871309,"phase":"dormant","projectId":"p","repoId":""}}"#,
             r#"{"t":"entity","scope":"projects","kind":"chat","id":"x","v":43,"data":{"id":"x","workspaceId":"w","title":"","type":"chat","parentId":"","order":1,"createdAt":"2026-11-15T02:13:36.045653199Z","projectId":"p","repoId":""}}"#,
         ];
-        let mut store = EntityStore::default();
+        let mut store = Entities::default();
         for text in frames {
             store.apply(daemonapi::frame::decode(text).unwrap());
         }

@@ -9,7 +9,7 @@ use crate::live::State;
 use crate::plan::Plan;
 use crate::plan::create::{PARENT_ID, host_id};
 use crate::reads::host_of;
-use crate::target::TargetKind;
+use crate::target::Kind;
 use crate::target::{Target, resolve};
 use daemonapi::routes;
 
@@ -56,8 +56,8 @@ fn at_top(
 
 fn folder_parent(target: &Target) -> Result<String, PlanError> {
     match target.kind {
-        TargetKind::Folder => Ok(target.id.clone()),
-        TargetKind::Branch { .. } => Ok(target.chat()?.to_owned()),
+        Kind::Folder => Ok(target.id.clone()),
+        Kind::Branch { .. } => Ok(target.chat()?.to_owned()),
         _ => Ok(String::new()),
     }
 }

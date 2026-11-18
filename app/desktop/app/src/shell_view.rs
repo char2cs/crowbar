@@ -12,7 +12,7 @@ use layoutview::{ChromeContext, LayoutView};
 use panehost::Overlay;
 use settingsview::SettingsModal;
 use sidebarview::Sidebar;
-use store::{SettingsAdapter, ShellData};
+use store::SettingsAdapter;
 use ui::{Surface, Theme, ToastQueue};
 use viewtabs::{SidebarState, TabBar};
 
@@ -88,7 +88,7 @@ pub(crate) struct ShellView {
     family_names: crate::family_names::FamilyNames,
     system_fonts: store::SystemFonts,
     requests: async_channel::Sender<ShellRequest>,
-    data: Rc<ShellData>,
+    data: Rc<store::Store>,
     data_queued: Arc<AtomicBool>,
     settings_backend: Option<SettingsAdapter>,
     placement: Option<(webview::ParentWindow, webview::Bounds)>,

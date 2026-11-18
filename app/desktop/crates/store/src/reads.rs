@@ -169,7 +169,7 @@ mod tests {
     use sidebar::{Focus, ProjectId, Reach, RowId, ScopeSync};
 
     use super::*;
-    use crate::live::EntityStore;
+    use crate::live::Entities;
     use crate::live::LinkState;
     use crate::test_support::state;
 
@@ -203,7 +203,7 @@ mod tests {
     }
 
     fn an_unsynced_store_is_pending(state: &mut State) {
-        state.hosts[0].store = EntityStore::default();
+        state.hosts[0].store = Entities::default();
         assert_eq!(sync(state), ScopeSync::Pending);
         assert_eq!(projects(state).len(), 0);
     }

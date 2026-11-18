@@ -3,9 +3,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use crate::live::FileStore;
+use crate::live::Files;
 
-/// A [`FileStore`] kept in memory; directories exist where a file lives below them.
+/// A [`Files`] kept in memory; directories exist where a file lives below them.
 #[derive(Debug, Default)]
 pub(crate) struct FakeFiles {
     files: Mutex<BTreeMap<PathBuf, Vec<u8>>>,
@@ -46,7 +46,7 @@ impl FakeFiles {
     }
 }
 
-impl FileStore for FakeFiles {
+impl Files for FakeFiles {
     fn read(
         &self,
         path: &Path,

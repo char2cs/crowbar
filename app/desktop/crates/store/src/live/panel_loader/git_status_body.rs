@@ -1,20 +1,20 @@
 //! The daemon's `GET chats/:id/git/status` answer.
 
 mod changes;
-mod git_file_body;
+mod file_body;
 
 use serde::Deserialize;
 use sidebar::{ChangedFile, Changes};
 
 use crate::live::panel_loader::git_status_body::changes::status_of;
-use crate::live::panel_loader::git_status_body::git_file_body::GitFileBody;
+use crate::live::panel_loader::git_status_body::file_body::FileBody;
 use crate::live::panel_loader::line_counts::LineCounts;
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub(crate) struct GitStatusBody {
     branch: String,
-    files: Vec<GitFileBody>,
+    files: Vec<FileBody>,
 }
 
 impl GitStatusBody {
@@ -43,7 +43,7 @@ impl GitStatusBody {
 }
 
 fn changed_file(
-    file: &GitFileBody,
+    file: &FileBody,
     counts: &LineCounts,
 ) -> ChangedFile {
     let (added, deleted) = counts.get(&file.path).copied().unwrap_or_default();

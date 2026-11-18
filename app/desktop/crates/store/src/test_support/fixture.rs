@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use protocol::HostId;
 
-use crate::live::EntityStore;
+use crate::live::Entities;
 use crate::live::HostSlot;
 use crate::live::HostSpec;
 use crate::live::State;
@@ -89,8 +89,8 @@ pub(crate) fn frames() -> Vec<Frame> {
 }
 
 /// An entity store holding `rows`, each `(kind, id, json)`.
-pub(crate) fn store_of(rows: &[(&str, &str, &str)]) -> EntityStore {
-    let mut store = EntityStore::default();
+pub(crate) fn store_of(rows: &[(&str, &str, &str)]) -> Entities {
+    let mut store = Entities::default();
     rows.iter()
         .copied()
         .map(entity)

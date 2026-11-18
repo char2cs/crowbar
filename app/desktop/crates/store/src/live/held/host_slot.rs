@@ -1,6 +1,6 @@
 //! Everything the shell holds of one host.
 
-use crate::live::held::entity_store::EntityStore;
+use crate::live::held::entities::Entities;
 use crate::live::held::host_spec::HostSpec;
 use crate::live::held::link_state::LinkState;
 
@@ -8,7 +8,7 @@ use crate::live::held::link_state::LinkState;
 pub(crate) struct HostSlot {
     pub(crate) spec: HostSpec,
     pub(crate) client: daemonapi::Client,
-    pub(crate) store: EntityStore,
+    pub(crate) store: Entities,
     pub(crate) link: LinkState,
     pub(crate) terminal_threads: bool,
 }
@@ -21,7 +21,7 @@ impl HostSlot {
         Self {
             spec,
             client,
-            store: EntityStore::default(),
+            store: Entities::default(),
             link: LinkState::default(),
             terminal_threads: false,
         }

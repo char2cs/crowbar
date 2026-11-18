@@ -8,10 +8,8 @@ mod member;
 mod stream_control;
 
 pub(crate) use catalog::{Provider, Surface};
-pub(crate) use host_desk::HostRoster;
-pub use host_desk::{
-    BookError, BookFuture, HostBook, HostDesk, HostNote, HostNotes, PairingRequest,
-};
+pub(crate) use host_desk::Roster;
+pub use host_desk::{BookError, BookFuture, HostBook, HostDesk, HostNotes, Note, PairingRequest};
 pub(crate) use host_dialling::{Dialled, relay_for, slot_for};
 
 use std::collections::BTreeMap;

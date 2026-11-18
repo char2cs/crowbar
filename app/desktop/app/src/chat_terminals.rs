@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use store::{ChatTerminal, ShellData};
+use store::ChatTerminal;
 
 pub(crate) type Lookup = Rc<dyn Fn(&str) -> Option<ChatTerminal>>;
 pub(crate) type Resume = Rc<dyn Fn(&str)>;
@@ -19,7 +19,7 @@ impl ChatTerminals {
         Self { lookup, resume }
     }
 
-    pub(crate) fn of(data: &Rc<ShellData>) -> Self {
+    pub(crate) fn of(data: &Rc<store::Store>) -> Self {
         Self::new(reader(data), starter(data))
     }
 
@@ -38,18 +38,18 @@ impl ChatTerminals {
     }
 }
 
-fn reader(data: &Rc<ShellData>) -> Lookup {
+fn reader(data: &Rc<store::Store>) -> Lookup {
     let data = Rc::clone(data);
     Rc::new(move |chat| data.chat_terminal(chat))
 }
 
-fn starter(data: &Rc<ShellData>) -> Resume {
+fn starter(data: &Rc<store::Store>) -> Resume {
     let data = Rc::clone(data);
     Rc::new(move |chat| resume_chat(&data, chat))
 }
 
 fn resume_chat(
-    data: &ShellData,
+    data: &store::Store,
     chat: &str,
 ) {
     if let Err(error) = data.commands().resume_chat(chat) {

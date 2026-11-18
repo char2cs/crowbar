@@ -1,0 +1,12 @@
+//! Where the settings of the previous desktop app come from.
+
+use std::collections::BTreeMap;
+
+use crate::error::Result;
+
+pub(crate) type Entries = BTreeMap<String, String>;
+
+pub(crate) trait Source {
+    /// Every `localStorage` entry of the old app, key to JSON text.
+    fn entries(&self) -> Result<Entries>;
+}
