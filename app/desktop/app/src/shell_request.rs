@@ -28,7 +28,7 @@ pub(crate) enum ShellRequest {
         action: crate::new_tab_action::NewTabAction,
     },
     /// The daemon asked for something of a browser tab.
-    Agent(browser_agent::AgentCommand),
+    Agent(browseragent::AgentCommand),
     Browse {
         pane: protocol::PaneId,
         event: browser_chrome::BrowserBarEvent,

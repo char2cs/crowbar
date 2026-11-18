@@ -1,4 +1,4 @@
-use browser_agent::{Error, PeerStream};
+use browseragent::{Error, PeerStream};
 use transport::TextStream;
 
 pub(crate) struct PeerLine {

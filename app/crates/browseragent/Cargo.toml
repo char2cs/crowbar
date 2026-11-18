@@ -1,5 +1,5 @@
 [package]
-name = "browser_agent"
+name = "browseragent"
 description = "The desktop side of the daemon's browser tools: the peer protocol, the agent's operations and the loop that attaches a window to the daemon."
 version.workspace = true
 edition.workspace = true

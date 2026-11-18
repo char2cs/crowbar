@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use browser::{AgentAnswer, BrowserUrl};
-use browser_agent::{PeerSession, TabCommands, TabInfo};
+use browseragent::{PeerSession, TabCommands, TabInfo};
 use layout::Command;
 use protocol::PaneId;
 use serde_json::{Value, json};
@@ -113,7 +113,7 @@ fn replace_if_changed(
 
 #[cfg(test)]
 mod tests {
-    use browser_agent::{AgentCommand, TabCommands};
+    use browseragent::{AgentCommand, TabCommands};
 
     use super::*;
     use crate::test_support::{open_chat, shell_rig};

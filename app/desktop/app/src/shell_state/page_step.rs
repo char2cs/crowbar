@@ -1,5 +1,5 @@
 use browser::{agent_script, eval_script};
-use browser_agent::{AgentCommand, AgentOp};
+use browseragent::{AgentCommand, AgentOp};
 use pane_host::BrowseAction;
 
 #[derive(Debug, PartialEq)]
@@ -26,7 +26,7 @@ impl PageStep {
 
 #[cfg(test)]
 mod tests {
-    use browser_agent::DomOp;
+    use browseragent::DomOp;
     use serde_json::json;
 
     use super::*;

@@ -98,7 +98,7 @@ impl ShellState {
 #[cfg(test)]
 mod tests {
     use browser::{AgentAnswer, BrowserUrl, PageUpdate};
-    use browser_agent::{AgentCommand, AgentOp, Delivery, DomOp};
+    use browseragent::{AgentCommand, AgentOp, Delivery, DomOp};
     use serde_json::json;
     use webview::{Call, ParentWindow};
 

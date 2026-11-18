@@ -1,5 +1,5 @@
 use browser::PageState;
-use browser_agent::TabInfo;
+use browseragent::TabInfo;
 use layout::{Layout, Tab};
 use protocol::PaneId;
 

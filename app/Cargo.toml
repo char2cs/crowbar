@@ -14,7 +14,7 @@ publish = false
 [workspace.dependencies]
 atomicfile = { path = "crates/atomicfile" }
 browser = { path = "crates/browser" }
-browser_agent = { path = "crates/browser_agent" }
+browseragent = { path = "crates/browseragent" }
 protocol = { path = "crates/protocol" }
 layout = { path = "crates/layout" }
 webview = { path = "desktop/crates/webview" }

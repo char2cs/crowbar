@@ -1,4 +1,4 @@
-use browser_agent::AgentCommand;
+use browseragent::AgentCommand;
 use webview::ParentWindow;
 
 #[derive(Debug, Clone, Copy)]

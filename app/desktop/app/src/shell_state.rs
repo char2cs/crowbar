@@ -3,7 +3,7 @@ use std::path::Path;
 use layout::{Command, LayoutHistory};
 use std::sync::Arc;
 
-use browser_agent::Replies;
+use browseragent::Replies;
 use pane_host::{Keyboard, PaneHost};
 
 use crate::browser_ids::BrowserIds;
@@ -50,7 +50,7 @@ pub(crate) struct ShellState {
     pages: BrowserPages,
     replies: Arc<Replies>,
     pending_loads: crate::pending_loads::PendingLoads,
-    tabs_out: tokio::sync::watch::Sender<Vec<browser_agent::TabInfo>>,
+    tabs_out: tokio::sync::watch::Sender<Vec<browseragent::TabInfo>>,
 }
 
 impl std::fmt::Debug for ShellState {

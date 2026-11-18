@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use browser::AgentAnswer;
-use browser_agent::Expectation;
+use browseragent::Expectation;
 
 pub(crate) fn settled(wait: Expectation) -> AgentAnswer {
     let runtime = tokio::runtime::Builder::new_current_thread()

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use browser_agent::{Error, PeerConnector};
+use browseragent::{Error, PeerConnector};
 use transport::Transport;
 
 use crate::peer_line::PeerLine;
@@ -32,7 +32,7 @@ impl PeerConnector for DaemonPeer {
 
 #[cfg(test)]
 mod tests {
-    use browser_agent::PeerConnector;
+    use browseragent::PeerConnector;
 
     use super::*;
     use crate::test_support::link_without_daemon;

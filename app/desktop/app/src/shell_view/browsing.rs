@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use browser::{BrowserUrl, SearchEngine, resolve_address};
-use browser_agent::{AgentCommand, run_peer};
 use browser_chrome::BrowserBarEvent;
+use browseragent::{AgentCommand, run_peer};
 use gpui::Context;
 use pane_host::BrowseAction;
 use protocol::PaneId;

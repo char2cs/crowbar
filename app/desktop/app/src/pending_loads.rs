@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use browser_agent::AgentCommand;
+use browseragent::AgentCommand;
 use protocol::PaneId;
 
 #[derive(Debug, Default)]
@@ -40,7 +40,7 @@ impl PendingLoads {
 
 #[cfg(test)]
 mod tests {
-    use browser_agent::AgentOp;
+    use browseragent::AgentOp;
 
     use super::*;
 

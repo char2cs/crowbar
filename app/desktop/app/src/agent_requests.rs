@@ -1,4 +1,4 @@
-use browser_agent::{AgentCommand, TabCommands};
+use browseragent::{AgentCommand, TabCommands};
 
 use crate::request_queue::{Requests, send};
 use crate::shell_request::ShellRequest;
@@ -25,7 +25,7 @@ impl TabCommands for AgentRequests {
 
 #[cfg(test)]
 mod tests {
-    use browser_agent::AgentOp;
+    use browseragent::AgentOp;
 
     use super::*;
 
