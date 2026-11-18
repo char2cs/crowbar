@@ -1,5 +1,7 @@
 //! Public-API tests of `supervisor` against a fake `crowbar-api` binary.
 
+#[path = "../src/test_support/script.rs"]
+mod script;
 #[path = "support/real_infra/daemon.rs"]
 mod support;
 

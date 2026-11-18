@@ -1,12 +1,12 @@
-use std::io::{self, Write};
-use std::path::Path;
-use std::process::{Command, Stdio};
+use std::io;
 use std::time::Duration;
 
 use supervisor::{Config, DaemonEvent, DaemonPaths, Timings};
 use tempfile::TempDir;
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::broadcast::error::RecvError;
+
+use crate::script::write_script;
 
 const EVENT_BUDGET: Duration = Duration::from_secs(30);
 
@@ -41,36 +41,6 @@ pub(crate) fn config(
     let mut config = Config::new(script, paths, None, "1.2.3-test");
     config.timings = timings;
     Ok((config, dir))
-}
-
-const WRITE_EXECUTABLE: &str = "cat > \"$1\" && chmod 755 \"$1\"";
-
-/// Writes `body` to `path` as an executable script through a short-lived `/bin/sh` child, so no
-/// descriptor of the script ever exists in the test process: a sibling test thread that forks
-/// meanwhile cannot inherit a writer of it, and executing it never fails with `ETXTBSY`.
-fn write_script(
-    path: &Path,
-    body: &str,
-) -> io::Result<()> {
-    let mut writer = Command::new("/bin/sh")
-        .args(["-c", WRITE_EXECUTABLE, "sh"])
-        .arg(path)
-        .stdin(Stdio::piped())
-        .spawn()?;
-    let mut input = writer
-        .stdin
-        .take()
-        .ok_or_else(|| io::Error::other("no stdin pipe"))?;
-    input.write_all(body.as_bytes())?;
-    drop(input);
-    let status = writer.wait()?;
-    if !status.success() {
-        return Err(io::Error::other(format!(
-            "writing {} failed: {status}",
-            path.display()
-        )));
-    }
-    Ok(())
 }
 
 async fn first_matching(
