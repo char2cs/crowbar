@@ -33,7 +33,7 @@ browserbar = { path = "desktop/crates/browserbar" }
 branchimport = { path = "desktop/crates/branchimport" }
 pairing = { path = "desktop/crates/pairing" }
 oobe = { path = "desktop/crates/oobe" }
-remote_folder_picker = { path = "desktop/crates/remote_folder_picker" }
+folderpicker = { path = "desktop/crates/folderpicker" }
 windowstate = { path = "desktop/crates/windowstate" }
 platform = { path = "desktop/crates/platform" }
 diagnostics = { path = "desktop/crates/diagnostics" }

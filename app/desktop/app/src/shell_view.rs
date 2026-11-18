@@ -74,7 +74,7 @@ pub(crate) struct ShellView {
     startup: Option<Entity<StartupView>>,
     settings: Option<Entity<SettingsModal>>,
     branch_import: Option<Entity<branchimport::BranchImportView>>,
-    remote_folders: Option<Entity<remote_folder_picker::RemoteFolderPicker>>,
+    remote_folders: Option<Entity<folderpicker::RemoteFolderPicker>>,
     file_prompt: Option<Entity<crate::file_prompt::FilePrompt>>,
     rename_prompt: Option<(protocol::PaneId, Entity<crate::rename_prompt::RenamePrompt>)>,
     pairing: Option<Entity<pairing::PairingView>>,

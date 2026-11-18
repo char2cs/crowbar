@@ -1,5 +1,5 @@
+use folderpicker::{PickerEvent, RemoteFolderPicker};
 use gpui::{AppContext as _, Context, Entity, Window};
-use remote_folder_picker::{PickerEvent, RemoteFolderPicker};
 use shell_data::FolderChoice;
 
 use super::ShellView;

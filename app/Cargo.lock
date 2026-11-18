@@ -1498,6 +1498,7 @@ dependencies = [
  "browseragent",
  "browserbar",
  "diagnostics",
+ "folderpicker",
  "gpui",
  "image",
  "keymap",
@@ -1509,7 +1510,6 @@ dependencies = [
  "platform",
  "protocol",
  "ptysession",
- "remote_folder_picker",
  "serde_json",
  "settings_ui",
  "shell_data",
@@ -2161,6 +2161,15 @@ name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
+
+[[package]]
+name = "folderpicker"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "shell_data",
+ "ui",
+]
 
 [[package]]
 name = "foldhash"
@@ -5800,15 +5809,6 @@ name = "regex-syntax"
 version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
-
-[[package]]
-name = "remote_folder_picker"
-version = "0.1.0"
-dependencies = [
- "gpui",
- "shell_data",
- "ui",
-]
 
 [[package]]
 name = "resvg"

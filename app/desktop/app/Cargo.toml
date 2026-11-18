@@ -22,7 +22,7 @@ browser.workspace = true
 branchimport.workspace = true
 oobe.workspace = true
 pairing.workspace = true
-remote_folder_picker.workspace = true
+folderpicker.workspace = true
 supervisor.workspace = true
 gpui.workspace = true
 image = { workspace = true, features = ["png"] }

@@ -1,5 +1,5 @@
 [package]
-name = "remote_folder_picker"
+name = "folderpicker"
 description = "The remote folder picker of the Crowbar shell: a tree of a paired host's own folders, one of which is chosen."
 version.workspace = true
 edition.workspace = true
