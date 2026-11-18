@@ -7,7 +7,6 @@ mod supervise;
 pub(crate) mod supervision;
 
 pub use daemon_event::DaemonEvent;
-pub use supervision::DaemonLog;
 
 use std::sync::Arc;
 

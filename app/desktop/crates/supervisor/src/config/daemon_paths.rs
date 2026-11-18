@@ -1,4 +1,3 @@
-use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
@@ -88,19 +87,6 @@ impl DaemonPaths {
     }
 }
 
-/// The `CROWBAR_HOME` to hand the daemon: the environment's own when it names one, else
-/// `fallback` (a development checkout's `.crowbar`). An empty value counts as none, as in Go.
-#[must_use]
-pub fn child_home(
-    current: Option<OsString>,
-    fallback: Option<PathBuf>,
-) -> Option<PathBuf> {
-    match current {
-        Some(home) if !home.is_empty() => Some(PathBuf::from(home)),
-        _ => fallback,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -118,7 +104,7 @@ mod tests {
 
     #[test]
     fn parse_rejects_relative_or_missing_fields() {
-        for out in [
+        let cases = [
             r#"{"home":"/h","socket":"crowbar.sock","log":"/l"}"#,
             r#"{"home":"/h","socket":"/s.sock","log":"daemon.log"}"#,
             r#"{"home":"/h","log":"/l"}"#,
@@ -127,27 +113,9 @@ mod tests {
             r#"{"home":"/h","socket":7,"log":"/l"}"#,
             "starting daemon...",
             "",
-        ] {
-            assert!(DaemonPaths::parse(out.as_bytes()).is_err(), "{out}");
-        }
-    }
-
-    #[test]
-    fn a_set_home_is_not_replaced_and_an_empty_one_counts_as_unset() {
-        let dev = Some(PathBuf::from("/work/.crowbar"));
-        let cases = [
-            (
-                "set",
-                Some("/mine".into()),
-                dev.clone(),
-                Some(PathBuf::from("/mine")),
-            ),
-            ("empty", Some(OsString::new()), dev.clone(), dev.clone()),
-            ("unset", None, dev.clone(), dev),
-            ("unset without fallback", None, None, None),
         ];
-        for (name, current, fallback, expected) in cases {
-            assert_eq!(child_home(current, fallback), expected, "{name}");
+        for out in cases {
+            assert!(DaemonPaths::parse(out.as_bytes()).is_err(), "{out}");
         }
     }
 

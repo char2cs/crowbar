@@ -14,15 +14,8 @@ const QUEUE_LINES: usize = 512;
 
 pub(crate) const MAX_LINE_BYTES: usize = 16 * 1024;
 
-/// The daemon's captured stdout and stderr, one line per entry, rotated to `.1` at a size cap.
-/// It is the only place a Go panic's stack trace survives in the packaged app.
-///
-/// Writing never blocks the caller: text goes through a bounded queue to one writer thread, and
-/// when the disk cannot keep up the newest text is dropped and counted, never the process
-/// stalled. The file is private to the user (`0600` in a `0700` directory) because it can hold
-/// prompts, paths and stack traces.
 #[derive(Debug)]
-pub struct DaemonLog {
+pub(crate) struct DaemonLog {
     queue: mpsc::Sender<Message>,
     dropped: Arc<AtomicU64>,
 }
@@ -112,11 +105,7 @@ fn write_next(
 }
 
 impl DaemonLog {
-    /// Opens `path` for appending, creating its directory and rotating a full previous log.
-    ///
-    /// # Errors
-    /// [`Error::Log`] when the file or the writer thread cannot be set up.
-    pub fn open(
+    pub(crate) fn open(
         path: &Path,
         max_bytes: u64,
     ) -> Result<Self, Error> {
@@ -144,10 +133,7 @@ impl DaemonLog {
         Ok(Self { queue, dropped })
     }
 
-    /// Queues `prefix text` for writing. Text with several lines becomes several prefixed
-    /// lines, and a line longer than the cap is cut into pieces. When the queue is full the
-    /// text is dropped, and a later line says how much.
-    pub fn line(
+    pub(crate) fn line(
         &self,
         prefix: &str,
         text: &str,
@@ -158,8 +144,7 @@ impl DaemonLog {
         }
     }
 
-    /// Resolves once everything queued so far is on disk.
-    pub async fn flush(&self) {
+    pub(crate) async fn flush(&self) {
         let (done, written) = oneshot::channel();
         if self.queue.send(Message::Flush(done)).await.is_ok() && written.await.is_err() {
             tracing::debug!("the daemon log writer ended before a flush finished");

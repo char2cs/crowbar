@@ -2,7 +2,7 @@ mod daemon_paths;
 mod locate_binary;
 mod timings;
 
-pub use daemon_paths::{DaemonPaths, child_home};
+pub use daemon_paths::DaemonPaths;
 pub use locate_binary::locate_binary;
 pub use timings::Timings;
 

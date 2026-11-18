@@ -12,7 +12,7 @@ mod verdict;
 pub(crate) use bus::Bus;
 pub(crate) use clock::Clock;
 pub(crate) use command::Command;
-pub use log::DaemonLog;
+pub(crate) use log::DaemonLog;
 pub(crate) use log::{MAX_LINE_BYTES, crash_report, crash_summary};
 pub(crate) use phase::Phase;
 pub(crate) use reply::reply;

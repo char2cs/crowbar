@@ -7,7 +7,7 @@ mod probe;
 pub use client::fetch;
 pub(crate) use client::{SocketDial, get};
 pub use migration_progress::MigrationProgress;
-pub use probe::{Probe, probe_ready};
+pub(crate) use probe::{Probe, probe_ready};
 
 use std::path::Path;
 
@@ -22,10 +22,8 @@ use crate::health::client::Dial;
 const HEALTH_BODY_LIMIT: usize = 1024 * 1024;
 const HEALTH_TARGET: &str = "/v0/health";
 
-/// What `/v0/health` says about the daemon: serving, still preparing its home, or halted. A
-/// daemon that is preparing or halted is alive on purpose and is never mistaken for a wedge.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Health {
+pub(crate) enum Health {
     /// The daemon serves, and says which process it is.
     Ready {
         /// The daemon's self-reported pid.
@@ -45,10 +43,8 @@ pub enum Health {
     },
 }
 
-/// Reads the `/v0/health` envelope. An absent status is an older daemon and an unknown one a
-/// newer daemon; both are serving, so only the deep probe may judge them.
 #[must_use]
-pub fn parse_health(body: &[u8]) -> Health {
+pub(crate) fn parse_health(body: &[u8]) -> Health {
     let data = serde_json::from_slice::<Value>(body)
         .ok()
         .and_then(|v| v.get("data").cloned());
@@ -83,13 +79,7 @@ pub(crate) async fn check_health<D: Dial>(dial: &D) -> Result<Health, Error> {
         .map(|body| parse_health(&body))
 }
 
-/// Polls until the daemon serves (resolving to its self-reported pid) or halts. A migrating
-/// daemon is waited for without spending attempts, and `on_migrating` hears every change of
-/// its progress; only unreachable or wrong answers count against `timings.health_attempts`.
-///
-/// # Errors
-/// [`Error::Halted`] when the daemon halts, [`Error::GaveUp`] when it never answers.
-pub async fn wait_for_health(
+pub(crate) async fn wait_for_health(
     socket: &Path,
     timings: &Timings,
     on_migrating: impl FnMut(Option<&MigrationProgress>) + Send,
