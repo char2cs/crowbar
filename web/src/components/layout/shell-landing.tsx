@@ -5,6 +5,9 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { useProjectStore } from '@/core/entities/active-project'
 import { selectProjects, selectProjectsSynced, useSelect } from '@/core/entities/select'
 import { resubscribe, watchScope } from '@/core/stream/stream'
+import { useStore } from 'zustand'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { isChatRecalled } from '@/lib/host-resolve-cached'
 import { useConnectionStore } from '@/lib/ws/connection-store'
 import { HostProjectsPending } from '@/features/hosts/components/host-projects-pending'
 import { hasLocalDaemon } from '@/features/hosts/lib/local-daemon'
@@ -44,12 +47,17 @@ export function ShellLanding() {
   const projects = useSelect(selectProjects)
   const activeId = useProjectStore((s) => s.activeProjectId)
   const migrating = useConnectionStore((s) => s.migrating)
+  // A chat the last run placed is already on screen; the panel is only for the empty stage.
+  const chatShown = useStore(windowPaneStore, (s) =>
+    Object.values(s.panes).some((p) => p.type === 'group' && p.chatId && isChatRecalled(p.chatId)),
+  )
   const [failures, setFailures] = useState(0)
   const navigate = useNavigate()
   useEffect(() => watchScope(LOCAL_HOST.id, 'projects', { failed: setFailures }), [])
   if (!awaitsProjectsScope(synced)) {
     const landing = landingFor(projects, activeId)
     if (landing) return <Navigate {...landing} replace />
+    if (chatShown) return null
     return (
       <HostProjectsPending
         onProject={(projectId) =>

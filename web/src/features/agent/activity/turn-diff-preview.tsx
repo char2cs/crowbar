@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import type { CodeViewOptions } from '@pierre/diffs'
 import { MAX_TURN_DIFF_PREVIEW_CHARS, parseTurnDiff } from '@/features/agent/lib/turn-diff'
+import { formatAttachmentSize } from '@/features/agent/composer/plate/attachments/chat-attachment-file-card'
 import { DiffCodeView } from '@/features/git/components/diff/diff-code-view'
 
 interface TurnDiffPreviewProps {
@@ -31,7 +32,11 @@ export function TurnDiffPreview({ diff, turnId, target }: TurnDiffPreviewProps) 
   )
 
   if (diff.length > MAX_TURN_DIFF_PREVIEW_CHARS) {
-    return <p className="turn-diff-unavailable">Diff preview is too large to render live.</p>
+    return (
+      <p className="turn-diff-unavailable">
+        This full diff is {formatAttachmentSize(diff.length)}, too large to render live.
+      </p>
+    )
   }
   if (items.length === 0) {
     return <pre className="turn-diff-raw">{diff}</pre>
