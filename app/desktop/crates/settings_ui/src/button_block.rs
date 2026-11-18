@@ -59,9 +59,9 @@ mod tests {
 
     #[gpui::test]
     fn reset_all_clears_every_custom_chord_without_asking(cx: &mut TestAppContext) {
-        use crate::capture::primary_modifier;
         use crate::catalog::KEYBINDING_OVERRIDES;
         use crate::key::Key;
+        use crate::modifier::Modifier;
         use crate::pressed::Pressed;
         use crate::settings_read::SettingsRead as _;
         use crate::value::Value;
@@ -75,7 +75,7 @@ mod tests {
         );
         run(
             &harness,
-            Intent::Key(Pressed::new("k", &[primary_modifier(Primary::native())])),
+            Intent::Key(Pressed::new("k", &[Modifier::primary(Primary::native())])),
             cx,
         );
         let schema = default_schema().unwrap();

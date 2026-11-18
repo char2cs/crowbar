@@ -38,7 +38,7 @@ impl Capture {
         if let Some(refusal) = unsupported(pressed, primary) {
             return Self::Refused(refusal);
         }
-        let chorded = pressed.has(primary_modifier(primary)) || pressed.has(Modifier::Alt);
+        let chorded = pressed.has(Modifier::primary(primary)) || pressed.has(Modifier::Alt);
         if !chorded && !is_function_key(&pressed.key) {
             return Self::Refused(Refusal::BareKey);
         }
@@ -46,13 +46,6 @@ impl Capture {
             Some(chord) => Self::Accepted(chord),
             None => Self::Refused(Refusal::BareKey),
         }
-    }
-}
-
-pub(crate) fn primary_modifier(primary: Primary) -> Modifier {
-    match primary {
-        Primary::Control => Modifier::Control,
-        Primary::Platform => Modifier::Platform,
     }
 }
 
@@ -78,7 +71,7 @@ fn spell(
     primary: Primary,
 ) -> String {
     let words = [
-        (primary_modifier(primary), "mod"),
+        (Modifier::primary(primary), "mod"),
         (Modifier::Shift, "shift"),
         (Modifier::Alt, "alt"),
     ];
