@@ -7,9 +7,9 @@ Out of scope: iPad layout, push notifications, file explorer, local daemon, edit
 
 - `desktop/src-tauri` stays the one crate (`[lib]` is already `staticlib`/`cdylib`). `tauri ios init` adds `gen/apple`; `lib.rs` gets `#[cfg_attr(mobile, tauri::mobile_entry_point)]`.
 - One webview, one JS context, one set of stores. The sidebar is not a second webview.
-- Transport is the existing Rust `ws_bridge` dial with fingerprint pinning (`tls_pin.rs`), so WKWebView never opens the socket and App Transport Security does not apply. Tailscale only supplies reachability.
+- Transport is the existing Rust `ws_bridge` dial with fingerprint pinning (`tls_pin.rs`), so WKWebView never opens the socket and App Transport Security does not apply. Reachability is the owner's to provide.
 - Only remote hosts exist on iOS. The local daemon path (`sidecar`, the unix-socket `api_proxy`, `fdlimit`) is gated `#[cfg(desktop)]`; the host list never offers "local".
-- Pairing is the desktop flow: `host:port` plus OTP, fingerprint confirmed once, token in the Keychain via `keyring` (`apple-native` already covers iOS). Any number of hosts; the switcher is the sidebar heading, as on desktop.
+- Pairing is the desktop flow (the desktop side is Settings → Devices on the instance being paired): `host:port` plus OTP, fingerprint confirmed once, token in the Keychain via `keyring` (`apple-native` already covers iOS). Any number of hosts; the switcher is the sidebar heading, as on desktop.
 
 ## Build gating (Rust)
 
@@ -38,7 +38,7 @@ One Tauri iOS plugin (`desktop/src-tauri/ios-plugin`) exposes: `setChrome({ scre
 ## Verification gates
 
 1. **Spike (first, throwaway branch commit not kept):** a Swift glass button over the Tauri webview, tapping into a JS event and back. Confirms the plugin model and that glass renders over WKWebView content.
-2. Real-device run over Tailscale: pair, open a chat, stream a turn, open the shell, open a review.
+2. Real-device run: pair, open a chat, stream a turn, open the shell, open a review.
 3. Drag-to-open sidebar holds frame rate on device.
 4. Check list for the simulator: `xcodebuild`, `tauri ios dev` on `aarch64-apple-ios-sim`.
 

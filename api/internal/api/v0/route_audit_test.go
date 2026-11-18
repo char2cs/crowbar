@@ -16,6 +16,7 @@ import (
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	"github.com/char2cs/crowbar/api/internal/testutil/accessfake"
 )
 
 // workspaceGetter is the read the real workspace repository (and this stub)
@@ -171,6 +172,8 @@ func specRoutes() []string {
 		"GET " + chat + "/provider",
 		"GET " + repo + "/protected-branches",
 		"GET " + chat + "/blobs/:ref",
+		"GET " + chat + "/rows",
+		"GET " + chat + "/rows/:seq",
 		// §2.10 Search, chat-scoped (chat-scoped API spec §4.2's SHARED bucket,
 		// §8 step 4c/6): the flat chat prefix is the only surface left; the old
 		// .../workspaces/:wsId/search twin is gone.
@@ -545,10 +548,12 @@ func extraRoutes() []string {
 		// The one stream and operations are process-wide, so they mount top-level too.
 		"GET /v0/stream",
 		"DELETE /v0/operations/:id",
-		// Pairing + client registry: mint/redeem stay open so an unpaired
-		// client can bootstrap trust; the registry routes are guarded.
+		// Pairing + client registry: redeem stays open so an unpaired client can
+		// bootstrap trust; minting, the registry and device access are guarded.
 		"POST /v0/pair/code",
 		"POST /v0/pair",
+		"GET /v0/access",
+		"PUT /v0/access",
 		"GET /v0/clients",
 		"DELETE /v0/clients/:id",
 		// The desktop app's browser-peer socket: process-wide like /system,
@@ -562,7 +567,7 @@ func registeredRoutes(
 ) map[string]struct{} {
 	t.Helper()
 	tc := newApp(t)
-	c := v0.New(tc.app, tc.eng, "")
+	c := v0.New(tc.app, tc.eng, accessfake.Closed())
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	out := map[string]struct{}{}
@@ -844,7 +849,7 @@ func TestRouteAudit_LiveReadRoutesAnswerREST(t *testing.T) {
 	tc := newApp(t)
 	seedWorkspace(t, tc, "w1")
 	tc.app.Usecases.Worktree = stubChatWorktreeResolver{chatToWs: map[string]string{"chat-1": "w1"}, workspaces: tc.app.Repositories.Workspace}
-	c := v0.New(tc.app, tc.eng, "")
+	c := v0.New(tc.app, tc.eng, accessfake.Closed())
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)

@@ -4,8 +4,8 @@ const (
 	DeliveryRestartTUI = "restart_tui"
 )
 
-// PasteBracketed wraps typed text in ESC[200~ ... ESC[201~.
-const PasteBracketed = "bracketed"
+// InputKeys types a prompt as keystrokes, not as a paste the CLI may rewrite.
+const InputKeys = "keys"
 
 const (
 	CatalogAdapterJSONTextSection      = "json_text_section"
@@ -50,12 +50,17 @@ type PromptSubmitSpec struct {
 
 // PromptTypeSpec types a prompt into an idle CLI's composer instead of
 // restarting it. A message opening with a SkipPrefixes entry keeps its meaning
-// under paste (a command, a mode switch), so it restarts instead.
+// as keystrokes (a command, a mode switch), and one ending in a SkipSuffixes entry
+// has its submit key swallowed by the CLI, so both restart instead. A CLI that
+// reads a burst as a paste is fed at most ChunkBytes per write, ChunkIntervalMS apart.
 type PromptTypeSpec struct {
-	Paste        string             `yaml:"paste"`
-	Submit       string             `yaml:"submit"`
-	SkipPrefixes []string           `yaml:"skip_prefixes"`
-	Composer     PromptComposerSpec `yaml:"composer"`
+	Input           string             `yaml:"input"`
+	Submit          string             `yaml:"submit"`
+	ChunkBytes      int                `yaml:"chunk_bytes"`
+	ChunkIntervalMS int                `yaml:"chunk_interval_ms"`
+	SkipPrefixes    []string           `yaml:"skip_prefixes"`
+	SkipSuffixes    []string           `yaml:"skip_suffixes"`
+	Composer        PromptComposerSpec `yaml:"composer"`
 }
 
 // PromptComposerSpec: the composer is empty when the cursor sits right after

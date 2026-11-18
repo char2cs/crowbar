@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -45,9 +47,12 @@ presentation:
       frame: "from the user: {message}"
       reply: '{"decision":"block","reason":{message_json}}'
     type:
-      paste: bracketed
+      input: keys
+      chunk_bytes: 8
+      chunk_interval_ms: 5
       submit: "\r"
       skip_prefixes: ["!", "/btw"]
+      skip_suffixes: ["\\"]
       composer:
         row_prefix: "❯ "
 `
@@ -65,7 +70,7 @@ func TestAgent_PromptTypeReportsWhatTheDescriptorDeclares(t *testing.T) {
 	typing, ok := typist(t).PromptType()
 	require.True(t, ok)
 	assert.Equal(t, agents.PromptTyping{
-		Paste: "bracketed", Submit: "\r", ComposerRowPrefix: "❯ ", SkipPrefixes: []string{"!", "/btw"},
+		Input: "keys", Submit: "\r", ChunkBytes: 8, ChunkInterval: 5 * time.Millisecond, ComposerRowPrefix: "❯ ", SkipPrefixes: []string{"!", "/btw"}, SkipSuffixes: []string{"\\"},
 	}, typing, "the row prefix keeps its no-break space")
 
 	_, ok = get(t, "codex").PromptType()
@@ -77,42 +82,67 @@ func TestAgent_ClaudeDeclaresTypedDeliveryWithItsNoBreakSpacePrefix(t *testing.T
 
 	require.True(t, ok)
 	assert.Equal(t, agents.PromptTyping{
-		Paste: "bracketed", Submit: "\r", ComposerRowPrefix: "❯ ", ComposerGhost: "faint", SkipPrefixes: []string{"/", "!"},
+		Input: "keys", Submit: "\r", ChunkBytes: 256, ChunkInterval: 10 * time.Millisecond, ComposerRowPrefix: "❯ ", ComposerGhost: "faint", SkipPrefixes: []string{"/", "!"}, SkipSuffixes: []string{"\\"},
 	}, typing)
 	assert.Equal(t, []byte{0xe2, 0x9d, 0xaf, 0xc2, 0xa0}, []byte(typing.ComposerRowPrefix))
 }
 
-func TestAgent_PromptTypeBytesPastesTheMessageThenSubmits(t *testing.T) {
+func TestAgent_PromptTypeWritesChunkTheMessageThenSubmit(t *testing.T) {
 	a := typist(t)
 
-	got, ok := a.PromptTypeBytes("first line\nsecond \"line\"\r\n\x1b[31m{message}")
+	got, ok := a.PromptTypeWrites("first line\nsecond \"line\"")
 	require.True(t, ok)
-	assert.Equal(t, "\x1b[200~first line\nsecond \"line\"\r\n\x1b[31m{message}\x1b[201~\r", string(got))
+	assert.Equal(t, []string{"first li", "ne\nsecon", "d \"line\"", "\r"}, writeStrings(got))
 
-	got, ok = a.PromptTypeBytes("")
+	got, ok = a.PromptTypeWrites("")
 	require.True(t, ok)
-	assert.Equal(t, "\x1b[200~\x1b[201~\r", string(got))
+	assert.Equal(t, []string{"\r"}, writeStrings(got), "an empty message is only the submit key")
 }
 
-func TestAgent_PromptTypeBytesRefusesWhatWouldEndThePasteEarlyOrIsACommand(t *testing.T) {
+func TestAgent_PromptTypeWritesNeverSplitARune(t *testing.T) {
+	got, ok := typist(t).PromptTypeWrites("aaaaaaé日本語")
+	require.True(t, ok)
+	var joined strings.Builder
+	for _, w := range got[:len(got)-1] {
+		assert.True(t, utf8.Valid(w), "%q", w)
+		assert.LessOrEqual(t, len(w), 8)
+		joined.Write(w)
+	}
+	assert.Equal(t, "aaaaaaé日本語", joined.String())
+}
+
+func writeStrings(writes [][]byte) []string {
+	out := make([]string, len(writes))
+	for i, w := range writes {
+		out[i] = string(w)
+	}
+	return out
+}
+
+func TestAgent_PromptTypeWritesRefuseWhatTheCLIWouldActOnOrIsACommand(t *testing.T) {
 	a := typist(t)
 
 	for name, text := range map[string]string{
-		"end-paste sequence mid-message": "hi\x1b[201~\rrm -rf /",
-		"end-paste sequence alone":       "\x1b[201~",
+		"an escape sequence":             "hi\x1b[201~rm -rf /",
+		"a carriage return":              "hi\rthere",
+		"a tab":                          "a\tb",
 		"a message the type block skips": "!ls",
 		"a longer skipped prefix":        "/btw and so on",
+		"a C1 control (NEL)":             "hi\u0085there",
+		"a C1 control (CSI)":             "hi\u009b[201~",
+		"a trailing backslash":           "see the path C:\\",
+		"a backslash ending a last line": "one\ntwo \\",
 	} {
-		got, ok := a.PromptTypeBytes(text)
+		got, ok := a.PromptTypeWrites(text)
 		assert.False(t, ok, name)
 		assert.Empty(t, got, name)
 	}
 
-	got, ok := a.PromptTypeBytes("/compact")
+	got, ok := a.PromptTypeWrites("/compact")
 	require.True(t, ok, "only the type block's own skip list applies, not steer's")
-	assert.Equal(t, "\x1b[200~/compact\x1b[201~\r", string(got))
+	assert.Equal(t, []string{"/compact", "\r"}, writeStrings(got))
 
-	_, ok = get(t, "codex").PromptTypeBytes("hello")
+	_, ok = get(t, "codex").PromptTypeWrites("hello")
 	assert.False(t, ok, "a provider that declares no type block renders nothing")
 }
 
@@ -123,6 +153,8 @@ func TestAgent_CanTypeIsFalseForSkippedOrUnsafeMessages(t *testing.T) {
 	assert.False(t, a.CanType("!ls"))
 	assert.False(t, a.CanType("/btw hi"))
 	assert.False(t, a.CanType("x\x1b[201~"))
+	assert.True(t, a.CanType("a backslash \\ mid-text and \\ before a space \\ "), "only the last character can join a line")
+	assert.True(t, a.CanType("日本語 é\u00a0"), "text just past the C1 range is plain")
 	assert.False(t, get(t, "codex").CanType("hello"))
 }
 

@@ -77,6 +77,8 @@ export interface ToolItem extends ItemBase {
   askId?: string
   /** How that ask was decided, once it was. */
   askNote?: string
+  /** The seq of the row holding this call's whole diff while `body.diff` is a preview of it. */
+  fullSeq?: number
 }
 
 /** `choice.id` is the ask id; it stays pending until its ask_resolved row. */
@@ -134,6 +136,8 @@ export interface SubagentItem extends ItemBase {
   status: SubagentStatus
   result?: string
   usage?: { tokens?: number; toolUses?: number; durationMs?: number }
+  /** The seq of the row holding the whole result while `result` is a preview of it. */
+  fullSeq?: number
   /** The parent is waiting on, or closing, this subagent. */
   parentWaiting: boolean
   startedAt: string
@@ -170,6 +174,8 @@ export interface ShellItem extends ItemBase {
 export interface ReasoningItem extends ItemBase {
   kind: 'reasoning'
   text: string
+  /** The seq of the row holding the whole text while `text` is a preview of it. */
+  fullSeq?: number
   startedAt: string
   endedAt: string
 }
@@ -192,8 +198,9 @@ export type TranscriptItem =
   | PlanSnapshotItem
 
 export type PromptFact =
-  /** `launch` when a CLI launch carries it: that launch's dividers read above it. */
-  | { state: 'pending'; seq: number; launch?: true }
+  /** `launch` when a CLI launch carries it: that launch's dividers read above it;
+   *  `steer` when the running turn's end hands it on. */
+  | { state: 'pending'; seq: number; launch?: true; steer?: true }
   | { state: 'delivered'; turnId: string }
   /** `builtin` when the CLI ran it itself (a command) and no turn took it. */
   | { state: 'settled'; builtin?: true }

@@ -14,6 +14,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/pairing"
 	pairinghandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/pairing/handlers"
+	"github.com/char2cs/crowbar/api/internal/core/exposure"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -22,9 +23,12 @@ func TestMain(m *testing.M) {
 	m.Run()
 }
 
-// fingerprint stands in for a network-exposed daemon's TLS identity: a daemon
-// without one mints no codes.
-const fingerprint = "SHA256:aaaa bbbb cccc dddd eeee ffff"
+// listeningAccess is a daemon whose device listener is open: a closed one mints no codes.
+type listeningAccess struct{}
+
+func (listeningAccess) Status() exposure.Status {
+	return exposure.Status{Enabled: true, Fingerprint: "SHA256:aaaa bbbb cccc dddd eeee ffff"}
+}
 
 type stubPairing struct{}
 
@@ -82,20 +86,19 @@ func doPair(t *testing.T, r *gin.Engine) *httptest.ResponseRecorder {
 	return rec
 }
 
-func TestRegisterOpen_MountsMintAndPair(t *testing.T) {
-	h := pairinghandlers.New(stubPairing{}, stubRegistry{}, stubStreams{}, fingerprint)
+func TestRegisterOpen_MountsPair(t *testing.T) {
+	h := pairinghandlers.New(stubPairing{}, stubRegistry{}, stubStreams{}, listeningAccess{})
 	r := gin.New()
 	pairing.RegisterOpen(r.Group(""), h, countingLimiter(1000))
 
-	assert.Equal(t, http.StatusOK, do(t, r, http.MethodPost, "/pair/code").Code)
 	assert.Equal(t, http.StatusOK, doPair(t, r).Code)
+	assert.Equal(t, http.StatusNotFound, do(t, r, http.MethodPost, "/pair/code").Code,
+		"minting a code needs the bearer guard, so it is not an open route")
 }
 
-// TestRegisterOpen_LimiterAppliesToPairOnly proves the redeem limiter guards
-// POST /pair alone: MintCode must stay reachable no matter how many times a
-// caller has hit /pair, and vice versa.
-func TestRegisterOpen_LimiterAppliesToPairOnly(t *testing.T) {
-	h := pairinghandlers.New(stubPairing{}, stubRegistry{}, stubStreams{}, fingerprint)
+// TestRegisterOpen_LimiterCapsRedeems proves the limiter guards POST /pair.
+func TestRegisterOpen_LimiterCapsRedeems(t *testing.T) {
+	h := pairinghandlers.New(stubPairing{}, stubRegistry{}, stubStreams{}, listeningAccess{})
 	r := gin.New()
 	pairing.RegisterOpen(r.Group(""), h, countingLimiter(2))
 
@@ -103,18 +106,14 @@ func TestRegisterOpen_LimiterAppliesToPairOnly(t *testing.T) {
 	require.Equal(t, http.StatusOK, doPair(t, r).Code)
 	assert.Equal(t, http.StatusTooManyRequests, doPair(t, r).Code,
 		"the third redeem attempt in the window must be capped")
-
-	for range 5 {
-		assert.Equal(t, http.StatusOK, do(t, r, http.MethodPost, "/pair/code").Code,
-			"mint must never be capped by the redeem-only limiter")
-	}
 }
 
-func TestRegisterGuarded_MountsListAndRevoke(t *testing.T) {
-	h := pairinghandlers.New(stubPairing{}, stubRegistry{}, stubStreams{}, fingerprint)
+func TestRegisterGuarded_MountsMintListAndRevoke(t *testing.T) {
+	h := pairinghandlers.New(stubPairing{}, stubRegistry{}, stubStreams{}, listeningAccess{})
 	r := gin.New()
 	pairing.RegisterGuarded(r.Group(""), h)
 
+	assert.Equal(t, http.StatusOK, do(t, r, http.MethodPost, "/pair/code").Code)
 	assert.Equal(t, http.StatusOK, do(t, r, http.MethodGet, "/clients").Code)
 	assert.Equal(t, http.StatusOK, do(t, r, http.MethodDelete, "/clients/c1").Code)
 }

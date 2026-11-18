@@ -16,7 +16,7 @@ const item = (startedAt: string, endedAt: string): ReasoningItem => ({
 
 describe('ReasoningRow', () => {
   it('collapses persisted reasoning to Thought for Ns', () => {
-    render(<ReasoningRow item={item('2026-10-01T12:00:00Z', '2026-10-01T12:00:12Z')} />)
+    render(<ReasoningRow chatId="c1" item={item('2026-10-01T12:00:00Z', '2026-10-01T12:00:12Z')} />)
     const toggle = screen.getByRole('button', { name: 'Thought for 12s' })
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
     expect(screen.queryByText(/Checking/)).toBeNull()
@@ -25,7 +25,15 @@ describe('ReasoningRow', () => {
   })
 
   it('says only Thought when its time is not known', () => {
-    render(<ReasoningRow item={item('2026-10-01T12:00:00Z', '2026-10-01T12:00:00Z')} />)
+    render(<ReasoningRow chatId="c1" item={item('2026-10-01T12:00:00Z', '2026-10-01T12:00:00Z')} />)
     expect(screen.getByRole('button', { name: 'Thought' })).toBeInTheDocument()
+  })
+
+  it('says a cut text is a preview once opened, and offers the whole of it', () => {
+    const cut = { ...item('2026-10-01T12:00:00Z', '2026-10-01T12:00:12Z'), fullSeq: 4 }
+    render(<ReasoningRow chatId="c1" item={cut} />)
+    expect(screen.queryByText(/Preview only/)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Thought for 12s' }))
+    expect(screen.getByRole('button', { name: 'Show full text' })).toBeInTheDocument()
   })
 })

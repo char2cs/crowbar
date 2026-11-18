@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
 	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
@@ -87,6 +88,8 @@ type Runners struct {
 	snapshots Snapshotter
 	// background is the supervisor's own follow-up work; Shutdown ends it.
 	background *backgroundWork
+	// pause waits between the writes of a typed prompt; a test swaps it for its own.
+	pause func(ctx context.Context, d time.Duration) error
 }
 
 // Deps is everything the CLI lifecycle is built over. It is a struct and not an
@@ -152,6 +155,7 @@ func New(d Deps) *Runners {
 		phases:     newPhases(),
 		snapshots:  d.Snapshots,
 		background: newBackgroundWork(),
+		pause:      pauseFor,
 
 		conversations: d.Conversations,
 		providers:     d.Providers,

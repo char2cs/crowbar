@@ -13,7 +13,8 @@ import (
 func withType(d *spec.Descriptor) *spec.Descriptor {
 	d = withPromptSubmit(d, spec.DeliveryRestartTUI)
 	d.Presentation.PromptSubmit.Type = &spec.PromptTypeSpec{
-		Paste:        spec.PasteBracketed,
+		Input:        spec.InputKeys,
+		ChunkBytes:   64,
 		Submit:       "\r",
 		SkipPrefixes: []string{"!"},
 		Composer:     spec.PromptComposerSpec{RowPrefix: "❯ "},
@@ -43,12 +44,15 @@ func TestPromptSubmit_RejectsTheBrokenTypeShapes(t *testing.T) {
 		mutate  func(*spec.Descriptor)
 		wantMsg string
 	}{
-		{"unknown paste", func(d *spec.Descriptor) { d.Presentation.PromptSubmit.Type.Paste = "raw" }, "type.paste"},
-		{"no paste", func(d *spec.Descriptor) { d.Presentation.PromptSubmit.Type.Paste = "" }, "type.paste"},
+		{"unknown input", func(d *spec.Descriptor) { d.Presentation.PromptSubmit.Type.Input = "raw" }, "type.input"},
+		{"no input", func(d *spec.Descriptor) { d.Presentation.PromptSubmit.Type.Input = "" }, "type.input"},
+		{"a chunk too small for a rune", func(d *spec.Descriptor) { d.Presentation.PromptSubmit.Type.ChunkBytes = 3 }, "type.chunk_bytes"},
+		{"a negative interval", func(d *spec.Descriptor) { d.Presentation.PromptSubmit.Type.ChunkIntervalMS = -1 }, "type.chunk_interval_ms"},
 		{"no submit key", func(d *spec.Descriptor) { d.Presentation.PromptSubmit.Type.Submit = "" }, "type.submit"},
 		{"no composer row prefix", func(d *spec.Descriptor) { d.Presentation.PromptSubmit.Type.Composer.RowPrefix = "" }, "type.composer.row_prefix"},
 		{"an unknown ghost", func(d *spec.Descriptor) { d.Presentation.PromptSubmit.Type.Composer.Ghost = "grey" }, "type.composer.ghost"},
 		{"an empty skip prefix", func(d *spec.Descriptor) { d.Presentation.PromptSubmit.Type.SkipPrefixes = []string{""} }, "type.skip_prefixes"},
+		{"an empty skip suffix", func(d *spec.Descriptor) { d.Presentation.PromptSubmit.Type.SkipSuffixes = []string{""} }, "type.skip_suffixes"},
 		{"no restart fallback", func(d *spec.Descriptor) { d.Presentation.PromptSubmit.Strategy = "" }, "unsupported strategy"},
 		{"no resume fallback", func(d *spec.Descriptor) { d.Session.Resume = nil }, "requires session.resume"},
 		{"no fresh fallback", func(d *spec.Descriptor) { d.Presentation.PromptSubmit.Fresh = nil }, "fresh is empty"},

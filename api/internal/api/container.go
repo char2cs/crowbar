@@ -29,13 +29,13 @@ type Container struct {
 }
 
 // New builds the HTTP layer: middleware, the v0 surface at /v0, and optional static
-// assets. serverFingerprint (the TLS identity) feeds the pairing routes; preAuthReadTimeout
+// assets. access (the device listener) feeds the pairing and access routes; preAuthReadTimeout
 // bounds a TLS request's reads until its bearer is verified.
 func New(
 	appContainer *app.Container,
 	engContainer *engine.Container,
 	staticFS fs.FS,
-	serverFingerprint string,
+	access v0.Access,
 	preAuthReadTimeout time.Duration,
 	v0Options ...v0.Option,
 ) (*Container, error) {
@@ -55,7 +55,7 @@ func New(
 		middleware.BodyLimit(maxRequestBodyBytes),
 	)
 
-	v0Container := v0.New(appContainer, engContainer, serverFingerprint, v0Options...)
+	v0Container := v0.New(appContainer, engContainer, access, v0Options...)
 	v0Container.Register(router.Group("/v0"))
 	mountDebug(router)
 

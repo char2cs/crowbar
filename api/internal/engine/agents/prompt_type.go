@@ -3,15 +3,12 @@ package agents
 import (
 	"slices"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/rivo/uniseg"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
-)
-
-const (
-	pasteStart = "\x1b[200~"
-	pasteEnd   = "\x1b[201~"
 )
 
 func (a *agent) PromptType() (PromptTyping, bool) {
@@ -20,19 +17,25 @@ func (a *agent) PromptType() (PromptTyping, bool) {
 		return PromptTyping{}, false
 	}
 	return PromptTyping{
-		Paste:             ps.Type.Paste,
+		Input:             ps.Type.Input,
 		Submit:            ps.Type.Submit,
+		ChunkBytes:        ps.Type.ChunkBytes,
+		ChunkInterval:     time.Duration(ps.Type.ChunkIntervalMS) * time.Millisecond,
 		ComposerRowPrefix: ps.Type.Composer.RowPrefix,
 		ComposerGhost:     ps.Type.Composer.Ghost,
 		SkipPrefixes:      slices.Clone(ps.Type.SkipPrefixes),
+		SkipSuffixes:      slices.Clone(ps.Type.SkipSuffixes),
 	}, true
 }
 
-// CanType refuses a message holding the end-paste sequence rather than stripping
-// it: a message must reach the CLI exactly as written or not at all.
+// CanType refuses a message holding a control character other than a newline
+// rather than stripping it: it must reach the CLI exactly as written or not at all.
 func (a *agent) CanType(text string) bool {
 	typing, ok := a.PromptType()
-	if !ok || typing.Paste != spec.PasteBracketed || strings.Contains(text, pasteEnd) {
+	if !ok || typing.Input != spec.InputKeys || strings.ContainsFunc(text, isKeyControl) {
+		return false
+	}
+	if slices.ContainsFunc(typing.SkipSuffixes, func(suffix string) bool { return strings.HasSuffix(text, suffix) }) {
 		return false
 	}
 	return !slices.ContainsFunc(typing.SkipPrefixes, func(prefix string) bool {
@@ -82,10 +85,23 @@ func restIsGhost(rest string, col int, faint []bool, ghostFaint bool) bool {
 	return true
 }
 
-func (a *agent) PromptTypeBytes(text string) ([]byte, bool) {
+// isKeyControl covers C0, DEL and C1: a terminal may read U+0080-U+009F as a control.
+func isKeyControl(r rune) bool { return r != '\n' && (r < 0x20 || (r >= 0x7f && r <= 0x9f)) }
+
+func (a *agent) PromptTypeWrites(text string) ([][]byte, bool) {
 	if !a.CanType(text) {
 		return nil, false
 	}
 	typing, _ := a.PromptType()
-	return []byte(pasteStart + text + pasteEnd + typing.Submit), true
+	var writes [][]byte
+	for rest := text; rest != ""; {
+		n := min(typing.ChunkBytes, len(rest))
+		// Cut on a rune boundary: a split rune would reach the CLI as two garbled keys.
+		for n > 1 && n < len(rest) && !utf8.RuneStart(rest[n]) {
+			n--
+		}
+		writes = append(writes, []byte(rest[:n]))
+		rest = rest[n:]
+	}
+	return append(writes, []byte(typing.Submit)), true
 }

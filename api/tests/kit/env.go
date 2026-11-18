@@ -26,6 +26,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/gateway/transports"
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 	"github.com/char2cs/crowbar/api/internal/engine"
+	"github.com/char2cs/crowbar/api/internal/testutil/accessfake"
 )
 
 // Env is the full integration environment: the real adapter+app+api stack over a Unix socket
@@ -157,7 +158,7 @@ func NewEnvWithHome(
 	}
 
 	router := gin.New()
-	apiContainer := v0.New(appContainer, eng, "")
+	apiContainer := v0.New(appContainer, eng, accessfake.Closed())
 	apiContainer.Register(router.Group("/v0"))
 
 	socketPath := kitSocketPath()

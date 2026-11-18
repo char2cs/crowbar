@@ -4,6 +4,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/pairing"
+	"github.com/char2cs/crowbar/api/internal/core/exposure"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -33,12 +35,20 @@ type Streams interface {
 	Disconnect(clientID string)
 }
 
+// Access is the device listener the codes it mints are redeemed over.
+type Access interface {
+	Status() exposure.Status
+}
+
 // mintCodeResponse is the body of POST /pair/code. A human compares
 // ServerFingerprint (tlsid.FingerprintOf format) with the pairing client's, since
-// the code proves socket access but not which daemon a later TLS connection reaches.
+// the code proves access to this daemon but not which one a later TLS connection reaches.
+// Addresses are where the device can dial; ExpiresAt is when the code stops working.
 type mintCodeResponse struct {
-	Code              string `json:"code"`
-	ServerFingerprint string `json:"serverFingerprint"`
+	Code              string   `json:"code"`
+	ServerFingerprint string   `json:"serverFingerprint"`
+	Addresses         []string `json:"addresses"`
+	ExpiresAt         string   `json:"expiresAt"`
 }
 
 // maxPairBodyBytes caps POST /pair's body, read before the caller holds any
@@ -60,37 +70,42 @@ type pairResponse struct {
 
 // Handlers serves pairing and client management.
 type Handlers struct {
-	pairing           Pairing
-	registry          Registry
-	streams           Streams
-	serverFingerprint string
+	pairing  Pairing
+	registry Registry
+	streams  Streams
+	access   Access
 }
 
-// New builds the handler set. serverFingerprint is the daemon's TLS identity
-// fingerprint, echoed on every minted code (see mintCodeResponse).
-func New(p Pairing, registry Registry, streams Streams, serverFingerprint string) *Handlers {
-	return &Handlers{pairing: p, registry: registry, streams: streams, serverFingerprint: serverFingerprint}
+// New builds the handler set. access supplies the daemon's TLS identity
+// fingerprint and addresses, echoed on every minted code (see mintCodeResponse).
+func New(p Pairing, registry Registry, streams Streams, access Access) *Handlers {
+	return &Handlers{pairing: p, registry: registry, streams: streams, access: access}
 }
 
-// MintCode issues a fresh pairing code. It refuses TLS callers: minting only over
-// the unix socket or a loopback dev bind is what lets a network redeem trust it.
+// MintCode issues a fresh pairing code. It is a guarded route: the local socket
+// is trusted by its permissions and a TLS caller by its bearer, so only an
+// already-trusted caller can let another device in.
 func (h *Handlers) MintCode(c *gin.Context) {
-	if c.Request.TLS != nil {
-		libs.WriteErr(c, http.StatusForbidden, "pairing codes can only be minted over the local socket")
+	st := h.access.Status()
+	// A closed listener leaves no way to redeem the code and no address to show.
+	if !st.Enabled {
+		libs.WriteErr(c, http.StatusConflict, "device connections are off, so no device can reach this "+
+			"daemon to pair: turn on Allow device connections in Settings, or serve it on a non-loopback tcp:// address")
 		return
 	}
-	// Only a network-exposed daemon serves TLS, so only it has a fingerprint.
-	if h.serverFingerprint == "" {
-		libs.WriteErr(c, http.StatusConflict, "this daemon is not network-exposed, so no client can reach it "+
-			"to pair: serve it on a non-loopback tcp:// address")
-		return
-	}
-	code, err := h.pairing.Mint(time.Now())
+	now := time.Now()
+	code, err := h.pairing.Mint(now)
 	if err != nil {
 		libs.WriteErr(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	libs.WriteQueryOK(c, mintCodeResponse{Code: code, ServerFingerprint: h.serverFingerprint})
+	if by, remote := libs.PairedClientFrom(c); remote {
+		slog.Info("pairing: code minted over TLS", "component", "pairing", "client", by.ID, "name", by.Name)
+	}
+	libs.WriteQueryOK(c, mintCodeResponse{
+		Code: code, ServerFingerprint: st.Fingerprint, Addresses: st.Reachable,
+		ExpiresAt: now.Add(pairing.CodeTTL).UTC().Format(time.RFC3339),
+	})
 }
 
 // Pair redeems a pairing code for a bearer token.

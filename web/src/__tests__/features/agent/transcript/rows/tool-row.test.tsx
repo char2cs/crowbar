@@ -157,6 +157,26 @@ describe('ToolRow', () => {
     expect(screen.getByTestId('agent-tool-diff')).toBeInTheDocument()
   })
 
+  it('says an opened edit’s diff is a preview, and keeps its unreliable count off the hover', () => {
+    const l = ledger()
+    const cut = {
+      ...l.row('tool_call', edit(`@@ -0,0 +1,2 @@\n${lines(2)}`), { turnId: 'turn-1' }),
+    }
+    seed([{ ...cut, trimmed: ['diff'] }])
+    draw('t:tool-1')
+    fireEvent.click(screen.getByRole('button', { name: 'Show tool details' }))
+    expect(screen.getByRole('button', { name: 'Show full diff' })).toBeInTheDocument()
+    expect(screen.getByTestId('agent-tool-label').closest('[title]')).toBeNull()
+  })
+
+  it('shows no preview note on a diff that came whole', () => {
+    const l = ledger()
+    seed([l.row('tool_call', edit(`@@ -0,0 +1,2 @@\n${lines(2)}`), { turnId: 'turn-1' })])
+    draw('t:tool-1')
+    fireEvent.click(screen.getByRole('button', { name: 'Show tool details' }))
+    expect(screen.queryByText(/Preview only/)).toBeNull()
+  })
+
   it('keeps a finished call’s output behind its chevron, colour codes stripped', () => {
     const l = ledger()
     const call = { toolId: 'tool-1', name: 'Bash', kind: 'execute', target: 'ls' }

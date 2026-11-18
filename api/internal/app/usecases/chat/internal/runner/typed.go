@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/promptsigil"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
@@ -17,10 +18,9 @@ import (
 // record it: the ordinary path delivers it instead.
 var errNotTypeable = errors.New("agent: type: the chat is not idle for typing")
 
-// submitPromptTyped pastes text into live's own composer when the descriptor
-// declares typing and the CLI is idle at an empty input box, so whatever it
-// runs in the background survives. handled=false leaves the ordinary path to decide.
-// The paste waits on park, which a stop cancels: a CLI that never reads it holds no lock past a Stop.
+// submitPromptTyped types text into live's own composer when the descriptor
+// declares typing and the CLI is idle at an empty box, keeping its background work.
+// handled=false leaves the ordinary path to decide; a Stop cancels park, ending the typing.
 func (rs *Runners) submitPromptTyped(
 	ctx, park context.Context,
 	chat domain.Chat,
@@ -51,7 +51,7 @@ func (rs *Runners) submitPromptTyped(
 	}
 	in := typedPrompt{requestID: clientRequestID, text: text, dispatch: dispatch, live: live, descriptor: descriptor}
 	var handled bool
-	// In turn order from the gate to the paste: no turn opens on the CLI meanwhile.
+	// In turn order from the gate to the typing: no turn opens on the CLI meanwhile.
 	rs.live.inTurnOrder(chat.ID, func() {
 		handled, err = rs.typeLocked(ctx, park, chat.ID, screens, in)
 	})
@@ -88,7 +88,7 @@ type typedPrompt struct {
 	descriptor                engineagents.Agent
 }
 
-// typeLocked is the gate's turn-ordered half, then the record and the paste:
+// typeLocked is the gate's turn-ordered half, then the record and the typing:
 // handled=false records nothing.
 func (rs *Runners) typeLocked(
 	ctx, park context.Context, chatID string, screens engineterminal.ScreenStateReader, in typedPrompt,
@@ -99,11 +99,11 @@ func (rs *Runners) typeLocked(
 	if !composerReady(screens, in.live.TerminalSession, in.descriptor) {
 		return false, nil
 	}
-	var payload []byte
+	var writes [][]byte
 	note, err := rs.recordPrompt(ctx, chatID, in.requestID, in.text, in.dispatch, ledger.DeliveryType, in.live.ID,
 		func(st ledger.State) error {
 			var ok bool
-			payload, ok = in.descriptor.PromptTypeBytes(st.MoveNote() + in.dispatch)
+			writes, ok = in.descriptor.PromptTypeWrites(st.MoveNote() + in.dispatch)
 			return requireTypeable(st, ok)
 		})
 	if errors.Is(err, errNotTypeable) {
@@ -115,13 +115,41 @@ func (rs *Runners) typeLocked(
 	if note != "" {
 		rs.agents.RecordInjection(in.live.ID, strings.TrimSpace(note))
 	}
-	if err := rs.term.Write(park, in.live.TerminalSession, payload); err != nil {
-		return true, rs.failPrompt(ctx, chatID, in.requestID, typeFailure(ctx, err))
+	if err := rs.typeWrites(park, in, writes); err != nil {
+		return true, rs.failPrompt(ctx, chatID, in.requestID, typeFailure(ctx, park, err))
 	}
 	return true, nil
 }
 
-// composerReady reports whether sessionID's screen takes a paste into an empty
+// typeWrites sends writes in order, the descriptor's interval apart: a CLI reads a
+// burst as a paste and rewrites it, so the words must arrive as keystrokes.
+func (rs *Runners) typeWrites(park context.Context, in typedPrompt, writes [][]byte) error {
+	typing, _ := in.descriptor.PromptType()
+	for i, w := range writes {
+		if i > 0 {
+			if err := rs.pause(park, typing.ChunkInterval); err != nil {
+				return err
+			}
+		}
+		if err := rs.term.Write(park, in.live.TerminalSession, w); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func pauseFor(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("pause: %w", ctx.Err())
+	}
+}
+
+// composerReady reports whether sessionID's screen takes text into an empty
 // composer; a screen it cannot read does not.
 func composerReady(screens engineterminal.ScreenStateReader, sessionID string, descriptor engineagents.Agent) bool {
 	state, err := screens.ScreenState(sessionID)
@@ -142,9 +170,13 @@ func requireTypeable(st ledger.State, typeable bool) error {
 	return nil
 }
 
-// typeFailure is what a failed paste tells the client: a PTY that is gone took
-// nothing; a write that failed part way may have left text in the box.
-func typeFailure(ctx context.Context, err error) error {
+// typeFailure is what a failed typing tells the client: a PTY that is gone took
+// nothing; a write that failed part way may have left text in the box. A Stop
+// that cut the typing short is the stop's: the CLI ends with it.
+func typeFailure(ctx, park context.Context, err error) error {
+	if stopped := parkErr(park, err); errors.Is(stopped, ErrStopped) {
+		return stopped
+	}
 	if errors.Is(err, engineterminal.ErrSessionNotFound) {
 		return fmt.Errorf("agent: submit prompt: type: %w", ErrPromptSessionUnavailable)
 	}

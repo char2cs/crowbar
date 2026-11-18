@@ -6,6 +6,7 @@ import {
   pairingFailureText,
   redeemPairingCode,
 } from '@/features/hosts/lib/pairing'
+import { localDaemonFingerprint } from '@/features/hosts/lib/device-access'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 
 type PairingStage = 'address' | 'fingerprint' | 'code'
@@ -99,7 +100,12 @@ export function usePairingFlow({
     setPending('probe')
     try {
       const fp = await probeRemoteFingerprint(target)
-      const paired = alreadyPairedReason(useHostConfigStore.getState().hosts, target, fp)
+      const paired = alreadyPairedReason(
+        useHostConfigStore.getState().hosts,
+        target,
+        fp,
+        await localDaemonFingerprint(),
+      )
       if (paired) {
         setError(paired)
         return

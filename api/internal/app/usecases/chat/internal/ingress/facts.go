@@ -66,6 +66,7 @@ func mapChunk(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope
 		if turnID, ok = turnFor(st, src, scope, d.TurnID); !ok {
 			return nil, Effects{}, errNoTurn
 		}
+		turnID = endedReplyOf(st, scope, turnID, d)
 		reply = joinedReply(st, scope, turnID, d)
 	}
 	row, err := ledger.NewRow(ledger.KindAssistantText, turnID, scope, ledger.AssistantText{
@@ -79,6 +80,19 @@ func mapChunk(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope
 		Index: d.Index, Numbered: true, Text: d.Text,
 	}
 	return []ledger.Row{row}, Effects{Live: live}, nil
+}
+
+// endedReplyOf is the turn a message first seen on turnID belongs to: the one
+// before it when the message is the reply that turn's end recorded, which the
+// CLI's next turn may have opened over before the message was handled.
+func endedReplyOf(st ledger.State, scope, turnID string, d *engineagents.MessageDelta) string {
+	if scope != "" || d.Index != 0 {
+		return turnID
+	}
+	if prev, reply, ok := st.ReplyBefore(turnID); ok && ledger.Related(d.Text, reply) {
+		return prev
+	}
+	return turnID
 }
 
 // joinedReply is the reply of turnID a message it began after closing joins.

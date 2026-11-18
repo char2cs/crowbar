@@ -1,6 +1,7 @@
 package stream
 
 import (
+	"context"
 	"encoding/json"
 
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
@@ -123,4 +124,23 @@ type Request struct {
 	Op    string `json:"op"`
 	Scope string `json:"scope"`
 	Since int64  `json:"since,omitempty"`
+	// Bytes bounds a chat scope's replay by wire size, alongside a negative
+	// Since's rows, and sends its rows as previews. 0 is the whole rows window.
+	Bytes int64 `json:"bytes,omitempty"`
+}
+
+type windowBytesKey struct{}
+
+// WithWindowBytes is ctx carrying the Bytes of the request a source attaches for.
+func WithWindowBytes(ctx context.Context, n int64) context.Context {
+	if n <= 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, windowBytesKey{}, n)
+}
+
+// WindowBytes is the Bytes of the request ctx attaches for; 0 for none.
+func WindowBytes(ctx context.Context) int64 {
+	n, _ := ctx.Value(windowBytesKey{}).(int64)
+	return n
 }

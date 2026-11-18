@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import {
   createMemoryHistory,
@@ -12,6 +12,13 @@ import { ShellLanding } from '@/components/layout/shell-landing'
 import { useProjectStore } from '@/core/entities/active-project'
 import { startStream } from '@/core/stream/stream'
 import { reportMigrating, resetConnectionState } from '@/lib/ws/connection-store'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import * as localDaemon from '@/features/hosts/lib/local-daemon'
+import {
+  resetWindowPaneStoreForTests,
+  windowPaneStore,
+} from '@/features/panes/stores/window-pane-store'
+import { seedChatPaneRecord } from '@/__tests__/__fixtures__/view-state'
 import { projectDTO, resetEntities, seedProjects } from '@/__tests__/__fixtures__/sidebar-entities'
 
 const socket = vi.hoisted(() => ({
@@ -40,6 +47,11 @@ const reconnect = () =>
     socket.drop()
     socket.deliver({ t: 'ready', epoch: 'e1' })
   })
+
+// Which chats the last run's placements vouch for is host-placements' business, not the landing's.
+vi.mock('@/lib/host-resolve-cached', () => ({
+  isChatRecalled: (chatId: string) => chatId === 'c-recalled',
+}))
 
 // The daemon's boot gate refuses every route but health while it migrates.
 const MIGRATING = 'Crowbar is upgrading its data (step 5 of 7: chat-providers-from-history)'
@@ -153,5 +165,37 @@ describe('the landing', () => {
       socket.deliver({ t: 'synced', scope: 'projects' })
     })
     expect(await screen.findByText('project home proj-1')).toBeTruthy()
+  })
+})
+
+describe('the landing of a phone with a paired host that has not listed', () => {
+  const WAITING = /Waiting for your hosts to list their projects/
+
+  beforeEach(() => {
+    vi.spyOn(localDaemon, 'hasLocalDaemon').mockReturnValue(false)
+    useHostConfigStore.setState({
+      hosts: [
+        { id: 'h1', name: 'rig', endpoint: 'h1:3737', pairedFingerprint: 'ff', clientId: 'c' },
+      ],
+    })
+    resetWindowPaneStoreForTests()
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+    useHostConfigStore.setState({ hosts: [] })
+    resetWindowPaneStoreForTests()
+  })
+
+  it('says it waits for the hosts when no chat is open', async () => {
+    renderLanding()
+    expect(await screen.findByText(WAITING)).toBeTruthy()
+  })
+
+  // The chat is already on screen from the last run's placement; the panel is for the empty stage.
+  it('does not stack the waiting panel under a chat recalled from the last run', async () => {
+    seedChatPaneRecord(windowPaneStore, 'pane-1', 'c-recalled', null)
+    renderLanding()
+    await act(async () => {})
+    expect(screen.queryByText(WAITING)).toBeNull()
   })
 })

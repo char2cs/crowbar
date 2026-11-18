@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,8 +20,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/pairing/handlers"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/pairing"
+	"github.com/char2cs/crowbar/api/internal/core/exposure"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -30,6 +33,17 @@ func TestMain(m *testing.M) {
 }
 
 const testFingerprint = "SHA256:aaaa bbbb cccc dddd eeee ffff"
+
+// fakeAccess is the device listener's state a mint reads.
+type fakeAccess struct{ st exposure.Status }
+
+func (f fakeAccess) Status() exposure.Status { return f.st }
+
+func listening() fakeAccess {
+	return fakeAccess{st: exposure.Status{
+		Enabled: true, Fingerprint: testFingerprint, Reachable: []string{"192.168.1.20:3737"},
+	}}
+}
 
 type fakePairing struct {
 	mintCode   string
@@ -109,7 +123,7 @@ func newTestRouter(pairingUC *fakePairing, registry *fakeRegistry) *gin.Engine {
 
 func newTestRouterWithStreams(pairingUC *fakePairing, registry *fakeRegistry, streams *fakeStreams) *gin.Engine {
 	r := gin.New()
-	h := handlers.New(pairingUC, registry, streams, testFingerprint)
+	h := handlers.New(pairingUC, registry, streams, listening())
 	r.POST("/pair/code", h.MintCode)
 	r.POST("/pair", h.Pair)
 	r.GET("/clients", h.ListClients)
@@ -126,12 +140,18 @@ func TestMintCode_ReturnsCode(t *testing.T) {
 
 	var body struct {
 		Data struct {
-			Code              string `json:"code"`
-			ServerFingerprint string `json:"serverFingerprint"`
+			Code              string   `json:"code"`
+			ServerFingerprint string   `json:"serverFingerprint"`
+			Addresses         []string `json:"addresses"`
+			ExpiresAt         string   `json:"expiresAt"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	assert.Equal(t, "123456", body.Data.Code)
+	assert.Equal(t, []string{"192.168.1.20:3737"}, body.Data.Addresses)
+	expires, err := time.Parse(time.RFC3339, body.Data.ExpiresAt)
+	require.NoError(t, err)
+	assert.WithinDuration(t, time.Now().Add(pairing.CodeTTL), expires, time.Minute)
 	assert.Equal(t, testFingerprint, body.Data.ServerFingerprint,
 		"the minted code must carry the daemon's fingerprint for the human trust-on-first-connect check")
 }
@@ -144,16 +164,36 @@ func TestMintCode_MintError_Returns500(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-// TestMintCode_OverTLS_Returns403 pins that minting must be refused for any
-// request that arrived over TLS — only a plaintext (unix socket / loopback
-// dev TCP) caller may mint.
-func TestMintCode_OverTLS_Returns403(t *testing.T) {
+// A paired device reaches this route over TLS, past the bearer guard the router
+// puts in front of it, so it can add another device from the remote's own UI.
+func TestMintCode_OverTLS_Mints(t *testing.T) {
 	r := newTestRouter(&fakePairing{mintCode: "123456"}, &fakeRegistry{})
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/pair/code", nil)
 	req.TLS = &tls.ConnectionState{}
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
-	assert.Equal(t, http.StatusForbidden, rec.Code, "expected 403 for a mint request over TLS")
+	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+}
+
+// A code minted over TLS names the device that asked, so the owner can tell
+// who let another device in; the code itself is never logged.
+func TestRegression_MintCode_OverTLS_LogsWhoMinted(t *testing.T) {
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		libs.SetPairedClient(c, libs.PairedClient{ID: "c1", Name: "Ana's phone"})
+	})
+	r.POST("/pair/code", handlers.New(&fakePairing{mintCode: "123456"}, &fakeRegistry{}, &fakeStreams{}, listening()).MintCode)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/pair/code", nil)
+	req.TLS = &tls.ConnectionState{}
+	r.ServeHTTP(httptest.NewRecorder(), req)
+
+	assert.Contains(t, logs.String(), "client=c1")
+	assert.Contains(t, logs.String(), "Ana's phone")
+	assert.NotContains(t, logs.String(), "123456")
 }
 
 func TestPair_ValidCode_ReturnsToken(t *testing.T) {
@@ -196,20 +236,19 @@ func TestPair_InternalError_Returns500(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rec.Code, "a non-pairing-sentinel error must not be reported as an invalid code")
 }
 
-// TestRegression_MintCode_WithoutATLSIdentity_Refuses proves a daemon serving
-// no TLS (unix socket or loopback only) mints no code: no client can reach it
-// to redeem one, and it has no fingerprint for the operator to confirm.
-func TestRegression_MintCode_WithoutATLSIdentity_Refuses(t *testing.T) {
+// TestRegression_MintCode_WhileNotListening_Refuses proves a daemon whose device
+// listener is closed mints no code: no device can reach it to redeem one.
+func TestRegression_MintCode_WhileNotListening_Refuses(t *testing.T) {
 	pairingUC := &fakePairing{mintCode: "123456"}
 	r := gin.New()
-	r.POST("/pair/code", handlers.New(pairingUC, &fakeRegistry{}, &fakeStreams{}, "").MintCode)
+	r.POST("/pair/code", handlers.New(pairingUC, &fakeRegistry{}, &fakeStreams{}, fakeAccess{}).MintCode)
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/pair/code", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
-	assert.Contains(t, rec.Body.String(), "network-exposed")
+	assert.Contains(t, rec.Body.String(), "device connections are off")
 	assert.Zero(t, pairingUC.mints, "no code may be minted")
 }
 

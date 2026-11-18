@@ -16,6 +16,7 @@ import (
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/engine"
+	"github.com/char2cs/crowbar/api/internal/testutil/accessfake"
 	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
 
@@ -33,7 +34,7 @@ func TestAPI_New_HealthRoute(t *testing.T) {
 	a, err := app.New(ctx, eng, adapters, migratetest.NoPostOpen(), v0.EncodeEntity, v0.NewSidebar)
 	require.NoError(t, err)
 
-	c, err := crowbarapi.New(a, eng, nil, "", time.Minute)
+	c, err := crowbarapi.New(a, eng, nil, accessfake.Closed(), time.Minute)
 	require.NoError(t, err)
 
 	rec := httptest.NewRecorder()
@@ -59,7 +60,7 @@ func TestAPI_New_StaticFSServesAndAppCloses(t *testing.T) {
 		"index.html": {Data: []byte("<html>app</html>")},
 		"app.js":     {Data: []byte("console.log('ok')")},
 	}
-	c, err := crowbarapi.New(a, eng, staticFS, "", time.Minute)
+	c, err := crowbarapi.New(a, eng, staticFS, accessfake.Closed(), time.Minute)
 	require.NoError(t, err)
 
 	rec := httptest.NewRecorder()

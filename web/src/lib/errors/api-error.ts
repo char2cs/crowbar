@@ -2,6 +2,7 @@ import type { Problem, ProblemCode } from '@/lib/errors/problem'
 
 const CATEGORY_BY_STATUS: Record<number, ProblemCode> = {
   400: 'invalid_argument',
+  401: 'unauthorized',
   403: 'forbidden',
   404: 'not_found',
   409: 'conflict',

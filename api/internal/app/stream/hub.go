@@ -241,6 +241,7 @@ func (h *Hub) sub(ctx context.Context, c *connection, req stream.Request) {
 		refuse(c, name, err)
 		return
 	}
+	ctx = stream.WithWindowBytes(ctx, req.Bytes)
 	var held bool
 	switch s := src.(type) {
 	case unordered:

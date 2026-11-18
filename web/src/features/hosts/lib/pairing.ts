@@ -21,13 +21,18 @@ export async function redeemPairingCode(
   })
 }
 
-/** Why a host at `endpoint` presenting `fingerprint` can't be paired: a configured host is it
- *  already. Null when none is. `endpoint` is canonical (`normalizeEndpoint`), as saved ones are. */
+/** Why a host at `endpoint` presenting `fingerprint` can't be paired: this computer's own daemon
+ *  (`localFingerprint`, '' when it has none) is Local already, and so is a configured host. Null
+ *  when none is. `endpoint` is canonical (`normalizeEndpoint`), as saved ones are. */
 export function alreadyPairedReason(
   hosts: readonly Host[],
   endpoint: string,
   fingerprint: string,
+  localFingerprint = '',
 ): string | null {
+  if (fingerprint !== '' && fingerprint === localFingerprint) {
+    return 'This is this computer, already shown as Local. There is nothing to pair.'
+  }
   const remedy = 'Remove it in Settings → Hosts to pair it again.'
   const atAddress = hosts.find((host) => host.endpoint === endpoint)
   if (atAddress) return `This address is already paired as ${atAddress.name}. ${remedy}`
@@ -51,10 +56,10 @@ export function pairingFailureText(err: unknown, address: string, name: string):
   const refused = REFUSED.exec(text)
   // A wrong code and an expired one get the same 401: the host does not say which.
   if (refused?.[1] === '401') {
-    return 'That code didn’t work. It may be mistyped or expired — the host doesn’t say which. Check it, or run crowbar pair on the host again for a new one.'
+    return 'That code didn’t work. It may be mistyped or expired — the host doesn’t say which. Check it, or get a new one in Settings → Devices on the host (or run crowbar pair on a headless host).'
   }
   if (refused?.[1] === '429') {
-    return 'Too many attempts — wait a minute, or run crowbar pair on the host for a new code.'
+    return 'Too many attempts — wait a minute, then get a new code in Settings → Devices on the host (or run crowbar pair on a headless host).'
   }
   if (refused) return `${address} refused pairing: ${refused[2]}.`
   if (text.includes('identity changed')) {
@@ -70,7 +75,7 @@ export function pairingFailureText(err: unknown, address: string, name: string):
   if (NOT_CROWBAR.test(text)) {
     return `${address} answered, but not as a Crowbar host. Check the address and port.`
   }
-  return `Couldn’t pair with ${name}. Try again, or run crowbar pair on the host for a new code.`
+  return `Couldn’t pair with ${name}. Try again with a new code from Settings → Devices on the host (or run crowbar pair on a headless host).`
 }
 
 /** The code was spent and the key never saved: the keychain, not the code, is what to fix. */

@@ -36,6 +36,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/hookserver"
 	"github.com/char2cs/crowbar/api/internal/engine"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
+	"github.com/char2cs/crowbar/api/internal/testutil/accessfake"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -136,7 +137,7 @@ func newHarness(t *testing.T) *harness {
 	// restores it rather than reading it after the fact.
 	mcp := newMCPBarrier()
 	router.Use(mcp.middleware())
-	apiContainer := v0.New(appContainer, eng, "")
+	apiContainer := v0.New(appContainer, eng, accessfake.Closed())
 	apiContainer.Register(router.Group("/v0"))
 
 	ln, err := transports.NewSocket("unix://")

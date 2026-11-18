@@ -153,7 +153,13 @@ function claim(
 function resume(fold: FeedFold, scope: string) {
   const card = cardOf(fold, scope)
   if (!card || !EDGES[card.status]?.includes('running')) return
-  putCard(fold, { ...card, status: 'running', endedAt: undefined, result: undefined })
+  putCard(fold, {
+    ...card,
+    status: 'running',
+    endedAt: undefined,
+    result: undefined,
+    fullSeq: undefined,
+  })
 }
 
 function finish(fold: FeedFold, row: LedgerRow<'subagent'>) {
@@ -169,6 +175,7 @@ function finish(fold: FeedFold, row: LedgerRow<'subagent'>) {
     status: moved ? to : card.status,
     endedAt: moved ? row.at : card.endedAt,
     result: card.result || result,
+    fullSeq: card.result ? card.fullSeq : row.trimmed?.includes('result') ? row.seq : undefined,
     usage: card.usage ?? usage,
   })
 }
@@ -225,6 +232,7 @@ export const applyReasoning: Apply<'reasoning'> = (fold, row) => {
     turnId: row.turnId,
     at: row.at,
     text,
+    fullSeq: row.trimmed?.includes('text') ? row.seq : undefined,
     startedAt: running && running.turnId === row.turnId ? running.startedAt : row.at,
     endedAt: row.at,
   }

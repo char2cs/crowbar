@@ -20,6 +20,17 @@ export class ItemMap {
   get = (id: string) => this.buckets[bucketOf(id)]!.get(id)
   has = (id: string) => this.buckets[bucketOf(id)]!.has(id)
 
+  /** Every item, for a snapshot to keep; `ItemMap.of` is its inverse. */
+  all(): TranscriptItem[] {
+    return this.buckets.flatMap((bucket) => [...bucket.values()])
+  }
+
+  static of(items: readonly TranscriptItem[]): ItemMap {
+    const draft = ItemMap.empty.edit()
+    for (const item of items) draft.set(item)
+    return draft.finish()
+  }
+
   /** `finish` is the edited map (this one when nothing was written); a replay
    *  writes on after it, into the map it gave. */
   edit() {

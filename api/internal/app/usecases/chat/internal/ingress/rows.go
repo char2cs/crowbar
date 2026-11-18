@@ -1,8 +1,6 @@
 package ingress
 
 import (
-	"github.com/google/uuid"
-
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -232,75 +230,6 @@ func mapPrompt(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]l
 	return openProviderTurn(st, ev.TurnID, src)
 }
 
-// openProviderTurn is the turn the provider started as providerTurnID, unless
-// none may start on src's runner or it was already recorded.
-func openProviderTurn(st ledger.State, providerTurnID string, src Source) ([]ledger.Row, error) {
-	if !src.Held || !startsOn(st, src.RunnerID) {
-		return nil, nil
-	}
-	if _, seen := st.ProviderTurn(providerTurnID); seen {
-		return nil, nil
-	}
-	rows, err := ledger.EndTurn(st, ledger.TurnStatusDone, ledger.ReasonSuperseded)
-	if err != nil {
-		return nil, err
-	}
-	started := ledger.TurnStarted{
-		ProviderTurnID: providerTurnID, RunnerID: src.RunnerID, Provider: src.Provider,
-		SessionID: src.SessionID, Persists: src.Persists,
-	}
-	opened, err := openRows(st, started, src)
-	return append(rows, opened...), err
-}
-
-// openRows start the turn the prompt opens: on the oldest pending Crowbar
-// prompt its runner carries when the words are that prompt's, or when the
-// provider echoed none.
-func openRows(st ledger.State, started ledger.TurnStarted, src Source) ([]ledger.Row, error) {
-	wordless := src.Prompt.Text == ""
-	switch src.Prompt.Origin {
-	case "":
-		return bareTurn(started)
-	case ledger.OriginProvider:
-		for _, p := range st.PendingPrompts() {
-			if (!wordless && p.Text != src.Prompt.Text) || (p.RunnerID != "" && p.RunnerID != src.RunnerID) {
-				continue
-			}
-			started.RequestID = p.RequestID
-			row, err := ledger.NewRow(ledger.KindTurnStarted, p.TurnID, "", started)
-			return []ledger.Row{row}, err
-		}
-		if wordless {
-			return bareTurn(started)
-		}
-		overtaken, err := ledger.SettleOvertaken(st, src.RunnerID)
-		if err != nil {
-			return nil, err
-		}
-		opened, err := providerPromptTurn(started, src)
-		return append(overtaken, opened...), err
-	}
-	return providerPromptTurn(started, src)
-}
-
-// providerPromptTurn is a turn on words no Crowbar prompt sent: their own
-// user_message, then the turn.
-func providerPromptTurn(started ledger.TurnStarted, src Source) ([]ledger.Row, error) {
-	turnID := uuid.NewString()
-	msg, err := ledger.NewRow(ledger.KindUserMessage, turnID, "",
-		ledger.UserMessage{Text: src.Prompt.Text, Origin: src.Prompt.Origin})
-	if err != nil {
-		return nil, err
-	}
-	row, err := ledger.NewRow(ledger.KindTurnStarted, turnID, "", started)
-	return []ledger.Row{msg, row}, err
-}
-
-func bareTurn(started ledger.TurnStarted) ([]ledger.Row, error) {
-	row, err := ledger.NewRow(ledger.KindTurnStarted, uuid.NewString(), "", started)
-	return []ledger.Row{row}, err
-}
-
 // stopStatus is how a turn_stop's provider status ended its turn: anything but
 // a completed turn did not finish its work.
 func stopStatus(providerStatus string) ledger.TurnStatus {
@@ -338,7 +267,7 @@ func mapStop(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]led
 	}
 	end := ledger.TurnEnded{
 		Status: string(stopStatus(ev.TurnStatus)), Effort: ev.Effort,
-		Diff: lastText(src.Live.Diff, ""),
+		Diff: lastText(src.Live.Diff, ""), ProviderTurnID: ev.TurnID,
 	}
 	turnID, ended, closes, err := ledger.EndTurnOf(st, src.RunnerID, ev.TurnID, end)
 	if err != nil {

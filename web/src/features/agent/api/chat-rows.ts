@@ -10,6 +10,8 @@ export interface LedgerRow<K extends RowKind = RowKind> {
   scope?: string
   at: string
   body: RowBodies[K]
+  /** Body fields a replay cut short; the row whole is `GET .../rows/:seq`. */
+  trimmed?: string[]
 }
 
 export type RowKind = keyof RowBodies

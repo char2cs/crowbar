@@ -63,6 +63,20 @@ describe('nextToSend', () => {
     expect(nextToSend([item('a', { steer: true })], running(), false)?.requestId).toBe('a')
   })
 
+  it('queues a steerable prompt behind prompts already steered, never behind another delivery', () => {
+    const l = ledger()
+    const steered = applyRows(emptyFeed(), [
+      l.prompt('r0', 'earlier'),
+      l.start('turn-1', 'r0'),
+      l.steer('s1', 'then this', 'turn-s1'),
+    ])
+    expect(nextToSend([item('a', { steer: true })], steered, false)?.requestId).toBe('a')
+    expect(nextToSend([item('a')], steered, false)).toBeUndefined()
+
+    const typed = applyRows(emptyFeed(), [ledger().delivered('t1', 'typed', 'type')])
+    expect(nextToSend([item('a', { steer: true })], typed, false)).toBeUndefined()
+  })
+
   it('never steers into the turn Stop was pressed on: the prompt is the next turn', () => {
     const feed = running()
     const stopping = { ...feed, facts: { ...feed.facts, stopping: 'turn-1' } }

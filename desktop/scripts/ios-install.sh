@@ -204,7 +204,7 @@ do_device() {
   cat <<EOF
 
 Next steps
-  1. Install Tailscale on the phone and sign in to the same tailnet as this Mac.
+  1. In the desktop app: Settings > Devices > Allow device connections, then Add a device, and pair from the phone.
   2. A free Apple ID profile expires after 7 days; re-run 'make ios-device' to reinstall.
 EOF
 }

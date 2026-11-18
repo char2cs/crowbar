@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { createElement } from 'react'
 import { beforeEach, vi } from 'vitest'
+import { cacheReadsSettled, emptyFeedCache } from '@/__tests__/__fixtures__/feed-cache-reads'
 import { nanoid } from 'nanoid'
 import { useStore } from 'zustand'
 import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
@@ -279,6 +280,8 @@ export async function renderPane(store: Store, paneId: string) {
       ),
     )
   })
+  // A fresh feed reads its cache before it holds its scope, so the feed settles a turn later.
+  await cacheReadsSettled()
 }
 
 export function typeAndSend(text: string) {
@@ -309,6 +312,7 @@ function resetPaneHarness() {
   // DOCUMENT surface — writing size, no pill under it — so a pane test about the
   // composer, the queue or the switcher has to start from a conversation for its
   // subject to be on screen at all.
+  emptyFeedCache()
   seedFeed('c1', spokenIn('c1'))
   submitPromptFn.mockResolvedValue({ runnerId: 'r-prompt', terminalSessionId: 'pty-prompt' })
   slashCatalogFn.mockResolvedValue({

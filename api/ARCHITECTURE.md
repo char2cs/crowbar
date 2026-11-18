@@ -50,9 +50,12 @@ Process-level plumbing with no domain knowledge:
 - `bootgate` — the HTTP gate that answers health and refuses everything else
   until the real API is opened.
 - `metadata` (name, version), `paths/worktreepath`, `config`, `gateway` (the
-  socket at the address `home` names, or `tcp://` — plaintext on loopback for
-  dev; a non-loopback bind terminates TLS and also binds the unix socket so
-  `crowbar pair` works on the daemon's own host), `ipc` (the socket
+  local listener: the socket at the address `home` names, or plaintext loopback
+  `tcp://` for dev), `exposure` (the one TLS listener other devices reach the
+  daemon on: opened and closed at runtime through `/v0/access`, the owner's choice
+  saved in `<home>/network.json`, or opened at start by a non-loopback `serve
+  --host tcp://`; it never replaces the unix socket, which the daemon's own
+  callbacks and `crowbar pair` dial), `ipc` (the socket
   client the in-PTY callbacks use), `terminal` (the PTY session engine — spawn,
   resize, screen model, reap), `shellenv`/`binpath` (login-shell PATH and CLI
   lookup for a GUI-launched daemon), `safego` (panic-safe goroutines).

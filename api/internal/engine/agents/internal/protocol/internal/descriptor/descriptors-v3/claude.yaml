@@ -451,14 +451,17 @@ presentation:
       skip_prefixes: ["/", "!"]
       frame: "Message from the user, typed while you were working (Crowbar hands it to you through this hook):\n\n{message}\n\nReply to it as their next message."
       reply: '{"decision":"block","reason":{message_json}}'
-    # Idle prompts are pasted into the composer, not restarted. `/` and `!` stay
-    # commands under paste, so they restart. The prompt glyph is followed by a
-    # NO-BREAK space (U+00A0): a plain space never matches the screen. A
-    # suggestion after the cursor is faint (2.1.325); a draft behind it is not.
+    # Idle prompts are typed as keys in small chunks (the TUI rewrites a bracketed
+    # paste), so `/` and `!` stay commands and restart. The prompt glyph is followed
+    # by a NO-BREAK space (U+00A0); a suggestion after the cursor is faint.
     type:
-      paste: bracketed
+      input: keys
+      chunk_bytes: 256
+      chunk_interval_ms: 10
       submit: "\r"
       skip_prefixes: ["/", "!"]
+      # Enter after a trailing backslash is a line continuation, not a submit (measured 2.1.327).
+      skip_suffixes: ["\\"]
       composer:
         row_prefix: "❯ "
         ghost: faint
