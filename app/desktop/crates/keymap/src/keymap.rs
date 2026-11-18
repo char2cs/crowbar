@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use protocol::{CommandId, KeyBinding, KeyChord};
 
+use crate::project_slot::project_bindings;
 use crate::shell_command::ShellCommand;
-use crate::shell_keys::project_bindings;
 use chord::Keystroke;
 
 /// The chords bound to shell commands: the defaults with the user's overrides applied.

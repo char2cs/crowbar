@@ -1,3 +1,6 @@
+mod command_entry;
+mod table;
+
 /// A command the shell serves itself, whichever side had keyboard focus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ShellCommand {

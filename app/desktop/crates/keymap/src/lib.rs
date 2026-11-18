@@ -7,12 +7,10 @@
 //! side has focus.
 //! Chords every pane keeps for itself (editor save, zoom) are never forwarded.
 
-mod command_entry;
-mod command_table;
 mod keymap;
+mod project_slot;
 mod shell_command;
-mod shell_keys;
 
 pub use keymap::Keymap;
+pub use project_slot::{project_slot_of_command, project_slot_of_stroke};
 pub use shell_command::ShellCommand;
-pub use shell_keys::{project_slot_of_command, project_slot_of_stroke};

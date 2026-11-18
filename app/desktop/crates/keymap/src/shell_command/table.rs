@@ -1,5 +1,5 @@
-use crate::command_entry::CommandEntry;
 use crate::shell_command::ShellCommand;
+use crate::shell_command::command_entry::CommandEntry;
 
 const fn entry(
     command: ShellCommand,
