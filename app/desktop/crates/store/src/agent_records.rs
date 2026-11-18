@@ -1,11 +1,11 @@
 //! The Agents page's list, from the daemon's providers.
 
+use daemonapi::Switch;
 use serde_json::{Value, json};
 use settings::{Line, Record, RecordFlag, Tone};
 
 use crate::artwork;
 use crate::provider::Provider;
-use crate::switch::Switch;
 
 pub(crate) const CONNECTED: &str = "connected";
 pub(crate) const TOOLS: &str = "mcp";
@@ -72,7 +72,7 @@ pub(crate) fn preferences(providers: &[Provider]) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::switch::Switch;
+    use daemonapi::Switch;
 
     fn provider(
         id: &str,

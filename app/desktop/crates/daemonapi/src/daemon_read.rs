@@ -7,7 +7,13 @@ use crate::daemon_client::DaemonClient;
 use crate::error::Result;
 use crate::typed::typed;
 
-pub(crate) async fn read<T: DeserializeOwned>(
+/// Gets `path` through `client` and returns the answer's `data` as the type the route promises.
+///
+/// # Errors
+///
+/// `Error::Request`, `Error::Refused` or `Error::Body` when the request fails, as in
+/// [`DaemonClient::send`], and `Error::Json` when the `data` is not a `T`.
+pub async fn read<T: DeserializeOwned>(
     client: &DaemonClient,
     path: String,
 ) -> Result<T> {
@@ -17,12 +23,19 @@ pub(crate) async fn read<T: DeserializeOwned>(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use protocol::HostId;
+
     use super::*;
-    use crate::test_support::state;
+    use crate::test_support::FakeDaemon;
 
     async fn readable(body: &str) -> bool {
-        let (state, daemon) = state();
-        let client = state.hosts[0].client.clone();
+        let daemon = FakeDaemon::shared();
+        let client = DaemonClient::new(
+            Arc::<FakeDaemon>::clone(&daemon),
+            HostId::new("local").unwrap(),
+        );
         daemon.ok("GET", "/v0/route", body);
         read::<Vec<String>>(&client, "/v0/route".into())
             .await

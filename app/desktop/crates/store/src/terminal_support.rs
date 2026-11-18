@@ -1,6 +1,7 @@
 //! Whether a host offers any agent that runs in a terminal.
 
-use crate::daemon_client::DaemonClient;
+use daemonapi::DaemonClient;
+
 use crate::hub::Hub;
 use crate::provider::Provider;
 use crate::providers;

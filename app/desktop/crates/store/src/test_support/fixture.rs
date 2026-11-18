@@ -1,13 +1,14 @@
+use daemonapi::{DaemonClient, Frame};
 use std::sync::Arc;
 
-use crate::daemon_client::DaemonClient;
+use protocol::HostId;
+
 use crate::entity_store::EntityStore;
-use crate::frame::Frame;
 use crate::host_slot::HostSlot;
 use crate::host_spec::HostSpec;
 use crate::state::State;
 
-use super::{FakeDaemon, local};
+use super::FakeDaemon;
 
 const ROWS: [(&str, &str, &str); 11] = [
     ("project", "p", r#"{"id":"p","name":"Demo","order":0}"#),
@@ -122,4 +123,8 @@ pub(crate) fn state_on(spec: HostSpec) -> (State, Arc<FakeDaemon>) {
         state.apply(&id, frame);
     }
     (state, daemon)
+}
+
+pub(crate) fn local() -> HostId {
+    HostId::new("local").unwrap_or_else(|error| panic!("local is a valid host id: {error}"))
 }

@@ -1,16 +1,14 @@
 //! The shared state the sidebar reads and the stream and commands write.
 
+use daemonapi::{DaemonClient, Frame, Switch};
 use std::collections::BTreeMap;
 
-use crate::daemon_client::DaemonClient;
-use crate::frame::Frame;
 use crate::host_slot::HostSlot;
 use crate::icon_cache::IconCache;
 use crate::link_state::LinkState;
 use crate::panel_state::PanelState;
 use crate::pending_row::PendingRow;
 use crate::settings_slot::SettingsSlot;
-use crate::switch::Switch;
 
 #[derive(Debug)]
 pub(crate) struct State {

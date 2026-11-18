@@ -4,20 +4,15 @@ use serde_json::json;
 use sidebar::Command;
 
 use crate::file_store::FileStore;
-use crate::landing;
-use crate::new_id;
 use crate::plan::Plan;
-use crate::plan_agent;
-use crate::plan_create;
-use crate::plan_edit;
 use crate::plan_error::PlanError;
-use crate::plan_folder;
-use crate::plan_icon;
-use crate::plan_merge;
-use crate::plan_move;
 use crate::sidebar_reads::active_project;
 use crate::state::State;
 use crate::surface::Surface;
+use crate::{
+    landing, plan_agent, plan_create, plan_edit, plan_folder, plan_icon, plan_merge, plan_move,
+};
+use daemonapi::new_id;
 
 pub(crate) fn plan(
     (state, files): (&State, &dyn FileStore),

@@ -2,7 +2,10 @@
 
 use crate::new_id;
 
-pub(crate) fn file_field(
+/// A multipart body whose `field` carries `bytes` as the file `name` of type `mime`.
+///
+/// Returns the body and its fresh boundary, as [`Call::form`](crate::Call::form) takes them.
+pub fn file_field(
     field: &str,
     (name, mime): (&str, &str),
     bytes: &[u8],

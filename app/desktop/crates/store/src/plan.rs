@@ -1,7 +1,8 @@
 //! What one sidebar command asks of the daemon.
 
+use daemonapi::Call;
+
 use crate::after::After;
-use crate::call::Call;
 use crate::pending_row::PendingRow;
 use crate::surface::Surface;
 
@@ -77,7 +78,8 @@ impl Plan {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::call::Call;
+    use daemonapi::Call;
+
     use crate::pending_row::PendingRow;
 
     #[test]

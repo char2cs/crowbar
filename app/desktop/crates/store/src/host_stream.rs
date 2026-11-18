@@ -2,23 +2,19 @@
 
 use std::sync::Arc;
 
+use daemonapi::{Connection, DaemonClient, Dial, Frame, frame::decode};
 use serde_json::json;
 use tokio::sync::mpsc;
 
 use crate::backoff::Backoff;
-use crate::changes_reload;
-use crate::connection::Connection;
-use crate::daemon_client::DaemonClient;
-use crate::dial::Dial;
 use crate::ended::Ended;
 use crate::entity_store::PROJECTS_SCOPE;
-use crate::frame::{Frame, decode};
 use crate::hub::Hub;
-use crate::icon_fetch;
 use crate::link_state::LinkState;
 use crate::step::{Step, next_step};
 use crate::stream_control::StreamControl;
 use crate::terminal_support::read_terminal_support;
+use crate::{changes_reload, icon_fetch};
 
 const RESYNC: &str = "resync";
 
@@ -199,16 +195,15 @@ mod tests {
     use tokio::sync::Notify;
 
     use super::*;
-    use crate::daemon_client::DaemonClient;
-    use crate::dial::Opening;
-    use crate::error::Error;
+    use daemonapi::{DaemonClient, Opening};
+
     use crate::host_slot::HostSlot;
     use crate::host_spec::HostSpec;
     use crate::state::State;
     use crate::test_support::{FakeDaemon, local};
 
-    fn refused_when_empty(next: Option<Connection>) -> Result<Connection, Error> {
-        next.ok_or_else(|| Error::Stream("no more connections".into()))
+    fn refused_when_empty(next: Option<Connection>) -> daemonapi::Result<Connection> {
+        next.ok_or_else(|| daemonapi::Error::Stream("no more connections".into()))
     }
 
     /// Hands out the scripted connections one per dial, then fails.

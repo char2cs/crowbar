@@ -3,9 +3,9 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use daemonapi::Call;
 use settings::{Change, Key, Value};
 
-use crate::call::Call;
 use crate::permission_key::{PERMISSION, PERMISSION_PATH};
 use crate::settings_core::{SettingsCore, locked};
 

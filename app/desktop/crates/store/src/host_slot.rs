@@ -1,6 +1,7 @@
 //! Everything the shell holds of one host.
 
-use crate::daemon_client::DaemonClient;
+use daemonapi::DaemonClient;
+
 use crate::entity_store::EntityStore;
 use crate::host_spec::HostSpec;
 use crate::link_state::LinkState;

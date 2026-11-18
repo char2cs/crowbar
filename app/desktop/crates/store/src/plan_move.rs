@@ -1,18 +1,18 @@
 //! Plans that file a row somewhere else.
 
+use daemonapi::Call;
 use serde_json::json;
 use sidebar::DropMode;
 
-use crate::call::Call;
 use crate::placement::slot_for;
 use crate::plan::Plan;
 use crate::plan_error::PlanError;
-use crate::routes;
 use crate::sidebar_reads::{active_project, host_of, tree};
 use crate::slot::Slot;
 use crate::state::State;
 use crate::target::resolve;
 use crate::target_kind::TargetKind;
+use daemonapi::routes;
 
 pub(crate) fn drop_row(
     state: &State,

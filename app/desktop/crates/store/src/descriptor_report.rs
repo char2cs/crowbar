@@ -1,9 +1,9 @@
 //! The daemon's validation of one agent descriptor.
 
+use daemonapi::Switch;
 use serde::Deserialize;
 
 use crate::descriptor_finding::DescriptorFinding;
-use crate::switch::Switch;
 
 pub(crate) const ERROR: &str = "error";
 

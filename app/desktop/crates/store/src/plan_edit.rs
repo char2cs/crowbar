@@ -1,19 +1,18 @@
 //! Plans that change or remove something that exists.
 
+use daemonapi::Call;
 use serde_json::json;
 use sidebar::ProjectId;
 
-use crate::call::Call;
 use crate::host_slot::HostSlot;
-use crate::new_id;
 use crate::pending_rows;
 use crate::plan::Plan;
 use crate::plan_error::PlanError;
-use crate::routes;
 use crate::sidebar_reads::host_of;
 use crate::state::State;
 use crate::target::{Target, resolve};
 use crate::target_kind::TargetKind;
+use daemonapi::{new_id, routes};
 
 fn locate(
     state: &State,

@@ -7,12 +7,9 @@ use sidebar::{
     RowId, ScopeSync, SpaceList,
 };
 
-use crate::files_reads;
-use crate::host_reads;
 use crate::hub::Hub;
 use crate::settings_slot::SettingsSlot;
-use crate::sidebar_reads as reads;
-use crate::space_icons;
+use crate::{files_reads, host_reads, sidebar_reads as reads, space_icons};
 
 /// What `sidebar::SidebarData` reads, answered from the entities the streams delivered.
 #[derive(Debug, Clone)]

@@ -92,6 +92,7 @@ tests/<crate>.rs         public-API tests; tests/support/ shared fakes
 | `startup` | full-screen startup and data-migration view, and `AppPhase` (what the app as a whole shows) |
 | `terminal` / `terminalview` | terminal emulation (alacritty grid, daemon frame feed, selection, search, key encoding) without GPUI, and its GPUI view |
 | `store` | daemon-backed data for the shell: sidebar entities and commands, settings and records |
+| `daemonapi` | the one typed client of a daemon's API: requests and the reply envelope, routes, the dialled event stream |
 | `keymap` | which chords the shell owns and how a key typed in a pane reaches it |
 | `chord` | the one chord notation (`mod+shift+alt+key`): parser, label, the primary modifier and the keystroke a window reports |
 | `platform` | open a link in the system browser, reveal a path, the rule for where a link may go |

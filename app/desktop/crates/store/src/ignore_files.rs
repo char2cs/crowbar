@@ -1,13 +1,13 @@
 //! Reading the `.gitignore` files that a directory listing shows.
 
-use crate::daemon_client::DaemonClient;
-use crate::daemon_read::read;
+use daemonapi::{DaemonClient, daemon_read::read};
+
 use crate::document_body::DocumentBody;
-use crate::document_route;
 use crate::file_entry::FileEntry;
 use crate::file_target;
 use crate::hub::Hub;
 use crate::listed_directory::ListedDirectory;
+use daemonapi::document_route;
 
 const IGNORE_FILE: &str = ".gitignore";
 
@@ -49,7 +49,8 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::entry_kind::EntryKind;
+    use daemonapi::EntryKind;
+
     use crate::test_support::state;
 
     fn entry(

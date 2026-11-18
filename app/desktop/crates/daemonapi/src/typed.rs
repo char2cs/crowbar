@@ -5,7 +5,14 @@ use serde_json::Value;
 
 use crate::error::{Error, Result};
 
-pub(crate) fn typed<T: DeserializeOwned>(
+/// The `data` of the answer of route `path`, read as the type `T` the route promises.
+///
+/// A `null` reads as an empty list when `T` is a list.
+///
+/// # Errors
+///
+/// [`Error::Json`] when `data` is not a `T`.
+pub fn typed<T: DeserializeOwned>(
     path: &str,
     data: Value,
 ) -> Result<T> {

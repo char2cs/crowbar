@@ -44,7 +44,8 @@ impl ChatTerminal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::frame::decode;
+    use daemonapi::frame::decode;
+
     use crate::test_support::state;
 
     #[test]

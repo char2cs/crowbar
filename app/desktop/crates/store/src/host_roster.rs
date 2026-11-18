@@ -3,11 +3,10 @@
 
 use std::sync::Arc;
 
+use daemonapi::{Call, DaemonClient};
 use tokio::runtime::Handle;
 
-use crate::call::Call;
 use crate::change_signal::ChangeSignal;
-use crate::daemon_client::DaemonClient;
 use crate::error::Error;
 use crate::fleet::Fleet;
 use crate::host_desk::HostDesk;
@@ -81,10 +80,10 @@ impl HostRoster {
         let path = format!("/v0/clients/{}", note.client_id);
         match client.send(Call::delete(path)).await {
             Ok(_) => self.forget(host).await,
-            Err(Error::Refused { status, .. }) if status == REFUSED_BY_HOST => {
+            Err(daemonapi::Error::Refused { status, .. }) if status == REFUSED_BY_HOST => {
                 self.forget(host).await;
             },
-            Err(error) => self.keep(host, &error.reason()),
+            Err(error) => self.keep(host, &Error::from(error).reason()),
         }
     }
 

@@ -5,14 +5,13 @@ use std::sync::Arc;
 
 use sidebar::{Command, Error};
 
-use crate::copy_name;
 use crate::file_session::parent_of;
-use crate::file_target;
 use crate::new_entry::NewEntry;
 use crate::panel_loader::load_directory;
 use crate::plan_error::PlanError;
 use crate::sidebar_commands::SidebarCommands;
 use crate::state::State;
+use crate::{copy_name, file_target};
 
 fn already_exists(path: &str) -> Error {
     Error::Refused {

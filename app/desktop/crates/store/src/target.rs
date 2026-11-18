@@ -3,11 +3,10 @@
 use crate::chat_record::ChatRecord;
 use crate::entity_store::EntityStore;
 use crate::plan_error::PlanError;
-use crate::scope_items;
 use crate::state::State;
 use crate::target_kind::TargetKind;
 use crate::workspace_record::WorkspaceRecord;
-use crate::workspace_view;
+use crate::{scope_items, workspace_view};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Target {

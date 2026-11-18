@@ -1,5 +1,6 @@
 //! The Active sessions and Hosts lists, read from what the streams hold.
 
+use daemonapi::Switch;
 use settings::{Confirm, Line, Record, RecordAction, Tone};
 
 use crate::chat_record::ChatRecord;
@@ -7,7 +8,6 @@ use crate::host_slot::HostSlot;
 use crate::link_state::LinkState;
 use crate::row_look::title_of;
 use crate::state::State;
-use crate::switch::Switch;
 
 pub(crate) const KILL: &str = "kill";
 pub(crate) const REVOKE: &str = "revoke";

@@ -5,13 +5,10 @@ use sidebar::{
     RowKind, ScopeSync,
 };
 
-use crate::file_rows;
 use crate::host_slot::HostSlot;
 use crate::link_state::LinkState;
-use crate::pending_rows;
-use crate::project_rows;
-use crate::space_icons;
 use crate::state::State;
+use crate::{file_rows, pending_rows, project_rows, space_icons};
 
 pub(crate) fn shown(state: &State) -> Option<&HostSlot> {
     let selected = state.selected_host.as_deref();

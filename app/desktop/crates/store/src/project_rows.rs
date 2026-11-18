@@ -3,14 +3,13 @@
 use sidebar::{Row, RowKind};
 
 use crate::entity_store::EntityStore;
-use crate::forest;
 use crate::pending_row::PendingRow;
-use crate::repo_mark;
 use crate::repo_record::RepoRecord;
 use crate::row_emitter::RowEmitter;
 use crate::row_look::{activity_of, nesting_for};
 use crate::scope_items::{self, ScopeItems};
 use crate::workspace_record::WorkspaceRecord;
+use crate::{forest, repo_mark};
 
 pub(crate) fn of(
     store: &EntityStore,
@@ -179,7 +178,7 @@ mod tests {
         ];
         let mut store = EntityStore::default();
         for text in frames {
-            store.apply(crate::frame::decode(text).unwrap());
+            store.apply(daemonapi::frame::decode(text).unwrap());
         }
         let rows = of(&store, "p", &[]);
         assert_eq!(

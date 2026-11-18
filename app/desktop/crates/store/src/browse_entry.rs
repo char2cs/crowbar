@@ -1,6 +1,6 @@
 //! One child of a directory on a host's own disk.
 
-use crate::entry_kind::EntryKind;
+use daemonapi::EntryKind;
 
 /// An entry of a listed directory.
 #[derive(Debug, Clone, PartialEq, Eq)]

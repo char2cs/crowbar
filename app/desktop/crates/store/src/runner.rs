@@ -1,17 +1,16 @@
 //! Carrying out a plan: the requests in order, the local row meanwhile, the outcome after.
 
+use daemonapi::{Call, DaemonClient};
+
 use crate::after::After;
-use crate::call::Call;
-use crate::changes_reload;
-use crate::daemon_client::DaemonClient;
 use crate::hub::Hub;
 use crate::outcome::{Outcome, OutcomeSink};
 use crate::plan::Plan;
 use crate::plan_error::PlanError;
 use crate::provider::Provider;
-use crate::providers;
 use crate::state::State;
 use crate::surface::Surface;
+use crate::{changes_reload, providers};
 
 pub(crate) async fn run(
     hub: &Hub,
@@ -72,7 +71,11 @@ async fn send(
         providers::fill(body, &provider.id);
         providers::land(body, (provider, landing));
     }
-    client.send(call).await.map(drop).map_err(PlanError::Daemon)
+    client
+        .send(call)
+        .await
+        .map(drop)
+        .map_err(|error| PlanError::Daemon(error.into()))
 }
 
 fn client_of(
@@ -131,8 +134,9 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use daemonapi::Call;
+
     use crate::after::After;
-    use crate::call::Call;
     use crate::pending_row::PendingRow;
     use crate::test_support::state;
 

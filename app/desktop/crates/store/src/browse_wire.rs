@@ -1,10 +1,9 @@
 //! A directory entry as `GET /v0/system/browse` sends it.
 
+use daemonapi::{EntryKind, Switch};
 use serde::Deserialize;
 
 use crate::browse_entry::BrowseEntry;
-use crate::entry_kind::EntryKind;
-use crate::switch::Switch;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", default)]

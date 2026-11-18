@@ -2,7 +2,7 @@
 
 use serde::Deserialize;
 
-use crate::entry_kind::EntryKind;
+use daemonapi::EntryKind;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
 #[serde(default)]

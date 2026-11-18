@@ -2,7 +2,8 @@
 
 use crate::query_encode::encode;
 
-pub(crate) fn content(
+/// The route of the content of the document at `path` in `workspace`, both percent-encoded.
+pub fn content(
     workspace: &str,
     path: &str,
 ) -> String {

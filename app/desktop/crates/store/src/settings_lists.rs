@@ -2,14 +2,12 @@
 
 use std::sync::Arc;
 
+use daemonapi::{Call, DaemonClient};
 use settings::{Error, RecordCommand, Records};
 
-use crate::agent_records;
-use crate::call::Call;
-use crate::daemon_client::DaemonClient;
-use crate::descriptor_records;
 use crate::live_records::{self, KILL, REMOVE_ANYWAY, REVOKE};
 use crate::settings_core::{AGENTS, DESCRIPTORS, HOSTS, SESSIONS, SettingsCore, locked};
+use crate::{agent_records, descriptor_records};
 
 async fn end_session(
     client: DaemonClient,

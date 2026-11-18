@@ -1,9 +1,9 @@
 //! A remote branch as the daemon lists it.
 
+use daemonapi::Switch;
 use serde::Deserialize;
 
 use crate::availability::Availability;
-use crate::switch::Switch;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]

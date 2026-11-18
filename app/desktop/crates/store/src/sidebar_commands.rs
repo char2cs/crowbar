@@ -8,16 +8,12 @@ use tokio::runtime::Handle;
 use crate::file_store::FileStore;
 use crate::fleet::Fleet;
 use crate::hub::Hub;
-use crate::new_id;
 use crate::outcome::OutcomeSink;
-use crate::panel_loader;
 use crate::plan::Plan;
-use crate::plan_agent;
-use crate::plan_create;
 use crate::plan_error::PlanError;
-use crate::planner;
-use crate::runner;
 use crate::sidebar_reads::{active_project, host_of};
+use crate::{panel_loader, plan_agent, plan_create, planner, runner};
+use daemonapi::new_id;
 
 /// Plans each command from the current entities and runs it on the runtime; the stream shows the
 /// result. Commands that are the shell's own (dialogs, opening a pane) are refused here.

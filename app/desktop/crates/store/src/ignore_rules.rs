@@ -1,6 +1,7 @@
 //! Which paths of a workspace its `.gitignore` files hide.
 
-use crate::entry_kind::EntryKind;
+use daemonapi::EntryKind;
+
 use crate::rule_set::RuleSet;
 
 const GIT_DIRECTORY: &str = ".git";

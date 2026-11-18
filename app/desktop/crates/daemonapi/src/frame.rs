@@ -5,9 +5,10 @@ use serde_json::Value;
 
 use crate::problem::Problem;
 
+/// A message of the daemon's `/v0/stream`, told apart by its `t` field.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(tag = "t", rename_all = "lowercase")]
-pub(crate) enum Frame {
+pub enum Frame {
     /// The first frame of a connection; a new epoch voids every held version.
     Ready {
         /// The daemon's epoch.
@@ -71,7 +72,12 @@ pub(crate) enum Frame {
     },
 }
 
-pub(crate) fn decode(text: &str) -> Result<Frame, serde_json::Error> {
+/// Parses one text message of the stream as a [`Frame`].
+///
+/// # Errors
+///
+/// A `serde_json::Error` when the text is not JSON or not a frame type this enum knows.
+pub fn decode(text: &str) -> Result<Frame, serde_json::Error> {
     serde_json::from_str(text)
 }
 

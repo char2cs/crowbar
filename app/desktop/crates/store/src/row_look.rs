@@ -1,9 +1,9 @@
 //! How a record's state reads on a sidebar row.
 
+use daemonapi::Switch;
 use sidebar::{Activity, Lock, Nesting, Titling};
 
 use crate::forest_tree::ForestTree;
-use crate::switch::Switch;
 use crate::workspace_record::WorkspaceRecord;
 use crate::workspace_view;
 

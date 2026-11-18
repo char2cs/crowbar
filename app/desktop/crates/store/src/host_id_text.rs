@@ -1,6 +1,6 @@
 //! The id a paired host is registered under.
 
-use crate::new_id;
+use daemonapi::new_id;
 
 const SUFFIX_LEN: usize = 8;
 const FALLBACK: &str = "host";

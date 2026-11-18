@@ -13,8 +13,11 @@ use crate::call::Call;
 use crate::envelope;
 use crate::error::{Error, Result};
 
+/// Sends [`Call`]s to one daemon host through the shell's transport.
+///
+/// Every request goes out with the core origin; a clone shares the transport.
 #[derive(Clone)]
-pub(crate) struct DaemonClient {
+pub struct DaemonClient {
     transport: Arc<dyn DaemonTransport>,
     host: HostId,
 }
@@ -32,14 +35,24 @@ impl std::fmt::Debug for DaemonClient {
 }
 
 impl DaemonClient {
-    pub(crate) fn new(
+    /// A client of `host` that sends its requests through `transport`.
+    pub fn new(
         transport: Arc<dyn DaemonTransport>,
         host: HostId,
     ) -> Self {
         Self { transport, host }
     }
 
-    pub(crate) async fn send(
+    /// Sends `call` and returns the `data` of the envelope the daemon answers with.
+    ///
+    /// An empty success answer is `null`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Request`] when the call is malformed or the host unreachable,
+    /// [`Error::Refused`] when the daemon refuses it, and [`Error::Body`] when a success
+    /// answer is not an envelope.
+    pub async fn send(
         &self,
         call: Call,
     ) -> Result<Value> {
@@ -51,7 +64,13 @@ impl DaemonClient {
         envelope::unwrap(&path, &response)
     }
 
-    pub(crate) async fn bytes(
+    /// Sends `call` and returns the raw body of the answer, not read as an envelope.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Request`] when the call is malformed or the host unreachable, and
+    /// [`Error::Refused`] when the daemon answers with an error status.
+    pub async fn bytes(
         &self,
         call: Call,
     ) -> Result<Vec<u8>> {
@@ -135,14 +154,17 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::test_support::{FakeDaemon, local};
+    use crate::test_support::FakeDaemon;
 
     #[tokio::test]
     async fn a_call_reaches_the_route_with_its_body_and_headers() {
         let daemon = FakeDaemon::shared();
         daemon.answer(("GET", "/img"), 200, "rawbytes");
         daemon.ok("POST", "/v0/projects", r#"{"id":"p"}"#);
-        let client = DaemonClient::new(Arc::<FakeDaemon>::clone(&daemon), local());
+        let client = DaemonClient::new(
+            Arc::<FakeDaemon>::clone(&daemon),
+            HostId::new("local").unwrap(),
+        );
         let data = client
             .send(
                 Call::post("/v0/projects")
@@ -165,7 +187,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_unknown_route_is_a_refusal_and_a_bad_path_is_a_request_error() {
-        let client = DaemonClient::new(FakeDaemon::shared(), local());
+        let client = DaemonClient::new(FakeDaemon::shared(), HostId::new("local").unwrap());
         let refused = client.send(Call::get("/v0/none")).await.unwrap_err();
         assert!(
             matches!(refused, Error::Refused { status: 404, .. }),

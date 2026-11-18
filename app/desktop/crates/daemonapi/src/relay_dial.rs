@@ -23,14 +23,29 @@ const TOKEN_PREFIX: &str = "crowbar.token.";
 const STREAM_PATH: &str = "/v0/stream";
 const QUEUE: usize = 1024;
 
-pub(crate) struct RelayDial {
+/// A [`Dial`] that opens one host's `/v0/stream` through the shell's loopback relay.
+pub struct RelayDial {
     transport: Arc<dyn DaemonTransport>,
     host: HostId,
     origin: String,
 }
 
+impl std::fmt::Debug for RelayDial {
+    fn fmt(
+        &self,
+        formatter: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        formatter
+            .debug_struct("RelayDial")
+            .field("host", &self.host)
+            .field("origin", &self.origin)
+            .finish_non_exhaustive()
+    }
+}
+
 impl RelayDial {
-    pub(crate) fn new(
+    /// A dial of `host`'s stream through `transport`'s relay, sending `origin` in the handshake.
+    pub fn new(
         transport: Arc<dyn DaemonTransport>,
         host: HostId,
         origin: &str,

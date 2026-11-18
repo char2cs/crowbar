@@ -2,12 +2,10 @@
 
 use std::sync::Arc;
 
+use daemonapi::{Call, DaemonClient, daemon_read::read, query_encode::encode};
 use serde_json::json;
 use sidebar::Error;
 
-use crate::call::Call;
-use crate::daemon_client::DaemonClient;
-use crate::daemon_read::read;
 use crate::document_body::DocumentBody;
 use crate::file_session::{PATH_KEY, parent_of};
 use crate::file_target::{self, FileTarget};
@@ -16,7 +14,6 @@ use crate::new_entry::NewEntry;
 use crate::outcome::{Outcome, OutcomeSink};
 use crate::plan::Plan;
 use crate::plan_error::PlanError;
-use crate::query_encode::encode;
 use crate::reload_target::ReloadTarget;
 use crate::runner;
 use crate::sidebar_commands::SidebarCommands;

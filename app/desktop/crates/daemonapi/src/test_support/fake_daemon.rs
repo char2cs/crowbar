@@ -1,10 +1,13 @@
+//! A daemon that answers canned routes and records every request.
+
 use std::sync::{Arc, Mutex};
 
 use protocol::{
-    DaemonRequest, DaemonResponse, DaemonTransport, HostId, RelayEndpoint, RelayScope, Responder,
+    DaemonRequest, DaemonResponse, DaemonTransport, RelayEndpoint, RelayScope, Responder,
 };
 use serde_json::Value;
 
+#[derive(Debug)]
 struct Route {
     method: &'static str,
     path: String,
@@ -14,26 +17,32 @@ struct Route {
 
 /// What the fake daemon saw.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct Seen {
-    pub(crate) method: String,
-    pub(crate) path: String,
-    pub(crate) body: Option<Value>,
-    pub(crate) headers: Vec<(String, String)>,
+pub struct Seen {
+    /// The HTTP method.
+    pub method: String,
+    /// The request target.
+    pub path: String,
+    /// The JSON body, when the request carried one.
+    pub body: Option<Value>,
+    /// The request headers.
+    pub headers: Vec<(String, String)>,
 }
 
 /// A [`DaemonTransport`] answering from a table of routes, recording every request.
-#[derive(Default)]
-pub(crate) struct FakeDaemon {
+#[derive(Debug, Default)]
+pub struct FakeDaemon {
     routes: Mutex<Vec<Route>>,
     seen: Mutex<Vec<Seen>>,
 }
 
 impl FakeDaemon {
-    pub(crate) fn shared() -> Arc<Self> {
+    /// An empty fake, shared as the transport of a client.
+    pub fn shared() -> Arc<Self> {
         Arc::new(Self::default())
     }
 
-    pub(crate) fn answer(
+    /// Answers `method` `path` with `status` and the raw `body` from now on.
+    pub fn answer(
         &self,
         (method, path): (&'static str, &str),
         status: u16,
@@ -51,7 +60,8 @@ impl FakeDaemon {
         }
     }
 
-    pub(crate) fn ok(
+    /// Answers `method` `path` with a success envelope around `data`.
+    pub fn ok(
         &self,
         method: &'static str,
         path: &str,
@@ -64,7 +74,8 @@ impl FakeDaemon {
         );
     }
 
-    pub(crate) fn seen(&self) -> Vec<Seen> {
+    /// Every request seen so far, oldest first.
+    pub fn seen(&self) -> Vec<Seen> {
         self.seen.lock().map_or_default(|seen| seen.clone())
     }
 
@@ -122,8 +133,4 @@ impl DaemonTransport for FakeDaemon {
             scope.host().as_str().to_owned(),
         ))
     }
-}
-
-pub(crate) fn local() -> HostId {
-    HostId::new("local").unwrap_or_else(|error| panic!("local is a valid host id: {error}"))
 }

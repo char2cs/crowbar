@@ -57,7 +57,7 @@ pub(super) fn start_data(
 
 fn terminal_sessions(link: &DaemonLink) -> TerminalSessions {
     let (transport, host) = (link.transport(), link.local_host());
-    TerminalSessions::new(transport, host, link.handle(), store::CORE_ORIGIN)
+    TerminalSessions::new(transport, host, link.handle(), daemonapi::CORE_ORIGIN)
 }
 
 pub(super) fn build_panes<V: 'static>(

@@ -2,18 +2,17 @@
 
 use std::sync::{Arc, Mutex};
 
+use daemonapi::{daemon_read::read, query_encode::encode};
 use sidebar::HostState;
 use tokio::runtime::Handle;
 
 use crate::browse_wire::BrowseWire;
 use crate::change_signal::ChangeSignal;
-use crate::daemon_read::read;
 use crate::error::Error;
 use crate::folder_held::FolderHeld;
 use crate::folder_listing::FolderListing;
 use crate::followed::{self, Followed};
 use crate::hub::Hub;
-use crate::query_encode::encode;
 
 /// The directory the picker starts from.
 pub const ROOT_PATH: &str = "/";
@@ -169,8 +168,9 @@ mod tests {
     use tokio::sync::Notify;
 
     use super::*;
+    use daemonapi::EntryKind;
+
     use crate::browse_entry::BrowseEntry;
-    use crate::entry_kind::EntryKind;
     use crate::link_state::LinkState;
     use crate::test_support::{FakeDaemon, state};
 

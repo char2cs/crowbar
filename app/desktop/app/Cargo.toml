@@ -16,6 +16,7 @@ path = "src/main.rs"
 anyhow = "1"
 atomicfile.workspace = true
 chord.workspace = true
+daemonapi.workspace = true
 async-channel.workspace = true
 browseragent.workspace = true
 browserbar.workspace = true

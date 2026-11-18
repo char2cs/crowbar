@@ -1,10 +1,9 @@
 //! Bringing the daemon's space images to disk when a project says it has one.
 
+use daemonapi::{Call, DaemonClient};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::call::Call;
-use crate::daemon_client::DaemonClient;
 use crate::hub::Hub;
 use crate::icon_ask::IconAsk;
 use crate::state::State;
@@ -107,7 +106,8 @@ fn write_atomically(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::frame::decode;
+    use daemonapi::frame::decode;
+
     use crate::icon_cache::IconCache;
     use crate::test_support::state;
 

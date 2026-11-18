@@ -101,7 +101,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::frame::Frame;
+    use daemonapi::Frame;
 
     fn store_with(op: serde_json::Value) -> EntityStore {
         let mut store = EntityStore::default();

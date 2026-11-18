@@ -1,6 +1,7 @@
 //! The host a picker follows: who it is and how to reach it.
 
-use crate::daemon_client::DaemonClient;
+use daemonapi::DaemonClient;
+
 use crate::sidebar_reads::{active_project, host_of};
 use crate::state::State;
 

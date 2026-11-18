@@ -2,13 +2,13 @@
 
 use std::collections::HashSet;
 
+use daemonapi::Frame;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::chat_record::ChatRecord;
 use crate::entity_stamp::EntityStamp;
 use crate::folder_record::FolderRecord;
-use crate::frame::Frame;
 use crate::operation_record::OperationRecord;
 use crate::presence_record::PresenceRecord;
 use crate::project_record::ProjectRecord;
@@ -204,7 +204,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::frame::decode;
+    use daemonapi::frame::decode;
 
     fn entity(
         kind: &str,

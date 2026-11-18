@@ -6,37 +6,10 @@ use std::path::PathBuf;
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
-    /// The request never produced an answer: the host is unknown or unreachable.
-    #[error("shell data: request {path}: {source}")]
-    Request {
-        /// The route asked for.
-        path: String,
-        /// The cause.
-        #[source]
-        source: protocol::Error,
-    },
-    /// The daemon answered with a refusal.
-    #[error("{message}")]
-    Refused {
-        /// The route asked for.
-        path: String,
-        /// The HTTP status.
-        status: u16,
-        /// The daemon's error code, when it sent one.
-        code: Option<String>,
-        /// The daemon's explanation, fit to show.
-        message: String,
-    },
-    /// The answer was not the envelope or shape the route promises.
-    #[error("shell data: {path} answered a body that does not parse: {source}")]
-    Body {
-        /// The route asked for.
-        path: String,
-        /// The cause.
-        #[source]
-        source: serde_json::Error,
-    },
-    /// The stream could not be opened or broke.
+    /// A request to a daemon or its stream failed.
+    #[error(transparent)]
+    Daemon(#[from] daemonapi::Error),
+    /// The followed host or the row a request needs is not there.
     #[error("shell data: stream: {0}")]
     Stream(String),
     /// A file of the shell could not be read or written.
@@ -71,7 +44,7 @@ pub enum Error {
 impl Error {
     pub(crate) fn reason(&self) -> String {
         match self {
-            Self::Refused { message, .. } => message.clone(),
+            Self::Daemon(daemonapi::Error::Refused { message, .. }) => message.clone(),
             other => other.to_string(),
         }
     }
@@ -86,12 +59,12 @@ mod tests {
 
     #[test]
     fn a_refusal_reads_as_the_daemons_words_and_anything_else_as_its_own_text() {
-        let refused = Error::Refused {
+        let refused = Error::Daemon(daemonapi::Error::Refused {
             path: "/v0/x".into(),
             status: 409,
             code: None,
             message: "name taken".into(),
-        };
+        });
         let stream = Error::Stream("closed".into());
         assert_eq!(refused.reason(), "name taken");
         assert_eq!(stream.reason(), stream.to_string());

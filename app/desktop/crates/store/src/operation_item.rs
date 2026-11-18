@@ -1,9 +1,9 @@
 //! One entity an operation creates or changes.
 
+use daemonapi::Problem;
 use serde::Deserialize;
 
 use crate::entity_ref::EntityRef;
-use crate::problem::Problem;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]

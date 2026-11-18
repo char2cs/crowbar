@@ -1,19 +1,17 @@
 //! The agents a host can start a chat with.
 
+use daemonapi::{Call, DaemonClient, typed::typed};
 use serde_json::Value;
 
-use crate::call::Call;
-use crate::daemon_client::DaemonClient;
 use crate::error::Result;
 use crate::provider::Provider;
 use crate::surface::Surface;
-use crate::typed::typed;
 
 const PATH: &str = "/v0/settings/chat/providers";
 
 pub(crate) async fn list(client: &DaemonClient) -> Result<Vec<Provider>> {
     let data = client.send(Call::get(PATH)).await?;
-    typed(PATH, data)
+    Ok(typed(PATH, data)?)
 }
 
 pub(crate) fn pick(providers: &[Provider]) -> Option<&Provider> {
@@ -47,7 +45,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::switch::Switch;
+    use daemonapi::Switch;
 
     fn provider(
         id: &str,

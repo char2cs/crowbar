@@ -2,10 +2,13 @@
 
 use serde::Deserialize;
 
+/// A flag of a daemon record; a missing or `null` flag reads as off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(from = "Option<bool>")]
-pub(crate) enum Switch {
+pub enum Switch {
+    /// The flag is set.
     On,
+    /// The flag is unset.
     #[default]
     Off,
 }
@@ -20,7 +23,8 @@ impl From<Option<bool>> for Switch {
 }
 
 impl Switch {
-    pub(crate) fn is_on(self) -> bool {
+    /// Whether the flag is set.
+    pub fn is_on(self) -> bool {
         self == Self::On
     }
 }

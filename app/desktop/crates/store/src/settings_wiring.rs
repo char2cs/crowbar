@@ -2,10 +2,10 @@
 
 use std::sync::Arc;
 
+use daemonapi::DaemonClient;
 use tokio::runtime::Handle;
 
 use crate::change_signal::ChangeSignal;
-use crate::daemon_client::DaemonClient;
 use crate::fleet::Fleet;
 use crate::host_desk::HostDesk;
 use crate::hub::Hub;

@@ -2,13 +2,11 @@
 
 use std::path::Path;
 
+use daemonapi::{Call, DaemonClient, daemon_read::read};
 use serde_json::json;
 
-use crate::call::Call;
-use crate::daemon_client::DaemonClient;
-use crate::daemon_read::read;
 use crate::document_body::DocumentBody;
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::file_entry::FileEntry;
 use crate::file_target::{self, FileTarget};
 use crate::hub::Hub;
@@ -56,7 +54,7 @@ impl FileSession {
         &self,
         directory: &str,
     ) -> Result<Vec<FileEntry>> {
-        read(&self.client, tree_path(&self.target.chat, directory)).await
+        Ok(read(&self.client, tree_path(&self.target.chat, directory)).await?)
     }
 
     pub(crate) async fn reload(
@@ -91,8 +89,8 @@ impl FileSession {
     ) -> Result<bool> {
         match self.client.send(Call::get(self.content_route(path))).await {
             Ok(_) => Ok(true),
-            Err(Error::Refused { status, .. }) if status == NOT_FOUND => Ok(false),
-            Err(error) => Err(error),
+            Err(daemonapi::Error::Refused { status, .. }) if status == NOT_FOUND => Ok(false),
+            Err(error) => Err(error.into()),
         }
     }
 
@@ -135,7 +133,7 @@ impl FileSession {
         &self,
         path: &str,
     ) -> String {
-        crate::document_route::content(&self.target.workspace, path)
+        daemonapi::document_route::content(&self.target.workspace, path)
     }
 }
 

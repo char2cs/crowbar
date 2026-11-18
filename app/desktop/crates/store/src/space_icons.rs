@@ -48,7 +48,8 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::frame::decode;
+    use daemonapi::frame::decode;
+
     use crate::icon_cache::IconCache;
     use crate::test_support::state;
 

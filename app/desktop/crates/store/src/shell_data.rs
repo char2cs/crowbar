@@ -2,17 +2,16 @@
 
 use std::sync::Arc;
 
+use daemonapi::DaemonClient;
 use protocol::DaemonTransport;
 use sidebar::Command;
 use tokio::runtime::Handle;
 
 use crate::adapters::DiskFiles;
 use crate::chat_terminal::ChatTerminal;
-use crate::daemon_client::DaemonClient;
 use crate::fleet::Fleet;
 use crate::host_desk::HostDesk;
-use crate::host_dialling::Dialled;
-use crate::host_dialling::{relay_for, slot_for};
+use crate::host_dialling::{Dialled, relay_for, slot_for};
 use crate::host_spec::HostSpec;
 use crate::hub::Hub;
 use crate::icon_cache::IconCache;
@@ -199,10 +198,9 @@ impl Drop for ShellData {
 
 #[cfg(test)]
 mod tests {
+    use daemonapi::Dial;
     use std::sync::{Arc, Mutex};
 
-    use crate::dial::Dial;
-    use crate::error::{Error, Result};
     use protocol::DaemonTransport;
     use sidebar::{
         ActiveSpace as _, Command, CommandSink as _, ProjectId, RowId, ScopeSync, SpaceList as _,
@@ -210,13 +208,13 @@ mod tests {
     use tokio::sync::{Notify, mpsc};
 
     use super::*;
-    use crate::connection::Connection;
-    use crate::dial::Opening;
+    use daemonapi::{Connection, Opening};
+
     use crate::outcome::Outcome;
     use crate::test_support::{FakeDaemon, frames};
 
-    fn refused_when_used(taken: Option<Connection>) -> Result<Connection> {
-        taken.ok_or_else(|| Error::Stream("used".into()))
+    fn refused_when_used(taken: Option<Connection>) -> daemonapi::Result<Connection> {
+        taken.ok_or_else(|| daemonapi::Error::Stream("used".into()))
     }
 
     /// One connection, taken on the first dial.
@@ -233,7 +231,7 @@ mod tests {
         frames()
         .into_iter()
         .filter_map(|frame| match frame {
-            crate::frame::Frame::Entity { kind, id, data, .. } => Some(
+            daemonapi::Frame::Entity { kind, id, data, .. } => Some(
                 serde_json::json!({"t": "entity", "scope": "projects", "kind": kind, "id": id, "v": 1, "data": data})
                     .to_string(),
             ),

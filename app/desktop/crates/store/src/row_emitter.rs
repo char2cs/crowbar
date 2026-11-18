@@ -141,8 +141,9 @@ mod tests {
     use sidebar::{Activity, Nesting};
 
     use super::*;
+    use daemonapi::Frame;
+
     use crate::forest_tree::ForestTree;
-    use crate::frame::Frame;
     use crate::row_look::UNTITLED_CHAT;
 
     fn store() -> EntityStore {

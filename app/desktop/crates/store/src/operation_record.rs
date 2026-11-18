@@ -1,10 +1,10 @@
 //! Work that outlives its request, as the daemon records it.
 
+use daemonapi::Problem;
 use serde::Deserialize;
 
 use crate::entity_ref::EntityRef;
 use crate::operation_item::OperationItem;
-use crate::problem::Problem;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]

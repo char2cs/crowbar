@@ -1,17 +1,17 @@
 //! The daemon requests of the merge box: strategy, merge, stop and merge, commit.
 
+use daemonapi::Call;
 use serde_json::json;
 use sidebar::{AfterMerge, MergeStrategy};
 
 use crate::after::After;
-use crate::call::Call;
 use crate::files_reads::followed_workspace;
 use crate::merge_reads::strategy_wire;
-use crate::new_id;
 use crate::open_chat::OpenChat;
 use crate::plan::Plan;
 use crate::plan_error::PlanError;
 use crate::state::State;
+use daemonapi::new_id;
 
 pub(crate) fn set_strategy(
     state: &State,

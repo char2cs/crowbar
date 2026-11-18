@@ -1,0 +1,31 @@
+[package]
+name = "daemonapi"
+description = "The one typed client of a Crowbar daemon's API: requests and the reply envelope, routes, and the dialled event stream."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+# FakeDaemon, the canned-route transport of the unit tests here and in store.
+fake = []
+
+[dependencies]
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+getrandom = "0.3"
+protocol.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { version = "1", features = ["macros", "net", "rt", "sync", "time"] }
+tokio-tungstenite = "0.30"
+tracing.workspace = true
+
+[dev-dependencies]
+daemonapi = { workspace = true, features = ["fake"] }
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt", "sync", "time", "test-util"] }
+
+[lints]
+workspace = true

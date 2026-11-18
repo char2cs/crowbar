@@ -64,12 +64,12 @@ mod tests {
 
     #[test]
     fn each_refusal_reads_as_the_sentence_the_panel_shows() {
-        let refused = Error::Refused {
+        let refused = Error::Daemon(daemonapi::Error::Refused {
             path: "/v0/x".into(),
             status: 409,
             code: None,
             message: "name taken".into(),
-        };
+        });
         let cases = [
             (PlanError::SpaceNotLoaded, "this space is not loaded yet"),
             (PlanError::Daemon(refused), "name taken"),

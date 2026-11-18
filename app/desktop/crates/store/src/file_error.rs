@@ -37,12 +37,12 @@ mod tests {
 
     #[test]
     fn each_failure_reads_in_words_fit_to_show() {
-        let refused = FileError::Daemon(Error::Refused {
+        let refused = FileError::Daemon(Error::Daemon(daemonapi::Error::Refused {
             path: "/v0/x".into(),
             status: 409,
             code: None,
             message: "name taken".into(),
-        });
+        }));
         let missing = FileError::Local {
             path: "/a/b".into(),
             source: std::io::ErrorKind::NotFound.into(),

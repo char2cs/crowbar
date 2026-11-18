@@ -1,7 +1,7 @@
 //! Filling the Files and Changes panels for the focused chat.
 
-use crate::daemon_client::DaemonClient;
-use crate::daemon_read::read;
+use daemonapi::{DaemonClient, daemon_read::read};
+
 use crate::file_entry::FileEntry;
 use crate::git_diff_body::GitDiffBody;
 use crate::git_status_body::GitStatusBody;
@@ -86,7 +86,7 @@ fn threads_path(
         .hosts
         .iter()
         .find_map(|slot| slot.store.chats.get(chat))?;
-    let scope = crate::routes::scope(&record.project_id, &record.repo_id);
+    let scope = daemonapi::routes::scope(&record.project_id, &record.repo_id);
     Some(format!(
         "{scope}/workspaces/{}/threads",
         record.workspace_id

@@ -2,9 +2,8 @@
 
 use sidebar::{Changes, ChangesSource, FileAccess, FileRow, FilesSource};
 
-use crate::files_reads;
-use crate::sidebar_reads as reads;
 use crate::sidebar_view::SidebarView;
+use crate::{files_reads, sidebar_reads as reads};
 
 impl FilesSource for SidebarView {
     fn files(&self) -> Vec<FileRow> {

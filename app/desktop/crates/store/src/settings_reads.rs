@@ -2,17 +2,16 @@
 
 use std::sync::Arc;
 
+use daemonapi::Call;
 use settings::{Change, Key, Value};
 
-use crate::call::Call;
-use crate::descriptors;
 use crate::link_state::LinkState;
 use crate::loadable::Loadable;
 use crate::outcome::Outcome;
 use crate::permission_key::{PERMISSION, PERMISSION_PATH};
-use crate::providers;
 use crate::settings_core::{AGENTS, DESCRIPTORS, SettingsCore, locked};
 use crate::state::State;
+use crate::{descriptors, providers};
 
 fn local_link(state: &State) -> Option<LinkState> {
     state

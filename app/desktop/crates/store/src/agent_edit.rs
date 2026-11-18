@@ -2,15 +2,13 @@
 
 use std::sync::Arc;
 
+use daemonapi::{Call, Switch, typed::typed};
 use settings::{Change, Error, RecordCommand};
 
 use crate::agent_records::{self, ENABLED, TOOLS};
-use crate::call::Call;
 use crate::loadable::Loadable;
 use crate::provider::Provider;
 use crate::settings_core::{AGENTS, SettingsCore, locked};
-use crate::switch::Switch;
-use crate::typed::typed;
 
 const PROVIDERS_PATH: &str = "/v0/settings/chat/providers";
 

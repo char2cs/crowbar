@@ -2,13 +2,20 @@
 
 use serde_json::Value;
 
+/// One request to a daemon route: its method, path, body and headers.
+///
+/// Built with a verb such as [`Call::get`], then the body and header builders.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct Call {
-    pub(crate) method: &'static str,
-    pub(crate) path: String,
-    pub(crate) body: Option<Value>,
+pub struct Call {
+    /// The HTTP method, such as `GET`.
+    pub method: &'static str,
+    /// The route's path, with its query string.
+    pub path: String,
+    /// The JSON body, when the call sends one.
+    pub body: Option<Value>,
     pub(crate) raw: Option<Vec<u8>>,
-    pub(crate) headers: Vec<(String, String)>,
+    /// The extra request headers, as name and value pairs.
+    pub headers: Vec<(String, String)>,
 }
 
 impl Call {
@@ -25,28 +32,34 @@ impl Call {
         }
     }
 
-    pub(crate) fn get(path: impl Into<String>) -> Self {
+    /// A `GET` of `path`, with no body and no extra headers.
+    pub fn get(path: impl Into<String>) -> Self {
         Self::with("GET", path)
     }
 
-    pub(crate) fn post(path: impl Into<String>) -> Self {
+    /// A `POST` to `path`, with no body and no extra headers.
+    pub fn post(path: impl Into<String>) -> Self {
         Self::with("POST", path)
     }
 
-    pub(crate) fn patch(path: impl Into<String>) -> Self {
+    /// A `PATCH` of `path`, with no body and no extra headers.
+    pub fn patch(path: impl Into<String>) -> Self {
         Self::with("PATCH", path)
     }
 
-    pub(crate) fn put(path: impl Into<String>) -> Self {
+    /// A `PUT` to `path`, with no body and no extra headers.
+    pub fn put(path: impl Into<String>) -> Self {
         Self::with("PUT", path)
     }
 
-    pub(crate) fn delete(path: impl Into<String>) -> Self {
+    /// A `DELETE` of `path`, with no body and no extra headers.
+    pub fn delete(path: impl Into<String>) -> Self {
         Self::with("DELETE", path)
     }
 
+    /// The call with `body` as its JSON body.
     #[must_use]
-    pub(crate) fn json(
+    pub fn json(
         mut self,
         body: Value,
     ) -> Self {
@@ -54,8 +67,9 @@ impl Call {
         self
     }
 
+    /// The call with `text` as its body, sent as `application/yaml`.
     #[must_use]
-    pub(crate) fn yaml(
+    pub fn yaml(
         mut self,
         text: Vec<u8>,
     ) -> Self {
@@ -65,8 +79,9 @@ impl Call {
         self
     }
 
+    /// The call with `body` as a `multipart/form-data` body split by `boundary`.
     #[must_use]
-    pub(crate) fn form(
+    pub fn form(
         mut self,
         body: Vec<u8>,
         boundary: &str,
@@ -79,8 +94,9 @@ impl Call {
         self
     }
 
+    /// The call with `key` as its idempotency key, so a retried call takes effect once.
     #[must_use]
-    pub(crate) fn idempotent(
+    pub fn idempotent(
         mut self,
         key: &str,
     ) -> Self {
@@ -88,8 +104,9 @@ impl Call {
         self
     }
 
+    /// The call with the `crowbar-discard-work` header, consenting to lose unsaved work.
     #[must_use]
-    pub(crate) fn discarding_work(mut self) -> Self {
+    pub fn discarding_work(mut self) -> Self {
         self.headers
             .push(("crowbar-discard-work".into(), "true".into()));
         self

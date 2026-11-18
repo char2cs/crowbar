@@ -1,14 +1,19 @@
 //! The daemon's route prefixes for a project home or a repository.
 
-pub(crate) fn project(project: &str) -> String {
+/// The route of the project `project`.
+pub fn project(project: &str) -> String {
     format!("/v0/projects/{project}")
 }
 
-pub(crate) fn repos(project_id: &str) -> String {
+/// The route of the repositories of the project `project_id`.
+pub fn repos(project_id: &str) -> String {
     format!("{}/repos", project(project_id))
 }
 
-pub(crate) fn scope(
+/// The route prefix of the repository `repo` in the project `project_id`.
+///
+/// An empty `repo` names the project home instead.
+pub fn scope(
     project_id: &str,
     repo: &str,
 ) -> String {
@@ -19,14 +24,16 @@ pub(crate) fn scope(
     format!("{base}/repos/{repo}")
 }
 
-pub(crate) fn chats(
+/// The route of the chats of a repository or project home, as [`scope`] names it.
+pub fn chats(
     project_id: &str,
     repo: &str,
 ) -> String {
     format!("{}/chats", scope(project_id, repo))
 }
 
-pub(crate) fn folders(
+/// The route of the chat folders of a repository or project home, as [`scope`] names it.
+pub fn folders(
     project_id: &str,
     repo: &str,
 ) -> String {

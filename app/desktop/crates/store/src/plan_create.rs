@@ -1,20 +1,20 @@
 //! Plans that make something new: threads, forks, folders, spaces.
 
+use daemonapi::Call;
 use serde_json::json;
 use sidebar::{HostId, ProjectId};
 
 use crate::after::After;
-use crate::call::Call;
 use crate::pending_row::PendingRow;
 use crate::plan::Plan;
 use crate::plan_error::PlanError;
-use crate::routes;
 use crate::scope_items::default_workspace;
 use crate::sidebar_reads::host_of;
 use crate::state::State;
 use crate::surface::Surface;
 use crate::target::{Target, resolve};
 use crate::target_kind::TargetKind;
+use daemonapi::routes;
 
 const NEW_THREAD: &str = "New thread";
 const NEW_WORKSPACE: &str = "New workspace";

@@ -1,9 +1,9 @@
 //! Ending the agent running on a chat, and listing the ones that run.
 
+use daemonapi::Call;
 use sidebar::{RowId, RunningAgent};
 
 use crate::after::After;
-use crate::call::Call;
 use crate::chat_record::ChatRecord;
 use crate::host_slot::HostSlot;
 use crate::plan::Plan;

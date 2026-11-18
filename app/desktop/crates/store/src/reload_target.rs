@@ -1,6 +1,7 @@
 //! The directory listing to load again once a change to the workspace's files has run.
 
-use crate::daemon_client::DaemonClient;
+use daemonapi::DaemonClient;
+
 use crate::hub::Hub;
 use crate::panel_loader::load_directory;
 

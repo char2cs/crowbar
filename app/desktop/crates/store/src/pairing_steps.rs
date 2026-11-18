@@ -1,14 +1,13 @@
 //! The steps of pairing that wait on the host: probing its certificate and redeeming the code.
 
-use crate::already_paired;
 use crate::host_note::HostNote;
 use crate::host_spec::HostSpec;
-use crate::pairing_failure;
 use crate::pairing_pending::PairingPending;
 use crate::pairing_request::PairingRequest;
 use crate::pairing_session::PairingSession;
 use crate::pairing_stage::PairingStage;
 use crate::pairing_words::PairingWords;
+use crate::{already_paired, pairing_failure};
 
 impl PairingSession {
     pub(crate) async fn probe(

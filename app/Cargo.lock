@@ -1502,6 +1502,7 @@ dependencies = [
  "browseragent",
  "browserbar",
  "chord",
+ "daemonapi",
  "diagnostics",
  "folderpicker",
  "gpui",
@@ -1610,6 +1611,22 @@ name = "cursor-icon"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
+
+[[package]]
+name = "daemonapi"
+version = "0.1.0"
+dependencies = [
+ "daemonapi",
+ "futures-util",
+ "getrandom 0.3.4",
+ "protocol",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-tungstenite",
+ "tracing",
+]
 
 [[package]]
 name = "data-encoding"
@@ -6762,8 +6779,8 @@ version = "0.1.0"
 dependencies = [
  "atomicfile",
  "base64",
+ "daemonapi",
  "futures-util",
- "getrandom 0.3.4",
  "ignore",
  "protocol",
  "rusqlite",
@@ -6774,7 +6791,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
- "tokio-tungstenite",
  "tracing",
 ]
 

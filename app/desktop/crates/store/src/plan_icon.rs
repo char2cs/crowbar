@@ -2,13 +2,13 @@
 
 use std::path::Path;
 
+use daemonapi::Call;
 use serde_json::json;
 use sidebar::SpaceIcon;
 
-use crate::call::Call;
 use crate::file_store::FileStore;
-use crate::multipart;
 use crate::plan_error::PlanError;
+use daemonapi::multipart;
 
 const PNG: &str = "image/png";
 const JPEG: &str = "image/jpeg";
@@ -49,7 +49,7 @@ pub(crate) fn calls(
     project: &str,
     icon: &SpaceIcon,
 ) -> Result<Vec<Call>, PlanError> {
-    let base = format!("{}/icon", crate::routes::project(project));
+    let base = format!("{}/icon", daemonapi::routes::project(project));
     let call = match icon {
         SpaceIcon::Default => Call::delete(base),
         SpaceIcon::Emoji(emoji) => Call::put(format!("{base}/emoji")).json(json!({"emoji": emoji})),

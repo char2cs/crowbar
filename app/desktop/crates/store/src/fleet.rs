@@ -3,12 +3,11 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use daemonapi::{DaemonClient, Dial};
 use protocol::DaemonTransport;
 use tokio::runtime::Handle;
 use tokio::sync::mpsc;
 
-use crate::daemon_client::DaemonClient;
-use crate::dial::Dial;
 use crate::error::{Error, Result};
 use crate::host_dialling::{relay_for, slot_for};
 use crate::host_spec::HostSpec;

@@ -3,7 +3,7 @@
 use ignore::Match;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 
-use crate::entry_kind::EntryKind;
+use daemonapi::EntryKind;
 
 #[derive(Debug, Clone)]
 pub(crate) struct RuleSet {

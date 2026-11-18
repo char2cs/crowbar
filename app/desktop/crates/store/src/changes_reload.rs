@@ -1,8 +1,8 @@
 //! Refreshing the Changes panel when the daemon changed what it shows.
 
+use daemonapi::Frame;
 use std::sync::Arc;
 
-use crate::frame::Frame;
 use crate::hub::Hub;
 use crate::panel_loader::load_changes;
 
@@ -31,7 +31,8 @@ pub(crate) fn follow(hub: &Arc<Hub>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::frame::decode;
+    use daemonapi::frame::decode;
+
     use crate::test_support::state;
 
     fn hub_of(state: crate::state::State) -> Arc<Hub> {

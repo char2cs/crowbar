@@ -2,7 +2,7 @@
 
 use serde::Deserialize;
 
-use crate::switch::Switch;
+use daemonapi::Switch;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]

@@ -1,9 +1,9 @@
 //! A chat as the projects scope carries it.
 
+use daemonapi::Switch;
 use serde::Deserialize;
 
 use crate::pending_move::PendingMove;
-use crate::switch::Switch;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]

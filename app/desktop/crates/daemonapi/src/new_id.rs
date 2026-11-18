@@ -9,7 +9,10 @@ const KEEP_LOW_SIX: u8 = 0x3f;
 const VARIANT_RFC: u8 = 0x80;
 const GROUP_SIZES: [usize; 5] = [4, 2, 2, 2, 6];
 
-pub(crate) fn uuid() -> String {
+/// A fresh random version-4 UUID in its hyphenated lowercase form.
+///
+/// Without system randomness it logs an error and the id is not random.
+pub fn uuid() -> String {
     let mut bytes = [0_u8; UUID_BYTES];
     if let Err(error) = getrandom::fill(&mut bytes) {
         tracing::error!(%error, "the system has no randomness; ids repeat per second");

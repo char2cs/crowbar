@@ -10,9 +10,9 @@ publish.workspace = true
 
 [dependencies]
 atomicfile.workspace = true
+daemonapi.workspace = true
 base64 = "0.22"
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
-getrandom = "0.3"
 ignore = { version = "0.4", default-features = false }
 protocol.workspace = true
 rusqlite = { version = "0.43", features = ["bundled"] }
@@ -22,10 +22,10 @@ settings.workspace = true
 sidebar.workspace = true
 thiserror.workspace = true
 tokio = { version = "1", features = ["macros", "net", "rt", "sync", "time"] }
-tokio-tungstenite = "0.30"
 tracing.workspace = true
 
 [dev-dependencies]
+daemonapi = { workspace = true, features = ["fake"] }
 tempfile = "3"
 tokio = { version = "1", features = ["io-util", "macros", "net", "rt", "sync", "time", "test-util"] }
 

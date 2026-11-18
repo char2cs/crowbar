@@ -3,11 +3,11 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use daemonapi::DaemonClient;
 use settings::{Change, Error, Key, Snapshot, Value, Values};
 use tokio::runtime::Handle;
 
 use crate::change_signal::ChangeSignal;
-use crate::daemon_client::DaemonClient;
 use crate::descriptor_report::DescriptorReport;
 use crate::font_choices;
 use crate::host_roster::HostRoster;
