@@ -15,7 +15,6 @@ use crate::plan::relocate::slot::Slot;
 use crate::reads::{active_project, host_of, tree};
 use crate::target::Kind;
 use crate::target::resolve;
-use daemonapi::routes;
 
 pub(crate) fn drop_row(
     state: &State,
@@ -40,7 +39,7 @@ fn place(
     let (project, repo) = (&moved.project, &moved.repo);
     let body = json!({"parentId": slot.parent, "order": slot.index});
     let path = match &moved.kind {
-        Kind::Folder => format!("{}/{row}", routes::folders(project, repo)),
+        Kind::Folder => format!("{}/{row}", daemonapi::Route::folders(project, repo)),
         Kind::Branch {
             workspace,
             locked: true,
@@ -48,13 +47,13 @@ fn place(
         } => {
             format!(
                 "{}/workspaces/{workspace}/placement",
-                routes::scope(project, repo)
+                daemonapi::Route::scope(project, repo)
             )
         },
         Kind::Branch { .. } | Kind::Chat { .. } => {
             format!(
                 "{}/{}/placement",
-                routes::chats(project, repo),
+                daemonapi::Route::chats(project, repo),
                 moved.chat()?
             )
         },

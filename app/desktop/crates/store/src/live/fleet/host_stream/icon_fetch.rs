@@ -106,7 +106,7 @@ fn write_atomically(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use daemonapi::frame::decode;
+    use daemonapi::Frame;
 
     use crate::live::held::IconCache;
     use crate::test_support::state;
@@ -125,7 +125,7 @@ mod tests {
         state.icons = IconCache::in_dir(dir.path().to_owned());
         state.apply(
             "local",
-            decode(
+            Frame::decode(
                 &format!(
                     r#"{{"t":"entity","scope":"projects","kind":"project","id":"p","v":9,"data":{{"id":"p","name":"A","avatarUrl":"{URL}"}}}}"#
                 ),
@@ -153,7 +153,7 @@ mod tests {
         let frame = format!(
             r#"{{"t":"entity","scope":"projects","kind":"project","id":"p","v":9,"data":{{"id":"p","name":"A","avatarUrl":"/v0/projects/p/icon?v={version}"}}}}"#
         );
-        state.apply("local", decode(&frame).unwrap());
+        state.apply("local", Frame::decode(&frame).unwrap());
         wanted(&hub_of(state), "local").len()
     }
 

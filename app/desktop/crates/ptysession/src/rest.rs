@@ -30,7 +30,7 @@ impl Rest {
     ) -> Result<String> {
         let path = base.create_path();
         let response = self.send("POST", path).await?;
-        let data = daemonapi::envelope::unwrap(path, &response)?;
+        let data = daemonapi::Envelope::unwrap(path, &response)?;
         let id = data.pointer("/sessionId").and_then(Value::as_str);
         id.map(str::to_owned).ok_or(Error::NoSessionId)
     }
@@ -42,7 +42,7 @@ impl Rest {
     ) -> Result<()> {
         let path = base.kill_path(session);
         let response = self.send("DELETE", &path).await?;
-        daemonapi::envelope::unwrap(&path, &response)?;
+        daemonapi::Envelope::unwrap(&path, &response)?;
         Ok(())
     }
 

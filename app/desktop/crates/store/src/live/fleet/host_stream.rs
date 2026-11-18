@@ -9,7 +9,7 @@ mod terminal_offer;
 
 use std::sync::Arc;
 
-use daemonapi::{Connection, Dial, Frame, frame::decode};
+use daemonapi::{Connection, Dial, Frame};
 use serde_json::json;
 use tokio::sync::mpsc;
 
@@ -119,7 +119,7 @@ impl HostStream {
         &self,
         text: &str,
     ) -> Option<Frame> {
-        decode(text)
+        Frame::decode(text)
             .inspect_err(|error| {
                 tracing::warn!(host = %self.host, %error, "a stream frame was unreadable and skipped");
             })

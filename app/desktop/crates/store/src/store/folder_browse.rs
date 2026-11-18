@@ -13,7 +13,6 @@ pub use folder_listing::FolderListing;
 
 use std::sync::{Arc, Mutex};
 
-use daemonapi::{read::read, routes::query::encode};
 use sidebar::HostState;
 use tokio::runtime::Handle;
 
@@ -152,8 +151,11 @@ impl FolderBrowse {
         path: &str,
         request: u64,
     ) {
-        let route = format!("/v0/system/browse?path={}", encode(path));
-        let listing = read::<Vec<BrowseWire>>(&self.host.client, route)
+        let route = daemonapi::Route::browse(path);
+        let listing = self
+            .host
+            .client
+            .read::<Vec<BrowseWire>>(route)
             .await
             .inspect_err(|error| tracing::warn!(path, %error, "a folder could not be listed"))
             .map_or_else(

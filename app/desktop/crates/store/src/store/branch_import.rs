@@ -19,7 +19,7 @@ pub use import_plan::ImportPlan;
 
 use std::sync::{Arc, Mutex};
 
-use daemonapi::{Call, read::read};
+use daemonapi::Call;
 use serde_json::json;
 use tokio::runtime::Handle;
 
@@ -36,7 +36,6 @@ use crate::store::branch_import::pr_link::PrLink;
 use crate::store::settings_core::Loadable;
 use crate::target::resolve;
 use crate::{plan::runner, store::branch_import::rows as branch_rows};
-use daemonapi::{new_id, routes};
 
 /// The branches of one repository's remote, loaded once and shown by the import dialog.
 pub struct BranchImport {
@@ -107,8 +106,8 @@ impl BranchImport {
         Ok(import)
     }
 
-    fn base(&self) -> String {
-        routes::scope(&self.scope.project, &self.scope.repo)
+    fn base(&self) -> daemonapi::Route {
+        daemonapi::Route::scope(&self.scope.project, &self.scope.repo)
     }
 
     fn load(self: &Arc<Self>) {
@@ -130,7 +129,7 @@ impl BranchImport {
 
     async fn load_branches(&self) {
         let path = format!("{}/branches", self.base());
-        let read = read::<Vec<Entry>>(&self.client, path).await;
+        let read = self.client.read::<Vec<Entry>>(path).await;
         let loaded = read
             .inspect_err(|error| tracing::warn!(%error, "the remote branches could not be listed"))
             .map_or(Loadable::Failed, Loadable::Ready);
@@ -139,7 +138,9 @@ impl BranchImport {
 
     async fn load_links(&self) {
         let path = format!("{}/pull-requests", self.base());
-        let links = read::<Vec<PrLink>>(&self.client, path)
+        let links = self
+            .client
+            .read::<Vec<PrLink>>(path)
             .await
             .inspect_err(|error| tracing::warn!(%error, "the open pull requests could not be read"))
             .unwrap_or_default();
@@ -187,12 +188,12 @@ impl BranchImport {
         let named: Vec<_> = branches
             .iter()
             .map(|name| {
-                json!({"name": name, "chatId": new_id::uuid(), "lock": locked.contains(name)})
+                json!({"name": name, "chatId": daemonapi::Uuid::random().to_string(), "lock": locked.contains(name)})
             })
             .collect();
         let call = Call::post(format!("{}/chats/import-batch", self.base()))
             .json(json!({"branches": named}))
-            .idempotent(&new_id::uuid());
+            .idempotent(&daemonapi::Uuid::random().to_string());
         let plan = Plan::of(&self.scope.host, vec![call]);
         let (hub, outcome) = (Arc::clone(&self.hub), Arc::clone(&self.outcome));
         self.handle

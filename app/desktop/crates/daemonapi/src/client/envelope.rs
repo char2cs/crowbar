@@ -6,8 +6,12 @@ use serde_json::Value;
 
 use crate::error::{Error, Result};
 
-#[derive(Deserialize)]
-struct Envelope {
+/// The `{success, data, error, code}` envelope a daemon route answers with.
+///
+/// [`Client::send`](crate::Client::send) opens it; a caller that sends its own requests opens
+/// the answer with [`Envelope::unwrap`].
+#[derive(Debug, Deserialize)]
+pub struct Envelope {
     #[serde(default)]
     success: bool,
     #[serde(default)]
@@ -20,31 +24,34 @@ struct Envelope {
 
 pub(crate) const FIRST_ERROR_STATUS: u16 = 400;
 
-/// The `data` of a daemon answer to `path`, or why the daemon refused.
-///
-/// An empty body with a success status reads as `null`.
-///
-/// # Errors
-///
-/// [`Error::Refused`] when the status is an error or the envelope says `success: false` (with the
-/// daemon's message when it sent one), and [`Error::Body`] when a success body is not an envelope.
-pub fn unwrap(
-    path: &str,
-    response: &DaemonResponse,
-) -> Result<Value> {
-    let status = response.status();
-    if response.body().is_empty() && status < FIRST_ERROR_STATUS {
-        return Ok(Value::Null);
-    }
-    let parsed = serde_json::from_slice::<Envelope>(response.body());
-    match parsed {
-        Ok(envelope) if envelope.success && status < FIRST_ERROR_STATUS => Ok(envelope.data),
-        Ok(envelope) => Err(refused(path, status, envelope)),
-        Err(source) if status < FIRST_ERROR_STATUS => Err(Error::Body {
-            path: path.to_owned(),
-            source,
-        }),
-        Err(unparsed) => Err(unparsed_refusal(path, status, &unparsed)),
+impl Envelope {
+    /// The `data` of a daemon answer to `path`, or why the daemon refused.
+    ///
+    /// An empty body with a success status reads as `null`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Refused`] when the status is an error or the envelope says `success: false` (with
+    /// the daemon's message when it sent one), and [`Error::Body`] when a success body is not an
+    /// envelope.
+    pub fn unwrap(
+        path: &str,
+        response: &DaemonResponse,
+    ) -> Result<Value> {
+        let status = response.status();
+        if response.body().is_empty() && status < FIRST_ERROR_STATUS {
+            return Ok(Value::Null);
+        }
+        let parsed = serde_json::from_slice::<Self>(response.body());
+        match parsed {
+            Ok(envelope) if envelope.success && status < FIRST_ERROR_STATUS => Ok(envelope.data),
+            Ok(envelope) => Err(refused(path, status, envelope)),
+            Err(source) if status < FIRST_ERROR_STATUS => Err(Error::Body {
+                path: path.to_owned(),
+                source,
+            }),
+            Err(unparsed) => Err(unparsed_refusal(path, status, &unparsed)),
+        }
     }
 }
 
@@ -122,7 +129,7 @@ mod tests {
     fn each_answer_reads_as_its_data_its_refusal_or_its_failure() {
         for (status, body, expected) in CASES {
             assert_eq!(
-                shown(unwrap("/p", &answer(status, body))),
+                shown(Envelope::unwrap("/p", &answer(status, body))),
                 expected,
                 "{status} {body}"
             );

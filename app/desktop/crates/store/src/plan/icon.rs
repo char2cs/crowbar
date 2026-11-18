@@ -8,7 +8,6 @@ use sidebar::SpaceIcon;
 
 use crate::live::Files;
 use crate::live::PlanError;
-use daemonapi::multipart;
 
 const PNG: &str = "image/png";
 const JPEG: &str = "image/jpeg";
@@ -40,8 +39,7 @@ fn upload(
         .file_name()
         .and_then(std::ffi::OsStr::to_str)
         .unwrap_or("icon");
-    let (body, boundary) = multipart::file_field("icon", (name, mime), &bytes);
-    Ok(Call::put(base.to_owned()).form(body, &boundary))
+    Ok(Call::put(base.to_owned()).file("icon", (name, mime), &bytes))
 }
 
 pub(crate) fn calls(
@@ -49,7 +47,7 @@ pub(crate) fn calls(
     project: &str,
     icon: &SpaceIcon,
 ) -> Result<Vec<Call>, PlanError> {
-    let base = format!("{}/icon", daemonapi::routes::project(project));
+    let base = format!("{}/icon", daemonapi::Route::project(project));
     let call = match icon {
         SpaceIcon::Default => Call::delete(base),
         SpaceIcon::Emoji(emoji) => Call::put(format!("{base}/emoji")).json(json!({"emoji": emoji})),

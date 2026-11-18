@@ -216,7 +216,6 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use daemonapi::frame::decode;
 
     fn entity(
         kind: &str,
@@ -289,8 +288,9 @@ mod tests {
 
     fn removed(store: &mut Entities) {
         older(store);
-        let gone =
-            decode(r#"{"t":"entity","scope":"projects","kind":"chat","id":"c","v":6,"gone":true}"#);
+        let gone = Frame::decode(
+            r#"{"t":"entity","scope":"projects","kind":"chat","id":"c","v":6,"gone":true}"#,
+        );
         store.apply(gone.unwrap());
     }
 

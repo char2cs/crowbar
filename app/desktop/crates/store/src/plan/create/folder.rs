@@ -11,7 +11,6 @@ use crate::plan::create::{PARENT_ID, host_id};
 use crate::reads::host_of;
 use crate::target::Kind;
 use crate::target::{Target, resolve};
-use daemonapi::routes;
 
 const NEW_FOLDER: &str = "New folder";
 const NAME: &str = "name";
@@ -23,7 +22,7 @@ pub(crate) fn folder(
 ) -> Result<Plan, PlanError> {
     let (project_id, repo, parent, host) =
         row.map_or_else(|| at_top(state, project), |row| beside(state, row))?;
-    let call = Call::post(routes::folders(&project_id, &repo))
+    let call = Call::post(daemonapi::Route::folders(&project_id, &repo))
         .json(json!({NAME: NEW_FOLDER, PARENT_ID: parent}));
     Ok(Plan::of(&host, vec![call]))
 }

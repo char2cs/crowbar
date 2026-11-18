@@ -1,16 +1,13 @@
 //! A multipart/form-data body with one file field.
 
-use crate::new_id;
+use crate::uuid::Uuid;
 
-/// A multipart body whose `field` carries `bytes` as the file `name` of type `mime`.
-///
-/// Returns the body and its fresh boundary, as [`Call::form`](crate::Call::form) takes them.
-pub fn file_field(
+pub(crate) fn file_field(
     field: &str,
     (name, mime): (&str, &str),
     bytes: &[u8],
 ) -> (Vec<u8>, String) {
-    let boundary = format!("crowbar{}", new_id::uuid().replace('-', ""));
+    let boundary = format!("crowbar{}", Uuid::random().to_string().replace('-', ""));
     let head = format!(
         "--{boundary}\r\nContent-Disposition: form-data; name=\"{field}\"; filename=\"{name}\"\r\nContent-Type: {mime}\r\n\r\n"
     );

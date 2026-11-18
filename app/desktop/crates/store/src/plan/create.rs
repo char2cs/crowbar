@@ -17,7 +17,6 @@ use crate::reads::host_of;
 use crate::rows::default_workspace;
 use crate::target::Kind;
 use crate::target::{Target, resolve};
-use daemonapi::routes;
 
 const NEW_THREAD: &str = "New thread";
 const NEW_WORKSPACE: &str = "New workspace";
@@ -33,7 +32,7 @@ pub(crate) fn home_thread(
     let slot = host_of(state, project.as_str()).ok_or(PlanError::SpaceNotLoaded)?;
     let home = default_workspace(&slot.store, (project.as_str(), "")).ok_or(PlanError::NoHome)?;
     let body = chat_body(id, (&home.id, ""), surface);
-    let path = routes::chats(project.as_str(), "");
+    let path = daemonapi::Route::chats(project.as_str(), "");
     let row = pending(id, NEW_THREAD, ("", ""));
     Ok(Plan::of(&slot.spec.id, vec![Call::post(path).json(body)])
         .showing(row)
@@ -51,7 +50,7 @@ pub(crate) fn thread(
     let workspace = workspace_for(state, &target)?;
     let parent = parent_chat(&target)?;
     let body = chat_body(id, (&workspace, &parent), surface);
-    let path = routes::chats(&target.project, &target.repo);
+    let path = daemonapi::Route::chats(&target.project, &target.repo);
     let host = host_id(state, &target)?;
     let pending = pending(id, NEW_THREAD, (&target.repo, &parent));
     Ok(Plan::of(&host, vec![Call::post(path).json(body)])
@@ -85,7 +84,7 @@ pub(crate) fn fork(
     let label = Some(name)
         .filter(|given| !given.is_empty())
         .unwrap_or(NEW_WORKSPACE);
-    let call = Call::post(routes::chats(&target.project, &target.repo)).json(body);
+    let call = Call::post(daemonapi::Route::chats(&target.project, &target.repo)).json(body);
     let host = host_id(state, &target)?;
     let row = pending(id, label, (&target.repo, &owner));
     Ok(Plan::of(&host, vec![call])
@@ -101,7 +100,7 @@ pub(crate) fn make_branch(
     let target = resolve(state, row).ok_or(PlanError::RowNotLoaded)?;
     let path = format!(
         "{}/{}/branch-out",
-        routes::chats(&target.project, &target.repo),
+        daemonapi::Route::chats(&target.project, &target.repo),
         target.chat()?
     );
     Ok(Plan::of(
@@ -132,7 +131,7 @@ pub(crate) fn repo(
         .file_name()
         .and_then(std::ffi::OsStr::to_str)
         .ok_or(PlanError::FolderHasNoName)?;
-    let call = Call::post(routes::repos(project.as_str()))
+    let call = Call::post(daemonapi::Route::repos(project.as_str()))
         .json(json!({NAME: name, "path": path}))
         .idempotent(id);
     Ok(Plan::of(&slot.spec.id, vec![call]))

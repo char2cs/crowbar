@@ -3,7 +3,7 @@
 mod connection;
 mod core_origin;
 mod dial;
-pub mod frame;
+mod frame;
 mod relay_dial;
 
 pub use connection::Connection;

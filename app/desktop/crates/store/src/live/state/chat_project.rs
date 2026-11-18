@@ -17,7 +17,7 @@ pub(crate) fn of(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use daemonapi::frame::decode;
+    use daemonapi::Frame;
 
     use crate::test_support::state;
 
@@ -28,7 +28,7 @@ mod tests {
             let frame = format!(
                 r#"{{"t":"entity","scope":"projects","kind":"chat","id":"{id}","v":9,"data":{data}}}"#
             );
-            decode(&frame).unwrap()
+            Frame::decode(&frame).unwrap()
         };
         state.apply("local", entity("a", r#"{"id":"a","projectId":"p1"}"#));
         state.apply("local", entity("b", r#"{"id":"b"}"#));

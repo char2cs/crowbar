@@ -72,13 +72,15 @@ pub enum Frame {
     },
 }
 
-/// Parses one text message of the stream as a [`Frame`].
-///
-/// # Errors
-///
-/// A `serde_json::Error` when the text is not JSON or not a frame type this enum knows.
-pub fn decode(text: &str) -> Result<Frame, serde_json::Error> {
-    serde_json::from_str(text)
+impl Frame {
+    /// Parses one text message of the stream as a frame.
+    ///
+    /// # Errors
+    ///
+    /// A `serde_json::Error` when the text is not JSON or not a frame type this enum knows.
+    pub fn decode(text: &str) -> Result<Self, serde_json::Error> {
+        serde_json::from_str(text)
+    }
 }
 
 #[cfg(test)]
@@ -99,20 +101,21 @@ mod tests {
             r#"{"t":"signal","scope":"git:w","kind":"git_status"}"#,
         ];
         for text in cases {
-            assert!(decode(text).is_ok(), "{text}");
+            assert!(Frame::decode(text).is_ok(), "{text}");
         }
     }
 
     #[test]
     fn an_unknown_type_is_an_error() {
-        assert!(decode(r#"{"t":"gossip"}"#).is_err());
-        assert!(decode("nope").is_err());
+        assert!(Frame::decode(r#"{"t":"gossip"}"#).is_err());
+        assert!(Frame::decode("nope").is_err());
     }
 
     #[test]
     fn a_removal_carries_no_data() {
-        let frame =
-            decode(r#"{"t":"entity","scope":"projects","kind":"chat","id":"c","v":4,"gone":true}"#);
+        let frame = Frame::decode(
+            r#"{"t":"entity","scope":"projects","kind":"chat","id":"c","v":4,"gone":true}"#,
+        );
         assert!(matches!(
             frame,
             Ok(Frame::Entity {

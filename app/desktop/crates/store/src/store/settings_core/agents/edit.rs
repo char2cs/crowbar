@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use daemonapi::{Call, Switch, decode::typed};
+use daemonapi::{Call, Switch};
 use settings::{Change, Error, RecordCommand};
 
 use crate::live::Provider;
@@ -101,9 +101,8 @@ impl SettingsCore {
     ) {
         let saved = self
             .local
-            .send(Call::put(PROVIDERS_PATH).json(body))
-            .await
-            .and_then(|data| typed::<Vec<Provider>>(PROVIDERS_PATH, data));
+            .fetch::<Vec<Provider>>(Call::put(PROVIDERS_PATH).json(body))
+            .await;
         let next = saved.unwrap_or_else(|error| {
             tracing::warn!(%error, "the agent preferences were not saved");
             before

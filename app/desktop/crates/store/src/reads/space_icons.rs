@@ -48,7 +48,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use daemonapi::frame::decode;
+    use daemonapi::Frame;
 
     use crate::live::IconCache;
     use crate::test_support::state;
@@ -60,7 +60,7 @@ mod tests {
         let frame = format!(
             r#"{{"t":"entity","scope":"projects","kind":"project","id":"p","v":9,"data":{data}}}"#
         );
-        state.apply("local", decode(&frame).unwrap());
+        state.apply("local", Frame::decode(&frame).unwrap());
         state
     }
 

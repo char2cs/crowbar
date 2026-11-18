@@ -7,18 +7,35 @@ use crate::client::call::Call;
 use crate::client::decode::typed;
 use crate::error::Result;
 
-/// Gets `path` through `client` and returns the answer's `data` as the type the route promises.
-///
-/// # Errors
-///
-/// `Error::Request`, `Error::Refused` or `Error::Body` when the request fails, as in
-/// [`Client::send`], and `Error::Json` when the `data` is not a `T`.
-pub async fn read<T: DeserializeOwned>(
-    client: &Client,
-    path: String,
-) -> Result<T> {
-    let data = client.send(Call::get(path.clone())).await?;
-    typed(&path, data)
+impl Client {
+    /// Gets `path` and returns the answer's `data` as the type the route promises.
+    ///
+    /// # Errors
+    ///
+    /// As [`Client::fetch`].
+    pub async fn read<T: DeserializeOwned>(
+        &self,
+        path: impl Into<String>,
+    ) -> Result<T> {
+        self.fetch(Call::get(path)).await
+    }
+
+    /// Sends `call` and returns the answer's `data` as the type the route promises.
+    ///
+    /// A `null` reads as an empty list when `T` is a list.
+    ///
+    /// # Errors
+    ///
+    /// `Error::Request`, `Error::Refused` or `Error::Body` when the request fails, as in
+    /// [`Client::send`], and `Error::Json` when the `data` is not a `T`.
+    pub async fn fetch<T: DeserializeOwned>(
+        &self,
+        call: Call,
+    ) -> Result<T> {
+        let path = call.path.clone();
+        let data = self.send(call).await?;
+        typed(&path, data)
+    }
 }
 
 #[cfg(test)]
@@ -37,9 +54,7 @@ mod tests {
             HostId::new("local").unwrap(),
         );
         daemon.ok("GET", "/v0/route", body);
-        read::<Vec<String>>(&client, "/v0/route".into())
-            .await
-            .is_ok()
+        client.read::<Vec<String>>("/v0/route").await.is_ok()
     }
 
     #[tokio::test]

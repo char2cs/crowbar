@@ -11,8 +11,7 @@ fn escape(byte: u8) -> String {
     format!("%{byte:02X}")
 }
 
-/// `value` percent-encoded for a query string; unreserved bytes and `/` stay as they are.
-pub fn encode(value: &str) -> String {
+pub(crate) fn encode(value: &str) -> String {
     value.bytes().map(escape).collect()
 }
 

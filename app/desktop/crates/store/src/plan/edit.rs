@@ -12,7 +12,6 @@ use crate::reads::host_of;
 use crate::rows::pending as pending_rows;
 use crate::target::Kind;
 use crate::target::{Target, resolve};
-use daemonapi::{new_id, routes};
 
 fn locate(
     state: &State,
@@ -32,20 +31,23 @@ pub(crate) fn rename(
     let (target, host) = locate(state, row)?;
     let (project, repo) = (&target.project, &target.repo);
     let call = match &target.kind {
-        Kind::Folder => Call::patch(format!("{}/{row}", routes::folders(project, repo)))
-            .json(json!({"name": name})),
+        Kind::Folder => Call::patch(format!(
+            "{}/{row}",
+            daemonapi::Route::folders(project, repo)
+        ))
+        .json(json!({"name": name})),
         Kind::RepoHeader { .. } => {
-            Call::patch(routes::scope(project, repo)).json(json!({"name": name}))
+            Call::patch(daemonapi::Route::scope(project, repo)).json(json!({"name": name}))
         },
         Kind::Branch { locked: true, .. } => Call::patch(format!(
             "{}/{}/branch",
-            routes::chats(project, repo),
+            daemonapi::Route::chats(project, repo),
             target.chat()?
         ))
         .json(json!({"branch": name})),
         _ => Call::post(format!(
             "{}/{}/rename",
-            routes::chats(project, repo),
+            daemonapi::Route::chats(project, repo),
             target.chat()?
         ))
         .json(json!({"title": name})),
@@ -60,13 +62,15 @@ pub(crate) fn remove(
     let (target, host) = locate(state, row)?;
     let (project, repo) = (&target.project, &target.repo);
     let call = match &target.kind {
-        Kind::Folder => Call::delete(format!("{}/{row}", routes::folders(project, repo))),
-        Kind::RepoHeader { .. } => {
-            Call::delete(routes::scope(project, repo)).idempotent(&new_id::uuid())
-        },
+        Kind::Folder => Call::delete(format!(
+            "{}/{row}",
+            daemonapi::Route::folders(project, repo)
+        )),
+        Kind::RepoHeader { .. } => Call::delete(daemonapi::Route::scope(project, repo))
+            .idempotent(&daemonapi::Uuid::random().to_string()),
         _ => Call::delete(format!(
             "{}/{}",
-            routes::chats(project, repo),
+            daemonapi::Route::chats(project, repo),
             target.chat()?
         ))
         .discarding_work(),
@@ -79,7 +83,8 @@ pub(crate) fn remove_project(
     project: &ProjectId,
 ) -> Result<Plan, PlanError> {
     let slot = host_of(state, project.as_str()).ok_or(PlanError::SpaceNotLoaded)?;
-    let call = Call::delete(routes::project(project.as_str())).idempotent(&new_id::uuid());
+    let call = Call::delete(daemonapi::Route::project(project.as_str()))
+        .idempotent(&daemonapi::Uuid::random().to_string());
     Ok(Plan::of(&slot.spec.id, vec![call]))
 }
 
@@ -91,7 +96,7 @@ pub(crate) fn verb(
     let (target, host) = locate(state, row)?;
     let path = format!(
         "{}/{}/{verb}",
-        routes::chats(&target.project, &target.repo),
+        daemonapi::Route::chats(&target.project, &target.repo),
         target.chat()?
     );
     let mut call = Call::post(path);
@@ -99,7 +104,7 @@ pub(crate) fn verb(
         call = call.json(body);
     }
     if matches!(verb, "detach-holder" | "retry-provision") {
-        call = call.idempotent(&new_id::uuid());
+        call = call.idempotent(&daemonapi::Uuid::random().to_string());
     }
     Ok(Plan::of(&host, vec![call]))
 }

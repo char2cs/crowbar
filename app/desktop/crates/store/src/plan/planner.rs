@@ -14,13 +14,12 @@ use crate::plan::{
     edit as plan_edit, icon as plan_icon, merge as plan_merge, relocate as plan_move,
 };
 use crate::reads::active_project;
-use daemonapi::new_id;
 
 pub(crate) fn plan(
     (state, files): (&State, &dyn Files),
     command: &Command,
 ) -> Result<Plan, PlanError> {
-    let id = new_id::uuid();
+    let id = daemonapi::Uuid::random().to_string();
     match command {
         Command::NewThread(_)
         | Command::NewTerminalThread(_)

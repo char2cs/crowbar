@@ -15,8 +15,6 @@ pub(crate) use document_body::DocumentBody;
 pub(crate) use file_target::FileTarget;
 pub(crate) use reload_target::ReloadTarget;
 
-use daemonapi::read::read;
-
 use crate::live::held::FileEntry;
 use crate::live::panel_loader::git_diff_body::GitDiffBody;
 use crate::live::panel_loader::git_status_body::GitStatusBody;
@@ -42,7 +40,9 @@ pub(crate) async fn load_directory(
     client: &daemonapi::Client,
     (chat, directory): (&str, &str),
 ) {
-    let listed = read::<Vec<FileEntry>>(client, tree_path(chat, directory)).await;
+    let listed = client
+        .read::<Vec<FileEntry>>(tree_path(chat, directory))
+        .await;
     let Ok(entries) = listed.inspect_err(|error| {
         tracing::warn!(chat, directory, %error, "a directory could not be listed");
     }) else {
@@ -63,7 +63,9 @@ pub(crate) async fn load_changes(
     client: &daemonapi::Client,
     chat: &str,
 ) {
-    let answer = read::<GitStatusBody>(client, format!("/v0/chats/{chat}/git/status")).await;
+    let answer = client
+        .read::<GitStatusBody>(format!("/v0/chats/{chat}/git/status"))
+        .await;
     let Ok(body) = answer.inspect_err(|error| {
         tracing::warn!(chat, %error, "git status could not be read");
     }) else {
@@ -87,7 +89,8 @@ async fn load_open_threads(
     let Some(path) = hub.read(|state| threads_path(state, chat)) else {
         return 0;
     };
-    read::<Vec<ThreadBody>>(client, path)
+    client
+        .read::<Vec<ThreadBody>>(path)
         .await
         .inspect_err(|error| tracing::warn!(chat, %error, "review threads could not be read"))
         .map_or(0, |threads| thread_body::open_in(&threads))
@@ -101,7 +104,7 @@ fn threads_path(
         .hosts
         .iter()
         .find_map(|slot| slot.store.chats.get(chat))?;
-    let scope = daemonapi::routes::scope(&record.project_id, &record.repo_id);
+    let scope = daemonapi::Route::scope(&record.project_id, &record.repo_id);
     Some(format!(
         "{scope}/workspaces/{}/threads",
         record.workspace_id
@@ -123,7 +126,8 @@ async fn diff_of(
     staged: &str,
 ) -> Vec<GitDiffBody> {
     let path = format!("/v0/chats/{chat}/git/diff?staged={staged}");
-    read::<Vec<GitDiffBody>>(client, path)
+    client
+        .read::<Vec<GitDiffBody>>(path)
         .await
         .inspect_err(|error| tracing::warn!(chat, %error, "the line counts could not be read"))
         .unwrap_or_default()

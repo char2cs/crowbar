@@ -13,7 +13,6 @@ use crate::plan::after::After;
 use crate::plan::merge::open_chat::OpenChat;
 use crate::reads::followed_workspace;
 use crate::reads::strategy_wire;
-use daemonapi::new_id;
 
 pub(crate) fn set_strategy(
     state: &State,
@@ -38,7 +37,7 @@ fn merge_call(
     let delete = after == AfterMerge::DeleteBranch;
     Ok(Call::post(format!("/v0/chats/{chat}/merge-into-parent"))
         .json(json!({"strategy": strategy, "deleteSource": delete}))
-        .idempotent(&new_id::uuid()))
+        .idempotent(&daemonapi::Uuid::random().to_string()))
 }
 
 pub(crate) fn merge(

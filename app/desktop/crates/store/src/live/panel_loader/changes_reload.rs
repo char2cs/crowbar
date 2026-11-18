@@ -31,7 +31,6 @@ pub(crate) fn follow(hub: &Arc<Hub>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use daemonapi::frame::decode;
 
     use crate::test_support::state;
 
@@ -44,8 +43,9 @@ mod tests {
     #[test]
     fn only_operation_entities_ask_for_a_reload() {
         let operation =
-            decode(r#"{"t":"entity","scope":"projects","kind":"operation","id":"o","v":2}"#);
-        let chat = decode(r#"{"t":"entity","scope":"projects","kind":"chat","id":"c","v":2}"#);
+            Frame::decode(r#"{"t":"entity","scope":"projects","kind":"operation","id":"o","v":2}"#);
+        let chat =
+            Frame::decode(r#"{"t":"entity","scope":"projects","kind":"chat","id":"c","v":2}"#);
         assert_eq!(
             (
                 is_operation(&operation.unwrap()),

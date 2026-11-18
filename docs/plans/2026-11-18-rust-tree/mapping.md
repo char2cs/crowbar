@@ -1257,7 +1257,7 @@ Format: `old path (relative to the old crate) → new path (relative to app/)`. 
 - `src/descriptors.rs` → `desktop/crates/store/src/store/settings_core/agents/descriptors.rs`
 - `src/dial.rs` → `desktop/crates/daemonapi/src/stream/dial.rs` · the Dialled alias moves to live/fleet/host_dialling.rs (it names HostSpec); moves to the new crate daemonapi (decision 7)
 - `src/document_body.rs` → `desktop/crates/store/src/live/panel_loader/document_body.rs`
-- `src/document_route.rs` → `desktop/crates/daemonapi/src/routes/document.rs` · stutter; moves to the new crate daemonapi (decision 7)
+- `src/document_route.rs` → `desktop/crates/daemonapi/src/route/document.rs` · stutter; moves to the new crate daemonapi (decision 7)
 - `src/ended.rs` → `desktop/crates/store/src/live/fleet/host_stream/ended.rs`
 - `src/endpoint_error.rs` → `desktop/crates/store/src/store/pairing_session/endpoint_text/error.rs` · stem error holds EndpointError (allowed by the type-name check)
 - `src/endpoint_text.rs` → `desktop/crates/store/src/store/pairing_session/endpoint_text.rs` · module root
@@ -1340,7 +1340,7 @@ Format: `old path (relative to the old crate) → new path (relative to app/)`. 
 - `src/merge_reads.rs` → `desktop/crates/store/src/reads/merge.rs` · stutter
 - `src/multipart.rs` → `desktop/crates/daemonapi/src/client/multipart.rs` · moves to the new crate daemonapi (decision 7)
 - `src/new_entry.rs` → `desktop/crates/store/src/sidebar_commands/new_entry.rs`
-- `src/new_id.rs` → `desktop/crates/daemonapi/src/new_id.rs` · moves to the new crate daemonapi (decision 7)
+- `src/new_id.rs` → `desktop/crates/daemonapi/src/uuid.rs` · uuid() -> Uuid (the root exports a type, not a free function); moves to the new crate daemonapi (decision 7)
 - `src/open_chat.rs` → `desktop/crates/store/src/plan/merge/open_chat.rs`
 - `src/operation_item.rs` → `desktop/crates/store/src/live/held/entities/operation_record/item.rs` · OperationItem -> Item
 - `src/operation_record.rs` → `desktop/crates/store/src/live/held/entities/operation_record.rs`
@@ -1381,14 +1381,14 @@ Format: `old path (relative to the old crate) → new path (relative to app/)`. 
 - `src/project_rows.rs` → `desktop/crates/store/src/rows/project.rs` · stutter
 - `src/provider.rs` → `desktop/crates/store/src/live/fleet/catalog/provider.rs`
 - `src/providers.rs` → `desktop/crates/store/src/live/fleet/catalog.rs` · module root: list of a host's agents
-- `src/query_encode.rs` → `desktop/crates/daemonapi/src/routes/query.rs` · moves to the new crate daemonapi (decision 7)
+- `src/query_encode.rs` → `desktop/crates/daemonapi/src/route/query.rs` · moves to the new crate daemonapi (decision 7)
 - `src/quote_state.rs` → `desktop/crates/store/src/sidebar_commands/env_template_file/quote_state.rs`
 - `src/refusal.rs` → `desktop/crates/store/src/store/pairing_session/words/refusal.rs`
 - `src/relay_dial.rs` → `desktop/crates/daemonapi/src/stream/relay_dial.rs` · moves to the new crate daemonapi (decision 7)
 - `src/reload_target.rs` → `desktop/crates/store/src/live/panel_loader/reload_target.rs`
 - `src/repo_mark.rs` → `desktop/crates/store/src/rows/repo_mark.rs`
 - `src/repo_record.rs` → `desktop/crates/store/src/live/held/entities/repo_record.rs`
-- `src/routes.rs` → `desktop/crates/daemonapi/src/routes.rs` · module root of routes/; moves to the new crate daemonapi (decision 7)
+- `src/routes.rs` → `desktop/crates/daemonapi/src/route.rs` · the builders become Route constructors · module root of route/; moves to the new crate daemonapi (decision 7)
 - `src/row_emitter.rs` → `desktop/crates/store/src/rows/emitter.rs` · RowEmitter -> Emitter · stutter
 - `src/row_look.rs` → `desktop/crates/store/src/rows/look.rs` · stutter
 - `src/rule_set.rs` → `desktop/crates/store/src/live/held/panel_state/rule_set.rs`

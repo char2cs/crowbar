@@ -48,7 +48,7 @@ impl ChatTerminal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use daemonapi::frame::decode;
+    use daemonapi::Frame;
 
     use crate::test_support::state;
 
@@ -59,7 +59,7 @@ mod tests {
         let frame = format!(
             r#"{{"t":"entity","scope":"projects","kind":"chat","id":"hc","v":9,"data":{data}}}"#
         );
-        state.apply("local", decode(&frame).unwrap());
+        state.apply("local", Frame::decode(&frame).unwrap());
         assert_eq!(
             ChatTerminal::of(&state, "hc"),
             Some(ChatTerminal {

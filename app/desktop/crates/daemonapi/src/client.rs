@@ -1,12 +1,13 @@
 //! Requests to one daemon host through the shell's transport.
 
 mod call;
-pub mod decode;
-pub mod envelope;
-pub mod multipart;
-pub mod read;
+mod decode;
+mod envelope;
+mod multipart;
+mod read;
 
 pub use call::Call;
+pub use envelope::Envelope;
 
 use std::sync::Arc;
 
@@ -67,7 +68,7 @@ impl Client {
             path: path.clone(),
             source,
         })?;
-        envelope::unwrap(&path, &response)
+        Envelope::unwrap(&path, &response)
     }
 
     /// Sends `call` and returns the raw body of the answer, not read as an envelope.

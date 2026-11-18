@@ -10,7 +10,6 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use daemonapi::read::read;
 use tokio::runtime::Handle;
 
 use crate::live::ChangeSignal;
@@ -95,7 +94,9 @@ impl SystemCheck {
         tool: Tool,
         round: u64,
     ) {
-        let report = read::<ToolReport>(&self.client, tool.route().to_owned())
+        let report = self
+            .client
+            .read::<ToolReport>(tool.route().to_owned())
             .await
             .inspect_err(|error| tracing::warn!(?tool, %error, "a prerequisite probe failed"))
             .unwrap_or_default();

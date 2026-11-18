@@ -32,7 +32,6 @@ use crate::{
     live::panel_loader,
     plan::{agent as plan_agent, create as plan_create, planner, runner},
 };
-use daemonapi::new_id;
 
 /// Plans each command from the current entities and runs it on the runtime; the stream shows the
 /// result. Commands that are the shell's own (dialogs, opening a pane) are refused here.
@@ -109,7 +108,11 @@ impl SidebarCommands {
     ) -> Result<(), Error> {
         let plan = self.hub.read(|state| {
             let project = active_project(state);
-            plan_create::repo(state, project.as_ref(), (path, &new_id::uuid()))
+            plan_create::repo(
+                state,
+                project.as_ref(),
+                (path, &daemonapi::Uuid::random().to_string()),
+            )
         });
         self.run(plan)
     }

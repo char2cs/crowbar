@@ -1,13 +1,10 @@
 //! Reading the `.gitignore` files that a directory listing shows.
 
-use daemonapi::read::read;
-
 use crate::live::held::FileEntry;
 use crate::live::panel_loader::document_body::DocumentBody;
 use crate::live::panel_loader::file_target;
 use crate::live::panel_loader::listed_directory::ListedDirectory;
 use crate::live::state::Hub;
-use daemonapi::routes::document;
 
 const IGNORE_FILE: &str = ".gitignore";
 
@@ -34,8 +31,9 @@ pub(crate) async fn learn(
     let Some(workspace) = target.ok().filter(|held| held.chat == chat) else {
         return;
     };
-    let route = document::content(&workspace.workspace, &file.path);
-    let Ok(body) = read::<DocumentBody>(client, route)
+    let route = daemonapi::Route::document_content(&workspace.workspace, &file.path);
+    let Ok(body) = client
+        .read::<DocumentBody>(route)
         .await
         .inspect_err(|error| tracing::warn!(chat, %error, "a .gitignore could not be read"))
     else {

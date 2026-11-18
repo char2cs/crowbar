@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use daemonapi::{Call, read::read, routes::query::encode};
+use daemonapi::Call;
 use serde_json::json;
 use sidebar::Error;
 
@@ -34,10 +34,10 @@ async fn change_and_reload(
 
 async fn say_content(
     client: &daemonapi::Client,
-    route: String,
+    route: daemonapi::Route,
     outcome: &OutcomeSink,
 ) {
-    let said = match read::<DocumentBody>(client, route).await {
+    let said = match client.read::<DocumentBody>(route).await {
         Ok(body) => Outcome::CopyText(body.content),
         Err(error) => Outcome::Failed(error.to_string()),
     };
@@ -123,11 +123,7 @@ impl SidebarCommands {
             .hub
             .read(|state| state.client_of_chat(&target.chat))
             .ok_or(PlanError::WorkspaceNotLoaded)?;
-        let route = format!(
-            "/v0/documents/content?workspace={}&path={}",
-            encode(&target.workspace),
-            encode(path)
-        );
+        let route = daemonapi::Route::document_content(&target.workspace, path);
         let outcome = Arc::clone(&self.outcome);
         self.handle
             .spawn(async move { say_content(&client, route, &outcome).await });

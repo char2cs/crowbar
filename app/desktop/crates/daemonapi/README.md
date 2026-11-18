@@ -12,19 +12,24 @@ speaks the daemon's API through it.
 
 ## Public interface
 
-- `Client`: `new(transport, host)`, `send(Call)` (the envelope's `data`), `bytes(Call)`.
-- `Call`: `get`, `post`, `put`, `patch`, `delete`, then `json`, `yaml`, `form`, `idempotent`,
-  `discarding_work`.
+`lib.rs` re-exports types only; what were free functions are associated functions of the type
+they serve.
+
+- `Client`: `new(transport, host)`, `send(Call)` (the envelope's `data`), `bytes(Call)`,
+  `read(path)` and `fetch(Call)` (the `data` as the type the route promises).
+- `Call`: `get`, `post`, `put`, `patch`, `delete`, then `json`, `yaml`, `file` (a one-file
+  multipart form), `idempotent`, `discarding_work`.
+- `Route`: the daemon paths, `project`, `repos`, `scope`, `chats`, `folders`,
+  `document_content`, `browse`; displays as the path and converts into a `Call`'s path.
+- `Envelope`: `Envelope::unwrap(path, response)` for callers that send their own requests.
+- `Uuid`: `Uuid::random()`, a client-minted id that displays in its hyphenated form.
 - `Error` (Request, Refused, Body, Json, Stream) and `Result`.
-- Routes and reading: `routes` (project, repos, scope, chats, folders), `envelope::unwrap`,
-  `routes::document::content`, `routes::query::encode`, `read::read`, `decode::typed`,
-  `new_id::uuid`,
-  `multipart::file_field`.
-- The stream: `Dial` and `Opening`, `RelayDial`, `Connection`, `Frame` and `frame::decode`,
+- The stream: `Dial` and `Opening`, `RelayDial`, `Connection`, `Frame` (with `Frame::decode`),
   `CORE_ORIGIN`.
 - Daemon data: `EntryKind`, `Switch`, `Problem`.
 - Feature `fake`: `FakeDaemon` (a transport answering canned routes, recording each `Seen`
-  request) and `local()`, for the unit tests here and in `store`.
+  request), for the unit tests here and in `store`. A `cfg(test)` fake would be invisible to
+  `store`, so it is a feature (recorded in the design doc).
 
 ## Depends on
 

@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use daemonapi::{Call, read::read};
+use daemonapi::Call;
 use serde_json::json;
 
 use crate::error::Result;
@@ -54,7 +54,10 @@ impl FileSession {
         &self,
         directory: &str,
     ) -> Result<Vec<FileEntry>> {
-        Ok(read(&self.client, tree_path(&self.target.chat, directory)).await?)
+        Ok(self
+            .client
+            .read(tree_path(&self.target.chat, directory))
+            .await?)
     }
 
     pub(crate) async fn reload(
@@ -79,7 +82,7 @@ impl FileSession {
         &self,
         path: &str,
     ) -> Result<String> {
-        let body: DocumentBody = read(&self.client, self.content_route(path)).await?;
+        let body: DocumentBody = self.client.read(self.content_route(path)).await?;
         Ok(body.content)
     }
 
@@ -132,8 +135,8 @@ impl FileSession {
     fn content_route(
         &self,
         path: &str,
-    ) -> String {
-        daemonapi::routes::document::content(&self.target.workspace, path)
+    ) -> daemonapi::Route {
+        daemonapi::Route::document_content(&self.target.workspace, path)
     }
 }
 

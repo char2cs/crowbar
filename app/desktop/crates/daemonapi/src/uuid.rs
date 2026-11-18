@@ -1,4 +1,4 @@
-//! Client-minted identifiers: chats and operations are created under an id the caller chooses.
+use std::fmt;
 
 const UUID_BYTES: usize = 16;
 const VERSION_BYTE: usize = 6;
@@ -9,16 +9,36 @@ const KEEP_LOW_SIX: u8 = 0x3f;
 const VARIANT_RFC: u8 = 0x80;
 const GROUP_SIZES: [usize; 5] = [4, 2, 2, 2, 6];
 
-/// A fresh random version-4 UUID in its hyphenated lowercase form.
+/// A random version-4 UUID minted by the client: chats and operations are created under an id
+/// the caller chooses.
 ///
-/// Without system randomness it logs an error and the id is not random.
-pub fn uuid() -> String {
-    let mut bytes = [0_u8; UUID_BYTES];
-    if let Err(error) = getrandom::fill(&mut bytes) {
-        tracing::error!(%error, "the system has no randomness; ids repeat per second");
+/// It displays in its hyphenated lowercase form.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Uuid {
+    bytes: [u8; UUID_BYTES],
+}
+
+impl Uuid {
+    /// A fresh random UUID.
+    ///
+    /// Without system randomness it logs an error and the id is not random.
+    pub fn random() -> Self {
+        let mut bytes = [0_u8; UUID_BYTES];
+        if let Err(error) = getrandom::fill(&mut bytes) {
+            tracing::error!(%error, "the system has no randomness; ids repeat per second");
+        }
+        stamp(&mut bytes);
+        Self { bytes }
     }
-    stamp(&mut bytes);
-    hyphenate(&bytes)
+}
+
+impl fmt::Display for Uuid {
+    fn fmt(
+        &self,
+        formatter: &mut fmt::Formatter<'_>,
+    ) -> fmt::Result {
+        formatter.write_str(&hyphenate(&self.bytes))
+    }
 }
 
 fn stamp(bytes: &mut [u8; UUID_BYTES]) {
@@ -47,12 +67,12 @@ mod tests {
 
     #[test]
     fn a_uuid_has_the_v4_shape_and_ids_differ() {
-        let id = uuid();
+        let id = Uuid::random().to_string();
         let sizes: Vec<usize> = id.split('-').map(str::len).collect();
         assert_eq!(sizes, [8, 4, 4, 4, 12]);
         let parts: Vec<&str> = id.split('-').collect();
         assert!(parts[2].starts_with('4'));
         assert!(parts[3].starts_with(['8', '9', 'a', 'b']));
-        assert_ne!(uuid(), uuid());
+        assert_ne!(Uuid::random(), Uuid::random());
     }
 }

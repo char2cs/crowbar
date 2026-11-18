@@ -2,6 +2,8 @@
 
 use serde_json::Value;
 
+use crate::client::multipart::file_field;
+
 /// One request to a daemon route: its method, path, body and headers.
 ///
 /// Built with a verb such as [`Call::get`], then the body and header builders.
@@ -79,13 +81,16 @@ impl Call {
         self
     }
 
-    /// The call with `body` as a `multipart/form-data` body split by `boundary`.
+    /// The call with a `multipart/form-data` body whose `field` carries `bytes` as the file
+    /// `name` of type `mime`.
     #[must_use]
-    pub fn form(
+    pub fn file(
         mut self,
-        body: Vec<u8>,
-        boundary: &str,
+        field: &str,
+        (name, mime): (&str, &str),
+        bytes: &[u8],
     ) -> Self {
+        let (body, boundary) = file_field(field, (name, mime), bytes);
         self.raw = Some(body);
         self.headers.push((
             "content-type".into(),

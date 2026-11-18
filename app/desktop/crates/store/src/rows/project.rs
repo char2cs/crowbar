@@ -178,7 +178,7 @@ mod tests {
         ];
         let mut store = Entities::default();
         for text in frames {
-            store.apply(daemonapi::frame::decode(text).unwrap());
+            store.apply(daemonapi::Frame::decode(text).unwrap());
         }
         let rows = of(&store, "p", &[]);
         assert_eq!(
