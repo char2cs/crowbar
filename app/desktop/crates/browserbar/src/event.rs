@@ -1,7 +1,7 @@
 /// What the user asked of the browser pane.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum BrowserBarEvent {
+pub enum Event {
     /// Go to what was typed in the address field, which is not yet a URL.
     Go(String),
     /// Go back one page.

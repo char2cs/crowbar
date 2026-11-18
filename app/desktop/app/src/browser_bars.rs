@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 
-use browserbar::{BrowserBar, BrowserBarEvent};
+use browserbar::BrowserBar;
 use gpui::{AnyView, App, AppContext as _, Entity};
 use panehost::BrowseAction;
 use protocol::PaneId;
@@ -111,7 +111,7 @@ impl BrowserBars {
     ) -> Entity<BrowserBar> {
         let bar = cx.new(BrowserBar::new);
         let (requests, owner) = (self.requests.clone(), pane.clone());
-        cx.subscribe(&bar, move |_, event: &BrowserBarEvent, _| {
+        cx.subscribe(&bar, move |_, event: &browserbar::Event, _| {
             forward(&requests, &owner, event);
         })
         .detach();
@@ -123,7 +123,7 @@ impl BrowserBars {
 fn forward(
     requests: &async_channel::Sender<ShellRequest>,
     pane: &PaneId,
-    event: &BrowserBarEvent,
+    event: &browserbar::Event,
 ) {
     let request = ShellRequest::Browse {
         pane: pane.clone(),

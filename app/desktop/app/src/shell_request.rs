@@ -31,6 +31,6 @@ pub(crate) enum ShellRequest {
     Agent(browseragent::AgentCommand),
     Browse {
         pane: protocol::PaneId,
-        event: browserbar::BrowserBarEvent,
+        event: browserbar::Event,
     },
 }

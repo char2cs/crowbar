@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use browser::{PageUrl, SearchEngine, resolve_address};
 use browseragent::{AgentCommand, run_peer};
-use browserbar::BrowserBarEvent;
 use gpui::Context;
 use panehost::BrowseAction;
 use protocol::PaneId;
@@ -48,10 +47,10 @@ impl ShellView {
     pub(super) fn browse(
         &mut self,
         pane: &PaneId,
-        event: BrowserBarEvent,
+        event: browserbar::Event,
         cx: &mut Context<'_, Self>,
     ) {
-        if event == BrowserBarEvent::TogglePick {
+        if event == browserbar::Event::TogglePick {
             self.toggle_pick(pane, cx);
             return;
         }
@@ -86,17 +85,17 @@ impl ShellView {
 }
 
 fn action_for(
-    event: BrowserBarEvent,
+    event: browserbar::Event,
     engine: &SearchEngine,
 ) -> Option<BrowseAction> {
     match event {
-        BrowserBarEvent::Go(typed) => {
+        browserbar::Event::Go(typed) => {
             let address = resolve_address(&typed, engine)?;
             PageUrl::parse(&address).ok().map(BrowseAction::Go)
         },
-        BrowserBarEvent::Back => Some(BrowseAction::Back),
-        BrowserBarEvent::Forward => Some(BrowseAction::Forward),
-        BrowserBarEvent::Reload => Some(BrowseAction::Reload),
+        browserbar::Event::Back => Some(BrowseAction::Back),
+        browserbar::Event::Forward => Some(BrowseAction::Forward),
+        browserbar::Event::Reload => Some(BrowseAction::Reload),
         _ => None,
     }
 }
@@ -114,13 +113,13 @@ mod tests {
         ];
         for (typed, acts) in CASES {
             let action = action_for(
-                BrowserBarEvent::Go((*typed).to_owned()),
+                browserbar::Event::Go((*typed).to_owned()),
                 &SearchEngine::DuckDuckGo,
             );
             assert_eq!(action.is_some(), *acts, "{typed:?}");
         }
         assert_eq!(
-            action_for(BrowserBarEvent::Back, &SearchEngine::DuckDuckGo),
+            action_for(browserbar::Event::Back, &SearchEngine::DuckDuckGo),
             Some(BrowseAction::Back)
         );
     }

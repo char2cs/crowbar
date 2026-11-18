@@ -7,7 +7,7 @@ picker.
 
 ## Public interface
 
-- `BrowserBar`: the bar; it emits `BrowserBarEvent`.
+- `BrowserBar`: the bar; it emits `Event`.
 
 ## Depends on
 

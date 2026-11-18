@@ -4,13 +4,13 @@ use gpui::{
 };
 use ui::{Button, ButtonVariant, IconName, Surface, TextInput, TextInputEvent, TextInputStyle};
 
-use crate::browser_bar_event::BrowserBarEvent;
+use crate::event::Event;
 
 const PLACEHOLDER: &str = "Search or enter address";
 const BAR_PADDING: f32 = 6.0;
 const BAR_GAP: f32 = 4.0;
 
-/// Back, forward, reload and pick buttons beside an address field. It emits [`BrowserBarEvent`] and
+/// Back, forward, reload and pick buttons beside an address field. It emits [`Event`] and
 /// changes nothing else; the shell calls [`BrowserBar::set_address`] as the page navigates.
 pub struct BrowserBar {
     input: Entity<TextInput>,
@@ -27,7 +27,7 @@ impl std::fmt::Debug for BrowserBar {
     }
 }
 
-impl EventEmitter<BrowserBarEvent> for BrowserBar {}
+impl EventEmitter<Event> for BrowserBar {}
 
 impl BrowserBar {
     /// A bar with an empty address field.
@@ -81,7 +81,7 @@ fn submitted(
 ) {
     if matches!(event, TextInputEvent::Submitted) {
         let typed = input.read(cx).text().to_owned();
-        cx.emit(BrowserBarEvent::Go(typed));
+        cx.emit(Event::Go(typed));
     }
 }
 
@@ -91,7 +91,7 @@ impl Render for BrowserBar {
         _window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
-        let step = |id: &'static str, label: &'static str, event: BrowserBarEvent| {
+        let step = |id: &'static str, label: &'static str, event: Event| {
             Button::new(id, label)
                 .variant(ButtonVariant::Ghost)
                 .on(Surface::Window)
@@ -108,18 +108,18 @@ impl Render for BrowserBar {
             .size_full()
             .px(px(BAR_PADDING))
             .gap(px(BAR_GAP))
-            .child(step("browser-back", "Back", BrowserBarEvent::Back))
-            .child(step("browser-forward", "Forward", BrowserBarEvent::Forward))
+            .child(step("browser-back", "Back", Event::Back))
+            .child(step("browser-forward", "Forward", Event::Forward))
             .child(
                 Button::icon_only("browser-reload", IconName::ArrowClockwise)
                     .on(Surface::Window)
-                    .on_click(cx.listener(|_, _, _, cx| cx.emit(BrowserBarEvent::Reload))),
+                    .on_click(cx.listener(|_, _, _, cx| cx.emit(Event::Reload))),
             )
             .child(
                 Button::icon_only("browser-pick", IconName::Crosshair)
                     .variant(pick_variant)
                     .on(Surface::Window)
-                    .on_click(cx.listener(|_, _, _, cx| cx.emit(BrowserBarEvent::TogglePick))),
+                    .on_click(cx.listener(|_, _, _, cx| cx.emit(Event::TogglePick))),
             )
             .child(div().flex_1().child(self.input.clone()))
     }
@@ -136,7 +136,7 @@ mod tests {
 
     fn record(
         bar: &Entity<BrowserBar>,
-        events: &Rc<RefCell<Vec<BrowserBarEvent>>>,
+        events: &Rc<RefCell<Vec<Event>>>,
         cx: &mut gpui::VisualTestContext,
     ) {
         let sink = Rc::clone(events);
@@ -144,8 +144,8 @@ mod tests {
     }
 
     fn collect(
-        sink: Rc<RefCell<Vec<BrowserBarEvent>>>
-    ) -> impl FnMut(Entity<BrowserBar>, &BrowserBarEvent, &mut gpui::App) + 'static {
+        sink: Rc<RefCell<Vec<Event>>>
+    ) -> impl FnMut(Entity<BrowserBar>, &Event, &mut gpui::App) + 'static {
         move |_, event, _| sink.borrow_mut().push(event.clone())
     }
 
@@ -164,14 +164,11 @@ mod tests {
     fn enter_in_the_field_asks_to_go_to_what_was_typed(cx: &mut TestAppContext) {
         cx.update(|cx| ui::init(cx).unwrap());
         let (bar, cx) = cx.add_window_view(|_, cx| BrowserBar::new(cx));
-        let events: Rc<RefCell<Vec<BrowserBarEvent>>> = Rc::default();
+        let events: Rc<RefCell<Vec<Event>>> = Rc::default();
         record(&bar, &events, cx);
         cx.update(|window, cx| prepare(&bar, window, cx));
         cx.simulate_keystrokes("enter");
-        assert_eq!(
-            *events.borrow(),
-            vec![BrowserBarEvent::Go("example.com".to_owned())]
-        );
+        assert_eq!(*events.borrow(), vec![Event::Go("example.com".to_owned())]);
     }
 
     #[gpui::test]
@@ -183,7 +180,7 @@ mod tests {
         const BAND: f32 = 16.0;
         cx.update(|cx| ui::init(cx).unwrap());
         let (bar, cx) = cx.add_window_view(|_, cx| BrowserBar::new(cx));
-        let events: Rc<RefCell<Vec<BrowserBarEvent>>> = Rc::default();
+        let events: Rc<RefCell<Vec<Event>>> = Rc::default();
         record(&bar, &events, cx);
         cx.run_until_parked();
         let middle = f32::from(cx.update(|window, _| window.viewport_size().height)) / 2.0;
@@ -197,10 +194,10 @@ mod tests {
         }
         let seen = events.borrow().clone();
         for expected in [
-            BrowserBarEvent::Back,
-            BrowserBarEvent::Forward,
-            BrowserBarEvent::Reload,
-            BrowserBarEvent::TogglePick,
+            Event::Back,
+            Event::Forward,
+            Event::Reload,
+            Event::TogglePick,
         ] {
             assert!(seen.contains(&expected), "{expected:?} in {seen:?}");
         }
