@@ -1,10 +1,10 @@
 use std::rc::Rc;
 
+use crate::app_phase::AppPhase;
 use gpui::{
     AnimationExt, App, Context, EventEmitter, IntoElement, ParentElement, Render, Styled, Task,
     Window, div, px,
 };
-use protocol::AppPhase;
 use ui::{CubicBezier, Motion, Surface, Theme, timing};
 
 use crate::halt_panel::HaltPanel;
@@ -77,7 +77,7 @@ impl StartupView {
         self.sync(cx);
     }
 
-    /// The protocol phase of what is shown; only [`AppPhase::Ready`] lets the layout through.
+    /// The app phase of what is shown; only [`AppPhase::Ready`] lets the layout through.
     pub fn phase(&self) -> AppPhase {
         self.machine.screen().phase()
     }

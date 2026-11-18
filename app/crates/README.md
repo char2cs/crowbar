@@ -77,7 +77,7 @@ tests/<crate>.rs         public-API tests; tests/support/ shared fakes
 
 | crate | owns |
 | --- | --- |
-| `protocol` (shared) | control frames (`sdk@1` JSON text), lifecycle, ids, the 64 KiB `PaneState` cap, `AppPhase`, `DaemonTransport` |
+| `protocol` (shared) | control frames (`sdk@1` JSON text), lifecycle, ids, the 64 KiB `PaneState` cap, `DaemonTransport` |
 | `layout` (shared) | tabs, pane slots, the split tree, pane instances and `DragSubject` as a pure state machine with undo |
 | `transport` (shared) | `ShellTransport`, the implementation of `DaemonTransport`: HTTP to the daemon, paired hosts and tokens, certificate pinning, the WebSocket relay |
 | `browser` (shared) | address-bar interpretation, which URLs a browser pane may load, page state for the native chrome |
@@ -89,7 +89,7 @@ tests/<crate>.rs         public-API tests; tests/support/ shared fakes
 | `layoutview` | the pane layout: frames, handles, accent ring, sashes, drop zones; `pane_holes` gives the web view rectangles |
 | `sidebar` / `sidebarview` | the sidebar's data contract, rows and rules without GPUI (preferences on disk included), and its GPUI view: frame, header, space switcher, mode bar, chats tree, files and changes panels, gallery binary |
 | `settings` / `settingsview` | the settings model without GPUI (schema, built-in pages, values and their ports, record lists, shortcut capture, the dialog state machine) and its GPUI dialog with the gallery binary |
-| `startup` | full-screen startup and data-migration view |
+| `startup` | full-screen startup and data-migration view, and `AppPhase` (what the app as a whole shows) |
 | `terminal` / `terminalview` | terminal emulation (alacritty grid, daemon frame feed, selection, search, key encoding) without GPUI, and its GPUI view |
 | `store` | daemon-backed data for the shell: sidebar entities and commands, settings and records |
 | `keymap` | which chords the shell owns and how a key typed in a pane reaches it |

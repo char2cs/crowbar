@@ -90,7 +90,7 @@ mod tests {
     use gpui::TestAppContext;
 
     use super::*;
-    use protocol::AppPhase;
+    use crate::app_phase::AppPhase;
 
     use crate::outage::Outage;
     use crate::startup_input::StartupInput;

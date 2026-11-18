@@ -1,4 +1,4 @@
-use protocol::AppPhase;
+use crate::app_phase::AppPhase;
 
 use crate::halt_reason::HaltReason;
 use crate::migration_step::MigrationStep;
@@ -67,7 +67,7 @@ impl StartupScreen {
         }
     }
 
-    /// The protocol phase this screen corresponds to.
+    /// The app phase this screen corresponds to.
     pub fn phase(&self) -> AppPhase {
         match self {
             Self::Starting => AppPhase::Starting,

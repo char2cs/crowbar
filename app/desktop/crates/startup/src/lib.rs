@@ -6,6 +6,7 @@
 //! underneath and can be driven without a window.
 
 mod adapters;
+mod app_phase;
 mod command_button;
 mod detail_box;
 mod halt_panel;
@@ -29,6 +30,7 @@ mod waiting_panel;
 mod wordmark;
 
 pub use adapters::monotonic_clock::MonotonicClock;
+pub use app_phase::AppPhase;
 pub use halt_reason::HaltReason;
 pub use migration_step::MigrationStep;
 pub use outage::Outage;

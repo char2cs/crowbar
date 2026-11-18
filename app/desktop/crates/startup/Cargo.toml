@@ -14,13 +14,14 @@ path = "src/bin/startup_gallery/main.rs"
 
 [dependencies]
 gpui.workspace = true
+serde.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-protocol.workspace = true
 ui.workspace = true
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
+serde_json.workspace = true
 
 [lints]
 workspace = true

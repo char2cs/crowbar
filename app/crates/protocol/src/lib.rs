@@ -21,7 +21,6 @@
 //! # Ok::<(), protocol::Error>(())
 //! ```
 
-mod app_phase;
 mod byte_counter;
 mod command_id;
 mod daemon_request;
@@ -69,7 +68,6 @@ mod status_kind;
 mod string_id;
 mod theme_tokens;
 
-pub use app_phase::AppPhase;
 pub use command_id::CommandId;
 pub use daemon_request::{DaemonRequest, MAX_HEADER_BYTES, MAX_HEADERS};
 pub use daemon_response::DaemonResponse;
