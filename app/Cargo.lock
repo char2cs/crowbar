@@ -479,7 +479,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
-name = "atomic_file"
+name = "atomicfile"
 version = "0.1.0"
 dependencies = [
  "tempfile",
@@ -1491,7 +1491,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-channel 2.5.0",
- "atomic_file",
+ "atomicfile",
  "base64",
  "branch_import_view",
  "browser_agent",
@@ -6440,7 +6440,7 @@ dependencies = [
 name = "shell_data"
 version = "0.1.0"
 dependencies = [
- "atomic_file",
+ "atomicfile",
  "base64",
  "futures-util",
  "getrandom 0.3.4",
@@ -6502,7 +6502,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 name = "sidebar"
 version = "0.1.0"
 dependencies = [
- "atomic_file",
+ "atomicfile",
  "gpui",
  "serde",
  "serde_json",
@@ -7602,7 +7602,7 @@ dependencies = [
 name = "transport"
 version = "0.1.0"
 dependencies = [
- "atomic_file",
+ "atomicfile",
  "base64",
  "bytes",
  "futures-util",
@@ -8366,7 +8366,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 name = "window_state"
 version = "0.1.0"
 dependencies = [
- "atomic_file",
+ "atomicfile",
  "serde",
  "serde_json",
  "tempfile",

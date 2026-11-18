@@ -12,7 +12,7 @@ repository = "https://github.com/char2cs/crowbar"
 publish = false
 
 [workspace.dependencies]
-atomic_file = { path = "crates/atomic_file" }
+atomicfile = { path = "crates/atomicfile" }
 browser_nav = { path = "crates/browser_nav" }
 browser_agent = { path = "crates/browser_agent" }
 protocol = { path = "crates/protocol" }

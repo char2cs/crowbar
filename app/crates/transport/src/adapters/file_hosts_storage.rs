@@ -41,7 +41,7 @@ impl HostsStorage for FileHostsStorage {
                 .mode(PRIVATE_DIR)
                 .create(dir)?;
         }
-        atomic_file::write(&self.path, bytes)
+        atomicfile::write(&self.path, bytes)
     }
 }
 

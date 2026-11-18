@@ -20,7 +20,7 @@ impl LayoutFiles for DiskFiles {
         path: &Path,
         bytes: &[u8],
     ) -> io::Result<()> {
-        atomic_file::write(path, bytes)
+        atomicfile::write(path, bytes)
     }
 
     fn rename(

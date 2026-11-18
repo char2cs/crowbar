@@ -14,7 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
-atomic_file.workspace = true
+atomicfile.workspace = true
 async-channel.workspace = true
 browser_agent.workspace = true
 browser_chrome.workspace = true

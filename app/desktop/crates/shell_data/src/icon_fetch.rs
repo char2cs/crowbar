@@ -98,7 +98,7 @@ fn write_atomically(
     path: &Path,
     bytes: &[u8],
 ) -> Option<PathBuf> {
-    atomic_file::write(path, bytes)
+    atomicfile::write(path, bytes)
         .inspect_err(|error| tracing::warn!(%error, ?path, "a space image could not be kept"))
         .ok()?;
     Some(path.to_owned())
@@ -118,7 +118,7 @@ mod tests {
     const URL: &str = "/v0/projects/p/icon?v=2";
 
     #[tokio::test]
-    #[ignore = "real-infra: writes icons through atomic_file into a real directory"]
+    #[ignore = "real-infra: writes icons through atomicfile into a real directory"]
     async fn a_project_with_an_image_is_fetched_once_and_kept_as_a_file() {
         let (mut state, daemon) = state();
         let dir = tempfile::tempdir().unwrap();
@@ -158,7 +158,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "real-infra: writes icons through atomic_file into a real directory"]
+    #[ignore = "real-infra: writes icons through atomicfile into a real directory"]
     fn a_hostile_version_in_the_avatar_url_asks_for_nothing() {
         let cases = ["../../escaped", "a/b"];
         for version in cases {
@@ -167,7 +167,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "real-infra: writes icons through atomic_file into a real directory"]
+    #[ignore = "real-infra: writes icons through atomicfile into a real directory"]
     async fn an_image_over_the_cap_is_not_kept() {
         let (mut state, daemon) = state();
         let dir = tempfile::tempdir().unwrap();

@@ -1,5 +1,5 @@
 [package]
-name = "atomic_file"
+name = "atomicfile"
 description = "Replaces a file all-or-nothing: staged beside it, synced, renamed over it, private to the user."
 version.workspace = true
 edition.workspace = true

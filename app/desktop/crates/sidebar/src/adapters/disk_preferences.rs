@@ -33,7 +33,7 @@ impl PreferenceFile for DiskPreferences {
         &self,
         text: &str,
     ) -> io::Result<()> {
-        atomic_file::write(&self.path, text.as_bytes())
+        atomicfile::write(&self.path, text.as_bytes())
     }
 }
 

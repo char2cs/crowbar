@@ -9,7 +9,7 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
-atomic_file.workspace = true
+atomicfile.workspace = true
 base64 = "0.22"
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 getrandom = "0.3"

@@ -19,7 +19,7 @@ impl FileStore for DiskFiles {
         path: &Path,
         bytes: &[u8],
     ) -> io::Result<()> {
-        atomic_file::write(path, bytes)
+        atomicfile::write(path, bytes)
     }
 
     fn children(
