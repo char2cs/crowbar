@@ -59,7 +59,7 @@ impl Sidebar {
     fn row_input(&self) -> Option<RowInput> {
         let edit = self.inline.as_ref()?;
         Some(RowInput {
-            field: edit.field.clone(),
+            field: edit.input.clone(),
             error: edit.error.clone(),
         })
     }
@@ -154,7 +154,7 @@ mod tests {
         cx: &mut gpui::VisualTestContext,
     ) -> bool {
         let field = sidebar.read_with(cx, |this, _| {
-            this.inline.as_ref().map(|edit| edit.field.clone())
+            this.inline.as_ref().map(|edit| edit.input.clone())
         });
         let Some(field) = field else {
             return false;

@@ -1,7 +1,7 @@
 use gpui::{Context, Entity, Subscription, Window};
 use layout::Command;
 use layoutview::LayoutEvent;
-use sidebarview::{Sidebar, SidebarEvent};
+use sidebarview::Sidebar;
 use ui::ToastKind;
 use viewtabs::TabBar;
 
@@ -26,9 +26,12 @@ impl ShellView {
             cx.subscribe_in(&built.layout, window, |this, _, event, window, cx| {
                 this.on_layout(event, window, cx);
             }),
-            cx.subscribe(&built.sidebar, |this, source, event: &SidebarEvent, cx| {
-                this.on_sidebar(source, *event, cx);
-            }),
+            cx.subscribe(
+                &built.sidebar,
+                |this, source, event: &sidebarview::Event, cx| {
+                    this.on_sidebar(source, *event, cx);
+                },
+            ),
             cx.subscribe_in(&built.startup, window, |this, _, event, window, cx| {
                 this.on_startup(*event, window, cx);
             }),
@@ -104,10 +107,10 @@ impl ShellView {
     fn on_sidebar(
         &mut self,
         _: Entity<Sidebar>,
-        event: SidebarEvent,
+        event: sidebarview::Event,
         cx: &mut Context<'_, Self>,
     ) {
-        if !matches!(event, SidebarEvent::PreferencesChanged) {
+        if !matches!(event, sidebarview::Event::PreferencesChanged) {
             return;
         }
         let preferences = self.sidebar.read(cx).preferences();

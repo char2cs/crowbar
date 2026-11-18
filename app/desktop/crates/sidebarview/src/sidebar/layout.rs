@@ -9,7 +9,7 @@ use sidebar::{DockSide, PEEK_INSET, Visibility};
 use ui::{Motion, Surface, Theme};
 
 use crate::sidebar::Sidebar;
-use crate::sidebar::frame_geometry::FrameGeometry;
+use crate::sidebar::geometry::Geometry;
 use crate::sidebar::scale::HANDLE_HIT;
 
 const FRAME_SHADOW: f32 = 0.2;
@@ -24,7 +24,7 @@ impl Render for Sidebar {
     ) -> impl IntoElement {
         let palette = Theme::of(cx).palette(Surface::Chrome);
         let container = Self::container_width(window);
-        let geometry = FrameGeometry::new(container, self.live_width(container), self.panel);
+        let geometry = Geometry::new(container, self.live_width(container), self.panel);
         let column = geometry
             .is_docked()
             .then(|| self.body(geometry.width, window, cx));
@@ -65,7 +65,7 @@ impl Render for Sidebar {
 impl Sidebar {
     fn handle(
         &self,
-        geometry: &FrameGeometry,
+        geometry: &Geometry,
         cx: &mut Context<'_, Self>,
     ) -> Stateful<Div> {
         let palette = Theme::of(cx).palette(Surface::Chrome);
@@ -115,7 +115,7 @@ impl Sidebar {
 
     fn slide(
         &self,
-        geometry: &FrameGeometry,
+        geometry: &Geometry,
         motion: Motion,
     ) -> f32 {
         if geometry.is_drawer() {
@@ -126,7 +126,7 @@ impl Sidebar {
 
     fn floating(
         &mut self,
-        geometry: &FrameGeometry,
+        geometry: &Geometry,
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> Option<AnyElement> {

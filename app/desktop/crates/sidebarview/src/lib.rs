@@ -10,5 +10,5 @@ mod sidebarview;
 #[cfg(test)]
 mod test_support;
 
-pub use sidebar::{Sidebar, SidebarEvent};
+pub use sidebar::{Event, Sidebar};
 pub use sidebarview::toast_side;

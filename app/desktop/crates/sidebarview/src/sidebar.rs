@@ -2,21 +2,21 @@
 
 mod act;
 mod clock;
-mod frame_geometry;
+mod event;
+mod geometry;
 mod layout;
 mod row_action;
 pub(crate) mod scale;
 mod separator;
-mod sidebar_event;
 
 pub(crate) use clock::Clock;
+pub use event::Event;
 pub(crate) use row_action::{DragPoint, DragPress, RowAction, RowHandler};
 pub(crate) use scale::{
     FOOT_HEIGHT, ICON_LARGE, ICON_MEDIUM, ICON_SMALL, ICON_TINY, INDENT_STEP, ROW_HEIGHT,
     ROW_MARGIN_X, ROW_MARGIN_Y, SPACE_LG, SPACE_MD, SPACE_SM, SPACE_XL, SPACE_XS, SWITCHER_HEIGHT,
     TEXT_BODY, TEXT_CAPTION, TEXT_LARGE, TEXT_SMALL, TRAFFIC_LIGHT_RESERVE,
 };
-pub use sidebar_event::SidebarEvent;
 
 use std::rc::Rc;
 
@@ -28,8 +28,8 @@ use crate::column::switcher::icon_editor::IconEditor;
 use crate::overlays::OpenMenu;
 use crate::overlays::Peek;
 use crate::panels::DragState;
+use crate::panels::Field;
 use crate::panels::FileSearch;
-use crate::panels::InlineEdit;
 use crate::panels::MergeDraft;
 use crate::panels::RowBounds;
 use crate::panels::Scrolls;
@@ -50,7 +50,7 @@ pub struct Sidebar {
     pub(crate) resizing: Option<Resizing>,
     pub(crate) mode: Mode,
     pub(crate) tree: sidebar::Tree,
-    pub(crate) inline: Option<InlineEdit>,
+    pub(crate) inline: Option<Field>,
     pub(crate) menu: Option<OpenMenu>,
     pub(crate) carousel: Glide,
     pub(crate) peek: Peek,
@@ -68,7 +68,7 @@ pub struct Sidebar {
     pub(crate) row_bounds: RowBounds,
 }
 
-impl EventEmitter<SidebarEvent> for Sidebar {}
+impl EventEmitter<Event> for Sidebar {}
 
 impl Sidebar {
     /// A sidebar over `data` that sends commands to `sink` and frames `content`, restoring the
@@ -163,7 +163,7 @@ impl Sidebar {
     }
 
     pub(crate) fn changed(cx: &mut Context<'_, Self>) {
-        cx.emit(SidebarEvent::PreferencesChanged);
+        cx.emit(Event::PreferencesChanged);
         cx.notify();
     }
 }
@@ -198,7 +198,7 @@ mod tests {
         let events = Rc::new(std::cell::Cell::new(0));
         let seen = Rc::clone(&events);
         let _subscription =
-            cx.update(|_, cx| cx.subscribe(&sidebar, move |_, _: &SidebarEvent, _| bump(&seen)));
+            cx.update(|_, cx| cx.subscribe(&sidebar, move |_, _: &Event, _| bump(&seen)));
         sidebar.update(cx, |this, cx| this.dock_to(DockSide::Right, cx));
         assert_eq!(events.get(), 1);
         assert_eq!(

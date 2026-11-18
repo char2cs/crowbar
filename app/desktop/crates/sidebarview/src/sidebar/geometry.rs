@@ -3,7 +3,7 @@
 use sidebar::{DockSide, Panel, Presentation, Visibility};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct FrameGeometry {
+pub(crate) struct Geometry {
     pub(crate) container: f32,
     pub(crate) presentation: Presentation,
     pub(crate) visibility: Visibility,
@@ -11,7 +11,7 @@ pub(crate) struct FrameGeometry {
     pub(crate) side: DockSide,
 }
 
-impl FrameGeometry {
+impl Geometry {
     pub(crate) fn new(
         container: f32,
         width: f32,
@@ -85,7 +85,7 @@ mod tests {
     #[test]
     fn the_window_and_panel_choose_dock_or_drawer() {
         for (name, window, width, visibility, docked, drawer) in CASES {
-            let geometry = FrameGeometry::new(*window, *width, panel(*visibility));
+            let geometry = Geometry::new(*window, *width, panel(*visibility));
             assert_eq!(geometry.is_docked(), *docked, "{name}: docked");
             assert_eq!(geometry.is_drawer(), *drawer, "{name}: drawer");
         }

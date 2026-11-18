@@ -95,7 +95,7 @@ impl Sidebar {
             Editing::Renaming(_) | Editing::Branching(_)
         );
         wanted.then(|| RowInput {
-            field: edit.field.clone(),
+            field: edit.input.clone(),
             error: edit.error.clone(),
         })
     }
@@ -116,7 +116,7 @@ impl Sidebar {
         let mut draft = Row::new(id, RowKind::Branch, parent.depth + 1, "");
         draft.worktree = Worktree::Owned;
         let input = RowInput {
-            field: edit.field.clone(),
+            field: edit.input.clone(),
             error: edit.error.clone(),
         };
         let handler = Rc::clone(handler);

@@ -1,15 +1,15 @@
 //! Inline rename, make-a-branch and fork-name inputs.
 
-mod edit_outcome;
-mod inline_edit;
+mod field;
+mod outcome;
 
-pub(crate) use inline_edit::InlineEdit;
+pub(crate) use field::Field;
 
 use gpui::{AppContext as _, Context, Focusable as _, Subscription, Window};
 use sidebar::{Command, Editing, Error, Expansion, FileKind, NewEntry, RowId, base, join, parent};
 use ui::{Surface, TextInput, TextInputEvent, TextInputStyle};
 
-use crate::panels::edit::edit_outcome::EditOutcome;
+use crate::panels::edit::outcome::Outcome;
 use crate::sidebar::Sidebar;
 
 const BRANCH_PLACEHOLDER: &str = "branch-name";
@@ -108,9 +108,9 @@ impl Sidebar {
         field.update(cx, |field, cx| field.set_text(initial, cx));
         field.read(cx).focus(window);
         let subscriptions = Self::watch_field(&field, window, cx);
-        self.inline = Some(InlineEdit {
+        self.inline = Some(Field {
             row,
-            field,
+            input: field,
             error: None,
             _subscriptions: subscriptions,
         });
@@ -128,15 +128,15 @@ impl Sidebar {
                 field,
                 window,
                 |this, _, event: &TextInputEvent, _, cx| match event {
-                    TextInputEvent::Submitted => this.finish_edit(EditOutcome::Confirm, cx),
-                    TextInputEvent::Cancelled => this.finish_edit(EditOutcome::Cancel, cx),
+                    TextInputEvent::Submitted => this.finish_edit(Outcome::Confirm, cx),
+                    TextInputEvent::Cancelled => this.finish_edit(Outcome::Cancel, cx),
                     _ => {},
                 },
             );
         let blur = cx.on_blur(&handle, window, |this, _, cx| {
             let outcome = match this.tree.editing() {
-                Editing::Branching(_) => EditOutcome::Cancel,
-                _ => EditOutcome::Confirm,
+                Editing::Branching(_) => Outcome::Cancel,
+                _ => Outcome::Confirm,
             };
             this.finish_edit(outcome, cx);
         });
@@ -145,14 +145,14 @@ impl Sidebar {
 
     pub(crate) fn finish_edit(
         &mut self,
-        outcome: EditOutcome,
+        outcome: Outcome,
         cx: &mut Context<'_, Self>,
     ) {
         let Some(edit) = self.inline.as_ref() else {
             return;
         };
-        let name = edit.field.read(cx).text().trim().to_owned();
-        if outcome == EditOutcome::Cancel || name.is_empty() {
+        let name = edit.input.read(cx).text().trim().to_owned();
+        if outcome == Outcome::Cancel || name.is_empty() {
             self.close_edit(cx);
             return;
         }
@@ -222,7 +222,7 @@ mod tests {
         cx: &mut gpui::VisualTestContext,
     ) {
         let field = sidebar.read_with(cx, |this, _| {
-            this.inline.as_ref().map(|edit| edit.field.clone())
+            this.inline.as_ref().map(|edit| edit.input.clone())
         });
         let field = field.expect("an input is open");
         field.update(cx, |field, cx| field.set_text(name, cx));
@@ -242,7 +242,7 @@ mod tests {
         let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
         start(&sidebar, cx);
         type_name(&sidebar, "Fresh name", cx);
-        sidebar.update(cx, |this, cx| this.finish_edit(EditOutcome::Confirm, cx));
+        sidebar.update(cx, |this, cx| this.finish_edit(Outcome::Confirm, cx));
         let expected = Command::Rename {
             row: RowId::from("chat"),
             name: "Fresh name".into(),
@@ -256,7 +256,7 @@ mod tests {
         let (_, sidebar, cx) = open(cx, DemoShell::reference());
         start(&sidebar, cx);
         type_name(&sidebar, "main", cx);
-        sidebar.update(cx, |this, cx| this.finish_edit(EditOutcome::Confirm, cx));
+        sidebar.update(cx, |this, cx| this.finish_edit(Outcome::Confirm, cx));
         let error = sidebar.read_with(cx, |this, _| {
             this.inline.as_ref().and_then(|edit| edit.error.clone())
         });
@@ -268,7 +268,7 @@ mod tests {
         let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
         start(&sidebar, cx);
         type_name(&sidebar, "ignored", cx);
-        sidebar.update(cx, |this, cx| this.finish_edit(EditOutcome::Cancel, cx));
+        sidebar.update(cx, |this, cx| this.finish_edit(Outcome::Cancel, cx));
         assert_eq!(recorder.sent(), Vec::<Command>::new());
         assert!(sidebar.read_with(cx, |this, _| this.inline.is_none()));
     }
@@ -280,7 +280,7 @@ mod tests {
             this.start_branching(&RowId::from("chat"), window, cx);
         });
         type_name(&sidebar, "feature", cx);
-        sidebar.update(cx, |this, cx| this.finish_edit(EditOutcome::Confirm, cx));
+        sidebar.update(cx, |this, cx| this.finish_edit(Outcome::Confirm, cx));
         let expected = Command::MakeBranch {
             row: RowId::from("chat"),
             name: "feature".into(),
@@ -295,7 +295,7 @@ mod tests {
             this.start_draft(&RowId::from("main"), window, cx);
         });
         type_name(&sidebar, "spike", cx);
-        sidebar.update(cx, |this, cx| this.finish_edit(EditOutcome::Confirm, cx));
+        sidebar.update(cx, |this, cx| this.finish_edit(Outcome::Confirm, cx));
         let expected = Command::Fork {
             parent: RowId::from("main"),
             name: "spike".into(),
@@ -309,7 +309,7 @@ mod tests {
             this.start_file_rename("src/lib.rs".into(), window, cx);
         });
         type_name(&sidebar, "core.rs", cx);
-        sidebar.update(cx, |this, cx| this.finish_edit(EditOutcome::Confirm, cx));
+        sidebar.update(cx, |this, cx| this.finish_edit(Outcome::Confirm, cx));
         let expected = Command::RenameFile {
             path: "src/lib.rs".into(),
             new_path: "src/core.rs".into(),
@@ -326,7 +326,7 @@ mod tests {
             this.start_file_create(("src".into(), entry), window, cx);
         });
         type_name(sidebar, name, cx);
-        sidebar.update(cx, |this, cx| this.finish_edit(EditOutcome::Confirm, cx));
+        sidebar.update(cx, |this, cx| this.finish_edit(Outcome::Confirm, cx));
     }
 
     #[gpui::test]
@@ -361,13 +361,13 @@ mod tests {
             this.start_file_create((String::new(), NewEntry::File), window, cx);
         });
         type_name(&sidebar, "  ", cx);
-        sidebar.update(cx, |this, cx| this.finish_edit(EditOutcome::Confirm, cx));
+        sidebar.update(cx, |this, cx| this.finish_edit(Outcome::Confirm, cx));
         assert_eq!(recorder.sent(), Vec::<Command>::new());
         sidebar.update_in(cx, |this, window, cx| {
             this.start_file_create((String::new(), NewEntry::File), window, cx);
         });
         type_name(&sidebar, "top.rs", cx);
-        sidebar.update(cx, |this, cx| this.finish_edit(EditOutcome::Confirm, cx));
+        sidebar.update(cx, |this, cx| this.finish_edit(Outcome::Confirm, cx));
         assert_eq!(
             recorder.sent(),
             vec![Command::CreateFile {
