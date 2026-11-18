@@ -8,7 +8,6 @@ system check.
 ## Public interface
 
 - `View`: `first_run`, `add_host`; it emits `Event`.
-- `Screen`: the screen shown (exported today; only the crate's tests use it).
 
 ## Depends on
 

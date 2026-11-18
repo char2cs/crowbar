@@ -56,12 +56,6 @@ impl View {
         Self { screen, source }
     }
 
-    /// The screen showing now.
-    #[must_use]
-    pub fn screen(&self) -> Screen {
-        self.screen
-    }
-
     /// Tells the view the system check answered, so it redraws.
     pub fn changed(
         &mut self,
@@ -146,7 +140,7 @@ mod tests {
         view: &Entity<View>,
         cx: &mut VisualTestContext,
     ) -> Screen {
-        view.read_with(cx, |view, _| view.screen())
+        view.read_with(cx, |view, _| view.screen)
     }
 
     fn collect(

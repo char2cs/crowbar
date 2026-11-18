@@ -15,5 +15,4 @@ mod test_support;
 mod view;
 
 pub use event::Event;
-pub use screen::Screen;
 pub use view::View;
