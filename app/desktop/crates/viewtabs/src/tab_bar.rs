@@ -17,17 +17,17 @@ use gpui::{Bounds, Context, Entity, EventEmitter, Pixels, Point, ScrollHandle};
 use layout::TabId;
 use ui::Menu;
 
+use crate::event::Event;
 use crate::gesture::DragSession;
 use crate::gesture::IncomingDrop;
 use crate::gesture::NewTab;
 use crate::gesture::Press;
 use crate::gesture::Settle;
 use crate::pill::TabView;
-use crate::tab_bar_event::TabBarEvent;
 
 /// The strip of view tabs: one pill per model tab, drag to reorder, drop a chat on one to merge
 /// it, close with the x. It owns no tab state: it renders the [`TabView`]s it was last given and
-/// answers input with [`TabBarEvent`]s.
+/// answers input with [`Event`]s.
 pub struct TabBar {
     pub(crate) tabs: Vec<TabView>,
     pub(crate) active: Option<TabId>,
@@ -57,7 +57,7 @@ impl std::fmt::Debug for TabBar {
     }
 }
 
-impl EventEmitter<TabBarEvent> for TabBar {}
+impl EventEmitter<Event> for TabBar {}
 
 impl TabBar {
     /// An empty strip; `first_free_tab` is the first tab id the strip may hand out for tabs a

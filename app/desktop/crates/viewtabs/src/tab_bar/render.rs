@@ -9,6 +9,7 @@ use gpui::{
 use layout::{Command, DragSubject, TabId};
 use ui::{Motion, Surface, Theme, layer};
 
+use crate::event::Event;
 use crate::gesture::TabDrop;
 use crate::pill::ShellLook;
 use crate::pill::{CloseAction, TabShell};
@@ -20,7 +21,6 @@ use crate::tab_bar::TabBar;
 use crate::tab_bar::pointer::follow_pointer;
 use crate::tab_bar::sidebar_glyph::SidebarGlyph;
 use crate::tab_bar::sidebar_state::SidebarState;
-use crate::tab_bar_event::TabBarEvent;
 
 const DROP_LINE_INSET: f32 = 4.0;
 
@@ -196,7 +196,7 @@ impl TabBar {
         let view = cx.entity();
         let close = vec![Command::CloseTab { tab }];
         Rc::new(move |_, cx| {
-            view.update(cx, |_, cx| cx.emit(TabBarEvent::Apply(close.clone())));
+            view.update(cx, |_, cx| cx.emit(Event::Apply(close.clone())));
         })
     }
 
@@ -232,7 +232,7 @@ impl TabBar {
             .rounded(ui::radius::SM)
             .cursor(gpui::CursorStyle::PointingHand)
             .hover(move |style| style.bg(palette.sidebar_element_hover()))
-            .on_click(cx.listener(|_, _, _, cx| cx.emit(TabBarEvent::ToggleSidebar)))
+            .on_click(cx.listener(|_, _, _, cx| cx.emit(Event::ToggleSidebar)))
             .child(SidebarGlyph {
                 color: palette.muted_foreground(),
                 mirrored: side == SidebarState::ClosedRight,

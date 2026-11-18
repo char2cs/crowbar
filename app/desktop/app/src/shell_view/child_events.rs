@@ -4,7 +4,7 @@ use layoutview::LayoutEvent;
 use sidebarview::{Sidebar, SidebarEvent};
 use startup::StartupEvent;
 use ui::ToastKind;
-use viewtabs::{TabBar, TabBarEvent};
+use viewtabs::TabBar;
 
 use super::ShellView;
 use super::built::Built;
@@ -62,12 +62,12 @@ impl ShellView {
     fn on_tabs(
         &mut self,
         _: Entity<TabBar>,
-        event: &TabBarEvent,
+        event: &viewtabs::Event,
         cx: &mut Context<'_, Self>,
     ) {
         match event {
-            TabBarEvent::Apply(commands) => self.apply_guarded(commands.clone(), cx),
-            TabBarEvent::ToggleSidebar => self.sidebar.update(cx, Sidebar::toggle),
+            viewtabs::Event::Apply(commands) => self.apply_guarded(commands.clone(), cx),
+            viewtabs::Event::ToggleSidebar => self.sidebar.update(cx, Sidebar::toggle),
             _ => {},
         }
     }

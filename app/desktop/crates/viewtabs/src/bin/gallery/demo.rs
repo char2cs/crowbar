@@ -4,7 +4,7 @@ use gpui::{
 };
 use layout::{Layout, LayoutHistory, PaneInstance};
 use ui::{Surface, Theme};
-use viewtabs::{SidebarState, TabBar, TabBarEvent, TabView};
+use viewtabs::{Event, SidebarState, TabBar, TabView};
 
 use crate::chip::chip;
 use crate::scenario;
@@ -69,10 +69,10 @@ impl Demo {
     fn on_event(
         &mut self,
         _: Entity<TabBar>,
-        event: &TabBarEvent,
+        event: &Event,
         cx: &mut Context<'_, Self>,
     ) {
-        let TabBarEvent::Apply(commands) = event else {
+        let Event::Apply(commands) = event else {
             return;
         };
         let applied = commands

@@ -5,13 +5,13 @@ use gpui::{
 use layout::Command;
 use ui::Motion;
 
+use crate::event::Event;
 use crate::gesture::DragSession;
 use crate::gesture::Press;
 use crate::gesture::Settle;
 use crate::gesture::StripDrag;
 use crate::strip_metrics;
 use crate::tab_bar::TabBar;
-use crate::tab_bar_event::TabBarEvent;
 
 pub(crate) fn follow_pointer(
     bar: &Entity<TabBar>,
@@ -90,7 +90,7 @@ impl TabBar {
         let drop = drag.engine.drop();
         cx.notify();
         if let Some(command) = drop {
-            cx.emit(TabBarEvent::Apply(vec![command]));
+            cx.emit(Event::Apply(vec![command]));
         }
     }
 
@@ -103,7 +103,7 @@ impl TabBar {
             return;
         };
         let command = Command::ActivateTab { tab: tab.id };
-        cx.emit(TabBarEvent::Apply(vec![command]));
+        cx.emit(Event::Apply(vec![command]));
     }
 
     pub(crate) fn content_x(
@@ -164,18 +164,18 @@ mod tests {
     use gpui::{Modifiers, MouseButton, TestAppContext, point, px};
     use layout::{Command, TabId};
 
-    use crate::tab_bar_event::TabBarEvent;
+    use crate::event::Event;
     use crate::test_support::{open, view};
 
     fn tabs() -> Vec<crate::pill::TabView> {
         vec![view(1, &["a"]), view(2, &["b"]), view(3, &["c"])]
     }
 
-    fn applied(events: &[TabBarEvent]) -> Vec<Vec<Command>> {
+    fn applied(events: &[Event]) -> Vec<Vec<Command>> {
         events
             .iter()
             .filter_map(|event| match event {
-                TabBarEvent::Apply(commands) => Some(commands.clone()),
+                Event::Apply(commands) => Some(commands.clone()),
                 _ => None,
             })
             .collect()

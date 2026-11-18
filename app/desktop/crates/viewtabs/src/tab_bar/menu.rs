@@ -4,8 +4,8 @@ use gpui::{
 use layout::{Command, TabId};
 use ui::{Menu, MenuAction, MenuItem};
 
+use crate::event::Event;
 use crate::tab_bar::TabBar;
-use crate::tab_bar_event::TabBarEvent;
 
 impl TabBar {
     pub(crate) fn open_menu(
@@ -75,7 +75,7 @@ fn close_tabs(
             .iter()
             .map(|tab| Command::CloseTab { tab: *tab })
             .collect();
-        view.update(cx, |_, cx| cx.emit(TabBarEvent::Apply(commands)));
+        view.update(cx, |_, cx| cx.emit(Event::Apply(commands)));
     });
     if none {
         return action.disabled();

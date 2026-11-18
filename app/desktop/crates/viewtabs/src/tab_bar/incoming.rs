@@ -2,10 +2,10 @@ use gpui::{Context, DragMoveEvent, Window};
 use layout::DragSubject;
 use ui::Motion;
 
+use crate::event::Event;
 use crate::gesture::IncomingDrop;
 use crate::gesture::TabDrop;
 use crate::tab_bar::TabBar;
-use crate::tab_bar_event::TabBarEvent;
 
 impl TabBar {
     pub(crate) fn drag_over(
@@ -46,7 +46,7 @@ impl TabBar {
         let commands = incoming.drop.commands(subject, new_tab, &self.tabs);
         cx.notify();
         if !commands.is_empty() {
-            cx.emit(TabBarEvent::Apply(commands));
+            cx.emit(Event::Apply(commands));
         }
     }
 
@@ -95,9 +95,9 @@ mod tests {
     use layout::{Command, DragSubject, TabId};
     use protocol::PaneId;
 
+    use crate::event::Event;
     use crate::gesture::IncomingDrop;
     use crate::gesture::TabDrop;
-    use crate::tab_bar_event::TabBarEvent;
     use crate::test_support::{open, view};
 
     #[gpui::test]
@@ -117,7 +117,7 @@ mod tests {
         };
         assert_eq!(
             seen.as_slice(),
-            &[TabBarEvent::Apply(vec![expected])],
+            &[Event::Apply(vec![expected])],
             "merge command"
         );
         bar.read_with(cx, |bar, _| {
@@ -135,7 +135,7 @@ mod tests {
         let subject = DragSubject::Open(instance());
         bar.update_in(cx, |bar, window, cx| bar.dropped(&subject, window, cx));
         let seen = events.borrow();
-        let TabBarEvent::Apply(commands) = &seen[0] else {
+        let Event::Apply(commands) = &seen[0] else {
             panic!("an apply event");
         };
         assert!(

@@ -6,15 +6,15 @@ use layout::TabId;
 use protocol::PaneId;
 use ui::{Motion, Theme};
 
+use crate::event::Event;
 use crate::pill::MemberView;
 use crate::pill::TabView;
 use crate::tab_bar::TabBar;
-use crate::tab_bar_event::TabBarEvent;
 
 pub(crate) struct Harness<'a> {
     pub(crate) bar: Entity<TabBar>,
     pub(crate) cx: &'a mut VisualTestContext,
-    pub(crate) events: Rc<RefCell<Vec<TabBarEvent>>>,
+    pub(crate) events: Rc<RefCell<Vec<Event>>>,
 }
 
 pub(crate) fn view(
@@ -39,10 +39,10 @@ pub(crate) fn view(
 
 fn record_events(
     bar: &Entity<TabBar>,
-    sink: Rc<RefCell<Vec<TabBarEvent>>>,
+    sink: Rc<RefCell<Vec<Event>>>,
     cx: &mut App,
 ) {
-    cx.subscribe(bar, move |_, event: &TabBarEvent, _| {
+    cx.subscribe(bar, move |_, event: &Event, _| {
         sink.borrow_mut().push(event.clone());
     })
     .detach();
