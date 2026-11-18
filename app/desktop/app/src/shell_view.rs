@@ -11,7 +11,7 @@ use keymap::Keymap;
 use layoutview::{ChromeContext, LayoutView};
 use panehost::Overlay;
 use settings_ui::SettingsModal;
-use sidebar::Sidebar;
+use sidebarview::Sidebar;
 use startup::StartupView;
 use store::{SettingsAdapter, ShellData};
 use ui::{Surface, Theme, ToastQueue};

@@ -1,13 +1,17 @@
 //! What the Files panel's New File and New Folder entries create.
 
+/// Whether the Files panel's inline input creates a file or a folder.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum NewEntry {
+pub enum NewEntry {
+    /// A new file.
     File,
+    /// A new folder.
     Folder,
 }
 
 impl NewEntry {
-    pub(crate) fn placeholder(self) -> &'static str {
+    /// The placeholder shown in the empty name input: `file-name` or `folder-name`.
+    pub fn placeholder(self) -> &'static str {
         match self {
             Self::File => "file-name",
             Self::Folder => "folder-name",

@@ -4,14 +4,19 @@ use crate::host::Host;
 use crate::host_kind::HostKind;
 use crate::host_tone::HostTone;
 
+/// Whether the create-space panel's Create button is enabled, and the hint shown beside it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SpaceFacts {
-    pub(crate) can_create: bool,
-    pub(crate) hint: Option<String>,
+pub struct SpaceFacts {
+    /// A folder is chosen and the host is reachable.
+    pub can_create: bool,
+    /// Why a remote host cannot create yet, if it cannot.
+    pub hint: Option<String>,
 }
 
 impl SpaceFacts {
-    pub(crate) fn of(
+    /// The facts for creating a space in `folder` on `host`.
+    /// A local host needs only a folder; a remote one must also be online.
+    pub fn of(
         host: &Host,
         folder: &str,
     ) -> Self {

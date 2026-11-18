@@ -13,12 +13,16 @@ use crate::row::Row;
 use crate::row_id::RowId;
 use crate::visible_row::VisibleRow;
 
+/// The chats tree's view state owned by the shell: folded rows, the inline input, the Files
+/// panel and the removals in progress.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct TreeState {
+pub struct TreeState {
     pub(crate) folded: BTreeSet<RowId>,
     pub(crate) editing: Editing,
-    pub(crate) files: FilesState,
-    pub(crate) removals: Removals,
+    /// The Files panel's view state.
+    pub files: FilesState,
+    /// The rows being deleted.
+    pub removals: Removals,
 }
 
 impl TreeState {
@@ -29,11 +33,13 @@ impl TreeState {
         }
     }
 
-    pub(crate) fn folded(&self) -> impl Iterator<Item = &RowId> {
+    /// The rows whose children are folded away.
+    pub fn folded(&self) -> impl Iterator<Item = &RowId> {
         self.folded.iter()
     }
 
-    pub(crate) fn toggle_fold(
+    /// Fold the row's children, or unfold them if already folded.
+    pub fn toggle_fold(
         &mut self,
         row: &RowId,
     ) {
@@ -42,7 +48,9 @@ impl TreeState {
         }
     }
 
-    pub(crate) fn request_removal(
+    /// Hold the row for deletion: a countdown, or a confirmation for repositories.
+    /// An inline input open on the row closes once it is held.
+    pub fn request_removal(
         &mut self,
         row: &Row,
         now: Instant,
@@ -52,7 +60,8 @@ impl TreeState {
         }
     }
 
-    pub(crate) fn reconcile(
+    /// Forget holds and folds of rows no longer in `rows`; a gone row releases its hold.
+    pub fn reconcile(
         &mut self,
         rows: &[Row],
     ) {
@@ -61,7 +70,9 @@ impl TreeState {
         self.folded.retain(exists);
     }
 
-    pub(crate) fn visible(
+    /// The rows to draw, in order. Children of folded or held rows are hidden, committed
+    /// rows are dropped, and a held row keeps its slot as a countdown.
+    pub fn visible(
         &self,
         rows: &[Row],
     ) -> Vec<VisibleRow> {

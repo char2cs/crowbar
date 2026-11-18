@@ -4,7 +4,7 @@ use std::sync::atomic::AtomicBool;
 
 use gpui::{Entity, Subscription};
 use layoutview::LayoutView;
-use sidebar::Sidebar;
+use sidebarview::Sidebar;
 use startup::StartupView;
 use store::ShellData;
 use ui::ToastQueue;

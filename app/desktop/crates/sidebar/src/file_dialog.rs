@@ -1,16 +1,25 @@
 //! The dialog a file row's menu can open.
 
 use crate::file_properties::FileProperties;
-use crate::path_text::base;
+use crate::sidebar::base;
 
+/// A dialog opened from a file row's menu.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum FileDialog {
-    Delete { path: String, is_dir: bool },
+pub enum FileDialog {
+    /// Asks before deleting a file or folder.
+    Delete {
+        /// The path of the file or folder to delete.
+        path: String,
+        /// Whether the path is a folder, deleted with all its contents.
+        is_dir: bool,
+    },
+    /// Shows the Properties of one file.
     Properties(FileProperties),
 }
 
 impl FileDialog {
-    pub(crate) fn title(&self) -> &'static str {
+    /// The dialog's title, naming whether a file or a folder is deleted.
+    pub fn title(&self) -> &'static str {
         match self {
             Self::Delete { is_dir: true, .. } => "Delete Folder",
             Self::Delete { is_dir: false, .. } => "Delete File",
@@ -18,7 +27,8 @@ impl FileDialog {
         }
     }
 
-    pub(crate) fn question(&self) -> Option<String> {
+    /// The question a Delete dialog asks, naming the target; `None` for Properties.
+    pub fn question(&self) -> Option<String> {
         let Self::Delete { path, is_dir } = self else {
             return None;
         };

@@ -87,7 +87,7 @@ tests/<crate>.rs         public-API tests; tests/support/ shared fakes
 | `ui` | GPUI design system: theme tokens, fonts, icons, motion (`Glide`), `DragGhost`, `Overlays`, base components |
 | `viewtabs` | the tab strip: pills, reorder and merge drags, drop line, context menu |
 | `layoutview` | the pane layout: frames, handles, accent ring, sashes, drop zones; `pane_holes` gives the web view rectangles |
-| `sidebar` | frame, header, space switcher, mode bar, chats tree, files and changes panels |
+| `sidebar` / `sidebarview` | the sidebar's data contract, rows and rules without GPUI (preferences on disk included), and its GPUI view: frame, header, space switcher, mode bar, chats tree, files and changes panels, gallery binary |
 | `settings_ui` | schema-driven native settings modal |
 | `startup` | full-screen startup and data-migration view |
 | `terminal` / `terminalview` | terminal emulation (alacritty grid, daemon frame feed, selection, search, key encoding) without GPUI, and its GPUI view |

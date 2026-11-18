@@ -1,6 +1,6 @@
 [package]
 name = "sidebar"
-description = "Native sidebar of the Crowbar shell: frame, header, space switcher, mode bar, chats tree, files and changes panels."
+description = "The sidebar of the Crowbar shell without a window: its data contract with the shell and every rule the views apply."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -14,16 +14,12 @@ fixtures = []
 
 [dependencies]
 atomicfile.workspace = true
-gpui.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-tracing.workspace = true
-ui.workspace = true
 
 [dev-dependencies]
 sidebar = { workspace = true, features = ["fixtures"] }
-gpui = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true

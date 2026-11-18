@@ -2,9 +2,12 @@
 
 use crate::metrics::{KEY_STEP, KEY_STEP_LARGE};
 
+/// The size of one arrow-key move of the separator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum KeyStep {
+pub enum KeyStep {
+    /// A plain arrow key: a small step.
     Fine,
+    /// An arrow key with Shift: four times the fine step.
     Coarse,
 }
 

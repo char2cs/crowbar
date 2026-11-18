@@ -1,18 +1,24 @@
 //! What the Properties dialog shows for one file.
 
-use crate::path_text::base;
+use crate::sidebar::base;
 
 const NO_EXTENSION: &str = "No extension";
 
+/// The name, path and type the Properties dialog lists for a file.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct FileProperties {
-    pub(crate) file_name: String,
-    pub(crate) path: String,
-    pub(crate) kind: String,
+pub struct FileProperties {
+    /// The last component of the path.
+    pub file_name: String,
+    /// The path as given.
+    pub path: String,
+    /// The extension, or "No extension" when the name has none.
+    pub kind: String,
 }
 
 impl FileProperties {
-    pub(crate) fn of(path: &str) -> Self {
+    /// The properties of the file at `path`.
+    /// A name with no dot, or ending in one, has "No extension" as its type.
+    pub fn of(path: &str) -> Self {
         let file_name = base(path);
         let kind = file_name
             .rsplit_once('.')

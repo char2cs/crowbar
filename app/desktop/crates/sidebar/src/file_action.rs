@@ -4,9 +4,12 @@ use crate::command::Command;
 use crate::intent::Intent;
 use crate::new_entry::NewEntry;
 
+/// The effect of one file-menu entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum FileAction {
+pub enum FileAction {
+    /// Carry out the intent.
     Do(Intent),
+    /// Put the text, such as a path, on the system clipboard.
     CopyText(String),
 }
 
@@ -32,7 +35,9 @@ fn delete_probe(path: &str) -> Command {
 }
 
 impl FileAction {
-    pub(crate) fn command(&self) -> Option<Command> {
+    /// The command this entry sends or starts, if any, so the menu can ask the shell whether it
+    /// serves it. Starting a create or rename names its command with an empty new path.
+    pub fn command(&self) -> Option<Command> {
         let Self::Do(intent) = self else {
             return None;
         };

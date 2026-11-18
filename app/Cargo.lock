@@ -1513,6 +1513,7 @@ dependencies = [
  "serde_json",
  "settings_ui",
  "sidebar",
+ "sidebarview",
  "smallvec",
  "startup",
  "store",
@@ -6483,21 +6484,19 @@ name = "sidebar"
 version = "0.1.0"
 dependencies = [
  "atomicfile",
- "gpui",
  "serde",
  "serde_json",
  "sidebar",
  "thiserror 2.0.21",
- "tracing",
- "ui",
 ]
 
 [[package]]
-name = "sidebar_gallery"
+name = "sidebarview"
 version = "0.1.0"
 dependencies = [
  "gpui",
  "sidebar",
+ "tracing",
  "ui",
 ]
 

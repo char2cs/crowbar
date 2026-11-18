@@ -2,15 +2,19 @@
 
 use crate::sidebar_data::SidebarData;
 
+/// Whether the sidebar offers to start a thread in a terminal; `Unavailable` is the default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(crate) enum TerminalThreads {
+pub enum TerminalThreads {
+    /// The data source cannot start terminal threads; the row menu leaves that entry out.
     #[default]
     Unavailable,
+    /// The data source can start terminal threads.
     Available,
 }
 
 impl TerminalThreads {
-    pub(crate) fn of(data: &dyn SidebarData) -> Self {
+    /// Whether the data source can start a thread in a terminal.
+    pub fn of(data: &dyn SidebarData) -> Self {
         if data.can_start_terminal_thread() {
             return Self::Available;
         }

@@ -2,8 +2,11 @@
 
 use crate::resize_drag::ResizeDrag;
 
+/// The separator drag under way and the width it has reached so far.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct Resizing {
-    pub(crate) drag: ResizeDrag,
-    pub(crate) width: f32,
+pub struct Resizing {
+    /// The pointer drag of the sidebar separator.
+    pub drag: ResizeDrag,
+    /// The sidebar width at the pointer's latest position.
+    pub width: f32,
 }

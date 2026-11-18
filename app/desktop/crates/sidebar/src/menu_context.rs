@@ -3,9 +3,13 @@
 use crate::move_target::MoveTarget;
 use crate::terminal_threads::TerminalThreads;
 
+/// The facts about the rest of the sidebar that decide a row menu's entries.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub(crate) struct MenuContext {
-    pub(crate) targets: Vec<MoveTarget>,
-    pub(crate) terminal: TerminalThreads,
-    pub(crate) running: Option<String>,
+pub struct MenuContext {
+    /// The legal "Move to…" destinations for the row.
+    pub targets: Vec<MoveTarget>,
+    /// Whether threads can start in a terminal.
+    pub terminal: TerminalThreads,
+    /// The title of the agent running on the row, if any; offers "Kill agent".
+    pub running: Option<String>,
 }

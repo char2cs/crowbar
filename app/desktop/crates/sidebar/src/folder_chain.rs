@@ -59,7 +59,9 @@ fn next_row<'a>(
 }
 
 impl FileRow {
-    pub(crate) fn compacted(rows: &[FileRow]) -> Vec<FileRow> {
+    /// The rows with every chain of open single-child folders joined into one row named
+    /// `a/b/c`; the rows below a chain move up by the folders it absorbed.
+    pub fn compacted(rows: &[FileRow]) -> Vec<FileRow> {
         let mut shifts = Shifts::default();
         let mut rest = rows;
         std::iter::from_fn(|| {

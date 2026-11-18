@@ -39,6 +39,7 @@ platform.workspace = true
 smallvec.workspace = true
 store.workspace = true
 sidebar.workspace = true
+sidebarview.workspace = true
 startup.workspace = true
 viewtabs.workspace = true
 thiserror.workspace = true

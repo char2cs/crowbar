@@ -8,13 +8,16 @@ const IMAGE_EXTENSIONS: [&str; 4] = ["png", "jpg", "jpeg", "webp"];
 const EMOJI_MAX_CHARS: usize = 4;
 
 impl SpaceIcon {
-    pub(crate) fn emoji(text: &str) -> Option<Self> {
+    /// An emoji icon from the typed text, trimmed; `None` when it is empty or longer than
+    /// four characters.
+    pub fn emoji(text: &str) -> Option<Self> {
         let text = text.trim();
         let fits = !text.is_empty() && text.chars().count() <= EMOJI_MAX_CHARS;
         fits.then(|| Self::Emoji(text.to_owned()))
     }
 
-    pub(crate) fn image(path: &Path) -> Option<Self> {
+    /// An image icon from the picked file; `None` unless it is a png, jpeg or webp.
+    pub fn image(path: &Path) -> Option<Self> {
         let extension = path.extension()?.to_str()?.to_ascii_lowercase();
         IMAGE_EXTENSIONS
             .contains(&extension.as_str())

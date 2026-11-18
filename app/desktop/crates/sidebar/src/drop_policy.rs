@@ -100,7 +100,9 @@ fn container(
 }
 
 impl Row {
-    pub(crate) fn is_ownerless(&self) -> bool {
+    /// Whether the row is a branch Crowbar does not own: locked, or on a shared worktree.
+    /// Such a branch can be reordered among its siblings but never nested into a folder.
+    pub fn is_ownerless(&self) -> bool {
         self.kind == RowKind::Branch
             && (self.lock == Lock::Locked || self.worktree == Worktree::Shared)
     }

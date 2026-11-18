@@ -4,17 +4,25 @@ use crate::key_step::KeyStep;
 use crate::metrics::{MAX_WIDTH, MIN_WIDTH};
 use crate::panel::Panel;
 
+/// A key pressed on the focused separator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ResizeKey {
+pub enum ResizeKey {
+    /// Moves the separator left by one step.
     Left,
+    /// Moves the separator right by one step.
     Right,
+    /// Collapses the sidebar.
     Home,
+    /// Widens the sidebar to its maximum.
     End,
+    /// Collapses an open sidebar or reopens a collapsed one at its remembered width.
     Enter,
 }
 
 impl ResizeKey {
-    pub(crate) fn apply(
+    /// The sidebar width after this key, from `current` in a window `container` wide.
+    /// Arrow keys follow the dock side and clamp to the allowed range; below zero collapses.
+    pub fn apply(
         self,
         step: KeyStep,
         panel: Panel,

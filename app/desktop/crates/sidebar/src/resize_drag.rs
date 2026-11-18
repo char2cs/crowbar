@@ -3,8 +3,9 @@
 use crate::dock_side::DockSide;
 use crate::panel::Panel;
 
+/// Where a separator drag started, so each pointer move maps to a sidebar width.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct ResizeDrag {
+pub struct ResizeDrag {
     start_width: f32,
     press_x: f32,
     side: DockSide,
@@ -12,7 +13,9 @@ pub(crate) struct ResizeDrag {
 }
 
 impl ResizeDrag {
-    pub(crate) fn begin(
+    /// A drag pressed at `press_x` while the sidebar was `start_width` wide, in a window
+    /// `container` wide, for the panel's dock side.
+    pub fn begin(
         start_width: f32,
         press_x: f32,
         panel: Panel,
@@ -26,7 +29,9 @@ impl ResizeDrag {
         }
     }
 
-    pub(crate) fn width_at(
+    /// The sidebar width with the pointer at `pointer_x`, mirrored for a right dock.
+    /// Clamped to the allowed range, and 0 below the collapse point.
+    pub fn width_at(
         &self,
         pointer_x: f32,
     ) -> f32 {

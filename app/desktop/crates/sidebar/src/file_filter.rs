@@ -69,7 +69,9 @@ fn keep(
 }
 
 impl FileTreeView {
-    pub(crate) fn visible(
+    /// The rows these settings keep, in order; a hidden folder hides its children too.
+    /// With git status off, every status but ignored is shown as clean.
+    pub fn visible(
         &self,
         rows: Vec<FileRow>,
     ) -> Vec<FileRow> {

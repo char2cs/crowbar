@@ -7,7 +7,7 @@ use crate::file_key::FileKey;
 use crate::file_kind::FileKind;
 use crate::file_row::FileRow;
 use crate::intent::Intent;
-use crate::path_text::parent;
+use crate::sidebar::parent;
 
 fn select(row: &FileRow) -> Intent {
     Intent::SelectFile(row.path.clone())
@@ -97,7 +97,10 @@ fn act_on(
 }
 
 impl FileKey {
-    pub(crate) fn step(
+    /// What this key does to `rows` with the `selected` path, or the first row when none is.
+    /// Moves the selection, folds or opens a directory, or acts on the selected row;
+    /// `None` when the key does nothing there or there are no rows.
+    pub fn step(
         self,
         rows: &[FileRow],
         selected: Option<&str>,

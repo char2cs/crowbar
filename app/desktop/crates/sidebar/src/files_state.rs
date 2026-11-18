@@ -3,26 +3,32 @@
 use crate::file_clipboard::FileClipboard;
 use crate::file_dialog::FileDialog;
 
+/// What the Files panel shows beyond its rows: a dialog, the staged files and the selection.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct FilesState {
+pub struct FilesState {
     dialog: Option<FileDialog>,
-    pub(crate) clipboard: Option<FileClipboard>,
-    pub(crate) selected: Option<String>,
+    /// The files staged by Copy or Cut, if any.
+    pub clipboard: Option<FileClipboard>,
+    /// The path of the selected row, if any.
+    pub selected: Option<String>,
 }
 
 impl FilesState {
-    pub(crate) fn dialog(&self) -> Option<&FileDialog> {
+    /// The open dialog, if any.
+    pub fn dialog(&self) -> Option<&FileDialog> {
         self.dialog.as_ref()
     }
 
-    pub(crate) fn show(
+    /// Opens `dialog`, replacing any dialog already open.
+    pub fn show(
         &mut self,
         dialog: FileDialog,
     ) {
         self.dialog = Some(dialog);
     }
 
-    pub(crate) fn close(&mut self) -> Option<FileDialog> {
+    /// Closes the open dialog and returns it, or `None` when none was open.
+    pub fn close(&mut self) -> Option<FileDialog> {
         self.dialog.take()
     }
 }

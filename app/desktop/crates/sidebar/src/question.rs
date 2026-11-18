@@ -5,16 +5,23 @@ use crate::row_id::RowId;
 
 const DETACH_BODY: &str = "will move to a detached HEAD, releasing the branch so Crowbar can manage it in its own worktree. Your files are safe — only the working directory's current branch changes; uncommitted changes and commits are preserved.";
 
+/// A confirmation dialog whose accept button sends one command.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Question {
-    pub(crate) title: String,
-    pub(crate) body: String,
-    pub(crate) confirm: &'static str,
-    pub(crate) command: Command,
+pub struct Question {
+    /// The dialog's title.
+    pub title: String,
+    /// The explanation under the title.
+    pub body: String,
+    /// The label of the accept button.
+    pub confirm: &'static str,
+    /// The command sent when the question is accepted.
+    pub command: Command,
 }
 
 impl Question {
-    pub(crate) fn detach(
+    /// Asks before detaching the checkout of `branch` so Crowbar can manage it in a worktree.
+    /// Names the checkout's `path` when it is known; accepting sends [`Command::Detach`].
+    pub fn detach(
         row: RowId,
         branch: &str,
         path: Option<&str>,
@@ -31,7 +38,9 @@ impl Question {
         }
     }
 
-    pub(crate) fn kill(
+    /// Asks before killing the agent running the thread titled `title`.
+    /// Accepting sends [`Command::KillAgent`].
+    pub fn kill(
         row: RowId,
         title: &str,
     ) -> Self {

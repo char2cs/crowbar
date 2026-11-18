@@ -8,16 +8,23 @@ use crate::row_id::RowId;
 
 const MILLIS_PER_SECOND: u128 = 1000;
 
+/// One row held back from deletion until its countdown ends or the user confirms.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Hold {
-    pub(crate) row: RowId,
-    pub(crate) kind: RemovalKind,
-    pub(crate) label: String,
-    pub(crate) deadline: Deadline,
+pub struct Hold {
+    /// The row being removed.
+    pub row: RowId,
+    /// What the removal deletes.
+    pub kind: RemovalKind,
+    /// The row's name, shown in the countdown and the confirmation.
+    pub label: String,
+    /// Where the hold stands.
+    pub deadline: Deadline,
 }
 
 impl Hold {
-    pub(crate) fn seconds_left(
+    /// The whole seconds left on the countdown, rounded up.
+    /// `None` when the hold has no clock: it awaits confirmation or is committed.
+    pub fn seconds_left(
         &self,
         now: Instant,
     ) -> Option<u64> {
@@ -40,7 +47,9 @@ impl Hold {
         matches!(self.deadline, Deadline::At(at) if at <= now)
     }
 
-    pub(crate) fn drain(
+    /// The fraction of the countdown still left, from `1.0` at the start to `0.0` when due.
+    /// A hold without a clock reads `0.0`.
+    pub fn drain(
         &self,
         now: Instant,
         total: Duration,

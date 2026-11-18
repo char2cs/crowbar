@@ -16,18 +16,6 @@ pub enum DockSide {
 }
 
 impl DockSide {
-    pub(crate) fn docked_toasts(self) -> ui::ToastPlacement {
-        ui::ToastPlacement::Docked(self.toast_side())
-    }
-
-    /// The toast edge matching this dock edge: toasts swipe away toward it.
-    pub fn toast_side(self) -> ui::ToastSide {
-        match self {
-            Self::Left => ui::ToastSide::Left,
-            Self::Right => ui::ToastSide::Right,
-        }
-    }
-
     /// `+1.0` when growing the sidebar means moving the pointer right, `-1.0` when it means left.
     pub fn growth_sign(self) -> f32 {
         match self {
@@ -42,14 +30,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn each_edge_grows_and_swipes_toward_itself() {
-        const CASES: [(DockSide, f32, ui::ToastSide); 2] = [
-            (DockSide::Left, 1.0, ui::ToastSide::Left),
-            (DockSide::Right, -1.0, ui::ToastSide::Right),
-        ];
-        for (side, sign, toast) in CASES {
+    fn each_edge_grows_toward_itself() {
+        const CASES: [(DockSide, f32); 2] = [(DockSide::Left, 1.0), (DockSide::Right, -1.0)];
+        for (side, sign) in CASES {
             assert!((side.growth_sign() - sign).abs() < f32::EPSILON, "{side:?}");
-            assert_eq!(side.toast_side(), toast, "{side:?}");
         }
     }
 

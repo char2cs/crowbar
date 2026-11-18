@@ -6,8 +6,9 @@ use crate::merge_work::MergeWork;
 const MERGING_LABEL: &str = "Merging…";
 const COMMITTING_LABEL: &str = "Committing…";
 
+/// The titles, labels and allowed actions of the merge box, read from one [`MergeBox`].
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct MergeFacts<'a> {
+pub struct MergeFacts<'a> {
     merge: &'a MergeBox,
 }
 
@@ -19,11 +20,14 @@ fn verb(merge: &MergeBox) -> &'static str {
 }
 
 impl<'a> MergeFacts<'a> {
-    pub(crate) fn of(merge: &'a MergeBox) -> Self {
+    /// The facts of this merge box.
+    pub fn of(merge: &'a MergeBox) -> Self {
         Self { merge }
     }
 
-    pub(crate) fn title(self) -> String {
+    /// "Merge into `<parent>`", "Merged into `<parent>`" once landed, or plain "Merge" when
+    /// the box has no parent.
+    pub fn title(self) -> String {
         let verb = verb(self.merge);
         self.merge
             .parent
@@ -31,15 +35,19 @@ impl<'a> MergeFacts<'a> {
             .map_or_else(|| "Merge".to_owned(), |parent| format!("{verb} {parent}"))
     }
 
-    pub(crate) fn shows_content(self) -> bool {
+    /// Whether the box shows its controls; a merged box shows only its title.
+    pub fn shows_content(self) -> bool {
         !self.merge.merged
     }
 
-    pub(crate) fn offers_commit(self) -> bool {
+    /// Whether the commit form shows, because uncommitted files block the merge.
+    pub fn offers_commit(self) -> bool {
         !self.merge.uncommitted.is_empty()
     }
 
-    pub(crate) fn commit_label(
+    /// The commit button's text for `ticked` selected files, e.g. "Commit 2 changes".
+    /// It reads "Committing…" while the commit runs.
+    pub fn commit_label(
         self,
         ticked: usize,
     ) -> String {
@@ -50,25 +58,31 @@ impl<'a> MergeFacts<'a> {
         }
     }
 
-    pub(crate) fn can_commit(
+    /// Whether the commit button is enabled: nothing is running and at least one file is ticked.
+    pub fn can_commit(
         self,
         ticked: usize,
     ) -> bool {
         self.merge.work == MergeWork::Idle && ticked > 0
     }
 
-    pub(crate) fn confirm_label(self) -> &'static str {
+    /// The merge button's text: the chosen strategy's verb, or "Merging…" while a merge runs.
+    pub fn confirm_label(self) -> &'static str {
         if self.merge.work == MergeWork::Merging {
             return MERGING_LABEL;
         }
         self.merge.strategy.confirm()
     }
 
-    pub(crate) fn can_merge(self) -> bool {
+    /// Whether the merge button is enabled: not yet merged, nothing running and nothing
+    /// blocking.
+    pub fn can_merge(self) -> bool {
         !self.merge.merged && self.merge.work == MergeWork::Idle && self.merge.blocked.is_none()
     }
 
-    pub(crate) fn offers_stop(self) -> bool {
+    /// Whether "Stop and merge" shows, because the daemon refused the merge while an agent
+    /// is mid-turn.
+    pub fn offers_stop(self) -> bool {
         self.merge.working.is_some()
     }
 }

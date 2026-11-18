@@ -3,17 +3,24 @@
 use crate::lock::Lock;
 use crate::shell_answers::ShellAnswers;
 
+/// The workspace facts a Files menu is built from.
 #[derive(Debug, Clone, Default)]
-pub(crate) struct MenuScope {
-    pub(crate) root: Option<String>,
-    pub(crate) lock: Lock,
-    pub(crate) local: bool,
-    pub(crate) can_generate_image: bool,
-    pub(crate) answers: ShellAnswers,
+pub struct MenuScope {
+    /// The workspace root, which absolute paths are built on.
+    pub root: Option<String>,
+    /// Whether the workspace's branch is locked.
+    pub lock: Lock,
+    /// Whether the workspace is on this computer, which offers Reveal in Finder.
+    pub local: bool,
+    /// Whether the workspace can generate an image.
+    pub can_generate_image: bool,
+    /// The shell's answers about which entries it serves.
+    pub answers: ShellAnswers,
 }
 
 impl MenuScope {
-    pub(crate) fn is_locked(&self) -> bool {
+    /// Whether the workspace's branch is locked.
+    pub fn is_locked(&self) -> bool {
         self.lock == Lock::Locked
     }
 }

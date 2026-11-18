@@ -109,16 +109,20 @@ impl Preferences {
         file.write(&json).map_err(write)
     }
 
-    pub(crate) fn panel(&self) -> Panel {
+    /// The sidebar column these preferences describe, with the width clamped.
+    pub fn panel(&self) -> Panel {
         Panel::restore(self.visibility, self.width, self.side)
     }
 
-    pub(crate) fn tree(&self) -> TreeState {
+    /// A tree state with the stored rows folded.
+    pub fn tree(&self) -> TreeState {
         TreeState::with_folded(self.folded.iter().map(|id| RowId::from(id.as_str())))
     }
 
+    /// A copy with the panel, mode and folded rows taken from the running sidebar; the host
+    /// filter and last spaces are kept.
     #[must_use]
-    pub(crate) fn updated(
+    pub fn updated(
         &self,
         panel: Panel,
         mode: Mode,

@@ -1,11 +1,17 @@
 //! What a removal deletes.
 
+/// The kind of thing a removal deletes; spaces and repositories ask before they go.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RemovalKind {
+pub enum RemovalKind {
+    /// A space.
     Project,
+    /// A repository.
     Repo,
+    /// A workspace.
     Workspace,
+    /// A chat.
     Chat,
+    /// A folder.
     Folder,
 }
 

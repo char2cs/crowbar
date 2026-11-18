@@ -8,13 +8,15 @@ use crate::metrics::REMOVAL_DRAIN_SECONDS;
 use crate::removal_kind::RemovalKind;
 use crate::row_id::RowId;
 
+/// The removal holds in progress, at most one per row.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct RemovalTray {
+pub struct RemovalTray {
     holds: Vec<Hold>,
 }
 
 impl RemovalTray {
-    pub(crate) const DRAIN: Duration = Duration::from_secs(REMOVAL_DRAIN_SECONDS);
+    /// How long a countdown runs before the delete is sent.
+    pub const DRAIN: Duration = Duration::from_secs(REMOVAL_DRAIN_SECONDS);
 
     pub(crate) fn hold(
         &mut self,
@@ -49,14 +51,16 @@ impl RemovalTray {
         self.holds.iter().find(|hold| &hold.row == row)
     }
 
-    pub(crate) fn keep(
+    /// Drop the row's hold so it shows again and nothing is sent.
+    pub fn keep(
         &mut self,
         row: &RowId,
     ) {
         self.holds.retain(|hold| &hold.row != row);
     }
 
-    pub(crate) fn take_due(
+    /// The rows whose countdown has ended by `now`, marked committed so each is returned once.
+    pub fn take_due(
         &mut self,
         now: Instant,
     ) -> Vec<RowId> {
@@ -70,7 +74,8 @@ impl RemovalTray {
             .collect()
     }
 
-    pub(crate) fn commit(
+    /// Mark the row's hold committed: its delete has been sent and it stays hidden until gone.
+    pub fn commit(
         &mut self,
         row: &RowId,
     ) {
@@ -88,7 +93,8 @@ impl RemovalTray {
         }
     }
 
-    pub(crate) fn next_deadline(&self) -> Option<Instant> {
+    /// The earliest countdown deadline, so one timer serves every hold; `None` when none counts.
+    pub fn next_deadline(&self) -> Option<Instant> {
         self.holds
             .iter()
             .filter_map(|hold| match hold.deadline {
@@ -105,7 +111,8 @@ impl RemovalTray {
         self.holds.retain(|hold| exists(&hold.row));
     }
 
-    pub(crate) fn is_counting(&self) -> bool {
+    /// Whether any hold is still counting down.
+    pub fn is_counting(&self) -> bool {
         self.holds
             .iter()
             .any(|hold| matches!(hold.deadline, Deadline::At(_)))

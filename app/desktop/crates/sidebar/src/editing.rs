@@ -3,16 +3,25 @@
 use crate::new_entry::NewEntry;
 use crate::row_id::RowId;
 
+/// Which name the sidebar's inline input is collecting; at most one is open at a time.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub(crate) enum Editing {
+pub enum Editing {
+    /// No input is open.
     #[default]
     Nothing,
+    /// The row's new name.
     Renaming(RowId),
+    /// The name of the branch the chat row turns into.
     Branching(RowId),
+    /// The name of a fork of the row.
     Drafting(RowId),
+    /// The new name of the file at this workspace-relative path.
     RenamingFile(String),
+    /// The name of a new file or folder.
     Creating {
+        /// The directory it is created in.
         dir: String,
+        /// Whether it is a file or a folder.
         entry: NewEntry,
     },
 }

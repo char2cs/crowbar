@@ -1,6 +1,6 @@
 use gpui::Context;
 use settings_ui::{Key, SettingsRead as _, Value};
-use sidebar::Sidebar;
+use sidebarview::Sidebar;
 
 use super::ShellView;
 use crate::sidebar_surface::{crossing, surface_of};
