@@ -83,7 +83,7 @@ impl Sidebar {
             scope: Rc::new(scope),
             editing: self.tree.editing().clone(),
             input: self.row_input(),
-            selected: self.tree.files.selected.clone(),
+            selected: self.tree.files().selected().map(str::to_owned),
             look: TreeLook::of(
                 &self.data.file_tree_view(),
                 self.search.as_ref().map(|search| search.query.as_str()),

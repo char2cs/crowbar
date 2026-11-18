@@ -13,11 +13,11 @@ impl Sidebar {
         mode: ClipMode,
     ) {
         let root = self.data.workspace_root();
-        self.tree.files.clipboard = Some(FileClipboard {
+        self.tree.files_mut().set_clipboard(Some(FileClipboard {
             root,
             paths: vec![path],
             mode,
-        });
+        }));
     }
 
     pub(crate) fn paste_files(
@@ -25,7 +25,7 @@ impl Sidebar {
         dir: &str,
         cx: &mut Context<'_, Self>,
     ) {
-        let Some(clipboard) = self.tree.files.clipboard.clone() else {
+        let Some(clipboard) = self.tree.files().clipboard().cloned() else {
             return;
         };
         let commands = clipboard.paste_into((&self.data.workspace_root(), dir));
@@ -36,7 +36,7 @@ impl Sidebar {
             self.send(command, cx);
         }
         if !clipboard.survives_paste() {
-            self.tree.files.clipboard = None;
+            self.tree.files_mut().set_clipboard(None);
         }
     }
 
@@ -64,7 +64,7 @@ impl Sidebar {
             return;
         };
         let rows = self.visible_files();
-        let selected = self.tree.files.selected.as_deref();
+        let selected = self.tree.files().selected();
         if let Some(intent) = key.step(&rows, selected) {
             cx.stop_propagation();
             self.apply(intent, window, cx);

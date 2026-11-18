@@ -51,7 +51,7 @@ impl Sidebar {
         &self,
         cx: &mut Context<'_, Self>,
     ) -> Option<AnyElement> {
-        let dialog = self.tree.files.dialog()?.clone();
+        let dialog = self.tree.files().dialog()?.clone();
         let palette = Theme::of(cx).palette(Surface::Window);
         let sidebar = cx.entity();
         let frame = Dialog::new("file-dialog")
@@ -88,7 +88,7 @@ impl Sidebar {
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
-        self.tree.files.close();
+        self.tree.files_mut().close();
         cx.notify();
     }
 
@@ -96,7 +96,7 @@ impl Sidebar {
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
-        if let Some(FileDialog::Delete { path, .. }) = self.tree.files.close() {
+        if let Some(FileDialog::Delete { path, .. }) = self.tree.files_mut().close() {
             self.send(Command::DeleteFile { path }, cx);
         }
         cx.notify();
@@ -131,7 +131,7 @@ mod tests {
             path: "src/lib.rs".into(),
         };
         assert_eq!(recorder.sent(), vec![want]);
-        assert!(sidebar.read_with(cx, |this, _| this.tree.files.dialog().is_none()));
+        assert!(sidebar.read_with(cx, |this, _| this.tree.files().dialog().is_none()));
     }
 
     #[gpui::test]
@@ -140,12 +140,12 @@ mod tests {
         sidebar.update_in(cx, |this, window, cx| {
             this.apply(Intent::ShowProperties("src/main.rs".into()), window, cx);
         });
-        let shown = sidebar.read_with(cx, |this, _| this.tree.files.dialog().cloned());
+        let shown = sidebar.read_with(cx, |this, _| this.tree.files().dialog().cloned());
         let want = FileDialog::Properties(FileProperties::of("src/main.rs"));
         assert_eq!(shown, Some(want));
         sidebar.update(cx, Sidebar::close_file_dialog);
         assert_eq!(
-            sidebar.read_with(cx, |this, _| this.tree.files.dialog().cloned()),
+            sidebar.read_with(cx, |this, _| this.tree.files().dialog().cloned()),
             None
         );
     }

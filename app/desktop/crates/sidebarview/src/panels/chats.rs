@@ -104,7 +104,7 @@ impl Sidebar {
         let (now, motion) = (self.clock.now(), Motion::of(cx));
         self.carousel
             .go_to(count_as_f32(index.unwrap_or(0)), now, motion);
-        if self.carousel.is_running(now, motion) || self.tree.removals.tray().is_counting() {
+        if self.carousel.is_running(now, motion) || self.tree.removals().tray().is_counting() {
             window.request_animation_frame();
         }
         self.carousel.value(now, motion) * width

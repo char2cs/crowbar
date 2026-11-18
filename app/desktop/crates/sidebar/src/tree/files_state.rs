@@ -7,13 +7,39 @@ use crate::explorer::FileDialog;
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FilesState {
     dialog: Option<FileDialog>,
-    /// The files staged by Copy or Cut, if any.
-    pub clipboard: Option<FileClipboard>,
-    /// The path of the selected row, if any.
-    pub selected: Option<String>,
+    pub(crate) clipboard: Option<FileClipboard>,
+    pub(crate) selected: Option<String>,
 }
 
 impl FilesState {
+    /// The path of the selected row, if any.
+    #[must_use]
+    pub fn selected(&self) -> Option<&str> {
+        self.selected.as_deref()
+    }
+
+    /// Selects the row at `path`, or clears the selection with `None`.
+    pub fn select(
+        &mut self,
+        path: Option<String>,
+    ) {
+        self.selected = path;
+    }
+
+    /// The files staged by Copy or Cut, if any.
+    #[must_use]
+    pub fn clipboard(&self) -> Option<&FileClipboard> {
+        self.clipboard.as_ref()
+    }
+
+    /// Stages `clipboard` for the next paste, or clears the staged files with `None`.
+    pub fn set_clipboard(
+        &mut self,
+        clipboard: Option<FileClipboard>,
+    ) {
+        self.clipboard = clipboard;
+    }
+
     /// The open dialog, if any.
     pub fn dialog(&self) -> Option<&FileDialog> {
         self.dialog.as_ref()

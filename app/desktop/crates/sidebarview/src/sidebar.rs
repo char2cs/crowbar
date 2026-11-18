@@ -132,7 +132,7 @@ impl Sidebar {
         at_risk: Vec<WorkAtRisk>,
         cx: &mut Context<'_, Self>,
     ) {
-        self.tree.removals.ask_to_discard(row, at_risk);
+        self.tree.removals_mut().ask_to_discard(row, at_risk);
         cx.notify();
     }
 
@@ -220,7 +220,7 @@ mod tests {
             this.ask_to_discard(&RowId::from("chat"), vec![risk], cx);
         });
         let title = sidebar.read_with(cx, |this, _| {
-            this.tree.removals.confirmation().map(Confirmation::title)
+            this.tree.removals().confirmation().map(Confirmation::title)
         });
         assert!(title.is_some_and(|text| text.ends_with("and lose work?")));
     }

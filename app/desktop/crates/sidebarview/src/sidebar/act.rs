@@ -61,7 +61,7 @@ impl Sidebar {
             Intent::StartDraft(id) => self.start_draft(&id, window, cx),
             Intent::RequestRemoval(id) => self.request_removal(&id, cx),
             Intent::RequestProjectRemoval(project) => self.request_project_removal(project),
-            Intent::Keep(id) => self.tree.removals.keep(&id),
+            Intent::Keep(id) => self.tree.removals_mut().keep(&id),
             Intent::ToggleFold(id) => {
                 self.tree.toggle_fold(&id);
                 Self::changed(cx);
@@ -72,17 +72,21 @@ impl Sidebar {
                 self.start_file_create((dir, entry), window, cx);
             },
             Intent::RequestFileDelete { path, is_dir } => {
-                self.tree.files.show(FileDialog::Delete { path, is_dir });
+                self.tree
+                    .files_mut()
+                    .show(FileDialog::Delete { path, is_dir });
             },
             Intent::ShowProperties(path) => {
                 let properties = FileProperties::of(&path);
-                self.tree.files.show(FileDialog::Properties(properties));
+                self.tree
+                    .files_mut()
+                    .show(FileDialog::Properties(properties));
             },
             Intent::StageFile { path, mode } => self.stage_file(path, mode),
             Intent::PasteFiles { dir } => self.paste_files(&dir, cx),
             Intent::SelectFile(path) => {
                 self.files_focus.focus(window);
-                self.tree.files.selected = Some(path);
+                self.tree.files_mut().select(Some(path));
             },
             Intent::Ask(question) => self.question = Some(question),
             Intent::Send(command) => self.send_intent(command, cx),
@@ -173,7 +177,7 @@ impl Sidebar {
             .find(|candidate| candidate.id == project)
             .map(|found| found.name);
         if let Some(name) = name {
-            self.tree.removals.request_project(project, &name);
+            self.tree.removals_mut().request_project(project, &name);
         }
     }
 
@@ -193,7 +197,7 @@ impl Sidebar {
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
-        let Some(deadline) = self.tree.removals.tray().next_deadline() else {
+        let Some(deadline) = self.tree.removals().tray().next_deadline() else {
             return;
         };
         let wait = deadline.saturating_duration_since(self.clock.now());
@@ -208,7 +212,7 @@ impl Sidebar {
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
-        for row in self.tree.removals.take_due(self.clock.now()) {
+        for row in self.tree.removals_mut().take_due(self.clock.now()) {
             self.send(Command::CommitRemoval(row), cx);
         }
         self.schedule_removals(cx);

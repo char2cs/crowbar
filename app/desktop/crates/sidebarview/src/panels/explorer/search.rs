@@ -119,10 +119,10 @@ impl Sidebar {
             return;
         };
         let rows = self.visible_files();
-        let selected = self.tree.files.selected.as_deref();
+        let selected = self.tree.files().selected();
         let next = step_match(&rows, (&search.query, selected), direction);
         if let Some(path) = next {
-            self.tree.files.selected = Some(path);
+            self.tree.files_mut().select(Some(path));
             cx.notify();
         }
     }

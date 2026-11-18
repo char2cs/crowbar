@@ -1,5 +1,6 @@
 //! The shell-owned view state of the chats tree: folds, inline input and removal.
 
+mod accessors;
 mod deletion;
 mod editing;
 mod files_state;
@@ -33,10 +34,8 @@ use crate::shell::RowId;
 pub struct Tree {
     pub(crate) folded: BTreeSet<RowId>,
     pub(crate) editing: Editing,
-    /// The Files panel's view state.
-    pub files: FilesState,
-    /// The rows being deleted.
-    pub removals: Removals,
+    pub(crate) files: FilesState,
+    pub(crate) removals: Removals,
 }
 
 impl Tree {
