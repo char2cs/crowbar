@@ -1,4 +1,4 @@
-use browser_nav::PageUpdate;
+use browser::PageUpdate;
 use gpui::{ClipboardItem, Context};
 use protocol::PaneId;
 

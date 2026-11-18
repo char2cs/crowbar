@@ -37,7 +37,7 @@ fn is_browser(
     pane: &PaneId,
 ) -> bool {
     let type_id = layout.pane(pane).map(|instance| instance.type_id.as_str());
-    type_id == Some(browser_nav::BROWSER_PANE_TYPE)
+    type_id == Some(browser::BROWSER_PANE_TYPE)
 }
 
 #[cfg(test)]

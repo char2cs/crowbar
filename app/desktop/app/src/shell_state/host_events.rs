@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use browser_nav::BrowserUrl;
+use browser::BrowserUrl;
 use pane_host::{HostEvent, IpcMessage, LayoutSnapshot, VisiblePane};
 use protocol::PaneId;
 use webview::ParentWindow;
@@ -100,22 +100,22 @@ impl ShellState {
     pub(super) fn note_page(
         &mut self,
         pane: PaneId,
-        update: browser_nav::PageUpdate,
+        update: browser::PageUpdate,
         outcome: &mut Outcome,
     ) {
         self.pages.apply(pane.clone(), update.clone());
         match update {
-            browser_nav::PageUpdate::Loading { url } => {
+            browser::PageUpdate::Loading { url } => {
                 self.page_loading(&pane, &url);
                 outcome.pages.push((pane, url));
             },
-            browser_nav::PageUpdate::Loaded { url } => {
+            browser::PageUpdate::Loaded { url } => {
                 self.page_loaded(&pane, &url, outcome);
                 outcome.pages.push((pane.clone(), url.clone()));
                 self.save_address(pane, &url);
             },
-            browser_nav::PageUpdate::Title { title } => self.set_page_title(pane, title, outcome),
-            browser_nav::PageUpdate::AgentReply { id, answer } => {
+            browser::PageUpdate::Title { title } => self.set_page_title(pane, title, outcome),
+            browser::PageUpdate::AgentReply { id, answer } => {
                 self.answer_from_page(&pane, &id, answer);
             },
             pick => outcome.picks.push((pane, pick)),

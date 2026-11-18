@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use browser_nav::AgentAnswer;
+use browser::AgentAnswer;
 use tokio::sync::oneshot;
 
 use crate::pending_forget::PendingForget;

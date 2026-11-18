@@ -810,10 +810,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "browser"
+version = "0.1.0"
+dependencies = [
+ "percent-encoding",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "url",
+]
+
+[[package]]
 name = "browser_agent"
 version = "0.1.0"
 dependencies = [
- "browser_nav",
+ "browser",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -827,17 +838,6 @@ version = "0.1.0"
 dependencies = [
  "gpui",
  "ui",
-]
-
-[[package]]
-name = "browser_nav"
-version = "0.1.0"
-dependencies = [
- "percent-encoding",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "url",
 ]
 
 [[package]]
@@ -1494,9 +1494,9 @@ dependencies = [
  "atomicfile",
  "base64",
  "branch_import_view",
+ "browser",
  "browser_agent",
  "browser_chrome",
- "browser_nav",
  "daemon_supervisor",
  "gpui",
  "image",
@@ -4765,7 +4765,7 @@ name = "pane_host"
 version = "0.1.0"
 dependencies = [
  "async-channel 2.5.0",
- "browser_nav",
+ "browser",
  "model",
  "protocol",
  "serde",

@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use browser_nav::AgentAnswer;
+use browser::AgentAnswer;
 use serde_json::Value;
 use tokio::sync::oneshot;
 

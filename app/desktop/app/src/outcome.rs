@@ -10,6 +10,6 @@ pub(crate) struct Outcome {
     pub(crate) commands: Vec<CommandId>,
     pub(crate) pages: Vec<(PaneId, String)>,
     pub(crate) loaded: Vec<PaneId>,
-    pub(crate) picks: Vec<(PaneId, browser_nav::PageUpdate)>,
+    pub(crate) picks: Vec<(PaneId, browser::PageUpdate)>,
     pub(crate) settings: Vec<(protocol::SettingKey, serde_json::Value)>,
 }

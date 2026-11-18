@@ -1,4 +1,4 @@
-use browser_nav::{PageUpdate, pick_count, pointer_text};
+use browser::{PageUpdate, pick_count, pointer_text};
 use ui::ToastKind;
 
 const COPIED: &str = "Pointer copied";
@@ -40,7 +40,7 @@ fn copied_text(count: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use browser_nav::PickReport;
+    use browser::PickReport;
 
     use super::*;
 

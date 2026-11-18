@@ -1,4 +1,4 @@
-use browser_nav::SearchEngine;
+use browser::SearchEngine;
 
 pub(crate) const ENGINE_KEY: &str = "browserSearchEngine";
 pub(crate) const CUSTOM_URL_KEY: &str = "browserCustomSearchUrl";

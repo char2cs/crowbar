@@ -22,7 +22,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use browser_nav::AgentAnswer;
+    use browser::AgentAnswer;
     use serde_json::{Value, json};
     use tokio::sync::watch;
 

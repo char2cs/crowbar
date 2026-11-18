@@ -1,4 +1,4 @@
-use browser_nav::{BrowserUrl, PageState};
+use browser::{BrowserUrl, PageState};
 use pane_host::BrowseAction;
 use protocol::PaneId;
 use webview::ParentWindow;
@@ -97,8 +97,8 @@ impl ShellState {
 
 #[cfg(test)]
 mod tests {
+    use browser::{AgentAnswer, BrowserUrl, PageUpdate};
     use browser_agent::{AgentCommand, AgentOp, Delivery, DomOp};
-    use browser_nav::{AgentAnswer, BrowserUrl, PageUpdate};
     use serde_json::json;
     use webview::{Call, ParentWindow};
 

@@ -497,7 +497,7 @@ mod tests {
             &["b1", "c1"],
             Some("b1"),
         );
-        let go = BrowseAction::Go(browser_nav::BrowserUrl::parse("https://example.com/").unwrap());
+        let go = BrowseAction::Go(browser::BrowserUrl::parse("https://example.com/").unwrap());
         assert!(f.host.browse(&PaneId::new("b1").unwrap(), &go).is_ok());
         assert!(
             f.host

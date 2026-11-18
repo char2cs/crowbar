@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use anyhow::Context as _;
+use browser::{AgentAnswer, BrowserUrl};
 use browser_agent::{PeerSession, TabCommands, TabInfo};
-use browser_nav::{AgentAnswer, BrowserUrl};
 use model::Command;
 use protocol::PaneId;
 use serde_json::{Value, json};
@@ -32,7 +32,7 @@ impl ShellState {
     ) -> Value {
         let state = self.pages.get(pane);
         json!({
-            "url": state.map(browser_nav::PageState::url),
+            "url": state.map(browser::PageState::url),
             "title": state.and_then(|state| state.title()).unwrap_or_default(),
             "loading": false,
         })

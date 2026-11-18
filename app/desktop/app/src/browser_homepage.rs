@@ -1,4 +1,4 @@
-use browser_nav::{BrowserUrl, SearchEngine, resolve_address};
+use browser::{BrowserUrl, SearchEngine, resolve_address};
 use protocol::PaneState;
 use serde_json::json;
 

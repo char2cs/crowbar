@@ -1,5 +1,5 @@
 [package]
-name = "browser_nav"
+name = "browser"
 description = "Navigation logic of the browser pane: what the address bar means, which URLs a browser pane may load, and the page state shown in the native chrome."
 version.workspace = true
 edition.workspace = true

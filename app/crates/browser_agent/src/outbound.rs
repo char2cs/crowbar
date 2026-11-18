@@ -1,4 +1,4 @@
-use browser_nav::AgentAnswer;
+use browser::AgentAnswer;
 use serde_json::json;
 
 use crate::tab_info::TabInfo;

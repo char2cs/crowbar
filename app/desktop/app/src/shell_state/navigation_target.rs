@@ -1,4 +1,4 @@
-use browser_nav::BrowserUrl;
+use browser::BrowserUrl;
 use serde_json::Value;
 #[derive(Debug)]
 pub(super) struct NavigationTarget<'a> {

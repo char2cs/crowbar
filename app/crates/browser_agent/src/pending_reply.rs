@@ -1,4 +1,4 @@
-use browser_nav::AgentAnswer;
+use browser::AgentAnswer;
 use tokio::sync::oneshot;
 
 use crate::delivery::Delivery;

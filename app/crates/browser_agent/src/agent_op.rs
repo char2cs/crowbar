@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use browser_nav::BrowserUrl;
+use browser::BrowserUrl;
 use serde_json::Value;
 
 use crate::dom_op::DomOp;

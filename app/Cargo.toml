@@ -13,7 +13,7 @@ publish = false
 
 [workspace.dependencies]
 atomicfile = { path = "crates/atomicfile" }
-browser_nav = { path = "crates/browser_nav" }
+browser = { path = "crates/browser" }
 browser_agent = { path = "crates/browser_agent" }
 protocol = { path = "crates/protocol" }
 model = { path = "crates/model" }

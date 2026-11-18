@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use browser_nav::{BROWSER_PANE_TYPE, BrowserUrl, PageUpdate};
+use browser::{BROWSER_PANE_TYPE, BrowserUrl, PageUpdate};
 use protocol::{PaneState, PaneTypeId};
 use webview::{IpcHandler, PageEvent, PageHandler};
 

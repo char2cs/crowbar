@@ -22,7 +22,7 @@ pub enum Error {
         text: String,
         /// Why it is refused.
         #[source]
-        source: browser_nav::Error,
+        source: browser::Error,
     },
     /// The connection to the daemon failed.
     #[error("the daemon connection failed: {0}")]

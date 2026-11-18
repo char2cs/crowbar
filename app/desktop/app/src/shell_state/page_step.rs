@@ -1,5 +1,5 @@
+use browser::{agent_script, eval_script};
 use browser_agent::{AgentCommand, AgentOp};
-use browser_nav::{agent_script, eval_script};
 use pane_host::BrowseAction;
 
 #[derive(Debug, PartialEq)]

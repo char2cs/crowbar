@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use browser_nav::{PageState, PageUpdate};
+use browser::{PageState, PageUpdate};
 use model::Layout;
 use protocol::PaneId;
 

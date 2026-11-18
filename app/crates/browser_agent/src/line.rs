@@ -1,6 +1,6 @@
 use std::ops::ControlFlow;
 
-use browser_nav::AgentAnswer;
+use browser::AgentAnswer;
 use tokio::sync::watch;
 use tokio::task::{JoinError, JoinSet};
 

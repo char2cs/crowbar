@@ -1,4 +1,4 @@
-use browser_nav::AgentAnswer;
+use browser::AgentAnswer;
 
 pub(crate) enum ConnectionEvent {
     Frame(String),

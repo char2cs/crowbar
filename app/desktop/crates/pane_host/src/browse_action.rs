@@ -1,4 +1,4 @@
-use browser_nav::BrowserUrl;
+use browser::BrowserUrl;
 
 /// What the shell asks of a browser pane's web view.
 #[derive(Debug, Clone, PartialEq, Eq)]

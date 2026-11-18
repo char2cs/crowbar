@@ -1,5 +1,5 @@
+use browser::{AgentAnswer, BrowserUrl};
 use browser_agent::{AgentCommand, AgentOp, Arming, Delivery};
-use browser_nav::{AgentAnswer, BrowserUrl};
 use pane_host::BrowseAction;
 use protocol::PaneId;
 use serde_json::{Value, json};
@@ -198,8 +198,8 @@ fn only_the_fragment_differs(
 
 #[cfg(test)]
 mod tests {
+    use browser::{AgentAnswer, BrowserUrl, PageUpdate};
     use browser_agent::AgentOp;
-    use browser_nav::{AgentAnswer, BrowserUrl, PageUpdate};
     use serde_json::json;
     use webview::{Call, ParentWindow};
 

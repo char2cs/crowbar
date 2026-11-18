@@ -10,7 +10,7 @@
 
 mod agent_answer;
 mod agent_script;
-mod browser_nav;
+mod browser;
 mod browser_url;
 mod error;
 mod page_calls;
@@ -25,7 +25,7 @@ mod tab_name;
 
 pub use agent_answer::AgentAnswer;
 pub use agent_script::{agent_script, eval_script};
-pub use browser_nav::resolve_address;
+pub use browser::resolve_address;
 pub use browser_url::BrowserUrl;
 pub use error::Error;
 pub use page_state::PageState;
