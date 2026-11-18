@@ -1,0 +1,110 @@
+# 16. Dialogs (DLG)
+
+### Confirm / prompt service (web-drawn)
+
+| ID | What | Tauri source | How to reach/drive it | Animation | Shots | Tauri behaviour | Rust behaviour | Difference | Perf | Linux | macOS |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| DLG-001 | Confirm dialog shell: max-w-lg card, title, pre-wrapped message, footer Cancel (outline) + Confirm (default, or destructive), X close top-right, dimmed blurred backdrop | web/src/components/ui/primitive-dialog-host.tsx:63 | Sidebar header > settings gear > Developer > Reset all | backdrop opacity 200ms cubic-bezier(0.4,0,0.2,1); popup opacity + scale 0.98→1 200ms ease-in-out | | | | | | | |
+| DLG-002 | Initial focus on Cancel for every confirm, so a stray Enter cancels | web/src/components/ui/primitive-dialog-host.tsx:65 | open Reset settings confirm; `rig key <app> Return` | — | | | | | | | |
+| DLG-003 | Esc, backdrop click and X all settle as Cancel (confirm → false, prompt → null) | web/src/components/ui/primitive-dialog-host.tsx:64 | open Reset settings confirm; `rig key <app> Escape`; reopen, click backdrop; reopen, click X | close: reverse of open, 200ms | | | | | | | |
+| DLG-004 | Focus trap: Tab cycles X, Cancel, Confirm inside the modal | web/src/components/ui/dialog.tsx:70 | open Reset settings confirm; `rig key <app> Tab Tab Tab Tab` | — | | | | | | | |
+| DLG-005 | Under 640px window width, Dialog/AlertDialog popups become bottom sheets: full width, no side borders or radius, slide up 1rem on open | web/src/components/ui/dialog.tsx:74 | `rig size <app> min`; open Reset settings confirm (if min width is under 640px) | 200ms ease-in-out translate-y 1rem→0 + fade | | | | | | | |
+| DLG-006 | One dialog at a time: later requests queue and show after the current settles | web/src/components/ui/primitive-dialog-service.tsx:135 | not drivable alone (needs two concurrent requests) | — | | | | | | | |
+| DLG-007 | Prompt shell: title, label + autofocused input with default value and placeholder, Cancel + OK-style confirm; Enter submits | web/src/components/ui/primitive-dialog-host.tsx:76 | `rig key <app> ctrl+j`; right-click terminal tab > Rename; `rig type <app> build`; Return | as DLG-001 | | | | | | | |
+| DLG-008 | Rename Terminal prompt: title "Rename Terminal", label "Enter a terminal name:", placeholder "Terminal name", buttons Cancel / Rename; blank or control-only input renames nothing | web/src/features/tabs/components/tab-context-menu.tsx:77 | terminal tab > Rename; clear the field; Return (no change); repeat with a name | as DLG-001 | | | | | | | |
+| DLG-009 | Kill agent confirm: title "Kill the agent on “<chat>”?", message "It stops now, even mid-turn.[ N clients are attached to it.] The conversation is kept and resumes when reopened.", Keep running / Kill agent (destructive) | web/src/features/agent/lib/kill-agent.ts:35 | Sidebar > right-click working chat > Kill agent; or Settings > Active sessions > kill. Seed: running agent | as DLG-001 | | | | | | | |
+| DLG-010 | Reset settings confirm: title "Reset settings", "Reset all settings to their defaults? This cannot be undone.", Cancel / Reset all (non-destructive style); confirm toasts "Settings reset" | web/src/features/settings/components/tabs/developer-settings.tsx:49 | Sidebar header > settings gear > Developer > Reset all | as DLG-001 | | | | | | | |
+| DLG-011 | Clear browsing data confirm: "Clear browsing data?", sign-out/cache text, Cancel / Clear data; Linux: the button is disabled with "Not available on this system…" | web/src/features/settings/components/tabs/browser-settings.tsx:24 | Settings > Browser > Clear data (Linux: observe disabled button and description) | as DLG-001 | | | | | | | |
+| DLG-012 | Revoke host confirm: "Revoke <host>?", "To use it again you’ll need to run crowbar pair on it.", Keep it / Revoke (destructive) | web/src/features/hosts/lib/host-revoke.ts:15 | Settings > Hosts > remote host > Revoke. Seed: second paired host | as DLG-001 | | | | | | | |
+| DLG-013 | Revoke failed, unreachable: "Can’t reach <host>", "…couldn’t reach <host> to revoke… Remove it from this app anyway? This computer forgets its key now… <host> will still list this computer as paired.", Keep it / Remove anyway | web/src/features/hosts/lib/host-revoke.ts:75 | Revoke an offline host. Seed: paired remote host that is offline | as DLG-001 | | | | | | | |
+| DLG-014 | Revoke failed, identity changed: "<host>’s identity changed", certificate text, Keep it / Remove anyway | web/src/features/hosts/lib/host-revoke.ts:80 | Revoke. Seed: remote host whose TLS certificate changed | as DLG-001 | | | | | | | |
+| DLG-015 | Revoke failed, refused / other: "Couldn’t revoke <host>" with "holds no key…" or "The revoke failed: <reason>.", Keep it / Remove anyway | web/src/features/hosts/lib/host-revoke.ts:87 | Revoke. Seed: remote host with no stored key, or one failing the DELETE | as DLG-001 | | | | | | | |
+
+### WebKit-drawn JS dialogs
+
+| ID | What | Tauri source | How to reach/drive it | Animation | Shots | Tauri behaviour | Rust behaviour | Difference | Perf | Linux | macOS |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| DLG-016 | Reload a dirty tab: `window.confirm` "Discard unsaved changes to <file> and reload it from disk?" (OK reloads, Cancel keeps edits); drawn by the webview, not the app | web/src/features/tabs/components/tab-bar-context-menu.tsx:78 | Files > open README.md; type a character; right-click its tab > Reload; Cancel; repeat with OK | — (webview-drawn) | | | | | | | |
+| DLG-017 | Save an untitled tab: `window.prompt` "Save as:" prefilled with the tab name; blank/Cancel saves nothing; the answer is a workspace path | web/src/features/editor/lib/buffer-save.ts:148 | `rig key <app> ctrl+shift+n`; type text; `rig key <app> ctrl+s`; enter `notes.md`; OK | — (webview-drawn) | | | | | | | |
+
+### Removal confirmation (AlertDialog, web-drawn)
+
+| ID | What | Tauri source | How to reach/drive it | Animation | Shots | Tauri behaviour | Rust behaviour | Difference | Perf | Linux | macOS |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| DLG-018 | Delete repository: max-w-md, title "Delete repository “checkout”?", bold "All workspaces in this repository will be deleted." + worktree text, Cancel (ghost, focused) / Delete repository (destructive) | web/src/components/layout/removal-confirm-dialog.tsx:35 | Sidebar > right-click checkout (main) row > Delete Repo; Cancel | backdrop 200ms fade; popup opacity + scale 0.98 200ms ease-in-out | | | | | | | |
+| DLG-019 | Cancel, Esc or backdrop: cancels the held removal; the row comes back | web/src/components/layout/removal-confirm-dialog.tsx:37 | open DLG-018; `rig key <app> Escape`; reopen, click backdrop | close: reverse, 200ms | | | | | | | |
+| DLG-020 | Confirm: commits the cascade delete | web/src/components/layout/removal-confirm-dialog.tsx:59 | open DLG-018; Delete repository (destructive; run last, then `rig reset`) | — | | | | | | | |
+| DLG-021 | Work at risk: title "Delete <noun> “<label>” and lose work?", bold "This work exists nowhere else…", list "Work that would be lost" (branch, "N uncommitted files · N unmerged commits"), Cancel / Delete anyway | web/src/components/layout/removal-confirm-dialog.tsx:157 | feature workspace: edit src/pricing.ts and save; Sidebar > hover feature/pricing-rounding > Remove; wait for the drain to commit | as DLG-018 | | | | | | | |
+
+### Detach holder (Dialog, web-drawn)
+
+| ID | What | Tauri source | How to reach/drive it | Animation | Shots | Tauri behaviour | Rust behaviour | Difference | Perf | Linux | macOS |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| DLG-022 | "Detach to manage <branch>": max-w-md, explanation naming the holder path and branch (mono), Cancel (ghost) / Detach (default), X close; Detach runs the detach operation | web/src/components/layout/detach-holder-modal.tsx:73 | Sidebar > held branch row > Detach…. Seed: branch checked out in a checkout outside Crowbar | as DLG-001 | | | | | | | |
+
+### Unsaved changes (AppDialog, web-drawn)
+
+| ID | What | Tauri source | How to reach/drive it | Animation | Shots | Tauri behaviour | Rust behaviour | Difference | Perf | Linux | macOS |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| DLG-023 | Close a dirty tab: "Unsaved Changes" (warning icon, sm), "<file> has unsaved changes. Do you want to save before closing?", Cancel (ghost) / Discard (destructive) / Save (default), X close | web/src/features/window/components/unsaved-changes-dialog.tsx:19 | Files > open README.md; type a character; `rig key <app> ctrl+w` | backdrop 200ms fade; popup opacity 200ms ease-in-out (no scale) | | | | | | | |
+| DLG-024 | Save: saves that tab (not the active one) then closes it; a failed save keeps it open | web/src/features/tabs/components/tab-close-confirm.tsx:24 | open DLG-023 > Save | — | | | | | | | |
+| DLG-025 | Discard: closes without saving | web/src/features/window/components/unsaved-changes-dialog.tsx:29 | open DLG-023 > Discard | — | | | | | | | |
+| DLG-026 | Cancel, X, Esc or backdrop: tab stays open and dirty | web/src/features/window/components/unsaved-changes-dialog.tsx:26 | open DLG-023; `rig key <app> Escape` | close: opacity 200ms | | | | | | | |
+
+### File explorer dialogs (AppDialog, web-drawn)
+
+| ID | What | Tauri source | How to reach/drive it | Animation | Shots | Tauri behaviour | Rust behaviour | Difference | Perf | Linux | macOS |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| DLG-027 | Delete File: title "Delete File", "Are you sure you want to delete the file "<name>"? This action cannot be undone.", Cancel (default) / Delete (destructive) | web/src/features/file-explorer/file-explorer/components/file-explorer-dialogs.tsx:94 | Files > right-click README.md > Delete | as DLG-023 | | | | | | | |
+| DLG-028 | Delete Folder: "…delete the folder "<name>" and all its contents? This action cannot be undone." | web/src/features/file-explorer/file-explorer/components/file-explorer-dialogs.tsx:123 | Files > right-click src > Delete; Cancel | as DLG-023 | | | | | | | |
+| DLG-029 | Deleting state: both buttons disabled, "Deleting...", Esc/X ignored until done | web/src/features/file-explorer/file-explorer/components/file-explorer-dialogs.tsx:116 | DLG-027 > Delete (on a new scratch file) | — | | | | | | | |
+| DLG-030 | Open All Files (>100 files): "<n> files will be opened in tabs. Continue?", Cancel / Open ("Opening..." while busy) | web/src/features/file-explorer/file-explorer/components/file-explorer-dialogs.tsx:63 | right-click a big folder > Open All Files. Seed: folder with more than 100 files | as DLG-023 | | | | | | | |
+| DLG-031 | Alert "File Already Exists": "A file with this name already exists.", OK | web/src/features/file-explorer/file-explorer/hooks/use-file-explorer-inline-editing.ts:145 | Files > right-click empty space > New File; type `README.md`; Return | as DLG-023 | | | | | | | |
+| DLG-032 | Alert "Folder Already Exists": "A folder with this name already exists.", OK | web/src/features/file-explorer/file-explorer/hooks/use-file-explorer-inline-editing.ts:138 | Files > right-click empty space > New Folder; type `src`; Return | as DLG-023 | | | | | | | |
+| DLG-033 | Alert "Move Failed": daemon's message, OK | web/src/features/file-explorer/file-explorer/components/file-explorer-tree.tsx:129 | drag a file onto a folder holding the same name. Seed: name clash between a file and a folder's child | as DLG-023 | | | | | | | |
+| DLG-034 | Properties: "Properties" (info icon), File / Path / Type rows, X only (no footer) | web/src/features/file-explorer/file-explorer/components/file-properties-dialog.tsx:13 | Files > right-click src/pricing.ts > Properties; X | as DLG-023 | | | | | | | |
+| DLG-035 | Overwrite Env File: "<target> already exists. Overwrite it?", Cancel / Overwrite (destructive) | web/src/features/file-explorer/file-explorer/hooks/use-env-template-file.tsx:97 | right-click .env > Create .env.example. Seed: .env and .env.example both present | as DLG-023 | | | | | | | |
+
+### Review comment delete (AlertDialog, web-drawn)
+
+| ID | What | Tauri source | How to reach/drive it | Animation | Shots | Tauri behaviour | Rust behaviour | Difference | Perf | Linux | macOS |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| DLG-036 | Root without replies: "Delete this thread?", "This permanently deletes the comment and its thread.", Cancel (outline sm) / Delete (destructive sm) | web/src/features/git/components/review-thread-item.tsx:240 | review thread on src/pricing.ts > "..." > Delete | as DLG-018 | | | | | | | |
+| DLG-037 | Root with replies: "Delete this thread?", "This permanently deletes the whole thread, including all replies." | web/src/features/git/components/review-thread-item.tsx:254 | thread with a reply > root "..." > Delete. Seed: review thread with a reply | as DLG-018 | | | | | | | |
+| DLG-038 | Reply: "Delete this comment?", "This permanently deletes this reply." | web/src/features/git/components/review-thread-item.tsx:257 | reply "..." > Delete. Seed: review thread with a reply | as DLG-018 | | | | | | | |
+
+### Overlays and lightboxes (web-drawn)
+
+| ID | What | Tauri source | How to reach/drive it | Animation | Shots | Tauri behaviour | Rust behaviour | Difference | Perf | Linux | macOS |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| DLG-039 | Pasted text viewer: "Pasted text" (lg), raw text in mono pre, X close; opened from the composer pill "Pasted text · N lines" | web/src/features/agent/composer/plate/attachments/text-attachment-pill.tsx:34 | paste over 400 chars or 6 lines into the composer; click the pill. Seed: clipboard holding long text | as DLG-023 | | | | | | | |
+| DLG-040 | Image lightbox: borderless popup sized to the image over the dimmed backdrop, X close; Esc/backdrop close | web/src/features/agent/composer/plate/attachments/chat-image-lightbox.tsx:27 | click an image in a transcript message. Seed: transcript message with an image | backdrop 200ms fade | | | | | | | |
+| DLG-041 | Error boundary card: "Something went wrong", error message in mono 11px, "Try again" (outline sm) re-renders | web/src/components/error-boundary.tsx:44 | Seed: forced render error in a guarded surface (sidebar, files panel, workspace content) | — | | | | | | | |
+| DLG-042 | Editor chunk failure: centred "Editor failed to load. Try closing and reopening this file." | web/src/features/panes/components/editor-pane.tsx:88 | Seed: editor chunk load failure | — | | | | | | | |
+| DLG-043 | Transcript message failure: "This message could not be displayed. The rest of the chat is not affected.", Show as plain text, Try again | web/src/features/agent/transcript/rows/message-boundary.tsx:7 | Seed: message whose markdown render throws | — | | | | | | | |
+| DLG-044 | Rich markdown failure: buffer switches to source view and toasts "Rich markdown editor failed" | web/src/features/editor/markdown/plate/markdown-editor-pane.tsx:295 | Seed: markdown file that crashes the rich editor | — | | | | | | | |
+| DLG-045 | Backend crash-loop panel (bottom-right, z 100): "Crowbar's backend keeps crashing", report pre, "Restart failed: …" line, Copy diagnostics / Open log / Restart backend (loading) | web/src/features/window/components/daemon-crash-panel.tsx:41 | Seed: daemon supervised by the app that crash-loops | — | | | | | | | |
+
+### Native OS dialogs (OS-drawn)
+
+| ID | What | Tauri source | How to reach/drive it | Animation | Shots | Tauri behaviour | Rust behaviour | Difference | Perf | Linux | macOS |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| DLG-046 | Open file…: native file chooser, multi-select, files only; picks open in the active pane; Cancel does nothing | web/src/features/editor/documents/open-document.ts:280 | `rig key <app> ctrl+o`; pick README.md; reopen and Cancel | — (OS-drawn) | | | | | | | |
+| DLG-047 | Icon Upload: native chooser, single file, filter "Images" (png, jpg, jpeg, webp) | web/src/components/layout/icon-popover.tsx:103 | Sidebar project switcher > project icon > Upload; Cancel | — (OS-drawn) | | | | | | | |
+| DLG-048 | Local folder picker: native directory chooser, single; used by the new-space panel and Add repository | web/src/features/hosts/hooks/use-daemon-folder-picker.tsx:26 | Sidebar > More… > Import a repo > browse; Cancel | — (OS-drawn) | | | | | | | |
+| DLG-049 | Upload File: webview file chooser (`<input type=file multiple>`); Cancel resolves empty | web/src/features/files/lib/file-upload.ts:10 | Files > right-click src > Upload File; Cancel | — (OS-drawn) | | | | | | | |
+| DLG-050 | Import settings: webview file chooser filtered to application/json | web/src/features/settings/components/tabs/developer-settings.tsx:201 | Settings > Developer > Import settings; Cancel | — (OS-drawn) | | | | | | | |
+| DLG-051 | About Crowbar panel (macOS only; Linux has no About) | desktop/src-tauri/src/app_menu.rs:19 | macOS: Crowbar > About Crowbar | — (OS-drawn) | | | | | | | |
+
+Skipped:
+- Command palette, quick open, file finder, go-to-anything: none exists on develop (no cmdk/palette surface outside the code-block combobox).
+- Keyboard-shortcuts overlay and update prompt: none exist (shortcuts live in Settings > Keybindings, owned by SET; no updater plugin).
+- `web/src/lib/native-palette.ts`: not a palette UI; it hands CSS colours to the phone's native chrome (`setNativeChrome`, phone only).
+- `web/src/lib/native-chrome.ts:411` nativeConfirm/nativePrompt and the Native* confirm branches in removal-confirm-dialog/detach-holder-modal: phone only (`hasNativeChrome`).
+- `web/src/components/ui/primitive-dialog-service.tsx:43` DismissOnMount: only when the dialog chunk fails to load.
+- `web/src/components/layout/removal-confirm-dialog.tsx:136` "Delete space" variant: remove project flow, owned by PRJ.
+- `web/src/components/projects/import-project-modal.tsx:37` folder Browse: modal only mounted by the OOBE screen, unreachable with a seeded project (and owned by PRJ).
+- `web/src/components/projects/add-repository-modal.tsx`, `web/src/components/layout/repo-import-dialog.tsx`: add-repo / import-branches flows, owned by PRJ / WS.
+- `web/src/features/hosts/components/add-host-dialog.tsx`, `web/src/features/hosts/components/remote-file-picker.tsx`: host flows, owned by HOST.
+- `web/src/features/settings/components/settings-dialog.tsx`: owned by SET.
+- `web/src/features/agent/composer/attach-file-modal.tsx`: chat attach picker, owned by CHAT.
