@@ -128,7 +128,7 @@ mod tests {
     use crate::schema::ButtonSpec;
     use crate::schema::Page;
     use crate::schema::Schema;
-    use crate::test_support::cases::{Case, run_cases};
+    use crate::test_support::{Case, run_cases};
     use crate::values::Snapshot;
     use chord::Primary;
 

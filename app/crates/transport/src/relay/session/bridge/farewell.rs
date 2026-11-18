@@ -136,7 +136,7 @@ pub(crate) async fn finish<C, U>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::relay::session::bridge::test_support::stuck_sink::StuckSink;
+    use crate::relay::session::bridge::test_support::StuckSink;
 
     const WRITE: Duration = Duration::from_secs(10);
     const GRACE: Duration = Duration::from_secs(2);

@@ -216,7 +216,7 @@ mod tests {
     use tokio_tungstenite::tungstenite::http::HeaderValue;
 
     use super::*;
-    use crate::test_support::memory_dial::{memory_dial, refusing_dial};
+    use crate::test_support::{memory_dial, refusing_dial};
 
     const CREATED: u16 = 201;
 

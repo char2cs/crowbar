@@ -106,7 +106,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::hosts::test_support::memory_storage::MemoryStorage;
+    use crate::hosts::test_support::MemoryStorage;
 
     fn one_host() -> BTreeMap<HostId, Endpoint> {
         let mut hosts = BTreeMap::new();

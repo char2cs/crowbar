@@ -160,7 +160,7 @@ mod tests {
     use std::time::{Duration, UNIX_EPOCH};
 
     use super::*;
-    use crate::test_support::in_memory_files::InMemoryFiles;
+    use crate::test_support::InMemoryFiles;
 
     fn read_entry(
         files: &InMemoryFiles,

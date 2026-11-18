@@ -47,7 +47,7 @@ impl State {
 #[cfg(test)]
 mod tests {
     use crate::schema::PageId;
-    use crate::state::test_support::state_fixtures::{custom_row, gitignore_row, state};
+    use crate::state::test_support::{custom_row, gitignore_row, state};
     use crate::values::Key;
     use crate::values::Value;
 

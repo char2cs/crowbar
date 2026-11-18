@@ -106,7 +106,7 @@ impl State {
 mod tests {
     use crate::schema::Issue;
     use crate::schema::Nudge;
-    use crate::state::test_support::state_fixtures::{gitignore_row, size_row, state, write};
+    use crate::state::test_support::{gitignore_row, size_row, state, write};
 
     #[test]
     fn numbers_commit_once_clamped_and_never_while_typing() {

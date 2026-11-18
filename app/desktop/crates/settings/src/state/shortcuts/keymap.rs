@@ -105,7 +105,7 @@ impl<'a> Keymap<'a> {
 mod tests {
     use super::*;
     use crate::schema::Page;
-    use crate::test_support::cases::{Case, run_cases};
+    use crate::test_support::{Case, run_cases};
     use crate::values::Value;
     use crate::values::Values;
 

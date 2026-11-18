@@ -90,7 +90,7 @@ mod tests {
     use super::*;
     use crate::schema::Page;
     use crate::schema::PageId;
-    use crate::state::test_support::state_fixtures::{schema, size_row, state};
+    use crate::state::test_support::{schema, size_row, state};
     use crate::values::Snapshot;
     use chord::Primary;
 

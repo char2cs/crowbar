@@ -194,7 +194,7 @@ mod tests {
 
     use super::*;
     use crate::relay::session::bridge::close_message::close_message;
-    use crate::relay::session::bridge::test_support::stuck_sink::StuckSink;
+    use crate::relay::session::bridge::test_support::StuckSink;
 
     const WRITE: Duration = Duration::from_secs(10);
 

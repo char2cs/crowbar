@@ -43,7 +43,7 @@ impl CrashReport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::in_memory_files::InMemoryFiles;
+    use crate::test_support::InMemoryFiles;
 
     fn report() -> CrashReport {
         CrashReport {

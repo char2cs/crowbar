@@ -142,7 +142,7 @@ impl HostRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hosts::test_support::memory_storage::MemoryStorage;
+    use crate::hosts::test_support::MemoryStorage;
 
     fn id(text: &str) -> HostId {
         HostId::new(text).unwrap()

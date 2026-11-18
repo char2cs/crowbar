@@ -67,7 +67,7 @@ mod tests {
     use crate::schema::Page;
     use crate::schema::PageId;
     use crate::state::navigation::rail_move::RailMove;
-    use crate::state::test_support::state_fixtures::{engine_row, state};
+    use crate::state::test_support::{engine_row, state};
 
     #[test]
     fn rail_selection_and_keyboard_movement() {

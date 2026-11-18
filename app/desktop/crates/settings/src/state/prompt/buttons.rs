@@ -71,7 +71,7 @@ mod tests {
     use crate::schema::ButtonSpec;
     use crate::state::effect::Effect;
     use crate::state::prompt::Prompt;
-    use crate::state::test_support::state_fixtures::{clear_button, state, state_with};
+    use crate::state::test_support::{clear_button, state, state_with};
     use crate::values::Values;
 
     #[test]

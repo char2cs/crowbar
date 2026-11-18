@@ -206,8 +206,8 @@ Format: `old path (relative to the old crate) → new path (relative to app/)`. 
 - `src/socket_trust.rs` → `crates/transport/src/transport/local/socket_trust.rs`
 - `src/stream_access.rs` → `crates/transport/src/transport/port/stream_access.rs` · trait defined where consumed (ShellTransport); relay implements it
 - `src/test_support.rs` → `crates/transport/src/hosts/test_support.rs` · crate-wide test_support splits: hosts/test_support.rs and relay/session/bridge/test_support.rs (new)
-- `src/test_support/memory_hosts_storage.rs` → `crates/transport/src/hosts/test_support/memory_storage.rs` · MemoryHostsStorage -> MemoryStorage · only hosts/ tests use it
-- `src/test_support/stuck_sink.rs` → `crates/transport/src/relay/session/bridge/test_support/stuck_sink.rs` · only bridge and farewell tests use it
+- `src/test_support/memory_hosts_storage.rs` → `crates/transport/src/hosts/test_support.rs` · MemoryHostsStorage -> MemoryStorage · only hosts/ tests use it
+- `src/test_support/stuck_sink.rs` → `crates/transport/src/relay/session/bridge/test_support.rs` · only bridge and farewell tests use it
 - `src/text_loopback.rs` → `crates/transport/src/transport/websocket/text_loopback.rs` · feature loopback
 - `src/text_stream.rs` → `crates/transport/src/transport/websocket/text_stream.rs`
 - `src/tls_config.rs` → `crates/transport/src/transport/remote/tls/config.rs` · stutter fix (fns only)
@@ -437,8 +437,8 @@ Format: `old path (relative to the old crate) → new path (relative to app/)`. 
 - `src/shell_diagnostics.rs` → `desktop/crates/diagnostics/src/diagnostics.rs` · entry fn start
 - `src/sink_writer.rs` → `desktop/crates/diagnostics/src/logging/sink_writer.rs`
 - `src/test_support.rs` → `desktop/crates/diagnostics/src/test_support.rs`
-- `src/test_support/in_memory_files.rs` → `desktop/crates/diagnostics/src/test_support/in_memory_files.rs` · used by bundle and logging tests
-- `src/test_support/in_memory_log_store.rs` → `desktop/crates/diagnostics/src/logging/test_support/in_memory_log_store.rs` · only logging tests use it
+- `src/test_support/in_memory_files.rs` → `desktop/crates/diagnostics/src/test_support.rs` · used by bundle and logging tests
+- `src/test_support/in_memory_log_store.rs` → `desktop/crates/diagnostics/src/logging/test_support.rs` · only logging tests use it
 
 ## `app/desktop/crates/ui` → ui (225 files, 0 deleted)
 
@@ -691,7 +691,7 @@ Format: `old path (relative to the old crate) → new path (relative to app/)`. 
 - `src/rect.rs` → `desktop/crates/windowstate/src/rect.rs`
 - `src/state_file.rs` → `desktop/crates/windowstate/src/window_store/state_file.rs` · port of WindowStore
 - `src/test_support.rs` → `desktop/crates/windowstate/src/window_store/test_support.rs` · only window_store tests use it
-- `src/test_support/memory_file.rs` → `desktop/crates/windowstate/src/window_store/test_support/memory_file.rs`
+- `src/test_support/memory_file.rs` → `desktop/crates/windowstate/src/window_store/test_support.rs`
 - `src/window_state.rs` → `desktop/crates/windowstate/src/window_state.rs` · entry WindowState
 - `src/window_store.rs` → `desktop/crates/windowstate/src/window_store.rs`
 
@@ -1702,7 +1702,7 @@ Format: `old path (relative to the old crate) → new path (relative to app/)`. 
 - `src/row_look.rs` → `desktop/crates/folderpicker/src/look.rs` · holds the whole dialog's sizes and strings, not a row's
 - `src/shown.rs` → `desktop/crates/folderpicker/src/tree/shown.rs`
 - `src/test_support.rs` → `desktop/crates/folderpicker/src/test_support.rs`
-- `src/test_support/fake_source.rs` → `desktop/crates/folderpicker/src/test_support/fake_source.rs`
+- `src/test_support/fake_source.rs` → `desktop/crates/folderpicker/src/test_support.rs`
 - `src/tree_row.rs` → `desktop/crates/folderpicker/src/tree/row_element.rs` · stutter; draws one row
 
 ## `app/desktop/crates/command_palette` → deleted (11 files, 11 deleted)

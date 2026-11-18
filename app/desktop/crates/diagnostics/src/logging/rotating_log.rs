@@ -81,7 +81,7 @@ mod tests {
     use std::io::Write;
 
     use super::*;
-    use crate::logging::test_support::in_memory_log_store::InMemoryLogStore;
+    use crate::logging::test_support::InMemoryLogStore;
 
     fn log_in(
         store: &Arc<InMemoryLogStore>,

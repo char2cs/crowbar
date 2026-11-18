@@ -60,7 +60,7 @@ mod tests {
     use crate::schema::control::control_width::ControlWidth;
     use crate::schema::control::number_range::NumberRange;
     use crate::schema::control::validator::Validator;
-    use crate::test_support::cases::{Case, run_cases};
+    use crate::test_support::{Case, run_cases};
 
     fn number() -> Control {
         Control::number(

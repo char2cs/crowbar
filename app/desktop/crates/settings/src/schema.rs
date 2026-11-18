@@ -173,7 +173,7 @@ mod tests {
     use super::*;
     use crate::schema::block::Section;
     use crate::schema::control::Control;
-    use crate::test_support::cases::{Case, run_cases};
+    use crate::test_support::{Case, run_cases};
     use crate::values::Value;
 
     fn page(

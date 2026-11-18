@@ -60,7 +60,7 @@ mod tests {
     use crate::schema::ChoiceSource;
     use crate::schema::Control;
     use crate::schema::Row;
-    use crate::test_support::cases::{Case, run_cases};
+    use crate::test_support::{Case, run_cases};
     use crate::values::Choice;
     use crate::values::Value;
 

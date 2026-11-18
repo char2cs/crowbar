@@ -39,7 +39,7 @@ mod tests {
     use super::*;
     use crate::logging::log_store::LogStore;
     use crate::logging::rotating_log::RotatingLog;
-    use crate::logging::test_support::in_memory_log_store::InMemoryLogStore;
+    use crate::logging::test_support::InMemoryLogStore;
 
     #[test]
     fn events_reach_the_file() {

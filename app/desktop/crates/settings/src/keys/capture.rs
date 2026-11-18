@@ -87,7 +87,7 @@ fn spell(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::cases::{Case, run_cases};
+    use crate::test_support::{Case, run_cases};
 
     fn outcome(
         key: &str,

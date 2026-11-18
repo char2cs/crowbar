@@ -63,9 +63,7 @@ impl State {
 #[cfg(test)]
 mod tests {
     use crate::schema::Issue;
-    use crate::state::test_support::state_fixtures::{
-        custom_row, gitignore_row, state, state_with, write,
-    };
+    use crate::state::test_support::{custom_row, gitignore_row, state, state_with, write};
     use crate::values::Value;
     use crate::values::Values;
 

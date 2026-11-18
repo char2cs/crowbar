@@ -26,7 +26,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::logging::test_support::in_memory_log_store::InMemoryLogStore;
+    use crate::logging::test_support::InMemoryLogStore;
 
     #[test]
     fn clones_write_into_the_same_file() {

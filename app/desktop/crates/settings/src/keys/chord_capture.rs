@@ -66,7 +66,7 @@ impl ChordCapture {
 mod tests {
     use super::*;
     use crate::keys::modifier_key::ModifierKey;
-    use crate::test_support::cases::{Case, run_cases};
+    use crate::test_support::{Case, run_cases};
 
     fn press(
         key: &str,
