@@ -1176,14 +1176,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "command_palette"
-version = "0.1.0"
-dependencies = [
- "gpui",
- "ui",
-]
-
-[[package]]
 name = "compression-codecs"
 version = "0.4.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1505,7 +1497,6 @@ dependencies = [
  "browser_agent",
  "browser_chrome",
  "browser_nav",
- "command_palette",
  "daemon_supervisor",
  "gpui",
  "image",

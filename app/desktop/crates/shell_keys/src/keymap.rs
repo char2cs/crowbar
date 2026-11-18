@@ -59,18 +59,6 @@ impl Keymap {
         self.bound.get(&stroke.chord()?).copied()
     }
 
-    /// The chord of `command`, for menus and the palette.
-    #[must_use]
-    pub fn chord_of(
-        &self,
-        command: ShellCommand,
-    ) -> Option<&str> {
-        self.bound
-            .iter()
-            .find(|(_, bound)| **bound == command)
-            .map(|(chord, _)| chord.as_str())
-    }
-
     /// The bindings a pane forwards to the shell as `command.run`.
     #[must_use]
     pub fn forwarded(&self) -> Vec<KeyBinding> {
@@ -107,6 +95,16 @@ mod tests {
     use super::*;
     use crate::modifier::Modifier;
 
+    fn forwards(
+        keymap: &Keymap,
+        id: &str,
+    ) -> bool {
+        keymap
+            .forwarded()
+            .iter()
+            .any(|binding| binding.command().as_str() == id)
+    }
+
     fn stroke(chord: &str) -> Keystroke {
         let mut parts: Vec<&str> = chord.split('+').collect();
         let key = parts.pop().unwrap_or_default().to_owned();
@@ -132,7 +130,8 @@ mod tests {
             ("mod+t", Some(ShellCommand::NewTab)),
             ("mod+shift+t", Some(ShellCommand::ReopenClosedTab)),
             ("mod+w", Some(ShellCommand::CloseTab)),
-            ("mod+shift+p", Some(ShellCommand::CommandPalette)),
+            ("mod+shift+p", None),
+            ("mod+,", None),
             ("mod+s", None),
             ("t", None),
         ];
@@ -149,13 +148,13 @@ mod tests {
             keymap.resolve(&stroke("mod+shift+k")),
             Some(ShellCommand::NewTab)
         );
-        assert_eq!(keymap.chord_of(ShellCommand::NewTab), Some("mod+shift+k"));
     }
 
     #[test]
     fn an_empty_override_unbinds_and_bad_ones_are_ignored() {
         let keymap = Keymap::with_overrides([("tabs.new", ""), ("editor.save", "mod+s")]);
-        assert_eq!(keymap.chord_of(ShellCommand::NewTab), None);
+        assert_eq!(keymap.resolve(&stroke("mod+t")), None);
+        assert!(!forwards(&keymap, "tabs.new"), "tabs.new stays bound");
         assert_eq!(keymap.resolve(&stroke("mod+s")), None);
     }
 
@@ -166,7 +165,7 @@ mod tests {
             keymap.resolve(&stroke("mod+t")),
             Some(ShellCommand::NewChat)
         );
-        assert_eq!(keymap.chord_of(ShellCommand::NewTab), None);
+        assert!(!forwards(&keymap, "tabs.new"), "tabs.new kept a chord");
     }
 
     #[test]

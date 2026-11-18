@@ -39,10 +39,6 @@ pub enum ShellCommand {
     SidebarFiles,
     /// Switch the sidebar to git changes.
     SidebarGit,
-    /// Open the command palette.
-    CommandPalette,
-    /// Open the settings.
-    OpenSettings,
     /// Show the log file in the system's default viewer.
     OpenLog,
     /// Zip the logs and the daemon's live dumps and show the file.

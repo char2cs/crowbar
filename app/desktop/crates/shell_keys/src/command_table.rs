@@ -4,144 +4,76 @@ use crate::shell_command::ShellCommand;
 const fn entry(
     command: ShellCommand,
     id: &'static str,
-    label: &'static str,
     chord: &'static str,
 ) -> CommandEntry {
-    CommandEntry {
-        command,
-        id,
-        label,
-        chord,
-    }
+    CommandEntry { command, id, chord }
 }
 
-const NEW_TAB: CommandEntry = entry(ShellCommand::NewTab, "tabs.new", "New tab", "mod+t");
+const NEW_TAB: CommandEntry = entry(ShellCommand::NewTab, "tabs.new", "mod+t");
 
 // SPEC: app/panes/src/features/keymaps/registry.ts is the table these ids and chords follow.
 const TABLE: &[CommandEntry] = &[
     NEW_TAB,
-    entry(ShellCommand::NewChat, "agent.newChat", "New chat", "mod+n"),
+    entry(ShellCommand::NewChat, "agent.newChat", "mod+n"),
     entry(
         ShellCommand::NewChatTerminal,
         "agent.newChatTerminal",
-        "New chat (Terminal)",
         "mod+alt+n",
     ),
-    entry(
-        ShellCommand::CloseTab,
-        "tabs.closeActive",
-        "Close active tab",
-        "mod+w",
-    ),
+    entry(ShellCommand::CloseTab, "tabs.closeActive", "mod+w"),
     entry(
         ShellCommand::ReopenClosedTab,
         "tabs.reopenClosed",
-        "Reopen last closed tab",
         "mod+shift+t",
     ),
-    entry(
-        ShellCommand::NewTerminal,
-        "tabs.newTerminal",
-        "New terminal tab",
-        "mod+j",
-    ),
-    entry(
-        ShellCommand::NewBrowser,
-        "tabs.newBrowser",
-        "New browser tab",
-        "",
-    ),
-    entry(
-        ShellCommand::NewFile,
-        "tabs.newFile",
-        "New file",
-        "mod+shift+n",
-    ),
-    entry(
-        ShellCommand::OpenFile,
-        "tabs.openFile",
-        "Open file",
-        "mod+o",
-    ),
-    entry(
-        ShellCommand::OpenReview,
-        "git.openReview",
-        "Review branch",
-        "",
-    ),
+    entry(ShellCommand::NewTerminal, "tabs.newTerminal", "mod+j"),
+    entry(ShellCommand::NewBrowser, "tabs.newBrowser", ""),
+    entry(ShellCommand::NewFile, "tabs.newFile", "mod+shift+n"),
+    entry(ShellCommand::OpenFile, "tabs.openFile", "mod+o"),
+    entry(ShellCommand::OpenReview, "git.openReview", ""),
     entry(
         ShellCommand::ToggleConsole,
         "navigation.toggleConsole",
-        "Toggle console",
         "mod+`",
     ),
     entry(
         ShellCommand::FocusPaneLeft,
         "panes.navigateLeft",
-        "Focus pane left",
         "mod+alt+arrowleft",
     ),
     entry(
         ShellCommand::FocusPaneRight,
         "panes.navigateRight",
-        "Focus pane right",
         "mod+alt+arrowright",
     ),
     entry(
         ShellCommand::FocusPaneUp,
         "panes.navigateUp",
-        "Focus pane up",
         "mod+alt+arrowup",
     ),
     entry(
         ShellCommand::FocusPaneDown,
         "panes.navigateDown",
-        "Focus pane down",
         "mod+alt+arrowdown",
     ),
     entry(
         ShellCommand::ToggleSidebar,
         "navigation.toggleSidebar",
-        "Toggle sidebar",
         "mod+b",
     ),
     entry(
         ShellCommand::SidebarChats,
         "navigation.sidebarChats",
-        "Sidebar: Chats",
         "mod+1",
     ),
     entry(
         ShellCommand::SidebarFiles,
         "navigation.sidebarFiles",
-        "Sidebar: Files",
         "mod+2",
     ),
-    entry(
-        ShellCommand::SidebarGit,
-        "navigation.sidebarGit",
-        "Sidebar: Git",
-        "mod+3",
-    ),
-    entry(
-        ShellCommand::CommandPalette,
-        "navigation.commandPalette",
-        "Command palette",
-        "mod+shift+p",
-    ),
-    entry(
-        ShellCommand::OpenSettings,
-        "app.openSettings",
-        "Open settings",
-        "mod+,",
-    ),
-    entry(ShellCommand::OpenLog, "app.openLog", "Open log file", ""),
-    entry(
-        ShellCommand::ExportDiagnostics,
-        "app.exportDiagnostics",
-        "Export diagnostics",
-        "",
-    ),
+    entry(ShellCommand::SidebarGit, "navigation.sidebarGit", "mod+3"),
+    entry(ShellCommand::OpenLog, "app.openLog", ""),
+    entry(ShellCommand::ExportDiagnostics, "app.exportDiagnostics", ""),
 ];
 
 impl ShellCommand {
@@ -163,12 +95,6 @@ impl ShellCommand {
     #[must_use]
     pub fn id(self) -> &'static str {
         self.entry().id
-    }
-
-    /// The name shown in menus and the palette.
-    #[must_use]
-    pub fn label(self) -> &'static str {
-        self.entry().label
     }
 
     /// The chord the command has until the user rebinds it.

@@ -34,7 +34,6 @@ branch_import_view = { path = "desktop/crates/branch_import_view" }
 pairing_view = { path = "desktop/crates/pairing_view" }
 oobe_view = { path = "desktop/crates/oobe_view" }
 remote_folder_picker = { path = "desktop/crates/remote_folder_picker" }
-command_palette = { path = "desktop/crates/command_palette" }
 window_state = { path = "desktop/crates/window_state" }
 shell_platform = { path = "desktop/crates/shell_platform" }
 shell_diagnostics = { path = "desktop/crates/shell_diagnostics" }

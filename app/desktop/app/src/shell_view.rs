@@ -3,7 +3,6 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use command_palette::PalettePanel;
 use gpui::{
     Context, Div, Entity, FocusHandle, InteractiveElement, IntoElement, ParentElement, Render,
     Styled, Subscription, Window, div,
@@ -74,7 +73,6 @@ pub(crate) struct ShellView {
     layout: Entity<LayoutView>,
     startup: Option<Entity<StartupView>>,
     settings: Option<Entity<SettingsModal>>,
-    palette: Option<Entity<PalettePanel>>,
     branch_import: Option<Entity<branch_import_view::BranchImportView>>,
     remote_folders: Option<Entity<remote_folder_picker::RemoteFolderPicker>>,
     file_prompt: Option<Entity<crate::file_prompt::FilePrompt>>,
@@ -134,7 +132,6 @@ impl ShellView {
             source: built.source,
             startup: Some(built.startup),
             settings: None,
-            palette: None,
             branch_import: None,
             remote_folders: None,
             file_prompt: None,
@@ -184,7 +181,6 @@ impl ShellView {
     fn overlay(&self) -> Overlay {
         let covered = self.startup.is_some()
             || self.settings.is_some()
-            || self.palette.is_some()
             || self.branch_import.is_some()
             || self.remote_folders.is_some()
             || self.file_prompt.is_some()
@@ -293,7 +289,6 @@ impl Render for ShellView {
             .children(self.state.frozen_elements())
             .children(self.layout.read(cx).drop_preview(cx))
             .children(layer(self.settings.as_ref()))
-            .children(layer(self.palette.as_ref()))
             .children(layer(self.branch_import.as_ref()))
             .children(layer(self.remote_folders.as_ref()))
             .children(self.prompt_layer())

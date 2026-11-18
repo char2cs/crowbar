@@ -23,7 +23,6 @@ branch_import_view.workspace = true
 oobe_view.workspace = true
 pairing_view.workspace = true
 remote_folder_picker.workspace = true
-command_palette.workspace = true
 daemon_supervisor.workspace = true
 gpui.workspace = true
 image = { workspace = true, features = ["png"] }

@@ -6,7 +6,6 @@ use sidebar::{ActiveSpace as _, CommandSink as _, Mode, PaneFocus as _, Sidebar,
 use super::ShellView;
 
 mod dialogs;
-mod palette;
 use crate::direction::Direction;
 use crate::focus_neighbour::focus_neighbour;
 use crate::project_slot::project_at;
@@ -42,8 +41,6 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) {
         match command {
-            ShellCommand::OpenSettings => self.show_settings(window, cx),
-            ShellCommand::CommandPalette => self.show_palette(window, cx),
             ShellCommand::ToggleSidebar => self.sidebar.update(cx, Sidebar::toggle),
             ShellCommand::SidebarChats => self.set_sidebar_mode(Mode::Chats, cx),
             ShellCommand::SidebarFiles => self.set_sidebar_mode(Mode::Files, cx),
