@@ -96,15 +96,6 @@ impl TerminalView {
         cx.notify();
     }
 
-    /// Opens the find bar.
-    pub fn show_search(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        self.open_search(window, cx);
-    }
-
     /// Columns and lines of the grid.
     pub fn grid_size(&self) -> (usize, usize) {
         self.terminal.size()

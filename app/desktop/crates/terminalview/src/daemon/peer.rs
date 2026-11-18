@@ -24,20 +24,13 @@ impl Peer {
         (self.frames, self.messages)
     }
 
-    /// Hands a frame from the daemon to the view; false once the view is gone.
-    pub async fn deliver(
-        &self,
-        frame: DaemonFrame,
-    ) -> bool {
-        self.frames.send(frame).await.is_ok()
-    }
-
     /// The next message the view wants sent to the daemon; `None` once the view is gone.
     pub async fn next_message(&self) -> Option<ClientMessage> {
         self.messages.recv().await.ok()
     }
 
-    /// Like [`Self::deliver`] for a host that reads the socket on its own thread.
+    /// Hands a frame from the daemon to the view, for a host that reads the socket on its own
+    /// thread; false once the view is gone.
     pub fn deliver_blocking(
         &self,
         frame: DaemonFrame,
