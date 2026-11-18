@@ -1,0 +1,54 @@
+//! The agent descriptors a computer loads, and installing another.
+
+use daemonapi::{Call, DaemonClient, decode::typed};
+
+use crate::error::Result;
+use crate::shell_data::settings_core::agents::descriptor_report::DescriptorReport;
+
+pub(crate) const PATH: &str = "/v0/settings/chat/descriptors";
+
+pub(crate) async fn list(client: &DaemonClient) -> Result<Vec<DescriptorReport>> {
+    let data = client.send(Call::get(PATH)).await?;
+    Ok(typed(PATH, data)?)
+}
+
+pub(crate) async fn upload(
+    client: &DaemonClient,
+    text: Vec<u8>,
+) -> Result<DescriptorReport> {
+    let data = client.send(Call::post(PATH).yaml(text)).await?;
+    Ok(typed(PATH, data)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::state;
+
+    #[tokio::test]
+    async fn descriptors_are_listed_and_an_upload_posts_the_yaml_as_the_body() {
+        let (state, daemon) = state();
+        let client = state.hosts[0].client.clone();
+        daemon.ok("GET", PATH, r#"[{"id":"claude"}]"#);
+        daemon.ok("POST", PATH, r#"{"id":"mine","findings":[]}"#);
+        assert_eq!(list(&client).await.unwrap().len(), 1);
+        let report = upload(&client, b"id: mine\n".to_vec()).await.unwrap();
+        assert_eq!(report.id, "mine");
+        let seen = daemon.seen();
+        let posted = seen.iter().find(|call| call.method == "POST").unwrap();
+        assert!(
+            posted
+                .headers
+                .iter()
+                .any(|(name, value)| name == "content-type" && value == "application/yaml")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_null_answer_lists_no_descriptors() {
+        let (state, daemon) = state();
+        let client = state.hosts[0].client.clone();
+        daemon.ok("GET", PATH, "null");
+        assert_eq!(list(&client).await.unwrap().len(), 0);
+    }
+}

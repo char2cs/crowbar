@@ -1,0 +1,175 @@
+//! The notes of every paired host, in one JSON file of the state directory.
+
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+
+use crate::error::{Error, Result};
+use crate::live::file_store::DiskFiles;
+use crate::live::file_store::{FileStore, read_text};
+use crate::live::fleet::host_desk::host_note::HostNote;
+
+/// The paired hosts' notes, loaded once and written through on every change.
+#[derive(Debug)]
+pub struct HostNotes {
+    path: PathBuf,
+    files: Arc<dyn FileStore>,
+    notes: Mutex<BTreeMap<String, HostNote>>,
+}
+
+impl HostNotes {
+    /// The folder the notes file lives in.
+    #[must_use]
+    pub fn directory(&self) -> PathBuf {
+        self.path.parent().map_or_else(PathBuf::new, PathBuf::from)
+    }
+
+    /// The notes stored at `path`; a missing file is no notes.
+    ///
+    /// # Errors
+    /// [`Error::File`] or [`Error::Json`] when the file exists and cannot be read.
+    pub fn open(path: PathBuf) -> Result<Self> {
+        Self::open_on(path, Arc::new(DiskFiles::default()))
+    }
+
+    pub(crate) fn open_on(
+        path: PathBuf,
+        files: Arc<dyn FileStore>,
+    ) -> Result<Self> {
+        let text = read_text(files.as_ref(), &path).map_err(|source| Error::File {
+            path: path.clone(),
+            source,
+        })?;
+        let notes = match text {
+            Some(text) => serde_json::from_str(&text).map_err(|source| Error::Json {
+                path: path.clone(),
+                source,
+            })?,
+            None => BTreeMap::new(),
+        };
+        Ok(Self {
+            path,
+            files,
+            notes: Mutex::new(notes),
+        })
+    }
+
+    fn held(&self) -> MutexGuard<'_, BTreeMap<String, HostNote>> {
+        self.notes.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The note of `host`, when it has one.
+    pub fn get(
+        &self,
+        host: &str,
+    ) -> Option<HostNote> {
+        self.held().get(host).cloned()
+    }
+
+    /// Every host that has a note, with it.
+    pub fn all(&self) -> Vec<(String, HostNote)> {
+        self.held()
+            .iter()
+            .map(|(host, note)| (host.clone(), note.clone()))
+            .collect()
+    }
+
+    /// Keeps `note` for `host`.
+    ///
+    /// # Errors
+    /// [`Error::File`] when the file cannot be written; the note is then not kept.
+    pub fn put(
+        &self,
+        host: &str,
+        note: HostNote,
+    ) -> Result<()> {
+        self.change(|notes| {
+            notes.insert(host.to_owned(), note);
+        })
+    }
+
+    /// Forgets the note of `host`.
+    ///
+    /// # Errors
+    /// [`Error::File`] when the file cannot be written; the note is then still kept.
+    pub fn remove(
+        &self,
+        host: &str,
+    ) -> Result<()> {
+        self.change(|notes| {
+            notes.remove(host);
+        })
+    }
+
+    fn change(
+        &self,
+        edit: impl FnOnce(&mut BTreeMap<String, HostNote>),
+    ) -> Result<()> {
+        let mut held = self.held();
+        let mut next = held.clone();
+        edit(&mut next);
+        self.write(&next)?;
+        *held = next;
+        Ok(())
+    }
+
+    fn write(
+        &self,
+        notes: &BTreeMap<String, HostNote>,
+    ) -> Result<()> {
+        let text = serde_json::to_string_pretty(notes).map_err(|source| Error::Json {
+            path: self.path.clone(),
+            source,
+        })?;
+        self.files
+            .write(&self.path, text.as_bytes())
+            .map_err(|source| Error::File {
+                path: self.path.clone(),
+                source,
+            })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::FakeFiles;
+
+    fn note(name: &str) -> HostNote {
+        HostNote {
+            name: name.into(),
+            client_id: "c".into(),
+            fingerprint: "f".into(),
+        }
+    }
+
+    fn open(files: &Arc<FakeFiles>) -> HostNotes {
+        HostNotes::open_on("/state/paired.json".into(), Arc::<FakeFiles>::clone(files)).unwrap()
+    }
+
+    #[test]
+    fn notes_survive_a_reopen_and_forgetting_one_leaves_the_rest() {
+        let files = Arc::new(FakeFiles::default());
+        let notes = open(&files);
+        assert_eq!(notes.all().len(), 0, "a missing file is no notes");
+        notes.put("a", note("Alpha")).unwrap();
+        notes.put("b", note("Beta")).unwrap();
+        notes.remove("a").unwrap();
+        let again = open(&files);
+        assert_eq!(again.get("a"), None);
+        assert_eq!(again.get("b"), Some(note("Beta")));
+    }
+
+    #[test]
+    fn notes_that_cannot_be_written_or_read_are_errors_not_empty_notes() {
+        let files = Arc::new(FakeFiles::default());
+        let notes = open(&files);
+        files.refuse_writes();
+        assert!(notes.put("a", note("Alpha")).is_err());
+        assert_eq!(notes.get("a"), None);
+        let files = Arc::new(FakeFiles::default());
+        files.put("/state/paired.json", b"{");
+        let opened = HostNotes::open_on("/state/paired.json".into(), files);
+        assert!(matches!(opened, Err(Error::Json { .. })));
+    }
+}

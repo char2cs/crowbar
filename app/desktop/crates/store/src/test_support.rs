@@ -4,7 +4,7 @@
 mod fake_book;
 mod fake_files;
 mod fixture;
-mod followed_commands;
+pub(crate) mod followed_commands;
 mod settings_rig;
 
 pub(crate) use daemonapi::FakeDaemon;

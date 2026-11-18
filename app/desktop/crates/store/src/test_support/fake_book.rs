@@ -1,8 +1,8 @@
 use std::sync::Mutex;
 
-use crate::book_error::BookError;
-use crate::host_book::{BookFuture, HostBook};
-use crate::pairing_request::PairingRequest;
+use crate::live::BookError;
+use crate::live::PairingRequest;
+use crate::live::{BookFuture, HostBook};
 
 /// A [`HostBook`] with a fixed fingerprint and client id that records what it was asked.
 #[derive(Default)]
@@ -79,8 +79,8 @@ impl HostBook for FakeBook {
 }
 
 /// A desk over a fake book and in-memory notes.
-pub(crate) fn desk() -> crate::host_desk::HostDesk {
-    crate::host_desk::HostDesk {
+pub(crate) fn desk() -> crate::live::HostDesk {
+    crate::live::HostDesk {
         book: std::sync::Arc::new(FakeBook::default()),
         notes: std::sync::Arc::new(super::notes()),
     }
@@ -88,12 +88,9 @@ pub(crate) fn desk() -> crate::host_desk::HostDesk {
 
 /// A fleet over `hub` and a desk, for tests that open a settings core.
 pub(crate) fn fleet_and_desk(
-    hub: &std::sync::Arc<crate::hub::Hub>
-) -> (
-    std::sync::Arc<crate::fleet::Fleet>,
-    crate::host_desk::HostDesk,
-) {
+    hub: &std::sync::Arc<crate::live::Hub>
+) -> (std::sync::Arc<crate::live::Fleet>, crate::live::HostDesk) {
     let transport: std::sync::Arc<dyn protocol::DaemonTransport> = super::FakeDaemon::shared();
-    let fleet = crate::fleet::Fleet::new(&tokio::runtime::Handle::current(), hub, &transport);
+    let fleet = crate::live::Fleet::new(&tokio::runtime::Handle::current(), hub, &transport);
     (fleet, desk())
 }

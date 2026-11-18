@@ -3,9 +3,9 @@ use std::sync::Arc;
 use tokio::runtime::Handle;
 
 use super::{FakeDaemon, FakeFiles, state};
-use crate::fleet::Fleet;
-use crate::hub::Hub;
-use crate::outcome::OutcomeSink;
+use crate::live::Fleet;
+use crate::live::Hub;
+use crate::live::OutcomeSink;
 use crate::sidebar_commands::SidebarCommands;
 
 /// Commands over a fake daemon with the chat `hc` followed, saying their outcomes to `outcome`.

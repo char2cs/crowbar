@@ -5,15 +5,15 @@ use tokio::runtime::Handle;
 use tokio::sync::Notify;
 
 use super::{FakeDaemon, FakeFiles, state};
-use crate::change_signal::ChangeSignal;
-use crate::fleet::Fleet;
-use crate::hub::Hub;
-use crate::link_state::LinkState;
-use crate::outcome::{Outcome, OutcomeSink};
-use crate::setting_file::SettingFile;
-use crate::settings_core::SettingsCore;
-use crate::settings_wiring::SettingsWiring;
-use crate::system_fonts::SystemFonts;
+use crate::live::ChangeSignal;
+use crate::live::Fleet;
+use crate::live::Hub;
+use crate::live::LinkState;
+use crate::live::{Outcome, OutcomeSink};
+use crate::shell_data::SettingsCore;
+use crate::shell_data::SystemFonts;
+use crate::shell_data::settings_core::setting_file::SettingFile;
+use crate::shell_data::settings_core::settings_wiring::SettingsWiring;
 
 pub(crate) const SETTINGS_PATH: &str = "/state/settings.json";
 

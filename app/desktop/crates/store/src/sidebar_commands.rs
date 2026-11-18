@@ -1,18 +1,38 @@
 //! The sidebar's write side: every command that has a daemon route.
 
+mod copy_name;
+mod env_template_file;
+mod file_changes;
+mod file_collapse;
+mod file_commands;
+mod file_done;
+mod file_error;
+mod file_listing;
+mod file_session;
+mod file_upload;
+mod new_entry;
+
+pub use env_template_file::{Overwrite, TemplateOutcome};
+pub use file_done::FileDone;
+pub use file_error::FileError;
+pub use new_entry::NewEntry;
+
 use std::sync::Arc;
 
 use sidebar::{Command, CommandSink, Error};
 use tokio::runtime::Handle;
 
-use crate::file_store::FileStore;
-use crate::fleet::Fleet;
-use crate::hub::Hub;
-use crate::outcome::OutcomeSink;
+use crate::live::FileStore;
+use crate::live::Fleet;
+use crate::live::Hub;
+use crate::live::OutcomeSink;
+use crate::live::PlanError;
 use crate::plan::Plan;
-use crate::plan_error::PlanError;
-use crate::sidebar_reads::{active_project, host_of};
-use crate::{panel_loader, plan_agent, plan_create, planner, runner};
+use crate::reads::{active_project, host_of};
+use crate::{
+    live::panel_loader,
+    plan::{agent as plan_agent, create as plan_create, planner, runner},
+};
 use daemonapi::new_id;
 
 /// Plans each command from the current entities and runs it on the runtime; the stream shows the

@@ -1,12 +1,15 @@
 //! Finding the entity a row id names.
 
-use crate::chat_record::ChatRecord;
-use crate::entity_store::EntityStore;
-use crate::plan_error::PlanError;
-use crate::state::State;
-use crate::target_kind::TargetKind;
-use crate::workspace_record::WorkspaceRecord;
-use crate::{scope_items, workspace_view};
+mod target_kind;
+
+pub(crate) use target_kind::TargetKind;
+
+use crate::live::ChatRecord;
+use crate::live::EntityStore;
+use crate::live::PlanError;
+use crate::live::State;
+use crate::live::WorkspaceRecord;
+use crate::rows::{scope_items, workspace_view};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Target {

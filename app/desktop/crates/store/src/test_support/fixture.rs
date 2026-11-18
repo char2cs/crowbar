@@ -3,10 +3,10 @@ use std::sync::Arc;
 
 use protocol::HostId;
 
-use crate::entity_store::EntityStore;
-use crate::host_slot::HostSlot;
-use crate::host_spec::HostSpec;
-use crate::state::State;
+use crate::live::EntityStore;
+use crate::live::HostSlot;
+use crate::live::HostSpec;
+use crate::live::State;
 
 use super::FakeDaemon;
 
@@ -100,7 +100,7 @@ pub(crate) fn store_of(rows: &[(&str, &str, &str)]) -> EntityStore {
 
 /// A state of one local host that has heard [`frames`], and the daemon its client talks to.
 /// A change signal nobody listens to.
-pub(crate) fn quiet() -> crate::change_signal::ChangeSignal {
+pub(crate) fn quiet() -> crate::live::ChangeSignal {
     Arc::new(|| ())
 }
 

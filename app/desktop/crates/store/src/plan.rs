@@ -1,10 +1,22 @@
 //! What one sidebar command asks of the daemon.
 
+mod after;
+pub(crate) mod agent;
+pub(crate) mod create;
+mod edit;
+mod icon;
+mod merge;
+pub(crate) mod planner;
+mod relocate;
+pub(crate) mod runner;
+
+pub(crate) use agent::running;
+
 use daemonapi::Call;
 
-use crate::after::After;
-use crate::pending_row::PendingRow;
-use crate::surface::Surface;
+use crate::live::PendingRow;
+use crate::live::Surface;
+use crate::plan::after::After;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Plan {
@@ -80,7 +92,7 @@ mod tests {
     use super::*;
     use daemonapi::Call;
 
-    use crate::pending_row::PendingRow;
+    use crate::live::PendingRow;
 
     #[test]
     fn builders_add_the_row_the_follow_up_and_the_provider_need() {

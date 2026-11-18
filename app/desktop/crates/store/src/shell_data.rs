@@ -1,5 +1,20 @@
 //! The shell's daemon data: one stream per host feeding the sidebar, and the commands back.
 
+mod branch_import;
+mod dialogs;
+mod folder_browse;
+mod pairing_session;
+pub(crate) mod settings_core;
+mod shell_wiring;
+mod system_check;
+
+pub use branch_import::{Availability, BranchImport, BranchListing, ImportBranch, ImportPlan};
+pub use folder_browse::{BrowseEntry, FolderBrowse, FolderChoice, FolderListing, ROOT_PATH};
+pub use pairing_session::{PairingPending, PairingSession, PairingStage, PairingState};
+pub use settings_core::{LegacyImport, SettingsAdapter, SettingsCore, SystemFonts};
+pub use shell_wiring::ShellWiring;
+pub use system_check::{SystemCheck, Tool, ToolReport};
+
 use std::sync::Arc;
 
 use daemonapi::DaemonClient;
@@ -7,20 +22,19 @@ use protocol::DaemonTransport;
 use sidebar::Command;
 use tokio::runtime::Handle;
 
-use crate::adapters::DiskFiles;
-use crate::chat_terminal::ChatTerminal;
-use crate::fleet::Fleet;
-use crate::host_desk::HostDesk;
-use crate::host_dialling::{Dialled, relay_for, slot_for};
-use crate::host_spec::HostSpec;
-use crate::hub::Hub;
-use crate::icon_cache::IconCache;
-use crate::panel_loader;
-use crate::settings_slot::SettingsSlot;
-use crate::shell_wiring::ShellWiring;
+use crate::live::ChatTerminal;
+use crate::live::DiskFiles;
+use crate::live::Fleet;
+use crate::live::HostDesk;
+use crate::live::HostSpec;
+use crate::live::Hub;
+use crate::live::IconCache;
+use crate::live::SettingsSlot;
+use crate::live::State;
+use crate::live::panel_loader;
+use crate::live::{Dialled, relay_for, slot_for};
 use crate::sidebar_commands::SidebarCommands;
 use crate::sidebar_view::SidebarView;
-use crate::state::State;
 
 /// Owns the stream tasks; dropping it stops them.
 pub struct ShellData {
@@ -118,7 +132,8 @@ impl ShellData {
         &self,
         chat: &str,
     ) -> Option<String> {
-        self.hub.read(|state| crate::chat_project::of(state, chat))
+        self.hub
+            .read(|state| crate::live::chat_project::of(state, chat))
     }
 
     /// The sidebar's read side.
@@ -129,14 +144,13 @@ impl ShellData {
     /// The on-disk root of the workspace the Files panel follows; `None` when none is followed
     /// or its host is another computer.
     pub fn workspace_root(&self) -> Option<std::path::PathBuf> {
-        self.hub.read(crate::workspace_root::of)
+        self.hub.read(crate::live::workspace_root::of)
     }
 
     /// The project the sidebar considers current: the selected one, else the first listed.
     pub fn active_project(&self) -> Option<String> {
-        self.hub.read(|state| {
-            crate::sidebar_reads::active_project(state).map(|id| id.as_str().to_owned())
-        })
+        self.hub
+            .read(|state| crate::reads::active_project(state).map(|id| id.as_str().to_owned()))
     }
 
     /// The sidebar's write side.
@@ -210,7 +224,7 @@ mod tests {
     use super::*;
     use daemonapi::{Connection, Opening};
 
-    use crate::outcome::Outcome;
+    use crate::live::Outcome;
     use crate::test_support::{FakeDaemon, frames};
 
     fn refused_when_used(taken: Option<Connection>) -> daemonapi::Result<Connection> {

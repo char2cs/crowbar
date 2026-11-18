@@ -3,7 +3,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use crate::file_store::FileStore;
+use crate::live::FileStore;
 
 /// A [`FileStore`] kept in memory; directories exist where a file lives below them.
 #[derive(Debug, Default)]
@@ -19,12 +19,9 @@ fn held<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 /// Notes of paired hosts kept in memory.
-pub(crate) fn notes() -> crate::host_notes::HostNotes {
-    crate::host_notes::HostNotes::open_on(
-        "/state/notes.json".into(),
-        Arc::new(FakeFiles::default()),
-    )
-    .unwrap()
+pub(crate) fn notes() -> crate::live::HostNotes {
+    crate::live::HostNotes::open_on("/state/notes.json".into(), Arc::new(FakeFiles::default()))
+        .unwrap()
 }
 
 impl FakeFiles {

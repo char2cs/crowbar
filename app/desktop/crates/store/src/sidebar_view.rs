@@ -1,5 +1,9 @@
 //! The sidebar's read side over the shared state.
 
+mod file_tree;
+mod hosts;
+mod panels;
+
 use std::sync::Arc;
 
 use sidebar::{
@@ -7,9 +11,13 @@ use sidebar::{
     RowId, ScopeSync, SpaceList,
 };
 
-use crate::hub::Hub;
-use crate::settings_slot::SettingsSlot;
-use crate::{files_reads, host_reads, sidebar_reads as reads, space_icons};
+use crate::live::Hub;
+use crate::live::SettingsSlot;
+use crate::{
+    reads,
+    reads::{files as files_reads, space_icons},
+    sidebar_view::hosts as host_reads,
+};
 
 /// What `sidebar::SidebarData` reads, answered from the entities the streams delivered.
 #[derive(Debug, Clone)]
@@ -67,7 +75,7 @@ impl PaneFocus for SidebarView {
     }
 
     fn running_agents(&self) -> Vec<sidebar::RunningAgent> {
-        self.hub.read(crate::plan_agent::running)
+        self.hub.read(crate::plan::running)
     }
 
     fn can_start_terminal_thread(&self) -> bool {
