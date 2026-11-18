@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use startup_view::{MigrationStep, Outage, StartupInput, StartupTiming};
+use startup::{MigrationStep, Outage, StartupInput, StartupTiming};
 
 pub(crate) const STEPS: u32 = 5;
 pub(crate) const DEMO_PHASE: &str = "demo";

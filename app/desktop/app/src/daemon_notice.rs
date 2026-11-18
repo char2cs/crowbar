@@ -1,4 +1,4 @@
-use startup_view::{Outage, StartupInput};
+use startup::{Outage, StartupInput};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum DaemonNotice {

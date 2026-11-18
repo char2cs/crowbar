@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use protocol::{DaemonTransport, HostId};
-use startup_view::StartupInput;
+use startup::StartupInput;
 use supervisor::Supervisor;
 use tokio::runtime::Runtime;
 use tokio::sync::watch;

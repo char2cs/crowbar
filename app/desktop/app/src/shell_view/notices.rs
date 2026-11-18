@@ -1,6 +1,6 @@
 use gpui::{Context, Window};
 use sidebar::Visibility;
-use startup_view::StartupInput;
+use startup::StartupInput;
 use ui::{ToastContent, ToastKind, ToastLifetime};
 
 use super::ShellView;

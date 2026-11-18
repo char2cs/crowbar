@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use startup_view::StartupInput;
+use startup::StartupInput;
 
 use super::DaemonLink;
 use super::launch::try_launch;

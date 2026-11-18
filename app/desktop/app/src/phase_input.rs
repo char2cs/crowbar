@@ -1,4 +1,4 @@
-use startup_view::{MigrationStep, Outage, StartupInput};
+use startup::{MigrationStep, Outage, StartupInput};
 use supervisor::DaemonEvent;
 
 pub(crate) fn phase_input(event: &DaemonEvent) -> StartupInput {

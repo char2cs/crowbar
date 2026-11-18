@@ -1,5 +1,5 @@
 [package]
-name = "startup_view"
+name = "startup"
 description = "The full-screen native startup and data-migration view of the Crowbar shell."
 version.workspace = true
 edition.workspace = true

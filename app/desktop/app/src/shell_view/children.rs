@@ -7,7 +7,7 @@ use layoutview::LayoutView;
 use ptysession::TerminalSessions;
 use shell_data::{ShellData, ShellWiring};
 use sidebar::{Preferences, Sidebar, SidebarData};
-use startup_view::{MonotonicClock, StartupTiming, StartupView};
+use startup::{MonotonicClock, StartupTiming, StartupView};
 use ui::{Overlays, ToastQueue};
 use viewtabs::TabBar;
 

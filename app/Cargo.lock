@@ -1515,7 +1515,7 @@ dependencies = [
  "shell_data",
  "sidebar",
  "smallvec",
- "startup_view",
+ "startup",
  "supervisor",
  "terminal",
  "terminalview",
@@ -6740,7 +6740,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "startup_view"
+name = "startup"
 version = "0.1.0"
 dependencies = [
  "gpui",

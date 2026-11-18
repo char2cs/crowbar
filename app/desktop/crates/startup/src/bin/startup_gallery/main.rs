@@ -13,7 +13,7 @@ use gpui::{
     App, AppContext as _, Application, AsyncApp, Bounds, Context, Entity, WindowBounds,
     WindowOptions, px, size,
 };
-use startup_view::{
+use startup::{
     MonotonicClock, StartupActions, StartupCommand, StartupEvent, StartupInput, StartupView,
 };
 use ui::{Theme, ThemeId, ThemeMode};

@@ -1,5 +1,5 @@
 use gpui::Context;
-use startup_view::StartupCommand;
+use startup::StartupCommand;
 
 use crate::daemon_link::DaemonLink;
 use crate::startup_action::StartupAction;

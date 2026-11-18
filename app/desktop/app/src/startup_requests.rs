@@ -1,5 +1,5 @@
 use gpui::App;
-use startup_view::{StartupActions, StartupCommand};
+use startup::{StartupActions, StartupCommand};
 
 use crate::request_queue::{Requests, send};
 use crate::shell_request::ShellRequest;

@@ -13,7 +13,7 @@ use panehost::Overlay;
 use settings_ui::SettingsModal;
 use shell_data::{SettingsAdapter, ShellData};
 use sidebar::Sidebar;
-use startup_view::StartupView;
+use startup::StartupView;
 use ui::{Surface, Theme, ToastQueue};
 use viewtabs::{SidebarState, TabBar};
 

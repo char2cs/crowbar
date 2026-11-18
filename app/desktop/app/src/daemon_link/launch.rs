@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use startup_view::StartupInput;
+use startup::StartupInput;
 use supervisor::{DaemonEvent, DaemonPaths, Supervisor, SupervisorConfig, locate_binary};
 use tokio::sync::watch;
 

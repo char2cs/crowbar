@@ -6,7 +6,7 @@ use gpui::{Entity, Subscription};
 use layoutview::LayoutView;
 use shell_data::ShellData;
 use sidebar::Sidebar;
-use startup_view::StartupView;
+use startup::StartupView;
 use ui::ToastQueue;
 use viewtabs::TabBar;
 

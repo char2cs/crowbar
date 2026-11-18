@@ -1,7 +1,7 @@
 use gpui::{Context, Window};
 use panehost::IpcMessage;
 use protocol::PaneId;
-use startup_view::StartupInput;
+use startup::StartupInput;
 use viewtabs::{MemberKind, MemberView};
 
 use super::ShellView;

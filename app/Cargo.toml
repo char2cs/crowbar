@@ -25,7 +25,7 @@ layoutview = { path = "desktop/crates/layoutview" }
 viewtabs = { path = "desktop/crates/viewtabs" }
 transport = { path = "crates/transport" }
 supervisor = { path = "desktop/crates/supervisor" }
-startup_view = { path = "desktop/crates/startup_view" }
+startup = { path = "desktop/crates/startup" }
 settings_ui = { path = "desktop/crates/settings_ui" }
 shell_data = { path = "desktop/crates/shell_data" }
 keymap = { path = "desktop/crates/keymap" }

@@ -1,4 +1,4 @@
-use startup_view::StartupCommand;
+use startup::StartupCommand;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ShellRequest {
