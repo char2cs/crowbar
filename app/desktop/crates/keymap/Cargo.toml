@@ -1,5 +1,5 @@
 [package]
-name = "shell_keys"
+name = "keymap"
 description = "Shortcut routing of the Crowbar shell: which chords the shell owns and how a key typed in a pane reaches it."
 version.workspace = true
 edition.workspace = true

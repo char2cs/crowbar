@@ -1,4 +1,4 @@
-use shell_keys::ShellCommand;
+use keymap::ShellCommand;
 use ui::IconName;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

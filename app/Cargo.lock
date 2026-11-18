@@ -1500,6 +1500,7 @@ dependencies = [
  "diagnostics",
  "gpui",
  "image",
+ "keymap",
  "layout",
  "layout_view",
  "oobe_view",
@@ -1511,7 +1512,6 @@ dependencies = [
  "serde_json",
  "settings_ui",
  "shell_data",
- "shell_keys",
  "sidebar",
  "smallvec",
  "startup_view",
@@ -3688,6 +3688,13 @@ dependencies = [
  "cfg-if",
  "futures-util",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "keymap"
+version = "0.1.0"
+dependencies = [
+ "protocol",
 ]
 
 [[package]]
@@ -6460,13 +6467,6 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "tracing",
-]
-
-[[package]]
-name = "shell_keys"
-version = "0.1.0"
-dependencies = [
- "protocol",
 ]
 
 [[package]]

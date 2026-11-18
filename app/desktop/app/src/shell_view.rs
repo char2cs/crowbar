@@ -7,11 +7,11 @@ use gpui::{
     Context, Div, Entity, FocusHandle, InteractiveElement, IntoElement, ParentElement, Render,
     Styled, Subscription, Window, div,
 };
+use keymap::Keymap;
 use layout_view::{ChromeContext, LayoutView};
 use pane_host::Overlay;
 use settings_ui::SettingsModal;
 use shell_data::{SettingsAdapter, ShellData};
-use shell_keys::Keymap;
 use sidebar::Sidebar;
 use startup_view::StartupView;
 use tab_bar::{SidebarState, TabBar};

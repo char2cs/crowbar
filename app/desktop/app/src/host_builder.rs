@@ -42,7 +42,7 @@ pub(crate) fn build_host(
     };
     let mut host = PaneHost::new(config, webviews, origins, transport);
     register_core_panes(host.registry_mut(), &options.chat_entry)?;
-    host.set_keybindings(shell_keys::Keymap::defaults().forwarded())?;
+    host.set_keybindings(keymap::Keymap::defaults().forwarded())?;
     Ok(host)
 }
 

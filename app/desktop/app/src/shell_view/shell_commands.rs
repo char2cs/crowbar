@@ -1,6 +1,6 @@
 use gpui::{Context, KeyDownEvent, Window};
+use keymap::{Keystroke, Modifier, ShellCommand};
 use layout::Command;
-use shell_keys::{Keystroke, Modifier, ShellCommand};
 use sidebar::{ActiveSpace as _, CommandSink as _, Mode, PaneFocus as _, Sidebar, SpaceList as _};
 
 use super::ShellView;
@@ -70,7 +70,7 @@ impl ShellView {
         stroke: &Keystroke,
         cx: &mut Context<'_, Self>,
     ) {
-        let Some(slot) = shell_keys::project_slot_of_stroke(stroke) else {
+        let Some(slot) = keymap::project_slot_of_stroke(stroke) else {
             return;
         };
         cx.stop_propagation();

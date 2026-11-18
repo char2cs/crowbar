@@ -16,7 +16,7 @@ pub(crate) enum ShellRequest {
     Overlays {
         open: bool,
     },
-    Command(shell_keys::ShellCommand),
+    Command(keymap::ShellCommand),
     /// The stored keybinding overrides changed.
     KeymapChanged,
     /// A setting the panes follow changed.

@@ -1,7 +1,7 @@
 use gpui::Context;
+use keymap::ShellCommand;
 use layout::Command;
 use protocol::CommandId;
-use shell_keys::ShellCommand;
 
 use super::ShellView;
 use crate::outcome::Outcome;
@@ -63,7 +63,7 @@ impl ShellView {
         }
         for slot in commands
             .iter()
-            .filter_map(|id| shell_keys::project_slot_of_command(id.as_str()))
+            .filter_map(|id| keymap::project_slot_of_command(id.as_str()))
         {
             send(&self.requests, ShellRequest::SelectProject(slot));
         }

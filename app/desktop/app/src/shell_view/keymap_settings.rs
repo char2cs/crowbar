@@ -1,9 +1,9 @@
 use gpui::Context;
+use keymap::Keymap;
 use settings_ui::{
     Change, KEYBINDING_OVERRIDES, KEYBINDING_PRESET, Key, SettingsFollow as _, SettingsRead as _,
     Value, preset_overrides,
 };
-use shell_keys::Keymap;
 
 use super::ShellView;
 use crate::shell_request::ShellRequest;
@@ -68,7 +68,7 @@ impl ShellView {
 mod tests {
     use std::collections::BTreeMap;
 
-    use shell_keys::{Keystroke, Modifier, ShellCommand};
+    use keymap::{Keystroke, Modifier, ShellCommand};
 
     use super::*;
 
