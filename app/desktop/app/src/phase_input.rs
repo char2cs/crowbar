@@ -1,30 +1,30 @@
-use startup::{MigrationStep, Outage, StartupInput};
+use startup::{MigrationStep, Outage};
 use supervisor::DaemonEvent;
 
-pub(crate) fn phase_input(event: &DaemonEvent) -> StartupInput {
+pub(crate) fn phase_input(event: &DaemonEvent) -> startup::Input {
     match event {
-        DaemonEvent::Migrating { progress } => StartupInput::Migrating {
+        DaemonEvent::Migrating { progress } => startup::Input::Migrating {
             step: progress
                 .as_ref()
                 .map(|p| MigrationStep::new(p.step(), p.index(), p.total())),
         },
-        DaemonEvent::Ready { .. } => StartupInput::Ready,
-        DaemonEvent::Halted { reason, message } => StartupInput::Halted {
+        DaemonEvent::Ready { .. } => startup::Input::Ready,
+        DaemonEvent::Halted { reason, message } => startup::Input::Halted {
             reason: reason.clone(),
             message: message.clone(),
         },
-        DaemonEvent::Unhealthy => StartupInput::Unavailable(Outage::Unresponsive),
+        DaemonEvent::Unhealthy => startup::Input::Unavailable(Outage::Unresponsive),
         DaemonEvent::Recovering {
             attempt, reason, ..
-        } => StartupInput::Unavailable(Outage::Recovering {
+        } => startup::Input::Unavailable(Outage::Recovering {
             attempt: *attempt,
             reason: reason.clone(),
         }),
-        DaemonEvent::GaveUp { report } => StartupInput::Unavailable(Outage::GaveUp {
+        DaemonEvent::GaveUp { report } => startup::Input::Unavailable(Outage::GaveUp {
             report: report.clone(),
         }),
-        DaemonEvent::Stopped => StartupInput::Unavailable(Outage::Stopped),
-        _ => StartupInput::Starting,
+        DaemonEvent::Stopped => startup::Input::Unavailable(Outage::Stopped),
+        _ => startup::Input::Starting,
     }
 }
 
@@ -37,18 +37,18 @@ mod tests {
     #[test]
     fn every_event_maps_to_its_screen() {
         let cases = [
-            (DaemonEvent::Starting, StartupInput::Starting),
-            (DaemonEvent::Ready { pid: Some(7) }, StartupInput::Ready),
+            (DaemonEvent::Starting, startup::Input::Starting),
+            (DaemonEvent::Ready { pid: Some(7) }, startup::Input::Ready),
             (
                 DaemonEvent::Migrating { progress: None },
-                StartupInput::Migrating { step: None },
+                startup::Input::Migrating { step: None },
             ),
             (
                 DaemonEvent::Halted {
                     reason: Some("io_failed".into()),
                     message: "disk".into(),
                 },
-                StartupInput::Halted {
+                startup::Input::Halted {
                     reason: Some("io_failed".into()),
                     message: "disk".into(),
                 },
@@ -62,7 +62,7 @@ mod tests {
         let cases = [
             (
                 DaemonEvent::Unhealthy,
-                StartupInput::Unavailable(Outage::Unresponsive),
+                startup::Input::Unavailable(Outage::Unresponsive),
             ),
             (
                 DaemonEvent::Recovering {
@@ -70,24 +70,24 @@ mod tests {
                     delay: Duration::from_secs(1),
                     reason: "exit 1".into(),
                 },
-                StartupInput::Unavailable(Outage::Recovering {
+                startup::Input::Unavailable(Outage::Recovering {
                     attempt: 2,
                     reason: "exit 1".into(),
                 }),
             ),
             (
                 DaemonEvent::GaveUp { report: "r".into() },
-                StartupInput::Unavailable(Outage::GaveUp { report: "r".into() }),
+                startup::Input::Unavailable(Outage::GaveUp { report: "r".into() }),
             ),
             (
                 DaemonEvent::Stopped,
-                StartupInput::Unavailable(Outage::Stopped),
+                startup::Input::Unavailable(Outage::Stopped),
             ),
         ];
         check(cases);
     }
 
-    fn check<const N: usize>(cases: [(DaemonEvent, StartupInput); N]) {
+    fn check<const N: usize>(cases: [(DaemonEvent, startup::Input); N]) {
         for (event, expected) in cases {
             assert_eq!(phase_input(&event), expected, "{event:?}");
         }

@@ -3,7 +3,7 @@ use gpui::{
 };
 use ui::{ProgressBar, Surface, Theme, UiText};
 
-use crate::startup_machine::MigrationStep;
+use crate::machine::MigrationStep;
 
 const WIDTH: f32 = 360.0;
 const CAPTION_GAP: f32 = 12.0;

@@ -3,7 +3,7 @@ use ui::{ButtonVariant, IconName};
 /// What the user can ask of the shell from the startup view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum StartupCommand {
+pub enum Command {
     /// Start the daemon again.
     Retry,
     /// Show the daemon log.
@@ -12,7 +12,7 @@ pub enum StartupCommand {
     Quit,
 }
 
-impl StartupCommand {
+impl Command {
     /// The button label.
     pub fn label(self) -> &'static str {
         match self {
@@ -55,11 +55,7 @@ mod tests {
 
     use super::*;
 
-    const ALL: [StartupCommand; 3] = [
-        StartupCommand::Retry,
-        StartupCommand::OpenLog,
-        StartupCommand::Quit,
-    ];
+    const ALL: [Command; 3] = [Command::Retry, Command::OpenLog, Command::Quit];
 
     #[test]
     fn every_command_has_a_distinct_label_and_id() {
@@ -75,14 +71,11 @@ mod tests {
 
     #[test]
     fn only_the_primary_command_is_filled() {
+        assert_eq!(Command::Quit.variant(Command::Quit), ButtonVariant::Primary);
         assert_eq!(
-            StartupCommand::Quit.variant(StartupCommand::Quit),
-            ButtonVariant::Primary
-        );
-        assert_eq!(
-            StartupCommand::OpenLog.variant(StartupCommand::Quit),
+            Command::OpenLog.variant(Command::Quit),
             ButtonVariant::Outline
         );
-        assert_eq!(StartupCommand::Retry.icon(), IconName::ArrowClockwise);
+        assert_eq!(Command::Retry.icon(), IconName::ArrowClockwise);
     }
 }

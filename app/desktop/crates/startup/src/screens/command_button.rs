@@ -3,21 +3,21 @@ use std::rc::Rc;
 use gpui::{App, IntoElement, RenderOnce, Window};
 use ui::{Button, ButtonSize};
 
-use crate::startup_actions::StartupActions;
-use crate::startup_command::StartupCommand;
+use crate::actions::Actions;
+use crate::command::Command;
 
 #[derive(IntoElement)]
 pub(crate) struct CommandButton {
-    command: StartupCommand,
-    primary: StartupCommand,
-    actions: Rc<dyn StartupActions>,
+    command: Command,
+    primary: Command,
+    actions: Rc<dyn Actions>,
 }
 
 impl CommandButton {
     pub(crate) fn new(
-        command: StartupCommand,
-        primary: StartupCommand,
-        actions: &Rc<dyn StartupActions>,
+        command: Command,
+        primary: Command,
+        actions: &Rc<dyn Actions>,
     ) -> Self {
         Self {
             command,
@@ -54,11 +54,11 @@ mod tests {
     #[gpui::test]
     fn a_click_performs_the_command(cx: &mut TestAppContext) {
         let actions = Rc::new(RecordingActions::default());
-        let shared = Rc::clone(&actions) as Rc<dyn StartupActions>;
+        let shared = Rc::clone(&actions) as Rc<dyn Actions>;
         let cx = open(cx, move |_, _| {
-            CommandButton::new(StartupCommand::OpenLog, StartupCommand::Quit, &shared)
+            CommandButton::new(Command::OpenLog, Command::Quit, &shared)
         });
         cx.simulate_click(point(px(20.0), px(16.0)), Modifiers::none());
-        assert_eq!(actions.performed(), [StartupCommand::OpenLog]);
+        assert_eq!(actions.performed(), [Command::OpenLog]);
     }
 }

@@ -1,6 +1,5 @@
 use gpui::{Context, Window};
 use sidebar::Visibility;
-use startup::StartupInput;
 use ui::{ToastContent, ToastKind, ToastLifetime};
 
 use super::ShellView;
@@ -12,7 +11,7 @@ use crate::save_report::SaveReport;
 impl ShellView {
     pub(super) fn track_daemon(
         &mut self,
-        input: &StartupInput,
+        input: &startup::Input,
         cx: &mut Context<'_, Self>,
     ) {
         match daemon_notice(input) {

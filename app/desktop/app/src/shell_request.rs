@@ -1,9 +1,7 @@
-use startup::StartupCommand;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ShellRequest {
     Sidebar(sidebar::Command),
-    Startup(StartupCommand),
+    Startup(startup::Command),
     CloseSettings,
     /// A pane reported its unsaved work again.
     ResumeClosing,

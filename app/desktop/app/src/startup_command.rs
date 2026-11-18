@@ -1,5 +1,4 @@
 use gpui::Context;
-use startup::StartupCommand;
 
 use crate::daemon_link::DaemonLink;
 use crate::startup_action::StartupAction;
@@ -10,7 +9,7 @@ const OPENER: &str = "open";
 const OPENER: &str = "xdg-open";
 
 pub(crate) fn perform<V: 'static>(
-    command: StartupCommand,
+    command: startup::Command,
     link: &DaemonLink,
     cx: &mut Context<'_, V>,
 ) {
@@ -22,11 +21,11 @@ pub(crate) fn perform<V: 'static>(
     }
 }
 
-fn action_for(command: StartupCommand) -> StartupAction {
+fn action_for(command: startup::Command) -> StartupAction {
     match command {
-        StartupCommand::Retry => StartupAction::Relaunch,
-        StartupCommand::OpenLog => StartupAction::ShowLog,
-        StartupCommand::Quit => StartupAction::QuitApp,
+        startup::Command::Retry => StartupAction::Relaunch,
+        startup::Command::OpenLog => StartupAction::ShowLog,
+        startup::Command::Quit => StartupAction::QuitApp,
         _ => StartupAction::Nothing,
     }
 }
@@ -52,10 +51,10 @@ mod tests {
 
     #[test]
     fn each_command_maps_to_its_action() {
-        const CASES: [(StartupCommand, StartupAction); 3] = [
-            (StartupCommand::Retry, StartupAction::Relaunch),
-            (StartupCommand::OpenLog, StartupAction::ShowLog),
-            (StartupCommand::Quit, StartupAction::QuitApp),
+        const CASES: [(startup::Command, StartupAction); 3] = [
+            (startup::Command::Retry, StartupAction::Relaunch),
+            (startup::Command::OpenLog, StartupAction::ShowLog),
+            (startup::Command::Quit, StartupAction::QuitApp),
         ];
         for (command, action) in CASES {
             assert_eq!(action_for(command), action);
@@ -68,7 +67,7 @@ mod tests {
         let phases = link.phases();
         while phases.try_recv().is_ok() {}
         let view = cx.new(|_: &mut Context<'_, Empty>| Empty);
-        view.update(cx, |_, cx| perform(StartupCommand::Retry, &link, cx));
+        view.update(cx, |_, cx| perform(startup::Command::Retry, &link, cx));
         assert!(
             phases.recv_blocking().is_ok(),
             "the outage screen hears of it"
@@ -79,7 +78,7 @@ mod tests {
     fn opening_a_log_that_does_not_exist_is_harmless(cx: &mut TestAppContext) {
         let link = link_without_daemon();
         let view = cx.new(|_: &mut Context<'_, Empty>| Empty);
-        view.update(cx, |_, cx| perform(StartupCommand::OpenLog, &link, cx));
+        view.update(cx, |_, cx| perform(startup::Command::OpenLog, &link, cx));
         assert!(link.log().is_none(), "there was never a log to open");
     }
 }

@@ -1,11 +1,11 @@
-use crate::startup_machine::migration_step::MigrationStep;
-use crate::startup_machine::outage::Outage;
+use crate::machine::migration_step::MigrationStep;
+use crate::machine::outage::Outage;
 
 /// What the daemon supervisor tells the shell, in the shape the view needs. The app crate
 /// converts each supervisor event into one of these; this crate stays independent of it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum StartupInput {
+pub enum Input {
     /// The daemon is being spawned or has not answered its health check yet.
     Starting,
     /// The daemon migrates its data.

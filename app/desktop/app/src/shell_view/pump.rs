@@ -1,7 +1,6 @@
 use gpui::{Context, Window};
 use panehost::IpcMessage;
 use protocol::PaneId;
-use startup::StartupInput;
 use viewtabs::{MemberKind, MemberView};
 
 use super::ShellView;
@@ -86,7 +85,7 @@ impl ShellView {
 
     fn feed_startup(
         &mut self,
-        input: StartupInput,
+        input: startup::Input,
         _: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {

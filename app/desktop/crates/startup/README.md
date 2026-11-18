@@ -7,12 +7,12 @@ gpui-free state machine (phases, timing, migration steps, outages and halts).
 
 ## Public interface
 
-- `StartupView`: the view, which emits `StartupEvent` and asks the shell through `StartupActions`
-  (`StartupCommand`); it reads time through the `StartupClock` port (`MonotonicClock` in
+- `View`: the view, which emits `Event` and asks the shell through `Actions`
+  (`Command`); it reads time through the `Clock` port (`MonotonicClock` in
   production).
-- `StartupInput`, `StartupTiming`, `AppPhase`, `MigrationStep`, `Outage`, `HaltReason`: what the
+- `Input`, `Timing`, `AppPhase`, `MigrationStep`, `Outage`, `HaltReason`: what the
   shell feeds it.
-- `StartupMachine`, `StartupScreen` (exported today; only the crate uses them).
+- `Machine`, `Screen` (exported today; only the crate uses them).
 - `startupgallery` binary (`src/bin/gallery/`): every phase of the view, or a demo run.
 
 ## Depends on

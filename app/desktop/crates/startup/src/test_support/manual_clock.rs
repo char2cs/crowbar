@@ -1,7 +1,7 @@
 use std::cell::Cell;
 use std::time::Duration;
 
-use crate::startup_view::StartupClock;
+use crate::view::Clock;
 
 /// A clock the test moves by hand.
 #[derive(Debug, Default)]
@@ -19,7 +19,7 @@ impl ManualClock {
     }
 }
 
-impl StartupClock for ManualClock {
+impl Clock for ManualClock {
     fn now(&self) -> Duration {
         self.now.get()
     }

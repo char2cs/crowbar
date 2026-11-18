@@ -1,13 +1,13 @@
 use gpui::App;
 
-use crate::startup_command::StartupCommand;
+use crate::command::Command;
 
 /// What the shell does for the commands of the startup view; the view only asks.
-pub trait StartupActions {
+pub trait Actions {
     /// Carries out `command`.
     fn perform(
         &self,
-        command: StartupCommand,
+        command: Command,
         cx: &mut App,
     );
 }
@@ -24,8 +24,8 @@ mod tests {
     #[gpui::test]
     fn actions_are_usable_as_a_shared_trait_object(cx: &mut TestAppContext) {
         let recording = Rc::new(RecordingActions::default());
-        let actions = Rc::clone(&recording) as Rc<dyn StartupActions>;
-        cx.update(|cx| actions.perform(StartupCommand::OpenLog, cx));
-        assert_eq!(recording.performed(), [StartupCommand::OpenLog]);
+        let actions = Rc::clone(&recording) as Rc<dyn Actions>;
+        cx.update(|cx| actions.perform(Command::OpenLog, cx));
+        assert_eq!(recording.performed(), [Command::OpenLog]);
     }
 }

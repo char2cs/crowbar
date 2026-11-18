@@ -7,7 +7,7 @@ use layoutview::LayoutView;
 use ptysession::TerminalSessions;
 use sidebar::{Preferences, SidebarData};
 use sidebarview::Sidebar;
-use startup::{MonotonicClock, StartupTiming, StartupView};
+use startup::MonotonicClock;
 use store::{ShellData, ShellWiring};
 use ui::{Overlays, ToastQueue};
 use viewtabs::TabBar;
@@ -116,11 +116,11 @@ pub(super) fn build_sidebar<V: 'static>(
 pub(super) fn build_startup<V: 'static>(
     requests: &async_channel::Sender<ShellRequest>,
     cx: &mut Context<'_, V>,
-) -> Entity<StartupView> {
+) -> Entity<startup::View> {
     cx.new(|cx| {
         let actions = Rc::new(StartupRequests(requests.clone()));
-        StartupView::new(
-            StartupTiming::default(),
+        startup::View::new(
+            startup::Timing::default(),
             Rc::new(MonotonicClock::start()),
             actions,
             cx,

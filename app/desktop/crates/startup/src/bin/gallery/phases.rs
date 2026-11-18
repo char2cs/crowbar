@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use startup::{MigrationStep, Outage, StartupInput, StartupTiming};
+use startup::{Input, MigrationStep, Outage, Timing};
 
 pub(crate) const STEPS: u32 = 5;
 pub(crate) const DEMO_PHASE: &str = "demo";
@@ -19,7 +19,7 @@ pub(crate) const HALT_MESSAGE: &str =
 pub(crate) const RESTART_ATTEMPT: u32 = 2;
 pub(crate) const MIGRATING_PHASE_STEP: u32 = 2;
 
-pub(crate) fn migrating(index: u32) -> StartupInput {
+pub(crate) fn migrating(index: u32) -> Input {
     let names = [
         "Move chats to the new layout",
         "Rebuild the search index",
@@ -31,45 +31,45 @@ pub(crate) fn migrating(index: u32) -> StartupInput {
         .get(usize::try_from(index.saturating_sub(1)).unwrap_or(0))
         .copied()
         .unwrap_or("Finish");
-    StartupInput::Migrating {
+    Input::Migrating {
         step: Some(MigrationStep::new(name, index, STEPS)),
     }
 }
 
-pub(crate) fn halted() -> StartupInput {
-    StartupInput::Halted {
+pub(crate) fn halted() -> Input {
+    Input::Halted {
         reason: Some("step_failed".to_owned()),
         message: HALT_MESSAGE.to_owned(),
     }
 }
 
-pub(crate) fn restarting() -> StartupInput {
-    StartupInput::Unavailable(Outage::Recovering {
+pub(crate) fn restarting() -> Input {
+    Input::Unavailable(Outage::Recovering {
         attempt: RESTART_ATTEMPT,
         reason: "the daemon exited with status 1".to_owned(),
     })
 }
 
-pub(crate) fn phase_input(phase: &str) -> Vec<StartupInput> {
+pub(crate) fn phase_input(phase: &str) -> Vec<Input> {
     match phase {
-        "starting" => vec![StartupInput::Starting],
+        "starting" => vec![Input::Starting],
         "migrating" => vec![migrating(MIGRATING_PHASE_STEP)],
         "halted" => vec![halted()],
         "restarting" => vec![restarting()],
-        "unresponsive" => vec![StartupInput::Unavailable(Outage::Unresponsive)],
-        "gave-up" => vec![StartupInput::Unavailable(Outage::GaveUp {
+        "unresponsive" => vec![Input::Unavailable(Outage::Unresponsive)],
+        "gave-up" => vec![Input::Unavailable(Outage::GaveUp {
             report: REPORT.to_owned(),
         })],
-        "stopped" => vec![StartupInput::Unavailable(Outage::Stopped)],
+        "stopped" => vec![Input::Unavailable(Outage::Stopped)],
         _ => Vec::new(),
     }
 }
 
-pub(crate) fn timing_for(phase: &str) -> StartupTiming {
+pub(crate) fn timing_for(phase: &str) -> Timing {
     if phase == DEMO_PHASE {
-        return StartupTiming::default();
+        return Timing::default();
     }
-    StartupTiming::new(Duration::ZERO, Duration::ZERO)
+    Timing::new(Duration::ZERO, Duration::ZERO)
 }
 
 #[cfg(test)]
@@ -95,7 +95,7 @@ mod tests {
 
     #[test]
     fn the_demo_keeps_the_default_timing_and_the_phases_show_at_once() {
-        assert_eq!(timing_for(DEMO_PHASE), StartupTiming::default());
-        assert_ne!(timing_for("halted"), StartupTiming::default());
+        assert_eq!(timing_for(DEMO_PHASE), Timing::default());
+        assert_ne!(timing_for("halted"), Timing::default());
     }
 }

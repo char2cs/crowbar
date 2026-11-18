@@ -9,12 +9,12 @@ use ui::{
     radius, shadow,
 };
 
+use crate::actions::Actions;
+use crate::command::Command;
+use crate::machine::Outage;
 use crate::screens::command_button::CommandButton;
 use crate::screens::detail_box::DetailBox;
 use crate::screens::spacing::{CARD_PADDING, GAP_MD, GAP_SM, TITLE_ICON};
-use crate::startup_actions::StartupActions;
-use crate::startup_command::StartupCommand;
-use crate::startup_machine::Outage;
 
 const WIDTH: f32 = 560.0;
 const SPINNER_SIZE: f32 = 18.0;
@@ -24,13 +24,13 @@ const SHADOW_OPACITY: f32 = 0.05;
 #[derive(IntoElement)]
 pub(crate) struct OutagePanel {
     outage: Outage,
-    actions: Rc<dyn StartupActions>,
+    actions: Rc<dyn Actions>,
 }
 
 impl OutagePanel {
     pub(crate) fn new(
         outage: &Outage,
-        actions: &Rc<dyn StartupActions>,
+        actions: &Rc<dyn Actions>,
     ) -> Self {
         Self {
             outage: outage.clone(),
@@ -84,19 +84,19 @@ impl OutagePanel {
         )
     }
 
-    fn primary(&self) -> StartupCommand {
+    fn primary(&self) -> Command {
         if self.outage.is_retryable() {
-            return StartupCommand::Retry;
+            return Command::Retry;
         }
-        StartupCommand::OpenLog
+        Command::OpenLog
     }
 
     fn buttons(&self) -> impl IntoElement {
         let primary = self.primary();
         let commands = [
-            self.outage.is_retryable().then_some(StartupCommand::Retry),
-            Some(StartupCommand::OpenLog),
-            self.outage.is_retryable().then_some(StartupCommand::Quit),
+            self.outage.is_retryable().then_some(Command::Retry),
+            Some(Command::OpenLog),
+            self.outage.is_retryable().then_some(Command::Quit),
         ];
         div().flex().gap(px(GAP_SM)).children(
             commands
@@ -163,7 +163,7 @@ mod tests {
     use gpui::{TestAppContext, px};
 
     use super::*;
-    use crate::startup_command::StartupCommand;
+    use crate::command::Command;
     use crate::test_support::{RecordingActions, click_across, measure, open};
 
     fn gave_up() -> Outage {
@@ -172,9 +172,9 @@ mod tests {
         }
     }
 
-    fn sink() -> (Rc<RecordingActions>, Rc<dyn StartupActions>) {
+    fn sink() -> (Rc<RecordingActions>, Rc<dyn Actions>) {
         let recording = Rc::new(RecordingActions::default());
-        let shared = Rc::clone(&recording) as Rc<dyn StartupActions>;
+        let shared = Rc::clone(&recording) as Rc<dyn Actions>;
         (recording, shared)
     }
 
@@ -217,11 +217,7 @@ mod tests {
         let cx = open(cx, move |_, _| OutagePanel::new(&Outage::Stopped, &actions));
         click_across(cx, bounds);
         let performed = recording.performed();
-        for command in [
-            StartupCommand::Retry,
-            StartupCommand::OpenLog,
-            StartupCommand::Quit,
-        ] {
+        for command in [Command::Retry, Command::OpenLog, Command::Quit] {
             assert!(performed.contains(&command), "{command:?} in {performed:?}");
         }
     }
@@ -237,11 +233,7 @@ mod tests {
         let cx = open(cx, move |_, _| OutagePanel::new(&outage, &actions));
         click_across(cx, bounds);
         let performed = recording.performed();
-        assert!(performed.contains(&StartupCommand::OpenLog));
-        assert!(
-            performed
-                .iter()
-                .all(|command| *command == StartupCommand::OpenLog)
-        );
+        assert!(performed.contains(&Command::OpenLog));
+        assert!(performed.iter().all(|command| *command == Command::OpenLog));
     }
 }

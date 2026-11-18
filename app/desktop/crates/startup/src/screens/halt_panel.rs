@@ -5,12 +5,12 @@ use gpui::{
 };
 use ui::{Badge, BadgeVariant, Icon, IconName, IconWeight, Surface, Theme, UiText, radius};
 
+use crate::actions::Actions;
+use crate::command::Command;
+use crate::machine::HaltReason;
 use crate::screens::command_button::CommandButton;
 use crate::screens::detail_box::DetailBox;
 use crate::screens::spacing::{CARD_PADDING, GAP_MD, GAP_SM, TITLE_ICON};
-use crate::startup_actions::StartupActions;
-use crate::startup_command::StartupCommand;
-use crate::startup_machine::HaltReason;
 
 const WIDTH: f32 = 480.0;
 const TINT: f32 = 0.1;
@@ -20,14 +20,14 @@ const TINT_BORDER: f32 = 0.2;
 pub(crate) struct HaltPanel {
     reason: HaltReason,
     message: SharedString,
-    actions: Rc<dyn StartupActions>,
+    actions: Rc<dyn Actions>,
 }
 
 impl HaltPanel {
     pub(crate) fn new(
         reason: &HaltReason,
         message: impl Into<SharedString>,
-        actions: &Rc<dyn StartupActions>,
+        actions: &Rc<dyn Actions>,
     ) -> Self {
         Self {
             reason: reason.clone(),
@@ -57,16 +57,16 @@ impl HaltPanel {
     }
 
     fn buttons(&self) -> impl IntoElement {
-        let commands = [StartupCommand::OpenLog, StartupCommand::Quit];
+        let commands = [Command::OpenLog, Command::Quit];
         div()
             .flex()
             .justify_end()
             .gap(px(GAP_SM))
             .w_full()
             .children(
-                commands.into_iter().map(|command| {
-                    CommandButton::new(command, StartupCommand::Quit, &self.actions)
-                }),
+                commands
+                    .into_iter()
+                    .map(|command| CommandButton::new(command, Command::Quit, &self.actions)),
             )
     }
 }
@@ -120,7 +120,7 @@ mod tests {
     use crate::test_support::{RecordingActions, measure};
 
     fn panel(code: Option<&str>) -> HaltPanel {
-        let actions: Rc<dyn StartupActions> = Rc::new(RecordingActions::default());
+        let actions: Rc<dyn Actions> = Rc::new(RecordingActions::default());
         HaltPanel::new(&HaltReason::from_code(code), "step 3 failed", &actions)
     }
 

@@ -12,7 +12,6 @@ use layoutview::{ChromeContext, LayoutView};
 use panehost::Overlay;
 use settingsview::SettingsModal;
 use sidebarview::Sidebar;
-use startup::StartupView;
 use store::{SettingsAdapter, ShellData};
 use ui::{Surface, Theme, ToastQueue};
 use viewtabs::{SidebarState, TabBar};
@@ -71,7 +70,7 @@ pub(crate) struct ShellView {
     sidebar: Entity<Sidebar>,
     tabs: Entity<TabBar>,
     layout: Entity<LayoutView>,
-    startup: Option<Entity<StartupView>>,
+    startup: Option<Entity<startup::View>>,
     settings: Option<Entity<SettingsModal>>,
     branch_import: Option<Entity<branchimport::View>>,
     remote_folders: Option<Entity<folderpicker::View>>,

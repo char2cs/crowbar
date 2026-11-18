@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use crate::startup_view::startup_clock::StartupClock;
+use crate::view::clock::Clock;
 
 /// The real clock: time since it was created.
 #[derive(Debug, Clone, Copy)]
@@ -17,7 +17,7 @@ impl MonotonicClock {
     }
 }
 
-impl StartupClock for MonotonicClock {
+impl Clock for MonotonicClock {
     fn now(&self) -> Duration {
         self.origin.elapsed()
     }

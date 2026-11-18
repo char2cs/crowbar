@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use startup::StartupInput;
 use supervisor::{DaemonEvent, DaemonPaths, Supervisor, SupervisorConfig, locate_binary};
 use tokio::sync::watch;
 
@@ -13,7 +12,7 @@ use crate::phase_input::phase_input;
 pub(super) async fn try_launch(
     options: &AppOptions,
     state: &LinkState,
-    sender: &async_channel::Sender<StartupInput>,
+    sender: &async_channel::Sender<startup::Input>,
 ) {
     match launch(options, sender.clone()).await {
         Ok((supervisor, paths)) => state.adopt(supervisor, paths),
@@ -22,10 +21,10 @@ pub(super) async fn try_launch(
 }
 
 fn report_halt(
-    sender: &async_channel::Sender<StartupInput>,
+    sender: &async_channel::Sender<startup::Input>,
     error: &Error,
 ) {
-    let halted = StartupInput::Halted {
+    let halted = startup::Input::Halted {
         reason: None,
         message: error.to_string(),
     };
@@ -46,7 +45,7 @@ fn current_binary() -> Option<PathBuf> {
 
 async fn launch(
     options: &AppOptions,
-    sender: async_channel::Sender<StartupInput>,
+    sender: async_channel::Sender<startup::Input>,
 ) -> Result<(Arc<Supervisor>, DaemonPaths)> {
     let current = current_binary();
     let path_var = std::env::var_os("PATH").filter(|_| cfg!(debug_assertions));
@@ -72,14 +71,14 @@ async fn launch(
 
 fn forward_phases(
     supervisor: &Supervisor,
-    sender: async_channel::Sender<StartupInput>,
+    sender: async_channel::Sender<startup::Input>,
 ) {
     let mut current = supervisor.current();
     tokio::spawn(async move { while relay_phase(&sender, &mut current).await {} });
 }
 
 async fn relay_phase(
-    sender: &async_channel::Sender<StartupInput>,
+    sender: &async_channel::Sender<startup::Input>,
     current: &mut watch::Receiver<DaemonEvent>,
 ) -> bool {
     let input = phase_input(&current.borrow_and_update());
@@ -102,7 +101,7 @@ mod tests {
         let (sender, phases) = async_channel::unbounded();
         runtime.block_on(try_launch(&options_without_a_daemon(), &state, &sender));
         let phase = phases.try_recv().unwrap();
-        assert!(matches!(phase, StartupInput::Halted { .. }), "{phase:?}");
+        assert!(matches!(phase, startup::Input::Halted { .. }), "{phase:?}");
         assert!(state.supervisor().is_none(), "nothing launched");
         assert!(state.log().is_none(), "nothing to open");
     }

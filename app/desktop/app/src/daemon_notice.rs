@@ -1,4 +1,4 @@
-use startup::{Outage, StartupInput};
+use startup::Outage;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum DaemonNotice {
@@ -8,16 +8,16 @@ pub(crate) enum DaemonNotice {
 
 const UNAVAILABLE: &str = "Backend unavailable";
 
-pub(crate) fn daemon_notice(input: &StartupInput) -> DaemonNotice {
+pub(crate) fn daemon_notice(input: &startup::Input) -> DaemonNotice {
     match input {
-        StartupInput::Ready => DaemonNotice::Clear,
-        StartupInput::Starting | StartupInput::Migrating { .. } => {
+        startup::Input::Ready => DaemonNotice::Clear,
+        startup::Input::Starting | startup::Input::Migrating { .. } => {
             DaemonNotice::Show(format!("{UNAVAILABLE}: starting again"))
         },
-        StartupInput::Halted { message, .. } => {
+        startup::Input::Halted { message, .. } => {
             DaemonNotice::Show(format!("{UNAVAILABLE}: {message}"))
         },
-        StartupInput::Unavailable(outage) => DaemonNotice::Show(outage_text(outage)),
+        startup::Input::Unavailable(outage) => DaemonNotice::Show(outage_text(outage)),
         _ => DaemonNotice::Show(UNAVAILABLE.to_owned()),
     }
 }
@@ -38,7 +38,7 @@ fn outage_text(outage: &Outage) -> String {
 mod tests {
     use super::*;
 
-    fn text(input: &StartupInput) -> String {
+    fn text(input: &startup::Input) -> String {
         match daemon_notice(input) {
             DaemonNotice::Show(text) => text,
             DaemonNotice::Clear => String::new(),
@@ -48,7 +48,7 @@ mod tests {
     #[test]
     fn ready_clears_the_notice() {
         assert_eq!(
-            daemon_notice(&StartupInput::Ready),
+            daemon_notice(&startup::Input::Ready),
             DaemonNotice::Clear,
             "ready"
         );
@@ -57,18 +57,18 @@ mod tests {
     #[test]
     fn every_outage_says_the_backend_is_unavailable() {
         let cases = [
-            StartupInput::Unavailable(Outage::Unresponsive),
-            StartupInput::Unavailable(Outage::Recovering {
+            startup::Input::Unavailable(Outage::Unresponsive),
+            startup::Input::Unavailable(Outage::Recovering {
                 attempt: 2,
                 reason: "exit 1".into(),
             }),
-            StartupInput::Unavailable(Outage::GaveUp { report: "r".into() }),
-            StartupInput::Unavailable(Outage::Stopped),
-            StartupInput::Halted {
+            startup::Input::Unavailable(Outage::GaveUp { report: "r".into() }),
+            startup::Input::Unavailable(Outage::Stopped),
+            startup::Input::Halted {
                 reason: None,
                 message: "disk full".into(),
             },
-            StartupInput::Starting,
+            startup::Input::Starting,
         ];
         for input in cases {
             assert!(text(&input).starts_with("Backend unavailable"), "{input:?}");
@@ -77,7 +77,7 @@ mod tests {
 
     #[test]
     fn a_recovering_daemon_names_the_attempt() {
-        let input = StartupInput::Unavailable(Outage::Recovering {
+        let input = startup::Input::Unavailable(Outage::Recovering {
             attempt: 3,
             reason: "x".into(),
         });

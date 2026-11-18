@@ -2,7 +2,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use protocol::{DaemonTransport, HostId};
-use startup::StartupInput;
 use supervisor::Supervisor;
 use tokio::runtime::Runtime;
 use tokio::sync::watch;
@@ -31,8 +30,8 @@ pub(crate) struct DaemonLink {
     pub(crate) daemon: Arc<Transport>,
     registry: Arc<HostRegistry>,
     desk: store::HostDesk,
-    phases: async_channel::Receiver<StartupInput>,
-    sender: async_channel::Sender<StartupInput>,
+    phases: async_channel::Receiver<startup::Input>,
+    sender: async_channel::Sender<startup::Input>,
     host: HostId,
 }
 
@@ -91,7 +90,7 @@ impl DaemonLink {
         self.desk.clone()
     }
 
-    pub(crate) fn phases(&self) -> async_channel::Receiver<StartupInput> {
+    pub(crate) fn phases(&self) -> async_channel::Receiver<startup::Input> {
         self.phases.clone()
     }
 
@@ -159,14 +158,13 @@ async fn build_transport(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::test_support::link_without_daemon;
 
     #[test]
     fn a_link_without_a_daemon_reports_the_halt_and_has_nothing_to_shut_down() {
         let link = link_without_daemon();
         let phase = link.phases().recv_blocking().unwrap();
-        assert!(matches!(phase, StartupInput::Halted { .. }), "{phase:?}");
+        assert!(matches!(phase, startup::Input::Halted { .. }), "{phase:?}");
         assert!(link.log().is_none(), "nothing to open");
         link.shutdown();
         link.shutdown();

@@ -1,21 +1,18 @@
 //! The full-screen native startup and data-migration view of the Crowbar shell.
 //!
-//! Entry: [`StartupView`]. The shell feeds it [`StartupInput`]s derived from the daemon
-//! supervisor's events, answers its [`StartupCommand`]s through [`StartupActions`], and removes
-//! it when it emits [`StartupEvent::HandedOver`]. [`StartupMachine`] is the pure state machine
+//! Entry: [`View`]. The shell feeds it [`Input`]s derived from the daemon
+//! supervisor's events, answers its [`Command`]s through [`Actions`], and removes
+//! it when it emits [`Event::HandedOver`]. [`Machine`] is the pure state machine
 //! underneath and can be driven without a window.
 
+mod actions;
+mod command;
+mod machine;
 mod screens;
-mod startup_actions;
-mod startup_command;
-mod startup_machine;
-mod startup_view;
 mod test_support;
+mod view;
 
-pub use startup_actions::StartupActions;
-pub use startup_command::StartupCommand;
-pub use startup_machine::{
-    AppPhase, HaltReason, MigrationStep, Outage, StartupInput, StartupMachine, StartupScreen,
-    StartupTiming,
-};
-pub use startup_view::{MonotonicClock, StartupClock, StartupEvent, StartupView};
+pub use actions::Actions;
+pub use command::Command;
+pub use machine::{AppPhase, HaltReason, Input, Machine, MigrationStep, Outage, Screen, Timing};
+pub use view::{Clock, Event, MonotonicClock, View};

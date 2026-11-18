@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 /// The time source of the view: a monotonic duration since any fixed origin.
-pub trait StartupClock {
+pub trait Clock {
     /// The time now.
     fn now(&self) -> Duration;
 }
@@ -17,7 +17,7 @@ mod tests {
     #[test]
     fn a_clock_is_usable_as_a_shared_trait_object() {
         let manual = Rc::new(ManualClock::default());
-        let clock = Rc::clone(&manual) as Rc<dyn StartupClock>;
+        let clock = Rc::clone(&manual) as Rc<dyn Clock>;
         manual.set(Duration::from_secs(3));
         assert_eq!(clock.now(), Duration::from_secs(3));
     }

@@ -1,35 +1,35 @@
 use std::rc::Rc;
 
-use crate::startup_machine::AppPhase;
+use crate::machine::AppPhase;
 use gpui::{
     AnimationExt, App, Context, EventEmitter, IntoElement, ParentElement, Render, Styled, Task,
     Window, div, px,
 };
 use ui::{CubicBezier, Motion, Surface, Theme, timing};
 
+use crate::actions::Actions;
+use crate::machine::Input;
+use crate::machine::Machine;
+use crate::machine::Screen;
+use crate::machine::Timing;
 use crate::screens::HaltPanel;
 use crate::screens::OutagePanel;
 use crate::screens::WaitingPanel;
 use crate::screens::wordmark;
-use crate::startup_actions::StartupActions;
-use crate::startup_machine::StartupInput;
-use crate::startup_machine::StartupMachine;
-use crate::startup_machine::StartupScreen;
-use crate::startup_machine::StartupTiming;
-use crate::startup_view::handover::Handover;
+use crate::view::handover::Handover;
 
 const STAGE_GAP: f32 = 36.0;
 
 /// The full-screen startup and data-migration view.
 ///
 /// It covers the whole window, hides the layout, follows the daemon through
-/// [`StartupInput`]s, and when the daemon serves it fades out and emits
-/// [`StartupEvent::HandedOver`]. Inputs after the hand-over are ignored: a later outage is the
+/// [`Input`]s, and when the daemon serves it fades out and emits
+/// [`Event::HandedOver`]. Inputs after the hand-over are ignored: a later outage is the
 /// normal layout's business.
-pub struct StartupView {
-    machine: StartupMachine,
-    clock: Rc<dyn StartupClock>,
-    actions: Rc<dyn StartupActions>,
+pub struct View {
+    machine: Machine,
+    clock: Rc<dyn Clock>,
+    actions: Rc<dyn Actions>,
     drawn_fraction: f32,
     was_revealed: bool,
     handover: Handover,
@@ -38,25 +38,25 @@ pub struct StartupView {
 }
 
 mod adapters;
+mod clock;
+mod event;
 mod handing_over;
 mod handover;
-mod startup_clock;
-mod startup_event;
 
 pub use adapters::MonotonicClock;
-pub use startup_clock::StartupClock;
-pub use startup_event::StartupEvent;
+pub use clock::Clock;
+pub use event::Event;
 
-impl StartupView {
+impl View {
     /// A view in its starting state; `actions` receives the user's commands.
     pub fn new(
-        timing: StartupTiming,
-        clock: Rc<dyn StartupClock>,
-        actions: Rc<dyn StartupActions>,
+        timing: Timing,
+        clock: Rc<dyn Clock>,
+        actions: Rc<dyn Actions>,
         cx: &mut Context<'_, Self>,
     ) -> Self {
         let mut view = Self {
-            machine: StartupMachine::new(timing, clock.now()),
+            machine: Machine::new(timing, clock.now()),
             clock,
             actions,
             drawn_fraction: 0.0,
@@ -72,7 +72,7 @@ impl StartupView {
     /// Feeds what the daemon supervisor reported.
     pub fn apply(
         &mut self,
-        input: StartupInput,
+        input: Input,
         cx: &mut Context<'_, Self>,
     ) {
         if self.handover != Handover::Waiting {
@@ -122,39 +122,35 @@ impl StartupView {
     fn content(&self) -> gpui::AnyElement {
         let actions = &self.actions;
         match self.machine.screen() {
-            StartupScreen::Starting | StartupScreen::Ready => {
-                WaitingPanel::starting().into_any_element()
-            },
-            StartupScreen::Migrating { step, fraction } => {
+            Screen::Starting | Screen::Ready => WaitingPanel::starting().into_any_element(),
+            Screen::Migrating { step, fraction } => {
                 WaitingPanel::migrating(step.as_ref(), *fraction, self.drawn_fraction)
                     .into_any_element()
             },
-            StartupScreen::Halted { reason, message } => {
+            Screen::Halted { reason, message } => {
                 HaltPanel::new(reason, message.clone(), actions).into_any_element()
             },
-            StartupScreen::Unavailable(outage) => {
-                OutagePanel::new(outage, actions).into_any_element()
-            },
+            Screen::Unavailable(outage) => OutagePanel::new(outage, actions).into_any_element(),
         }
     }
 }
 
-impl std::fmt::Debug for StartupView {
+impl std::fmt::Debug for View {
     fn fmt(
         &self,
         formatter: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         formatter
-            .debug_struct("StartupView")
+            .debug_struct("View")
             .field("screen", self.machine.screen())
             .field("handover", &self.handover)
             .finish_non_exhaustive()
     }
 }
 
-impl EventEmitter<StartupEvent> for StartupView {}
+impl EventEmitter<Event> for View {}
 
-impl Render for StartupView {
+impl Render for View {
     fn render(
         &mut self,
         window: &mut Window,
@@ -212,19 +208,19 @@ mod tests {
     use gpui::{Entity, TestAppContext, VisualTestContext};
 
     use super::*;
-    use crate::startup_command::StartupCommand;
-    use crate::startup_machine::MigrationStep;
-    use crate::startup_machine::Outage;
+    use crate::command::Command;
+    use crate::machine::MigrationStep;
+    use crate::machine::Outage;
     use crate::test_support::{ManualClock, RecordingActions, click_across};
 
     pub(super) const REVEAL: Duration = Duration::from_millis(250);
     pub(super) const VISIBLE: Duration = Duration::from_millis(600);
 
     pub(super) struct Harness {
-        pub(super) view: Entity<StartupView>,
+        pub(super) view: Entity<View>,
         pub(super) clock: Rc<ManualClock>,
         pub(super) actions: Rc<RecordingActions>,
-        pub(super) events: Rc<RefCell<Vec<StartupEvent>>>,
+        pub(super) events: Rc<RefCell<Vec<Event>>>,
     }
 
     pub(super) fn at(millis: u64) -> Duration {
@@ -233,14 +229,14 @@ mod tests {
 
     pub(super) fn open(
         cx: &mut TestAppContext,
-        timing: StartupTiming,
+        timing: Timing,
     ) -> (Harness, &mut VisualTestContext) {
         cx.update(|cx| ui::init(cx).expect("the design system installs"));
         let clock = Rc::new(ManualClock::default());
         let actions = Rc::new(RecordingActions::default());
         let (view_clock, view_actions) = (Rc::clone(&clock), Rc::clone(&actions));
         let (view, cx) =
-            cx.add_window_view(move |_, cx| StartupView::new(timing, view_clock, view_actions, cx));
+            cx.add_window_view(move |_, cx| View::new(timing, view_clock, view_actions, cx));
         let events = Rc::new(RefCell::new(Vec::new()));
         let sink = Rc::clone(&events);
         cx.update(|_, cx| record_events(&view, sink, cx));
@@ -254,11 +250,11 @@ mod tests {
     }
 
     fn record_events(
-        view: &Entity<StartupView>,
-        sink: Rc<RefCell<Vec<StartupEvent>>>,
+        view: &Entity<View>,
+        sink: Rc<RefCell<Vec<Event>>>,
         cx: &mut App,
     ) {
-        cx.subscribe(view, move |_, event: &StartupEvent, _| {
+        cx.subscribe(view, move |_, event: &Event, _| {
             sink.borrow_mut().push(*event);
         })
         .detach();
@@ -267,7 +263,7 @@ mod tests {
     pub(super) fn feed(
         harness: &Harness,
         cx: &mut VisualTestContext,
-        input: StartupInput,
+        input: Input,
     ) {
         harness.view.update(cx, |view, cx| view.apply(input, cx));
     }
@@ -283,15 +279,15 @@ mod tests {
         cx.run_until_parked();
     }
 
-    pub(super) fn instant_timing() -> StartupTiming {
-        StartupTiming::new(Duration::ZERO, Duration::ZERO)
+    pub(super) fn instant_timing() -> Timing {
+        Timing::new(Duration::ZERO, Duration::ZERO)
     }
 
     #[gpui::test]
     fn migration_progress_reaches_the_protocol_phase_and_the_announcement(cx: &mut TestAppContext) {
         let (harness, cx) = open(cx, instant_timing());
         let step = MigrationStep::new("Rebuild index", 2, 5);
-        feed(&harness, cx, StartupInput::Migrating { step: Some(step) });
+        feed(&harness, cx, Input::Migrating { step: Some(step) });
         let (phase, spoken) = harness
             .view
             .read_with(cx, |view, _| (view.phase(), view.announcement()));
@@ -323,15 +319,15 @@ mod tests {
         feed(
             &harness,
             cx,
-            StartupInput::Halted {
+            Input::Halted {
                 reason: Some("layout_newer".to_owned()),
                 message: "layout 9 is newer than 7".to_owned(),
             },
         );
         click_everywhere(cx);
         let performed = harness.actions.performed();
-        assert!(performed.contains(&StartupCommand::Quit), "{performed:?}");
-        assert!(!performed.contains(&StartupCommand::Retry), "{performed:?}");
+        assert!(performed.contains(&Command::Quit), "{performed:?}");
+        assert!(!performed.contains(&Command::Retry), "{performed:?}");
     }
 
     #[gpui::test]
@@ -340,12 +336,12 @@ mod tests {
         feed(
             &harness,
             cx,
-            StartupInput::Unavailable(Outage::GaveUp {
+            Input::Unavailable(Outage::GaveUp {
                 report: "log".to_owned(),
             }),
         );
         click_everywhere(cx);
         let performed = harness.actions.performed();
-        assert!(performed.contains(&StartupCommand::Retry), "{performed:?}");
+        assert!(performed.contains(&Command::Retry), "{performed:?}");
     }
 }

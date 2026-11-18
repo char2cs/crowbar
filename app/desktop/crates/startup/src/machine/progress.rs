@@ -1,24 +1,24 @@
 //! How inputs map to screens and how migration progress is kept.
 
-use super::StartupMachine;
-use crate::startup_machine::halt_reason::HaltReason;
-use crate::startup_machine::migration_step::MigrationStep;
-use crate::startup_machine::startup_input::StartupInput;
-use crate::startup_machine::startup_screen::StartupScreen;
+use super::Machine;
+use crate::machine::halt_reason::HaltReason;
+use crate::machine::input::Input;
+use crate::machine::migration_step::MigrationStep;
+use crate::machine::screen::Screen;
 
-impl StartupMachine {
+impl Machine {
     pub(crate) fn screen_for(
         &mut self,
-        input: StartupInput,
-    ) -> StartupScreen {
+        input: Input,
+    ) -> Screen {
         match input {
-            StartupInput::Starting => StartupScreen::Starting,
-            StartupInput::Ready => StartupScreen::Ready,
-            StartupInput::Migrating { step } => self.migrating(step),
-            StartupInput::Halted { reason, message } => self.halted(reason.as_deref(), message),
-            StartupInput::Unavailable(outage) => {
+            Input::Starting => Screen::Starting,
+            Input::Ready => Screen::Ready,
+            Input::Migrating { step } => self.migrating(step),
+            Input::Halted { reason, message } => self.halted(reason.as_deref(), message),
+            Input::Unavailable(outage) => {
                 self.forget_run();
-                StartupScreen::Unavailable(outage)
+                Screen::Unavailable(outage)
             },
         }
     }
@@ -27,9 +27,9 @@ impl StartupMachine {
         &mut self,
         code: Option<&str>,
         message: String,
-    ) -> StartupScreen {
+    ) -> Screen {
         self.forget_run();
-        StartupScreen::Halted {
+        Screen::Halted {
             reason: HaltReason::from_code(code),
             message,
         }
@@ -38,12 +38,12 @@ impl StartupMachine {
     pub(crate) fn migrating(
         &mut self,
         reported: Option<MigrationStep>,
-    ) -> StartupScreen {
+    ) -> Screen {
         if let Some(step) = reported.filter(|step| !self.is_stale(step)) {
             self.peak = higher(self.peak, step.fraction());
             self.step = Some(step);
         }
-        StartupScreen::Migrating {
+        Screen::Migrating {
             step: self.step.clone(),
             fraction: self.peak,
         }

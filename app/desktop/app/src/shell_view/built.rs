@@ -5,7 +5,6 @@ use std::sync::atomic::AtomicBool;
 use gpui::{Entity, Subscription};
 use layoutview::LayoutView;
 use sidebarview::Sidebar;
-use startup::StartupView;
 use store::ShellData;
 use ui::ToastQueue;
 use viewtabs::TabBar;
@@ -21,7 +20,7 @@ pub(super) struct Built {
     pub(super) workspace: Entity<Workspace>,
     pub(super) source: Rc<ShellPaneSource>,
     pub(super) sidebar: Entity<Sidebar>,
-    pub(super) startup: Entity<StartupView>,
+    pub(super) startup: Entity<startup::View>,
     pub(super) notices: Entity<ToastQueue>,
     pub(super) subscriptions: Vec<Subscription>,
 }

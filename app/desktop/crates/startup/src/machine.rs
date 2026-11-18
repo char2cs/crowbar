@@ -11,12 +11,12 @@ use std::time::Duration;
 /// - Once drawn, a normal screen stays `min_visible` before a different normal screen replaces it;
 ///   only the latest queued screen survives. Failures and updates of the same screen apply at once.
 #[derive(Debug, Clone)]
-pub struct StartupMachine {
-    timing: StartupTiming,
-    shown: StartupScreen,
+pub struct Machine {
+    timing: Timing,
+    shown: Screen,
     shown_at: Duration,
     revealed_at: Duration,
-    queued: Option<StartupScreen>,
+    queued: Option<Screen>,
     step: Option<MigrationStep>,
     peak: Option<f32>,
     now: Duration,
@@ -24,30 +24,30 @@ pub struct StartupMachine {
 
 mod app_phase;
 mod halt_reason;
+mod input;
 mod migration_step;
 mod outage;
 mod progress;
-mod startup_input;
-mod startup_screen;
-mod startup_timing;
+mod screen;
+mod timing;
 
 pub use app_phase::AppPhase;
 pub use halt_reason::HaltReason;
+pub use input::Input;
 pub use migration_step::MigrationStep;
 pub use outage::Outage;
-pub use startup_input::StartupInput;
-pub use startup_screen::StartupScreen;
-pub use startup_timing::StartupTiming;
+pub use screen::Screen;
+pub use timing::Timing;
 
-impl StartupMachine {
-    /// A machine showing [`StartupScreen::Starting`] from `now`.
+impl Machine {
+    /// A machine showing [`Screen::Starting`] from `now`.
     pub fn new(
-        timing: StartupTiming,
+        timing: Timing,
         now: Duration,
     ) -> Self {
         Self {
             timing,
-            shown: StartupScreen::Starting,
+            shown: Screen::Starting,
             shown_at: now,
             revealed_at: now + timing.reveal_delay(),
             queued: None,
@@ -60,7 +60,7 @@ impl StartupMachine {
     /// Feeds one supervisor input observed at `now`.
     pub fn apply(
         &mut self,
-        input: StartupInput,
+        input: Input,
         now: Duration,
     ) {
         self.now = self.now.max(now);
@@ -79,7 +79,7 @@ impl StartupMachine {
     }
 
     /// The screen to draw.
-    pub fn screen(&self) -> &StartupScreen {
+    pub fn screen(&self) -> &Screen {
         &self.shown
     }
 
@@ -97,7 +97,7 @@ impl StartupMachine {
 
     fn admit(
         &mut self,
-        target: StartupScreen,
+        target: Screen,
     ) {
         let replaces_in_place = discriminant(&target) == discriminant(&self.shown);
         let immediate = target.is_failure() || self.shown.is_failure() || replaces_in_place;
@@ -119,7 +119,7 @@ impl StartupMachine {
 
     fn commit(
         &mut self,
-        screen: StartupScreen,
+        screen: Screen,
     ) {
         if screen.is_failure() {
             self.revealed_at = self.revealed_at.min(self.now);
@@ -137,8 +137,8 @@ impl StartupMachine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::startup_machine::halt_reason::HaltReason;
-    use crate::startup_machine::outage::Outage;
+    use crate::machine::halt_reason::HaltReason;
+    use crate::machine::outage::Outage;
 
     const REVEAL: Duration = Duration::from_millis(250);
     const VISIBLE: Duration = Duration::from_millis(600);
@@ -325,60 +325,60 @@ mod tests {
     }
 
     fn feed(
-        machine: &mut StartupMachine,
+        machine: &mut Machine,
         next: Move,
     ) {
         let (millis, input) = match next {
             Move::Tick(millis) => return machine.tick(Duration::from_millis(millis)),
-            Move::Starting(millis) => (millis, StartupInput::Starting),
-            Move::Ready(millis) => (millis, StartupInput::Ready),
+            Move::Starting(millis) => (millis, Input::Starting),
+            Move::Ready(millis) => (millis, Input::Ready),
             Move::Step(millis, index, total) => (
                 millis,
-                StartupInput::Migrating {
+                Input::Migrating {
                     step: Some(migrating_step(index, total)),
                 },
             ),
-            Move::NoStep(millis) => (millis, StartupInput::Migrating { step: None }),
-            Move::Stopped(millis) => (millis, StartupInput::Unavailable(Outage::Stopped)),
+            Move::NoStep(millis) => (millis, Input::Migrating { step: None }),
+            Move::Stopped(millis) => (millis, Input::Unavailable(Outage::Stopped)),
             Move::Recovering(millis) => (millis, recovering()),
             Move::HaltedNewer(millis) => (millis, halted_newer()),
         };
         machine.apply(input, Duration::from_millis(millis));
     }
 
-    fn recovering() -> StartupInput {
-        StartupInput::Unavailable(Outage::Recovering {
+    fn recovering() -> Input {
+        Input::Unavailable(Outage::Recovering {
             attempt: 1,
             reason: "exit 1".to_owned(),
         })
     }
 
-    fn halted_newer() -> StartupInput {
-        StartupInput::Halted {
+    fn halted_newer() -> Input {
+        Input::Halted {
             reason: Some("layout_newer".to_owned()),
             message: "newer".to_owned(),
         }
     }
 
-    fn screen_of(want: Want) -> StartupScreen {
+    fn screen_of(want: Want) -> Screen {
         match want {
-            Want::Starting => StartupScreen::Starting,
-            Want::Ready => StartupScreen::Ready,
-            Want::Stopped => StartupScreen::Unavailable(Outage::Stopped),
-            Want::HaltedNewer => StartupScreen::Halted {
+            Want::Starting => Screen::Starting,
+            Want::Ready => Screen::Ready,
+            Want::Stopped => Screen::Unavailable(Outage::Stopped),
+            Want::HaltedNewer => Screen::Halted {
                 reason: HaltReason::LayoutNewer,
                 message: "newer".to_owned(),
             },
-            Want::Migrating(index, total, fraction) => StartupScreen::Migrating {
+            Want::Migrating(index, total, fraction) => Screen::Migrating {
                 step: Some(migrating_step(index, total)),
                 fraction,
             },
         }
     }
 
-    fn play(moves: &[Move]) -> StartupMachine {
-        let timing = StartupTiming::new(REVEAL, VISIBLE);
-        let mut machine = StartupMachine::new(timing, Duration::ZERO);
+    fn play(moves: &[Move]) -> Machine {
+        let timing = Timing::new(REVEAL, VISIBLE);
+        let mut machine = Machine::new(timing, Duration::ZERO);
         for next in moves {
             feed(&mut machine, *next);
         }

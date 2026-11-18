@@ -1,13 +1,13 @@
-use crate::startup_machine::app_phase::AppPhase;
+use crate::machine::app_phase::AppPhase;
 
-use crate::startup_machine::halt_reason::HaltReason;
-use crate::startup_machine::migration_step::MigrationStep;
-use crate::startup_machine::outage::Outage;
+use crate::machine::halt_reason::HaltReason;
+use crate::machine::migration_step::MigrationStep;
+use crate::machine::outage::Outage;
 
 /// What the full-screen view shows right now.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
-pub enum StartupScreen {
+pub enum Screen {
     /// Waiting for the daemon to answer.
     Starting,
     /// The daemon upgrades its data.
@@ -30,7 +30,7 @@ pub enum StartupScreen {
     Ready,
 }
 
-impl StartupScreen {
+impl Screen {
     /// Whether this screen is part of a normal start (as opposed to a failure or the end).
     pub fn is_waiting(&self) -> bool {
         matches!(self, Self::Starting | Self::Migrating { .. })
@@ -117,21 +117,21 @@ mod tests {
     fn migrating(
         step: Option<MigrationStep>,
         fraction: Option<f32>,
-    ) -> StartupScreen {
-        StartupScreen::Migrating { step, fraction }
+    ) -> Screen {
+        Screen::Migrating { step, fraction }
     }
 
     #[test]
     fn only_ready_shows_the_layout() {
         let screens = [
-            StartupScreen::Starting,
+            Screen::Starting,
             migrating(None, None),
-            StartupScreen::Halted {
+            Screen::Halted {
                 reason: HaltReason::StepFailed,
                 message: "boom".to_owned(),
             },
-            StartupScreen::Unavailable(Outage::Stopped),
-            StartupScreen::Ready,
+            Screen::Unavailable(Outage::Stopped),
+            Screen::Ready,
         ];
         let shown: Vec<bool> = screens
             .iter()
@@ -161,7 +161,7 @@ mod tests {
             "Upgrading your data. Step 2 of 5: Rebuild index. 40 percent."
         );
         assert_eq!(migrating(None, None).announcement(), "Upgrading your data.");
-        let halted = StartupScreen::Halted {
+        let halted = Screen::Halted {
             reason: HaltReason::LayoutNewer,
             message: "layout 9 is newer than 7".to_owned(),
         };
@@ -176,14 +176,10 @@ mod tests {
     #[test]
     fn waiting_and_failure_are_exclusive() {
         let screens = [
-            (StartupScreen::Starting, true, false),
+            (Screen::Starting, true, false),
             (migrating(None, None), true, false),
-            (
-                StartupScreen::Unavailable(Outage::Unresponsive),
-                false,
-                true,
-            ),
-            (StartupScreen::Ready, false, false),
+            (Screen::Unavailable(Outage::Unresponsive), false, true),
+            (Screen::Ready, false, false),
         ];
         for (screen, waiting, failure) in screens {
             assert_eq!(screen.is_waiting(), waiting, "{screen:?}");

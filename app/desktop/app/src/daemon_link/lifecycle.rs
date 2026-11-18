@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-use startup::StartupInput;
-
 use super::DaemonLink;
 use super::launch::try_launch;
 use crate::app_options::AppOptions;
@@ -47,7 +45,7 @@ impl DaemonLink {
 async fn relaunch_unless_running(
     options: &AppOptions,
     state: &LinkState,
-    sender: &async_channel::Sender<StartupInput>,
+    sender: &async_channel::Sender<startup::Input>,
 ) {
     let _turn = state.turn().await;
     if state.supervisor().is_none() {
@@ -69,7 +67,7 @@ mod tests {
     fn retry(
         runtime: &tokio::runtime::Runtime,
         state: &LinkState,
-        sender: &async_channel::Sender<StartupInput>,
+        sender: &async_channel::Sender<startup::Input>,
     ) {
         let options = options_without_a_daemon();
         runtime.block_on(relaunch_unless_running(&options, state, sender));

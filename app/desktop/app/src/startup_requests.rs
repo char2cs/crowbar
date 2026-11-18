@@ -1,5 +1,5 @@
 use gpui::App;
-use startup::{StartupActions, StartupCommand};
+use startup::Actions;
 
 use crate::request_queue::{Requests, send};
 use crate::shell_request::ShellRequest;
@@ -7,10 +7,10 @@ use crate::shell_request::ShellRequest;
 #[derive(Debug, Clone)]
 pub(crate) struct StartupRequests(pub(crate) Requests);
 
-impl StartupActions for StartupRequests {
+impl Actions for StartupRequests {
     fn perform(
         &self,
-        command: StartupCommand,
+        command: startup::Command,
         _cx: &mut App,
     ) {
         send(&self.0, ShellRequest::Startup(command));
@@ -27,10 +27,10 @@ mod tests {
     fn a_startup_command_becomes_a_shell_request(cx: &mut TestAppContext) {
         let (requests, queue) = async_channel::unbounded();
         let actions = StartupRequests(requests);
-        cx.update(|cx| actions.perform(StartupCommand::Retry, cx));
+        cx.update(|cx| actions.perform(startup::Command::Retry, cx));
         assert_eq!(
             queue.try_recv(),
-            Ok(ShellRequest::Startup(StartupCommand::Retry)),
+            Ok(ShellRequest::Startup(startup::Command::Retry)),
             "queued for the shell"
         );
     }

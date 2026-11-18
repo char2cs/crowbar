@@ -13,9 +13,7 @@ use gpui::{
     App, AppContext as _, Application, AsyncApp, Bounds, Context, Entity, WindowBounds,
     WindowOptions, px, size,
 };
-use startup::{
-    MonotonicClock, StartupActions, StartupCommand, StartupEvent, StartupInput, StartupView,
-};
+use startup::{Command, Event, Input, MonotonicClock, View};
 use ui::{Theme, ThemeId, ThemeMode};
 
 use crate::phases::{DEMO_PHASE, STEPS, migrating, phase_input, timing_for};
@@ -24,13 +22,13 @@ const DEFAULT_SIZE: (f32, f32) = (1200.0, 800.0);
 const STEP_TIME: Duration = Duration::from_millis(1200);
 
 struct Actions {
-    quits_on: StartupCommand,
+    quits_on: Command,
 }
 
-impl StartupActions for Actions {
+impl startup::Actions for Actions {
     fn perform(
         &self,
-        command: StartupCommand,
+        command: Command,
         cx: &mut App,
     ) {
         if command == self.quits_on {
@@ -53,7 +51,7 @@ fn parse_size(value: &str) -> Option<(f32, f32)> {
 }
 
 fn play(
-    view: &Entity<StartupView>,
+    view: &Entity<View>,
     cx: &mut App,
 ) {
     let view = view.clone();
@@ -62,18 +60,18 @@ fn play(
 }
 
 async fn play_sequence(
-    view: &Entity<StartupView>,
+    view: &Entity<View>,
     cx: &mut AsyncApp,
 ) {
-    let sequence = std::iter::once(StartupInput::Starting)
+    let sequence = std::iter::once(Input::Starting)
         .chain((1..=STEPS).map(migrating))
-        .chain(std::iter::once(StartupInput::Ready));
+        .chain(std::iter::once(Input::Ready));
     play_all(view, sequence, cx).await;
 }
 
 async fn play_all(
-    view: &Entity<StartupView>,
-    sequence: impl Iterator<Item = StartupInput>,
+    view: &Entity<View>,
+    sequence: impl Iterator<Item = Input>,
     cx: &mut AsyncApp,
 ) -> Option<()> {
     for input in sequence {
@@ -83,8 +81,8 @@ async fn play_all(
 }
 
 async fn step(
-    view: &Entity<StartupView>,
-    input: StartupInput,
+    view: &Entity<View>,
+    input: Input,
     cx: &mut AsyncApp,
 ) -> Option<()> {
     cx.background_executor().timer(STEP_TIME).await;
@@ -93,14 +91,14 @@ async fn step(
 
 fn build(
     phase: &str,
-    cx: &mut Context<'_, StartupView>,
-) -> StartupView {
+    cx: &mut Context<'_, View>,
+) -> View {
     let timing = timing_for(phase);
-    let mut view = StartupView::new(
+    let mut view = View::new(
         timing,
         Rc::new(MonotonicClock::start()),
         Rc::new(Actions {
-            quits_on: StartupCommand::Quit,
+            quits_on: Command::Quit,
         }),
         cx,
     );
@@ -111,10 +109,10 @@ fn build(
 }
 
 fn quit_when_handed_over(
-    event: StartupEvent,
+    event: Event,
     cx: &mut App,
 ) {
-    if event == StartupEvent::HandedOver {
+    if event == Event::HandedOver {
         cx.quit();
     }
 }
@@ -149,7 +147,7 @@ fn open(
         cx.quit();
         return;
     };
-    cx.subscribe(&view, |_view, event: &StartupEvent, cx| {
+    cx.subscribe(&view, |_view, event: &Event, cx| {
         quit_when_handed_over(*event, cx);
     })
     .detach();

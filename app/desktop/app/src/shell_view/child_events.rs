@@ -2,7 +2,6 @@ use gpui::{Context, Entity, Subscription, Window};
 use layout::Command;
 use layoutview::LayoutEvent;
 use sidebarview::{Sidebar, SidebarEvent};
-use startup::StartupEvent;
 use ui::ToastKind;
 use viewtabs::TabBar;
 
@@ -126,11 +125,11 @@ impl ShellView {
 
     fn on_startup(
         &mut self,
-        event: StartupEvent,
+        event: startup::Event,
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        if !matches!(event, StartupEvent::HandedOver) {
+        if !matches!(event, startup::Event::HandedOver) {
             return;
         }
         window.set_window_title(&self.window_title);
