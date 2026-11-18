@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
@@ -45,8 +46,15 @@ func checkType(id string, typing *spec.PromptTypeSpec) error {
 	if typing == nil {
 		return nil
 	}
-	if typing.Paste != spec.PasteBracketed {
-		return invalid(id, "presentation.prompt_submit.type.paste %q is not a known paste mode", typing.Paste)
+	if typing.Input != spec.InputKeys {
+		return invalid(id, "presentation.prompt_submit.type.input %q is not a known input mode", typing.Input)
+	}
+	// Four bytes: the widest rune, so a chunk can always take one.
+	if typing.ChunkBytes < utf8.UTFMax {
+		return invalid(id, "presentation.prompt_submit.type.chunk_bytes must be at least %d", utf8.UTFMax)
+	}
+	if typing.ChunkIntervalMS < 0 {
+		return invalid(id, "presentation.prompt_submit.type.chunk_interval_ms is negative")
 	}
 	if typing.Submit == "" {
 		return invalid(id, "presentation.prompt_submit.type.submit is required")
@@ -59,6 +67,9 @@ func checkType(id string, typing *spec.PromptTypeSpec) error {
 	}
 	if slices.Contains(typing.SkipPrefixes, "") {
 		return invalid(id, "presentation.prompt_submit.type.skip_prefixes holds an empty entry")
+	}
+	if slices.Contains(typing.SkipSuffixes, "") {
+		return invalid(id, "presentation.prompt_submit.type.skip_suffixes holds an empty entry")
 	}
 	return nil
 }

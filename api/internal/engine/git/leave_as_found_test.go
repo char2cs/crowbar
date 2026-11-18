@@ -264,6 +264,10 @@ func userView(t *testing.T, e git.Engine, repo string) string {
 	return view + "op=" + op
 }
 
+// forkSlots bounds the subtests forking git at once: under -race a child forked
+// beside many busy threads can hang or segfault before it execs.
+var forkSlots = make(chan struct{}, 4)
+
 // Every stoppable verb, refused by git or by a hook over each kind of the
 // user's own state, leaves that state exactly as it found it.
 func TestStoppableVerbs_AFailureLeavesTheUsersStateAsFound(t *testing.T) {
@@ -272,6 +276,8 @@ func TestStoppableVerbs_AFailureLeavesTheUsersStateAsFound(t *testing.T) {
 			for _, hook := range []string{"", "pre-commit", "pre-merge-commit"} {
 				t.Run(verb+"/"+state+"/"+hook, func(t *testing.T) {
 					t.Parallel()
+					forkSlots <- struct{}{}
+					t.Cleanup(func() { <-forkSlots })
 					repo := initRepo(t)
 					makeCommit(t, repo, "base.txt", "base\n", "base")
 					gitRun(t, repo, "tag", "base")

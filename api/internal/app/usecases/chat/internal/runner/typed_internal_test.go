@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/rivo/uniseg"
@@ -77,6 +78,7 @@ func newTypedFixture(t *testing.T, term seamTerm) typedFixture {
 	t.Helper()
 	h := newSpawnHarness(t, "")
 	h.rs.term = term
+	h.rs.pause = func(context.Context, time.Duration) error { return nil }
 	h.rs.home = func() (string, error) { return h.home, nil }
 	h.rs.chats = stubChatsForSpawn{chat: domain.Chat{ID: h.chatID, WorkspaceID: "ws-1", ProviderID: "claude"}}
 	h.rs.conversations = reviveConversations{provider: "claude"}
@@ -139,7 +141,22 @@ func (f typedFixture) subagentOutlivingTurn(t *testing.T) {
 	require.True(t, st.Busy() && !running, "precondition: only a subagent runs")
 }
 
-func pasted(text string) string { return "\x1b[200~" + text + "\x1b[201~\r" }
+// typedText is the words written to the PTY: every write but the closing submit key.
+func (f typedFixture) typedText() string {
+	var b strings.Builder
+	writes := f.term.written()
+	for _, w := range writes[:len(writes)-1] {
+		b.WriteString(w.data)
+	}
+	return b.String()
+}
+
+func (f typedFixture) liveDescriptor(t *testing.T) engineagents.Agent {
+	t.Helper()
+	d, err := f.h.rs.agents.Get(t.Context(), f.h.home, "claude")
+	require.NoError(t, err)
+	return d
+}
 
 func TestSubmitPrompt_AnIdleCLIWithAnEmptyComposerIsTypedInto(t *testing.T) {
 	for name, setup := range map[string]func(*testing.T, typedFixture){
@@ -160,8 +177,10 @@ func TestSubmitPrompt_AnIdleCLIWithAnEmptyComposerIsTypedInto(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, domain.AgentPromptSubmission{RunnerID: f.live.ID, TerminalSessionID: f.live.TerminalSession}, got)
-			assert.Equal(t, []termWrite{{sessionID: f.live.TerminalSession, data: pasted("rename the helper")}},
-				f.term.written(), "one write: the paste and the submit key")
+			assert.Equal(t, []termWrite{
+				{sessionID: f.live.TerminalSession, data: "rename the helper"},
+				{sessionID: f.live.TerminalSession, data: "\r"},
+			}, f.term.written(), "the words, then the submit key as a write of its own")
 			p := promptReceipt(t, f.h.rs.ledger, requestID)
 			assert.Equal(t, ledger.DeliveryType, p.Delivery)
 			assert.Equal(t, f.live.ID, p.RunnerID)
@@ -169,6 +188,34 @@ func TestSubmitPrompt_AnIdleCLIWithAnEmptyComposerIsTypedInto(t *testing.T) {
 			assert.Equal(t, 1, f.term.callCount(), "no CLI is launched")
 			assert.Empty(t, f.term.terminated, "the live CLI is not displaced")
 		})
+	}
+}
+
+// A long multi-line message is the shape a TUI wraps as a paste once one read
+// carries too much: it goes in as keystrokes in bounded writes, paced.
+func TestSubmitPrompt_ALongMultiLineMessageIsTypedInPacedChunks(t *testing.T) {
+	f := newTypedFixture(t, &typingTerm{screen: emptyComposer(t)})
+	typing, ok := f.liveDescriptor(t).PromptType()
+	require.True(t, ok)
+	var pauses []time.Duration
+	f.h.rs.pause = func(_ context.Context, d time.Duration) error { pauses = append(pauses, d); return nil }
+	text := strings.Repeat("> a quoted line that goes on for a while, with words\n\nanother paragraph here.\n\n", 7)
+	require.Greater(t, len(text), 500)
+
+	_, err := f.h.rs.SubmitPrompt(t.Context(), f.h.chatID, text, uuid.NewString())
+
+	require.NoError(t, err)
+	writes := f.term.written()
+	require.Greater(t, len(writes), 2)
+	for _, w := range writes[:len(writes)-1] {
+		assert.LessOrEqual(t, len(w.data), typing.ChunkBytes)
+		assert.NotContains(t, w.data, "\x1b")
+	}
+	assert.Equal(t, text, f.typedText(), "every byte typed, nothing wrapped")
+	assert.Equal(t, typing.Submit, writes[len(writes)-1].data)
+	require.Len(t, pauses, len(writes)-1, "a pause between every pair of writes")
+	for _, d := range pauses {
+		assert.Equal(t, typing.ChunkInterval, d)
 	}
 }
 
@@ -212,7 +259,7 @@ func TestSubmitPrompt_ACLIThatCannotBeTypedIntoIsNotTyped(t *testing.T) {
 		}},
 		"a slash command":            {text: "/compact", delivery: ledger.DeliveryRestart},
 		"a shell command":            {text: "!ls", delivery: ledger.DeliveryRestart},
-		"the end-paste sequence":     {text: "a\x1b[201~b", delivery: ledger.DeliveryRestart},
+		"an escape sequence":         {text: "a\x1b[201~b", delivery: ledger.DeliveryRestart},
 		"a pending move":             {text: "hello", wantErr: ErrChatMoving, setup: pendingMove},
 		"a subagent and no type yet": {text: "/compact", wantErr: ErrPromptBusy, setup: subagentOnly},
 	} {
@@ -311,9 +358,10 @@ func (f *stuckTerm) Write(ctx context.Context, _ string, _ []byte) error {
 	return context.Cause(ctx)
 }
 
-// A paste the CLI never reads holds the chat only until Stop: Stop ends the wait,
-// the prompt settles delivery_failed, and the stop goes through.
-func TestSubmitPrompt_StopEndsATypeTheCLINeverReads(t *testing.T) {
+// Typing holds the chat only until Stop: Stop ends it, and the prompt is the
+// stop's own, settled stopped: the send is answered as stopped, not as an
+// outcome to inspect (the row and the answer must say the same).
+func TestRegression_SubmitPrompt_StopDuringTypingSettlesThePromptStopped(t *testing.T) {
 	term := &stuckTerm{typingTerm: typingTerm{screen: emptyComposer(t)}, writing: make(chan struct{})}
 	f := newTypedFixture(t, term)
 	requestID := uuid.NewString()
@@ -326,10 +374,11 @@ func TestSubmitPrompt_StopEndsATypeTheCLINeverReads(t *testing.T) {
 
 	require.NoError(t, f.h.rs.StopChat(t.Context(), f.h.chatID))
 
-	require.ErrorIs(t, <-submitted, ErrPromptOutcomeUnknown)
+	require.ErrorIs(t, <-submitted, ErrStopped)
 	p := promptReceipt(t, f.h.rs.ledger, requestID)
 	assert.Equal(t, ledger.PromptStatusSettled, p.Status)
-	assert.Equal(t, ledger.ReasonDeliveryFailed, p.Reason)
+	assert.Equal(t, ledger.ReasonStopped, p.Reason)
+	assert.False(t, p.Consumed)
 }
 
 func TestSubmitPrompt_AResendIsNeverTypedTwice(t *testing.T) {
@@ -341,7 +390,8 @@ func TestSubmitPrompt_AResendIsNeverTypedTwice(t *testing.T) {
 	_, err = f.h.rs.SubmitPrompt(t.Context(), f.h.chatID, "hello", requestID)
 	require.NoError(t, err)
 
-	assert.Len(t, f.term.written(), 1)
+	assert.Equal(t, "hello", f.typedText(), "typed once, with its submit key")
+	assert.Len(t, f.term.written(), 2)
 }
 
 // The typed text is what a launch would be handed: an attachment the message
@@ -357,8 +407,8 @@ func TestSubmitPrompt_ATypedAttachmentIsGuardedAndMaterialised(t *testing.T) {
 	_, err = f.h.rs.SubmitPrompt(t.Context(), f.h.chatID, text, uuid.NewString())
 
 	require.NoError(t, err)
-	require.Len(t, f.term.written(), 1)
-	assert.Equal(t, pasted(" ![shot]("+stored+") what is this"), f.term.written()[0].data)
+	require.Len(t, f.term.written(), 2)
+	assert.Equal(t, " ![shot]("+stored+") what is this", f.typedText())
 }
 
 // A runner whose view is an attach of its api session is not typed into: its

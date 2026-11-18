@@ -6,13 +6,13 @@ Deviations from the plan: the gate runs ahead of `requirePromptIdle` rather than
 after it, because that check refuses on `State.Busy()`, which a running subagent
 holds; the ledger half of the gate (no main-scope turn, no pending prompt or
 move, the text with its move note still typeable) is decided inside the commit
-that records the prompt, and the gate, the record and the paste all run in the
+that records the prompt, and the gate, the record and the typing all run in the
 runner's turn order. A runner with an attached view is never typed into: that
 view is an attach client of an api session, which the api path delivers to.
 `skip_prefixes` is judged on the dispatch text, after the sigil guard, so a
 message opening with an attachment is typed escaped. Fixing the black-box test
 surfaced a terminal bug: a fresh PTY's first foreground sample cleared the modes
-its app set in its first output (bracketed paste among them); a fresh birth now
+its app set in its first output (bracketed paste mode among them); a fresh birth now
 latches its own process group, and only a restore keeps that startup reset.
 
 ## 1. The problem
@@ -29,8 +29,8 @@ stay the way Crowbar *listens*; this plan changes how an idle prompt *goes in*.
 ## 2. Decision
 
 When the chat's live CLI is idle, its descriptor declares `prompt_submit.type`,
-and the terminal shows an empty composer with bracketed paste on, Crowbar writes
-the prompt into the CLI's PTY as a bracketed paste followed by the submit key.
+and the terminal shows an empty composer, Crowbar types the prompt into the
+CLI's PTY as keys, in small chunks, then sends the submit key as a write of its own.
 In every other case the existing restart path runs unchanged. That choice is made
 before anything is sent, so it is a decision and not a retry.
 
@@ -47,9 +47,12 @@ presentation:
   prompt_submit:
     strategy: restart_tui
     type:
-      paste: bracketed          # message wrapped in ESC[200~ … ESC[201~
-      submit: "\r"              # key that sends it
+      input: keys               # typed as keystrokes, never a bracketed paste
+      chunk_bytes: 256          # at most this many bytes per write, cut on a rune
+      chunk_interval_ms: 10     # pause between writes, so the CLI reads keys not a paste
+      submit: "\r"              # key that sends it, written alone after the chunks
       skip_prefixes: ["/", "!"] # messages that must still restart (see §8)
+      skip_suffixes: ["\\"]     # a trailing backslash makes the submit a line break
       composer:                 # how the empty input box looks
         row_prefix: "❯\u00a0"   # glyph + NO-BREAK space; a plain space never matches
 ```
@@ -60,8 +63,8 @@ after it is blank or drawn as `composer.ghost` (`faint`: SGR 2). The cursor
 column alone is not enough: Home on a draft puts the cursor where an empty box
 has it, with the (non-faint) draft after it. No Go code names a provider.
 
-The rule (`rules/prompt_submit.go`) validates the block: `paste` is a known
-value, `submit` and `row_prefix` are non-empty. `type` requires `strategy:
+The rule (`rules/prompt_submit.go`) validates the block: `input` is a known
+value, `chunk_bytes` is large enough for a rune, `submit` and `row_prefix` are non-empty. `type` requires `strategy:
 restart_tui` (the fallback must exist) and a declared `steer`-independent
 `session.resume`, as today.
 
@@ -76,9 +79,11 @@ of `submitPromptLocked`. A prompt is typed only when all hold:
    open meanwhile).
 3. `selectionRequiresRestart` is false (a changed model, effort or permission
    level still restarts).
-4. The runner has a live PTY terminal session, and its snapshot reports bracketed
-   paste on and an empty composer.
-5. The message does not start with one of the block's `skip_prefixes`.
+4. The runner has a live PTY terminal session, and its snapshot reports an empty
+   composer (bracketed paste mode on is how the snapshot shows the TUI is up).
+5. The message does not start with one of the block's `skip_prefixes`, does not
+   end with one of its `skip_suffixes`, and holds no control character other than
+   a newline (C0, DEL or C1): it reaches the CLI exactly as written or not at all.
 
 The composer test alone cannot tell idle from busy (§8): it reads empty
 mid-turn too. Idleness is the ledger's call, and it must be "no main-scope turn
@@ -93,12 +98,17 @@ Otherwise `resolvePromptDelivery` / `launchCarrying` run as before.
   `pending` **before** the write, with the leading-sigil guard and attachment
   materialisation applied as the restart path does, and the move note registered
   through `RecordInjection` as the API branch does.
-- The write is one paste plus the submit key to `live.TerminalSession`. A write
+- The writes are the chunks, then the submit key alone, each `chunk_interval_ms`
+  apart, to `live.TerminalSession`. A write
   error settles the prompt `delivery_failed` (`failPrompt`).
 - The receipt is the `UserPromptSubmit` hook. Ingress already matches the oldest
   pending prompt whose text and carrier runner equal the hook's, and flips it to
   `delivered`. A prompt the CLI never takes settles `not_acknowledged` on idle
   (`SettleUntaken`) because its delivery is not `steer`. Nothing new is polled.
+- A prompt typed while the CLI is still inside the last turn's Stop names that
+  turn's `prompt_id` on its `UserPromptSubmit` (measured 2.1.327, within ~30 ms
+  of the Stop). Ingress reads an id it already knows as a retry only when no
+  pending prompt awaits those words; otherwise the turn opens with no provider id.
 - Retract: a typed prompt is with the CLI the moment it is written, so
   `cliHolds` reports it held and it cannot be recalled.
 
@@ -128,11 +138,16 @@ launch divider.
    placeholder and the repeated-prompt suggestion are faint; `hello` then Home
    (Ctrl-A) reads col 2 with a non-faint draft after it.
 2. **Submit.** Paste plus `\r` in one write submitted 3 of 3; two back-to-back
-   writes also 3 of 3. No wait signal is needed.
-3. **Sigils.** Under paste a leading `!` still enters shell mode and a leading
+   writes also 3 of 3. A bracketed paste is rewritten by the TUI and a single read
+   of ~800+ bytes is taken as one, so delivery types keys instead (2.1.327: chunks
+   of 256 bytes 10 ms apart, then `\r` alone, submitted every case below, 5,000
+   characters and emoji/CJK across a chunk edge included). Enter after a trailing
+   backslash is a line continuation and leaves the draft, so `skip_suffixes` sends
+   such a message down the restart path.
+3. **Sigils.** As typed keys a leading `!` still enters shell mode and a leading
    `/` still runs the command. So `leading_sigils` stays for the restart path
    and those messages are kept off typed delivery by `skip_prefixes`.
-4. **Multi-line.** A paste with an embedded newline is one draft, and `\r`
+4. **Multi-line.** Text with an embedded newline is one draft, and `\r`
    sends one message.
 5. **Busy.** The composer reads empty mid-turn too, so only the ledger guards
    against typing into a running turn.
@@ -145,25 +160,25 @@ account; the 2.1.319 recording stays the only evidence for it.
 
 - `rules`: accepts a well-formed `type` block, rejects each broken shape.
 - Gate (runner internal tests, fake commander): typed when all hold; restart
-  when busy, pending, selection changed, no PTY, paste off, composer holding a
+  when busy, pending, selection changed, no PTY, mode 2004 off, composer holding a
   draft, command text.
 - Black-box `TestRegression_*` against the fake provider (`fakecli` made a
-  composer: prints `ESC[?2004h`, reads a paste, awaits the submit key): an idle
+  composer: prints `ESC[?2004h`, reads keys, awaits the submit key): an idle
   prompt does not relaunch the CLI (same PID, same launch), the PTY receives the
-  paste, the `UserPromptSubmit` hook flips it `delivered`; a draft in the box
+  keys, the `UserPromptSubmit` hook flips it `delivered`; a draft in the box
   falls back to a restart.
 - Live: a subagent started in turn one survives the prompt of turn two.
 
 ## 10. Known limits
 
-- An idle notification dispatched just before the paste's `UserPromptSubmit`
+- An idle notification dispatched just before the typed prompt's `UserPromptSubmit`
   settles the typed prompt `not_acknowledged`, and the turn then opens as a
   provider prompt (the text shows twice). Telling the two orders apart needs a
   timestamp the CLI does not send; the alternative leaves a prompt the CLI
   never took unsettled, which blocks the chat until Stop.
-- A keystroke from an attached pane that opens a turn before the paste is
+- A keystroke from an attached pane that opens a turn before the typed prompt is
   submitted also settles the typed prompt `not_acknowledged`.
-- Only `/` and `!` were recorded as sigils that change meaning under paste.
+- Only `/` and `!` were recorded as sigils that change meaning as typed keys.
 
 ## 11. Out of scope
 

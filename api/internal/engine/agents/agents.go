@@ -110,12 +110,12 @@ type Agent interface {
 	// an idle CLI's composer; ok is false when the provider declares none.
 	PromptType() (typing PromptTyping, ok bool)
 	// CanType reports whether text may be typed: the provider declares a type
-	// block, text opens with none of its skip_prefixes, and text holds no
-	// sequence that would end the paste early. When false the caller restarts.
+	// block, text opens with none of its skip_prefixes or ends in none of its
+	// skip_suffixes, and holds no control character. When false the caller restarts.
 	CanType(text string) bool
-	// PromptTypeBytes renders text as the bytes written to the PTY to type it:
-	// a paste, then the submit key. ok is CanType(text).
-	PromptTypeBytes(text string) (bytes []byte, ok bool)
+	// PromptTypeWrites renders text as the PTY writes that type it: chunks of at
+	// most ChunkBytes, then the submit key as a write of its own. ok is CanType(text).
+	PromptTypeWrites(text string) (writes [][]byte, ok bool)
 	// ComposerEmpty reports whether the composer holds no draft: the cursor sits
 	// right after the type block's row prefix and the rest of the row is blank or
 	// ghost. False when no type block is declared or the row is out of range.
