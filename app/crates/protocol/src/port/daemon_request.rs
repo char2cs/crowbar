@@ -1,8 +1,8 @@
 use crate::error::{Error, Result};
-use crate::host_id::HostId;
-use crate::http_method::HttpMethod;
-use crate::pane_origin::PaneOrigin;
-use crate::request_target::RequestTarget;
+use crate::identity::HostId;
+use crate::identity::PaneOrigin;
+use crate::port::http_method::HttpMethod;
+use crate::port::request_target::RequestTarget;
 
 /// Most headers a request carries.
 pub const MAX_HEADERS: usize = 128;
@@ -121,7 +121,7 @@ impl DaemonRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::extension_id::ExtensionId;
+    use crate::identity::ExtensionId;
 
     fn request() -> DaemonRequest {
         DaemonRequest::new(

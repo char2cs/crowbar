@@ -1,18 +1,18 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::command_id::CommandId;
-use crate::event_name::EventName;
-use crate::external_url::ExternalUrl;
-use crate::fs_path::FsPath;
-use crate::method_name::MethodName;
-use crate::pane_state::PaneState;
-use crate::pane_title::PaneTitle;
-use crate::pane_type_id::PaneTypeId;
-use crate::params::Params;
-use crate::request_id::RequestId;
-use crate::sdk_version::SdkVersion;
-use crate::setting_key::SettingKey;
+use crate::control::call::EventName;
+use crate::control::call::MethodName;
+use crate::control::call::RequestId;
+use crate::control::config::SettingKey;
+use crate::control::payload::ExternalUrl;
+use crate::control::payload::FsPath;
+use crate::control::payload::PaneState;
+use crate::control::payload::PaneTitle;
+use crate::control::payload::Params;
+use crate::control::sdk_version::SdkVersion;
+use crate::identity::CommandId;
+use crate::identity::PaneTypeId;
 
 /// A frame a pane sends to the shell.
 ///

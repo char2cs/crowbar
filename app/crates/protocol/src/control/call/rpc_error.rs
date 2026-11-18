@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-use crate::display_text::DisplayText;
-use crate::error_code::ErrorCode;
+use crate::control::call::error_code::ErrorCode;
+use crate::control::payload::DisplayText;
 
 /// The error half of a `response` frame.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

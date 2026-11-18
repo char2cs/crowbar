@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use crate::display_text::DisplayText;
-use crate::extension_id::ExtensionId;
-use crate::status_kind::StatusKind;
+use crate::control::payload::display_text::DisplayText;
+use crate::control::payload::status_kind::StatusKind;
+use crate::identity::ExtensionId;
 
 /// Payload of an `extension.status` frame.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

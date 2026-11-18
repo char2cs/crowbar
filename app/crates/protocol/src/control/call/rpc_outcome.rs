@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::rpc_error::RpcError;
+use crate::control::call::rpc_error::RpcError;
 
 /// How a request ended: with a result (which may be JSON `null`) or with an error, never both
 /// and never neither.

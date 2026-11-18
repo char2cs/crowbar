@@ -54,7 +54,7 @@ pub const PANE_SETTING_KEYS: [&str; 46] = [
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::setting_key::SettingKey;
+    use crate::control::config::setting_key::SettingKey;
 
     #[test]
     fn every_key_is_valid_and_listed_once() {

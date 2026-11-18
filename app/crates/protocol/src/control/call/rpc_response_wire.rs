@@ -1,8 +1,8 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
-use crate::request_id::RequestId;
-use crate::rpc_error::RpcError;
+use crate::control::call::request_id::RequestId;
+use crate::control::call::rpc_error::RpcError;
 
 fn present<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Value>, D::Error> {
     Value::deserialize(deserializer).map(Some)

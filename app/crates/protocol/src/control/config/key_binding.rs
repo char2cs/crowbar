@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-use crate::command_id::CommandId;
-use crate::key_chord::KeyChord;
+use crate::control::config::key_chord::KeyChord;
+use crate::identity::CommandId;
 
 /// One active keybinding.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

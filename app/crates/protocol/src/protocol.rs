@@ -2,11 +2,11 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-use crate::envelope::Envelope;
+use crate::control::Envelope;
+use crate::control::PaneFrame;
+use crate::control::SDK_VERSION;
+use crate::control::ShellFrame;
 use crate::error::{Error, Result};
-use crate::pane_frame::PaneFrame;
-use crate::sdk_version::SDK_VERSION;
-use crate::shell_frame::ShellFrame;
 
 /// Largest control frame accepted, in bytes. Bulk data uses the custom protocol instead.
 pub const MAX_FRAME_BYTES: usize = 256 * 1024;

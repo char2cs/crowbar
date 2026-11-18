@@ -1,6 +1,6 @@
-use crate::host_id::HostId;
-use crate::pane_id::PaneId;
-use crate::pane_origin::PaneOrigin;
+use crate::identity::HostId;
+use crate::identity::PaneId;
+use crate::identity::PaneOrigin;
 
 /// Who a WebSocket relay endpoint is for: one pane, of one origin, talking to one host.
 #[derive(Debug, Clone, PartialEq, Eq)]

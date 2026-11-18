@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
+use crate::control::call::request_id::RequestId;
+use crate::control::call::rpc_outcome::RpcOutcome;
+use crate::control::call::rpc_response_wire::RpcResponseWire;
 use crate::error::Error;
-use crate::request_id::RequestId;
-use crate::rpc_outcome::RpcOutcome;
-use crate::rpc_response_wire::RpcResponseWire;
 
 /// The answer to a `request`. On the wire exactly one of `result` and `error` is present, and a
 /// `result` of JSON `null` stays a result.
@@ -81,9 +81,9 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::*;
-    use crate::display_text::DisplayText;
-    use crate::error_code::ErrorCode;
-    use crate::rpc_error::RpcError;
+    use crate::control::call::error_code::ErrorCode;
+    use crate::control::call::rpc_error::RpcError;
+    use crate::control::payload::DisplayText;
 
     #[test]
     fn a_null_result_survives_a_round_trip_as_a_result() {

@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
+use crate::control::config::setting_key::SettingKey;
 use crate::error::{Error, Result};
-use crate::setting_key::SettingKey;
 
 /// Most settings one `settings` frame holds.
 pub const MAX_SETTING_VALUES: usize = 128;

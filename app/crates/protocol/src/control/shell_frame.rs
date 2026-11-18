@@ -1,19 +1,19 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::display_text::DisplayText;
-use crate::event_name::EventName;
-use crate::extension_id::ExtensionId;
-use crate::extension_status::ExtensionStatus;
-use crate::key_binding::KeyBinding;
-use crate::lifecycle::Lifecycle;
-use crate::pane_id::PaneId;
-use crate::pane_state::PaneState;
-use crate::params::Params;
-use crate::rpc_response::RpcResponse;
-use crate::setting_values::SettingValues;
-use crate::space_id::SpaceId;
-use crate::theme_tokens::ThemeTokens;
+use crate::control::call::EventName;
+use crate::control::call::RpcResponse;
+use crate::control::config::KeyBinding;
+use crate::control::config::SettingValues;
+use crate::control::config::ThemeTokens;
+use crate::control::lifecycle::Lifecycle;
+use crate::control::payload::DisplayText;
+use crate::control::payload::ExtensionStatus;
+use crate::control::payload::PaneState;
+use crate::control::payload::Params;
+use crate::identity::ExtensionId;
+use crate::identity::PaneId;
+use crate::identity::SpaceId;
 
 /// A frame the shell sends to a pane.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

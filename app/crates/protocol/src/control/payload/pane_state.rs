@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::byte_counter::ByteCounter;
+use crate::control::payload::byte_counter::ByteCounter;
 use crate::error::{Error, Result};
 
 /// Largest serialized pane state accepted, in bytes. Larger data belongs in extension data.

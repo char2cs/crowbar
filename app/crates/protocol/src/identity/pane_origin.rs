@@ -1,4 +1,4 @@
-use crate::extension_id::ExtensionId;
+use crate::identity::extension_id::ExtensionId;
 
 /// Who authored a pane: the app itself or one named extension.
 ///

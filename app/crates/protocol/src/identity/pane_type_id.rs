@@ -4,9 +4,9 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
-use crate::extension_id::ExtensionId;
-use crate::pane_kind::PaneKind;
-use crate::pane_origin::PaneOrigin;
+use crate::identity::extension_id::ExtensionId;
+use crate::identity::pane_kind::PaneKind;
+use crate::identity::pane_origin::PaneOrigin;
 use crate::string_id::check_text;
 
 fn malformed() -> Error {

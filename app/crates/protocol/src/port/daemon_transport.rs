@@ -1,8 +1,8 @@
-use crate::daemon_request::DaemonRequest;
-use crate::daemon_response::DaemonResponse;
 use crate::error::Result;
-use crate::relay_endpoint::RelayEndpoint;
-use crate::relay_scope::RelayScope;
+use crate::port::daemon_request::DaemonRequest;
+use crate::port::daemon_response::DaemonResponse;
+use crate::port::relay_endpoint::RelayEndpoint;
+use crate::port::relay_scope::RelayScope;
 
 /// Completion callback of [`DaemonTransport::request`]; called exactly once.
 pub type Responder = Box<dyn FnOnce(Result<DaemonResponse>) + Send + 'static>;
@@ -53,10 +53,10 @@ pub trait DaemonTransport: Send + Sync + 'static {
 mod tests {
     use super::*;
     use crate::error::Error;
-    use crate::host_id::HostId;
-    use crate::http_method::HttpMethod;
-    use crate::pane_origin::PaneOrigin;
-    use crate::request_target::RequestTarget;
+    use crate::identity::HostId;
+    use crate::identity::PaneOrigin;
+    use crate::port::http_method::HttpMethod;
+    use crate::port::request_target::RequestTarget;
 
     struct Refusing;
 
@@ -82,7 +82,7 @@ mod tests {
         let transport: std::sync::Arc<dyn DaemonTransport> = std::sync::Arc::new(Refusing);
         let scope = RelayScope::new(
             HostId::new("local").unwrap(),
-            crate::pane_id::PaneId::new("p1").unwrap(),
+            crate::identity::PaneId::new("p1").unwrap(),
             PaneOrigin::Core,
         );
         transport.revoke_pane(&scope);
