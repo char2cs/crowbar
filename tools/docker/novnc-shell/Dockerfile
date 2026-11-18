@@ -17,7 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       mesa-vulkan-drivers libvulkan1 libxkbcommon-x11-0 libxcb-xkb1 libfontconfig1 libasound2t64 \
       fonts-dejavu-core fonts-noto-color-emoji \
       xclip x11-xkb-utils dbus-daemon at-spi2-core python3-pyatspi ibus ibus-libpinyin nodejs \
-      xdg-desktop-portal xdg-desktop-portal-gtk \
+      xdg-desktop-portal xdg-desktop-portal-gtk gnome-keyring \
       /tmp/crowbar-desktop.deb \
     && rm -rf /var/lib/apt/lists/* /tmp/crowbar-desktop.deb \
     && userdel -r ubuntu && useradd -m -u 1000 -s /bin/bash user \
@@ -28,7 +28,7 @@ COPY stage/crowbar stage/crowbar-seed stage/crowbar-seed-chat /opt/crowbar/
 COPY stage/crowbar-api /opt/crowbar/crowbar-api.real
 COPY stage/panes /opt/crowbar/panes
 COPY rig/rig rig/rigx.py rig/rig-proxy.py rig/crowbar-api rig/rigapi.py rig/rigops.py rig/fixture-http.py \
-     rig/a11y-dump.py /opt/rig/bin/
+     rig/a11y-dump.py rig/keyring-dump.py /opt/rig/bin/
 COPY rig/points.conf rig/rc.xml README.md /opt/rig/
 COPY agent/scripted-agent /usr/local/bin/scripted-agent
 COPY forge/forge /opt/rig/bin/forge
@@ -42,7 +42,11 @@ COPY rig/portals.conf /home/user/.config/xdg-desktop-portal/portals.conf
 COPY index.html /usr/share/novnc/index.html
 COPY entrypoint.sh /opt/rig/entrypoint.sh
 # Tauri runs its sidecar from beside its binary: point it at the rig's per-app proxy wrapper.
+# gnome-keyring is not D-Bus activated: the Secret Service is up exactly while the rig runs it.
 RUN ln -sf /opt/rig/bin/crowbar-api /usr/bin/crowbar-api \
+    && rm /usr/share/dbus-1/services/org.freedesktop.secrets.service \
+          /usr/share/dbus-1/services/org.gnome.keyring.service \
+          /usr/share/dbus-1/services/org.freedesktop.impl.portal.Secret.service \
     && ln -s /opt/rig/bin/rig /usr/local/bin/rig \
     && ln -s /opt/rig/bin/forge /usr/local/bin/glab && ln -s /opt/rig/bin/forge /usr/local/bin/gh \
     && ln -s ../lib/node_modules/typescript-language-server/lib/cli.mjs /usr/local/bin/typescript-language-server \

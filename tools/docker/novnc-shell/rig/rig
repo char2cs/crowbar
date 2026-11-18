@@ -10,6 +10,8 @@ PROFILES=/opt/rig/profiles
 HTTP_PORT=${RIG_HTTP_PORT:-8088}
 REMOTE_HOME=$HOME/.crowbar-remote
 REMOTE_PORT=${RIG_REMOTE_PORT:-4747}
+KEYRING_PASSWORD=rig
+KEYRINGS=$HOME/.local/share/keyrings
 TAURI_DB=$HOME/.local/share/software.rabbyte.crowbar/localstorage/tauri_localhost_0.localstorage
 RUST_SETTINGS=$CROWBAR_HOME/shell/settings.json
 # shellcheck source=points.conf
@@ -138,6 +140,26 @@ bus_up() {
   out=$(dbus-daemon --session --fork --print-address=1 --print-pid=1)
   { echo "ADDR=$(sed -n 1p <<<"$out")"; echo "PID=$(sed -n 2p <<<"$out")"; } >"$RIG_DIR/bus.env"
   env_set DBUS_SESSION_BUS_ADDRESS "$(sed -n 1p <<<"$out")"
+  keyring_down
+  keyring_up
+}
+
+# keyring_up: gnome-keyring's Secret Service on the session bus, its login keyring created (first
+# start) or unlocked with the rig's fixed password: both apps keep host tokens there. Not after
+# `rig keyring off`, which stands for a desktop with no Secret Service.
+keyring_up() {
+  [[ -e $RIG_DIR/keyring.off ]] && return
+  printf %s "$KEYRING_PASSWORD" | DBUS_SESSION_BUS_ADDRESS=$(sed -n 's/^ADDR=//p' "$RIG_DIR/bus.env") \
+    setsid gnome-keyring-daemon --daemonize --unlock --components=secrets >>"$RIG_DIR/keyring.log" 2>&1
+}
+keyring_down() {
+  pkill -x gnome-keyring-d || true # comm is cut to 15 characters
+  while pgrep -x gnome-keyring-d >/dev/null; do sleep 0.1; done
+}
+keyring_reset() { # every saved token gone: a new, empty login keyring
+  keyring_down
+  rm -rf "$KEYRINGS"
+  keyring_up
 }
 
 # with_stopped <apps> -- <command...>: stop the running ones, run the command, restart them.
@@ -243,6 +265,7 @@ seed_profile() {
   remote_stop
   rm -rf "$REMOTE_HOME" "$HOME/remote-host"
   rm -rf "$HOME/.local/share/software.rabbyte.crowbar" "$HOME/.cache/software.rabbyte.crowbar" "$RIG_DIR/initialised"
+  keyring_reset
   extract_profile "$1"
   daemon_start >/dev/null
   "$0" _wait-daemon
@@ -655,6 +678,23 @@ case $sub in
       apps) env $(app_env) python3 -c 'import pyatspi; [print(a.name, a.get_process_id()) for a in pyatspi.Registry.getDesktop(0) if a]' ;;
       status) grep -q '^-u NO_AT_BRIDGE$' "$RIG_DIR/app.env" 2>/dev/null && echo "AT-SPI on" || echo "AT-SPI off" ;;
       *) die "a11y on|off|dump <app> [--depth N]|apps|status" ;;
+    esac
+    ;;
+  keyring)
+    # The Secret Service the apps keep host tokens in (gnome-keyring, started with the session bus).
+    case ${1:-status} in
+      status)
+        if [[ -e $RIG_DIR/keyring.off ]]; then echo "keyring off: no Secret Service"; exit 0; fi
+        env $(app_env) python3 /opt/rig/bin/keyring-dump.py
+        ;;
+      off) touch "$RIG_DIR/keyring.off"; keyring_down; echo "keyring off: no Secret Service" ;;
+      on) rm -f "$RIG_DIR/keyring.off"; keyring_down; keyring_up; echo "keyring on: login keyring unlocked" ;;
+      reset)
+        read -ra targets <<<"$(apps_of all)"
+        with_stopped "${targets[@]}" -- keyring_reset
+        echo "keyring reset: empty login keyring, unlocked"
+        ;;
+      *) die "keyring status|on|off|reset" ;;
     esac
     ;;
   remote)

@@ -14,7 +14,8 @@ the same theme (dark by default) and the sidebar on the left. The container has 
 docker socket, no host network and no credentials. No real agent CLI is installed: chats run the
 **scripted provider**, a deterministic stand-in (see Scripted provider), and pull-request state
 comes from stand-in forge CLIs (see Forge stand-ins). A session D-Bus with `xdg-desktop-portal` and
-its GTK backend gives both apps working file choosers (see File choosers).
+its GTK backend gives both apps working file choosers (see File choosers), and an unlocked
+gnome-keyring on that bus keeps the host tokens both apps save when pairing (see Keyring).
 
 ## How both apps share one daemon
 
@@ -59,7 +60,7 @@ inside the container: `docker exec crowbar-novnc-shell rig <command>`. Copy scre
 results out with `docker cp crowbar-novnc-shell:/home/user/shots .` and
 `docker cp crowbar-novnc-shell:/home/user/.rig/perf .`.
 
-Logs: `~/.rig/daemon.log` (the shared daemon), `~/.rig/http.log` (web fixture), `~/.rig/ibus.log`, `~/.rig/<app>/app.log`, `~/.rig/<app>/daemon.log`
+Logs: `~/.rig/daemon.log` (the shared daemon), `~/.rig/http.log` (web fixture), `~/.rig/ibus.log`, `~/.rig/keyring.log`, `~/.rig/<app>/app.log`, `~/.rig/<app>/daemon.log`
 (what each app's supervisor saw), `~/.rig/entrypoint.log`, `$CROWBAR_HOME/shell/logs/crowbar.log`.
 
 ## Driver
@@ -157,6 +158,9 @@ Daemon data and chats (all through the daemon's HTTP API, over its socket):
     rig remote providers on|off         # every provider on the remote disabled or not
     rig remote api <METHOD> <path> [json]   # the remote daemon's API, over its own socket
     rig remote wipe                     # its home deleted; the next start seeds it again
+    rig keyring [status]                # the Secret Service: collections, locked or not, saved items (no secrets)
+    rig keyring off|on                  # no Secret Service on the bus (until `on`, across restarts) / back, unlocked
+    rig keyring reset                   # apps stopped, every saved token gone (a new empty login keyring)
 
 `points.conf` (copy to `~/.rig/points.conf` to override) names the points the rig clicks: the two
 seeded chats in the sidebar, tab 1 / tab 2 in the tab strip, the chat composer and the transcript.
@@ -166,7 +170,7 @@ They are positions in the **baseline** profile's sidebar; `rig perf` assumes bas
 
 `seed/build.sh` builds three profiles at image build time, each a tar of `~/.crowbar-rig` (the
 daemon home), `~/.scripted-agent` (the scripted CLI's own state) and `~/fixtures`. `rig seed <name>`
-restores one exactly (and stops and wipes the remote host), so a capture that mutates data is undone by `rig reset`. Files that must stay
+restores one exactly (and stops and wipes the remote host and empties the keyring), so a capture that mutates data is undone by `rig reset`. Files that must stay
 unreadable are archived readable and locked again on restore (`~/.rig-unreadable` lists them).
 
 - **empty** — a fresh daemon: no projects, the two scripted descriptors installed, providers in
@@ -284,16 +288,30 @@ either app with the code and fingerprint `rig remote code` prints. Host states: 
 answering 401 (`revoke`), re-keyed (`rekey`), without providers (`providers off`), reachable by
 two addresses (pair once by `127.0.0.1`, once by `localhost`). `rig seed` stops and wipes it.
 
-Both apps keep host tokens in the OS keyring through the same backend: `keyring` 3 with
+Pairing saves the host's token in the keyring (see Keyring), so pairing needs it on.
+
+## Keyring
+
+Both apps keep host tokens in the OS keyring through `keyring` 3.6.3 with
 `linux-native-sync-persistent` and `keyring::Entry::new` (Tauri: `desktop/src-tauri/src/host_tokens.rs`
-on develop; Rust shell: `app/crates/transport/src/os_keychain.rs`, feature `os-keychain`). That
-store is the kernel keyutils session keyring with a Secret Service copy behind it: building an
-entry already calls `keyctl` (the session keyring), and a save writes keyutils first. Docker's
-default seccomp profile refuses `keyctl` (EPERM), so pairing fails at "keychain couldn't save" in
-both apps whether or not a Secret Service is running: that is the "no keyring" state. A "working
-keyring" capture needs the container run with a seccomp profile that allows `keyctl`/`add_key`/
-`request_key` plus an unlocked Secret Service (gnome-keyring) on the session bus; neither is in
-the image or `run.sh`.
+on develop; Rust shell: `app/crates/transport/src/os_keychain.rs`, feature `os-keychain`). In 3.6.3
+that feature's default builder (`KeyutilsPersistentCredentialBuilder::build`) returns a plain
+Secret Service credential, so neither app calls `keyctl`: a save, read or delete is D-Bus to
+`org.freedesktop.secrets` and nothing else (items: `service=crowbar-desktop`, `username=<host id>`).
+
+At boot `rig _session` starts gnome-keyring (`--components=secrets`) on the apps' session bus and
+creates (first boot) or unlocks the login keyring with the fixed password `rig`; the keyring file,
+`~/.local/share/keyrings/login.keyring`, lives in the container, so a paired host survives an app
+restart and a container restart. The image removes gnome-keyring's D-Bus activation files, so the
+Secret Service exists exactly while the rig runs it: `rig keyring off` is a desktop with none (pairing
+ends at "keychain couldn't save" and the pairing is undone), `rig keyring on` brings it back.
+
+The container keeps Docker's default seccomp profile; nothing is loosened. Allowing
+`keyctl`/`add_key`/`request_key` was tried and dropped: the apps do not use them (above), and on
+this host (an unprivileged Proxmox LXC) the outer seccomp answers `keyctl` with ENOSYS whatever
+Docker allows, so runc cannot give a container its own session keyring. `add_key` does get
+through, into the uid-1000 user-session keyring that every uid-1000 container shares: the same key
+serial came back from two separate containers.
 
 ## File choosers
 
