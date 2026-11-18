@@ -1,52 +1,10 @@
 //! The native settings dialog of the Crowbar shell: [`SettingsModal`], the rail, pages, rows,
 //! controls, record lists and shortcut capture, drawn over the gpui-free `settings` crate.
 
-mod block_view;
-mod body;
-mod button_block;
-mod button_control;
-mod close_handler;
-mod content;
-mod control_view;
-mod drag_record;
-mod element_id;
-mod empty_view;
-mod field_control;
-mod field_input;
-mod fields;
 mod frame;
-mod header;
-mod heading_view;
-mod icon_stem;
 mod intent;
-mod intent_runner;
-mod intent_sink;
-mod key_mode;
-mod key_routing;
-mod keys;
-mod list_view;
-mod modal_config;
-mod note_text;
-mod notice_view;
-mod number_control;
-mod prompt_view;
-mod rail;
-mod rail_item;
-mod record_marks;
-mod record_ref;
-mod record_view;
-mod reset_button;
-mod row_view;
-mod run_intent;
-mod section_view;
-mod select_control;
+mod modal;
 mod settings_modal;
-mod shortcut_row;
-mod shortcuts_view;
-mod spacing;
 mod test_support;
-mod title_block;
-mod tone_color;
 
-pub use modal_config::ModalConfig;
-pub use settings_modal::SettingsModal;
+pub use settings_modal::{ModalConfig, SettingsModal};

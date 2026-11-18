@@ -1,5 +1,11 @@
 //! What the user asked of the modal.
 
+mod intent_runner;
+mod intent_sink;
+
+pub(crate) use intent_runner::IntentRunner;
+pub(crate) use intent_sink::IntentSink;
+
 use ui::TextInputEvent;
 
 use settings::{ButtonSpec, Nudge, PageId, Pressed, RailMove, RecordAction, Row};

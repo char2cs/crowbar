@@ -10,8 +10,8 @@ use settings::{
 };
 
 use crate::intent::Intent;
-use crate::intent_runner::IntentRunner as _;
-use crate::modal_config::ModalConfig;
+use crate::intent::IntentRunner as _;
+use crate::settings_modal::ModalConfig;
 use crate::settings_modal::SettingsModal;
 
 pub(crate) struct Harness {

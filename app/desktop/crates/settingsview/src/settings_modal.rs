@@ -1,5 +1,12 @@
 //! The settings modal: a GPUI view over [`SettingsState`] and the two backends.
 
+mod close_handler;
+mod field_input;
+mod modal_config;
+mod run_intent;
+
+pub use modal_config::ModalConfig;
+
 use std::rc::Rc;
 
 use gpui::{
@@ -9,18 +16,17 @@ use gpui::{
 use settings::{Change, RecordBackend, SettingsBackend, SettingsState, Subscription};
 use ui::{Dialog, IconName, TextInput, TextInputEvent, TextInputStyle};
 
-use crate::body::body;
-use crate::close_handler::CloseHandler;
-use crate::field_input;
-use crate::fields::Fields;
+use crate::modal::body;
+use crate::settings_modal::close_handler::CloseHandler;
+
+use crate::frame::Fields;
 use crate::frame::Frame;
-use crate::header::{extent, search_field};
 use crate::intent::Intent;
-use crate::intent_runner::IntentRunner as _;
-use crate::intent_sink::IntentSink;
-use crate::modal_config::ModalConfig;
-use crate::notice_view::notice_view;
-use crate::prompt_view::prompt_view;
+use crate::intent::IntentRunner as _;
+use crate::intent::IntentSink;
+use crate::modal::notice_view;
+use crate::modal::prompt_view;
+use crate::modal::{extent, search_field};
 
 const SEARCH_PLACEHOLDER: &str = "Search settings...";
 const TITLE: &str = "Settings";
@@ -299,7 +305,7 @@ mod tests {
     fn the_query_option_fills_the_search_field(cx: &mut TestAppContext) {
         cx.update(|cx| ui::init(cx).unwrap());
         let backend = crate::test_support::backend();
-        let config = crate::modal_config::ModalConfig::new(
+        let config = crate::settings_modal::modal_config::ModalConfig::new(
             settings::default_schema().unwrap(),
             std::rc::Rc::new(backend.clone()),
             std::rc::Rc::new(backend),
