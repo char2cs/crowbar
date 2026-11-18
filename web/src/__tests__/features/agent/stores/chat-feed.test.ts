@@ -22,9 +22,11 @@ const feed = (chatId = 'chat-1') => chatStore.getState().feeds[chatId]
 const push = (frame: object, scope = SCOPE) => streamDaemon.deliver({ scope, ...frame })
 const subs = (scope = SCOPE) => streamDaemon.sent.filter((r) => r.op === 'sub' && r.scope === scope)
 const held: (() => void)[] = []
-const attachFeed = (chatId: string) => {
+// The scope is held once the cache read settles, so a view's first sub is awaited here.
+const attachFeed = async (chatId: string) => {
   const detach = attachReal('local', chatId)
   held.push(detach)
+  await vi.waitFor(() => expect(subs(`chat:${chatId}`).length).toBeGreaterThan(0))
   return detach
 }
 
@@ -52,9 +54,9 @@ const settled = async () => {
 }
 
 describe('attachFeed', () => {
-  it('attaching a feed holds chat:<id> and detaching releases it', () => {
-    const a = attachFeed('chat-1')
-    const b = attachFeed('chat-1')
+  it('attaching a feed holds chat:<id> and detaching releases it', async () => {
+    const a = await attachFeed('chat-1')
+    const b = await attachFeed('chat-1')
     expect(subs()).toEqual([
       { op: 'sub', scope: SCOPE, since: -openRows(window.innerHeight), bytes: PAGE_BYTES },
     ])
@@ -65,8 +67,8 @@ describe('attachFeed', () => {
     expect(heldScopes('chat:')).toEqual([])
   })
 
-  it('keeps a live feed after its last view detaches and resumes it from its seq', () => {
-    const detach = attachFeed('chat-1')
+  it('keeps a live feed after its last view detaches and resumes it from its seq', async () => {
+    const detach = await attachFeed('chat-1')
     push({ t: 'row', row: ledger().prompt('r1', 'hi') })
     push({ t: 'synced', seq: 1 })
     detach()
@@ -74,19 +76,19 @@ describe('attachFeed', () => {
     expect(heldScopes('chat:')).toEqual([])
 
     streamDaemon.sent.length = 0
-    attachFeed('chat-1')
+    await attachFeed('chat-1')
     expect(feed()).toMatchObject({ status: 'live', order: ['p:r1'] })
     expect(subs()).toEqual([{ op: 'sub', scope: SCOPE, since: 1, bytes: PAGE_BYTES }])
   })
 
-  it('drops a feed that detaches before its replay lands', () => {
-    attachFeed('chat-1')()
+  it('drops a feed that detaches before its replay lands', async () => {
+    ;(await attachFeed('chat-1'))()
     expect(feed()).toBeUndefined()
   })
 
-  it('keeps only the newest detached feeds', () => {
+  it('keeps only the newest detached feeds', async () => {
     for (let i = 0; i < 9; i++) {
-      attachFeed(`c${i}`)
+      await attachFeed(`c${i}`)
       push({ t: 'synced' }, `chat:c${i}`)
       held.pop()!()
     }
@@ -95,16 +97,16 @@ describe('attachFeed', () => {
     expect(feed('c8')).toBeDefined()
   })
 
-  it('a deleted chat leaves its kept slot to the others', () => {
+  it('a deleted chat leaves its kept slot to the others', async () => {
     writeChat({ id: 'c3' })
     const stopLifecycle = followChatLifecycle()
     for (let i = 0; i < 8; i++) {
-      attachFeed(`c${i}`)
+      await attachFeed(`c${i}`)
       push({ t: 'synced' }, `chat:c${i}`)
       held.pop()!()
     }
     forgetEntities('chat', ['c3'])
-    attachFeed('c8')
+    await attachFeed('c8')
     push({ t: 'synced' }, 'chat:c8')
     held.pop()!()
     stopLifecycle()
@@ -112,8 +114,8 @@ describe('attachFeed', () => {
     expect(feed('c0')).toBeDefined()
   })
 
-  it('a feed kept under an older ledger epoch is dropped, so its return replays from the newest rows', () => {
-    const detach = attachFeed('chat-1')
+  it('a feed kept under an older ledger epoch is dropped, so its return replays from the newest rows', async () => {
+    const detach = await attachFeed('chat-1')
     push({ t: 'row', row: ledger().prompt('r1', 'hi') })
     push({ t: 'synced', seq: 1 })
     detach()
@@ -121,15 +123,15 @@ describe('attachFeed', () => {
     streamDaemon.drop()
     streamDaemon.deliver({ t: 'ready', epoch: 'e2' })
     streamDaemon.sent.length = 0
-    attachFeed('chat-1')
+    await attachFeed('chat-1')
     expect(feed()).toMatchObject({ status: 'connecting', order: [] })
     expect(subs()).toEqual([
       { op: 'sub', scope: SCOPE, since: -openRows(window.innerHeight), bytes: PAGE_BYTES },
     ])
   })
 
-  it('does not resume a kept feed from another host’s seq', () => {
-    const detach = attachFeed('chat-1')
+  it('does not resume a kept feed from another host’s seq', async () => {
+    const detach = await attachFeed('chat-1')
     push({ t: 'row', row: ledger().prompt('r1', 'hi') })
     push({ t: 'synced', seq: 1 })
     detach()
@@ -137,8 +139,8 @@ describe('attachFeed', () => {
     expect(feed()).toMatchObject({ status: 'connecting', order: [] })
   })
 
-  it('publishes replayed rows once, at synced', () => {
-    attachFeed('chat-1')
+  it('publishes replayed rows once, at synced', async () => {
+    await attachFeed('chat-1')
     const l = ledger()
     const writes = vi.fn()
     const stop = chatStore.subscribe(writes)
@@ -151,8 +153,8 @@ describe('attachFeed', () => {
     stop()
   })
 
-  it('a resubscribe sends since = the last applied seq', () => {
-    attachFeed('chat-1')
+  it('a resubscribe sends since = the last applied seq', async () => {
+    await attachFeed('chat-1')
     const l = ledger()
     // A turn's start adds no item, so the seq is not the item count.
     push({ t: 'row', row: l.prompt('r1', 'hi') })
@@ -167,8 +169,8 @@ describe('attachFeed', () => {
     expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: 2, bytes: PAGE_BYTES })
   })
 
-  it('rebuilds from the newest rows when a resync names a seq behind the feed', () => {
-    attachFeed('chat-1')
+  it('rebuilds from the newest rows when a resync names a seq behind the feed', async () => {
+    await attachFeed('chat-1')
     const l = ledger()
     push({ t: 'row', row: l.prompt('r1', 'hi') })
     push({ t: 'row', row: l.prompt('r2', 'again') })
@@ -183,8 +185,8 @@ describe('attachFeed', () => {
     expect(feed()?.order).toEqual([])
   })
 
-  it('drops a row that does not follow the last applied one, so the replay fills the hole', () => {
-    attachFeed('chat-1')
+  it('drops a row that does not follow the last applied one, so the replay fills the hole', async () => {
+    await attachFeed('chat-1')
     const l = ledger()
     for (const id of ['r1', 'r2', 'r3']) push({ t: 'row', row: l.prompt(id, id) })
     push({ t: 'synced', seq: 3 })
@@ -201,8 +203,8 @@ describe('attachFeed', () => {
     expect(feed()?.order).toEqual(['p:r1', 'p:r2', 'p:r3', 'p:r4', 'p:r5', 'p:r6'])
   })
 
-  it('drops a live row past the next one, so the order never skips', () => {
-    attachFeed('chat-1')
+  it('drops a live row past the next one, so the order never skips', async () => {
+    await attachFeed('chat-1')
     const l = ledger()
     push({ t: 'row', row: l.prompt('r1', 'r1') })
     push({ t: 'synced', seq: 1 })
@@ -217,8 +219,8 @@ describe('attachFeed', () => {
     expect(feed()).toMatchObject({ seq: 3, order: ['p:r1', 'p:r2', 'p:r3'] })
   })
 
-  it('a synced past the last applied row resubscribes from it once, then fails', () => {
-    attachFeed('chat-1')
+  it('a synced past the last applied row resubscribes from it once, then fails', async () => {
+    await attachFeed('chat-1')
     const l = ledger()
     push({ t: 'row', row: l.prompt('r1', 'r1') })
     push({ t: 'row', row: l.prompt('r2', 'r2') })
@@ -235,8 +237,8 @@ describe('attachFeed', () => {
     expect(streamDaemon.sent.slice(sent)).toHaveLength(2)
   })
 
-  it('a synced that agrees again clears the one resubscribe it allows', () => {
-    attachFeed('chat-1')
+  it('a synced that agrees again clears the one resubscribe it allows', async () => {
+    await attachFeed('chat-1')
     const l = ledger()
     push({ t: 'row', row: l.prompt('r1', 'r1') })
     push({ t: 'synced', seq: 2 })
@@ -249,8 +251,8 @@ describe('attachFeed', () => {
     expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: 3, bytes: PAGE_BYTES })
   })
 
-  it('discards an unpublished replay on a resync before synced', () => {
-    attachFeed('chat-1')
+  it('discards an unpublished replay on a resync before synced', async () => {
+    await attachFeed('chat-1')
     push({ t: 'row', row: ledger().prompt('r1', 'hi') })
     push({ t: 'closed', reason: 'resync', seq: 1 })
     expect(subs().at(-1)).toEqual({
@@ -264,9 +266,9 @@ describe('attachFeed', () => {
     expect(feed()?.order).toEqual(['p:r9'])
   })
 
-  it('a deleted close drops the feed and leaves the others', () => {
-    attachFeed('chat-1')
-    attachFeed('chat-2')
+  it('a deleted close drops the feed and leaves the others', async () => {
+    await attachFeed('chat-1')
+    await attachFeed('chat-2')
     push({ t: 'synced' })
     push({ t: 'synced' }, 'chat:chat-2')
     push({ t: 'closed', reason: 'deleted' })
@@ -275,8 +277,8 @@ describe('attachFeed', () => {
     expect(heldScopes('chat:')).toEqual(['chat:chat-2'])
   })
 
-  it('a refused chat says why and is not asked for again, even after a reconnect', () => {
-    attachFeed('chat-1')
+  it('a refused chat says why and is not asked for again, even after a reconnect', async () => {
+    await attachFeed('chat-1')
     const unreadable = "This chat's history could not be read"
     push({ t: 'closed', reason: 'refused', problem: { code: 'unavailable', message: unreadable } })
     expect(feed()).toMatchObject({ status: 'error', error: unreadable })
@@ -287,9 +289,9 @@ describe('attachFeed', () => {
     expect(subs()).toHaveLength(1)
   })
 
-  it('a new epoch resets every feed', () => {
-    attachFeed('chat-1')
-    attachFeed('chat-2')
+  it('a new epoch resets every feed', async () => {
+    await attachFeed('chat-1')
+    await attachFeed('chat-2')
     push({ t: 'synced' })
     push({ t: 'synced' }, 'chat:chat-2')
     push({ t: 'delta', delta: delta('m1', 1, 'a') })
@@ -305,8 +307,8 @@ describe('attachFeed', () => {
     expect(feed('chat-2')).toMatchObject({ epoch: 'e2', liveTail: [], live: {} })
   })
 
-  it('applies live rows and deltas once per frame, in the order they came', () => {
-    attachFeed('chat-1')
+  it('applies live rows and deltas once per frame, in the order they came', async () => {
+    await attachFeed('chat-1')
     push({ t: 'synced' })
     const writes = vi.fn()
     const stop = chatStore.subscribe(writes)
@@ -324,8 +326,8 @@ describe('attachFeed', () => {
     stop()
   })
 
-  it('applies what is queued before a synced checks the head', () => {
-    attachFeed('chat-1')
+  it('applies what is queued before a synced checks the head', async () => {
+    await attachFeed('chat-1')
     push({ t: 'synced' })
     push({ t: 'row', row: ledger('chat-1').prompt('r1', 'hi') })
     push({ t: 'synced', seq: 1 })
@@ -333,8 +335,8 @@ describe('attachFeed', () => {
     expect(subs()).toHaveLength(1)
   })
 
-  it('applies what is queued as the tab hides, and frames as they come while hidden', () => {
-    attachFeed('chat-1')
+  it('applies what is queued as the tab hides, and frames as they come while hidden', async () => {
+    await attachFeed('chat-1')
     push({ t: 'synced' })
     const l = ledger('chat-1')
     push({ t: 'row', row: l.prompt('r1', 'hi') })
@@ -346,8 +348,8 @@ describe('attachFeed', () => {
     hidden.mockRestore()
   })
 
-  it('applies what is queued as the last view detaches, so the kept feed resumes after it', () => {
-    const detach = attachFeed('chat-1')
+  it('applies what is queued as the last view detaches, so the kept feed resumes after it', async () => {
+    const detach = await attachFeed('chat-1')
     push({ t: 'synced' })
     push({ t: 'row', row: ledger('chat-1').prompt('r1', 'hi') })
     detach()
@@ -370,7 +372,7 @@ describe('the stored feed', () => {
 
   it('shows a cold start’s stored rows before any daemon frame, then resumes from its cursor', async () => {
     await store(2)
-    attachFeed('chat-1')
+    await attachFeed('chat-1')
     await vi.waitFor(() => expect(feed()).toMatchObject({ status: 'live', order: shown(2) }))
     expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: 2, bytes: PAGE_BYTES })
 
@@ -381,23 +383,20 @@ describe('the stored feed', () => {
   })
 
   it('replays the newest window when nothing is stored', async () => {
-    attachFeed('chat-1')
+    await attachFeed('chat-1')
     await settled()
     expect(feed()).toMatchObject({ status: 'connecting', order: [] })
     expect(subs()).toEqual([{ op: 'sub', scope: SCOPE, since: window(), bytes: PAGE_BYTES }])
   })
 
-  it('lets a daemon frame that beat the read keep the screen', async () => {
+  it('sends one sub on a hit, at the cursor, with no window replay', async () => {
     await store(2)
-    attachFeed('chat-1')
-    push({ t: 'row', row: rowsOf(1)[0] })
-    push({ t: 'synced', seq: 1 })
-    await settled()
-    await entry()
-    expect(feed()).toMatchObject({ seq: 1, order: shown(1) })
+    await attachFeed('chat-1')
+    await vi.waitFor(() => expect(feed()?.order).toEqual(shown(2)))
+    expect(subs()).toEqual([{ op: 'sub', scope: SCOPE, since: 2, bytes: PAGE_BYTES }])
   })
 
-  it('takes a copy that lands after the first sub went out, and the window it asked for agrees with it', async () => {
+  it('holds the scope until the cache read settles, so a slow read delays the one sub, not doubles it', async () => {
     await store(2)
     let land!: () => void
     const blocked = new Promise<void>((resolve) => (land = resolve))
@@ -407,21 +406,24 @@ describe('the stored feed', () => {
       await blocked
       return get(...args)
     })
-    attachFeed('chat-1')
-    expect(subs()).toEqual([{ op: 'sub', scope: SCOPE, since: window(), bytes: PAGE_BYTES }])
+    held.push(attachReal('local', 'chat-1'))
+    expect(subs()).toEqual([])
     land()
-    await vi.waitFor(() => expect(feed()?.order).toEqual(shown(2)))
-    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: 2, bytes: PAGE_BYTES })
-    // The window sub's replay lands behind the copy: what it holds twice is applied once.
-    const rows = rowsOf(3)
-    rows.forEach((row, i) => push({ t: 'row', row, ...(i === 0 && { from: 0 }) }))
-    push({ t: 'synced', seq: 3 })
-    expect(feed()).toMatchObject({ status: 'live', seq: 3, order: shown(3) })
+    await vi.waitFor(() => expect(subs()).toHaveLength(1))
+    expect(subs()[0]).toMatchObject({ since: 2 })
+  })
+
+  it('asks for the window when the cache read fails', async () => {
+    await store(2)
+    const db = await getDB()
+    vi.spyOn(db, 'get').mockRejectedValue(new Error('unreadable'))
+    await attachFeed('chat-1')
+    expect(subs()).toEqual([{ op: 'sub', scope: SCOPE, since: window(), bytes: PAGE_BYTES }])
   })
 
   it('replaces a copy of another run in one write, with the window of the new run', async () => {
     await store(2, 'old-run')
-    attachFeed('chat-1')
+    await attachFeed('chat-1')
     await vi.waitFor(() => expect(feed()?.order).toEqual(shown(2)))
     expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: window(), bytes: PAGE_BYTES })
     const writes = vi.fn()
@@ -440,7 +442,7 @@ describe('the stored feed', () => {
 
   it('shows what the daemon has when it holds more rows than the copy', async () => {
     await store(1)
-    attachFeed('chat-1')
+    await attachFeed('chat-1')
     await vi.waitFor(() => expect(feed()?.order).toEqual(shown(1)))
     const [, r2, r3] = rowsOf(3)
     push({ t: 'row', row: r2 })
@@ -452,7 +454,7 @@ describe('the stored feed', () => {
 
   it('replays the window when the daemon holds fewer rows than the copy', async () => {
     await store(3)
-    attachFeed('chat-1')
+    await attachFeed('chat-1')
     await vi.waitFor(() => expect(feed()?.order).toEqual(shown(3)))
     push({ t: 'synced', seq: 1 })
     expect(feed()?.order).toEqual(shown(3))
@@ -466,7 +468,7 @@ describe('the stored feed', () => {
 
   it('replays the window when the daemon answers the cursor with a resync', async () => {
     await store(3)
-    attachFeed('chat-1')
+    await attachFeed('chat-1')
     await vi.waitFor(() => expect(feed()?.order).toEqual(shown(3)))
     push({ t: 'closed', reason: 'resync', seq: 1 })
     expect(feed()?.order).toEqual(shown(3))
@@ -477,7 +479,7 @@ describe('the stored feed', () => {
   })
 
   it('writes the feed through as its replay settles and as live rows land', async () => {
-    attachFeed('chat-1')
+    await attachFeed('chat-1')
     const [r1, r2] = rowsOf(2)
     push({ t: 'row', row: r1 })
     push({ t: 'synced', seq: 1 })
@@ -490,7 +492,7 @@ describe('the stored feed', () => {
   })
 
   it('keeps a previewed row’s mark in the stored copy, and stores the whole row once it is fetched', async () => {
-    attachFeed('chat-1')
+    await attachFeed('chat-1')
     const cut = {
       ...ledger().row('reasoning', { text: 'cut' }, { turnId: 't1' }),
       trimmed: ['text'],
@@ -509,7 +511,7 @@ describe('the stored feed', () => {
   })
 
   it('writes a running turn through when it settles, not on each live row and delta', async () => {
-    attachFeed('chat-1')
+    await attachFeed('chat-1')
     const l = ledger()
     push({ t: 'row', row: l.prompt('r1', 'hi') })
     push({ t: 'synced', seq: 1 })
@@ -537,7 +539,7 @@ describe('the stored feed', () => {
   })
 
   it('writes a running turn through as the last view detaches and as the tab hides', async () => {
-    const detach = attachFeed('chat-1')
+    const detach = await attachFeed('chat-1')
     const l = ledger()
     push({ t: 'row', row: l.prompt('r1', 'hi') })
     push({ t: 'row', row: l.start('turn-1', 'r1') })
@@ -575,7 +577,7 @@ describe('the stored feed', () => {
     })
     globalThis.indexedDB = broken
     resetDB()
-    attachFeed('chat-1')
+    await attachFeed('chat-1')
     push({ t: 'row', row: rowsOf(1)[0] })
     push({ t: 'synced', seq: 1 })
     await settled()

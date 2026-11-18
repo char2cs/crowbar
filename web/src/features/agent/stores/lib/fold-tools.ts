@@ -38,9 +38,9 @@ export const applyToolCall: Apply<'tool_call'> = (fold, row) => {
   const known = fold.item<ToolItem>(id)
   const body = known ? { ...known.body, ...row.body } : row.body
   const status = toolStatus(row.body, known?.status)
-  const fullSeq = row.trimmed?.includes('diff')
+  const fullSeq = row.trimmed?.length
     ? row.seq
-    : row.body.diff
+    : row.body.diff || row.body.output
       ? undefined
       : known?.fullSeq
   fold.put(

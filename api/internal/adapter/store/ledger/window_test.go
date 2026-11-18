@@ -126,3 +126,18 @@ func TestWindow_APreviewCapCountsABulkyRowAtItsPreviewSize(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(8), cut, "cut to 2 KB the reasoning fits twice over: two turns")
 }
+
+func TestRegression_WindowCountsABulkyToolOutputAtItsPreviewSize(t *testing.T) {
+	s := newStore(t)
+	out := strings.Repeat("x", 50000)
+	for i := 1; i <= 4; i++ {
+		id := "r" + string(rune('0'+i))
+		_, _, err := s.Append(t.Context(), "c1", prompt(t, id, id), started(t, id),
+			mustRow(t, ledger.KindToolCall, "T-"+id, ledger.ToolCall{ToolID: id, Phase: ledger.ToolPost, Output: out}), ended(t, id))
+		require.NoError(t, err)
+	}
+
+	cut, err := s.Window(t.Context(), "c1", ledgerstore.WindowSpec{Bytes: 6000, PreviewCap: 2000}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, int64(8), cut, "a 50 KB output previewed to 2 KB fits twice over: two turns, not one")
+}

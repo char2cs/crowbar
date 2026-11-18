@@ -1,6 +1,7 @@
 /** How much of a chat the client holds, in screens: sized by what is seen, not a fixed row count. */
-const OPEN_SCREENS = 3
-/** The view asks for older rows once this near the first loaded one. */
+const OPEN_SCREENS = 4
+/** The view asks for older rows once this near the first loaded one: under OPEN_SCREENS - 1, so
+ *  a fresh open at the bottom is never near it. */
 const PREFETCH_SCREENS = 2
 
 const GUESSED_ROW_PX = 40

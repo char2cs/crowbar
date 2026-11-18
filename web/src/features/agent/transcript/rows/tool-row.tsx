@@ -204,6 +204,9 @@ function ToolRowBody({ chatId, item }: { chatId: string; item: ToolItem }) {
                 {plain(body.output || body.error || '')}
               </pre>
             )}
+            {open && !patch && body.output && (
+              <ShowFull chatId={chatId} id={item.id} fullSeq={item.fullSeq} what="output" />
+            )}
             {/* The blobs are read only once someone asks for them. */}
             {open && (body.inputRef || body.resultRef) && (
               <ToolPayload chatId={chatId} inputRef={body.inputRef} resultRef={body.resultRef} />

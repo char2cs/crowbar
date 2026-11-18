@@ -11,7 +11,7 @@ import (
 // previewed names, per kind, the body fields a closed row paints without: a
 // preview cuts them, the full row stays in the ledger.
 var previewed = map[Kind][]string{
-	KindToolCall:  {"diff"},
+	KindToolCall:  {"diff", "output"},
 	KindTurnEnded: {"diff"},
 	KindReasoning: {"text"},
 	KindSubagent:  {"result"},

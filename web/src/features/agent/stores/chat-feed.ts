@@ -51,8 +51,6 @@ interface Attachment {
   paging: boolean
   /** The shown feed came from the stored copy and the daemon has not confirmed it yet. */
   cached: boolean
-  /** A frame of the scope has arrived: a stored copy no longer beats the daemon to the screen. */
-  framed: boolean
 }
 
 /** A long chat opens on about three screens of its newest rows; older ones replay as the
@@ -138,7 +136,6 @@ function liveFrameOf(chatId: string, f: Frame): LiveFrame | undefined {
 }
 
 function onFrame(chatId: string, attachment: Attachment, f: Frame) {
-  attachment.framed = true
   if (attachment.cached && f.t === 'closed' && f.reason === 'resync') {
     return reconcile(chatId, attachment, false)
   }
@@ -185,14 +182,13 @@ function reconcile(chatId: string, attachment: Attachment, ask: boolean) {
   if (ask) resubscribe(attachment.hostId, scopeOf(chatId))
 }
 
-/** Shows what the cache holds for a chat nothing has filled yet, then resumes it from its cursor. */
+/** Shows what the cache holds for a chat nothing has filled yet; the scope is held after, so its
+ *  one sub resumes from the cursor (or asks for a window when the stored run is not the daemon's). */
 function showStored(chatId: string, attachment: Attachment, stored: ChatFeed | undefined) {
-  if (!stored || attachments.get(chatId) !== attachment || attachment.framed) return
-  if (!showStoredFeed(chatId, stored)) return
+  if (!stored || !showStoredFeed(chatId, stored)) return
   attachment.cached = true
   const run = epochs.get(attachment.hostId)
-  if (run !== undefined && run !== stored.epoch) return reconcile(chatId, attachment, true)
-  resubscribe(attachment.hostId, scopeOf(chatId))
+  if (run !== undefined && run !== stored.epoch) reconcile(chatId, attachment, false)
 }
 
 /** Drops the kept feeds of `hostId`: their rows belong to a ledger this client no longer follows. */
@@ -311,7 +307,6 @@ export function attachFeed(hostId: string, chatId: string): () => void {
       widening: false,
       paging: false,
       cached: false,
-      framed: false,
     }
     attachment = fresh
     attachments.set(chatId, fresh)
@@ -329,12 +324,19 @@ export function attachFeed(hostId: string, chatId: string): () => void {
         dropFeed(chatId)
       },
     })
-    const letGo = holdScope(hostId, scope)
+    let letGo = () => {}
     fresh.release = () => {
       stopWatch()
       letGo()
     }
-    if (unseen) void loadFeed(hostId, chatId).then((stored) => showStored(chatId, fresh, stored))
+    const hold = () => {
+      if (attachments.get(chatId) === fresh) letGo = holdScope(hostId, scope)
+    }
+    // The cache is read before the scope is held, so a hit's first sub resumes at its cursor
+    // instead of streaming a window the screen already shows. A failed read is a miss.
+    if (unseen)
+      void loadFeed(hostId, chatId).then((stored) => (showStored(chatId, fresh, stored), hold()))
+    else hold()
     // An unreachable stream keeps retrying; the feed says why when its host is the reason.
     streamOpened(hostId).catch((err: unknown) => {
       if (attachments.get(chatId) === fresh) failFeed(chatId, streamFailureWords(hostId, err))

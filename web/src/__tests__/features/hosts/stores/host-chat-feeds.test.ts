@@ -41,6 +41,7 @@ describe("a paired host's chat", () => {
     await Promise.resolve()
     host1.answer = () => []
     const detach = attachFeed('host-1', 'chat-1')
+    await vi.waitFor(() => expect(subsOn()).toHaveLength(1))
     host1.deliver({ t: 'synced', scope: SCOPE })
     detach()
     expect(feed()).toBeDefined()
@@ -54,6 +55,7 @@ describe("a paired host's chat", () => {
     await Promise.resolve()
     host1.answer = () => []
     held.push(attachFeed('host-1', 'chat-1'))
+    await vi.waitFor(() => expect(subsOn()).toHaveLength(1))
     expect(subsOn()).toEqual([
       { op: 'sub', scope: SCOPE, since: -openRows(window.innerHeight), bytes: PAGE_BYTES },
     ])

@@ -6,10 +6,10 @@ const MIN_WINDOW_ROWS = 12
 const MAX_WINDOW_ROWS = 1000
 
 describe('feed window policy', () => {
-  it('opens on about three screens of rows, whatever the screen', () => {
+  it('opens on about four screens of rows, whatever the screen', () => {
     const phone = openRows(844)
     const desktop = openRows(1000)
-    expect(phone).toBe(Math.ceil((3 * 844) / GUESSED_ROW_PX))
+    expect(phone).toBe(Math.ceil((4 * 844) / GUESSED_ROW_PX))
     expect(desktop).toBeGreaterThan(phone)
   })
 

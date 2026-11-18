@@ -45,9 +45,9 @@ describe('holdShownChatFeeds', () => {
     seedChats([{ id: 'chat-a' }, { id: 'chat-b' }])
     showViews('view-a')
     await holdShownChatFeeds()
-    expect(heldScopes('chat:')).toEqual(['chat:chat-a'])
+    await vi.waitFor(() => expect(heldScopes('chat:')).toEqual(['chat:chat-a']))
     showViews('view-b')
-    expect(heldScopes('chat:')).toEqual(['chat:chat-b'])
+    await vi.waitFor(() => expect(heldScopes('chat:')).toEqual(['chat:chat-b']))
   })
 
   it('subscribes a chat the last run placed on a paired host before that host has listed', async () => {
@@ -66,7 +66,7 @@ describe('holdShownChatFeeds', () => {
 
     await holdShownChatFeeds()
 
-    expect(heldScopes('chat:', 'host-1')).toEqual(['chat:chat-a'])
+    await vi.waitFor(() => expect(heldScopes('chat:', 'host-1')).toEqual(['chat:chat-a']))
     resetHostWorld()
   })
 })

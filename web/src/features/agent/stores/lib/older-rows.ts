@@ -43,7 +43,11 @@ export function fillFull(feed: ChatFeed, id: string, row: LedgerRow): ChatFeed {
   const body = row.body as Record<string, unknown>
   let next = item
   if (item.kind === 'tool') {
-    next = { ...item, body: { ...item.body, diff: body.diff as string }, fullSeq: undefined }
+    next = {
+      ...item,
+      body: { ...item.body, diff: body.diff as string, output: body.output as string },
+      fullSeq: undefined,
+    }
   } else if (item.kind === 'reasoning') {
     next = { ...item, text: body.text as string, fullSeq: undefined }
   } else if (item.kind === 'subagent') {

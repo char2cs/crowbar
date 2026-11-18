@@ -38,7 +38,7 @@ function turns(n: number) {
 }
 
 describe('prependOlder', () => {
-  it('lays an older page above the held rows as the whole feed would have folded them', () => {
+  it('lays an older page above the held rows as the whole feed would have folded them', async () => {
     const rows = turns(4)
     const whole = applyReady(applyRows(emptyFeed(), rows), 'e1')
     const held = windowOf(rows.slice(8), 8)
@@ -50,7 +50,7 @@ describe('prependOlder', () => {
     for (const id of whole.order) expect(merged.items.get(id)).toEqual(whole.items.get(id))
   })
 
-  it('shares the held items it does not touch, and moves from to where the page begins', () => {
+  it('shares the held items it does not touch, and moves from to where the page begins', async () => {
     const rows = turns(3)
     const held = windowOf(rows.slice(8), 8)
     const merged = prependOlder(held, rows.slice(4, 8), 4)
@@ -59,7 +59,7 @@ describe('prependOlder', () => {
     expect(merged.items.get('p:r3')).toBe(held.items.get('p:r3'))
   })
 
-  it('keeps the held copy of an item both pages name', () => {
+  it('keeps the held copy of an item both pages name', async () => {
     const rows = turns(2)
     const held = windowOf(rows.slice(4), 4)
     const again = prependOlder(held, rows.slice(0, 4), 0)
@@ -81,13 +81,13 @@ describe('fillFull', () => {
     trimmed,
   })
 
-  it('marks an item whose row was cut with the seq of the whole row', () => {
+  it('marks an item whose row was cut with the seq of the whole row', async () => {
     const cut = edit('+a\n', ['diff'])
     const feed = applyRows(emptyFeed(), [cut])
     expect(feed.items.get('t:x1')).toMatchObject({ fullSeq: cut.seq })
   })
 
-  it('swaps in the whole diff, text or result and clears the mark', () => {
+  it('swaps in the whole diff, text or result and clears the mark', async () => {
     const cut = edit('+a\n', ['diff'])
     const reasoning = {
       ...l.row('reasoning', { text: 'cut' }, { turnId: 't1' }),
@@ -110,7 +110,23 @@ describe('fillFull', () => {
     expect((next.items.get('s:sp') as SubagentItem).fullSeq).toBeUndefined()
   })
 
-  it('leaves the feed as it was for an item that is gone', () => {
+  it('swaps in the whole output of a previewed call and clears the mark', async () => {
+    const cut = {
+      ...l.row(
+        'tool_call',
+        { toolId: 'o1', phase: 'post', name: 'Bash', output: 'cut' },
+        { turnId: 't1' },
+      ),
+      trimmed: ['output'],
+    }
+    const feed = applyRows(emptyFeed(), [cut])
+    expect((feed.items.get('t:o1') as ToolItem).fullSeq).toBe(cut.seq)
+    const next = fillFull(feed, 't:o1', { ...cut, body: { ...cut.body, output: 'whole' } })
+    expect(next.items.get('t:o1') as ToolItem).toMatchObject({ body: { output: 'whole' } })
+    expect((next.items.get('t:o1') as ToolItem).fullSeq).toBeUndefined()
+  })
+
+  it('leaves the feed as it was for an item that is gone', async () => {
     const feed = applyRows(emptyFeed(), [])
     expect(fillFull(feed, 't:nope', edit('x'))).toBe(feed)
   })
@@ -122,7 +138,10 @@ describe('older turns over REST', () => {
   const push = (frame: object) => streamDaemon.deliver({ scope: SCOPE, ...frame })
   const subs = () => streamDaemon.sent.filter((r) => r.op === 'sub' && r.scope === SCOPE)
   const held: (() => void)[] = []
-  const attachFeed = (chatId: string) => held.push(attachReal('local', chatId))
+  const attachFeed = async (chatId: string) => {
+    held.push(attachReal('local', chatId))
+    await vi.waitFor(() => expect(subs().length).toBeGreaterThan(0))
+  }
 
   beforeEach(() => {
     globalThis.indexedDB = new IDBFactory()
@@ -142,14 +161,14 @@ describe('older turns over REST', () => {
     l.prompt('r41', 'newest'),
     l.start('turn-41', 'r41'),
   ]
-  const opened = () => {
-    attachFeed('chat-1')
+  const opened = async () => {
+    await attachFeed('chat-1')
     push({ t: 'row', row: p41, from: 40 })
     push({ t: 'row', row: s41 })
     push({ t: 'synced', seq: 42 })
   }
   it('opens on a window and pages older turns over REST, never through the stream', async () => {
-    opened()
+    await opened()
     expect(feed()).toMatchObject({ status: 'live', from: 40, seq: 42, order: ['p:r41'] })
     vi.mocked(readOlderRows).mockResolvedValue({ rows: [p39, s39], from: 38, more: true })
 
@@ -160,7 +179,7 @@ describe('older turns over REST', () => {
   })
 
   it('holds the chat from its start once a page says nothing is older', async () => {
-    opened()
+    await opened()
     vi.mocked(readOlderRows).mockResolvedValue({ rows: [p39, s39], from: 38, more: false })
     await loadOlder('chat-1')
     expect(feed()?.from).toBe(0)
@@ -169,7 +188,7 @@ describe('older turns over REST', () => {
   })
 
   it('asks once at a time, and again after a page failed', async () => {
-    opened()
+    await opened()
     const page = { rows: [p39, s39], from: 38, more: true }
     vi.mocked(readOlderRows).mockRejectedValueOnce(new ApiError('offline', 503))
     await loadOlder('chat-1')
@@ -182,7 +201,7 @@ describe('older turns over REST', () => {
   })
 
   it('drops a page that lands after the feed was replayed under it', async () => {
-    opened()
+    await opened()
     let land!: (page: RowsPage) => void
     vi.mocked(readOlderRows).mockReturnValue(new Promise((resolve) => (land = resolve)))
     const loading = loadOlder('chat-1')
@@ -193,7 +212,7 @@ describe('older turns over REST', () => {
   })
 
   it('asks for no older turns when the feed holds the chat from its start', async () => {
-    attachFeed('chat-1')
+    await attachFeed('chat-1')
     push({ t: 'row', row: ledger().prompt('r1', 'hi') })
     push({ t: 'synced', seq: 1 })
     await loadOlder('chat-1')

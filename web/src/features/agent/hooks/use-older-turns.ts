@@ -18,7 +18,8 @@ export function useOlderTurns(
     const load = () => {
       if (nearsLoadedTop(el.scrollTop, el.clientHeight)) void loadOlder(chatId)
     }
-    load()
+    // A fresh open rests at the bottom, which is never a reason to page: only a feed too short to scroll is.
+    if (el.scrollHeight <= el.clientHeight) load()
     el.addEventListener('scrollend', load)
     return () => el.removeEventListener('scrollend', load)
   }, [chatId, from, scrollRef])

@@ -7,10 +7,10 @@ import { emptyFeed } from '@/features/agent/stores/lib/fold-rows'
 
 vi.mock('@/features/agent/stores/chat-feed', () => ({ loadOlder: vi.fn() }))
 
-const scroller = (scrollTop: number) => {
+const scroller = (scrollTop: number, scrollHeight = 4000) => {
   const el = document.createElement('div')
   Object.defineProperty(el, 'clientHeight', { value: 400 })
-  Object.defineProperty(el, 'scrollHeight', { value: 4000 })
+  Object.defineProperty(el, 'scrollHeight', { value: scrollHeight })
   el.scrollTop = scrollTop
   return { current: el }
 }
@@ -23,17 +23,27 @@ beforeEach(() => {
 })
 
 describe('useOlderTurns', () => {
-  it('asks for older turns at open and when the view comes to rest near the first loaded row, never mid-gesture', () => {
-    renderHook(() => useOlderTurns('chat-1', scroller(120), () => {}))
-    expect(loadOlder).toHaveBeenCalledTimes(1)
-    expect(loadOlder).toHaveBeenCalledWith('chat-1')
+  it('loads nothing when mounted at the bottom of a feed that can scroll', () => {
+    const el = scroller(3600) // the bottom of 4000px in a 400px view
+    renderHook(() => useOlderTurns('chat-1', el, () => {}))
+    expect(loadOlder).not.toHaveBeenCalled()
+  })
+
+  it('loads when the view comes to rest near the first loaded row, never mid-gesture', () => {
     const ref = scroller(5000)
     renderHook(() => useOlderTurns('chat-1', ref, () => {}))
     ref.current.scrollTop = 700 // a fling passing through: its write would cancel the momentum
     ref.current.dispatchEvent(new Event('scroll'))
-    expect(loadOlder).toHaveBeenCalledTimes(1)
+    expect(loadOlder).not.toHaveBeenCalled()
     ref.current.dispatchEvent(new Event('scrollend'))
-    expect(loadOlder).toHaveBeenCalledTimes(2)
+    expect(loadOlder).toHaveBeenCalledTimes(1)
+    expect(loadOlder).toHaveBeenCalledWith('chat-1')
+  })
+
+  it('loads at mount while the loaded rows cannot fill the view', () => {
+    const el = scroller(0, 300)
+    renderHook(() => useOlderTurns('chat-1', el, () => {}))
+    expect(loadOlder).toHaveBeenCalledTimes(1)
   })
 
   it('asks for nothing when the feed holds the chat from its start', () => {

@@ -55,3 +55,17 @@ func TestPreview_NeverCutsWhatPaintsARow(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, row, ledger.Preview(row, 1024))
 }
+
+func TestRegression_PreviewCutsABulkyToolOutput(t *testing.T) {
+	row, err := ledger.NewRow(ledger.KindToolCall, "T1", "", ledger.ToolCall{
+		ToolID: "t1", Phase: ledger.ToolPost, Output: strings.Repeat("out line\n", 1000),
+	})
+	require.NoError(t, err)
+
+	got := ledger.Preview(row, 1024)
+
+	assert.Equal(t, []string{"output"}, got.Trimmed)
+	body, err := ledger.DecodeBody[ledger.ToolCall](got)
+	require.NoError(t, err)
+	assert.LessOrEqual(t, len(body.Output), 1024)
+}
