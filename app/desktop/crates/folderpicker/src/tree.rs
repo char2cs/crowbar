@@ -1,12 +1,19 @@
 //! The visible rows of the tree: each folder's own children, and below every opened folder its
 //! rows or the note that stands in for them.
 
+mod folder_note;
+mod folder_row;
+mod row_element;
+mod shown;
+
+pub(crate) use folder_row::FolderRow;
+pub(crate) use row_element::{Toggle, tree_row};
+pub(crate) use shown::Shown;
+
 use store::{BrowseEntry, EntryKind, FolderListing};
 use ui::Pose;
 
-use crate::folder_note::FolderNote;
-use crate::folder_row::FolderRow;
-use crate::shown::Shown;
+use crate::tree::folder_note::FolderNote;
 
 const FILE_CAP: usize = 500;
 
@@ -110,8 +117,8 @@ mod tests {
     use std::collections::{BTreeSet, HashMap};
 
     use super::*;
-    use crate::folder_reader::FolderReader;
-    use crate::folder_requests::FolderRequests;
+    use crate::folder_source::FolderReader;
+    use crate::folder_source::FolderRequests;
 
     struct Listed(HashMap<String, FolderListing>);
 

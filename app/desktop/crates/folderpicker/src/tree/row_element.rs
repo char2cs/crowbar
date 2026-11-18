@@ -7,9 +7,9 @@ use gpui::{
 use store::EntryKind;
 use ui::{Icon, IconName, Palette, Pose};
 
-use crate::folder_note::FolderNote;
-use crate::folder_row::FolderRow;
-use crate::row_look::{GAP, ICON, INDENT, INERT_OPACITY, ROW_HEIGHT, TEXT};
+use crate::look::{GAP, ICON, INDENT, INERT_OPACITY, ROW_HEIGHT, TEXT};
+use crate::tree::folder_note::FolderNote;
+use crate::tree::folder_row::FolderRow;
 
 pub(crate) type Toggle = Box<dyn Fn(&mut Window, &mut App)>;
 

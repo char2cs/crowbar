@@ -3,7 +3,7 @@
 use store::BrowseEntry;
 use ui::Pose;
 
-use crate::folder_note::FolderNote;
+use crate::tree::folder_note::FolderNote;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum FolderRow {

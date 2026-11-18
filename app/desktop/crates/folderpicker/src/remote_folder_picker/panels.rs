@@ -5,13 +5,13 @@ use gpui::{
 use store::{BrowseEntry, FolderListing, ROOT_PATH};
 use ui::{Button, ButtonSize, ButtonVariant, Palette, Pose};
 
-use crate::folder_row::FolderRow;
-use crate::folder_rows::{children_of, rows};
-use crate::picker_widgets::{centred, highlighted, inert, toggler};
+use crate::look::{BANNER_TINT, EMPTY_ROOT, GAP, LOADING_ROOT, ROW_HEIGHT, TEXT, TREE_HEIGHT};
 use crate::remote_folder_picker::RemoteFolderPicker;
-use crate::row_look::{BANNER_TINT, EMPTY_ROOT, GAP, LOADING_ROOT, ROW_HEIGHT, TEXT, TREE_HEIGHT};
-use crate::shown::Shown;
-use crate::tree_row::tree_row;
+use crate::remote_folder_picker::widgets::{centred, highlighted, inert, toggler};
+use crate::tree::FolderRow;
+use crate::tree::Shown;
+use crate::tree::tree_row;
+use crate::tree::{children_of, rows};
 
 impl RemoteFolderPicker {
     pub(crate) fn row_element(

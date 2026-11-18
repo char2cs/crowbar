@@ -1,7 +1,10 @@
 //! What the picker needs of the data behind it, so the data can be replaced in tests.
 
-use crate::folder_reader::FolderReader;
-use crate::folder_requests::FolderRequests;
+mod folder_reader;
+mod folder_requests;
+
+pub(crate) use folder_reader::FolderReader;
+pub(crate) use folder_requests::FolderRequests;
 
 pub(crate) trait FolderSource: FolderReader + FolderRequests {}
 

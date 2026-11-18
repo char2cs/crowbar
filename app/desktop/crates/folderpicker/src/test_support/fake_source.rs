@@ -5,8 +5,8 @@ use std::rc::Rc;
 use gpui::{App, Entity, TestAppContext, VisualTestContext};
 use store::{BrowseEntry, EntryKind, FolderListing};
 
-use crate::folder_reader::FolderReader;
-use crate::folder_requests::FolderRequests;
+use crate::folder_source::FolderReader;
+use crate::folder_source::FolderRequests;
 use crate::picker_event::PickerEvent;
 use crate::remote_folder_picker::RemoteFolderPicker;
 

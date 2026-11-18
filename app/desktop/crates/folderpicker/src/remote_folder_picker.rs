@@ -1,5 +1,10 @@
 //! The dialog: a tree of the host's folders, one of which is chosen.
 
+mod actions;
+mod muted;
+mod panels;
+mod widgets;
+
 use std::collections::BTreeSet;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -8,12 +13,12 @@ use gpui::{Context, EventEmitter, IntoElement, ParentElement, Render, Styled, Wi
 use store::{BrowseEntry, FolderBrowse, FolderListing, ROOT_PATH};
 use ui::{Dialog, DialogSize, Surface, Theme};
 
-use crate::folder_reader::FolderReader;
-use crate::folder_requests::FolderRequests;
+use crate::folder_source::FolderReader;
+use crate::folder_source::FolderRequests;
 use crate::folder_source::FolderSource;
-use crate::muted::muted;
+use crate::look::{GAP, TITLE};
 use crate::picker_event::PickerEvent;
-use crate::row_look::{GAP, TITLE};
+use crate::remote_folder_picker::muted::muted;
 
 /// The remote folder picker; it emits a [`PickerEvent`] when a folder is chosen or it is dismissed.
 pub struct RemoteFolderPicker {

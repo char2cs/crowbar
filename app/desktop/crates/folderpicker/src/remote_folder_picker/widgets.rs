@@ -1,10 +1,10 @@
 use gpui::{Div, ParentElement, SharedString, Styled};
 use ui::{Palette, Pose};
 
-use crate::muted::muted;
+use crate::look::TREE_HEIGHT;
 use crate::remote_folder_picker::RemoteFolderPicker;
-use crate::row_look::TREE_HEIGHT;
-use crate::tree_row::Toggle;
+use crate::remote_folder_picker::muted::muted;
+use crate::tree::Toggle;
 
 pub(crate) fn centred(
     palette: &Palette,

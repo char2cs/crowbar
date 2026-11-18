@@ -3,7 +3,7 @@
 use gpui::{Div, Styled, div};
 use ui::Palette;
 
-use crate::row_look::TEXT;
+use crate::look::TEXT;
 
 pub(crate) fn muted(palette: &Palette) -> Div {
     div().text_size(TEXT).text_color(palette.muted_foreground())
