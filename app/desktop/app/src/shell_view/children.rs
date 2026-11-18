@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use gpui::{AppContext as _, Context, Entity};
-use layout_view::LayoutView;
+use layoutview::LayoutView;
 use ptysession::TerminalSessions;
 use shell_data::{ShellData, ShellWiring};
 use sidebar::{Preferences, Sidebar, SidebarData};

@@ -5,7 +5,7 @@ use gpui::{
     Window, div, px,
 };
 use layout::{Layout, LayoutHistory, PaneInstance};
-use layout_view::{ChromeContext, LayoutEvent, LayoutView, SidebarEdge};
+use layoutview::{ChromeContext, LayoutEvent, LayoutView, SidebarEdge};
 use ui::{Surface, Theme};
 
 use crate::chip::chip;

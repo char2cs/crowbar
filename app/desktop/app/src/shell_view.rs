@@ -8,7 +8,7 @@ use gpui::{
     Styled, Subscription, Window, div,
 };
 use keymap::Keymap;
-use layout_view::{ChromeContext, LayoutView};
+use layoutview::{ChromeContext, LayoutView};
 use panehost::Overlay;
 use settings_ui::SettingsModal;
 use shell_data::{SettingsAdapter, ShellData};

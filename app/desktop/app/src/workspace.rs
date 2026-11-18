@@ -2,7 +2,7 @@ use gpui::{
     Bounds, Context, Entity, EventEmitter, IntoElement, ParentElement, Pixels, Render, Styled,
     Window, canvas, div,
 };
-use layout_view::LayoutView;
+use layoutview::LayoutView;
 use viewtabs::TabBar;
 
 use crate::workspace_event::WorkspaceEvent;

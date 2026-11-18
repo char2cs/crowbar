@@ -2,7 +2,7 @@ use std::cell::Cell;
 
 use gpui::{AnyElement, App, IntoElement, ParentElement, SharedString, Styled, Window, div, px};
 use layout::TabId;
-use layout_view::{PaneChrome, PaneContent, PaneDetach, PaneTabs};
+use layoutview::{PaneChrome, PaneContent, PaneDetach, PaneTabs};
 use protocol::PaneId;
 use ui::{Surface, Theme, text_size};
 

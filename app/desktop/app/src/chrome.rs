@@ -1,4 +1,4 @@
-use layout_view::{ChromeContext, SidebarEdge};
+use layoutview::{ChromeContext, SidebarEdge};
 use sidebar::{DockSide, Preferences, Visibility};
 use viewtabs::SidebarState;
 

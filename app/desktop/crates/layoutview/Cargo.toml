@@ -1,5 +1,5 @@
 [package]
-name = "layout_view"
+name = "layoutview"
 description = "Pane layout of one tab for the Crowbar shell: split frames, sashes, drop zones and the pane handle, driven by the model's commands."
 version.workspace = true
 edition.workspace = true

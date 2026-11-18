@@ -21,7 +21,7 @@ webview = { path = "desktop/crates/webview" }
 panehost = { path = "desktop/crates/panehost" }
 ui = { path = "desktop/crates/ui" }
 sidebar = { path = "desktop/crates/sidebar" }
-layout_view = { path = "desktop/crates/layout_view" }
+layoutview = { path = "desktop/crates/layoutview" }
 viewtabs = { path = "desktop/crates/viewtabs" }
 transport = { path = "crates/transport" }
 supervisor = { path = "desktop/crates/supervisor" }

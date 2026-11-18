@@ -1502,7 +1502,7 @@ dependencies = [
  "image",
  "keymap",
  "layout",
- "layout_view",
+ "layoutview",
  "oobe_view",
  "pairing_view",
  "panehost",
@@ -3766,7 +3766,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "layout_view"
+name = "layoutview"
 version = "0.1.0"
 dependencies = [
  "gpui",

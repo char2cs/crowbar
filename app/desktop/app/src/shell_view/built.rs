@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use gpui::{Entity, Subscription};
-use layout_view::LayoutView;
+use layoutview::LayoutView;
 use shell_data::ShellData;
 use sidebar::Sidebar;
 use startup_view::StartupView;

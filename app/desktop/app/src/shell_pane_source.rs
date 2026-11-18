@@ -49,7 +49,7 @@ impl ShellPaneSource {
     }
 }
 
-impl layout_view::PaneContent for ShellPaneSource {
+impl layoutview::PaneContent for ShellPaneSource {
     fn content(
         &self,
         pane: &PaneId,
@@ -67,7 +67,7 @@ impl layout_view::PaneContent for ShellPaneSource {
     }
 }
 
-impl layout_view::PaneChrome for ShellPaneSource {
+impl layoutview::PaneChrome for ShellPaneSource {
     fn chrome_height(
         &self,
         pane: &PaneId,
@@ -85,11 +85,11 @@ impl layout_view::PaneChrome for ShellPaneSource {
     }
 }
 
-impl layout_view::PaneTabs for ShellPaneSource {
+impl layoutview::PaneTabs for ShellPaneSource {
     fn tab_look(
         &self,
         instance: &layout::PaneInstance,
-    ) -> layout_view::TabLook {
+    ) -> layoutview::TabLook {
         let title = self
             .titles
             .get(&instance.pane_id)
@@ -109,7 +109,7 @@ impl layout_view::PaneTabs for ShellPaneSource {
     }
 }
 
-impl layout_view::PaneDetach for ShellPaneSource {
+impl layoutview::PaneDetach for ShellPaneSource {
     fn label(
         &self,
         pane: &PaneId,
@@ -130,7 +130,7 @@ impl layout_view::PaneDetach for ShellPaneSource {
 
 #[cfg(test)]
 mod tests {
-    use layout_view::PaneDetach as _;
+    use layoutview::PaneDetach as _;
     use protocol::PaneTitle;
 
     use super::*;
@@ -224,7 +224,7 @@ mod tests {
 
     #[test]
     fn a_tab_is_marked_exactly_while_its_pane_has_unsaved_work() {
-        use layout_view::PaneTabs as _;
+        use layoutview::PaneTabs as _;
         let dirty = DirtyPanes::default();
         let source = ShellPaneSource::new(
             Titles::default(),

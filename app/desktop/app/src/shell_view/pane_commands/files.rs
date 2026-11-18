@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use gpui::{ClipboardItem, Context, PathPromptOptions, Window};
-use layout_view::PathAction;
+use layoutview::PathAction;
 
 use super::ShellView;
 use crate::pane_spec::PaneSpec;
