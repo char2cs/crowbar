@@ -248,9 +248,9 @@ init() {
   local app
   with_stopped tauri rust -- initial_settings
   for app in tauri rust; do running "$app" || start_app "$app"; done
-  # points.conf names the baseline's sidebar rows (noproviders shares them); the other profiles
-  # start on what each app restores.
-  if [[ $(profile) == baseline || $(profile) == noproviders ]]; then
+  # points.conf names the baseline's sidebar rows (noproviders and extras share them); the other
+  # profiles start on what each app restores.
+  if [[ $(profile) == baseline || $(profile) == noproviders || $(profile) == extras ]]; then
     for app in tauri rust; do
       click_point "$app" perf_chat; sleep 3
       click_point "$app" untitled_chat; sleep 3

@@ -88,7 +88,7 @@ Logs: `~/.rig/daemon.log` (the shared daemon), `~/.rig/http.log` (web fixture), 
     rig start|stop|restart [app]        # exactly one instance each; start waits for the window and places it
     rig init                            # same theme + sidebar in both; on baseline, both seeded chats open as tabs
     rig seed [list]                     # the current profile and the ones built into the image
-    rig seed empty|baseline|full|noproviders   # apps stopped, daemon paused, that profile restored, apps' storage wiped, init
+    rig seed empty|baseline|extras|full|noproviders   # apps stopped, daemon paused, that profile restored, apps' storage wiped, init
     rig reset                           # rig seed <current profile>
     rig daemon status|stop|start|restart|kill   # the one shared daemon: stop holds it down until start;
                                         # restart and kill let the daemon loop bring it straight back
@@ -208,11 +208,12 @@ Daemon data and chats (all through the daemon's HTTP API, over its socket):
 
 `points.conf` (copy to `~/.rig/points.conf` to override) names the points the rig clicks: the two
 seeded chats in the sidebar, tab 1 / tab 2 in the tab strip, the chat composer and the transcript.
-They are positions in the **baseline** profile's sidebar; `rig perf` assumes baseline.
+They are positions in the **baseline** profile's sidebar (extras and noproviders keep them); `rig
+perf` assumes baseline.
 
 ## Seed profiles
 
-`seed/build.sh` builds three profiles at image build time, each a tar of `~/.crowbar-rig` (the
+`seed/build.sh` builds five profiles at image build time, each a tar of `~/.crowbar-rig` (the
 daemon home), `~/.scripted-agent` (the scripted CLI's own state) and `~/fixtures`. `rig seed <name>`
 restores one exactly (and stops and wipes the remote host and empties the keyring), so a capture that mutates data is undone by `rig reset`. Files that must stay
 unreadable are archived readable and locked again on restore (`~/.rig-unreadable` lists them).
@@ -224,6 +225,13 @@ unreadable are archived readable and locked again on restore (`~/.rig-unreadable
 - **baseline** — what the rig always had: `crowbar-seed` (project "Crowbar Seed", repo `checkout`,
   workspaces `main` and `feature/pricing-rounding`, two review threads) and `crowbar-seed-chat` (the
   30-turn "Perf fixture" chat). `points.conf` and `rig perf` assume it.
+- **extras** — baseline, then `seed/extras.py` (a few seconds) adds what audit rows ask of the
+  baseline, keeping its sidebar rows and points: in `feature/pricing-rounding` a README with a
+  table, a `ts` fence and a mermaid fence, a committed `.env.example` and a gitignored `.env`; a chat
+  "Rich markdown: table, code, mermaid" (the `#markdown` scenario) under it; a locked workspace
+  `ws/read-only` whose file writes the daemon refuses (409 `locked`, checked at seed time); and a
+  second project "Side Project" (repo `side-app`, two chats). Ids in `~/.rig/seed-extras.txt`. The
+  baseline already has two review threads on `src/pricing.ts` (lines 20 and 49).
 - **full** — baseline, then `seed/full.py` drives the API and the scripted provider (about 1 min).
   It writes a summary to `~/.rig/seed-full.txt` (chat and workspace ids):
   - **Remote.** `~/fixtures/remote/gitlab-fixture/checkout.git` is `origin`, with `main`, the feature
