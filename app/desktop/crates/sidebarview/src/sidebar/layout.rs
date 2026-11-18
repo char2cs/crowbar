@@ -5,12 +5,12 @@ use gpui::{
     AnyElement, Context, Div, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
     ParentElement, Render, Stateful, Styled, Window, div, px,
 };
-use sidebar::{DockSide, PEEK_INSET, Visibility};
+use sidebar::{DockSide, Visibility};
 use ui::{Motion, Surface, Theme};
 
 use crate::sidebar::Sidebar;
 use crate::sidebar::geometry::Geometry;
-use crate::sidebar::scale::HANDLE_HIT;
+use crate::sidebar::scale::{HANDLE_HIT, PEEK_INSET};
 
 const FRAME_SHADOW: f32 = 0.2;
 

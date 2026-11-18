@@ -12,7 +12,6 @@ mod visibility;
 
 pub use dock_side::DockSide;
 pub(crate) use metrics::REMOVAL_DRAIN_SECONDS;
-pub use metrics::{HEADER_HEIGHT, PEEK_INSET};
 pub use mode::Mode;
 pub use panel::Panel;
 pub use peek_zone::PeekZone;

@@ -1,7 +1,7 @@
 //! Where the pointer summons and keeps the peek card.
 
 use crate::frame::dock_side::DockSide;
-use crate::frame::metrics::{HEADER_HEIGHT, PEEK_INSET, PEEK_TRIGGER};
+use crate::frame::metrics::PEEK_TRIGGER;
 
 const BOTTOM_CLEAR: f32 = 16.0;
 const SLACK: f32 = 8.0;
@@ -16,6 +16,10 @@ pub struct PeekZone {
     pub card_width: f32,
     /// The window edge the sidebar docks to.
     pub side: DockSide,
+    /// The height of the sidebar header in pixels; the band starts below it.
+    pub header_height: f32,
+    /// The gap in pixels between the window edge and the card.
+    pub card_inset: f32,
 }
 
 impl PeekZone {
@@ -37,7 +41,7 @@ impl PeekZone {
         y: f32,
     ) -> bool {
         self.distance_from_edge(x) <= PEEK_TRIGGER
-            && y >= HEADER_HEIGHT
+            && y >= self.header_height
             && y <= self.window.1 - BOTTOM_CLEAR
     }
 
@@ -48,7 +52,7 @@ impl PeekZone {
         x: f32,
         _y: f32,
     ) -> bool {
-        self.distance_from_edge(x) <= PEEK_INSET + self.card_width + SLACK
+        self.distance_from_edge(x) <= self.card_inset + self.card_width + SLACK
     }
 }
 
@@ -61,6 +65,8 @@ mod tests {
             window: (1200.0, 800.0),
             card_width: 294.0,
             side,
+            header_height: 42.0,
+            card_inset: 8.0,
         }
     }
 

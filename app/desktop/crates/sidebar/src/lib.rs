@@ -17,8 +17,8 @@ pub use explorer::{
 #[cfg(feature = "fixtures")]
 pub use fixtures::DemoShell;
 pub use frame::{
-    DockSide, HEADER_HEIGHT, KeyStep, Mode, PEEK_INSET, Panel, PeekZone, Preferences, Presentation,
-    ResizeDrag, ResizeKey, Resizing, Visibility,
+    DockSide, KeyStep, Mode, Panel, PeekZone, Preferences, Presentation, ResizeDrag, ResizeKey,
+    Resizing, Visibility,
 };
 pub use shell::{
     ActiveSpace, Activity, AfterMerge, AvatarTint, ChangedFile, Changes, ChangesSource, ClipMode,

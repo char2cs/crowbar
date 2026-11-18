@@ -1,10 +1,11 @@
 //! Summoning and dismissing the peek card.
 
 use gpui::{Context, Pixels, Point, Window};
-use sidebar::{PEEK_INSET, Panel, PeekZone, Presentation, Visibility};
+use sidebar::{Panel, PeekZone, Presentation, Visibility};
 use ui::Motion;
 
 use crate::sidebar::Sidebar;
+use crate::sidebar::{HEADER_HEIGHT, PEEK_INSET};
 
 impl Sidebar {
     /// Slides the peek card in while the sidebar is closed. The shell calls this when the pointer
@@ -69,6 +70,8 @@ impl Sidebar {
             window: (f32::from(size.width), f32::from(size.height)),
             card_width: self.panel.preferred().min(container - 2.0 * PEEK_INSET),
             side: self.panel.side(),
+            header_height: HEADER_HEIGHT,
+            card_inset: PEEK_INSET,
         };
         let (x, y) = (f32::from(at.x), f32::from(at.y));
         match (

@@ -32,8 +32,9 @@ types only, so the path arithmetic and the drag rules are methods of `PathText`,
   `RemovalTarget`, `Confirmation`, `WorkAtRisk`, `DropModes`, `FolderTarget`, `FileAction`,
   `FileClipboard`, `FileDialog`, `FileProperties`, `FileKey`, `ShellAnswers`, `MenuScope`,
   `Panel`, `DockSide`, `Visibility`, `Presentation`, `PeekZone`, `Mode`, `ResizeDrag`,
-  `ResizeKey`, `Resizing`, `KeyStep`, `Preferences`, `HEADER_HEIGHT`, `PEEK_INSET`, and the row
-  drag rules `DragArm` (the drag threshold) and `EdgeScroll` (edge-scroll speed).
+  `ResizeKey`, `Resizing`, `KeyStep`, `Preferences`, and the row drag rules `DragArm` (the drag
+  threshold) and `EdgeScroll` (edge-scroll speed). `PeekZone` takes the header height and the card
+  inset from the view, which owns those metrics.
 - Feature `fixtures`: `DemoShell`, an in-memory workspace for tests and the `sidebarview` gallery.
 
 ## Depends on

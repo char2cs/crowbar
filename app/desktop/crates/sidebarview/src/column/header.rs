@@ -12,13 +12,13 @@ use gpui::{
     AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Styled, WindowControlArea,
     div, px,
 };
-use sidebar::{Command, DockSide, HEADER_HEIGHT, Host, Intent, Visibility};
+use sidebar::{Command, DockSide, Host, Intent, Visibility};
 use ui::{IconName, Surface, Theme};
 
 use crate::column::header::host_picker::host_picker;
 use crate::sidebar::RowAction;
 use crate::sidebar::Sidebar;
-use crate::sidebar::{SPACE_LG, SPACE_MD, SPACE_XS, TRAFFIC_LIGHT_RESERVE};
+use crate::sidebar::{HEADER_HEIGHT, SPACE_LG, SPACE_MD, SPACE_XS, TRAFFIC_LIGHT_RESERVE};
 
 impl Sidebar {
     pub(crate) fn header(
