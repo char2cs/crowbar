@@ -1,5 +1,13 @@
 //! User settings of the terminal.
 
+mod ansi_colors;
+mod channel_byte;
+mod font;
+mod theme_palette;
+
+pub(crate) use font::{base_font, styled_font};
+pub(crate) use theme_palette::{hex_text, hsla_of, is_dark, terminal_config, terminal_palette};
+
 use terminal::CursorShape;
 use ui::font::MONO_FAMILY;
 

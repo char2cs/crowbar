@@ -2,7 +2,7 @@
 
 use terminal::Row;
 
-use crate::shaping::Shaping;
+use crate::terminal_view::paint::shaping::Shaping;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct RowInput<'a> {

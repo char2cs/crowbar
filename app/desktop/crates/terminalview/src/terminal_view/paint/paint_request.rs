@@ -2,7 +2,7 @@
 
 use gpui::{Bounds, Pixels};
 
-use crate::frame::Frame;
+use crate::terminal_view::paint::frame::Frame;
 
 pub(crate) struct PaintRequest {
     pub(crate) bounds: Bounds<Pixels>,

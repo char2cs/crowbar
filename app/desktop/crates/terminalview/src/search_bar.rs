@@ -1,5 +1,12 @@
 //! The find bar over the terminal's top-right corner.
 
+mod search_bar_event;
+mod search_session;
+mod toggle_spec;
+
+pub(crate) use search_bar_event::SearchBarEvent;
+pub(crate) use search_session::SearchSession;
+
 use gpui::{
     AppContext, Context, Div, Entity, EventEmitter, FontWeight, IntoElement, ParentElement, Render,
     SharedString, Styled, Subscription, Window, div, px,
@@ -10,8 +17,7 @@ use ui::{
     TextInputStyle, Theme,
 };
 
-use crate::search_bar_event::SearchBarEvent;
-use crate::toggle_spec::ToggleSpec;
+use crate::search_bar::toggle_spec::ToggleSpec;
 
 const BAR_INSET: f32 = 8.0;
 const INPUT_WIDTH: f32 = 220.0;

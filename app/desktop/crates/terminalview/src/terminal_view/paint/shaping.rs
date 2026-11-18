@@ -1,5 +1,14 @@
 //! What text shaping needs to know.
 
+mod cached_row;
+pub(crate) mod line_cache;
+mod row_input;
+mod row_lines;
+
+pub(crate) use line_cache::LineCache;
+pub(crate) use row_input::RowInput;
+pub(crate) use row_lines::RowLines;
+
 use gpui::{Font, Pixels};
 
 #[derive(Debug, Clone)]

@@ -3,7 +3,7 @@
 use gpui::{Hsla, PaintQuad, Window, fill, px};
 use terminal::ScrollbarThumb;
 
-use crate::view_layout::ViewLayout;
+use crate::terminal_view::paint::view_layout::ViewLayout;
 
 const THUMB_RADIUS: f32 = 2.5;
 

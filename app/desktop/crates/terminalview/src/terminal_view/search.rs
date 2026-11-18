@@ -4,8 +4,8 @@ use gpui::{AppContext, Context, Window};
 use terminal::{SearchQuery, SearchSummary};
 
 use crate::search_bar::SearchBar;
-use crate::search_bar_event::SearchBarEvent;
-use crate::search_session::SearchSession;
+use crate::search_bar::SearchBarEvent;
+use crate::search_bar::SearchSession;
 use crate::terminal_view::TerminalView;
 
 impl TerminalView {
@@ -94,7 +94,7 @@ mod tests {
 
     use terminal::{SearchOptions, SearchQuery};
 
-    use crate::search_bar_event::SearchBarEvent;
+    use crate::search_bar::SearchBarEvent;
     use crate::test_support::{draw, feed, focus, open};
 
     #[gpui::test]

@@ -2,7 +2,7 @@
 
 use terminal::CursorCell;
 
-use crate::cursor_look::CursorLook;
+use crate::terminal_view::paint::cursor::cursor_look::CursorLook;
 
 #[derive(Clone, Copy)]
 pub(crate) struct PreeditSite<'a> {

@@ -3,7 +3,7 @@
 use gpui::MouseButton as HostButton;
 use terminal::{MouseButton, ViewPoint};
 
-use crate::key_conversion::terminal_modifiers;
+use crate::terminal_view::input::key_conversion::terminal_modifiers;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct PointerReport {

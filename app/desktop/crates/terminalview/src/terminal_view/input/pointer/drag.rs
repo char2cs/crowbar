@@ -1,11 +1,11 @@
 use gpui::{AsyncApp, Context, MouseMoveEvent, WeakEntity, Window};
 use terminal::{CellHit, DragEdge, Highlight, MouseAction, ViewPoint};
 
-use crate::auto_scroll::AutoScroll;
-use crate::drag_state::DragState;
-use crate::key_conversion::link_modifier_held;
-use crate::pointer_report::{PointerReport, pointer_report};
 use crate::terminal_view::TerminalView;
+use crate::terminal_view::input::key_conversion::link_modifier_held;
+use crate::terminal_view::input::pointer::auto_scroll::AutoScroll;
+use crate::terminal_view::input::pointer::drag_state::DragState;
+use crate::terminal_view::input::pointer::pointer_report::{PointerReport, pointer_report};
 
 const AUTO_SCROLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(50);
 

@@ -3,11 +3,11 @@ use std::cmp::Ordering;
 use gpui::{Context, Pixels, Point, ScrollDelta, ScrollWheelEvent, Window};
 use terminal::{MouseAction, ScrollbarThumb, ViewPoint, WheelRoute, route_wheel};
 
-use crate::drag_state::DragState;
-use crate::key_conversion::terminal_modifiers;
-use crate::pointer_report::PointerReport;
-use crate::pointer_report::pointer_report;
 use crate::terminal_view::TerminalView;
+use crate::terminal_view::input::key_conversion::terminal_modifiers;
+use crate::terminal_view::input::pointer::drag_state::DragState;
+use crate::terminal_view::input::pointer::pointer_report::PointerReport;
+use crate::terminal_view::input::pointer::pointer_report::pointer_report;
 
 const WHEEL_LINES_PER_NOTCH: f32 = 3.0;
 const HALF: f32 = 2.0;

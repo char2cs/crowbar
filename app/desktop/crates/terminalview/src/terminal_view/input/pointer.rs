@@ -1,15 +1,23 @@
 //! Mouse presses on the view: reporting to the program, starting a selection, pasting.
 
+pub(crate) mod auto_scroll;
+pub(crate) mod button_event;
+mod drag;
+pub(crate) mod drag_state;
+mod pointer_report;
+mod release;
+mod wheel;
+
 use gpui::{Context, CursorStyle, MouseButton, MouseDownEvent, Pixels, Point, Window};
 use terminal::{CellHit, MouseAction, MouseEvent};
 use terminal::{ClientMessage, MouseTracking};
 
-use crate::button_event::ButtonEvent;
-use crate::drag_state::DragState;
-use crate::key_conversion::link_modifier_held;
-use crate::pointer_report::PointerReport;
-use crate::pointer_report::{pointer_report, reported_button};
 use crate::terminal_view::TerminalView;
+use crate::terminal_view::input::key_conversion::link_modifier_held;
+use crate::terminal_view::input::pointer::button_event::ButtonEvent;
+use crate::terminal_view::input::pointer::drag_state::DragState;
+use crate::terminal_view::input::pointer::pointer_report::PointerReport;
+use crate::terminal_view::input::pointer::pointer_report::{pointer_report, reported_button};
 
 impl TerminalView {
     pub(crate) fn pointer_style(&self) -> CursorStyle {
@@ -137,7 +145,7 @@ mod tests {
     use gpui::{Modifiers, TestAppContext};
 
     use crate::terminal_view::TerminalView;
-    use crate::terminal_view_event::TerminalViewEvent;
+    use crate::terminal_view::terminal_view_event::TerminalViewEvent;
     use crate::test_support::{cell_position, feed, open, press, record_events};
 
     const MULTI_CLICK_WINDOW: Duration = Duration::from_millis(500);

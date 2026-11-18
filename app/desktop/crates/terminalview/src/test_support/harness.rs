@@ -6,8 +6,8 @@ use std::rc::Rc;
 use gpui::{Entity, TestAppContext, VisualTestContext, point, px};
 use terminal::{ClientMessage, DaemonFrame};
 
-use crate::terminal_link::TerminalLink;
-use crate::terminal_peer::TerminalPeer;
+use crate::daemon::TerminalLink;
+use crate::daemon::TerminalPeer;
 use crate::terminal_settings::TerminalSettings;
 use crate::terminal_view::TerminalView;
 

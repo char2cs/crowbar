@@ -3,7 +3,7 @@
 use async_channel::{Receiver, Sender, bounded};
 use terminal::{ClientMessage, DaemonFrame};
 
-use crate::terminal_peer::TerminalPeer;
+use crate::daemon::terminal_peer::TerminalPeer;
 
 const FRAME_BACKLOG: usize = 64;
 const MESSAGE_BACKLOG: usize = 1024;

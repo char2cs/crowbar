@@ -2,11 +2,11 @@
 
 use gpui::{ClipboardItem, Context, KeyDownEvent, Window};
 
-use crate::key_conversion::key_input;
-use crate::page_direction::PageDirection;
-use crate::shortcut::{Shortcut, shortcut_for};
 use crate::terminal_view::TerminalView;
-use crate::terminal_view_event::TerminalViewEvent;
+use crate::terminal_view::input::key_conversion::key_input;
+use crate::terminal_view::input::page_direction::PageDirection;
+use crate::terminal_view::input::shortcut::{Shortcut, shortcut_for};
+use crate::terminal_view::terminal_view_event::TerminalViewEvent;
 
 const ZOOM_STEP: f32 = 2.0;
 
@@ -120,7 +120,7 @@ mod tests {
     use gpui::{ClipboardItem, TestAppContext};
 
     use crate::terminal_view::TerminalView;
-    use crate::terminal_view_event::TerminalViewEvent;
+    use crate::terminal_view::terminal_view_event::TerminalViewEvent;
     use crate::test_support::{feed, first_row, focus, open, record_events, typed};
 
     #[gpui::test]

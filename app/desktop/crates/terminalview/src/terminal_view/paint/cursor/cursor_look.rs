@@ -2,9 +2,9 @@
 
 use gpui::Hsla;
 
-use crate::focus_state::FocusState;
-use crate::shaping::Shaping;
-use crate::view_layout::ViewLayout;
+use crate::terminal_view::paint::cursor::focus_state::FocusState;
+use crate::terminal_view::paint::shaping::Shaping;
+use crate::terminal_view::paint::view_layout::ViewLayout;
 
 pub(crate) struct CursorLook<'a> {
     pub(crate) color: Hsla,

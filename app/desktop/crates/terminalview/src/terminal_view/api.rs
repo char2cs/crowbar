@@ -3,8 +3,8 @@
 use gpui::{Context, SharedString, Window};
 
 use crate::terminal_settings::TerminalSettings;
+use crate::terminal_settings::terminal_config;
 use crate::terminal_view::TerminalView;
-use crate::theme_palette::terminal_config;
 
 impl TerminalView {
     /// Moves keyboard focus to the terminal.

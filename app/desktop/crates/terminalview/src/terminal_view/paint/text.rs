@@ -3,12 +3,12 @@
 use gpui::{App, Bounds, Pixels, ShapedLine, Window, fill, point, px, size};
 use terminal::{BackgroundSpan, Row};
 
-use crate::frame::Frame;
-use crate::line_cache::LineCache;
-use crate::row_input::RowInput;
-use crate::row_lines::RowLines;
-use crate::theme_palette::hsla_of;
-use crate::view_layout::ViewLayout;
+use crate::terminal_settings::hsla_of;
+use crate::terminal_view::paint::frame::Frame;
+use crate::terminal_view::paint::shaping::LineCache;
+use crate::terminal_view::paint::shaping::RowInput;
+use crate::terminal_view::paint::shaping::RowLines;
+use crate::terminal_view::paint::view_layout::ViewLayout;
 
 pub(crate) fn paint_backgrounds(
     frame: &Frame,

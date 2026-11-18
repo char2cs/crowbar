@@ -7,10 +7,10 @@ use gpui::{
     UnderlineStyle, Window, fill, point, px, size,
 };
 
-use crate::cursor_look::CursorLook;
-use crate::paint_cursor::cursor_bounds;
-use crate::preedit_site::PreeditSite;
 use crate::terminal_view::TerminalView;
+use crate::terminal_view::paint::CursorLook;
+use crate::terminal_view::paint::PreeditSite;
+use crate::terminal_view::paint::cursor_bounds;
 
 const COMPOSITION_UNDERLINE: f32 = 1.0;
 

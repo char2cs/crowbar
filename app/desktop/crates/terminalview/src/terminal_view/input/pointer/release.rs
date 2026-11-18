@@ -1,11 +1,11 @@
 use gpui::{Context, MouseButton, MouseUpEvent, Pixels, Point};
 use terminal::{LinkTarget, MouseAction, ViewPoint, resolve_file_path};
 
-use crate::button_event::ButtonEvent;
-use crate::drag_state::DragState;
-use crate::pointer_report::pointer_report;
 use crate::terminal_view::TerminalView;
-use crate::terminal_view_event::TerminalViewEvent;
+use crate::terminal_view::input::pointer::button_event::ButtonEvent;
+use crate::terminal_view::input::pointer::drag_state::DragState;
+use crate::terminal_view::input::pointer::pointer_report::pointer_report;
+use crate::terminal_view::terminal_view_event::TerminalViewEvent;
 
 impl TerminalView {
     pub(crate) fn on_mouse_up(

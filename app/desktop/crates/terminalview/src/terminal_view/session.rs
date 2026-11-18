@@ -3,11 +3,11 @@
 use gpui::{AsyncApp, ClipboardItem, Context, WeakEntity, Window};
 use terminal::{ClientMessage, DaemonFrame, TerminalEvent, sanitize_title};
 
-use crate::cursor_blink::BLINK_INTERVAL;
-use crate::focus_state::FocusState;
+use crate::terminal_settings::{hex_text, is_dark, terminal_palette};
 use crate::terminal_view::TerminalView;
-use crate::terminal_view_event::TerminalViewEvent;
-use crate::theme_palette::{hex_text, is_dark, terminal_palette};
+use crate::terminal_view::paint::BLINK_INTERVAL;
+use crate::terminal_view::paint::FocusState;
+use crate::terminal_view::terminal_view_event::TerminalViewEvent;
 
 impl TerminalView {
     pub(crate) fn apply_frames(
@@ -164,9 +164,9 @@ async fn blink_loop(
 mod tests {
     use gpui::TestAppContext;
 
-    use crate::cursor_blink::BLINK_INTERVAL;
     use crate::terminal_view::TerminalView;
-    use crate::terminal_view_event::TerminalViewEvent;
+    use crate::terminal_view::paint::BLINK_INTERVAL;
+    use crate::terminal_view::terminal_view_event::TerminalViewEvent;
     use crate::test_support::{feed, focus, open, record_events, sent, typed};
 
     #[gpui::test]

@@ -2,8 +2,8 @@
 
 use terminal::Snapshot;
 
-use crate::shaping::Shaping;
-use crate::view_layout::ViewLayout;
+use crate::terminal_view::paint::shaping::Shaping;
+use crate::terminal_view::paint::view_layout::ViewLayout;
 
 pub(crate) struct Frame {
     pub(crate) snapshot: Snapshot,

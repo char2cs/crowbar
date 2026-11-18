@@ -58,7 +58,7 @@ impl TerminalPeer {
 
 #[cfg(test)]
 mod tests {
-    use crate::terminal_link::TerminalLink;
+    use crate::daemon::terminal_link::TerminalLink;
 
     use super::*;
 

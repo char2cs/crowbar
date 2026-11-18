@@ -1,24 +1,34 @@
 //! Layout and painting of the grid.
 
+pub(crate) mod cursor;
+mod frame;
+mod highlights;
+pub(crate) mod paint_colors;
+mod paint_layers;
+pub(crate) mod paint_request;
+mod scrollbar;
+pub(crate) mod shaping;
+mod text;
+pub(crate) mod view_layout;
+
+pub(crate) use cursor::{BLINK_INTERVAL, CursorLook, FocusState, PreeditSite, cursor_bounds};
+
 use gpui::{App, Bounds, Context, ElementInputHandler, Pixels, Window, px};
 use terminal::{ScrollbarThumb, Snapshot};
 
-use crate::cursor_look::CursorLook;
-use crate::focus_state::FocusState;
-use crate::frame::Frame;
-use crate::paint_colors::PaintColors;
-use crate::paint_cursor::paint_cursor;
-use crate::paint_highlights::{paint_fills, paint_underlines};
-use crate::paint_layers::PaintLayers;
-use crate::paint_request::PaintRequest;
-use crate::paint_scrollbar::paint_scrollbar;
-use crate::paint_text::{paint_backgrounds, paint_rows};
-use crate::preedit_site::PreeditSite;
-use crate::shaping::Shaping;
-use crate::terminal_font::base_font;
+use crate::terminal_settings::base_font;
+use crate::terminal_settings::terminal_palette;
 use crate::terminal_view::TerminalView;
-use crate::theme_palette::terminal_palette;
-use crate::view_layout::ViewLayout;
+use crate::terminal_view::paint::cursor::paint_cursor;
+use crate::terminal_view::paint::frame::Frame;
+use crate::terminal_view::paint::highlights::{paint_fills, paint_underlines};
+use crate::terminal_view::paint::paint_colors::PaintColors;
+use crate::terminal_view::paint::paint_layers::PaintLayers;
+use crate::terminal_view::paint::paint_request::PaintRequest;
+use crate::terminal_view::paint::scrollbar::paint_scrollbar;
+use crate::terminal_view::paint::shaping::Shaping;
+use crate::terminal_view::paint::text::{paint_backgrounds, paint_rows};
+use crate::terminal_view::paint::view_layout::ViewLayout;
 
 const MEASURE_GLYPH: char = 'm';
 
@@ -180,7 +190,7 @@ impl TerminalView {
         let focus = FocusState::from(self.focused);
         let look = CursorLook {
             color: colors.foreground,
-            glyph_color: crate::theme_palette::hsla_of(palette.background),
+            glyph_color: crate::terminal_settings::hsla_of(palette.background),
             backdrop: colors.pane,
             thickness: self.settings.cursor_width,
             focus,

@@ -1,60 +1,13 @@
 //! GPUI view of the Crowbar terminal: grid painting, keyboard, mouse and IME input, selection, links,
 //! find bar and scrollbar, over the `terminal` crate's emulator.
 
-mod ansi_colors;
-mod auto_scroll;
-mod button_event;
-mod cached_row;
-mod channel_byte;
-mod cursor_blink;
-mod cursor_look;
-mod drag_state;
-mod focus_state;
-mod frame;
-mod frame_batch;
-mod key_conversion;
-mod line_cache;
-mod page_direction;
-mod paint_colors;
-mod paint_cursor;
-mod paint_highlights;
-mod paint_layers;
-mod paint_request;
-mod paint_scrollbar;
-mod paint_text;
-mod pointer_report;
-mod preedit_site;
-mod row_input;
-mod row_lines;
+mod daemon;
 mod search_bar;
-mod search_bar_event;
-mod search_session;
-mod shaping;
-mod shortcut;
-mod terminal_font;
-mod terminal_link;
-mod terminal_peer;
 mod terminal_settings;
 mod terminal_view;
-mod terminal_view_api;
-mod terminal_view_drag;
-mod terminal_view_event;
-mod terminal_view_ime;
-mod terminal_view_input;
-mod terminal_view_mouse;
-mod terminal_view_paint;
-mod terminal_view_release;
-mod terminal_view_search;
-mod terminal_view_session;
-mod terminal_view_wheel;
 #[cfg(test)]
 mod test_support;
-mod theme_palette;
-mod toggle_spec;
-mod view_layout;
 
-pub use terminal_link::TerminalLink;
-pub use terminal_peer::TerminalPeer;
+pub use daemon::{TerminalLink, TerminalPeer};
 pub use terminal_settings::TerminalSettings;
-pub use terminal_view::TerminalView;
-pub use terminal_view_event::TerminalViewEvent;
+pub use terminal_view::{TerminalView, TerminalViewEvent};

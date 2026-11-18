@@ -3,7 +3,7 @@
 use gpui::{Hsla, Window, fill, point, px, size};
 use terminal::Highlight;
 
-use crate::view_layout::ViewLayout;
+use crate::terminal_view::paint::view_layout::ViewLayout;
 
 const UNDERLINE_THICKNESS: f32 = 1.0;
 

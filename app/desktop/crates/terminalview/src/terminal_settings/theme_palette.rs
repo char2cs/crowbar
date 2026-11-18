@@ -4,9 +4,9 @@ use gpui::{App, Hsla, Rgba};
 use terminal::{Rgb, TerminalConfig, TerminalPalette};
 use ui::{Surface, Theme};
 
-use crate::ansi_colors::ansi_colors;
-use crate::channel_byte::channel_byte;
 use crate::terminal_settings::TerminalSettings;
+use crate::terminal_settings::ansi_colors::ansi_colors;
+use crate::terminal_settings::channel_byte::channel_byte;
 
 const BYTE_RANGE: f32 = 255.0;
 

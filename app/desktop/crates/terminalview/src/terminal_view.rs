@@ -1,5 +1,14 @@
 //! The terminal as a GPUI view: grid painting, keyboard, mouse, IME, find bar and scrollbar.
 
+mod api;
+mod input;
+mod paint;
+mod search;
+mod session;
+mod terminal_view_event;
+
+pub use terminal_view_event::TerminalViewEvent;
+
 use std::time::Instant;
 
 use async_channel::{Receiver, Sender};
@@ -13,20 +22,19 @@ use terminal::{
 };
 use ui::Theme;
 
-use crate::auto_scroll::AutoScroll;
-use crate::button_event::ButtonEvent;
-use crate::cursor_blink::CursorBlink;
-use crate::drag_state::DragState;
-use crate::frame_batch::take_batch;
-use crate::line_cache::LineCache;
-use crate::paint_colors::PaintColors;
-use crate::paint_request::PaintRequest;
-use crate::search_session::SearchSession;
-use crate::terminal_link::TerminalLink;
+use crate::daemon::TerminalLink;
+use crate::daemon::take_batch;
+use crate::search_bar::SearchSession;
 use crate::terminal_settings::TerminalSettings;
-use crate::terminal_view_event::TerminalViewEvent;
-use crate::theme_palette::terminal_config;
-use crate::view_layout::ViewLayout;
+use crate::terminal_settings::terminal_config;
+use crate::terminal_view::input::pointer::auto_scroll::AutoScroll;
+use crate::terminal_view::input::pointer::button_event::ButtonEvent;
+use crate::terminal_view::input::pointer::drag_state::DragState;
+use crate::terminal_view::paint::cursor::cursor_blink::CursorBlink;
+use crate::terminal_view::paint::paint_colors::PaintColors;
+use crate::terminal_view::paint::paint_request::PaintRequest;
+use crate::terminal_view::paint::shaping::line_cache::LineCache;
+use crate::terminal_view::paint::view_layout::ViewLayout;
 
 const NOTICE_BACKDROP_ALPHA: f32 = 0.8;
 

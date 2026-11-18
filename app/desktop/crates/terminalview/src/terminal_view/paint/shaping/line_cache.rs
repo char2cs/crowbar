@@ -3,11 +3,11 @@
 use gpui::{ShapedLine, SharedString, TextRun, UnderlineStyle, Window, px};
 use terminal::{Row, Segment, StyleFlags, StyleSpan, Underline};
 
-use crate::cached_row::CachedRow;
-use crate::row_input::RowInput;
-use crate::shaping::Shaping;
-use crate::terminal_font::styled_font;
-use crate::theme_palette::hsla_of;
+use crate::terminal_settings::hsla_of;
+use crate::terminal_settings::styled_font;
+use crate::terminal_view::paint::shaping::Shaping;
+use crate::terminal_view::paint::shaping::cached_row::CachedRow;
+use crate::terminal_view::paint::shaping::row_input::RowInput;
 
 const LINE_THICKNESS: f32 = 1.0;
 
@@ -116,8 +116,8 @@ mod tests {
     use terminal::{CursorShape, DaemonFrame, Rgb, Terminal, TerminalConfig, TerminalPalette};
 
     use super::*;
-    use crate::terminal_font::base_font;
     use crate::terminal_settings::TerminalSettings;
+    use crate::terminal_settings::base_font;
     use crate::test_support::open;
 
     fn first_row(output: &str) -> Row {
