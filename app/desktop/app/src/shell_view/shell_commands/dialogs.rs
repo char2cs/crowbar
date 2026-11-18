@@ -3,7 +3,6 @@ use std::path::Path;
 use branchimport::{BranchImportView, ImportEvent};
 use diagnostics::LogPaths;
 use gpui::{AppContext as _, Context, Entity, Window};
-use pairing::{PairingEvent, PairingView};
 
 use super::ShellView;
 
@@ -18,23 +17,24 @@ impl ShellView {
         }
         let (signal, _) = crate::data_signal::callbacks(&self.requests, &self.data_queued);
         let session = self.data.pairing(signal);
-        let dialog = cx.new(|cx| PairingView::new(session, window, cx));
-        self.subscriptions.push(
-            cx.subscribe(&dialog, |this, source, event: &PairingEvent, cx| {
+        let dialog = cx.new(|cx| pairing::View::new(session, window, cx));
+        self.subscriptions.push(cx.subscribe(
+            &dialog,
+            |this, source, event: &pairing::Event, cx| {
                 this.on_pairing(source, *event, cx);
-            }),
-        );
+            },
+        ));
         self.pairing = Some(dialog);
         self.update_overlay(cx);
     }
 
     fn on_pairing(
         &mut self,
-        _: Entity<PairingView>,
-        event: PairingEvent,
+        _: Entity<pairing::View>,
+        event: pairing::Event,
         cx: &mut Context<'_, Self>,
     ) {
-        if matches!(event, PairingEvent::Close) {
+        if matches!(event, pairing::Event::Close) {
             self.pairing = None;
             self.update_overlay(cx);
         }

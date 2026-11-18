@@ -59,7 +59,7 @@ impl ShellView {
             dialog.update(cx, |_, cx| cx.notify());
         }
         if let Some(dialog) = &self.pairing {
-            dialog.update(cx, pairing::PairingView::changed);
+            dialog.update(cx, pairing::View::changed);
         }
     }
 

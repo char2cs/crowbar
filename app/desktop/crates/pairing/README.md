@@ -7,7 +7,7 @@ the one-time code.
 
 ## Public interface
 
-- `PairingView`: the dialog; it emits `PairingEvent` (`Paired`, `Close`).
+- `View`: the dialog; it emits `Event` (`Paired`, `Close`).
 
 ## Depends on
 

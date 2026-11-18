@@ -4,33 +4,33 @@ use std::sync::Arc;
 
 use store::{PairingSession, PairingState};
 
-use crate::pairing_action::PairingAction;
+use crate::action::Action;
 
-pub(crate) trait PairingSource {
+pub(crate) trait Source {
     fn state(&self) -> PairingState;
     fn act(
         &self,
-        action: PairingAction,
+        action: Action,
     );
 }
 
-impl PairingSource for Arc<PairingSession> {
+impl Source for Arc<PairingSession> {
     fn state(&self) -> PairingState {
         PairingSession::state(self)
     }
 
     fn act(
         &self,
-        action: PairingAction,
+        action: Action,
     ) {
         match action {
-            PairingAction::Edited => PairingSession::edited(self),
-            PairingAction::SubmitAddress { name, address } => {
+            Action::Edited => PairingSession::edited(self),
+            Action::SubmitAddress { name, address } => {
                 PairingSession::submit_address(self, &name, &address);
             },
-            PairingAction::Confirm => PairingSession::confirm(self),
-            PairingAction::Back => PairingSession::back(self),
-            PairingAction::SubmitCode(code) => PairingSession::submit_code(self, &code),
+            Action::Confirm => PairingSession::confirm(self),
+            Action::Back => PairingSession::back(self),
+            Action::SubmitCode(code) => PairingSession::submit_code(self, &code),
         }
     }
 }
@@ -39,7 +39,7 @@ impl PairingSource for Arc<PairingSession> {
 mod tests {
     use super::*;
 
-    fn needs_a_source<T: PairingSource>() -> usize {
+    fn needs_a_source<T: Source>() -> usize {
         size_of::<T>()
     }
 

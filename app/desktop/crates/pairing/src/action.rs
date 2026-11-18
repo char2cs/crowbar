@@ -1,5 +1,5 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum PairingAction {
+pub(crate) enum Action {
     Edited,
     SubmitAddress { name: String, address: String },
     Confirm,

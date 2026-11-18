@@ -10,18 +10,18 @@ use gpui::{
 use store::{PairingPending, PairingSession, PairingStage, PairingState};
 use ui::{Dialog, DialogSize, Palette, Surface, TextInput, TextInputEvent, Theme};
 
+use crate::action::Action;
+use crate::event::Event;
 use crate::look::{ADDRESS_PLACEHOLDER, CODE_PLACEHOLDER, GAP, NAME_PLACEHOLDER, TITLE};
-use crate::pairing_action::PairingAction;
-use crate::pairing_event::PairingEvent;
-use crate::pairing_source::PairingSource;
+use crate::source::Source;
 use crate::stage_copy;
 use crate::stage_widgets;
 
 const FIELDS: usize = 3;
 
-/// The Add Host dialog; it emits a [`PairingEvent`] when the host is paired or it is dismissed.
-pub struct PairingView {
-    source: Rc<dyn PairingSource>,
+/// The Add Host dialog; it emits a [`Event`] when the host is paired or it is dismissed.
+pub struct View {
+    source: Rc<dyn Source>,
     name: Entity<TextInput>,
     address: Entity<TextInput>,
     code: Entity<TextInput>,
@@ -29,21 +29,21 @@ pub struct PairingView {
     _inputs: [Subscription; FIELDS],
 }
 
-impl std::fmt::Debug for PairingView {
+impl std::fmt::Debug for View {
     fn fmt(
         &self,
         formatter: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         formatter
-            .debug_struct("PairingView")
+            .debug_struct("View")
             .field("seen", &self.seen)
             .finish_non_exhaustive()
     }
 }
 
-impl EventEmitter<PairingEvent> for PairingView {}
+impl EventEmitter<Event> for View {}
 
-impl PairingView {
+impl View {
     /// A dialog over `session`, with the name field focused.
     pub fn new(
         session: Arc<PairingSession>,
@@ -54,7 +54,7 @@ impl PairingView {
     }
 
     fn over(
-        source: Rc<dyn PairingSource>,
+        source: Rc<dyn Source>,
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> Self {
@@ -83,7 +83,7 @@ impl PairingView {
         let arrived = stage == PairingStage::Paired && self.seen != PairingStage::Paired;
         self.seen = stage;
         if arrived {
-            cx.emit(PairingEvent::Paired);
+            cx.emit(Event::Paired);
         }
         cx.notify();
     }
@@ -95,7 +95,7 @@ impl PairingView {
         cx: &mut Context<'_, Self>,
     ) {
         match event {
-            TextInputEvent::Changed(_) => self.source.act(PairingAction::Edited),
+            TextInputEvent::Changed(_) => self.source.act(Action::Edited),
             TextInputEvent::Submitted => self.advance(cx),
             TextInputEvent::Cancelled => self.dismiss(cx),
             _ => {},
@@ -111,7 +111,7 @@ impl PairingView {
         cx: &mut Context<'_, Self>,
     ) {
         if self.idle() {
-            cx.emit(PairingEvent::Close);
+            cx.emit(Event::Close);
         }
     }
 
@@ -123,16 +123,16 @@ impl PairingView {
             return;
         }
         match self.source.state().stage {
-            PairingStage::Address => self.source.act(PairingAction::SubmitAddress {
+            PairingStage::Address => self.source.act(Action::SubmitAddress {
                 name: stage_widgets::text_of(&self.name, cx),
                 address: stage_widgets::text_of(&self.address, cx),
             }),
-            PairingStage::Fingerprint => self.source.act(PairingAction::Confirm),
+            PairingStage::Fingerprint => self.source.act(Action::Confirm),
             PairingStage::Code => {
                 let code = stage_widgets::text_of(&self.code, cx);
-                self.source.act(PairingAction::SubmitCode(code));
+                self.source.act(Action::SubmitCode(code));
             },
-            PairingStage::Paired => cx.emit(PairingEvent::Close),
+            PairingStage::Paired => cx.emit(Event::Close),
         }
     }
 
@@ -144,8 +144,8 @@ impl PairingView {
             return;
         }
         match self.source.state().stage {
-            PairingStage::Address | PairingStage::Paired => cx.emit(PairingEvent::Close),
-            PairingStage::Fingerprint | PairingStage::Code => self.source.act(PairingAction::Back),
+            PairingStage::Address | PairingStage::Paired => cx.emit(Event::Close),
+            PairingStage::Fingerprint | PairingStage::Code => self.source.act(Action::Back),
         }
     }
 
@@ -170,7 +170,7 @@ impl PairingView {
     }
 }
 
-impl Render for PairingView {
+impl Render for View {
     fn render(
         &mut self,
         _window: &mut Window,
@@ -228,34 +228,34 @@ mod tests {
         format!("address {name} {address}")
     }
 
-    impl PairingSource for Fake {
+    impl Source for Fake {
         fn state(&self) -> PairingState {
             self.state.borrow().clone()
         }
 
         fn act(
             &self,
-            action: PairingAction,
+            action: Action,
         ) {
             let call = match action {
-                PairingAction::Edited => "edited".to_owned(),
-                PairingAction::SubmitAddress { name, address } => address_call(&name, &address),
-                PairingAction::Confirm => "confirm".to_owned(),
-                PairingAction::Back => "back".to_owned(),
-                PairingAction::SubmitCode(code) => format!("code {code}"),
+                Action::Edited => "edited".to_owned(),
+                Action::SubmitAddress { name, address } => address_call(&name, &address),
+                Action::Confirm => "confirm".to_owned(),
+                Action::Back => "back".to_owned(),
+                Action::SubmitCode(code) => format!("code {code}"),
             };
             self.note(call);
         }
     }
 
-    type Events = Rc<RefCell<Vec<PairingEvent>>>;
+    type Events = Rc<RefCell<Vec<Event>>>;
 
     fn record(
-        view: &Entity<PairingView>,
+        view: &Entity<View>,
         sink: Events,
         cx: &mut gpui::App,
     ) {
-        cx.subscribe(view, move |_, event: &PairingEvent, _| {
+        cx.subscribe(view, move |_, event: &Event, _| {
             sink.borrow_mut().push(*event);
         })
         .detach();
@@ -265,9 +265,9 @@ mod tests {
         cx: &'a mut TestAppContext,
         fake: &Rc<Fake>,
         events: &Events,
-    ) -> (Entity<PairingView>, &'a mut VisualTestContext) {
+    ) -> (Entity<View>, &'a mut VisualTestContext) {
         let source = Rc::clone(fake);
-        let (view, cx) = cx.add_window_view(|window, cx| PairingView::over(source, window, cx));
+        let (view, cx) = cx.add_window_view(|window, cx| View::over(source, window, cx));
         let sink = Rc::clone(events);
         cx.update(|_, cx| record(&view, sink, cx));
         (view, cx)
@@ -293,7 +293,7 @@ mod tests {
             this.advance(cx);
         });
         at(&fake, PairingStage::Fingerprint, PairingPending::Idle);
-        view.update(cx, PairingView::advance);
+        view.update(cx, View::advance);
         at(&fake, PairingStage::Code, PairingPending::Idle);
         view.update(cx, |this, cx| {
             this.code
@@ -319,21 +319,18 @@ mod tests {
         });
         assert!(events.borrow().is_empty() && fake.calls.borrow().is_empty());
         at(&fake, PairingStage::Address, PairingPending::Idle);
-        view.update(cx, PairingView::step_back);
-        assert_eq!(*events.borrow(), [PairingEvent::Close]);
+        view.update(cx, View::step_back);
+        assert_eq!(*events.borrow(), [Event::Close]);
     }
 
     fn a_finished_pairing_is_announced_once_and_done_closes(cx: &mut TestAppContext) {
         let (fake, events) = (Rc::new(Fake::default()), Events::default());
         let (view, cx) = open(cx, &fake, &events);
         at(&fake, PairingStage::Paired, PairingPending::Idle);
-        view.update(cx, PairingView::changed);
-        view.update(cx, PairingView::changed);
-        view.update(cx, PairingView::advance);
-        assert_eq!(
-            *events.borrow(),
-            [PairingEvent::Paired, PairingEvent::Close]
-        );
+        view.update(cx, View::changed);
+        view.update(cx, View::changed);
+        view.update(cx, View::advance);
+        assert_eq!(*events.borrow(), [Event::Paired, Event::Close]);
     }
 
     const CASES: [fn(&mut TestAppContext); 3] = [
