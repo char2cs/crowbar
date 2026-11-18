@@ -1,0 +1,22 @@
+//! What pages post: IPC messages and envelopes, host events, the inbox gate, notices, frame kinds, hover, focus and drop reports, and browser page handlers.
+
+mod browser_page;
+mod drop_message;
+mod focus_message;
+mod frame_kind;
+mod host_event;
+mod hover_message;
+pub(crate) mod inbox_gate;
+mod ipc_envelope;
+mod ipc_message;
+mod ipc_notice;
+
+pub(crate) use browser_page::{browser_event, first_url, is_browser, page_handler, pick_handler};
+pub(crate) use drop_message::{drop_handler, drop_report};
+pub(crate) use focus_message::focus_report;
+pub use host_event::HostEvent;
+pub(crate) use hover_message::parse_hover;
+pub(crate) use inbox_gate::{InboxGate, MAX_MESSAGE_BYTES};
+pub(crate) use ipc_envelope::open_envelope;
+pub use ipc_message::IpcMessage;
+pub(crate) use ipc_notice::IpcNotice;

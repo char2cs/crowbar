@@ -1,3 +1,14 @@
+mod browser;
+mod context;
+mod lifecycle;
+mod overlay;
+mod reconcile;
+mod refusals;
+
+pub use browser::BrowseAction;
+pub use overlay::{FrozenPane, Overlay};
+pub use reconcile::{Keyboard, LayoutSnapshot, PaneDisplay, SyncReport, VisiblePane};
+
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -8,28 +19,23 @@ use protocol::{
 };
 use webview::WebViewHost;
 
-use crate::browser_slot::browser_event;
-use crate::drop_message::drop_report;
+use crate::catalog::PaneRegistry;
 use crate::error::{Error, Result};
-use crate::failures::Failures;
-use crate::focus_message::focus_report;
-use crate::host_event::HostEvent;
-use crate::hover_message::parse_hover;
-use crate::inbox_gate::InboxGate;
-use crate::ipc_message::IpcMessage;
-use crate::ipc_notice::IpcNotice;
-use crate::keyboard::Keyboard;
-use crate::layout_snapshot::LayoutSnapshot;
-use crate::origin_table::OriginTable;
-use crate::overlay::Overlay;
-use crate::pane_display::PaneDisplay;
-use crate::pane_host_config::PaneHostConfig;
-use crate::pane_phase::PanePhase;
-use crate::pane_registry::PaneRegistry;
-use crate::pane_runtime::PaneRuntime;
-use crate::slot_factory::SlotFactory;
-use crate::slot_pool::SlotPool;
-use crate::sync_report::SyncReport;
+use crate::pane_host::lifecycle::pane_phase::PanePhase;
+use crate::pane_host::lifecycle::pane_runtime::PaneRuntime;
+use crate::pane_host::reconcile::failures::Failures;
+use crate::scheme::OriginTable;
+use crate::slot::HostEvent;
+use crate::slot::InboxGate;
+use crate::slot::IpcMessage;
+use crate::slot::IpcNotice;
+use crate::slot::PaneHostConfig;
+use crate::slot::SlotFactory;
+use crate::slot::SlotPool;
+use crate::slot::browser_event;
+use crate::slot::drop_report;
+use crate::slot::focus_report;
+use crate::slot::parse_hover;
 
 /// Owns every pane web view: places them from the layout, pools and parks them, delivers
 /// lifecycle frames, and turns what pages post into [`HostEvent`]s.
@@ -259,9 +265,9 @@ mod tests {
     use webview::{Call, Visibility, WebViewKind};
 
     use super::*;
-    use crate::browse_action::BrowseAction;
+    use crate::catalog::PaneLifecycle;
     use crate::error::Error;
-    use crate::pane_lifecycle::PaneLifecycle;
+    use crate::pane_host::browser::BrowseAction;
     use crate::test_support::*;
 
     fn is_mount(frame: &ShellFrame) -> bool {
@@ -497,7 +503,7 @@ mod tests {
             &["b1", "c1"],
             Some("b1"),
         );
-        let go = BrowseAction::Go(browser::BrowserUrl::parse("https://example.com/").unwrap());
+        let go = BrowseAction::Go(::browser::BrowserUrl::parse("https://example.com/").unwrap());
         assert!(f.host.browse(&PaneId::new("b1").unwrap(), &go).is_ok());
         assert!(
             f.host

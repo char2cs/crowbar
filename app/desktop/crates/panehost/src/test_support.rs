@@ -1,4 +1,4 @@
-mod fixture;
+pub(crate) mod fixture;
 mod revocations;
 
 pub(crate) use fixture::{

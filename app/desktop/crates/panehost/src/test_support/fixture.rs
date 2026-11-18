@@ -11,19 +11,19 @@ use webview::{
     Bounds, Call, MockPlatform, ParentWindow, Visibility, WebViewConfig, WebViewHost, WebViewKind,
 };
 
-use crate::host_event::HostEvent;
-use crate::ipc_message::IpcMessage;
-use crate::keyboard::Keyboard;
-use crate::layout_snapshot::LayoutSnapshot;
-use crate::multiplicity::Multiplicity;
-use crate::origin_table::OriginTable;
+use crate::catalog::Multiplicity;
+use crate::catalog::PaneKind;
+use crate::catalog::PaneLifecycle;
+use crate::catalog::PaneType;
+use crate::pane_host::Keyboard;
+use crate::pane_host::LayoutSnapshot;
 use crate::pane_host::PaneHost;
-use crate::pane_host_config::PaneHostConfig;
-use crate::pane_kind::PaneKind;
-use crate::pane_lifecycle::PaneLifecycle;
-use crate::pane_type::PaneType;
+use crate::pane_host::VisiblePane;
+use crate::scheme::OriginTable;
+use crate::slot::HostEvent;
+use crate::slot::IpcMessage;
+use crate::slot::PaneHostConfig;
 use crate::test_support::Revocations;
-use crate::visible_pane::VisiblePane;
 
 pub(crate) struct Fixture {
     pub(crate) host: PaneHost,

@@ -14,96 +14,23 @@
 //! Pages talk to the host with the `sdk@1` frames of the `protocol` crate over ipc. The sender
 //! is the pane that owns the web view (a [`PaneHost`] decision), never a pane-supplied id.
 
-mod adapters;
-mod assignment;
-mod authorized;
-mod bootstrap;
-mod browse;
-mod browse_action;
-mod browser_slot;
-mod browser_view;
-mod bundle_asset;
-mod bundle_source;
-mod drop_message;
-mod entry_url;
+mod catalog;
 mod error;
-mod extension_bundles;
-mod failures;
-mod focus_message;
-mod frame_kind;
-mod frozen_pane;
-mod host_event;
-mod hover_message;
-mod inbox_gate;
-mod ipc_envelope;
-mod ipc_message;
-mod ipc_notice;
-mod keyboard;
-mod layout_snapshot;
-mod mime;
-mod multiplicity;
-mod origin_table;
-mod overlay;
-mod owned_pane;
-mod pane_background;
-mod pane_bundles;
-mod pane_display;
 mod pane_host;
-mod pane_host_config;
-mod pane_host_frames;
-mod pane_host_freeze;
-mod pane_host_messages;
-mod pane_host_refusals;
-mod pane_host_slots;
-mod pane_host_visibility;
-mod pane_kind;
-mod pane_lifecycle;
-mod pane_phase;
-mod pane_protocol;
-mod pane_registry;
-mod pane_runtime;
-mod pane_settings;
-mod pane_type;
-mod policy;
-mod route;
+mod scheme;
 mod slot;
-mod slot_factory;
-mod slot_id;
-mod slot_owner;
-mod slot_pool;
-mod slot_request;
-mod stage;
-mod status;
-mod sync_report;
-mod visible_pane;
-
-pub use adapters::dir_bundle::DirBundle;
-pub use assignment::Assignment;
-pub use browse_action::BrowseAction;
-pub use bundle_asset::BundleAsset;
-pub use bundle_source::BundleSource;
-pub use error::{Error, Result};
-pub use extension_bundles::ExtensionBundles;
-pub use frozen_pane::FrozenPane;
-pub use host_event::HostEvent;
-pub use ipc_message::IpcMessage;
-pub use keyboard::Keyboard;
-pub use layout_snapshot::LayoutSnapshot;
-pub use multiplicity::Multiplicity;
-pub use origin_table::OriginTable;
-pub use overlay::Overlay;
-pub use pane_bundles::PaneBundles;
-pub use pane_display::PaneDisplay;
-pub use pane_host::PaneHost;
-pub use pane_host_config::PaneHostConfig;
-pub use pane_kind::PaneKind;
-pub use pane_lifecycle::PaneLifecycle;
-pub use pane_protocol::PaneProtocol;
-pub use pane_registry::PaneRegistry;
-pub use pane_type::PaneType;
-pub use protocol::PaneOrigin;
-pub use sync_report::SyncReport;
-pub use visible_pane::VisiblePane;
-
 #[cfg(test)]
 mod test_support;
+
+pub use catalog::{
+    BundleAsset, BundleSource, DirBundle, ExtensionBundles, Multiplicity, PaneBundles, PaneKind,
+    PaneLifecycle, PaneRegistry, PaneType,
+};
+pub use error::{Error, Result};
+pub use pane_host::{
+    BrowseAction, FrozenPane, Keyboard, LayoutSnapshot, Overlay, PaneDisplay, PaneHost, SyncReport,
+    VisiblePane,
+};
+pub use protocol::PaneOrigin;
+pub use scheme::{Assignment, OriginTable, PaneProtocol};
+pub use slot::{HostEvent, IpcMessage, PaneHostConfig};
