@@ -7,7 +7,7 @@ use crate::keys::Shortcut;
 use crate::keys::ShortcutGroup;
 use crate::schema::Page;
 use crate::schema::Schema;
-use crate::settings_state::document::Document;
+use crate::state::document::Document;
 use chord::Chord;
 
 #[derive(Debug, Clone, Copy)]

@@ -3,12 +3,12 @@
 use crate::schema::Control;
 use crate::schema::Nudge;
 use crate::schema::Row;
-use crate::settings_state::SettingsState;
-use crate::settings_state::effect::Effect;
+use crate::state::State;
+use crate::state::effect::Effect;
 use crate::values::Key;
 use crate::values::Value;
 
-impl SettingsState {
+impl State {
     /// Flips the switch of `row`.
     pub fn toggle(
         &mut self,
@@ -106,9 +106,7 @@ impl SettingsState {
 mod tests {
     use crate::schema::Issue;
     use crate::schema::Nudge;
-    use crate::settings_state::test_support::state_fixtures::{
-        gitignore_row, size_row, state, write,
-    };
+    use crate::state::test_support::state_fixtures::{gitignore_row, size_row, state, write};
 
     #[test]
     fn numbers_commit_once_clamped_and_never_while_typing() {

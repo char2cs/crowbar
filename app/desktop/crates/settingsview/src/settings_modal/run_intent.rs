@@ -186,7 +186,7 @@ impl SettingsModal {
 #[cfg(test)]
 mod tests {
     use gpui::TestAppContext;
-    use settings::{Key, SettingsRead as _};
+    use settings::{Key, Read as _};
 
     use crate::intent::Intent;
     use crate::test_support::{inspect, open, row, run};

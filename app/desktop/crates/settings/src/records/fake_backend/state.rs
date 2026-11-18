@@ -8,7 +8,7 @@ use crate::values::Listener;
 use crate::values::Snapshot;
 
 #[derive(Default)]
-pub(crate) struct FakeState {
+pub(crate) struct State {
     pub(crate) snapshot: Snapshot,
     pub(crate) records: BTreeMap<String, Records>,
     pub(crate) invoked: Vec<String>,

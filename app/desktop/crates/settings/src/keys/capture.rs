@@ -1,6 +1,6 @@
 //! The rule for turning a key press into a chord.
 
-use crate::keys::modifier::Modifier;
+use crate::keys::modifier_key::ModifierKey;
 use crate::keys::pressed::Pressed;
 use crate::keys::refusal::Refusal;
 use chord::Chord;
@@ -38,7 +38,7 @@ impl Capture {
         if let Some(refusal) = unsupported(pressed, primary) {
             return Self::Refused(refusal);
         }
-        let chorded = pressed.has(Modifier::primary(primary)) || pressed.has(Modifier::Alt);
+        let chorded = pressed.has(ModifierKey::primary(primary)) || pressed.has(ModifierKey::Alt);
         if !chorded && !is_function_key(&pressed.key) {
             return Self::Refused(Refusal::BareKey);
         }
@@ -54,8 +54,8 @@ fn unsupported(
     primary: Primary,
 ) -> Option<Refusal> {
     let other = match primary {
-        Primary::Control => Modifier::Platform,
-        Primary::Platform => Modifier::Control,
+        Primary::Control => ModifierKey::Platform,
+        Primary::Platform => ModifierKey::Control,
     };
     pressed.has(other).then_some(Refusal::UnsupportedModifier)
 }
@@ -71,9 +71,9 @@ fn spell(
     primary: Primary,
 ) -> String {
     let words = [
-        (Modifier::primary(primary), "mod"),
-        (Modifier::Shift, "shift"),
-        (Modifier::Alt, "alt"),
+        (ModifierKey::primary(primary), "mod"),
+        (ModifierKey::Shift, "shift"),
+        (ModifierKey::Alt, "alt"),
     ];
     let mut parts: Vec<&str> = words
         .iter()
@@ -91,7 +91,7 @@ mod tests {
 
     fn outcome(
         key: &str,
-        held: &[Modifier],
+        held: &[ModifierKey],
     ) -> Capture {
         Capture::interpret(&Pressed::new(key, held), Primary::Control)
     }
@@ -101,20 +101,20 @@ mod tests {
     }
 
     fn accepted_chords() {
-        assert_eq!(outcome("t", &[Modifier::Control]), accepted("mod+t"));
+        assert_eq!(outcome("t", &[ModifierKey::Control]), accepted("mod+t"));
         assert_eq!(
-            outcome("t", &[Modifier::Control, Modifier::Shift]),
+            outcome("t", &[ModifierKey::Control, ModifierKey::Shift]),
             accepted("mod+shift+t")
         );
-        assert_eq!(outcome("n", &[Modifier::Alt]), accepted("alt+n"));
+        assert_eq!(outcome("n", &[ModifierKey::Alt]), accepted("alt+n"));
         assert_eq!(
-            outcome("arrowleft", &[Modifier::Control, Modifier::Alt]),
+            outcome("arrowleft", &[ModifierKey::Control, ModifierKey::Alt]),
             accepted("mod+alt+arrowleft")
         );
         assert_eq!(outcome("f5", &[]), accepted("f5"));
-        assert_eq!(outcome("f12", &[Modifier::Shift]), accepted("shift+f12"));
+        assert_eq!(outcome("f12", &[ModifierKey::Shift]), accepted("shift+f12"));
         assert_eq!(
-            outcome("escape", &[Modifier::Control]),
+            outcome("escape", &[ModifierKey::Control]),
             accepted("mod+escape")
         );
     }
@@ -139,7 +139,7 @@ mod tests {
             );
         }
         assert_eq!(
-            outcome("a", &[Modifier::Shift]),
+            outcome("a", &[ModifierKey::Shift]),
             Capture::Refused(Refusal::BareKey),
             "shift alone is typing"
         );
@@ -149,7 +149,7 @@ mod tests {
         assert_eq!(outcome("escape", &[]), Capture::Cancelled);
         for key in ["control", "shift", "alt", "meta", "platform"] {
             assert_eq!(
-                outcome(key, &[Modifier::Control]),
+                outcome(key, &[ModifierKey::Control]),
                 Capture::Ignored,
                 "{key}"
             );
@@ -158,10 +158,13 @@ mod tests {
 
     fn the_other_primary_modifier_is_not_in_the_grammar() {
         assert_eq!(
-            outcome("t", &[Modifier::Platform]),
+            outcome("t", &[ModifierKey::Platform]),
             Capture::Refused(Refusal::UnsupportedModifier)
         );
-        let mac = Capture::interpret(&Pressed::new("t", &[Modifier::Platform]), Primary::Platform);
+        let mac = Capture::interpret(
+            &Pressed::new("t", &[ModifierKey::Platform]),
+            Primary::Platform,
+        );
         assert_eq!(mac, accepted("mod+t"));
     }
 

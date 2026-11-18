@@ -1,4 +1,4 @@
-use settings::{Change, SettingsBackend, SettingsFollow as _, SettingsRead as _};
+use settings::{Change, Follow as _, Read as _};
 
 use super::ShellView;
 use crate::pane_settings::{follows, value_of, values_of};
@@ -21,7 +21,7 @@ fn notify_when_a_followed_setting_moves(
 }
 
 fn store_one(
-    backend: &impl SettingsBackend,
+    backend: &impl settings::Backend,
     key: &protocol::SettingKey,
     json: &serde_json::Value,
 ) {

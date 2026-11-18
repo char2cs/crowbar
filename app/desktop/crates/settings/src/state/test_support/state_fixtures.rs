@@ -14,8 +14,8 @@ use crate::schema::Row;
 use crate::schema::Schema;
 use crate::schema::Section;
 use crate::schema::Validator;
-use crate::settings_state::SettingsState;
-use crate::settings_state::effect::Effect;
+use crate::state::State;
+use crate::state::effect::Effect;
 use crate::values::Key;
 use crate::values::Snapshot;
 use crate::values::Value;
@@ -102,13 +102,13 @@ pub(crate) fn schema() -> Schema {
 pub(crate) fn state_with(
     values: Values,
     capability: Option<&str>,
-) -> SettingsState {
+) -> State {
     let snapshot = Snapshot::new(values);
     let snapshot = capability.map_or(snapshot.clone(), |name| snapshot.with_capability(name));
-    SettingsState::new(schema(), snapshot, None, Primary::Control)
+    State::new(schema(), snapshot, None, Primary::Control)
 }
 
-pub(crate) fn state() -> SettingsState {
+pub(crate) fn state() -> State {
     state_with(Values::default(), Some("browser.clearData"))
 }
 

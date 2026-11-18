@@ -4,7 +4,7 @@ use crate::records::RecordCommand;
 use crate::values::Key;
 use crate::values::Value;
 
-/// A side effect requested by [`crate::SettingsState`]; the view performs it against the backend.
+/// A side effect requested by [`crate::State`]; the view performs it against the backend.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Effect {
     /// Store `value` under `key`.

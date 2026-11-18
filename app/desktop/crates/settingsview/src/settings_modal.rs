@@ -1,4 +1,4 @@
-//! The settings modal: a GPUI view over [`SettingsState`] and the two backends.
+//! The settings modal: a GPUI view over [`settings::State`] and the two backends.
 
 mod close_handler;
 mod field_input;
@@ -13,7 +13,7 @@ use gpui::{
     AppContext as _, AsyncApp, Context, Entity, FocusHandle, IntoElement, ParentElement, Render,
     ScrollHandle, WeakEntity, Window, div,
 };
-use settings::{Change, RecordBackend, SettingsBackend, SettingsState, Subscription};
+use settings::{Change, RecordBackend, Subscription};
 use ui::{Dialog, IconName, TextInput, TextInputEvent, TextInputStyle};
 
 use crate::modal::body;
@@ -33,8 +33,8 @@ const TITLE: &str = "Settings";
 
 /// The settings modal view. Render it as the root of a window or as an overlay; it draws its own scrim.
 pub struct SettingsModal {
-    pub(crate) state: SettingsState,
-    pub(crate) settings: Rc<dyn SettingsBackend>,
+    pub(crate) state: settings::State,
+    pub(crate) settings: Rc<dyn settings::Backend>,
     pub(crate) records: Rc<dyn RecordBackend>,
     pub(crate) fields: Fields,
     pub(crate) search: Entity<TextInput>,
@@ -54,7 +54,7 @@ impl SettingsModal {
         cx: &mut Context<'_, Self>,
     ) -> Self {
         let snapshot = config.settings.snapshot();
-        let state = SettingsState::new(
+        let state = settings::State::new(
             config.schema,
             snapshot,
             config.page.as_ref(),
@@ -152,7 +152,7 @@ fn sink_to(owner: Entity<SettingsModal>) -> IntentSink {
 }
 
 fn follow_backend(
-    settings: &dyn SettingsBackend,
+    settings: &dyn settings::Backend,
     cx: &mut Context<'_, SettingsModal>,
 ) -> Subscription {
     let weak = cx.weak_entity();
@@ -218,7 +218,7 @@ impl std::fmt::Debug for SettingsModal {
 #[cfg(test)]
 mod tests {
     use gpui::TestAppContext;
-    use settings::{Key, SettingsRead as _, Value};
+    use settings::{Key, Read as _, Value};
 
     use crate::intent::Intent;
     use crate::test_support::{inspect, open, row, run};

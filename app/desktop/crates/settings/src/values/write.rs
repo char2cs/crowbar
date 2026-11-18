@@ -5,7 +5,7 @@ use crate::values::key::Key;
 use crate::values::value::Value;
 
 /// What the modal changes: values and backend actions.
-pub trait SettingsWrite {
+pub trait Write {
     /// Stores `value` under `key`.
     ///
     /// # Errors

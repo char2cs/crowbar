@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::{AppContext as _, AsyncApp, Context, WeakEntity};
-use settings::{Key, SettingsRead as _};
+use settings::{Key, Read as _};
 use sidebar::{HostKind, PaneFocus as _, SpaceList as _};
 
 use super::ShellView;

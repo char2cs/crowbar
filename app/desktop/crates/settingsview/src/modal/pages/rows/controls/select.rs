@@ -66,7 +66,7 @@ fn info_icon(
 #[cfg(test)]
 mod tests {
     use gpui::TestAppContext;
-    use settings::{Key, SettingsRead as _, Value};
+    use settings::{Key, Read as _, Value};
 
     use crate::intent::Intent;
     use crate::test_support::{inspect, open, row, run};

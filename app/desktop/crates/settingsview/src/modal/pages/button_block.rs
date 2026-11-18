@@ -58,7 +58,7 @@ mod tests {
     #[gpui::test]
     fn reset_all_clears_every_custom_chord_without_asking(cx: &mut TestAppContext) {
         use chord::Primary;
-        use settings::{KEYBINDING_OVERRIDES, Key, Modifier, Pressed, SettingsRead as _, Value};
+        use settings::{KEYBINDING_OVERRIDES, Key, ModifierKey, Pressed, Read as _, Value};
 
         let (harness, cx) = open(cx, "keybindings");
         run(
@@ -68,7 +68,10 @@ mod tests {
         );
         run(
             &harness,
-            Intent::Key(Pressed::new("k", &[Modifier::primary(Primary::native())])),
+            Intent::Key(Pressed::new(
+                "k",
+                &[ModifierKey::primary(Primary::native())],
+            )),
             cx,
         );
         let schema = default_schema().unwrap();

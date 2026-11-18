@@ -5,12 +5,12 @@ use std::rc::Rc;
 use crate::records::fake_backend::FakeBackend;
 use crate::values::Error;
 use crate::values::Key;
-use crate::values::SettingsRead;
-use crate::values::SettingsWrite;
+use crate::values::Read;
 use crate::values::Snapshot;
 use crate::values::Subscription;
 use crate::values::Value;
-use crate::values::{Listener, SettingsFollow};
+use crate::values::Write;
+use crate::values::{Follow, Listener};
 
 const REFUSAL_REASON: &str = "the fake backend is refusing writes";
 
@@ -21,7 +21,7 @@ fn refusal(key: &Key) -> Error {
     }
 }
 
-impl SettingsRead for FakeBackend {
+impl Read for FakeBackend {
     fn snapshot(&self) -> Snapshot {
         self.state.borrow().snapshot.clone()
     }
@@ -34,7 +34,7 @@ impl SettingsRead for FakeBackend {
     }
 }
 
-impl SettingsWrite for FakeBackend {
+impl Write for FakeBackend {
     fn set(
         &self,
         key: &Key,
@@ -56,7 +56,7 @@ impl SettingsWrite for FakeBackend {
     }
 }
 
-impl SettingsFollow for FakeBackend {
+impl Follow for FakeBackend {
     fn subscribe(
         &self,
         listener: Listener,

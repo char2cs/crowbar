@@ -4,7 +4,7 @@ Layer L3 (gpui view). See `docs/plans/2026-11-18-rust-tree.md` section 4.6.
 
 ## Owns
 
-The GPUI settings dialog drawn over `settings::SettingsState`: the frame, header and search field,
+The GPUI settings dialog drawn over `settings::State`: the frame, header and search field,
 the page rail, the scrolling pages with their sections, rows and controls, record lists, the
 shortcut capture UI, key routing from GPUI keystrokes to the state machine, and the gallery binary.
 

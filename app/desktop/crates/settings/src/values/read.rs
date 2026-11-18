@@ -5,7 +5,7 @@ use crate::values::snapshot::Snapshot;
 use crate::values::value::Value;
 
 /// What the modal reads before it paints and whenever it asks for one value.
-pub trait SettingsRead {
+pub trait Read {
     /// Everything the modal needs before its first paint.
     fn snapshot(&self) -> Snapshot;
 

@@ -48,7 +48,7 @@ pub(crate) fn build<Owner: IntentRunner>(
 #[cfg(test)]
 mod tests {
     use gpui::TestAppContext;
-    use settings::{Key, SettingsRead as _, Value};
+    use settings::{Key, Read as _, Value};
 
     use crate::test_support::{inspect, open};
 

@@ -1,5 +1,5 @@
 use gpui::Context;
-use settings::{Key, SettingsRead as _, Value};
+use settings::{Key, Read as _, Value};
 use sidebar::DockSide;
 
 use super::ShellView;

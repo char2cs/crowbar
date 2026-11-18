@@ -1,19 +1,19 @@
 //! A key press as the capture rule sees it.
 
-use crate::keys::modifier::Modifier;
+use crate::keys::modifier_key::ModifierKey;
 
 /// A key and the modifiers held with it; the key is a lowercase DOM-style name (`a`, `f5`, `escape`, `arrowleft`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pressed {
     pub(crate) key: String,
-    pub(crate) held: Vec<Modifier>,
+    pub(crate) held: Vec<ModifierKey>,
 }
 
 impl Pressed {
     /// `key` pressed while `held` were down.
     pub fn new(
         key: impl Into<String>,
-        held: &[Modifier],
+        held: &[ModifierKey],
     ) -> Self {
         Self {
             key: key.into().to_lowercase(),
@@ -23,7 +23,7 @@ impl Pressed {
 
     pub(crate) fn has(
         &self,
-        modifier: Modifier,
+        modifier: ModifierKey,
     ) -> bool {
         self.held.contains(&modifier)
     }
@@ -35,9 +35,9 @@ mod tests {
 
     #[test]
     fn keys_are_lowercased_and_modifiers_queryable() {
-        let pressed = Pressed::new("ArrowLeft", &[Modifier::Alt]);
+        let pressed = Pressed::new("ArrowLeft", &[ModifierKey::Alt]);
         assert_eq!(pressed.key, "arrowleft");
-        assert!(pressed.has(Modifier::Alt));
-        assert!(!pressed.has(Modifier::Shift));
+        assert!(pressed.has(ModifierKey::Alt));
+        assert!(!pressed.has(ModifierKey::Shift));
     }
 }

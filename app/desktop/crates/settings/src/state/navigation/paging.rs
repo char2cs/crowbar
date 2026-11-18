@@ -3,10 +3,10 @@
 use crate::schema::Page;
 use crate::schema::PageId;
 use crate::schema::Schema;
-use crate::settings_state::SettingsState;
-use crate::settings_state::navigation::rail_move::RailMove;
+use crate::state::State;
+use crate::state::navigation::rail_move::RailMove;
 
-impl SettingsState {
+impl State {
     /// The schema being shown.
     pub fn schema(&self) -> &Schema {
         &self.schema
@@ -66,8 +66,8 @@ impl SettingsState {
 mod tests {
     use crate::schema::Page;
     use crate::schema::PageId;
-    use crate::settings_state::navigation::rail_move::RailMove;
-    use crate::settings_state::test_support::state_fixtures::{engine_row, state};
+    use crate::state::navigation::rail_move::RailMove;
+    use crate::state::test_support::state_fixtures::{engine_row, state};
 
     #[test]
     fn rail_selection_and_keyboard_movement() {

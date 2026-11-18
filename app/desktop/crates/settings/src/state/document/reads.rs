@@ -1,7 +1,7 @@
 //! Reading the document: stored values, defaults, drafts and whether a row is dirty.
 
 use crate::schema::Row;
-use crate::settings_state::document::Document;
+use crate::state::document::Document;
 use crate::values::Key;
 use crate::values::Value;
 use crate::values::Values;

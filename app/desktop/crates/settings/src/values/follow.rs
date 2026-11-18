@@ -9,7 +9,7 @@ use crate::values::subscription::Subscription;
 pub type Listener = Rc<dyn Fn(&Change)>;
 
 /// How the modal hears about changes made elsewhere.
-pub trait SettingsFollow {
+pub trait Follow {
     /// Reports every change to `listener` until the subscription is dropped.
     fn subscribe(
         &self,

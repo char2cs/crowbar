@@ -6,8 +6,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use settings::{
-    Change, Error, Key, Listener, RecordBackend, RecordCommand, Records, SettingsFollow,
-    SettingsRead, SettingsWrite, Snapshot, Subscription, Value,
+    Change, Error, Follow, Key, Listener, Read, RecordBackend, RecordCommand, Records, Snapshot,
+    Subscription, Value, Write,
 };
 
 use crate::shell_data::settings_core::SettingsCore;
@@ -70,7 +70,7 @@ fn notify(
     }
 }
 
-impl SettingsRead for SettingsAdapter {
+impl Read for SettingsAdapter {
     fn snapshot(&self) -> Snapshot {
         self.core.snapshot()
     }
@@ -83,7 +83,7 @@ impl SettingsRead for SettingsAdapter {
     }
 }
 
-impl SettingsWrite for SettingsAdapter {
+impl Write for SettingsAdapter {
     fn set(
         &self,
         key: &Key,
@@ -100,7 +100,7 @@ impl SettingsWrite for SettingsAdapter {
     }
 }
 
-impl SettingsFollow for SettingsAdapter {
+impl Follow for SettingsAdapter {
     fn subscribe(
         &self,
         listener: Listener,

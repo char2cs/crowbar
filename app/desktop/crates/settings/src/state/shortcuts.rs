@@ -4,19 +4,19 @@ mod keymap;
 
 use std::collections::BTreeMap;
 
-use super::SettingsState;
+use super::State;
 use crate::keys::ChordSource;
 use crate::keys::Pressed;
 use crate::keys::Refusal;
 use crate::keys::Shortcut;
 use crate::keys::ShortcutGroup;
-use crate::settings_state::effect::Effect;
-use crate::settings_state::shortcuts::keymap::Keymap;
+use crate::state::effect::Effect;
+use crate::state::shortcuts::keymap::Keymap;
 use crate::values::Key;
 use crate::values::Value;
 use chord::Chord;
 
-impl SettingsState {
+impl State {
     /// The chord of `shortcut` and whether the user set it.
     pub fn chord(
         &self,
@@ -123,7 +123,7 @@ impl SettingsState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::keys::Modifier;
+    use crate::keys::ModifierKey;
     use crate::schema::Action;
     use crate::schema::ButtonSpec;
     use crate::schema::Page;
@@ -132,14 +132,14 @@ mod tests {
     use crate::values::Snapshot;
     use chord::Primary;
 
-    fn state() -> SettingsState {
+    fn state() -> State {
         let keys = Page::new("keybindings", "Keybindings", "keyboard").block(
             ShortcutGroup::new("Tabs", "overrides")
                 .shortcut(Shortcut::new("tabs.new", "New tab", "mod+t"))
                 .shortcut(Shortcut::new("tabs.close", "Close active tab", "mod+w")),
         );
         let schema = Schema::new(vec![keys]).unwrap();
-        SettingsState::new(schema, Snapshot::default(), None, Primary::Control)
+        State::new(schema, Snapshot::default(), None, Primary::Control)
     }
 
     fn write(
@@ -151,7 +151,7 @@ mod tests {
 
     fn pressed(
         key: &str,
-        held: &[Modifier],
+        held: &[ModifierKey],
     ) -> Pressed {
         Pressed::new(key, held)
     }
@@ -164,7 +164,7 @@ mod tests {
         write("overrides", Value::Map(map))
     }
 
-    fn group_of(state: &SettingsState) -> (ShortcutGroup, Shortcut) {
+    fn group_of(state: &State) -> (ShortcutGroup, Shortcut) {
         let (group, shortcut) = state.schema().shortcuts().next().unwrap();
         (group.clone(), shortcut.clone())
     }
@@ -176,7 +176,7 @@ mod tests {
         assert_eq!(state.press_key(&pressed("a", &[])), None);
         assert_eq!(state.capture_refusal(), Some(Refusal::BareKey));
         assert_eq!(
-            state.press_key(&pressed("n", &[Modifier::Control, Modifier::Shift])),
+            state.press_key(&pressed("n", &[ModifierKey::Control, ModifierKey::Shift])),
             Some(overrides(&[("tabs.new", "mod+shift+n")]))
         );
         assert_eq!(state.capturing(), None);
@@ -197,7 +197,7 @@ mod tests {
         assert_eq!(state.capturing(), None);
         state.toggle_capture("tabs.new");
         assert_eq!(
-            state.press_key(&pressed("t", &[Modifier::Control])),
+            state.press_key(&pressed("t", &[ModifierKey::Control])),
             Some(overrides(&[])),
             "the default chord clears the override"
         );
@@ -207,9 +207,9 @@ mod tests {
     fn conflicts_clear_and_reset_all() {
         let mut state = state();
         state.toggle_capture("tabs.close");
-        state.press_key(&pressed("t", &[Modifier::Control, Modifier::Shift]));
+        state.press_key(&pressed("t", &[ModifierKey::Control, ModifierKey::Shift]));
         state.toggle_capture("tabs.new");
-        state.press_key(&pressed("t", &[Modifier::Control, Modifier::Shift]));
+        state.press_key(&pressed("t", &[ModifierKey::Control, ModifierKey::Shift]));
         let (group, shortcut) = group_of(&state);
         assert_eq!(
             state.conflicts(&group, &shortcut),

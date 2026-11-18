@@ -6,9 +6,9 @@ use crate::keys::ChordCapture;
 use crate::schema::PageId;
 use crate::schema::Schema;
 use crate::schema::Scope;
-use crate::settings_state::document::Document;
-use crate::settings_state::navigation::Navigation;
-use crate::settings_state::visibility::Visibility;
+use crate::state::document::Document;
+use crate::state::navigation::Navigation;
+use crate::state::visibility::Visibility;
 use crate::values::Choice;
 use crate::values::Snapshot;
 use chord::Primary;
@@ -29,10 +29,10 @@ pub use prompt::Prompt;
 /// Everything the modal remembers: the schema, the values on screen, the selected page, the search,
 /// the field being edited, the shortcut being captured and the confirmation being asked.
 ///
-/// Methods that change a setting return an [`Effect`](crate::settings_state::effect::Effect); the view performs it against the backend and
-/// reports the outcome with [`SettingsState::acknowledged`] or [`SettingsState::write_failed`].
+/// Methods that change a setting return an [`Effect`](crate::state::effect::Effect); the view performs it against the backend and
+/// reports the outcome with [`State::acknowledged`] or [`State::write_failed`].
 #[derive(Debug, Clone)]
-pub struct SettingsState {
+pub struct State {
     schema: Schema,
     document: Document,
     capabilities: BTreeSet<String>,
@@ -45,7 +45,7 @@ pub struct SettingsState {
     primary: Primary,
 }
 
-impl SettingsState {
+impl State {
     /// A state over `schema` and `snapshot`, opened on `page` (the first visible page when `None` or unknown).
     pub fn new(
         schema: Schema,
@@ -90,21 +90,21 @@ mod tests {
     use super::*;
     use crate::schema::Page;
     use crate::schema::PageId;
-    use crate::settings_state::test_support::state_fixtures::{schema, size_row, state};
+    use crate::state::test_support::state_fixtures::{schema, size_row, state};
     use crate::values::Snapshot;
     use chord::Primary;
 
     #[test]
     fn opens_on_the_requested_page_or_the_first() {
         assert_eq!(state().page().map(Page::label), Some("Appearance"));
-        let deep = SettingsState::new(
+        let deep = State::new(
             schema(),
             Snapshot::default(),
             Some(&PageId::from("browser")),
             Primary::Control,
         );
         assert_eq!(deep.page().map(Page::label), Some("Browser"));
-        let unknown = SettingsState::new(
+        let unknown = State::new(
             schema(),
             Snapshot::default(),
             Some(&PageId::from("nope")),

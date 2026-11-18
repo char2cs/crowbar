@@ -62,7 +62,7 @@ fn deliver_key(
 #[cfg(test)]
 mod tests {
     use gpui::TestAppContext;
-    use settings::{KEYBINDING_OVERRIDES, Key, SettingsRead as _, Value};
+    use settings::{KEYBINDING_OVERRIDES, Key, Read as _, Value};
 
     use crate::intent::Intent;
     use crate::test_support::{Harness, inspect, open};

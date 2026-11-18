@@ -12,7 +12,7 @@ use crate::schema::Row;
 use crate::schema::Schema;
 use crate::schema::Scope;
 use crate::schema::Section;
-use crate::settings_state::visibility::filter::{Filter, matches};
+use crate::state::visibility::filter::{Filter, matches};
 use crate::values::Key;
 
 mod conditions;

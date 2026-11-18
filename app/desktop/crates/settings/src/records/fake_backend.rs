@@ -1,9 +1,9 @@
 //! An in-memory backend for tests and the gallery.
 
 #[cfg(feature = "fake")]
-mod fake_state;
-#[cfg(feature = "fake")]
 mod record_lists;
+#[cfg(feature = "fake")]
+mod state;
 #[cfg(feature = "fake")]
 mod values;
 
@@ -11,7 +11,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::records::Records;
-use crate::records::fake_backend::fake_state::FakeState;
+use crate::records::fake_backend::state::State;
 use crate::records::record_command::RecordCommand;
 use crate::values::Change;
 use crate::values::Key;
@@ -19,19 +19,19 @@ use crate::values::Listener;
 use crate::values::Snapshot;
 use crate::values::Value;
 
-/// A [`SettingsBackend`](crate::values::SettingsBackend) and [`RecordBackend`](crate::records::record_backend::RecordBackend)
+/// A [`Backend`](crate::values::Backend) and [`RecordBackend`](crate::records::record_backend::RecordBackend)
 /// that keep everything in memory and log what they were asked to do.
 #[derive(Clone, Default)]
 pub struct FakeBackend {
-    pub(crate) state: Rc<RefCell<FakeState>>,
+    pub(crate) state: Rc<RefCell<State>>,
 }
 
 impl FakeBackend {
     /// A backend that starts from `snapshot`.
     pub fn new(snapshot: Snapshot) -> Self {
-        let state = FakeState {
+        let state = State {
             snapshot,
-            ..FakeState::default()
+            ..State::default()
         };
         Self {
             state: Rc::new(RefCell::new(state)),
@@ -114,9 +114,9 @@ mod tests {
 
     use super::*;
     use crate::values::Error;
-    use crate::values::SettingsFollow as _;
-    use crate::values::SettingsRead as _;
-    use crate::values::SettingsWrite as _;
+    use crate::values::Follow as _;
+    use crate::values::Read as _;
+    use crate::values::Write as _;
 
     #[test]
     fn writes_are_stored_announced_and_can_be_refused() {

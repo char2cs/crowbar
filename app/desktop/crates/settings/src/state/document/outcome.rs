@@ -1,10 +1,10 @@
 //! What came back from the backend: acknowledgements, refusals and remote changes.
 
-use crate::settings_state::SettingsState;
+use crate::state::State;
 use crate::values::Key;
 use crate::values::Value;
 
-impl SettingsState {
+impl State {
     /// The backend stored `key`.
     pub fn acknowledged(
         &mut self,
@@ -47,7 +47,7 @@ impl SettingsState {
 #[cfg(test)]
 mod tests {
     use crate::schema::PageId;
-    use crate::settings_state::test_support::state_fixtures::{custom_row, gitignore_row, state};
+    use crate::state::test_support::state_fixtures::{custom_row, gitignore_row, state};
     use crate::values::Key;
     use crate::values::Value;
 

@@ -2,16 +2,16 @@
 
 use gpui::Keystroke;
 
-use settings::{Modifier, Pressed};
+use settings::{ModifierKey, Pressed};
 
 pub(crate) fn pressed(keystroke: &Keystroke) -> Pressed {
     let flags = [
-        (keystroke.modifiers.control, Modifier::Control),
-        (keystroke.modifiers.alt, Modifier::Alt),
-        (keystroke.modifiers.shift, Modifier::Shift),
-        (keystroke.modifiers.platform, Modifier::Platform),
+        (keystroke.modifiers.control, ModifierKey::Control),
+        (keystroke.modifiers.alt, ModifierKey::Alt),
+        (keystroke.modifiers.shift, ModifierKey::Shift),
+        (keystroke.modifiers.platform, ModifierKey::Platform),
     ];
-    let held: Vec<Modifier> = flags
+    let held: Vec<ModifierKey> = flags
         .iter()
         .filter(|(on, _)| *on)
         .map(|&(_, modifier)| modifier)

@@ -1,8 +1,8 @@
 use gpui::Context;
 use keymap::Keymap;
 use settings::{
-    Change, KEYBINDING_OVERRIDES, KEYBINDING_PRESET, Key, SettingsFollow as _, SettingsRead as _,
-    Value, preset_overrides,
+    Change, Follow as _, KEYBINDING_OVERRIDES, KEYBINDING_PRESET, Key, Read as _, Value,
+    preset_overrides,
 };
 
 use super::ShellView;

@@ -65,12 +65,12 @@ impl ChordCapture {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::keys::modifier::Modifier;
+    use crate::keys::modifier_key::ModifierKey;
     use crate::test_support::cases::{Case, run_cases};
 
     fn press(
         key: &str,
-        held: &[Modifier],
+        held: &[ModifierKey],
     ) -> Pressed {
         Pressed::new(key, held)
     }
@@ -78,7 +78,7 @@ mod tests {
     fn idle_capture_ignores_everything() {
         let mut capture = ChordCapture::default();
         assert_eq!(
-            capture.feed(&press("t", &[Modifier::Control]), Primary::Control),
+            capture.feed(&press("t", &[ModifierKey::Control]), Primary::Control),
             None
         );
         assert_eq!(capture.target(), None);
@@ -87,7 +87,7 @@ mod tests {
     fn an_accepted_chord_ends_capture_and_names_the_command() {
         let mut capture = ChordCapture::default();
         capture.begin("tabs.new");
-        let done = capture.feed(&press("n", &[Modifier::Control]), Primary::Control);
+        let done = capture.feed(&press("n", &[ModifierKey::Control]), Primary::Control);
         assert_eq!(
             done.map(|(command, chord)| (command, chord.as_str().to_owned())),
             Some(("tabs.new".to_owned(), "mod+n".to_owned()))
@@ -102,7 +102,7 @@ mod tests {
         assert_eq!(capture.target(), Some("tabs.new"));
         assert_eq!(capture.refusal(), Some(Refusal::BareKey));
         assert_eq!(
-            capture.feed(&press("control", &[Modifier::Control]), Primary::Control),
+            capture.feed(&press("control", &[ModifierKey::Control]), Primary::Control),
             None
         );
         assert_eq!(

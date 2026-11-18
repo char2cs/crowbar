@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use gpui::{App, Window};
-use settings::{PageId, RecordBackend, Schema, SettingsBackend};
+use settings::{PageId, RecordBackend, Schema};
 
 use crate::settings_modal::close_handler::CloseHandler;
 use chord::Primary;
@@ -11,7 +11,7 @@ use chord::Primary;
 /// The schema, the two backends, the primary modifier and the optional deep link and close callback of a modal.
 pub struct ModalConfig {
     pub(crate) schema: Schema,
-    pub(crate) settings: Rc<dyn SettingsBackend>,
+    pub(crate) settings: Rc<dyn settings::Backend>,
     pub(crate) records: Rc<dyn RecordBackend>,
     pub(crate) page: Option<PageId>,
     pub(crate) primary: Primary,
@@ -22,7 +22,7 @@ impl ModalConfig {
     /// A configuration that shows `schema` over `settings` and `records`.
     pub fn new(
         schema: Schema,
-        settings: Rc<dyn SettingsBackend>,
+        settings: Rc<dyn settings::Backend>,
         records: Rc<dyn RecordBackend>,
     ) -> Self {
         Self {

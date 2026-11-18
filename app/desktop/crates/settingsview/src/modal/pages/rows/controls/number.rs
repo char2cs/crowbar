@@ -42,7 +42,7 @@ pub(crate) fn number_control(
 #[cfg(test)]
 mod tests {
     use gpui::TestAppContext;
-    use settings::{Key, Nudge, SettingsRead as _, Value};
+    use settings::{Key, Nudge, Read as _, Value};
 
     use crate::intent::Intent;
     use crate::test_support::{inspect, open, row, run};

@@ -4,10 +4,10 @@ use crate::keys::Shortcut;
 use crate::schema::ChoiceSource;
 use crate::schema::Control;
 use crate::schema::Row;
-use crate::settings_state::SettingsState;
+use crate::state::State;
 use crate::values::Choice;
 
-impl SettingsState {
+impl State {
     /// Whether the search leaves `row` visible.
     pub fn row_visible(
         &self,
@@ -80,9 +80,7 @@ impl SettingsState {
 #[cfg(test)]
 mod tests {
     use crate::schema::PageId;
-    use crate::settings_state::test_support::state_fixtures::{
-        custom_row, engine_row, state, write,
-    };
+    use crate::state::test_support::state_fixtures::{custom_row, engine_row, state, write};
 
     #[test]
     fn selects_store_the_option_value_and_reveal_dependent_rows() {

@@ -3,10 +3,10 @@
 use crate::schema::Control;
 use crate::schema::Issue;
 use crate::schema::Row;
-use crate::settings_state::SettingsState;
+use crate::state::State;
 use crate::values::Value;
 
-impl SettingsState {
+impl State {
     /// Whether the switch of `row` shows as on.
     pub fn switch_on(
         &self,
@@ -63,7 +63,7 @@ impl SettingsState {
 #[cfg(test)]
 mod tests {
     use crate::schema::Issue;
-    use crate::settings_state::test_support::state_fixtures::{
+    use crate::state::test_support::state_fixtures::{
         custom_row, gitignore_row, state, state_with, write,
     };
     use crate::values::Value;

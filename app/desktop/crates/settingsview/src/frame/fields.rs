@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use gpui::{App, Entity};
 use ui::TextInput;
 
-use settings::{Key, SettingsState};
+use settings::Key;
 
 #[derive(Default)]
 pub(crate) struct Fields {
@@ -33,7 +33,7 @@ impl Fields {
 
     pub(crate) fn sync(
         &self,
-        state: &SettingsState,
+        state: &settings::State,
         cx: &mut App,
     ) {
         state

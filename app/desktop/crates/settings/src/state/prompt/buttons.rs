@@ -3,11 +3,11 @@
 use crate::schema::Action;
 use crate::schema::ButtonSpec;
 use crate::schema::Confirm;
-use crate::settings_state::SettingsState;
-use crate::settings_state::effect::Effect;
-use crate::settings_state::prompt::Prompt;
+use crate::state::State;
+use crate::state::effect::Effect;
+use crate::state::prompt::Prompt;
 
-impl SettingsState {
+impl State {
     /// Whether the button `spec` can be pressed.
     pub fn button_enabled(
         &self,
@@ -69,9 +69,9 @@ impl SettingsState {
 mod tests {
     use crate::schema::Action;
     use crate::schema::ButtonSpec;
-    use crate::settings_state::effect::Effect;
-    use crate::settings_state::prompt::Prompt;
-    use crate::settings_state::test_support::state_fixtures::{clear_button, state, state_with};
+    use crate::state::effect::Effect;
+    use crate::state::prompt::Prompt;
+    use crate::state::test_support::state_fixtures::{clear_button, state, state_with};
     use crate::values::Values;
 
     #[test]

@@ -1,28 +1,28 @@
 //! A set of setting values by key.
 
+mod backend;
 mod change;
 mod choice;
 mod error;
+mod follow;
 mod key;
-mod settings_backend;
-mod settings_follow;
-mod settings_read;
-mod settings_write;
+mod read;
 mod snapshot;
 mod subscription;
 mod value;
+mod write;
 
+pub use backend::Backend;
 pub use change::Change;
 pub use choice::Choice;
 pub use error::Error;
+pub use follow::{Follow, Listener};
 pub use key::Key;
-pub use settings_backend::SettingsBackend;
-pub use settings_follow::{Listener, SettingsFollow};
-pub use settings_read::SettingsRead;
-pub use settings_write::SettingsWrite;
+pub use read::Read;
 pub use snapshot::Snapshot;
 pub use subscription::Subscription;
 pub use value::Value;
+pub use write::Write;
 
 use std::collections::BTreeMap;
 

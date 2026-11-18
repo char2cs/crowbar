@@ -1,16 +1,16 @@
 //! The modal's access to setting values.
 
-use crate::values::settings_follow::SettingsFollow;
-use crate::values::settings_read::SettingsRead;
-use crate::values::settings_write::SettingsWrite;
+use crate::values::follow::Follow;
+use crate::values::read::Read;
+use crate::values::write::Write;
 
 /// Where settings live; the modal reads once, writes on every edit and follows changes.
 ///
 /// The view calls this on the UI thread only: an implementation that talks to the daemon must
 /// return quickly and deliver changes from its own task.
-pub trait SettingsBackend: SettingsRead + SettingsWrite + SettingsFollow {}
+pub trait Backend: Read + Write + Follow {}
 
-impl<T: SettingsRead + SettingsWrite + SettingsFollow> SettingsBackend for T {}
+impl<T: Read + Write + Follow> Backend for T {}
 
 #[cfg(test)]
 mod tests {
@@ -24,7 +24,7 @@ mod tests {
 
     #[test]
     fn a_backend_is_usable_behind_the_trait_object() {
-        let backend: Rc<dyn SettingsBackend> = Rc::new(FakeBackend::default());
+        let backend: Rc<dyn Backend> = Rc::new(FakeBackend::default());
         let seen = Rc::new(RefCell::new(Vec::new()));
         let sink = Rc::clone(&seen);
         let subscription = backend.subscribe(Rc::new(move |change| {

@@ -1,6 +1,6 @@
 use gpui::Context;
 use layout::Tab;
-use settings::{Key, SettingsRead as _};
+use settings::{Key, Read as _};
 use viewtabs::TabView;
 
 use super::ShellView;

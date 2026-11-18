@@ -3,7 +3,7 @@
 mod buttons;
 
 use crate::schema::Confirm;
-use crate::settings_state::effect::Effect;
+use crate::state::effect::Effect;
 
 /// A question asked before `then` happens.
 #[derive(Debug, Clone, PartialEq)]
