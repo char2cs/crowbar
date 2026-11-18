@@ -57,7 +57,7 @@ impl PendingClose {
 
 #[cfg(test)]
 mod tests {
-    use model::{Command, TabId};
+    use layout::{Command, TabId};
 
     use super::*;
 

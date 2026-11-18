@@ -1,5 +1,5 @@
 use gpui::{App, Entity};
-use model::{Command, Group};
+use layout::{Command, Group};
 use protocol::PaneId;
 
 use crate::layout_event::LayoutEvent;

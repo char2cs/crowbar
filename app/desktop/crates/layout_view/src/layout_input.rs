@@ -3,7 +3,7 @@ use std::time::Instant;
 use gpui::{
     Bounds, Context, DragMoveEvent, MouseDownEvent, Pixels, Point, Window, point, px, size,
 };
-use model::{Command, Sash};
+use layout::{Command, Sash};
 use protocol::PaneId;
 use ui::{Motion, Overlays, SashDrag};
 
@@ -176,7 +176,7 @@ impl LayoutView {
 #[cfg(test)]
 mod tests {
     use gpui::TestAppContext;
-    use model::Edge;
+    use layout::Edge;
 
     use crate::test_support::{layout_of, open, pane_id};
 

@@ -1,7 +1,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use model::Layout;
+use layout::Layout;
 
 const PANE_PREFIX: char = 'p';
 const BROWSER_PREFIX: char = 'b';
@@ -23,7 +23,7 @@ impl Serials {
         let pane = layout
             .tabs()
             .iter()
-            .flat_map(model::Tab::pane_ids)
+            .flat_map(layout::Tab::pane_ids)
             .filter_map(|id| serial_of(id.as_str()))
             .max()
             .unwrap_or(0);
@@ -33,9 +33,9 @@ impl Serials {
         }
     }
 
-    pub(crate) fn next_tab(&self) -> model::TabId {
+    pub(crate) fn next_tab(&self) -> layout::TabId {
         self.tab.set(self.tab.get() + 1);
-        model::TabId(self.tab.get())
+        layout::TabId(self.tab.get())
     }
 
     pub(crate) fn next_pane(&self) -> String {
@@ -61,7 +61,7 @@ fn serial_of(id: &str) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
-    use model::{Command, PaneInstance, TabId};
+    use layout::{Command, PaneInstance, TabId};
     use protocol::{PaneId, PaneState, PaneTypeId, Params};
 
     use super::*;

@@ -19,7 +19,7 @@ pub(crate) enum Error {
     #[error("the settings modal could not be built: {0}")]
     Settings(String),
     #[error("the layout refused a command: {0}")]
-    Layout(#[from] model::Error),
+    Layout(#[from] layout::Error),
     #[error("a pane host call failed: {0}")]
     Host(#[from] pane_host::Error),
     #[error("a protocol value was invalid: {0}")]

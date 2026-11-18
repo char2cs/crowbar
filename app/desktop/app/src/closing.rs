@@ -1,4 +1,4 @@
-use model::Command;
+use layout::Command;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Closing {

@@ -12,7 +12,7 @@ use crate::chat_label::NEW_CHAT;
 const TERMINAL_LABEL: &str = "Terminal";
 
 pub(super) fn member(
-    (titles, layout): (&crate::titles::Titles, &model::Layout),
+    (titles, layout): (&crate::titles::Titles, &layout::Layout),
     pane: &PaneId,
 ) -> MemberView {
     let title = titles.get(pane);
@@ -29,7 +29,7 @@ pub(super) fn member(
 }
 
 fn kind_of(
-    layout: &model::Layout,
+    layout: &layout::Layout,
     pane: &PaneId,
 ) -> MemberKind {
     match layout.pane(pane).map(|instance| instance.type_id.as_str()) {
@@ -223,23 +223,23 @@ mod tests {
     fn layout_holding(
         pane: &PaneId,
         type_id: &str,
-    ) -> model::Layout {
-        let mut layout = model::Layout::default();
-        let tab = model::TabId(1);
+    ) -> layout::Layout {
+        let mut layout = layout::Layout::default();
+        let tab = layout::TabId(1);
         layout
-            .apply(model::Command::AddTab {
+            .apply(layout::Command::AddTab {
                 id: tab,
                 title: "t".into(),
             })
             .unwrap();
-        let instance = model::PaneInstance {
+        let instance = layout::PaneInstance {
             pane_id: pane.clone(),
             type_id: protocol::PaneTypeId::new(type_id).unwrap(),
             params: protocol::Params::default(),
             state: protocol::PaneState::default(),
         };
         layout
-            .apply(model::Command::OpenPane {
+            .apply(layout::Command::OpenPane {
                 tab,
                 instance,
                 placement: None,

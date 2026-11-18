@@ -1,5 +1,5 @@
 use gpui::Context;
-use model::Command;
+use layout::Command;
 use protocol::CommandId;
 use shell_keys::ShellCommand;
 

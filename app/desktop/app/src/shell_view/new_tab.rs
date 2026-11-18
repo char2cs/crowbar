@@ -1,5 +1,5 @@
 use gpui::{Context, Window};
-use model::Command;
+use layout::Command;
 use protocol::PaneId;
 
 use super::ShellView;

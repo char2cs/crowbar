@@ -4,7 +4,7 @@ use gpui::{
     MouseButton, MouseDownEvent, ParentElement, RenderOnce, SharedString,
     StatefulInteractiveElement, Styled, Window, div, px,
 };
-use model::DragSubject;
+use layout::DragSubject;
 use protocol::PaneId;
 use std::rc::Rc;
 

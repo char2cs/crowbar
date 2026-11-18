@@ -1,4 +1,4 @@
-use model::Command;
+use layout::Command;
 
 /// What the tab bar asks its owner to do.
 #[derive(Debug, Clone, PartialEq)]

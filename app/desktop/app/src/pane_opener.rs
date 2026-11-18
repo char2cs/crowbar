@@ -1,4 +1,4 @@
-use model::{Command, Layout, PaneInstance, Placement, Tab, TabId};
+use layout::{Command, Layout, PaneInstance, Placement, Tab, TabId};
 use protocol::{PaneId, PaneState, PaneTypeId, Params};
 
 use crate::error::Result;
@@ -106,7 +106,7 @@ fn focus_commands(
 
 #[cfg(test)]
 mod tests {
-    use model::{Edge, TabId};
+    use layout::{Edge, TabId};
 
     use super::*;
 

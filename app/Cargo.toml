@@ -16,7 +16,7 @@ atomicfile = { path = "crates/atomicfile" }
 browser = { path = "crates/browser" }
 browser_agent = { path = "crates/browser_agent" }
 protocol = { path = "crates/protocol" }
-model = { path = "crates/model" }
+layout = { path = "crates/layout" }
 webview = { path = "desktop/crates/webview" }
 pane_host = { path = "desktop/crates/pane_host" }
 ui = { path = "desktop/crates/ui" }

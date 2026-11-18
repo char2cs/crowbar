@@ -43,7 +43,7 @@ async fn sampled_after_a_beat(
     this.update(cx, ShellView::sample_readout).is_ok()
 }
 
-fn panes_of(tab: &model::Tab) -> Vec<&model::PaneInstance> {
+fn panes_of(tab: &layout::Tab) -> Vec<&layout::PaneInstance> {
     tab.pane_ids()
         .iter()
         .filter_map(|id| tab.pane(id))
@@ -107,7 +107,7 @@ impl ShellView {
 
     fn readout_counts(&self) -> (usize, usize, usize) {
         let layout = self.state.layout();
-        let panes: Vec<&model::PaneInstance> = layout.tabs().iter().flat_map(panes_of).collect();
+        let panes: Vec<&layout::PaneInstance> = layout.tabs().iter().flat_map(panes_of).collect();
         let terminals = panes
             .iter()
             .filter(|pane| pane.type_id.as_str() == TERMINAL)

@@ -1,5 +1,5 @@
+use layout::PaneInstance;
 use layout_view::TabLook;
-use model::PaneInstance;
 use ui::IconName;
 
 use crate::core_panes::{BROWSER, CONSOLE, EDITOR, NEW_TAB, REVIEW, TERMINAL};

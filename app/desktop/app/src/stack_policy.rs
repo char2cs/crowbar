@@ -1,4 +1,4 @@
-use model::{Command, PaneInstance, Tab, TabId};
+use layout::{Command, PaneInstance, Tab, TabId};
 use protocol::{PaneId, PaneTypeId};
 
 use crate::core_panes::CHAT;
@@ -62,7 +62,7 @@ fn split(
 
 #[cfg(test)]
 mod tests {
-    use model::Layout;
+    use layout::Layout;
     use protocol::{PaneState, Params};
 
     use super::*;
@@ -97,7 +97,7 @@ mod tests {
 
     fn strips(layout: &Layout) -> Vec<Vec<String>> {
         let tab = layout.active_tab().unwrap();
-        let bounds = model::Rect {
+        let bounds = layout::Rect {
             x: 0.0,
             y: 0.0,
             width: 4000.0,

@@ -6,7 +6,7 @@ use gpui::{
     AnyElement, App, Context, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
     ParentElement, Render, StatefulInteractiveElement, Styled, Window, canvas, deferred, div, px,
 };
-use model::{Command, DragSubject, TabId};
+use layout::{Command, DragSubject, TabId};
 use ui::{Motion, Surface, Theme, layer};
 
 use crate::shell_look::ShellLook;
@@ -324,7 +324,7 @@ impl TabBar {
 #[cfg(test)]
 mod tests {
     use gpui::TestAppContext;
-    use model::TabId;
+    use layout::TabId;
 
     use crate::shell_look::ShellLook;
     use crate::tab_drop::TabDrop;

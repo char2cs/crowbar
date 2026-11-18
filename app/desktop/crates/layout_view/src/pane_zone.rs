@@ -1,4 +1,4 @@
-use model::{Edge, Rect};
+use layout::{Edge, Rect};
 
 const BAND: f32 = 0.25;
 
@@ -59,7 +59,7 @@ impl PaneZone {
 
 #[cfg(test)]
 mod tests {
-    use model::{Edge, Rect};
+    use layout::{Edge, Rect};
 
     use super::*;
 

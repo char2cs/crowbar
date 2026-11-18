@@ -1,5 +1,5 @@
 use gpui::{Context, DragMoveEvent, MouseUpEvent, Pixels, Point, Window};
-use model::DragSubject;
+use layout::DragSubject;
 use protocol::PaneId;
 use ui::DraggedRow;
 
@@ -118,13 +118,13 @@ impl LayoutView {
 #[cfg(test)]
 mod tests {
     use gpui::{TestAppContext, point, px};
-    use model::Edge;
+    use layout::Edge;
 
     use crate::test_support::{layout_of, open};
 
     fn dragging_after_hover(
         view: &gpui::Entity<crate::layout_view::LayoutView>,
-        subject: &model::DragSubject,
+        subject: &layout::DragSubject,
         spot: gpui::Point<gpui::Pixels>,
         cx: &mut gpui::VisualTestContext,
     ) -> bool {
@@ -139,7 +139,7 @@ mod tests {
         let layout = layout_of("a", &[("b", "a", Edge::Right)]);
         let harness = open(cx, &layout);
         let (view, cx) = (harness.view, harness.cx);
-        let subject = model::DragSubject::Chat("t1".into());
+        let subject = layout::DragSubject::Chat("t1".into());
         let centre = view.read_with(cx, |view, _| view.bounds.center());
         let cases = [(centre, true), (point(px(-50.0), px(-50.0)), false)];
         for (spot, expected) in cases {
@@ -153,7 +153,7 @@ mod tests {
         let layout = layout_of("a", &[("b", "a", Edge::Right)]);
         let harness = open(cx, &layout);
         let (view, cx) = (harness.view, harness.cx);
-        let subject = model::DragSubject::Chat("t1".into());
+        let subject = layout::DragSubject::Chat("t1".into());
         let after = view.update(cx, |view, cx| {
             view.hover(&subject, view.bounds.center(), cx);
             view.release(&subject, cx);

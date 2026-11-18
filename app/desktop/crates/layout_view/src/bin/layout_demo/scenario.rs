@@ -1,4 +1,4 @@
-use model::{Command, Edge, Layout, PaneInstance, Placement, TabId};
+use layout::{Command, Edge, Layout, PaneInstance, Placement, TabId};
 use protocol::{PaneId, PaneState, PaneTypeId, Params};
 
 pub(crate) type DemoResult<T> = Result<T, Box<dyn std::error::Error>>;

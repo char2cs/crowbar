@@ -1,13 +1,13 @@
 //! Pane layout of the active tab: the frame of every pane, the sashes between them, the accent
 //! ring, the pane handle and the drag-and-drop zones.
 //!
-//! The model owns the layout. [`LayoutView`] renders the [`model::Tab`] it is given and answers
+//! The model owns the layout. [`LayoutView`] renders the [`layout::Tab`] it is given and answers
 //! pointer input with [`LayoutEvent::Apply`] commands; the owner applies them and gives the view
 //! the new tab. Pane content areas are transparent holes: [`pane_holes`] gives the rectangles
 //! the pane host places its web views in.
 //!
 //! Drag and drop is pure first: [`DropTarget`] turns a pointer position and a
-//! [`model::DragSubject`] into a target and a [`model::Command`], [`SashGrab`] turns pointer
+//! [`layout::DragSubject`] into a target and a [`layout::Command`], [`SashGrab`] turns pointer
 //! moves into resize commands, and the GPUI plumbing only forwards events to them.
 
 mod chrome_context;

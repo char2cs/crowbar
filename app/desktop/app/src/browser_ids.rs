@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::rc::Rc;
 
-use model::{Layout, Tab};
+use layout::{Layout, Tab};
 use protocol::PaneId;
 
 #[derive(Debug, Clone, Default)]
@@ -42,7 +42,7 @@ fn is_browser(
 
 #[cfg(test)]
 mod tests {
-    use model::{Command, PaneInstance, TabId};
+    use layout::{Command, PaneInstance, TabId};
     use protocol::{PaneState, PaneTypeId, Params};
 
     use super::*;

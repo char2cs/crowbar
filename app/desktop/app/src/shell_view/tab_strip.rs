@@ -1,5 +1,5 @@
 use gpui::Context;
-use model::Tab;
+use layout::Tab;
 use settings_ui::{Key, SettingsRead as _};
 use tab_bar::TabView;
 
@@ -72,8 +72,8 @@ mod tests {
     fn pane(
         id: &str,
         params: protocol::Params,
-    ) -> model::PaneInstance {
-        model::PaneInstance {
+    ) -> layout::PaneInstance {
+        layout::PaneInstance {
             pane_id: protocol::PaneId::new(id).unwrap(),
             type_id: protocol::PaneTypeId::new(crate::core_panes::CHAT).unwrap(),
             params,
@@ -82,12 +82,12 @@ mod tests {
     }
 
     fn open(
-        layout: &mut model::Layout,
-        tab: model::TabId,
-        instance: model::PaneInstance,
+        layout: &mut layout::Layout,
+        tab: layout::TabId,
+        instance: layout::PaneInstance,
     ) {
         layout
-            .apply(model::Command::OpenPane {
+            .apply(layout::Command::OpenPane {
                 tab,
                 instance,
                 placement: None,
@@ -97,10 +97,10 @@ mod tests {
 
     #[test]
     fn a_tab_belongs_to_the_projects_of_the_chats_its_panes_hold() {
-        let tab = model::TabId(1);
-        let mut layout = model::Layout::default();
+        let tab = layout::TabId(1);
+        let mut layout = layout::Layout::default();
         layout
-            .apply(model::Command::AddTab {
+            .apply(layout::Command::AddTab {
                 id: tab,
                 title: "t".into(),
             })

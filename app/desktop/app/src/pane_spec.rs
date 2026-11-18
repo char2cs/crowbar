@@ -1,4 +1,4 @@
-use model::{Command, Layout, PaneInstance};
+use layout::{Command, Layout, PaneInstance};
 use protocol::{PaneId, PaneState, PaneTypeId, Params};
 use serde_json::json;
 

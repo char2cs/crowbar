@@ -1,7 +1,7 @@
 use gpui::{
     AnyElement, App, AppContext as _, Context, DismissEvent, Entity, Pixels, Point, Window,
 };
-use model::{Command, TabId};
+use layout::{Command, TabId};
 use ui::{Menu, MenuAction, MenuItem};
 
 use crate::tab_bar::TabBar;

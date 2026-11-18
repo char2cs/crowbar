@@ -54,7 +54,7 @@ impl IncomingDrop {
 mod tests {
     use std::time::{Duration, Instant};
 
-    use model::TabId;
+    use layout::TabId;
     use ui::Motion;
 
     use super::*;

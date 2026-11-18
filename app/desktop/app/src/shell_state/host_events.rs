@@ -6,7 +6,7 @@ use protocol::PaneId;
 use webview::ParentWindow;
 
 use super::ShellState;
-use model::Command;
+use layout::Command;
 
 use crate::dropped_files;
 use crate::event_commands::commands_for;

@@ -1,4 +1,4 @@
-use model::{Command, DragSubject, TabId};
+use layout::{Command, DragSubject, TabId};
 
 use crate::new_tab::NewTab;
 use crate::span::Span;
@@ -77,7 +77,7 @@ fn move_tab(
 }
 
 fn open_in(
-    instance: &model::PaneInstance,
+    instance: &layout::PaneInstance,
     tab: TabId,
 ) -> Command {
     Command::OpenPane {
@@ -88,7 +88,7 @@ fn open_in(
 }
 
 fn open_in_new_tab(
-    instance: &model::PaneInstance,
+    instance: &layout::PaneInstance,
     index: usize,
     new_tab: NewTab,
     tab_count: usize,
@@ -134,7 +134,7 @@ fn detach(
 
 #[cfg(test)]
 mod tests {
-    use model::{Command, DragSubject, PaneInstance, TabId};
+    use layout::{Command, DragSubject, PaneInstance, TabId};
     use protocol::{PaneId, PaneState, PaneTypeId, Params};
 
     use super::*;

@@ -2,7 +2,7 @@ use gpui::{
     App, AppContext as _, Context, Entity, IntoElement, ParentElement, Render, Styled,
     Subscription, Window, div, px,
 };
-use model::{Layout, LayoutHistory, PaneInstance};
+use layout::{Layout, LayoutHistory, PaneInstance};
 use tab_bar::{SidebarState, TabBar, TabBarEvent, TabView};
 use ui::{Surface, Theme};
 
@@ -22,14 +22,14 @@ pub(crate) struct Demo {
     _events: Subscription,
 }
 
-fn views(history: &LayoutHistory) -> (Vec<TabView>, Option<model::TabId>) {
+fn views(history: &LayoutHistory) -> (Vec<TabView>, Option<layout::TabId>) {
     let layout = history.layout();
     let tabs = layout
         .tabs()
         .iter()
         .map(|tab| TabView::from_tab(tab, scenario::member))
         .collect();
-    (tabs, layout.active_tab().map(model::Tab::id))
+    (tabs, layout.active_tab().map(layout::Tab::id))
 }
 
 fn sidebar_state(scenario: &str) -> SidebarState {
@@ -46,7 +46,7 @@ impl Demo {
         cx: &mut Context<'_, Self>,
     ) -> Self {
         let history = LayoutHistory::new(layout);
-        let bar = cx.new(|_| TabBar::new(model::TabId(100)));
+        let bar = cx.new(|_| TabBar::new(layout::TabId(100)));
         let closed = name == CLOSED_SCENARIO;
         let (tabs, active) = views(&history);
         let sidebar = sidebar_state(name);

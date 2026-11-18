@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gpui::{App, Entity, TestAppContext, VisualTestContext};
-use model::TabId;
+use layout::TabId;
 use protocol::PaneId;
 use ui::{Motion, Theme};
 

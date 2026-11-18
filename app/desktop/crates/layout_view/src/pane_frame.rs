@@ -1,4 +1,4 @@
-use model::Rect;
+use layout::Rect;
 
 use crate::chrome_context::ChromeContext;
 use crate::corners::Corners;
@@ -53,7 +53,7 @@ fn shrink(
 
 #[cfg(test)]
 mod tests {
-    use model::Rect;
+    use layout::Rect;
 
     use super::*;
     use crate::sidebar_edge::SidebarEdge;

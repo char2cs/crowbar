@@ -1,4 +1,4 @@
-use model::PaneInstance;
+use layout::PaneInstance;
 use protocol::{Lifecycle, PaneId, PaneState, PaneTypeId, ShellFrame};
 
 use crate::pane_phase::PanePhase;

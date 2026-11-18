@@ -1,4 +1,4 @@
-use model::{Command, Layout, PaneInstance};
+use layout::{Command, Layout, PaneInstance};
 use protocol::PaneId;
 
 use crate::core_panes::{CHAT, TERMINAL};
@@ -67,7 +67,7 @@ fn held_with<'a>(
     layout
         .tabs()
         .iter()
-        .flat_map(model::Tab::pane_ids)
+        .flat_map(layout::Tab::pane_ids)
         .filter_map(|pane| layout.pane(&pane))
         .filter(|found| counts(found) && owner(found) == owner(incoming))
         .filter(|found| !chosen.contains(&found.pane_id))
@@ -115,7 +115,7 @@ fn victim_when_full(
 
 #[cfg(test)]
 mod tests {
-    use model::TabId;
+    use layout::TabId;
     use protocol::{PaneState, PaneTypeId, Params};
 
     use super::*;

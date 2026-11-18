@@ -4,8 +4,8 @@ use gpui::{
     AppContext as _, Context, Entity, IntoElement, ParentElement, Render, Styled, Subscription,
     Window, div, px,
 };
+use layout::{Layout, LayoutHistory, PaneInstance};
 use layout_view::{ChromeContext, LayoutEvent, LayoutView, SidebarEdge};
-use model::{Layout, LayoutHistory, PaneInstance};
 use ui::{Surface, Theme};
 
 use crate::chip::chip;

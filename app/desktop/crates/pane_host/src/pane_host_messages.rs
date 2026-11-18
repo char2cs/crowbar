@@ -1,4 +1,4 @@
-use model::Layout;
+use layout::Layout;
 use protocol::{ExtensionStatus, KeyBinding, PaneId, ShellFrame, ThemeTokens};
 
 use crate::error::Result;

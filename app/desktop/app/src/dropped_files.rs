@@ -1,4 +1,4 @@
-use model::Layout;
+use layout::Layout;
 use protocol::PaneId;
 
 use crate::core_panes::CHAT;
@@ -14,7 +14,7 @@ pub(crate) fn opens_files(
 
 #[cfg(test)]
 mod tests {
-    use model::{Command, PaneInstance, TabId};
+    use layout::{Command, PaneInstance, TabId};
     use protocol::{PaneState, PaneTypeId, Params};
 
     use super::*;

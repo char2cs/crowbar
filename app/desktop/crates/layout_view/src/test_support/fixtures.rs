@@ -1,4 +1,4 @@
-use model::{Command, Layout, PaneInstance, Placement, TabId};
+use layout::{Command, Layout, PaneInstance, Placement, TabId};
 use protocol::{PaneId, PaneState, PaneTypeId, Params};
 
 pub(crate) fn pane_id(name: &str) -> PaneId {
@@ -16,7 +16,7 @@ pub(crate) fn chat(name: &str) -> PaneInstance {
 
 pub(crate) fn layout_of(
     first: &str,
-    others: &[(&str, &str, model::Edge)],
+    others: &[(&str, &str, layout::Edge)],
 ) -> Layout {
     let mut layout = Layout::default();
     let tab = TabId(1);
@@ -42,7 +42,7 @@ pub(crate) fn layout_of(
 fn open_beside(
     layout: &mut Layout,
     tab: TabId,
-    split: &(&str, &str, model::Edge),
+    split: &(&str, &str, layout::Edge),
 ) {
     let (name, beside, edge) = split;
     let placement = Some(Placement {
@@ -59,7 +59,7 @@ fn open_beside(
 
 /// Tab 1 with chat `a` beside a group of `b` and `c`.
 pub(crate) fn stacked_layout() -> Layout {
-    let mut layout = layout_of("a", &[("b", "a", model::Edge::Right)]);
+    let mut layout = layout_of("a", &[("b", "a", layout::Edge::Right)]);
     layout
         .apply(Command::OpenPaneInGroup {
             instance: chat("c"),

@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use model::{Command, Layout};
+use layout::{Command, Layout};
 use protocol::PaneId;
 
 use crate::dirty_panes::DirtyPanes;
@@ -12,7 +12,9 @@ pub(crate) fn closing_panes(
     match command {
         Command::ClosePane { pane } => vec![pane.clone()],
         Command::ClosePanes { panes } => panes.clone(),
-        Command::CloseTab { tab } => layout.tab(*tab).map_or_else(Vec::new, model::Tab::pane_ids),
+        Command::CloseTab { tab } => layout
+            .tab(*tab)
+            .map_or_else(Vec::new, layout::Tab::pane_ids),
         _ => Vec::new(),
     }
 }
@@ -32,7 +34,7 @@ pub(crate) fn dirty_among(
 
 #[cfg(test)]
 mod tests {
-    use model::{PaneInstance, TabId};
+    use layout::{PaneInstance, TabId};
     use protocol::PaneState;
 
     use super::*;

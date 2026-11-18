@@ -1,4 +1,4 @@
-use model::{Tab, TabId};
+use layout::{Tab, TabId};
 use protocol::PaneId;
 
 use crate::member_view::MemberView;
@@ -35,7 +35,7 @@ impl TabView {
 
 #[cfg(test)]
 mod tests {
-    use model::{Command, Layout, PaneInstance, TabId};
+    use layout::{Command, Layout, PaneInstance, TabId};
     use protocol::{PaneId, PaneState, PaneTypeId, Params};
 
     use super::*;

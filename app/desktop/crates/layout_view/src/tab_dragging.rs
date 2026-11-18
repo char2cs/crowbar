@@ -1,5 +1,5 @@
 use gpui::{Hsla, SharedString};
-use model::DragSubject;
+use layout::DragSubject;
 
 use crate::tab_actions::TabDrop;
 

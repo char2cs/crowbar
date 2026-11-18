@@ -1,4 +1,4 @@
-use model::{Axis, Branch, Command, PaneSlot, Rect, Sash, SplitNode, Tab, TabId};
+use layout::{Axis, Branch, Command, PaneSlot, Rect, Sash, SplitNode, Tab, TabId};
 
 /// A sash held by the pointer: where the split's first child started and where the pointer was,
 /// so every move maps to the first child's new size.
@@ -130,7 +130,7 @@ fn leaves(
 
 #[cfg(test)]
 mod tests {
-    use model::{Command, Edge, Rect};
+    use layout::{Command, Edge, Rect};
 
     use super::*;
     use crate::test_support::layout_of;
@@ -168,7 +168,7 @@ mod tests {
     ];
 
     fn grab_at(
-        layout: &model::Layout,
+        layout: &layout::Layout,
         pointer: (f32, f32),
     ) -> SashGrab {
         let tab = layout.active_tab().expect("tab");

@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use model::{Command, LayoutHistory};
+use layout::{Command, LayoutHistory};
 use std::sync::Arc;
 
 use browser_agent::Replies;
@@ -200,7 +200,7 @@ fn notice_for(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
-    use model::TabId;
+    use layout::TabId;
 
     use protocol::PaneId;
 

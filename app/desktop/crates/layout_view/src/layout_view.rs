@@ -2,7 +2,7 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use gpui::{App, Bounds, Context, EventEmitter, Pixels};
-use model::{Rect, Tab};
+use layout::{Rect, Tab};
 use protocol::PaneId;
 use ui::{Motion, OverlayGuard};
 
@@ -153,11 +153,11 @@ mod tests {
     use crate::layout_event::LayoutEvent;
     use crate::layout_view::LayoutView;
     use gpui::{Modifiers, MouseButton, TestAppContext, point, px};
-    use model::{Command, DragSubject, Edge};
+    use layout::{Command, DragSubject, Edge};
 
     use crate::test_support::{layout_of, open, open_under_row_source, pane_id};
 
-    fn side_by_side() -> model::Layout {
+    fn side_by_side() -> layout::Layout {
         layout_of("a", &[("b", "a", Edge::Right)])
     }
 
@@ -184,7 +184,7 @@ mod tests {
 
     #[gpui::test]
     fn without_a_tab_the_view_shows_the_logo_and_with_one_it_does_not(cx: &mut TestAppContext) {
-        let empty = open(cx, &model::Layout::default());
+        let empty = open(cx, &layout::Layout::default());
         let (view, cx) = (empty.view, empty.cx);
         view.read_with(cx, |view, _| assert!(view.shows_logo(), "no tab"));
         let populated = open(cx, &side_by_side());
@@ -313,7 +313,7 @@ mod tests {
             commands.borrow().as_slice(),
             &[Command::DetachPane {
                 pane: pane_id("a"),
-                new_tab: model::TabId(100),
+                new_tab: layout::TabId(100),
                 title: "Detached".into()
             }],
             "detach into a fresh tab"

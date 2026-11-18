@@ -1,5 +1,5 @@
 use gpui::{Context, KeyDownEvent, Window};
-use model::Command;
+use layout::Command;
 use shell_keys::{Keystroke, Modifier, ShellCommand};
 use sidebar::{ActiveSpace as _, CommandSink as _, Mode, PaneFocus as _, Sidebar, SpaceList as _};
 
@@ -12,7 +12,7 @@ use crate::project_slot::project_at;
 
 const UNIT_EXTENT: f32 = 1000.0;
 const PRIMARY_IS_COMMAND: bool = cfg!(target_os = "macos");
-const RELATIVE_BOUNDS: model::Rect = model::Rect {
+const RELATIVE_BOUNDS: layout::Rect = layout::Rect {
     x: 0.0,
     y: 0.0,
     width: UNIT_EXTENT,
@@ -147,7 +147,7 @@ impl ShellView {
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
-        let Some(tab) = self.state.layout().active_tab().map(model::Tab::id) else {
+        let Some(tab) = self.state.layout().active_tab().map(layout::Tab::id) else {
             return;
         };
         self.apply_guarded(vec![Command::CloseTab { tab }], cx);

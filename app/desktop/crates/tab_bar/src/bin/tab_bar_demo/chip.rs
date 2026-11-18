@@ -2,7 +2,7 @@ use gpui::{
     AppContext as _, ElementId, InteractiveElement, IntoElement, ParentElement, SharedString,
     StatefulInteractiveElement, Styled, div, px,
 };
-use model::{DragSubject, PaneInstance};
+use layout::{DragSubject, PaneInstance};
 use ui::{DragGhost, Surface, Theme, radius, text_size};
 
 const CHIP_HEIGHT: f32 = 32.0;

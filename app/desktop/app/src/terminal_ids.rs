@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use model::{Layout, PaneInstance, Tab};
+use layout::{Layout, PaneInstance, Tab};
 use protocol::{PaneId, PaneTitle};
 
 use crate::core_panes::TERMINAL;
@@ -96,7 +96,7 @@ fn label_of(instance: &PaneInstance) -> String {
 
 #[cfg(test)]
 mod tests {
-    use model::{Command, TabId};
+    use layout::{Command, TabId};
     use protocol::{PaneState, PaneTypeId, Params};
 
     use super::*;

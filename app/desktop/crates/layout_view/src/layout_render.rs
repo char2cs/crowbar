@@ -4,7 +4,7 @@ use gpui::{
     AnyElement, AnyView, App, Context, Hsla, InteractiveElement, IntoElement, MouseButton,
     MouseDownEvent, ParentElement, Render, Styled, Window, canvas, div, px,
 };
-use model::{Axis, DragSubject, PaneSlot, Rect, Sash as ModelSash};
+use layout::{Axis, DragSubject, PaneSlot, Rect, Sash as ModelSash};
 use protocol::PaneId;
 use ui::{DraggedRow, Motion, Sash, SashDrag, Surface, Theme, Wordmark};
 
@@ -249,7 +249,7 @@ fn preview_box(
 
 #[cfg(test)]
 mod tests {
-    use model::Axis;
+    use layout::Axis;
 
     use super::*;
 

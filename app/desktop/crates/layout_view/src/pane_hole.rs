@@ -1,4 +1,4 @@
-use model::Rect;
+use layout::Rect;
 use protocol::PaneId;
 
 /// The transparent rectangle of a pane where the pane host places its web view.

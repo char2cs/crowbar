@@ -1,4 +1,4 @@
-use model::{Command, DragSubject, Edge, PaneSlot, Placement, Rect, Tab};
+use layout::{Command, DragSubject, Edge, PaneSlot, Placement, Rect, Tab};
 use protocol::PaneId;
 
 use crate::pane_zone::PaneZone;
@@ -176,7 +176,7 @@ fn contains(
 
 #[cfg(test)]
 mod tests {
-    use model::{Command, DragSubject, Edge, Placement, Rect, TabId};
+    use layout::{Command, DragSubject, Edge, Placement, Rect, TabId};
 
     use super::*;
     use crate::test_support::{chat, layout_of, pane_id, stacked_layout};
@@ -188,7 +188,7 @@ mod tests {
         height: 400.0,
     };
 
-    fn two_panes() -> model::Layout {
+    fn two_panes() -> layout::Layout {
         layout_of("a", &[("b", "a", Edge::Right)])
     }
 

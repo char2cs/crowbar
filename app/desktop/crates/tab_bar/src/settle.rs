@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use model::TabId;
+use layout::TabId;
 use ui::{CubicBezier, Glide, Motion};
 
 const SPAN: Duration = Duration::from_millis(150);
@@ -46,7 +46,7 @@ impl Settle {
 mod tests {
     use std::time::{Duration, Instant};
 
-    use model::TabId;
+    use layout::TabId;
     use ui::Motion;
 
     use super::*;

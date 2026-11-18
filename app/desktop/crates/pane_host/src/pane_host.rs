@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use model::Layout;
+use layout::Layout;
 use protocol::{
     DaemonTransport, KeyBinding, PaneId, SettingValues, ShellFrame, ThemeTokens, decode_pane_frame,
     encode,

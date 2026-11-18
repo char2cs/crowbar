@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use gpui::App;
-use model::{DragSubject, PaneSlot, Rect, Tab};
+use layout::{DragSubject, PaneSlot, Rect, Tab};
 use ui::{Motion, OverlayGuard, Overlays};
 
 use crate::drop_hit::DropHit;
@@ -115,7 +115,7 @@ fn preview_rect(
 #[cfg(test)]
 mod tests {
     use gpui::{Bounds, Pixels, TestAppContext, point, px, size};
-    use model::{DragSubject, Edge, PaneSlot, Rect};
+    use layout::{DragSubject, Edge, PaneSlot, Rect};
 
     use super::*;
     use crate::test_support::{chat, layout_of, pane_id};
@@ -195,7 +195,7 @@ mod tests {
         let mut hover = DropHover::default();
         let hit = hit_at(&subject, (410.0, 200.0), &slots);
         cx.update(|cx| hover.over(hit, cx));
-        let placement = model::Placement {
+        let placement = layout::Placement {
             target: pane_id("b"),
             edge: Edge::Left,
         };

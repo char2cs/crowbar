@@ -1,7 +1,7 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use model::{Command, Layout, PaneInstance, TabId};
+use layout::{Command, Layout, PaneInstance, TabId};
 use protocol::{
     HostId, Lifecycle, PaneId, PaneState, PaneTypeId, Params, ShellFrame, decode_shell_frame,
     encode,

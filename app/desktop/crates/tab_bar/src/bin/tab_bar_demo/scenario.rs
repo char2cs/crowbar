@@ -1,4 +1,4 @@
-use model::{Command, Layout, PaneInstance, TabId};
+use layout::{Command, Layout, PaneInstance, TabId};
 use protocol::{PaneId, PaneState, PaneTypeId, Params};
 use tab_bar::MemberView;
 

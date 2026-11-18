@@ -1,4 +1,4 @@
-use model::{Command, TabId};
+use layout::{Command, TabId};
 
 use crate::span::Span;
 
@@ -139,7 +139,7 @@ impl StripDrag {
 
 #[cfg(test)]
 mod tests {
-    use model::{Command, TabId};
+    use layout::{Command, TabId};
 
     use super::*;
 

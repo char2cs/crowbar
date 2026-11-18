@@ -1,5 +1,5 @@
 use gpui::{Context, DragMoveEvent, Window};
-use model::DragSubject;
+use layout::DragSubject;
 use ui::Motion;
 
 use crate::incoming_drop::IncomingDrop;
@@ -92,7 +92,7 @@ impl TabBar {
 #[cfg(test)]
 mod tests {
     use gpui::TestAppContext;
-    use model::{Command, DragSubject, TabId};
+    use layout::{Command, DragSubject, TabId};
     use protocol::PaneId;
 
     use crate::incoming_drop::IncomingDrop;
@@ -144,8 +144,8 @@ mod tests {
         );
     }
 
-    fn instance() -> model::PaneInstance {
-        model::PaneInstance {
+    fn instance() -> layout::PaneInstance {
+        layout::PaneInstance {
             pane_id: PaneId::new("new").expect("id"),
             type_id: protocol::PaneTypeId::new("core.chat").expect("type"),
             params: protocol::Params::default(),

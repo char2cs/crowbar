@@ -1,6 +1,6 @@
 use gpui::{Context, Entity, Subscription, Window};
+use layout::Command;
 use layout_view::LayoutEvent;
-use model::Command;
 use sidebar::{Sidebar, SidebarEvent};
 use startup_view::StartupEvent;
 use tab_bar::{TabBar, TabBarEvent};

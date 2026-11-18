@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use gpui::{App, Context, Entity};
-use model::{Command, Group};
+use layout::{Command, Group};
 use protocol::PaneId;
 
 use crate::layout_event::LayoutEvent;
@@ -74,7 +74,7 @@ fn tell(
 #[cfg(test)]
 mod tests {
     use gpui::TestAppContext;
-    use model::Command;
+    use layout::Command;
 
     use super::*;
     use crate::tab_end::TabEnd;
@@ -124,7 +124,7 @@ mod tests {
 
     fn pressing_delete(
         cx: &mut TestAppContext,
-        layout: &model::Layout,
+        layout: &layout::Layout,
     ) -> (Vec<Command>, Vec<LayoutEvent>) {
         let harness = open_with(cx, layout, stacking());
         let (view, cx) = (harness.view, harness.cx);

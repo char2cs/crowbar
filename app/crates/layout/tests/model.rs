@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use model::{
+use layout::{
     Branch, Command, Edge, Layout, LayoutHistory, PaneInstance, Placement, Rect, Tab, TabId,
 };
 use proptest::prelude::*;
@@ -454,7 +454,7 @@ fn apart(
         || b.y + b.height <= a.y + 0.01
 }
 
-fn first_overlap(slots: &[model::PaneSlot]) -> Option<String> {
+fn first_overlap(slots: &[layout::PaneSlot]) -> Option<String> {
     slots.iter().enumerate().find_map(|(i, a)| {
         slots
             .iter()

@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 
-use model::Layout;
+use layout::Layout;
 
 use crate::adapters::disk_files::DiskFiles;
 use crate::adapters::system_clock::SystemClock;
@@ -101,7 +101,7 @@ impl LayoutStore {
 
 #[cfg(test)]
 mod tests {
-    use model::{Command, TabId};
+    use layout::{Command, TabId};
 
     use super::*;
     use crate::test_support::{FixedClock, MemoryFiles};

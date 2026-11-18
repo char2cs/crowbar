@@ -1,5 +1,5 @@
 use gpui::Context;
-use model::Command;
+use layout::Command;
 
 use super::ShellView;
 

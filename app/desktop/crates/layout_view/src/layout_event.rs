@@ -1,4 +1,4 @@
-use model::{Command, Placement, TabId};
+use layout::{Command, Placement, TabId};
 use protocol::PaneId;
 
 use crate::path_action::PathAction;

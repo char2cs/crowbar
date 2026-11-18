@@ -1,4 +1,4 @@
-use model::Layout;
+use layout::Layout;
 use protocol::PaneId;
 use webview::ParentWindow;
 
@@ -50,13 +50,13 @@ impl<'a> LayoutSnapshot<'a> {
     }
 
     pub(crate) fn pane_ids(&self) -> impl Iterator<Item = PaneId> + '_ {
-        self.layout.tabs().iter().flat_map(model::Tab::pane_ids)
+        self.layout.tabs().iter().flat_map(layout::Tab::pane_ids)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use model::{Command, PaneInstance, TabId};
+    use layout::{Command, PaneInstance, TabId};
     use protocol::{PaneState, PaneTypeId, Params};
     use webview::Bounds;
 

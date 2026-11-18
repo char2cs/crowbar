@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use model::Rect;
+use layout::Rect;
 use ui::{CubicBezier, Glide, Motion, timing};
 
 const SPAN: Duration = timing::MENU;
@@ -64,7 +64,7 @@ impl RectTween {
 mod tests {
     use std::time::{Duration, Instant};
 
-    use model::Rect;
+    use layout::Rect;
     use ui::Motion;
 
     use super::*;

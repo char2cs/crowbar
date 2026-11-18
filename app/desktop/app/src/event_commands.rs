@@ -1,4 +1,4 @@
-use model::Command;
+use layout::Command;
 use pane_host::HostEvent;
 use protocol::PaneState;
 

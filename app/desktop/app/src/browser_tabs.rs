@@ -1,6 +1,6 @@
 use browser::PageState;
 use browser_agent::TabInfo;
-use model::{Layout, Tab};
+use layout::{Layout, Tab};
 use protocol::PaneId;
 
 use crate::browser_pages::BrowserPages;
@@ -132,7 +132,7 @@ pub(crate) fn browser_tabs(
 #[cfg(test)]
 mod tests {
     use browser::PageUpdate;
-    use model::{Command, PaneInstance, TabId};
+    use layout::{Command, PaneInstance, TabId};
     use protocol::{PaneState, PaneTypeId, Params};
     use serde_json::json;
 

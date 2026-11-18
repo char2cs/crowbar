@@ -1,4 +1,4 @@
-use model::Command;
+use layout::Command;
 use protocol::{PaneId, PaneState};
 use serde_json::{Map, Value};
 

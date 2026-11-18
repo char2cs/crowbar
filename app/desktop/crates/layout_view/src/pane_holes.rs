@@ -1,4 +1,4 @@
-use model::{GroupSlot, Rect, Tab};
+use layout::{GroupSlot, Rect, Tab};
 
 use crate::chrome_context::ChromeContext;
 use crate::pane_frame::PaneFrame;
@@ -72,7 +72,7 @@ fn below_chrome(
 
 #[cfg(test)]
 mod tests {
-    use model::{Edge, Rect};
+    use layout::{Edge, Rect};
 
     use super::*;
     use crate::sidebar_edge::SidebarEdge;
@@ -207,7 +207,7 @@ mod tests {
         let mut layout = layout_of("a", &[("b", "a", Edge::Right)]);
         let stacked = crate::test_support::chat("c");
         layout
-            .apply(model::Command::OpenPaneInGroup {
+            .apply(layout::Command::OpenPaneInGroup {
                 instance: stacked,
                 onto: pane_id("b"),
                 index: None,

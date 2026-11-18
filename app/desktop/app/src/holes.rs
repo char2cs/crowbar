@@ -1,5 +1,5 @@
+use layout::{Rect, Tab};
 use layout_view::{ChromeContext, PaneSource, pane_holes_with};
-use model::{Rect, Tab};
 use pane_host::VisiblePane;
 use webview::Bounds;
 
@@ -42,8 +42,8 @@ fn placed(
 
 #[cfg(test)]
 mod tests {
+    use layout::{Command, Layout, PaneInstance, TabId};
     use layout_view::{PaneChrome, PaneContent, PaneDetach, PaneTabs, SidebarEdge};
-    use model::{Command, Layout, PaneInstance, TabId};
     use protocol::{PaneId, PaneState, PaneTypeId, Params};
 
     use super::*;

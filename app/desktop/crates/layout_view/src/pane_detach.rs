@@ -1,7 +1,7 @@
 //! What dragging a pane out of its strip needs.
 
 use gpui::SharedString;
-use model::TabId;
+use layout::TabId;
 use protocol::PaneId;
 
 /// What dragging a pane out of its strip needs.

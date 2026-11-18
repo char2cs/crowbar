@@ -52,7 +52,7 @@ impl LayoutView {
 #[cfg(test)]
 mod tests {
     use gpui::TestAppContext;
-    use model::Edge;
+    use layout::Edge;
 
     use super::*;
     use crate::test_support::{FakeSource, layout_of, open, open_with, pane_id, stacked_layout};
@@ -109,7 +109,7 @@ mod tests {
         cx.update(|window, cx| close(window, cx));
         assert_eq!(
             commands.borrow().as_slice(),
-            &[model::Command::ClosePanes {
+            &[layout::Command::ClosePanes {
                 panes: vec![pane_id("b"), pane_id("c")]
             }],
             "both tabs of the group at once"

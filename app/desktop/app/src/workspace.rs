@@ -73,7 +73,7 @@ mod tests {
     use std::rc::Rc;
 
     use gpui::{AppContext as _, TestAppContext, px, size};
-    use model::{Layout, TabId};
+    use layout::{Layout, TabId};
 
     use super::*;
     use crate::browser_bars::BrowserBars;

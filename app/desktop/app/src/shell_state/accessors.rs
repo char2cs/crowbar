@@ -5,7 +5,7 @@ use crate::save_report::SaveReport;
 use crate::serials::Serials;
 use crate::terminal_ids::TerminalIds;
 use crate::titles::Titles;
-use model::Layout;
+use layout::Layout;
 use pane_host::PaneHost;
 
 impl ShellState {

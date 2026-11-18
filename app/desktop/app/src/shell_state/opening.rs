@@ -1,4 +1,4 @@
-use model::{Placement, TabId};
+use layout::{Placement, TabId};
 use protocol::{PaneTypeId, Params};
 
 use super::ShellState;
@@ -97,7 +97,7 @@ mod tests {
             2,
             "t1 revealed, not copied"
         );
-        let active = rig.shell.layout().active_tab().map(model::Tab::id);
+        let active = rig.shell.layout().active_tab().map(layout::Tab::id);
         assert_eq!(active, Some(rig.shell.layout().tabs()[0].id()));
     }
 
@@ -110,7 +110,7 @@ mod tests {
         let tab = rig.shell.layout().tabs()[0].id();
         let placement = Placement {
             target: first,
-            edge: model::Edge::Left,
+            edge: layout::Edge::Left,
         };
         rig.shell.open_chat_at("t3", (tab, placement.clone()));
         assert_eq!(rig.shell.layout().pane_count(), 3, "t3 opened");
@@ -124,7 +124,7 @@ mod tests {
         assert!(!rig.shell.reopen_closed(), "nothing closed yet");
         open_chat(&mut rig.shell, "t1");
         let pane = rig.shell.layout().tabs()[0].pane_ids()[0].clone();
-        rig.shell.apply(vec![model::Command::ClosePane { pane }]);
+        rig.shell.apply(vec![layout::Command::ClosePane { pane }]);
         assert!(rig.shell.reopen_closed(), "reopened");
         assert!(!rig.shell.reopen_closed(), "only once");
         assert_eq!(rig.shell.layout().pane_count(), 1, "back");

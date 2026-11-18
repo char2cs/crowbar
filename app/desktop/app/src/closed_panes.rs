@@ -1,4 +1,4 @@
-use model::{Command, Layout};
+use layout::{Command, Layout};
 
 use crate::close_guard::closing_panes;
 use crate::pane_spec::PaneSpec;
@@ -38,7 +38,7 @@ impl ClosedPanes {
 
 #[cfg(test)]
 mod tests {
-    use model::{PaneInstance, TabId};
+    use layout::{PaneInstance, TabId};
     use protocol::{PaneId, PaneState};
 
     use super::*;

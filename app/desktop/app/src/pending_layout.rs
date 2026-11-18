@@ -1,4 +1,4 @@
-use model::Layout;
+use layout::Layout;
 
 #[derive(Debug, Default)]
 pub(crate) struct PendingLayout {

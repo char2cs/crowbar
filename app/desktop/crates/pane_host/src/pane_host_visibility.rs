@@ -1,4 +1,4 @@
-use model::Layout;
+use layout::Layout;
 use protocol::{Lifecycle, PaneId, PaneTypeId};
 
 use crate::error::Result;

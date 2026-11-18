@@ -1,4 +1,4 @@
-use model::Layout;
+use layout::Layout;
 
 pub(crate) fn focused_chat(layout: &Layout) -> Option<String> {
     let tab = layout.active_tab()?;
@@ -8,7 +8,7 @@ pub(crate) fn focused_chat(layout: &Layout) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use model::{Command, PaneInstance, TabId};
+    use layout::{Command, PaneInstance, TabId};
     use protocol::{PaneId, PaneState, Params};
 
     use super::*;

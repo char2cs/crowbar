@@ -1,4 +1,4 @@
-use model::Rect;
+use layout::Rect;
 
 use crate::chrome_context::ChromeContext;
 use crate::corners::Corners;
@@ -76,7 +76,7 @@ impl EdgeContact {
 
 #[cfg(test)]
 mod tests {
-    use model::Rect;
+    use layout::Rect;
 
     use super::EdgeContact;
     use crate::chrome_context::ChromeContext;

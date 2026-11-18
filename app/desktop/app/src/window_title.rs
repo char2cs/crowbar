@@ -1,4 +1,4 @@
-use model::Layout;
+use layout::Layout;
 
 use crate::core_panes::CHAT;
 use crate::titles::Titles;
@@ -42,7 +42,7 @@ fn focused_chat_title(
 
 #[cfg(test)]
 mod tests {
-    use model::{Command, PaneInstance, TabId};
+    use layout::{Command, PaneInstance, TabId};
     use protocol::{PaneId, PaneState, PaneTitle, PaneTypeId, Params};
 
     use super::*;

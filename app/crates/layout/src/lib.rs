@@ -7,7 +7,7 @@
 //! is versioned ([`SCHEMA_VERSION`]) and older versions are migrated on load.
 //!
 //! ```
-//! use model::{Command, Layout, PaneInstance, TabId};
+//! use layout::{Command, Layout, PaneInstance, TabId};
 //! use protocol::{PaneId, PaneState, PaneTypeId, Params};
 //!
 //! let mut layout = Layout::default();

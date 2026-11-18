@@ -2,7 +2,7 @@ use gpui::{
     App, Context, Entity, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point,
     Window,
 };
-use model::Command;
+use layout::Command;
 use ui::Motion;
 
 use crate::drag_session::DragSession;
@@ -162,7 +162,7 @@ impl TabBar {
 #[cfg(test)]
 mod tests {
     use gpui::{Modifiers, MouseButton, TestAppContext, point, px};
-    use model::{Command, TabId};
+    use layout::{Command, TabId};
 
     use crate::tab_bar_event::TabBarEvent;
     use crate::test_support::{open, view};

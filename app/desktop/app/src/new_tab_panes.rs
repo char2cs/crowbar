@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
 use gpui::{AnyView, App, AppContext as _, Entity};
-use model::{Layout, Tab};
+use layout::{Layout, Tab};
 use protocol::{PaneId, PaneTitle};
 
 use crate::core_panes::NEW_TAB;
@@ -119,7 +119,7 @@ fn is_new_tab(
 
 #[cfg(test)]
 mod tests {
-    use model::{Command, PaneInstance, TabId};
+    use layout::{Command, PaneInstance, TabId};
     use protocol::{PaneState, PaneTypeId, Params};
 
     use super::*;

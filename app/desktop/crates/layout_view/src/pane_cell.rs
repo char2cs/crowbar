@@ -5,7 +5,7 @@ use gpui::{
     AnyElement, AnyView, App, ElementId, InteractiveElement, IntoElement, MouseButton,
     ParentElement, RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
-use model::Rect;
+use layout::Rect;
 use protocol::PaneId;
 use ui::{Appearance, Palette, Surface, Theme};
 
@@ -190,7 +190,7 @@ fn framed(
 
 #[cfg(test)]
 mod tests {
-    use model::Rect;
+    use layout::Rect;
 
     use super::*;
     use crate::chrome_context::ChromeContext;

@@ -1,5 +1,5 @@
 [package]
-name = "model"
+name = "layout"
 description = "Layout and view-state data model of the Crowbar shell: tabs, split trees, pane instances."
 version.workspace = true
 edition.workspace = true

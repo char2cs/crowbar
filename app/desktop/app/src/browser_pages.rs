@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use browser::{PageState, PageUpdate};
-use model::Layout;
+use layout::Layout;
 use protocol::PaneId;
 
 #[derive(Debug, Default)]
@@ -35,7 +35,7 @@ impl BrowserPages {
 
 #[cfg(test)]
 mod tests {
-    use model::{Command, PaneInstance, TabId};
+    use layout::{Command, PaneInstance, TabId};
     use protocol::{PaneState, PaneTypeId, Params};
 
     use super::*;

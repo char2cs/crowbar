@@ -67,7 +67,7 @@ impl RenderOnce for PaneStrip {
                 StripState::use_mode(&pressing, InputMode::Pointer, cx);
                 window.focus(&focus);
             })
-            .on_drop::<model::DragSubject>(move |subject, window, cx| at_end(subject, window, cx))
+            .on_drop::<layout::DragSubject>(move |subject, window, cx| at_end(subject, window, cx))
             .child(tabs)
             .child(probe(&scroll, measuring))
             .children(more)

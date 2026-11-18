@@ -170,7 +170,7 @@ mod tests {
     use std::rc::Rc;
 
     use gpui::TestAppContext;
-    use model::{Command, Layout, PaneInstance, TabId};
+    use layout::{Command, Layout, PaneInstance, TabId};
     use protocol::{PaneState, PaneTypeId, Params};
     use shell_data::{ChatPhase, ChatSurface, ChatTerminal};
 

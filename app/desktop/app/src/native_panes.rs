@@ -23,7 +23,7 @@ impl NativePanes {
 
     pub(crate) fn follow(
         &self,
-        layout: &model::Layout,
+        layout: &layout::Layout,
         titles: &Titles,
     ) {
         self.new_tabs.follow(layout, titles);

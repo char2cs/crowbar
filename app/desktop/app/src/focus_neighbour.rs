@@ -1,4 +1,4 @@
-use model::{PaneSlot, Rect};
+use layout::{PaneSlot, Rect};
 use protocol::PaneId;
 
 use crate::direction::Direction;

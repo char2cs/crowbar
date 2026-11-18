@@ -2,7 +2,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 
 use async_channel::{Receiver, Sender};
-use model::Layout;
+use layout::Layout;
 
 use crate::error::Error;
 use crate::layout_store::LayoutStore;
@@ -114,7 +114,7 @@ fn next(shared: &Shared) -> Option<Layout> {
 
 #[cfg(test)]
 mod tests {
-    use model::{Command, TabId};
+    use layout::{Command, TabId};
 
     use super::*;
     use crate::test_support::MemoryFiles;

@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use gpui::Context;
-use model::{DragSubject, Group};
+use layout::{DragSubject, Group};
 use protocol::PaneId;
 
 use crate::layout_event::LayoutEvent;
@@ -174,7 +174,7 @@ pub(crate) fn state_in(
 #[cfg(test)]
 mod tests {
     use gpui::{Modifiers, MouseButton, TestAppContext, point, px};
-    use model::{Command, DragSubject};
+    use layout::{Command, DragSubject};
 
     use super::*;
     use crate::test_support::{FakeSource, open_with, pane_id, stacked_layout};

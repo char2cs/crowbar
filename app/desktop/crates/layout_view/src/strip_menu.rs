@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use gpui::{Context, SharedString};
-use model::{CloseScope, Command, Group};
+use layout::{CloseScope, Command, Group};
 use protocol::PaneId;
 use ui::{IconName, MenuAction, MenuItem};
 
@@ -178,7 +178,7 @@ fn emitting(
 #[cfg(test)]
 mod tests {
     use gpui::{Modifiers, MouseButton, TestAppContext, point, px};
-    use model::{Command, Layout};
+    use layout::{Command, Layout};
 
     use crate::layout_event::LayoutEvent;
     use crate::path_action::PathAction;

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use model::Layout;
+use layout::Layout;
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct LoadedLayout {

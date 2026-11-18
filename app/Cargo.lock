@@ -1500,8 +1500,8 @@ dependencies = [
  "diagnostics",
  "gpui",
  "image",
+ "layout",
  "layout_view",
- "model",
  "oobe_view",
  "pairing_view",
  "pane_host",
@@ -3748,11 +3748,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "layout"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "protocol",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "layout_view"
 version = "0.1.0"
 dependencies = [
  "gpui",
- "model",
+ "layout",
  "protocol",
  "ui",
 ]
@@ -4166,17 +4177,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "536bfad37a309d62069485248eeaba1e8d9853aaf951caaeaed0585a95346f08"
 dependencies = [
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "model"
-version = "0.1.0"
-dependencies = [
- "proptest",
- "protocol",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4760,7 +4760,7 @@ version = "0.1.0"
 dependencies = [
  "async-channel 2.5.0",
  "browser",
- "model",
+ "layout",
  "protocol",
  "serde",
  "serde_json",
@@ -7062,7 +7062,7 @@ name = "tab_bar"
 version = "0.1.0"
 dependencies = [
  "gpui",
- "model",
+ "layout",
  "protocol",
  "ui",
 ]

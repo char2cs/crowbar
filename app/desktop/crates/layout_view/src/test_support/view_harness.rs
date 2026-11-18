@@ -6,7 +6,7 @@ use gpui::{
     App, AppContext, Context, Entity, InteractiveElement, IntoElement, ParentElement, Render,
     StatefulInteractiveElement, Styled, TestAppContext, VisualTestContext, Window, div, px,
 };
-use model::{Command, Layout};
+use layout::{Command, Layout};
 use ui::{DragGhost, DraggedRow, Motion, Theme};
 
 use crate::layout_event::LayoutEvent;

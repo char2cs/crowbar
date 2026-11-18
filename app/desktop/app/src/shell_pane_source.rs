@@ -1,5 +1,5 @@
 use gpui::{AnyElement, AnyView, App, SharedString, Window};
-use model::TabId;
+use layout::TabId;
 use protocol::PaneId;
 
 use crate::browser_bars::BrowserBars;
@@ -88,7 +88,7 @@ impl layout_view::PaneChrome for ShellPaneSource {
 impl layout_view::PaneTabs for ShellPaneSource {
     fn tab_look(
         &self,
-        instance: &model::PaneInstance,
+        instance: &layout::PaneInstance,
     ) -> layout_view::TabLook {
         let title = self
             .titles
@@ -103,7 +103,7 @@ impl layout_view::PaneTabs for ShellPaneSource {
 
     fn stacks(
         &self,
-        instance: &model::PaneInstance,
+        instance: &layout::PaneInstance,
     ) -> bool {
         crate::stack_policy::stacks(&instance.type_id)
     }
@@ -150,7 +150,7 @@ mod tests {
         let titles = Titles::default();
         let source = ShellPaneSource::new(
             titles.clone(),
-            Serials::above(&model::Layout::default()),
+            Serials::above(&layout::Layout::default()),
             no_bars(),
             NativePanes::new(
                 idle_terminals(TerminalIds::default()),
@@ -167,7 +167,7 @@ mod tests {
     fn detached_panes_get_fresh_tabs() {
         let source = ShellPaneSource::new(
             Titles::default(),
-            Serials::above(&model::Layout::default()),
+            Serials::above(&layout::Layout::default()),
             no_bars(),
             NativePanes::new(
                 idle_terminals(TerminalIds::default()),
@@ -228,7 +228,7 @@ mod tests {
         let dirty = DirtyPanes::default();
         let source = ShellPaneSource::new(
             Titles::default(),
-            Serials::above(&model::Layout::default()),
+            Serials::above(&layout::Layout::default()),
             no_bars(),
             NativePanes::new(
                 idle_terminals(TerminalIds::default()),
@@ -237,7 +237,7 @@ mod tests {
         )
         .marking(dirty.clone());
         let pane = PaneId::new("p1").unwrap();
-        let instance = model::PaneInstance {
+        let instance = layout::PaneInstance {
             pane_id: pane.clone(),
             type_id: protocol::PaneTypeId::new("core.terminal").unwrap(),
             params: protocol::Params::default(),

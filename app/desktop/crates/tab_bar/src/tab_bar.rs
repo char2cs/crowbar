@@ -2,7 +2,7 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use gpui::{Bounds, Context, Entity, EventEmitter, Pixels, Point, ScrollHandle};
-use model::TabId;
+use layout::TabId;
 use ui::Menu;
 
 use crate::clock::Clock;
@@ -124,7 +124,7 @@ pub(crate) fn position(
 #[cfg(test)]
 mod tests {
     use gpui::TestAppContext;
-    use model::TabId;
+    use layout::TabId;
 
     use crate::test_support::{open, view};
 

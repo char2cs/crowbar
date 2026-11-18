@@ -68,7 +68,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use gpui::{point, px};
-    use model::TabId;
+    use layout::TabId;
     use ui::Motion;
 
     use super::*;

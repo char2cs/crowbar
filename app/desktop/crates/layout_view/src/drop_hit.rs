@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use gpui::{Bounds, Pixels};
-use model::{DragSubject, PaneSlot};
+use layout::{DragSubject, PaneSlot};
 use protocol::PaneId;
 
 #[derive(Clone, Copy)]

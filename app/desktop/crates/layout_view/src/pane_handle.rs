@@ -4,7 +4,7 @@ use gpui::{
     MouseButton, ParentElement, RenderOnce, SharedString, StatefulInteractiveElement, Styled,
     Window, div, px,
 };
-use model::DragSubject;
+use layout::DragSubject;
 use protocol::PaneId;
 use ui::{DragGhost, Icon, IconName, IconWeight, Surface, Theme, Tooltip, shadow};
 

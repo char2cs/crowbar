@@ -1,7 +1,7 @@
 use std::cell::Cell;
 
 use gpui::{AnyElement, App, IntoElement, SharedString, Window, div};
-use model::{PaneInstance, TabId};
+use layout::{PaneInstance, TabId};
 use protocol::PaneId;
 
 use crate::pane_chrome::PaneChrome;

@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use gpui::Context;
-use model::{Command, DragSubject};
+use layout::{Command, DragSubject};
 use protocol::PaneId;
 
 use crate::layout_event::LayoutEvent;

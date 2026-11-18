@@ -1,4 +1,4 @@
-use model::Layout;
+use layout::Layout;
 use protocol::PaneId;
 use webview::{Bounds, ParentWindow, Snapshot};
 

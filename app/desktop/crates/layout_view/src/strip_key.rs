@@ -1,4 +1,4 @@
-use model::{Group, StripStep};
+use layout::{Group, StripStep};
 use protocol::PaneId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,7 +38,7 @@ fn close_shown(
 
 #[cfg(test)]
 mod tests {
-    use model::Command;
+    use layout::Command;
 
     use super::*;
     use crate::test_support::{pane_id, strip_layout};

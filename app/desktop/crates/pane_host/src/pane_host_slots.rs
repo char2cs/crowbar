@@ -1,4 +1,4 @@
-use model::Layout;
+use layout::Layout;
 use protocol::{PaneId, RelayScope};
 use webview::{ParentWindow, WebViewKind};
 

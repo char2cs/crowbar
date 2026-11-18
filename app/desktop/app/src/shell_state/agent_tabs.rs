@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Context as _;
 use browser::{AgentAnswer, BrowserUrl};
 use browser_agent::{PeerSession, TabCommands, TabInfo};
-use model::Command;
+use layout::Command;
 use protocol::PaneId;
 use serde_json::{Value, json};
 

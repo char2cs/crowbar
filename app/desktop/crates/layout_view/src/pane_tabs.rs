@@ -1,6 +1,6 @@
 //! How a pane takes part in a tab strip.
 
-use model::PaneInstance;
+use layout::PaneInstance;
 
 use crate::tab_look::TabLook;
 
