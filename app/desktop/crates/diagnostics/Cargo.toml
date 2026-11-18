@@ -1,5 +1,5 @@
 [package]
-name = "shell_diagnostics"
+name = "diagnostics"
 description = "Logging and crash reports of the Crowbar shell: a rotated log file in the shell data directory and a report file for every panic."
 version.workspace = true
 edition.workspace = true

@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use shell_diagnostics::{Bundle, LogPaths};
+use diagnostics::{Bundle, LogPaths};
 
 use crate::daemon_link::DaemonLink;
 

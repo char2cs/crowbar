@@ -61,7 +61,7 @@ allow-wildcard-paths = true
 deny = [
   { crate = "lazy_static", reason = "use std::sync::LazyLock inside a constructor, or pass state in (M24)", wrappers = [
     "num-bigint-dig",  # oo7 keyring under gpui. Revisit when gpui bumps.
-    "sharded-slab",    # tracing-subscriber (shell_diagnostics). Revisit when tracing-subscriber drops it.
+    "sharded-slab",    # tracing-subscriber (diagnostics). Revisit when tracing-subscriber drops it.
     "zed-font-kit",    # gpui. Revisit when gpui bumps.
   ] },
   { crate = "once_cell", reason = "std covers it; global init is banned by M24", wrappers = [
@@ -84,7 +84,7 @@ deny = [
     "rustls",                 # zed-reqwest under gpui; daemon transport
     "tempfile",               # temp files in tests and the app; upstream
     "tracing-core",           # tracing
-    "tracing-subscriber",     # shell_diagnostics
+    "tracing-subscriber",     # diagnostics
     "wayland-sys",            # gpui Linux
     "webkit2gtk",             # wry on Linux
     "wry",                    # the web view crate (webview)

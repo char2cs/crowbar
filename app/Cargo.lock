@@ -1497,6 +1497,7 @@ dependencies = [
  "browser",
  "browser_agent",
  "browser_chrome",
+ "diagnostics",
  "gpui",
  "image",
  "layout_view",
@@ -1509,7 +1510,6 @@ dependencies = [
  "serde_json",
  "settings_ui",
  "shell_data",
- "shell_diagnostics",
  "shell_keys",
  "shell_platform",
  "sidebar",
@@ -1668,6 +1668,17 @@ dependencies = [
  "quote",
  "rustc_version",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "diagnostics"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "thiserror 2.0.21",
+ "tracing",
+ "tracing-subscriber",
+ "zip",
 ]
 
 [[package]]
@@ -6439,17 +6450,6 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "tracing",
-]
-
-[[package]]
-name = "shell_diagnostics"
-version = "0.1.0"
-dependencies = [
- "tempfile",
- "thiserror 2.0.21",
- "tracing",
- "tracing-subscriber",
- "zip",
 ]
 
 [[package]]

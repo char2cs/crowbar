@@ -9,6 +9,7 @@ mod adapters;
 mod bundle;
 mod bundle_entry;
 mod crash_report;
+mod diagnostics;
 mod error;
 mod file_store;
 mod log_file;
@@ -16,12 +17,11 @@ mod log_paths;
 mod log_sink;
 mod log_store;
 mod rotating_log;
-mod shell_diagnostics;
 mod sink_writer;
 #[cfg(test)]
 mod test_support;
 
 pub use bundle::Bundle;
+pub use diagnostics::start;
 pub use error::Error;
 pub use log_paths::LogPaths;
-pub use shell_diagnostics::start;

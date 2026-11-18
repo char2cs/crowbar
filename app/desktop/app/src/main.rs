@@ -137,8 +137,8 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
+use diagnostics::LogPaths;
 use gpui::{App, AppContext as _, Application, Entity, Window};
-use shell_diagnostics::LogPaths;
 
 use crate::adapters::disk_files::DiskFiles;
 use crate::adapters::system_clock::SystemClock;
@@ -208,7 +208,7 @@ fn main() -> anyhow::Result<()> {
     #[cfg(target_os = "linux")]
     x11_session::force_x11();
     let options = AppOptions::from_env(|key| std::env::var(key).ok());
-    shell_diagnostics::start(
+    diagnostics::start(
         &LogPaths::in_data_dir(&options.state_dir()),
         env!("CARGO_PKG_VERSION"),
     )?;
