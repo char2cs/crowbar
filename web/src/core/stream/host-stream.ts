@@ -10,6 +10,8 @@ import { UserFacingError } from '@/lib/errors/user-facing-error'
 export interface ScopeKindHandler {
   /** Where a held scope resumes from (chat scopes). */
   since?(hostId: string, key: string): number
+  /** The wire size a replay may fill, which the daemon sends as previews (chat scopes). */
+  bytes?(hostId: string, key: string): number
   /** A sub for `scope` was sent: its snapshot follows. */
   subscribed?(hostId: string, scope: string): void
   /** Every frame of a scope of this kind. */
@@ -110,7 +112,7 @@ export class HostStream {
     return this.handlers.get(kindOf(scope))
   }
 
-  private send(req: { op: string; scope: string; since?: number }): void {
+  private send(req: { op: string; scope: string; since?: number; bytes?: number }): void {
     wsManager.send(this.endpoint, req)
   }
 
@@ -120,7 +122,8 @@ export class HostStream {
     const h = this.handler(scope)
     h?.subscribed?.(this.hostId, scope)
     const since = h?.since?.(this.hostId, keyOf(scope))
-    this.send(since ? { op: 'sub', scope, since } : { op: 'sub', scope })
+    const bytes = h?.bytes?.(this.hostId, keyOf(scope))
+    this.send({ op: 'sub', scope, ...(since && { since }), ...(bytes && { bytes }) })
   }
 
   /** Holds `scope` until the returned release; the first hold subscribes, the last unsubscribes. */

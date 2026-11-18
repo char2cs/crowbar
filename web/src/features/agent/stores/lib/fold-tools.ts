@@ -38,9 +38,14 @@ export const applyToolCall: Apply<'tool_call'> = (fold, row) => {
   const known = fold.item<ToolItem>(id)
   const body = known ? { ...known.body, ...row.body } : row.body
   const status = toolStatus(row.body, known?.status)
+  const fullSeq = row.trimmed?.includes('diff')
+    ? row.seq
+    : row.body.diff
+      ? undefined
+      : known?.fullSeq
   fold.put(
     known
-      ? { ...known, body, status }
+      ? { ...known, body, status, fullSeq }
       : {
           kind: 'tool',
           id,
@@ -52,6 +57,7 @@ export const applyToolCall: Apply<'tool_call'> = (fold, row) => {
           body,
           status,
           family: toolFamily(body),
+          fullSeq,
         },
   )
   markOutput(fold, row)

@@ -1,4 +1,5 @@
 import { type RefObject, useEffect, useLayoutEffect } from 'react'
+import { nearsLoadedTop } from '@/features/agent/lib/feed-window'
 import { loadOlder } from '@/features/agent/stores/chat-feed'
 import { useChatStore } from '@/features/agent/stores/chat-store'
 
@@ -14,7 +15,9 @@ export function useOlderTurns(
   useEffect(() => {
     const el = scrollRef.current
     if (from === 0 || !el) return
-    const load = () => el.scrollTop <= el.clientHeight * 2 && loadOlder(chatId)
+    const load = () => {
+      if (nearsLoadedTop(el.scrollTop, el.clientHeight)) void loadOlder(chatId)
+    }
     load()
     el.addEventListener('scrollend', load)
     return () => el.removeEventListener('scrollend', load)

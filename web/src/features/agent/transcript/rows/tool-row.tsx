@@ -29,6 +29,7 @@ import {
   toolLabel,
 } from '@/features/agent/transcript/lib/tool-label'
 import { McpServerBadge } from '@/features/agent/transcript/rows/mcp-server-badge'
+import { ShowFull } from '@/features/agent/transcript/rows/show-full'
 import { ToolPayload } from '@/features/agent/transcript/rows/tool-payload'
 import { plain } from '@/features/agent/transcript/lib/payload-text'
 
@@ -119,7 +120,8 @@ function ToolRowBody({ chatId, item }: { chatId: string; item: ToolItem }) {
   const { body, status, family } = item
   const liveDiff = useLiveText(chatId, item.toolId, 'diff')
   const patch = family === 'edit' ? body.diff || liveDiff || '' : ''
-  const stat = patch ? diffStat(patch) : null
+  // A preview's counts are not the diff's: they wait for the whole of it.
+  const stat = patch && item.fullSeq === undefined ? diffStat(patch) : null
   const expandable = Boolean(body.inputRef || body.resultRef || body.output || body.error || patch)
   const Icon = FAMILY_ICONS[family] ?? ToolIcon
   const outcome = item.askId !== undefined ? AWAITING : OUTCOMES[status]
@@ -193,6 +195,9 @@ function ToolRowBody({ chatId, item }: { chatId: string; item: ToolItem }) {
               <div className="turn-diff tool-turn-diff" data-testid="agent-tool-diff">
                 <TurnDiffPreview diff={patch} turnId={item.toolId} target={body.target} />
               </div>
+            )}
+            {open && patch && (
+              <ShowFull chatId={chatId} id={item.id} fullSeq={item.fullSeq} what="diff" />
             )}
             {open && (body.output || body.error) && (
               <pre className="tool-call-output" data-testid="agent-tool-short-output">

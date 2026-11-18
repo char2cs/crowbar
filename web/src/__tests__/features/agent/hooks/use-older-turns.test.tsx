@@ -10,11 +10,12 @@ vi.mock('@/features/agent/stores/chat-feed', () => ({ loadOlder: vi.fn() }))
 const scroller = (scrollTop: number) => {
   const el = document.createElement('div')
   Object.defineProperty(el, 'clientHeight', { value: 400 })
+  Object.defineProperty(el, 'scrollHeight', { value: 4000 })
   el.scrollTop = scrollTop
   return { current: el }
 }
 const holding = (from: number) =>
-  chatStore.setState({ feeds: { 'chat-1': { ...emptyFeed(), status: 'live', from } } })
+  chatStore.setState({ feeds: { 'chat-1': { ...emptyFeed(), status: 'live', from, seq: 50 } } })
 
 beforeEach(() => {
   vi.mocked(loadOlder).mockClear()
@@ -25,6 +26,7 @@ describe('useOlderTurns', () => {
   it('asks for older turns at open and when the view comes to rest near the first loaded row, never mid-gesture', () => {
     renderHook(() => useOlderTurns('chat-1', scroller(120), () => {}))
     expect(loadOlder).toHaveBeenCalledTimes(1)
+    expect(loadOlder).toHaveBeenCalledWith('chat-1')
     const ref = scroller(5000)
     renderHook(() => useOlderTurns('chat-1', ref, () => {}))
     ref.current.scrollTop = 700 // a fling passing through: its write would cancel the momentum
@@ -32,6 +34,12 @@ describe('useOlderTurns', () => {
     expect(loadOlder).toHaveBeenCalledTimes(1)
     ref.current.dispatchEvent(new Event('scrollend'))
     expect(loadOlder).toHaveBeenCalledTimes(2)
+  })
+
+  it('asks for nothing when the feed holds the chat from its start', () => {
+    holding(0)
+    renderHook(() => useOlderTurns('chat-1', scroller(0), () => {}))
+    expect(loadOlder).not.toHaveBeenCalled()
   })
 
   it('keeps the reader in place when older rows land above them', () => {

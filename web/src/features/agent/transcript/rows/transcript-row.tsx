@@ -96,7 +96,7 @@ function TranscriptRowBody({
     case 'subagent':
       return <SubagentCard chatId={chatId} id={id} />
     case 'reasoning':
-      return <ReasoningRow item={item} />
+      return <ReasoningRow chatId={chatId} item={item} />
     case 'plan':
       return <PlanRow item={item} />
   }
