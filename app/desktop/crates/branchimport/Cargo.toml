@@ -1,5 +1,5 @@
 [package]
-name = "branch_import_view"
+name = "branchimport"
 description = "The branch import dialog of the Crowbar shell: a searchable list of a repository's remote branches with a lock choice per branch."
 version.workspace = true
 edition.workspace = true

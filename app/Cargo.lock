@@ -801,7 +801,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "branch_import_view"
+name = "branchimport"
 version = "0.1.0"
 dependencies = [
  "gpui",
@@ -1493,7 +1493,7 @@ dependencies = [
  "async-channel 2.5.0",
  "atomicfile",
  "base64",
- "branch_import_view",
+ "branchimport",
  "browser",
  "browseragent",
  "browserbar",

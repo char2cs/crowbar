@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use branch_import_view::{BranchImportView, ImportEvent};
+use branchimport::{BranchImportView, ImportEvent};
 use diagnostics::LogPaths;
 use gpui::{AppContext as _, Context, Entity, Window};
 use pairing::{PairingEvent, PairingView};
