@@ -1,66 +1,16 @@
 //! Supervises the Crowbar daemon sidecar: finds, spawns, health-checks, recovers and stops it,
 //! and reports its state as a stream of [`DaemonEvent`]s.
 
-mod adapters;
-mod announced;
-mod attempt;
-mod bus;
-mod clock;
-mod command;
-mod crash_report;
-mod daemon_event;
-mod daemon_fetch;
-mod daemon_get;
-mod daemon_log;
-mod daemon_paths;
-mod daemon_supervisor;
-mod dial;
 mod error;
-mod exoneration;
-mod failure_tracker;
-mod fill;
 mod health;
-mod locate_binary;
-mod log_message;
-mod log_sink;
-mod migration_progress;
-mod monitoring;
-mod output_pump;
-mod phase;
-mod probe;
-mod process_cpu;
-mod readiness;
-mod recovery;
-mod reply;
-mod restart_budget;
-mod running;
-mod socket_dial;
-mod spawn_daemon;
-mod stale_daemon;
-mod startup;
-mod stop;
-mod supervision;
 mod supervisor;
 mod supervisor_config;
 #[cfg(test)]
 mod test_support;
-mod timings;
-mod verdict;
-mod watch_context;
-mod watch_state;
-mod watchdog;
-mod watchdog_guard;
-mod wedge;
 
-pub use daemon_event::DaemonEvent;
-pub use daemon_fetch::fetch;
-pub use daemon_log::DaemonLog;
-pub use daemon_paths::{DaemonPaths, child_home};
 pub use error::Error;
-pub use health::{Health, parse_health, wait_for_health};
-pub use locate_binary::locate_binary;
-pub use migration_progress::MigrationProgress;
-pub use probe::{Probe, probe_ready};
-pub use supervisor::Supervisor;
-pub use supervisor_config::SupervisorConfig;
-pub use timings::Timings;
+pub use health::{
+    Health, MigrationProgress, Probe, fetch, parse_health, probe_ready, wait_for_health,
+};
+pub use supervisor::{DaemonEvent, DaemonLog, Supervisor};
+pub use supervisor_config::{DaemonPaths, SupervisorConfig, Timings, child_home, locate_binary};

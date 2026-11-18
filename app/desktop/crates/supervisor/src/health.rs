@@ -1,15 +1,23 @@
+mod announced;
+mod attempt;
+pub(crate) mod client;
+mod migration_progress;
+mod probe;
+
+pub use client::fetch;
+pub(crate) use client::{SocketDial, get};
+pub use migration_progress::MigrationProgress;
+pub use probe::{Probe, probe_ready};
+
 use std::path::Path;
 
 use serde_json::Value;
 
-use crate::announced::Announced;
-use crate::attempt::Attempt;
-use crate::daemon_get::get;
-use crate::dial::Dial;
 use crate::error::Error;
-use crate::migration_progress::MigrationProgress;
-use crate::socket_dial::SocketDial;
-use crate::timings::Timings;
+use crate::health::announced::Announced;
+use crate::health::attempt::Attempt;
+use crate::health::client::Dial;
+use crate::supervisor_config::Timings;
 
 const HEALTH_BODY_LIMIT: usize = 1024 * 1024;
 const HEALTH_TARGET: &str = "/v0/health";

@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use crate::adapters::system_clock;
-use crate::bus::Bus;
-use crate::daemon_paths::DaemonPaths;
-use crate::restart_budget::RestartBudget;
-use crate::supervision::Supervision;
+use crate::supervisor::supervision::Supervision;
+use crate::supervisor::supervision::adapters::system_clock::system_clock;
+use crate::supervisor::supervision::bus::Bus;
+use crate::supervisor::supervision::restart_budget::RestartBudget;
+use crate::supervisor_config::DaemonPaths;
 use crate::supervisor_config::SupervisorConfig;
 
 pub(crate) fn supervision() -> Supervision {

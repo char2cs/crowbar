@@ -1,14 +1,24 @@
+mod daemon_event;
+pub(crate) mod monitoring;
+mod readiness;
+mod recovery;
+mod spawn;
+mod supervise;
+pub(crate) mod supervision;
+
+pub use daemon_event::DaemonEvent;
+pub use supervision::DaemonLog;
+
 use std::sync::Arc;
 
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
-use crate::bus::Bus;
-use crate::command::Command;
-use crate::daemon_event::DaemonEvent;
-use crate::daemon_supervisor::supervise;
 use crate::error::Error;
-use crate::supervision::Supervision;
+use crate::supervisor::supervise::supervise;
+use crate::supervisor::supervision::Bus;
+use crate::supervisor::supervision::Command;
+use crate::supervisor::supervision::Supervision;
 use crate::supervisor_config::SupervisorConfig;
 
 const COMMAND_QUEUE: usize = 8;
@@ -110,7 +120,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::daemon_paths::DaemonPaths;
+    use crate::supervisor_config::DaemonPaths;
 
     const NOWHERE: &str = "/crowbar-test-missing";
 

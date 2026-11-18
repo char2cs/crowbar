@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream};
 
-use crate::dial::Dial;
+use crate::health::client::dial::Dial;
 
 /// What the fake daemon answers to the nth dial's request for a path: a status (0 hangs up
 /// without answering) and a body.

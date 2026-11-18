@@ -1,7 +1,12 @@
-use std::path::PathBuf;
+mod daemon_paths;
+mod locate_binary;
+mod timings;
 
-use crate::daemon_paths::DaemonPaths;
-use crate::timings::Timings;
+pub use daemon_paths::{DaemonPaths, child_home};
+pub use locate_binary::locate_binary;
+pub use timings::Timings;
+
+use std::path::PathBuf;
 
 /// What the supervisor needs to run one daemon.
 #[derive(Debug, Clone)]
