@@ -1,0 +1,11 @@
+{
+ "description": "A settled reply with every markdown block: headings, lists, tasks, fenced code (incl. a late-loading language), table, blockquote, hr, callouts, image, mermaid and excalidraw.",
+ "steps": [
+  {
+   "do": "text",
+   "text": "# Release notes, rendered\n\nA paragraph with **bold**, *italic*, `inline code`, ~~strike~~ and a [relative link](./README.md), an [anchor](#tables) and an [external link](http://127.0.0.1:8088/).\n\n## Lists\n\n1. First ordered item\n2. Second, with a nested list:\n   - nested bullet\n   - another, with `code`\n3. Third\n\n- [x] a done task\n- [ ] an open task\n\n## Code\n\n```ts\nexport function roundPrice(cents: number): number {\n  return Math.round(cents)\n}\n```\n\n```haskell\n-- a language the highlighter loads late\nmain :: IO ()\nmain = putStrLn \"late grammar\"\n```\n\n```\nplain fence, no language\n```\n\n## Tables\n\n| Column | Left | Right |\n| :----- | :--- | ----: |\n| alpha  | one  |     1 |\n| beta   | two  |    22 |\n\n> A blockquote that runs long enough to wrap onto a second line in a narrow transcript column.\n\n---\n\n> [!NOTE]\n> A GitHub-style callout.\n\n> [!WARNING]\n> A warning callout.\n\n## Images\n\n![Rig logo](http://127.0.0.1:8088/logo.png)\n\n## Diagrams\n\n```mermaid\nflowchart LR\n  A[Prompt] --> B{Scenario?}\n  B -- yes --> C[Play steps]\n  B -- no --> D[Echo]\n```\n\n```excalidraw\n{\"type\":\"excalidraw\",\"version\":2,\"elements\":[{\"type\":\"rectangle\",\"x\":0,\"y\":0,\"width\":120,\"height\":60,\"id\":\"r1\",\"strokeColor\":\"#1e1e1e\",\"backgroundColor\":\"transparent\",\"fillStyle\":\"solid\",\"strokeWidth\":1,\"roughness\":1,\"opacity\":100,\"angle\":0,\"seed\":1,\"version\":1,\"versionNonce\":1,\"isDeleted\":false,\"groupIds\":[],\"boundElements\":null,\"updated\":1,\"link\":null,\"locked\":false}],\"appState\":{\"viewBackgroundColor\":\"#ffffff\"},\"files\":{}}\n```\n",
+   "chunk": 80,
+   "every_ms": 10
+  }
+ ]
+}

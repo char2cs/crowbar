@@ -1,0 +1,100 @@
+{
+ "description": "Subagents that end done, failed, interrupted and abandoned, each with tool calls in its own scope; one with no scope title.",
+ "steps": [
+  {
+   "do": "tool",
+   "name": "Task",
+   "kind": "subagent",
+   "title": "Survey pricing",
+   "spawns_scope": "sub-done",
+   "input": {
+    "description": "Survey pricing"
+   }
+  },
+  {
+   "do": "subagent",
+   "id": "sub-done",
+   "title": "Survey pricing",
+   "type": "general",
+   "status": "completed",
+   "steps": [
+    {
+     "do": "tool",
+     "name": "Read",
+     "kind": "read",
+     "target": "src/pricing.ts"
+    },
+    {
+     "do": "tool",
+     "name": "Grep",
+     "kind": "search",
+     "target": "round"
+    }
+   ],
+   "result": "Survey pricing: completed",
+   "tokens": 5400,
+   "tool_uses": 2,
+   "duration_ms": 8200
+  },
+  {
+   "do": "subagent",
+   "id": "sub-failed",
+   "title": "Run the e2e suite",
+   "type": "general",
+   "status": "failed",
+   "steps": [
+    {
+     "do": "tool",
+     "name": "Bash",
+     "kind": "execute",
+     "target": "npm run e2e",
+     "status": "fail",
+     "error": "timeout"
+    }
+   ],
+   "result": "Run the e2e suite: failed"
+  },
+  {
+   "do": "subagent",
+   "id": "sub-interrupted",
+   "title": "Refactor inventory",
+   "type": "general",
+   "status": "interrupted",
+   "steps": [
+    {
+     "do": "tool",
+     "name": "Edit",
+     "kind": "edit",
+     "target": "src/inventory.ts"
+    }
+   ],
+   "result": "Refactor inventory: interrupted"
+  },
+  {
+   "do": "subagent",
+   "id": "sub-abandoned",
+   "title": "Write docs",
+   "type": "general",
+   "status": "abandoned",
+   "steps": [],
+   "result": "Write docs: abandoned"
+  },
+  {
+   "do": "subagent",
+   "id": "sub-untitled",
+   "status": "completed",
+   "steps": [
+    {
+     "do": "tool",
+     "name": "Read",
+     "kind": "read",
+     "target": "README.md"
+    }
+   ]
+  },
+  {
+   "do": "text",
+   "text": "Four subagents came back."
+  }
+ ]
+}

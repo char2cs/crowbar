@@ -1,0 +1,20 @@
+{
+ "description": "Opens the fixture page in Crowbar's browser pane through Crowbar's MCP server (needs an app running).",
+ "steps": [
+  {
+   "do": "mcp",
+   "tool": "browser_open",
+   "args": {
+    "url": "http://127.0.0.1:8088/",
+    "newTab": true
+   }
+  },
+  {
+   "do": "mcp",
+   "tool": "browser_navigate",
+   "args": {
+    "url": "http://127.0.0.1:8088/long"
+   }
+  }
+ ]
+}

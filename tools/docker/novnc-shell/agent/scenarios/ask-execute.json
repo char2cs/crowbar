@@ -1,0 +1,44 @@
+{
+ "description": "An execute call that asks permission first, with a permanent rule and a session-wide mode offered; output streams once it is allowed.",
+ "steps": [
+  {
+   "do": "text",
+   "text": "I need to run the test suite."
+  },
+  {
+   "do": "tool",
+   "name": "Bash",
+   "kind": "execute",
+   "target": "npm test -- --run",
+   "title": "Run the unit tests",
+   "input": {
+    "command": "npm test -- --run",
+    "description": "Run the unit tests"
+   },
+   "ask": {
+    "message": "Bash",
+    "suggestions": [
+     {
+      "type": "addRules",
+      "mode": "session",
+      "rules": [
+       "Bash(npm test:*)"
+      ]
+     },
+     {
+      "type": "setMode",
+      "mode": "trusted"
+     }
+    ]
+   },
+   "output_stream": "> vitest run\n\n ✓ src/pricing.test.ts (4 tests) 12ms\n\n Test Files  1 passed (1)\n      Tests  4 passed (4)\n",
+   "output": " ✓ src/pricing.test.ts (4 tests) 12ms\n\n Test Files  1 passed (1)\n      Tests  4 passed (4)",
+   "exit_code": 0,
+   "ms": 300
+  },
+  {
+   "do": "text",
+   "text": "All four tests pass."
+  }
+ ]
+}

@@ -1,0 +1,15 @@
+{
+ "description": "The turn fails with failure kind other.",
+ "steps": [
+  {
+   "do": "text",
+   "text": "Working on it…"
+  },
+  {
+   "do": "fail",
+   "reason": "Something unexpected went wrong.",
+   "kind": "boom",
+   "detail": "boom: Something unexpected went wrong."
+  }
+ ]
+}

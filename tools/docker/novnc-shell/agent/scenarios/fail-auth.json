@@ -1,0 +1,15 @@
+{
+ "description": "The turn fails with failure kind auth.",
+ "steps": [
+  {
+   "do": "text",
+   "text": "Working on it…"
+  },
+  {
+   "do": "fail",
+   "reason": "Not signed in: run `scripted-agent login`.",
+   "kind": "auth_error",
+   "detail": "auth_error: Not signed in: run `scripted-agent login`."
+  }
+ ]
+}

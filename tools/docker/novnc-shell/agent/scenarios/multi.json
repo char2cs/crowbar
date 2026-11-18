@@ -1,0 +1,25 @@
+{
+ "description": "Text, then tools, then text, in one turn.",
+ "steps": [
+  {
+   "do": "text",
+   "text": "First I will read."
+  },
+  {
+   "do": "tool",
+   "name": "Read",
+   "kind": "read",
+   "target": "README.md"
+  },
+  {
+   "do": "tool",
+   "name": "Read",
+   "kind": "read",
+   "target": "src/pricing.ts"
+  },
+  {
+   "do": "text",
+   "text": "Now the answer: it rounds to dollars."
+  }
+ ]
+}

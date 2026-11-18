@@ -6,6 +6,10 @@ RIG_W=${RIG_W:-1280} RIG_H=${RIG_H:-800} RIG_GAP=${RIG_GAP:-20}
 RIG_DIR=$HOME/.rig
 SHOTS=${RIG_SHOTS:-$HOME/shots}
 RIGX=/opt/rig/bin/rigx.py
+PROFILES=/opt/rig/profiles
+HTTP_PORT=${RIG_HTTP_PORT:-8088}
+REMOTE_HOME=$HOME/.crowbar-remote
+REMOTE_PORT=${RIG_REMOTE_PORT:-4747}
 TAURI_DB=$HOME/.local/share/software.rabbyte.crowbar/localstorage/tauri_localhost_0.localstorage
 RUST_SETTINGS=$CROWBAR_HOME/shell/settings.json
 # shellcheck source=points.conf
@@ -90,7 +94,7 @@ start_app() {
   cmd=$(cmd_of "$app")
   (
     cd "$HOME"
-    exec setsid env RIG_APP="$app" "$cmd" >>"$RIG_DIR/$app/app.log" 2>&1 </dev/null
+    exec setsid env $(app_env) RIG_APP="$app" "$cmd" >>"$RIG_DIR/$app/app.log" 2>&1 </dev/null
   ) &
   echo $! >"$RIG_DIR/$app/pid"
   if [[ ${RIG_NO_PLACE:-} == 1 ]]; then return; fi
@@ -98,6 +102,21 @@ start_app() {
   place "$app" "$RIG_W" "$RIG_H" >/dev/null
   echo "$app started (pid $(pid_of "$app"))"
 }
+
+# app_env: the env(1) arguments `rig a11y`, `rig ime` and `rig motion` leave in $RIG_DIR/app.env for
+# the next app start ("NAME=value" sets, "-u NAME" unsets).
+app_env() { # env(1) takes its -u options before any assignment
+  [[ -f $RIG_DIR/app.env ]] || return 0
+  { grep '^-u ' "$RIG_DIR/app.env"; grep -v -e '^-u ' -e '^#' "$RIG_DIR/app.env"; } | tr '\n' ' '; true
+}
+env_set() { # env_set <NAME> [value]: no value unsets NAME for the apps
+  local tmp
+  tmp=$(mktemp)
+  grep -v -e "^$1=" -e "^-u $1\$" "$RIG_DIR/app.env" 2>/dev/null >"$tmp" || true
+  if (($# > 1)); then echo "$1=$2" >>"$tmp"; else echo "-u $1" >>"$tmp"; fi
+  mv "$tmp" "$RIG_DIR/app.env"
+}
+env_clear() { [[ -f $RIG_DIR/app.env ]] && sed -i -e "/^$1=/d" -e "/^-u $1\$/d" "$RIG_DIR/app.env"; true; }
 
 stop_app() {
   local app=$1 pid i
@@ -107,6 +126,15 @@ stop_app() {
   kill -KILL -- "-$pid" 2>/dev/null || true
   rm -f "$RIG_DIR/$app/pid"
   echo "$app stopped"
+}
+
+# bus_up: a D-Bus session bus for ibus and AT-SPI, started once; the apps get its address.
+bus_up() {
+  if [[ -f $RIG_DIR/bus.env ]] && kill -0 "$(sed -n 's/^PID=//p' "$RIG_DIR/bus.env")" 2>/dev/null; then return; fi
+  local out
+  out=$(dbus-daemon --session --fork --print-address=1 --print-pid=1)
+  { echo "ADDR=$(sed -n 1p <<<"$out")"; echo "PID=$(sed -n 2p <<<"$out")"; } >"$RIG_DIR/bus.env"
+  env_set DBUS_SESSION_BUS_ADDRESS "$(sed -n 1p <<<"$out")"
 }
 
 # with_stopped <apps> -- <command...>: stop the running ones, run the command, restart them.
@@ -179,27 +207,78 @@ init() {
   local app
   with_stopped tauri rust -- initial_settings
   for app in tauri rust; do running "$app" || start_app "$app"; done
-  for app in tauri rust; do
-    click_point "$app" perf_chat; sleep 3
-    click_point "$app" untitled_chat; sleep 3
-    click_point "$app" switch_a; sleep 1
-  done
+  # points.conf names the baseline's sidebar rows; the other profiles start on what each app restores.
+  if [[ $(profile) == baseline ]]; then
+    for app in tauri rust; do
+      click_point "$app" perf_chat; sleep 3
+      click_point "$app" untitled_chat; sleep 3
+      click_point "$app" switch_a; sleep 1
+    done
+  fi
   touch "$RIG_DIR/initialised"
 }
 
-# reset_state: the seeded home back, both apps' own storage wiped, then `init`.
-reset_state() {
+profile() { cat "$RIG_DIR/profile" 2>/dev/null || echo "${RIG_PROFILE:-baseline}"; }
+
+# extract_profile <name>: that profile's daemon home, scripted-agent state and ~/fixtures, as built.
+extract_profile() {
+  [[ -f $PROFILES/$1.tar ]] || die "no profile '$1' (have: $(cd "$PROFILES" && ls *.tar | sed 's/\.tar$//' | xargs))"
+  chmod -R u+rwX "$CROWBAR_HOME" "$HOME/fixtures" 2>/dev/null || true
+  rm -rf "$CROWBAR_HOME" "$HOME/.scripted-agent" "$HOME/fixtures" "$HOME/.rig-unreadable"
+  tar -S -xf "$PROFILES/$1.tar" -C "$HOME"
+  [[ -f $HOME/.rig-unreadable ]] && (cd "$HOME" && xargs -r -d '\n' chmod 000 <"$HOME/.rig-unreadable")
+  echo "$1" >"$RIG_DIR/profile"
+}
+
+# seed_profile <name>: both apps stopped, the daemon paused, the profile restored, both apps'
+# own storage wiped, then `init`. `rig reset` is this with the current profile.
+seed_profile() {
   stop_app tauri
   stop_app rust
-  touch "$RIG_DIR/daemon.paused"
-  pkill -f "crowbar-api.real serve" || true
-  while pgrep -f "crowbar-api.real serve" >/dev/null; do sleep 0.2; done
-  rm -rf "$CROWBAR_HOME" "$HOME/.local/share/software.rabbyte.crowbar" "$HOME/.cache/software.rabbyte.crowbar" \
-    "$RIG_DIR/initialised"
-  tar -xf /opt/rig/seeded-home.tar -C "$HOME"
-  rm -f "$RIG_DIR/daemon.paused"
+  daemon_stop >/dev/null
+  remote_stop
+  rm -rf "$REMOTE_HOME" "$HOME/remote-host"
+  rm -rf "$HOME/.local/share/software.rabbyte.crowbar" "$HOME/.cache/software.rabbyte.crowbar" "$RIG_DIR/initialised"
+  extract_profile "$1"
+  daemon_start >/dev/null
   "$0" _wait-daemon
   init
+}
+reset_state() { seed_profile "$(profile)"; }
+
+# The paired-host daemon (`rig remote`): its own home and TLS listener, no supervisor loop, so a
+# stop is a host that is down until started again.
+remote() { CROWBAR_HOME=$REMOTE_HOME "$@"; }
+remote_addresses() { # every address the remote host answers on
+  local a=(127.0.0.1:$REMOTE_PORT localhost:$REMOTE_PORT) ip
+  for ip in $(hostname -I 2>/dev/null); do a+=("$ip:$REMOTE_PORT"); done
+  echo "${a[*]}"
+}
+remote_pid() { pgrep -f "crowbar-api.real serve --host tcp://:$REMOTE_PORT"; }
+remote_start() {
+  remote_pid >/dev/null && return
+  local fresh=
+  [[ -d $REMOTE_HOME/state ]] || fresh=1
+  (cd "$HOME" && CROWBAR_HOME=$REMOTE_HOME exec setsid /opt/crowbar/crowbar-api.real serve --host "tcp://:$REMOTE_PORT" \
+    >>"$RIG_DIR/remote.log" 2>&1 </dev/null) &
+  remote python3 -c 'import sys; sys.path.insert(0, "/opt/rig/bin"); import rigapi; rigapi.Api().healthy(30)'
+  [[ -z $fresh ]] || remote python3 /opt/rig/seed/remote.py
+}
+remote_stop() {
+  pkill -f "crowbar-api.real serve --host tcp://:$REMOTE_PORT" || true
+  while remote_pid >/dev/null; do sleep 0.2; done
+}
+
+daemon_stop() {
+  touch "$RIG_DIR/daemon.paused"
+  pkill -CONT -f "crowbar-api.real serve --host unix" || true
+  pkill -f "crowbar-api.real serve --host unix" || true
+  while pgrep -f "crowbar-api.real serve --host unix" >/dev/null; do sleep 0.2; done
+  echo "daemon stopped (the apps see it gone; \`rig daemon start\` brings it back)"
+}
+daemon_start() {
+  rm -f "$RIG_DIR/daemon.paused" "$RIG_DIR/daemon.crashloop"
+  echo "daemon starting"
 }
 
 # perf_one <metric> <app> [extra rigx args]: the other app is stopped while one is measured.
@@ -341,15 +420,250 @@ case $sub in
   daemon)
     case ${1:-status} in
       status) python3 "$RIGX" health "$(socket)" ;;
-      restart) pkill -f "crowbar-api.real serve" || true; echo "daemon restarting" ;;
-      *) die "daemon status|restart" ;;
+      stop) daemon_stop ;;
+      start) daemon_start; "$0" _wait-daemon && echo "daemon up" ;;
+      restart) rm -f "$RIG_DIR/daemon.paused"; pkill -f "crowbar-api.real serve --host unix" || true; echo "daemon restarting" ;;
+      kill) pkill -KILL -f "crowbar-api.real serve --host unix" || true; echo "daemon killed (the loop respawns it)" ;;
+      wedge) # alive with its socket open, answering nothing (SIGSTOP)
+        pkill -STOP -f "crowbar-api.real serve --host unix"; echo "daemon wedged (\`rig daemon unwedge\` resumes it)" ;;
+      unwedge) pkill -CONT -f "crowbar-api.real serve --host unix"; echo "daemon resumed" ;;
+      crashloop)
+        case ${2:-on} in
+          on) touch "$RIG_DIR/daemon.crashloop"; pkill -KILL -f "crowbar-api.real serve --host unix" || true; echo "daemon crash-looping" ;;
+          off) rm -f "$RIG_DIR/daemon.crashloop"; echo "daemon crash loop off (the next start stays up)" ;;
+          *) die "daemon crashloop on|off" ;;
+        esac
+        ;;
+      *) die "daemon status|stop|start|restart|kill|wedge|unwedge|crashloop on|off" ;;
+    esac
+    ;;
+  seed)
+    case ${1:-} in
+      "" | list)
+        echo "current: $(profile)"
+        for t in "$PROFILES"/*.tar; do printf '  %-9s %s\n' "$(basename "$t" .tar)" "$(numfmt --to=iec "$(stat -c %s "$t")")"; done
+        ;;
+      *) seed_profile "$1" ;;
+    esac
+    ;;
+  drag)
+    # drag <app> <x1> <y1> <x2> <y2> [steps] [button] [hold-ms]: press, move in steps, release (XTest).
+    one_app "${1:-}"
+    w=$(activate "$1")
+    x1=$2 y1=$3 x2=$4 y2=$5 steps=${6:-20} button=${7:-1} hold=${8:-150}
+    xdotool mousemove --window "$w" "$x1" "$y1" mousedown "$button"
+    sleep "$(awk -v ms="$hold" 'BEGIN { print ms / 1000 }')"
+    for i in $(seq 1 "$steps"); do
+      xdotool mousemove --window "$w" $((x1 + (x2 - x1) * i / steps)) $((y1 + (y2 - y1) * i / steps))
+      sleep 0.02
+    done
+    sleep "$(awk -v ms="$hold" 'BEGIN { print ms / 1000 }')"
+    xdotool mouseup "$button"
+    ;;
+  clip)
+    # The CLIPBOARD selection, served by xclip until something else owns it.
+    case ${1:-get} in
+      set) printf '%s' "${2:?clip set <text>}" | xclip -selection clipboard -i ;;
+      file)
+        mime=${3:-$(python3 -c 'import mimetypes, sys; print(mimetypes.guess_type(sys.argv[1])[0] or "text/plain")' "${2:?clip file <path> [mime]}")}
+        xclip -selection clipboard -t "$mime" -i "$2"
+        ;;
+      copy-file) # a file "copied" in a file manager: GNOME's target and a uri-list
+        f=$(realpath "${2:?clip copy-file <path>}")
+        printf 'copy\nfile://%s' "$f" | xclip -selection clipboard -t x-special/gnome-copied-files -i
+        ;;
+      uri) printf 'file://%s\r\n' "$(realpath "${2:?clip uri <path>}")" | xclip -selection clipboard -t text/uri-list -i ;;
+      lines) xclip -selection clipboard -i "$HOME/fixtures/clipboard/lines.txt" ;;
+      image) xclip -selection clipboard -t image/png -i "$HOME/fixtures/clipboard/image.png" ;;
+      get) xclip -selection clipboard -o ${2:+-t "$2"} ;;
+      targets) xclip -selection clipboard -o -t TARGETS ;;
+      clear) printf '' | xclip -selection clipboard -i ;;
+      *) die "clip set <text>|file <path> [mime]|copy-file <path>|uri <path>|lines|image|get [target]|targets|clear" ;;
+    esac
+    ;;
+  http)
+    case ${1:-status} in
+      start)
+        pgrep -f "fixture-http.py $HTTP_PORT" >/dev/null && { echo "http://127.0.0.1:$HTTP_PORT/ (already running)"; exit 0; }
+        setsid python3 /opt/rig/bin/fixture-http.py "$HTTP_PORT" >>"$RIG_DIR/http.log" 2>&1 </dev/null &
+        for _ in $(seq 50); do python3 -c "import urllib.request,sys; urllib.request.urlopen(sys.argv[1], timeout=1)" \
+          "http://127.0.0.1:$HTTP_PORT/" 2>/dev/null && break; sleep 0.1; done
+        echo "http://127.0.0.1:$HTTP_PORT/"
+        ;;
+      stop) pkill -f "fixture-http.py $HTTP_PORT" || true; echo "http fixture stopped" ;;
+      status) pgrep -f "fixture-http.py $HTTP_PORT" >/dev/null && echo "http://127.0.0.1:$HTTP_PORT/ running" || echo "http fixture stopped" ;;
+      url) echo "http://127.0.0.1:$HTTP_PORT/${2:-}" ;;
+      *) die "http start|stop|status|url [path]" ;;
+    esac
+    ;;
+  motion)
+    # GTK's animation switch: WebKitGTK maps it to prefers-reduced-motion (Tauri, and the panes'
+    # webview in the Rust shell). GPUI reads no OS motion setting on Linux. Apps restart to pick it up.
+    case ${1:-} in
+      reduced) v=false ;;
+      full) v=true ;;
+      *) die "motion reduced|full [app]" ;;
+    esac
+    ini=$HOME/.config/gtk-3.0/settings.ini
+    read -ra targets <<<"$(apps_of "${2:-all}")"
+    set_motion() { grep -v '^gtk-enable-animations=' "$ini" >"$ini.tmp"; echo "gtk-enable-animations=$v" >>"$ini.tmp"; mv "$ini.tmp" "$ini"; }
+    with_stopped "${targets[@]}" -- set_motion
+    echo "gtk-enable-animations=$v"
+    ;;
+  ime)
+    # ibus with pinyin (CJK) on a session bus; the apps restart with GTK_IM_MODULE/XMODIFIERS set.
+    case ${1:-status} in
+      on)
+        bus_up
+        pgrep -r R,S,D -x ibus-daemon >/dev/null || (setsid env $(app_env) ibus-daemon --xim --daemonize --replace >>"$RIG_DIR/ibus.log" 2>&1)
+        # The engine process starts lazily: setting it can report failure until it is up.
+        for _ in $(seq 40); do
+          env $(app_env) ibus engine "${2:-libpinyin}" 2>/dev/null || true
+          [[ $(env $(app_env) ibus engine 2>/dev/null) == "${2:-libpinyin}" ]] && break
+          sleep 0.25
+        done
+        env_set GTK_IM_MODULE ibus; env_set XMODIFIERS @im=ibus; env_set QT_IM_MODULE ibus
+        read -ra targets <<<"$(apps_of all)"; with_stopped "${targets[@]}" -- true
+        echo "ibus on, engine $(env $(app_env) ibus engine 2>/dev/null)"
+        ;;
+      engine) env $(app_env) ibus engine "${2:?ime engine <name>}" || true; echo "engine $(env $(app_env) ibus engine)" ;;
+      engines) env $(app_env) ibus list-engine | grep -E 'pinyin|xkb:us' ;;
+      off)
+        pkill -x ibus-daemon || true
+        env_clear GTK_IM_MODULE; env_clear XMODIFIERS; env_clear QT_IM_MODULE
+        read -ra targets <<<"$(apps_of all)"; with_stopped "${targets[@]}" -- true
+        echo "ibus off"
+        ;;
+      status) pgrep -r R,S,D -x ibus-daemon >/dev/null && echo "ibus on, engine $(env $(app_env) ibus engine 2>/dev/null)" || echo "ibus off" ;;
+      *) die "ime on [engine]|off|engine <name>|engines|status" ;;
+    esac
+    ;;
+  keys)
+    # X keyboard layouts: a Compose key (Right Alt) and a layout with dead keys (us intl).
+    case ${1:-} in
+      compose) setxkbmap -layout us -option '' -option compose:ralt; echo "us, Compose on Right Alt" ;;
+      deadkeys) setxkbmap -layout us -variant intl -option '' -option compose:ralt; echo "us intl (dead keys), Compose on Right Alt" ;;
+      reset) setxkbmap -layout us -variant '' -option ''; echo "us" ;;
+      show) setxkbmap -query ;;
+      *) die "keys compose|deadkeys|reset|show" ;;
+    esac
+    ;;
+  a11y)
+    # AT-SPI: a session bus and the registry, and the apps restarted with their bridge on.
+    case ${1:-status} in
+      on)
+        bus_up
+        if ! pgrep -r R,S,D -f at-spi-bus-launcher >/dev/null; then
+          (setsid env $(app_env) /usr/libexec/at-spi-bus-launcher --launch-immediately >>"$RIG_DIR/atspi.log" 2>&1 </dev/null &)
+          sleep 1
+        fi
+        env_set NO_AT_BRIDGE; env_set GTK_A11Y atspi
+        read -ra targets <<<"$(apps_of all)"; with_stopped "${targets[@]}" -- true
+        echo "AT-SPI on"
+        ;;
+      off)
+        env_clear GTK_A11Y; env_clear NO_AT_BRIDGE
+        read -ra targets <<<"$(apps_of all)"; with_stopped "${targets[@]}" -- true
+        echo "AT-SPI off"
+        ;;
+      dump)
+        one_app "${2:-}"
+        env $(app_env) python3 /opt/rig/bin/a11y-dump.py --pid "$(pid_of "$2")" "${@:3}"
+        ;;
+      apps) env $(app_env) python3 -c 'import pyatspi; [print(a.name, a.get_process_id()) for a in pyatspi.Registry.getDesktop(0) if a]' ;;
+      status) grep -q '^-u NO_AT_BRIDGE$' "$RIG_DIR/app.env" 2>/dev/null && echo "AT-SPI on" || echo "AT-SPI off" ;;
+      *) die "a11y on|off|dump <app> [--depth N]|apps|status" ;;
+    esac
+    ;;
+  remote)
+    # A second daemon on this container as a remote host: TLS on 0.0.0.0:$REMOTE_PORT, paired clients only.
+    case ${1:-status} in
+      start) remote_start; echo "remote host up: $(remote_addresses)" ;;
+      stop) remote_stop; echo "remote host down" ;;
+      restart) remote_stop; remote_start; echo "remote host up" ;;
+      code) # a one-time pairing code and the fingerprint to enter in the app
+        remote_pid >/dev/null || remote_start
+        remote /opt/crowbar/crowbar-api.real pair
+        echo "Address         $(remote_addresses)"
+        ;;
+      clients) remote python3 /opt/rig/bin/rigapi.py GET /v0/clients ;;
+      revoke) # every paired client: the app's next call gets 401
+        remote python3 - <<'PY'
+import sys; sys.path.insert(0, "/opt/rig/bin")
+import rigapi
+api = rigapi.Api()
+for c in api.get("/v0/clients") or []:
+    api.delete(f"/v0/clients/{c['id']}")
+    print("revoked", c["id"])
+PY
+        ;;
+      rekey) # a new TLS key and certificate: the pinned fingerprint no longer matches
+        remote_stop; rm -rf "$REMOTE_HOME/tls"; remote_start
+        echo "remote host re-keyed: $(remote /opt/crowbar/crowbar-api.real pair | sed -n 's/^Fingerprint *//p')"
+        ;;
+      providers)
+        case ${2:-} in
+          off | on) remote python3 - "$2" <<'PY'
+import sys; sys.path.insert(0, "/opt/rig/bin")
+import rigapi
+api = rigapi.Api()
+cur = api.get("/v0/settings/chat/providers")
+api.put("/v0/settings/chat/providers", {"providers": [
+    {"id": p["id"], "disabled": sys.argv[1] == "off", "mcpDisabled": not p["mcpEnabled"]} for p in cur]})
+print("remote providers", sys.argv[1])
+PY
+            ;;
+          *) die "remote providers on|off" ;;
+        esac
+        ;;
+      api) shift; remote python3 /opt/rig/bin/rigapi.py "$@" ;;
+      wipe) remote_stop; rm -rf "$REMOTE_HOME" "$HOME/remote-host"; echo "remote host wiped (next start seeds it)" ;;
+      status) remote_pid >/dev/null && echo "remote host up: $(remote_addresses)" || echo "remote host down" ;;
+      *) die "remote start|stop|restart|code|clients|revoke|rekey|providers on|off|api ...|wipe|status" ;;
+    esac
+    ;;
+  forge)
+    # The forge CLI stand-in (forge/glab): signed in or out, and the merge requests it reports.
+    case ${1:-status} in
+      signed-in) rm -f "$HOME/fixtures/forge/signed-out"; echo "forge: signed in" ;;
+      signed-out) mkdir -p "$HOME/fixtures/forge"; touch "$HOME/fixtures/forge/signed-out"; echo "forge: signed out" ;;
+      status) glab auth status; glab mr list --state all --output json | python3 -m json.tool ;;
+      *) die "forge signed-in|signed-out|status" ;;
+    esac
+    ;;
+  api) python3 /opt/rig/bin/rigapi.py "$@" ;;
+  ledger) python3 /opt/rig/bin/rigapi.py ledger "${1:?ledger <chat-id>}" ;;
+  agent) python3 /opt/rig/bin/rigops.py "$@" ;;
+  provider)
+    case ${1:-list} in
+      list) python3 /opt/rig/bin/rigapi.py GET /v0/settings/chat/providers |
+        python3 -c 'import json,sys; [print("%-14s enabled=%-5s connected=%s" % (p["id"], p["enabled"], p["connected"])) for p in json.load(sys.stdin)]' ;;
+      enable | disable)
+        python3 - "$1" "${2:?provider enable|disable <id>}" <<'PY'
+import json, subprocess, sys
+verb, target = sys.argv[1], sys.argv[2]
+cur = json.loads(subprocess.run(["python3", "/opt/rig/bin/rigapi.py", "GET", "/v0/settings/chat/providers"], capture_output=True, text=True, check=True).stdout)
+prefs = [{"id": p["id"], "disabled": (verb == "disable") if p["id"] == target else not p["enabled"], "mcpDisabled": not p["mcpEnabled"]} for p in cur]
+subprocess.run(["python3", "/opt/rig/bin/rigapi.py", "PUT", "/v0/settings/chat/providers", json.dumps({"providers": prefs})], check=True, capture_output=True)
+print(f"{target} {verb}d")
+PY
+        ;;
+      *) die "provider list|enable <id>|disable <id>" ;;
     esac
     ;;
   _daemon-loop)
     sock=$(socket)
     while true; do
       while [[ -e $RIG_DIR/daemon.paused ]]; do sleep 0.5; done
-      /opt/crowbar/crowbar-api.real serve --host "unix://$sock" >>"$RIG_DIR/daemon.log" 2>&1 || true
+      if [[ -e $RIG_DIR/daemon.crashloop ]]; then
+        # `rig daemon crashloop`: up for about 2 s, then SIGKILL, over and over.
+        /opt/crowbar/crowbar-api.real serve --host "unix://$sock" >>"$RIG_DIR/daemon.log" 2>&1 &
+        sleep 2
+        kill -KILL $! 2>/dev/null || true
+        wait $! 2>/dev/null || true
+      else
+        /opt/crowbar/crowbar-api.real serve --host "unix://$sock" >>"$RIG_DIR/daemon.log" 2>&1 || true
+      fi
       sleep 1
     done
     ;;
@@ -358,6 +672,7 @@ case $sub in
     die "the daemon did not become healthy"
     ;;
   reset) reset_state ;;
+  _extract-profile) extract_profile "${1:-$(profile)}" ;;
   help | -h | --help) usage ;;
   *) usage; die "unknown command '$sub'" ;;
 esac

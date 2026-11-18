@@ -1,0 +1,56 @@
+{
+ "description": "A plan snapshot (plan_update) and a todo tray changed step by step (plan_step).",
+ "steps": [
+  {
+   "do": "plan",
+   "message": "Plan",
+   "steps": [
+    {
+     "text": "Reproduce the rounding bug",
+     "status": "completed"
+    },
+    {
+     "text": "Fix roundPrice",
+     "status": "in_progress"
+    },
+    {
+     "text": "Add tests",
+     "status": "pending"
+    }
+   ]
+  },
+  {
+   "do": "plan-step",
+   "id": "t1",
+   "text": "Reproduce the rounding bug",
+   "status": "pending"
+  },
+  {
+   "do": "plan-step",
+   "id": "t2",
+   "text": "Fix roundPrice",
+   "detail": "Round half up",
+   "status": "pending"
+  },
+  {
+   "do": "plan-step",
+   "id": "t3",
+   "text": "Add tests",
+   "status": "pending"
+  },
+  {
+   "do": "plan-step",
+   "id": "t1",
+   "status": "completed"
+  },
+  {
+   "do": "plan-step",
+   "id": "t2",
+   "status": "in_progress"
+  },
+  {
+   "do": "text",
+   "text": "Working through the plan."
+  }
+ ]
+}

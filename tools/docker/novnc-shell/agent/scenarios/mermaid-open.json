@@ -1,0 +1,9 @@
+{
+ "description": "A settled reply whose mermaid fence is never closed.",
+ "steps": [
+  {
+   "do": "text",
+   "text": "Here is the flow:\n\n```mermaid\nflowchart TD\n  A --> B\n  B --> C\n"
+  }
+ ]
+}

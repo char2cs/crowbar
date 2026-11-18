@@ -1,0 +1,19 @@
+{
+  "description": "A modal Crowbar does not know (unkinded terminal prompt): the turn waits until Enter is pressed in the terminal.",
+  "steps": [
+    {
+      "do": "text",
+      "text": "Checking something first."
+    },
+    {
+      "do": "screen",
+      "wait": true,
+      "text": "Scripted needs your attention.\n\nPress Enter to continue",
+      "after": "Continuing."
+    },
+    {
+      "do": "text",
+      "text": "Done after the modal."
+    }
+  ]
+}

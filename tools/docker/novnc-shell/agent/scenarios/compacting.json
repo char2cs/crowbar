@@ -1,0 +1,9 @@
+{
+ "description": "A compaction that never ends: the chat stays compacting until stopped.",
+ "steps": [
+  {
+   "do": "compact",
+   "hold": true
+  }
+ ]
+}

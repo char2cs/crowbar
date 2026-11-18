@@ -1,0 +1,17 @@
+{
+ "description": "Posts an agent-authored review thread through Crowbar's MCP server: \"#mcp-review <path> <line>\" (default src/pricing.ts 2).",
+ "steps": [
+  {
+   "do": "mcp",
+   "tool": "post_review_comment",
+   "args": {
+    "filePath": "src/pricing.ts",
+    "startLine": 2,
+    "endLine": 2,
+    "side": "right",
+    "body": "Agent finding: this rounds half-cents up; is that the intended policy?",
+    "idempotencyKey": "rig-agent-finding-1"
+   }
+  }
+ ]
+}

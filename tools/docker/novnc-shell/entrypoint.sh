@@ -5,7 +5,7 @@ set -uo pipefail
 unset XAUTHORITY
 W=${RIG_W:-1280} H=${RIG_H:-800} GAP=${RIG_GAP:-20}
 mkdir -p "$HOME/.rig"
-[[ -d $CROWBAR_HOME ]] || tar -xf /opt/rig/seeded-home.tar -C "$HOME"
+[[ -d $CROWBAR_HOME ]] || rig _extract-profile "${RIG_PROFILE:-baseline}"
 rm -f /tmp/.X1-lock /tmp/.X11-unix/X1
 Xvfb :1 -screen 0 "$((2 * W + GAP + 20))x$((H + 100))x24" -nolisten tcp &
 essential=($!)
@@ -19,6 +19,7 @@ essential+=($!)
 rig _daemon-loop &
 essential+=($!)
 (
+  rig http start
   rig _wait-daemon || exit 1
   if [[ -e $HOME/.rig/initialised ]]; then rig start all; else rig init; fi
 ) >>"$HOME/.rig/entrypoint.log" 2>&1 &

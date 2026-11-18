@@ -1,0 +1,39 @@
+{
+ "description": "A plan the agent asks to leave plan mode with (ExitPlanMode-style ask).",
+ "steps": [
+  {
+   "do": "plan",
+   "steps": [
+    {
+     "text": "Fix rounding",
+     "status": "pending"
+    },
+    {
+     "text": "Add tests",
+     "status": "pending"
+    }
+   ]
+  },
+  {
+   "do": "tool",
+   "name": "ExitPlanMode",
+   "kind": "plan",
+   "input": {
+    "plan": "1. Fix rounding\n2. Add tests"
+   },
+   "ask": {
+    "message": "ExitPlanMode",
+    "suggestions": [
+     {
+      "type": "setMode",
+      "mode": "trusted"
+     }
+    ]
+   }
+  },
+  {
+   "do": "text",
+   "text": "Starting on the plan."
+  }
+ ]
+}

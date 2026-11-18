@@ -1,0 +1,22 @@
+{
+ "description": "An MCP call that asks permission.",
+ "steps": [
+  {
+   "do": "tool",
+   "name": "mcp__docs__publish",
+   "kind": "mcp",
+   "input": {
+    "page": "pricing"
+   },
+   "ask": {
+    "message": "mcp__docs__publish"
+   },
+   "mcp_server": "docs",
+   "mcp_tool": "publish"
+  },
+  {
+   "do": "text",
+   "text": "Published."
+  }
+ ]
+}

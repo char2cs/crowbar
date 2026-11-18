@@ -1,0 +1,173 @@
+{
+ "description": "One call of every tool kind (read, edit, execute, search, fetch, subagent, mcp, mcp__crowbar__, plan, meta, ask, an unknown kind) and every end (ok, error with a body, declined, interrupted, left open = abandoned).",
+ "steps": [
+  {
+   "do": "text",
+   "text": "Let me look around first."
+  },
+  {
+   "do": "tool",
+   "name": "Read",
+   "kind": "read",
+   "target": "src/pricing.ts",
+   "input": {
+    "file_path": "src/pricing.ts"
+   },
+   "result": "export function roundPrice(cents: number) { ... }"
+  },
+  {
+   "do": "tool",
+   "name": "Edit",
+   "kind": "edit",
+   "target": "src/pricing.ts",
+   "input": {
+    "file_path": "src/pricing.ts",
+    "old_string": "Math.round(cents / 100) * 100",
+    "new_string": "Math.round(cents)"
+   },
+   "edit_before": "Math.round(cents / 100) * 100",
+   "edit_after": "Math.round(cents)",
+   "patch": "--- a/src/pricing.ts\n+++ b/src/pricing.ts\n@@ -1,5 +1,6 @@\n export function roundPrice(cents: number): number {\n-  return Math.round(cents / 100) * 100\n+  // Round half up to the nearest cent.\n+  return Math.round(cents)\n }\n \n export const CURRENCY = 'USD'\n"
+  },
+  {
+   "do": "tool",
+   "name": "Bash",
+   "kind": "execute",
+   "target": "npm test",
+   "title": "Run the tests",
+   "input": {
+    "command": "npm test"
+   },
+   "output": "4 passed",
+   "exit_code": 0
+  },
+  {
+   "do": "tool",
+   "name": "Grep",
+   "kind": "search",
+   "target": "roundPrice",
+   "input": {
+    "pattern": "roundPrice"
+   },
+   "result": "src/pricing.ts:1\nsrc/pricing.test.ts:3"
+  },
+  {
+   "do": "tool",
+   "name": "WebFetch",
+   "kind": "fetch",
+   "target": "http://127.0.0.1:8088/",
+   "input": {
+    "url": "http://127.0.0.1:8088/"
+   },
+   "result": "<html>…</html>"
+  },
+  {
+   "do": "tool",
+   "name": "Task",
+   "kind": "subagent",
+   "title": "Survey the inventory module",
+   "input": {
+    "description": "Survey the inventory module"
+   },
+   "result": "It is fine."
+  },
+  {
+   "do": "tool",
+   "name": "mcp__docs__search",
+   "kind": "mcp",
+   "mcp_server": "docs",
+   "mcp_tool": "search",
+   "input": {
+    "query": "rounding"
+   },
+   "result": "3 results"
+  },
+  {
+   "do": "tool",
+   "name": "mcp__crowbar__list_workspaces",
+   "kind": "mcp",
+   "mcp_server": "crowbar",
+   "mcp_tool": "list_workspaces",
+   "input": {},
+   "result": "[]"
+  },
+  {
+   "do": "tool",
+   "name": "TodoWrite",
+   "kind": "plan",
+   "title": "Update the plan",
+   "input": {
+    "todos": []
+   }
+  },
+  {
+   "do": "tool",
+   "name": "ToolSearch",
+   "kind": "meta",
+   "input": {
+    "query": "browser"
+   }
+  },
+  {
+   "do": "tool",
+   "name": "Teleport",
+   "kind": "teleport",
+   "target": "moon://base",
+   "title": "A tool of a kind Crowbar does not know",
+   "input": {
+    "to": "moon"
+   }
+  },
+  {
+   "do": "tool",
+   "name": "Bash",
+   "kind": "execute",
+   "target": "npm run lint",
+   "title": "Lint",
+   "input": {
+    "command": "npm run lint"
+   },
+   "status": "fail",
+   "error": "eslint exited with 1:\n\nsrc/pricing.ts\n  3:7  error  'unused' is assigned a value but never used  no-unused-vars",
+   "exit_code": 1
+  },
+  {
+   "do": "tool",
+   "name": "Write",
+   "kind": "edit",
+   "target": "/etc/hosts",
+   "input": {
+    "file_path": "/etc/hosts"
+   },
+   "status": "declined",
+   "result": "The user declined this edit."
+  },
+  {
+   "do": "tool",
+   "name": "Bash",
+   "kind": "execute",
+   "target": "sleep 600",
+   "title": "A long wait the user interrupted",
+   "input": {
+    "command": "sleep 600"
+   },
+   "status": "interrupted",
+   "error": "Interrupted by user"
+  },
+  {
+   "do": "tool",
+   "name": "Bash",
+   "kind": "execute",
+   "target": "npm run e2e",
+   "title": "Never finished",
+   "input": {
+    "command": "npm run e2e"
+   },
+   "status": "open"
+  },
+  {
+   "do": "text",
+   "text": "That covers every kind of call."
+  }
+ ]
+}

@@ -1,0 +1,21 @@
+{
+ "description": "A permission ask that stays pending until answered (the default ask flow).",
+ "steps": [
+  {
+   "do": "tool",
+   "name": "Bash",
+   "kind": "execute",
+   "target": "rm -rf build",
+   "input": {
+    "command": "rm -rf build"
+   },
+   "ask": {
+    "message": "Bash"
+   }
+  },
+  {
+   "do": "text",
+   "text": "Cleaned."
+  }
+ ]
+}

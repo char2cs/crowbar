@@ -1,0 +1,113 @@
+{
+ "description": "Three questions in one ask.",
+ "steps": [
+  {
+   "do": "tool",
+   "name": "AskUserQuestion",
+   "kind": "ask",
+   "input": {
+    "questions": [
+     {
+      "header": "Scope",
+      "question": "Which module should I fix first?",
+      "multiSelect": false,
+      "options": [
+       {
+        "label": "pricing",
+        "description": "Rounding bug"
+       },
+       {
+        "label": "inventory",
+        "description": "Stock counts"
+       }
+      ]
+     },
+     {
+      "header": "Checks",
+      "question": "Which checks should I run?",
+      "multiSelect": true,
+      "options": [
+       {
+        "label": "unit"
+       },
+       {
+        "label": "lint"
+       },
+       {
+        "label": "e2e",
+        "description": "slow"
+       }
+      ]
+     },
+     {
+      "header": "Style",
+      "question": "Keep the current naming?",
+      "multiSelect": false,
+      "options": [
+       {
+        "label": "Yes"
+       },
+       {
+        "label": "No"
+       }
+      ]
+     }
+    ]
+   },
+   "ask": {
+    "message": "AskUserQuestion",
+    "questions": [
+     {
+      "header": "Scope",
+      "question": "Which module should I fix first?",
+      "multiSelect": false,
+      "options": [
+       {
+        "label": "pricing",
+        "description": "Rounding bug"
+       },
+       {
+        "label": "inventory",
+        "description": "Stock counts"
+       }
+      ]
+     },
+     {
+      "header": "Checks",
+      "question": "Which checks should I run?",
+      "multiSelect": true,
+      "options": [
+       {
+        "label": "unit"
+       },
+       {
+        "label": "lint"
+       },
+       {
+        "label": "e2e",
+        "description": "slow"
+       }
+      ]
+     },
+     {
+      "header": "Style",
+      "question": "Keep the current naming?",
+      "multiSelect": false,
+      "options": [
+       {
+        "label": "Yes"
+       },
+       {
+        "label": "No"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "do": "text",
+   "text": "Thanks."
+  }
+ ]
+}

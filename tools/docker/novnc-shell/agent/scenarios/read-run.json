@@ -1,0 +1,110 @@
+{
+ "description": "Five consecutive reads (fold into \"Read 5 files\"), then a mixed read/search/fetch run with a failure in the middle.",
+ "steps": [
+  {
+   "do": "tool",
+   "name": "Read",
+   "kind": "read",
+   "target": "src/file_1.ts",
+   "input": {
+    "file_path": "src/file_1.ts"
+   },
+   "result": "// file 1"
+  },
+  {
+   "do": "tool",
+   "name": "Read",
+   "kind": "read",
+   "target": "src/file_2.ts",
+   "input": {
+    "file_path": "src/file_2.ts"
+   },
+   "result": "// file 2"
+  },
+  {
+   "do": "tool",
+   "name": "Read",
+   "kind": "read",
+   "target": "src/file_3.ts",
+   "input": {
+    "file_path": "src/file_3.ts"
+   },
+   "result": "// file 3"
+  },
+  {
+   "do": "tool",
+   "name": "Read",
+   "kind": "read",
+   "target": "src/file_4.ts",
+   "input": {
+    "file_path": "src/file_4.ts"
+   },
+   "result": "// file 4"
+  },
+  {
+   "do": "tool",
+   "name": "Read",
+   "kind": "read",
+   "target": "src/file_5.ts",
+   "input": {
+    "file_path": "src/file_5.ts"
+   },
+   "result": "// file 5"
+  },
+  {
+   "do": "text",
+   "text": "Now a mixed run."
+  },
+  {
+   "do": "tool",
+   "name": "Read",
+   "kind": "read",
+   "target": "README.md",
+   "input": {
+    "file_path": "README.md"
+   }
+  },
+  {
+   "do": "tool",
+   "name": "Grep",
+   "kind": "search",
+   "target": "TODO",
+   "input": {
+    "pattern": "TODO"
+   }
+  },
+  {
+   "do": "tool",
+   "name": "WebFetch",
+   "kind": "fetch",
+   "target": "http://127.0.0.1:8088/missing",
+   "input": {
+    "url": "http://127.0.0.1:8088/missing"
+   },
+   "status": "fail",
+   "error": "404 Not Found"
+  },
+  {
+   "do": "tool",
+   "name": "Glob",
+   "kind": "search",
+   "target": "**/*.ts",
+   "input": {
+    "pattern": "**/*.ts"
+   }
+  },
+  {
+   "do": "tool",
+   "name": "Read",
+   "kind": "read",
+   "target": "src/inventory.ts",
+   "input": {
+    "file_path": "src/inventory.ts"
+   }
+  },
+  {
+   "do": "text",
+   "text": "Done reading."
+  }
+ ]
+}

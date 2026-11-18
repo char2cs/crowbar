@@ -1,0 +1,13 @@
+{
+ "description": "A compaction (compact_pre then compact_post) inside the turn; also what /compact plays.",
+ "steps": [
+  {
+   "do": "compact",
+   "ms": 800
+  },
+  {
+   "do": "text",
+   "text": "Compacted the conversation."
+  }
+ ]
+}

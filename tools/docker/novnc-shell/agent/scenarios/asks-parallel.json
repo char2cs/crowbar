@@ -1,0 +1,19 @@
+{
+ "description": "Three permission asks pending at once.",
+ "steps": [
+  {
+   "do": "ask",
+   "parallel": 3,
+   "message": "Bash",
+   "tool_name": "Bash",
+   "tool_target": "make deploy",
+   "tool_input": {
+    "command": "make deploy"
+   }
+  },
+  {
+   "do": "text",
+   "text": "All three answered."
+  }
+ ]
+}

@@ -1,0 +1,15 @@
+{
+ "description": "The turn fails with failure kind overloaded.",
+ "steps": [
+  {
+   "do": "text",
+   "text": "Working on it…"
+  },
+  {
+   "do": "fail",
+   "reason": "The model is overloaded. Try again shortly.",
+   "kind": "overloaded",
+   "detail": "overloaded: The model is overloaded. Try again shortly."
+  }
+ ]
+}

@@ -1,0 +1,478 @@
+#!/usr/bin/env python3
+"""scripted-agent: the rig's deterministic stand-in for an agent CLI. See README.md, "Scripted provider".
+
+The daemon spawns it in a PTY with the prompt as argv (descriptor agent/scripted.yaml). Each
+prompt plays one scenario, a JSON file of steps; every step posts canonical hook payloads to
+$SCRIPTED_HOOK_URL/<event>. A prompt "#<name> rest" picks scenarios/<name>.json, any other
+prompt plays "reply". After the turn it stays up as a line-mode TUI: each line typed into the
+terminal is another prompt. Stdlib only.
+"""
+import json
+import os
+import re
+import signal
+import subprocess
+import sys
+import threading
+import time
+import urllib.error
+import urllib.request
+import uuid
+
+SCENARIOS = os.environ.get("SCRIPTED_SCENARIOS", "/opt/rig/agent/scenarios")
+STATE = os.environ.get("SCRIPTED_AGENT_HOME", os.path.expanduser("~/.scripted-agent"))
+SPEED = float(os.environ.get("SCRIPTED_SPEED", "1"))  # 0 plays every delay instantly
+
+MODELS = {
+    "models": [
+        {"id": "scripted-large", "label": "Scripted Large", "default": True, "default_effort": "medium",
+         "efforts": ["low", "medium", "high", "max"]},
+        {"id": "scripted-small", "label": "Scripted Small", "default": False, "default_effort": "low",
+         "efforts": ["low", "medium"]},
+        {"id": "scripted-reasoner", "label": "Scripted Reasoner", "default": False, "default_effort": "high",
+         "efforts": ["medium", "high", "max"]},
+    ]
+}
+PLUGINS = [
+    {"id": "rigkit@local", "enabled": True},
+    {"id": "docs@local", "enabled": True},
+    {"id": "disabled@local", "enabled": False},
+]
+PLUGIN_SKILLS = {"rigkit@local": "lint, format, release-notes", "docs@local": "summarise"}
+
+
+def out(text=""):
+    sys.stdout.write(text.replace("\n", "\r\n") + "\r\n")
+    sys.stdout.flush()
+
+
+def pause(ms):
+    if ms and SPEED > 0:
+        time.sleep(ms / 1000.0 * SPEED)
+
+
+class Hooks:
+    def __init__(self):
+        self.url = os.environ.get("SCRIPTED_HOOK_URL", "")
+        token_file = os.environ.get("SCRIPTED_HOOK_TOKEN_FILE", "")
+        self.token = open(token_file).read().strip() if token_file and os.path.exists(token_file) else ""
+
+    def post(self, event, body):
+        """Posts one hook and returns the daemon's JSON answer ({} for an empty one)."""
+        if not self.url:
+            return {}
+        req = urllib.request.Request(
+            f"{self.url}/{event}", data=json.dumps(body).encode(), method="POST",
+            headers={"Content-Type": "application/json", "X-Crowbar-Runner-Token": self.token})
+        try:
+            with urllib.request.urlopen(req, timeout=None) as resp:
+                raw = resp.read()
+        except urllib.error.HTTPError as err:
+            out(f"\x1b[31m[hook {event} refused: {err.code} {err.read()[:200]!r}]\x1b[0m")
+            return {}
+        except OSError as err:
+            out(f"\x1b[31m[hook {event} failed: {err}]\x1b[0m")
+            return {}
+        try:
+            return json.loads(raw) if raw.strip() else {}
+        except ValueError:
+            return {"raw": raw.decode(errors="replace")}
+
+
+def fill(value, ctx):
+    """Replaces {turn}, {session}, {cwd}, {message}, {n} in every string of value."""
+    if isinstance(value, str):
+        return re.sub(r"\{(turn|session|cwd|message|n|args)\}", lambda m: str(ctx.get(m.group(1), "")), value)
+    if isinstance(value, list):
+        return [fill(v, ctx) for v in value]
+    if isinstance(value, dict):
+        return {k: fill(v, ctx) for k, v in value.items()}
+    return value
+
+
+def generated(step):
+    """Expands the size-driven fields a scenario cannot spell out: patch_lines, output_lines."""
+    step = dict(step)
+    if "patch_lines" in step:
+        n, path = int(step["patch_lines"]), step.get("target", "generated.txt")
+        body = "".join(f"+generated line {i} of {n}\n" for i in range(1, n + 1))
+        step["patch"] = f"--- /dev/null\n+++ b/{path}\n@@ -0,0 +1,{n} @@\n{body}"
+    if "output_lines" in step:
+        n = int(step["output_lines"])
+        step["output"] = "".join(f"[{i:05d}] build step {i} of {n}: ok\n" for i in range(1, n + 1))
+    return step
+
+
+def load_scenario(name):
+    path = os.path.join(SCENARIOS, name + ".json")
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", name) or not os.path.exists(path):
+        names = sorted(f[:-5] for f in os.listdir(SCENARIOS) if f.endswith(".json"))
+        return {"steps": [{"do": "text", "text": f"No scenario `{name}`. Scenarios: "
+                           + ", ".join(f"`#{n}`" for n in names)}]}
+    with open(path) as f:
+        return json.load(f)
+
+
+class Turn:
+    def __init__(self, agent, message):
+        self.agent = agent
+        self.hooks = agent.hooks
+        self.message = message
+        self.id = "turn-" + uuid.uuid4().hex[:12]
+        self.texts = []
+        self.ended = False
+        self.n = 0
+        args = ""
+        m = re.match(r"^\s*#([a-z0-9-]+)\b\s*(.*)$", message, re.S)
+        if m:
+            self.scenario, args = m.group(1), m.group(2)
+        elif message.strip() == "/compact":
+            self.scenario = "compact"
+        else:
+            self.scenario = "reply"
+        self.ctx = {"turn": self.id, "session": agent.session, "cwd": os.getcwd(), "message": message, "args": args}
+
+    def base(self, **extra):
+        body = {"session_id": self.agent.session, "turn_id": self.id}
+        body.update({k: v for k, v in extra.items() if v is not None})
+        return body
+
+    def post(self, event, body):
+        return self.hooks.post(event, body)
+
+    def run(self):
+        out(f"\x1b[36m> {self.message}\x1b[0m")
+        self.post("user_prompt", self.base(message=self.message))
+        steps = load_scenario(self.scenario).get("steps", [])
+        if self.scenario == "reply":
+            self.ctx["message"] = self.message
+        self.play(steps, scope=None)
+        if not self.ended:
+            self.stop("completed")
+
+    def play(self, steps, scope):
+        for step in steps:
+            if self.ended:
+                return
+            getattr(self, "do_" + step["do"].replace("-", "_"))(fill(step, self.ctx), scope)
+
+    # --- steps -------------------------------------------------------------------------------
+
+    def stream(self, event, text, step, scope, message_id=None):
+        chunk = int(step.get("chunk", 24))
+        every = int(step.get("every_ms", 25))
+        self.n += 1
+        mid = message_id or step.get("message_id") or f"{self.id}-{event[:4]}-{self.n}"
+        pieces = [text[i:i + chunk] for i in range(0, len(text), chunk)] or [""]
+        for i, piece in enumerate(pieces):
+            # An answer's deltas are numbered; a reasoning or output index names a part, so all share one.
+            body = self.base(message_id=mid, text=piece)
+            if event == "message_delta":
+                body.update(index=i, final=i == len(pieces) - 1)
+            if scope:
+                body["scope_id"] = scope
+            self.post(event, body)
+            sys.stdout.write(piece.replace("\n", "\r\n"))
+            sys.stdout.flush()
+            pause(every)
+        out()
+        return mid
+
+    def do_text(self, step, scope):
+        """One assistant message: streamed (unless "stream": false), then recorded whole (unless
+        "complete": false, which leaves it as a live stream only)."""
+        text = step["text"]
+        if step.get("stream", True):
+            mid = self.stream("message_delta", text, step, scope)
+        else:
+            self.n += 1
+            mid = f"{self.id}-mess-{self.n}"
+            out(text)
+        if step.get("complete", True):
+            body = self.base(message_id=mid, text=text, phase=step.get("phase"))
+            if scope:
+                body["scope_id"] = scope
+            self.post("message_complete", {k: v for k, v in body.items() if v is not None})
+        if not scope:
+            self.texts.append(text)
+
+    def do_echo(self, step, scope):
+        self.do_text(dict(step, text=step.get("prefix", "") + self.message), scope)
+
+    def do_reason(self, step, scope):
+        self.stream("reasoning_delta", step["text"], step, scope)
+
+    def do_sleep(self, step, scope):
+        pause(int(step.get("ms", 1000)))
+
+    def do_hang(self, step, scope):
+        out("\x1b[33m[holding: this turn runs until it is stopped]\x1b[0m")
+        threading.Event().wait()
+
+    def do_post(self, step, scope):
+        body = self.base(**step.get("body", {}))
+        if scope and "scope_id" not in body:
+            body["scope_id"] = scope
+        self.post(step["event"], body)
+
+    def do_tool(self, step, scope):
+        step = generated(step)
+        self.n += 1
+        tid = step.get("id") or f"{self.id}-tool-{self.n}"
+        common = self.base(tool_id=tid, tool_name=step["name"], tool_kind=step.get("kind"),
+                           tool_target=step.get("target"), tool_title=step.get("title"),
+                           tool_input=step.get("input", {}), mcp_server=step.get("mcp_server"),
+                           mcp_tool=step.get("mcp_tool"), scope_id=scope, cwd=self.ctx["cwd"])
+        pre = dict(common, edit_before=step.get("edit_before"), edit_after=step.get("edit_after"),
+                   spawns_scope=step.get("spawns_scope"), shell_ref=step.get("shell_ref"))
+        out(f"\x1b[35m* {step['name']} {step.get('target') or ''}\x1b[0m")
+        answer = self.post("tool_pre", {k: v for k, v in pre.items() if v is not None})
+        if answer.get("decision") == "deny":
+            out(f"  denied before running: {answer.get('reason')}")
+            return
+        if "ask" in step:
+            decision = self.ask(dict(step["ask"], tool_name=step["name"], tool_target=step.get("target"),
+                                     tool_input=step.get("input", {}), mcp_server=step.get("mcp_server")))
+            if decision.get("decision") == "deny":
+                self.post("tool_post", dict(common, tool_status="declined", tool_result=decision.get("reason", "denied")))
+                return
+        if step.get("output_stream"):
+            self.stream("tool_output_delta", step["output_stream"], step, scope, message_id=tid)
+        pause(int(step.get("ms", 40)))
+        status = step.get("status", "ok")
+        if status == "open":
+            return
+        if status in ("fail", "interrupted"):
+            body = dict(common, tool_error=step.get("error", "failed"), tool_result=step.get("result"),
+                        exit_code=step.get("exit_code"), interrupted=status == "interrupted",
+                        duration_ms=step.get("ms", 40))
+            self.post("tool_fail", {k: v for k, v in body.items() if v is not None})
+            return
+        body = dict(common, tool_status=status, tool_result=step.get("result", "ok"), tool_output=step.get("output"),
+                    duration_ms=step.get("ms", 40), exit_code=step.get("exit_code"), patch=step.get("patch"),
+                    spawns_scope=step.get("spawns_scope"), addresses_scope=step.get("addresses_scope"),
+                    spawns_shell=step.get("spawns_shell"), stops_shell=step.get("stops_shell"),
+                    shell_kind=step.get("shell_kind"), shell_persistent=step.get("shell_persistent"),
+                    shell_timeout_ms=step.get("shell_timeout_ms"), shell_ref=step.get("shell_ref"))
+        self.post("tool_post", {k: v for k, v in body.items() if v is not None})
+
+    def ask(self, body):
+        body = self.base(prompt_id="ask-" + uuid.uuid4().hex[:10], **body)
+        out(f"\x1b[33m? {body.get('message') or body.get('tool_name')} (answer in Crowbar)\x1b[0m")
+        answer = self.post("permission", {k: v for k, v in body.items() if v is not None})
+        out(f"  answered: {json.dumps(answer)[:160]}")
+        return answer
+
+    def do_ask(self, step, scope):
+        body = {k: v for k, v in step.items() if k not in ("do", "parallel")}
+        if scope:
+            body["scope_id"] = scope
+        if step.get("parallel"):
+            threads = [threading.Thread(target=self.ask, args=(dict(body, message=f"{body.get('message', '')} ({i + 1})"),))
+                       for i in range(int(step["parallel"]))]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            return
+        self.ask(body)
+
+    def do_elicit(self, step, scope):
+        body = self.base(prompt_id="elicit-" + uuid.uuid4().hex[:10], message=step.get("message"),
+                         mcp_server=step.get("mcp_server"), mode=step.get("mode", "form"), schema=step.get("schema"))
+        out(f"\x1b[33m? {step.get('message')} (form in Crowbar)\x1b[0m")
+        answer = self.post("elicitation", {k: v for k, v in body.items() if v is not None})
+        out(f"  answered: {json.dumps(answer)[:160]}")
+
+    def do_subagent(self, step, scope):
+        sid = step.get("id") or f"{self.id}-sub-{self.n}"
+        self.post("subagent_pre", self.base(scope_id=sid, agent_type=step.get("type", "general"), title=step.get("title")))
+        self.play(step.get("steps", []), scope=sid)
+        if step.get("status") == "open":
+            return
+        self.post("subagent_post", self.base(scope_id=sid, agent_type=step.get("type", "general"),
+                                             title=step.get("title"), status=step.get("status", "completed"),
+                                             result=step.get("result"), tokens=step.get("tokens"),
+                                             tool_uses=step.get("tool_uses"), duration_ms=step.get("duration_ms")))
+
+    def do_plan(self, step, scope):
+        self.post("plan_update", self.base(steps=step["steps"], message=step.get("message")))
+
+    def do_plan_step(self, step, scope):
+        self.post("plan_step", self.base(scope_id=scope, step_id=step["id"], text=step.get("text"),
+                                         detail=step.get("detail"), status=step.get("status")))
+
+    def do_telemetry(self, step, scope):
+        self.post("telemetry", self.base(**{k: v for k, v in step.items() if k != "do"}))
+
+    def do_diff(self, step, scope):
+        self.post("diff_update", self.base(text=step["text"]))
+
+    def do_compact(self, step, scope):
+        out("\x1b[33m[compacting]\x1b[0m")
+        self.post("compact_pre", self.base(trigger=step.get("trigger", "manual")))
+        if step.get("hold"):
+            self.do_hang(step, scope)
+        pause(int(step.get("ms", 600)))
+        self.post("compact_post", self.base(trigger=step.get("trigger", "manual")))
+
+    def do_repeat(self, step, scope):
+        for i in range(int(step.get("times", 1))):
+            self.ctx["n"] = i + 1
+            self.play(fill(step["steps"], self.ctx), scope)
+
+    def do_slow_exit(self, step, scope):
+        self.agent.exit_delay_ms = int(step.get("ms", 4000))
+
+    def do_lose_session(self, step, scope):
+        os.makedirs(os.path.join(STATE, "refused"), exist_ok=True)
+        open(os.path.join(STATE, "refused", self.agent.session), "w").close()
+
+    def do_stop(self, step, scope):
+        self.stop(step.get("status", "completed"), step.get("message"))
+
+    def do_fail(self, step, scope):
+        self.post("turn_failed", self.base(reason=step.get("reason", "the turn failed"), failure_kind=step.get("kind"),
+                                           detail=step.get("detail"), message=step.get("message")))
+        out(f"\x1b[31m[turn failed: {step.get('reason')}]\x1b[0m")
+        self.ended = True
+
+    def do_screen(self, step, scope):
+        """Paints text on the PTY only (a modal or a banner no hook reports); with "wait", holds
+        until a line arrives on the terminal (Enter), clears the screen as a closing modal does,
+        then paints "after"."""
+        out(step["text"])
+        if step.get("wait"):
+            sys.stdin.readline()
+            sys.stdout.write("\x1b[2J\x1b[3J\x1b[H")
+            if step.get("after"):
+                out(step["after"])
+
+    def do_exit(self, step, scope):
+        out(f"[exiting with {step.get('code', 1)}]")
+        os._exit(int(step.get("code", 1)))
+
+    def do_mcp(self, step, scope):
+        """Calls one tool of Crowbar's own MCP server, as an agent would (browser_*, review)."""
+        result = self.agent.mcp_call(step["tool"], step.get("args", {}))
+        if step.get("show", True):
+            self.do_text({"text": f"`{step['tool']}` answered:\n\n```json\n{json.dumps(result, indent=2)[:2000]}\n```"}, scope)
+
+    def stop(self, status, message=None):
+        text = message if message is not None else (self.texts[-1] if self.texts else "")
+        answer = self.post("turn_stop", self.base(message=text, turn_status=status, effort=self.agent.effort))
+        self.ended = True
+        if answer.get("decision") == "block" and answer.get("reason"):
+            # A message typed mid-turn rides the stop hook's answer: it is the next turn.
+            self.agent.pending.append(answer["reason"])
+
+
+class Agent:
+    def __init__(self, opts):
+        self.hooks = Hooks()
+        self.session = opts.get("session") or opts.get("resume") or str(uuid.uuid4())
+        self.model = opts.get("model") or "scripted-large"
+        self.effort = opts.get("effort") or ""
+        self.mode = opts.get("permission_mode") or "guarded"
+        self.mcp = json.loads(opts["mcp_config"]) if opts.get("mcp_config") else None
+        self.pending = []
+        self.exit_delay_ms = 0
+        self.mcp_proc = None
+        self.mcp_id = 0
+
+    def mcp_call(self, tool, args):
+        if not self.mcp:
+            return {"error": "no --mcp-config was passed"}
+        if self.mcp_proc is None:
+            self.mcp_proc = subprocess.Popen([self.mcp["command"], *self.mcp["args"]], stdin=subprocess.PIPE,
+                                             stdout=subprocess.PIPE, text=True)
+            self.rpc("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
+                                    "clientInfo": {"name": "scripted-agent", "version": "1"}})
+            self.mcp_proc.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n")
+            self.mcp_proc.stdin.flush()
+        return self.rpc("tools/call", {"name": tool, "arguments": args})
+
+    def rpc(self, method, params):
+        self.mcp_id += 1
+        self.mcp_proc.stdin.write(json.dumps({"jsonrpc": "2.0", "id": self.mcp_id, "method": method, "params": params}) + "\n")
+        self.mcp_proc.stdin.flush()
+        while True:
+            line = self.mcp_proc.stdout.readline()
+            if not line:
+                return {"error": "the MCP server closed"}
+            msg = json.loads(line)
+            if msg.get("id") == self.mcp_id:
+                return msg.get("result", msg.get("error"))
+
+    def start(self, reason):
+        out(f"\x1b[1mscripted-agent\x1b[0m  model {self.model}  effort {self.effort or '-'}  mode {self.mode}")
+        out(f"session {self.session}  cwd {os.getcwd()}")
+        self.hooks.post("session_start", {"session_id": self.session, "model": self.model, "reason": reason})
+        os.makedirs(os.path.join(STATE, "sessions"), exist_ok=True)
+        open(os.path.join(STATE, "sessions", self.session), "a").close()
+
+    def prompt(self, message):
+        self.pending.append(message)
+        while self.pending:
+            Turn(self, self.pending.pop(0)).run()
+
+    def end(self, *_):
+        if self.exit_delay_ms:
+            pause(self.exit_delay_ms)
+        self.hooks.post("session_end", {"session_id": self.session, "reason": "other"})
+        os._exit(143)
+
+
+def parse(argv):
+    opts, message, i = {}, None, 0
+    flags = {"--session-id": "session", "--resume": "resume", "--model": "model", "--effort": "effort",
+             "--permission-mode": "permission_mode", "--mcp-config": "mcp_config"}
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--":
+            message = " ".join(argv[i + 1:])
+            break
+        if arg in flags and i + 1 < len(argv):
+            opts[flags[arg]] = argv[i + 1]
+            i += 2
+            continue
+        i += 1
+    return opts, message
+
+
+def main(argv):
+    if argv[:1] == ["models"]:
+        print(json.dumps(MODELS))
+        return 0
+    if argv[:1] == ["plugins"]:
+        print(json.dumps(PLUGINS))
+        return 0
+    if argv[:1] == ["plugin-details"]:
+        skills = PLUGIN_SKILLS.get(argv[1] if len(argv) > 1 else "", "")
+        print(f"Skills ({len(skills.split(',')) if skills else 0}): {skills}")
+        return 0
+    if argv[:1] in (["login"], ["--version"]):
+        print("scripted-agent 1.0 (signed in as rig)")
+        return 0
+    opts, message = parse(argv)
+    if opts.get("resume") and os.path.exists(os.path.join(STATE, "refused", opts["resume"])):
+        print(f"No session found with id {opts['resume']}")
+        return 3
+    agent = Agent(opts)
+    signal.signal(signal.SIGTERM, agent.end)
+    signal.signal(signal.SIGHUP, agent.end)
+    agent.start("resume" if opts.get("resume") else "startup")
+    if message:
+        agent.prompt(message)
+    while True:
+        sys.stdout.write("\x1b[2m›\x1b[0m ")
+        sys.stdout.flush()
+        line = sys.stdin.readline()
+        if not line:
+            agent.end()
+        if line.strip():
+            agent.prompt(line.rstrip("\n"))
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
