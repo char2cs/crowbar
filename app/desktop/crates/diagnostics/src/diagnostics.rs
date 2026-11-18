@@ -4,14 +4,14 @@ use std::sync::Arc;
 
 use tracing_subscriber::EnvFilter;
 
-use crate::adapters::disk_files::DiskFiles;
-use crate::adapters::disk_log_store::DiskLogStore;
-use crate::adapters::system_clock;
-use crate::crash_report::CrashReport;
 use crate::error::Error;
-use crate::log_paths::LogPaths;
-use crate::log_sink::LogSink;
-use crate::rotating_log::RotatingLog;
+use crate::file_store::DiskFiles;
+use crate::logging::CrashReport;
+use crate::logging::DiskLogStore;
+use crate::logging::LogPaths;
+use crate::logging::LogSink;
+use crate::logging::RotatingLog;
+use crate::logging::adapters::system_clock;
 
 const MAX_LOG_BYTES: u64 = 5 * 1_048_576;
 const KEPT_GENERATIONS: u32 = 3;

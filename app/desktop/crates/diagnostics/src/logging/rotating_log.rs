@@ -2,7 +2,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::log_store::LogStore;
+use crate::logging::log_store::LogStore;
 
 pub(crate) struct RotatingLog {
     store: Arc<dyn LogStore>,
@@ -81,7 +81,7 @@ mod tests {
     use std::io::Write;
 
     use super::*;
-    use crate::test_support::in_memory_log_store::InMemoryLogStore;
+    use crate::logging::test_support::in_memory_log_store::InMemoryLogStore;
 
     fn log_in(
         store: &Arc<InMemoryLogStore>,

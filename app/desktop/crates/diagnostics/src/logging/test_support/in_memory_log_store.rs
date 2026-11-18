@@ -5,8 +5,8 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use crate::log_file::LogFile;
-use crate::log_store::LogStore;
+use crate::logging::log_file::LogFile;
+use crate::logging::log_store::LogStore;
 
 type Content = Arc<Mutex<Vec<u8>>>;
 

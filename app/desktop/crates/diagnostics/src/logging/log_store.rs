@@ -3,7 +3,7 @@
 use std::io;
 use std::path::Path;
 
-use crate::log_file::LogFile;
+use crate::logging::log_file::LogFile;
 pub(crate) trait LogStore: Send + Sync {
     fn open_append(
         &self,

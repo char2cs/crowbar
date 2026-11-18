@@ -2,7 +2,7 @@ use std::io::{self, Write};
 
 use tracing_subscriber::fmt::MakeWriter;
 
-use crate::log_sink::LogSink;
+use crate::logging::log_sink::LogSink;
 
 pub(crate) struct SinkWriter {
     pub(crate) sink: LogSink,
@@ -37,9 +37,9 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::log_store::LogStore;
-    use crate::rotating_log::RotatingLog;
-    use crate::test_support::in_memory_log_store::InMemoryLogStore;
+    use crate::logging::log_store::LogStore;
+    use crate::logging::rotating_log::RotatingLog;
+    use crate::logging::test_support::in_memory_log_store::InMemoryLogStore;
 
     #[test]
     fn events_reach_the_file() {

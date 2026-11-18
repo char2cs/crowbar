@@ -1,5 +1,9 @@
 //! Where diagnostics read and write whole files.
 
+mod adapters;
+
+pub(crate) use adapters::DiskFiles;
+
 use std::io;
 use std::path::{Path, PathBuf};
 pub(crate) trait FileStore: std::fmt::Debug + Send + Sync {

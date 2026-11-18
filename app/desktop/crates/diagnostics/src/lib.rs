@@ -5,23 +5,15 @@
 //! it. [`LogPaths`] names those files so the shell can offer "Open log". [`Bundle`] zips the
 //! logs, the daemon's log and live daemon dumps into one file the user can attach to a report.
 
-mod adapters;
 mod bundle;
-mod bundle_entry;
-mod crash_report;
 mod diagnostics;
 mod error;
 mod file_store;
-mod log_file;
-mod log_paths;
-mod log_sink;
-mod log_store;
-mod rotating_log;
-mod sink_writer;
+mod logging;
 #[cfg(test)]
 mod test_support;
 
 pub use bundle::Bundle;
 pub use diagnostics::start;
 pub use error::Error;
-pub use log_paths::LogPaths;
+pub use logging::LogPaths;

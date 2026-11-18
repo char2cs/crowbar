@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use crate::rotating_log::RotatingLog;
+use crate::logging::rotating_log::RotatingLog;
 
 #[derive(Clone)]
 pub(crate) struct LogSink {
@@ -26,12 +26,13 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::test_support::in_memory_log_store::InMemoryLogStore;
+    use crate::logging::test_support::in_memory_log_store::InMemoryLogStore;
 
     #[test]
     fn clones_write_into_the_same_file() {
         let store = Arc::new(InMemoryLogStore::default());
-        let shared: Arc<dyn crate::log_store::LogStore> = Arc::<InMemoryLogStore>::clone(&store);
+        let shared: Arc<dyn crate::logging::log_store::LogStore> =
+            Arc::<InMemoryLogStore>::clone(&store);
         let path = Path::new("crowbar.log");
         let sink = LogSink::new(RotatingLog::open(shared, path, (1024, 1)).unwrap());
         let clone = sink.clone();

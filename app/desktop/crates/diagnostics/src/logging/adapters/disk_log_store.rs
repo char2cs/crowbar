@@ -4,8 +4,8 @@ use std::fs::OpenOptions;
 use std::io;
 use std::path::Path;
 
-use crate::log_file::LogFile;
-use crate::log_store::LogStore;
+use crate::logging::log_file::LogFile;
+use crate::logging::log_store::LogStore;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct DiskLogStore(());

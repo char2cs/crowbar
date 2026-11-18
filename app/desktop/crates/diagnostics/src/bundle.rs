@@ -1,3 +1,5 @@
+mod bundle_entry;
+
 use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -6,9 +8,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
-use crate::adapters::disk_files::DiskFiles;
-use crate::bundle_entry::BundleEntry;
+use crate::bundle::bundle_entry::BundleEntry;
 use crate::error::Error;
+use crate::file_store::DiskFiles;
 use crate::file_store::FileStore;
 
 const META_NAME: &str = "meta.txt";
