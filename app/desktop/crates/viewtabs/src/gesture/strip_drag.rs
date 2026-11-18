@@ -5,10 +5,8 @@ use crate::span::Span;
 const HYSTERESIS: f32 = 6.0;
 const BAND_MARGIN: f32 = 32.0;
 
-/// A tab being dragged along the strip: it follows the pointer, the others slide aside, and
-/// releasing drops it into the gap. Pure geometry; the strip view feeds it pointer positions.
 #[derive(Debug, Clone, PartialEq)]
-pub struct StripDrag {
+pub(crate) struct StripDrag {
     tabs: Vec<TabId>,
     spans: Vec<Span>,
     dragged: usize,
@@ -17,10 +15,8 @@ pub struct StripDrag {
 }
 
 impl StripDrag {
-    /// Starts dragging the tab at `dragged` among `tabs` laid out in `spans`, grabbed at
-    /// pointer `x`; the slots must be the strip's content coordinates, scroll included.
     #[must_use]
-    pub fn begin(
+    pub(crate) fn begin(
         tabs: Vec<TabId>,
         spans: Vec<Span>,
         dragged: usize,
@@ -36,15 +32,13 @@ impl StripDrag {
         })
     }
 
-    /// The index the tab would land on if released now.
     #[must_use]
-    pub fn target(&self) -> usize {
+    pub(crate) fn target(&self) -> usize {
         self.target
     }
 
-    /// Left edge of the dragged tab for pointer `x`, held between the first and last slot.
     #[must_use]
-    pub fn ghost_x(
+    pub(crate) fn ghost_x(
         &self,
         x: f32,
     ) -> f32 {
@@ -55,11 +49,8 @@ impl StripDrag {
         (x - self.grab).clamp(first.x, (last.end() - width).max(first.x))
     }
 
-    /// Top of the ghost: pinned to the strip row while the pointer is near it, easing toward the
-    /// free pointer across 32px so leaving the band has no jump.
     #[must_use]
-    pub fn ghost_y(
-        &self,
+    pub(crate) fn ghost_y(
         pointer_y: f32,
         row_top: f32,
         grab_y: f32,
@@ -68,9 +59,7 @@ impl StripDrag {
         row_top + delta * (delta.abs() / BAND_MARGIN).clamp(0.0, 1.0)
     }
 
-    /// Moves the pointer to `x`; the target changes hands once the ghost has passed a
-    /// neighbour's middle by 6px.
-    pub fn moved(
+    pub(crate) fn moved(
         &mut self,
         x: f32,
     ) {
@@ -79,10 +68,8 @@ impl StripDrag {
         while self.step(ghost, width) {}
     }
 
-    /// How far slot `index` is shifted to make room: the dragged tab's width for the tabs it has
-    /// passed, zero for the rest and for the dragged tab itself.
     #[must_use]
-    pub fn offset(
+    pub(crate) fn offset(
         &self,
         index: usize,
     ) -> f32 {
@@ -96,9 +83,8 @@ impl StripDrag {
         0.0
     }
 
-    /// The command that performs the drop, or `None` when the tab is back where it started.
     #[must_use]
-    pub fn drop(&self) -> Option<Command> {
+    pub(crate) fn drop(&self) -> Option<Command> {
         let tab = *self.tabs.get(self.dragged)?;
         (self.target != self.dragged).then_some(Command::MoveTab {
             tab,
@@ -106,9 +92,8 @@ impl StripDrag {
         })
     }
 
-    /// The tab being dragged.
     #[must_use]
-    pub fn tab(&self) -> Option<TabId> {
+    pub(crate) fn tab(&self) -> Option<TabId> {
         self.tabs.get(self.dragged).copied()
     }
 
@@ -323,12 +308,15 @@ mod tests {
 
     #[test]
     fn the_ghost_is_pinned_to_the_row_near_it_and_free_far_from_it() {
-        let drag = drag(0, 10.0);
-        assert_eq!(drag.ghost_y(26.0, 5.0, 21.0), 5.0, "level with the row");
-        let eased = drag.ghost_y(26.0 + 16.0, 5.0, 21.0);
+        assert_eq!(
+            StripDrag::ghost_y(26.0, 5.0, 21.0),
+            5.0,
+            "level with the row"
+        );
+        let eased = StripDrag::ghost_y(26.0 + 16.0, 5.0, 21.0);
         assert!(eased > 5.0 && eased < 21.0, "halfway eased: {eased}");
         assert_eq!(
-            drag.ghost_y(26.0 + 200.0, 5.0, 21.0),
+            StripDrag::ghost_y(26.0 + 200.0, 5.0, 21.0),
             205.0,
             "free beyond the margin"
         );

@@ -6,9 +6,8 @@ use crate::span::Span;
 
 const EDGE: f32 = 0.25;
 
-/// Where a chat dragged from the sidebar or a pane handle would land on the strip.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TabDrop {
+pub(crate) enum TabDrop {
     /// Between tabs: a tab of its own at this index.
     Reorder(usize),
     /// On the middle of a tab: merged into that tab as a split.
@@ -16,10 +15,8 @@ pub enum TabDrop {
 }
 
 impl TabDrop {
-    /// The drop under pointer `x` among tab `spans` and their `tabs`: the outer quarter of a slot
-    /// is the gap before or after it, the middle half is the tab itself.
     #[must_use]
-    pub fn at(
+    pub(crate) fn at(
         x: f32,
         spans: &[Span],
         tabs: &[TabId],
@@ -37,10 +34,8 @@ impl TabDrop {
         tabs.get(index).copied().map(Self::Merge)
     }
 
-    /// The commands that carry out the drop of `subject`; `new_tab` names the tab a pane or chat
-    /// gets when it does not merge. A tab drag is the strip's own reorder and yields nothing.
     #[must_use]
-    pub fn commands(
+    pub(crate) fn commands(
         &self,
         subject: &DragSubject,
         new_tab: NewTab,

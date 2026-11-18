@@ -10,7 +10,7 @@ use layout::{Command, DragSubject, TabId};
 use ui::{Motion, Surface, Theme, layer};
 
 use crate::event::Event;
-use crate::gesture::TabDrop;
+use crate::gesture::{StripDrag, TabDrop};
 use crate::pill::ShellLook;
 use crate::pill::{CloseAction, TabShell};
 use crate::strip_metrics::{
@@ -251,7 +251,7 @@ impl TabBar {
             + f32::from(self.scroll.offset().x)
             + f32::from(self.strip_left() - self.row.origin.x);
         let row_top = (ROW_HEIGHT - TAB_HEIGHT) / 2.0;
-        let top = drag.engine.ghost_y(
+        let top = StripDrag::ghost_y(
             f32::from(drag.pointer.y - self.row.origin.y),
             row_top,
             drag.grab_y + row_top,

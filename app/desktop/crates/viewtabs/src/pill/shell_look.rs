@@ -1,6 +1,5 @@
-/// How a tab's pill is painted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ShellLook {
+pub(crate) enum ShellLook {
     /// Not showing: no fill, muted text, a hover fill on pointer enter.
     Idle,
     /// The showing tab: the raised near-white pill with dark text.

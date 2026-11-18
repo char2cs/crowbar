@@ -10,8 +10,8 @@ mod tab_drop;
 
 pub(crate) use drag_session::DragSession;
 pub(crate) use incoming_drop::IncomingDrop;
-pub use new_tab::NewTab;
+pub(crate) use new_tab::NewTab;
 pub(crate) use press::Press;
 pub(crate) use settle::Settle;
-pub use strip_drag::StripDrag;
-pub use tab_drop::TabDrop;
+pub(crate) use strip_drag::StripDrag;
+pub(crate) use tab_drop::TabDrop;

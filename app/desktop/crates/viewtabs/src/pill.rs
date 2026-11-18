@@ -8,6 +8,6 @@ mod tab_view;
 
 pub use member_kind::MemberKind;
 pub use member_view::MemberView;
-pub use shell_look::ShellLook;
+pub(crate) use shell_look::ShellLook;
 pub(crate) use tab_shell::{CloseAction, TabShell};
 pub use tab_view::TabView;
