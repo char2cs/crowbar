@@ -1,9 +1,9 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::host_config::HostConfig;
-use crate::protocol_handler::{ProtocolHandler, ProtocolResponder};
-use crate::protocol_request::ProtocolRequest;
+use crate::backend::HostConfig;
+use crate::scheme::ProtocolRequest;
+use crate::scheme::{ProtocolHandler, ProtocolResponder};
 
 struct Silent {
     ignored: AtomicUsize,

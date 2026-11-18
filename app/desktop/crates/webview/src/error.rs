@@ -1,7 +1,7 @@
 use raw_window_handle::HandleError;
 use thiserror::Error;
 
-use crate::web_view_id::WebViewId;
+use crate::view::WebViewId;
 
 /// Everything that can go wrong while hosting web views.
 #[derive(Debug, Error)]

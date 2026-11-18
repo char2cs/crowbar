@@ -1,15 +1,15 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use crate::bounds::Bounds;
-use crate::mock_platform::MockPlatform;
-use crate::parent_window::ParentWindow;
-use crate::view_lifecycle::ViewLifecycle;
-use crate::visibility::Visibility;
-use crate::web_view_config::WebViewConfig;
-use crate::web_view_handle::WebViewHandle;
-use crate::web_view_id::WebViewId;
-use crate::web_view_kind::WebViewKind;
+use crate::backend::MockPlatform;
+use crate::backend::ViewLifecycle;
+use crate::view::Bounds;
+use crate::view::ParentWindow;
+use crate::view::Visibility;
+use crate::view::WebViewConfig;
+use crate::view::WebViewId;
+use crate::view::WebViewKind;
+use crate::web_view_host::WebViewHandle;
 
 pub(crate) fn handle() -> (Rc<MockPlatform>, WebViewHandle) {
     let mock = Rc::new(MockPlatform::default());

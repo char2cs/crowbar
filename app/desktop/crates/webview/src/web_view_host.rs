@@ -1,16 +1,19 @@
+mod web_view_handle;
+
+pub use web_view_handle::{RECEIVER, WebViewHandle};
+
 use std::cell::Cell;
 use std::rc::Rc;
 
 use raw_window_handle::HasWindowHandle;
 
+use crate::backend::HostConfig;
+use crate::backend::Platform;
 use crate::error::Result;
-use crate::host_config::HostConfig;
-use crate::parent_window::ParentWindow;
-use crate::platform::Platform;
-use crate::snapshot::Snapshot;
-use crate::web_view_config::WebViewConfig;
-use crate::web_view_handle::WebViewHandle;
-use crate::web_view_id::WebViewId;
+use crate::view::ParentWindow;
+use crate::view::Snapshot;
+use crate::view::WebViewConfig;
+use crate::view::WebViewId;
 
 /// Creates web views as children of a window and owns the platform thread they live on.
 pub struct WebViewHost {
@@ -94,16 +97,12 @@ impl WebViewHost {
 
 #[cfg(target_os = "linux")]
 fn start_native(config: HostConfig) -> Result<Rc<dyn Platform>> {
-    Ok(Rc::new(crate::linux_platform::LinuxPlatform::start(
-        config,
-    )?))
+    Ok(Rc::new(crate::backend::LinuxPlatform::start(config)?))
 }
 
 #[cfg(target_os = "macos")]
 fn start_native(config: HostConfig) -> Result<Rc<dyn Platform>> {
-    Ok(Rc::new(crate::macos_platform::MacosPlatform::start(
-        config,
-    )?))
+    Ok(Rc::new(crate::backend::MacosPlatform::start(config)?))
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
@@ -116,11 +115,11 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::bounds::Bounds;
-    use crate::call::Call;
-    use crate::mock_platform::MockPlatform;
-    use crate::visibility::Visibility;
-    use crate::web_view_kind::WebViewKind;
+    use crate::backend::Call;
+    use crate::backend::MockPlatform;
+    use crate::view::Bounds;
+    use crate::view::Visibility;
+    use crate::view::WebViewKind;
 
     fn rect(
         x: f64,
@@ -183,7 +182,7 @@ mod tests {
     fn the_background_of_the_config_is_what_the_view_is_created_with() {
         let mock = Rc::new(MockPlatform::default());
         let host = WebViewHost::with_platform(Rc::<MockPlatform>::clone(&mock));
-        let color = crate::color::Color {
+        let color = crate::view::Color {
             red: 1,
             green: 2,
             blue: 3,
