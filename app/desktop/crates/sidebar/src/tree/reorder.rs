@@ -7,7 +7,7 @@ mod drop_policy;
 mod edge_scroll;
 mod folder_target;
 
-pub use drag_arm::drag_started;
+pub use drag_arm::DragArm;
 pub use drop_modes::DropModes;
-pub use edge_scroll::pull;
+pub use edge_scroll::EdgeScroll;
 pub use folder_target::FolderTarget;

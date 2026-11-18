@@ -6,9 +6,7 @@ mod column;
 mod overlays;
 mod panels;
 mod sidebar;
-mod sidebarview;
 #[cfg(test)]
 mod test_support;
 
 pub use sidebar::{Event, Sidebar};
-pub use sidebarview::toast_side;

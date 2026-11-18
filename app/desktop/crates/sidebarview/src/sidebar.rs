@@ -35,7 +35,6 @@ use crate::panels::RowBounds;
 use crate::panels::Scrolls;
 use crate::panels::SpaceDraft;
 use crate::sidebar::clock::adapters::system::system_clock;
-use crate::sidebarview::docked_toasts;
 
 const CAROUSEL_SPAN: std::time::Duration = std::time::Duration::from_millis(300);
 
@@ -104,7 +103,7 @@ impl Sidebar {
             question: None,
             merge: MergeDraft::new(cx, Self::commit_changes),
             search: None,
-            toasts: cx.new(|_| ToastQueue::new(docked_toasts(dock))),
+            toasts: cx.new(|_| ToastQueue::new(Self::docked_toasts(dock))),
             drag: DragState::default(),
             row_bounds: RowBounds::default(),
         }
@@ -157,7 +156,7 @@ impl Sidebar {
     ) {
         self.panel.dock_to(side);
         self.toasts.update(cx, |queue, cx| {
-            queue.set_placement(docked_toasts(side), cx);
+            queue.set_placement(Self::docked_toasts(side), cx);
         });
         Self::changed(cx);
     }

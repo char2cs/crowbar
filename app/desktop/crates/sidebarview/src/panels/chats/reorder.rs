@@ -16,7 +16,7 @@ pub(crate) use row_draggable::draggable;
 pub(crate) use row_ghost::GhostBuild;
 
 use gpui::{Context, Window, px};
-use sidebar::{Command, DropMode, RowId, drag_started};
+use sidebar::{Command, DragArm, DropMode, RowId};
 
 use crate::panels::chats::reorder::drop_hint::DropHint;
 use crate::sidebar::DragPoint;
@@ -129,10 +129,8 @@ impl Sidebar {
         let Some(press) = self.drag.press.as_ref().filter(|p| p.row == point.subject) else {
             return false;
         };
-        let moved = drag_started(
-            (press.at.x.into(), press.at.y.into()),
-            (point.at.x.into(), point.at.y.into()),
-        );
+        let moved = DragArm::at((press.at.x.into(), press.at.y.into()))
+            .started((point.at.x.into(), point.at.y.into()));
         if moved {
             self.drag.lifted = Some(point.subject.clone());
         }

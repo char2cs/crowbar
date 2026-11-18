@@ -6,7 +6,7 @@ mod outcome;
 pub(crate) use field::Field;
 
 use gpui::{AppContext as _, Context, Focusable as _, Subscription, Window};
-use sidebar::{Command, Editing, Error, Expansion, FileKind, NewEntry, RowId, base, join, parent};
+use sidebar::{Command, Editing, Error, Expansion, FileKind, NewEntry, PathText, RowId};
 use ui::{Surface, TextInput, TextInputEvent, TextInputStyle};
 
 use crate::panels::edit::outcome::Outcome;
@@ -66,7 +66,7 @@ impl Sidebar {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        let name = base(&path).to_owned();
+        let name = PathText::new(&path).base().to_owned();
         let owner = RowId::from(path.as_str());
         self.tree.start_file_rename(path);
         self.open_field((owner, &name, ""), window, cx);
@@ -180,9 +180,9 @@ impl Sidebar {
             },
             Editing::RenamingFile(path) => Command::RenameFile {
                 path: path.clone(),
-                new_path: join(parent(path), &name),
+                new_path: PathText::new(PathText::new(path).parent()).join(&name),
             },
-            Editing::Creating { dir, entry } => creation(join(dir, &name), *entry),
+            Editing::Creating { dir, entry } => creation(PathText::new(dir).join(&name), *entry),
             _ => Command::Rename {
                 row: row.clone(),
                 name,

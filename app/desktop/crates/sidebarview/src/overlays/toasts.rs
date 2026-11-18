@@ -1,7 +1,8 @@
 //! Showing toasts at the bottom of the sidebar column.
 
 use gpui::{AnyElement, Context, IntoElement};
-use ui::{ToastContent, ToastLifetime};
+use sidebar::DockSide;
+use ui::{ToastContent, ToastLifetime, ToastPlacement, ToastSide};
 
 use crate::sidebar::Sidebar;
 
@@ -36,6 +37,18 @@ impl Sidebar {
     pub(crate) fn toast_layer(&self) -> AnyElement {
         self.toasts.clone().into_any_element()
     }
+
+    /// The toast edge matching the sidebar's dock edge: toasts swipe away toward it.
+    pub fn toast_side(side: DockSide) -> ToastSide {
+        match side {
+            DockSide::Left => ToastSide::Left,
+            DockSide::Right => ToastSide::Right,
+        }
+    }
+
+    pub(crate) fn docked_toasts(side: DockSide) -> ToastPlacement {
+        ToastPlacement::Docked(Self::toast_side(side))
+    }
 }
 
 #[cfg(test)]
@@ -45,7 +58,6 @@ mod tests {
     use ui::ToastKind;
 
     use super::*;
-    use sidebar::DockSide;
 
     use crate::test_support::prelude::*;
 
@@ -109,9 +121,22 @@ mod tests {
         sidebar.update(cx, |this, cx| this.dock_to(DockSide::Right, cx));
         let queue = sidebar.read_with(cx, |this, _| this.toasts.clone());
         let placement = queue.read_with(cx, |queue, _| queue.placement());
-        assert_eq!(
-            placement,
-            crate::sidebarview::docked_toasts(DockSide::Right)
-        );
+        assert_eq!(placement, Sidebar::docked_toasts(DockSide::Right));
+    }
+
+    #[test]
+    fn each_edge_swipes_toward_itself() {
+        const CASES: [(DockSide, ToastSide); 2] = [
+            (DockSide::Left, ToastSide::Left),
+            (DockSide::Right, ToastSide::Right),
+        ];
+        for (side, toast) in CASES {
+            assert_eq!(Sidebar::toast_side(side), toast, "{side:?}");
+            assert_eq!(
+                Sidebar::docked_toasts(side),
+                ToastPlacement::Docked(toast),
+                "{side:?}"
+            );
+        }
     }
 }

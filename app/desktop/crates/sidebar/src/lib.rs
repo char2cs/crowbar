@@ -8,7 +8,6 @@ mod explorer;
 mod fixtures;
 mod frame;
 mod shell;
-mod sidebar;
 mod tree;
 
 pub use error::Error;
@@ -29,13 +28,13 @@ pub use shell::{
     DropMode, Expansion, FileAccess, FileDensity, FileKind, FileRow, FileTreeFlag, FileTreeView,
     FilesSource, Focus, GitStatus, Host, HostId, HostKind, HostState, HostTone, IconTheme, Intent,
     Lock, Mark, MergeBox, MergeFacts, MergeStrategy, MergeWork, MoveTarget, Nesting, NewEntry,
-    Notice, Operation, OperationPhase, PaneFocus, Presence, Project, ProjectId, ProjectTree,
-    Question, Reach, Row, RowActions, RowId, RowKind, RunningAgent, ScopeSync, Source, SpaceFacts,
-    SpaceIcon, SpaceList, Titling, Workspace, WorkspaceStatus, Worktree,
+    Notice, Operation, OperationPhase, PaneFocus, PathText, Presence, Project, ProjectId,
+    ProjectTree, Question, Reach, Row, RowActions, RowId, RowKind, RunningAgent, ScopeSync, Source,
+    SpaceFacts, SpaceIcon, SpaceList, Titling, Workspace, WorkspaceStatus, Worktree,
 };
-pub use sidebar::{absolute, base, join, parent};
 pub use tree::{Confirmation, Deadline};
 pub use tree::{
-    DropModes, Editing, FilesState, FolderTarget, Hold, MenuContext, RemovalKind, RemovalTarget,
-    RemovalTray, Removals, TerminalThreads, Tree, VisibleRow, WorkAtRisk, drag_started, pull,
+    DragArm, DropModes, EdgeScroll, Editing, FilesState, FolderTarget, Hold, MenuContext,
+    RemovalKind, RemovalTarget, RemovalTray, Removals, TerminalThreads, Tree, VisibleRow,
+    WorkAtRisk,
 };

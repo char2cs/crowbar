@@ -20,7 +20,7 @@ pub use git::{
 };
 pub use listing::{
     FileAccess, FileDensity, FileKind, FileRow, FileTreeFlag, FileTreeView, FilesSource, GitStatus,
-    IconTheme,
+    IconTheme, PathText,
 };
 pub use source::Source;
 pub use switcher::{

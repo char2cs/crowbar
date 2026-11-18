@@ -1,7 +1,7 @@
 //! The create-space form: what has been typed and chosen, and the command it makes.
 
 use gpui::{Entity, Subscription};
-use sidebar::{Command, HostId, SpaceIcon, base};
+use sidebar::{Command, HostId, PathText, SpaceIcon};
 use ui::TextInput;
 
 use crate::column::IconEditor;
@@ -24,7 +24,11 @@ pub(crate) fn create_command(
     let folder = folder.trim().to_owned();
     let typed = name.trim();
     let name = Some(typed).filter(|typed| !typed.is_empty()).map_or_else(
-        || base(folder.trim_end_matches('/')).to_owned(),
+        || {
+            PathText::new(folder.trim_end_matches('/'))
+                .base()
+                .to_owned()
+        },
         str::to_owned,
     );
     if icon == SpaceIcon::Default {

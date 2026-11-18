@@ -2,7 +2,7 @@
 
 use crate::shell::ClipMode;
 use crate::shell::Command;
-use crate::sidebar::{base, join};
+use crate::shell::PathText;
 
 /// Files staged in one workspace, to be copied or moved on Paste.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,7 +27,7 @@ impl FileClipboard {
         }
         self.paths
             .iter()
-            .map(|path| self.command_for(path, join(dir, base(path))))
+            .map(|path| self.command_for(path, PathText::new(dir).join(PathText::new(path).base())))
             .collect()
     }
 

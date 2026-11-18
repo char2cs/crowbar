@@ -18,7 +18,7 @@ use gpui::{
     AnyElement, Context, DragMoveEvent, InteractiveElement, IntoElement, ParentElement,
     SharedString, Styled, Window, div, px,
 };
-use sidebar::{Notice, Project, ProjectTree, Row, ScopeSync, pull};
+use sidebar::{EdgeScroll, Notice, Project, ProjectTree, Row, ScopeSync};
 use ui::{DraggedRow, Motion, ScrollArea};
 
 use crate::panels::chats::kinds::notice_row::NoticeRow;
@@ -142,7 +142,8 @@ impl Sidebar {
             .h_full()
             .on_drag_move(move |event: &DragMoveEvent<DraggedRow>, window, cx| {
                 let (top, bottom) = (event.bounds.top(), event.bounds.bottom());
-                let pull = pull((top.into(), bottom.into()), event.event.position.y.into());
+                let pull = EdgeScroll::between((top.into(), bottom.into()))
+                    .pull(event.event.position.y.into());
                 edge_handler(RowAction::Edge(pull), window, cx);
             })
             .child(ScrollArea::new(id, &handle, list))

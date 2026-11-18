@@ -1,7 +1,7 @@
 //! The dialog a file row's menu can open.
 
 use crate::explorer::file_properties::FileProperties;
-use crate::sidebar::base;
+use crate::shell::PathText;
 
 /// A dialog opened from a file row's menu.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,7 +32,7 @@ impl FileDialog {
         let Self::Delete { path, is_dir } = self else {
             return None;
         };
-        let name = base(path);
+        let name = PathText::new(path).base();
         if *is_dir {
             return Some(format!(
                 "Are you sure you want to delete the folder \"{name}\" and all its contents? This action cannot be undone."

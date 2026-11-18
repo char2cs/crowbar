@@ -13,9 +13,9 @@ read stay here even when they are gpui-free (pixel scale, menu model, drag state
 
 - `Sidebar`: `new(data, sink, content, (preferences, cx))`, `toggle`, `set_mode`, `dock_to`,
   `preferences`, `ask_to_discard`, `toast`, `clear_toast`, `set_space_folder`, `begin_peek`,
-  `end_peek`, `preview_drag`.
+  `end_peek`, `preview_drag`, and `Sidebar::toast_side(DockSide)`: the toast edge for a dock edge
+  (the shell's floating notices use it).
 - `Event`: what the entity tells the shell.
-- `toast_side(DockSide)`: the toast edge for a dock edge (the shell's floating notices use it).
 - `sidebargallery` binary (`src/bin/gallery/`, feature `fixtures`): the sidebar over demo data, for
   parity screenshots.
 

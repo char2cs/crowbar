@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use gpui::{App, ExternalPaths, Window};
-use sidebar::{Command, FileKind, Intent, parent};
+use sidebar::{Command, FileKind, Intent, PathText};
 
 use crate::panels::explorer::file_tree_entry::FileTreeEntry;
 use crate::sidebar::{RowAction, RowHandler};
@@ -11,7 +11,7 @@ use crate::sidebar::{RowAction, RowHandler};
 pub(crate) fn drop_directory(entry: &FileTreeEntry) -> String {
     match entry.kind {
         FileKind::Directory(_) => entry.path.clone(),
-        FileKind::File => parent(&entry.path).to_owned(),
+        FileKind::File => PathText::new(&entry.path).parent().to_owned(),
     }
 }
 

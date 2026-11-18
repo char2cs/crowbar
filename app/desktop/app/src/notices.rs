@@ -2,7 +2,7 @@ use sidebar::DockSide;
 use ui::ToastPlacement;
 
 pub(crate) fn floating_at(side: DockSide) -> ToastPlacement {
-    ToastPlacement::Floating(sidebarview::toast_side(side))
+    ToastPlacement::Floating(sidebarview::Sidebar::toast_side(side))
 }
 
 #[cfg(test)]

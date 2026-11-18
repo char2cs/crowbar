@@ -9,9 +9,9 @@ ports the shell implements (`Source` and the per-surface sources, `Sink`) and th
 in their signatures (rows, spaces, hosts, files, changes, merge box), plus the behaviour the views
 drive: tree folds and visible rows, inline edits, removal countdowns and confirmations, drag
 threshold, edge scrolling and drop policy, Files keys, clipboard, filter and folder chains, panel width, dock, peek zone and mode, and
-the preferences file on disk. It has no `src/sidebar.rs` entry type; `src/sidebar.rs` holds the
-workspace-relative path text of the Files panel (the entry-file rule wants the file once the crate
-root exports free functions).
+the preferences file on disk. It has no single entry and no `src/sidebar.rs`; the root re-exports
+types only, so the path arithmetic and the drag rules are methods of `PathText`, `DragArm` and
+`EdgeScroll`.
 
 ## Public interface
 
@@ -25,15 +25,15 @@ root exports free functions).
   `RunningAgent`, `Host`, `HostId`, `HostKind`, `HostState`, `HostTone`.
 - Files and git: `FileRow`, `FileKind`, `FileAccess`, `FileTreeView`, `FileTreeFlag`,
   `FileDensity`, `IconTheme`, `GitStatus`, `Changes`, `ChangedFile`, `MergeBox`, `MergeStrategy`,
-  `MergeWork`, `AfterMerge`, `MergeFacts`, and the path functions `join`, `parent`, `base`,
-  `absolute`.
+  `MergeWork`, `AfterMerge`, `MergeFacts`, and `PathText` (a workspace-relative
+  path: `join`, `parent`, `base`, `absolute`).
 - Behaviour the views drive: `Tree`, `Editing`, `VisibleRow`, `FilesState`, `MenuContext`,
   `TerminalThreads`, `Removals`, `RemovalTray`, `Hold`, `Deadline`, `RemovalKind`,
   `RemovalTarget`, `Confirmation`, `WorkAtRisk`, `DropModes`, `FolderTarget`, `FileAction`,
   `FileClipboard`, `FileDialog`, `FileProperties`, `FileKey`, `ShellAnswers`, `MenuScope`,
   `Panel`, `DockSide`, `Visibility`, `Presentation`, `PeekZone`, `Mode`, `ResizeDrag`,
   `ResizeKey`, `Resizing`, `KeyStep`, `Preferences`, `HEADER_HEIGHT`, `PEEK_INSET`, and the row
-  drag rules `drag_started` (the drag threshold) and `pull` (edge-scroll speed).
+  drag rules `DragArm` (the drag threshold) and `EdgeScroll` (edge-scroll speed).
 - Feature `fixtures`: `DemoShell`, an in-memory workspace for tests and the `sidebarview` gallery.
 
 ## Depends on

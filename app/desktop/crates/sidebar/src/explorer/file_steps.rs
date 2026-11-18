@@ -7,7 +7,7 @@ use crate::shell::Expansion;
 use crate::shell::FileKind;
 use crate::shell::FileRow;
 use crate::shell::Intent;
-use crate::sidebar::parent;
+use crate::shell::PathText;
 
 fn select(row: &FileRow) -> Intent {
     Intent::SelectFile(row.path.clone())
@@ -61,7 +61,7 @@ fn enter(row: &FileRow) -> Intent {
 fn paste_target(row: &FileRow) -> Option<Intent> {
     let dir = match row.kind {
         FileKind::Directory(_) => row.path.as_str(),
-        FileKind::File => parent(&row.path),
+        FileKind::File => PathText::new(&row.path).parent(),
     };
     if dir.is_empty() {
         return None;

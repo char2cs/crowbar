@@ -1,9 +1,7 @@
 //! The context menu of a Files row.
 
 use gpui::{ClipboardItem, SharedString};
-use sidebar::{
-    ClipMode, Command, FileAction, FileKind, Intent, MenuScope, NewEntry, absolute, base,
-};
+use sidebar::{ClipMode, Command, FileAction, FileKind, Intent, MenuScope, NewEntry, PathText};
 use ui::{IconName, MenuAction, MenuItem};
 
 use crate::panels::explorer::file_tree_entry::FileTreeEntry;
@@ -83,7 +81,7 @@ fn leaf_items(
     lines.send(("Open", IconName::FolderOpen), Command::OpenFile(path()));
     let content = Command::CopyFileContent { path: path() };
     lines.send(("Copy Content", IconName::Copy), content);
-    if !scope.is_locked() && is_env_file(base(&entry.path)) {
+    if !scope.is_locked() && is_env_file(PathText::new(&entry.path).base()) {
         env_templates(lines, &entry.path);
     }
     lines.run(
@@ -106,7 +104,7 @@ fn shared_items(
 ) {
     lines.copy(
         ("Copy Path", IconName::Link),
-        absolute(scope.root.as_deref(), &entry.path),
+        PathText::new(&entry.path).absolute(scope.root.as_deref()),
     );
     lines.copy(
         ("Copy Relative Path", IconName::FileText),
@@ -223,7 +221,7 @@ mod tests {
     ) -> FileTreeEntry {
         FileTreeEntry {
             path: path.into(),
-            name: base(path).into(),
+            name: PathText::new(path).base().into(),
             depth: 1,
             kind,
             status: GitStatus::Clean,

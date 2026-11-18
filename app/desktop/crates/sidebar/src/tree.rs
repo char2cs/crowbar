@@ -16,7 +16,7 @@ pub use deletion::{
 pub use editing::Editing;
 pub use files_state::FilesState;
 pub use menu_context::MenuContext;
-pub use reorder::{DropModes, FolderTarget, drag_started, pull};
+pub use reorder::{DragArm, DropModes, EdgeScroll, FolderTarget};
 pub use terminal_threads::TerminalThreads;
 pub use visible_row::VisibleRow;
 

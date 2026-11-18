@@ -1,6 +1,6 @@
 //! What the Properties dialog shows for one file.
 
-use crate::sidebar::base;
+use crate::shell::PathText;
 
 const NO_EXTENSION: &str = "No extension";
 
@@ -19,7 +19,7 @@ impl FileProperties {
     /// The properties of the file at `path`.
     /// A name with no dot, or ending in one, has "No extension" as its type.
     pub fn of(path: &str) -> Self {
-        let file_name = base(path);
+        let file_name = PathText::new(path).base();
         let kind = file_name
             .rsplit_once('.')
             .map(|(_, extension)| extension)
