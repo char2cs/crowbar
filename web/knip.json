@@ -52,7 +52,6 @@
     "src/features/agent/composer/plate/attachment-drag-handle.tsx": ["exports"],
     "src/features/agent/composer/plate/attachments/attachment-lang.ts": ["types"],
     "src/features/agent/composer/plate/attachments/chat-asset-resolver.ts": ["exports"],
-    "src/features/agent/composer/plate/attachments/chat-attachment-file-card.tsx": ["exports"],
     "src/features/agent/composer/plate/attachments/chat-code-block-node.tsx": ["exports"],
     "src/features/agent/composer/plate/attachments/resolve-csv.ts": ["exports"],
     "src/features/agent/hooks/use-chat-presentation.ts": ["exports"],
