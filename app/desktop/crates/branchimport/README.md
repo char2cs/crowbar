@@ -7,7 +7,7 @@ rows and hints, and the import button.
 
 ## Public interface
 
-- `BranchImportView`: the dialog; it emits `ImportEvent`.
+- `View`: the dialog; it emits `ImportEvent`.
 
 ## Depends on
 

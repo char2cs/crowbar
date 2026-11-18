@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use branchimport::{BranchImportView, ImportEvent};
+use branchimport::ImportEvent;
 use diagnostics::LogPaths;
 use gpui::{AppContext as _, Context, Entity, Window};
 
@@ -57,7 +57,7 @@ impl ShellView {
         let Ok(import) = opened else {
             return;
         };
-        let dialog = cx.new(|cx| BranchImportView::new(import, window, cx));
+        let dialog = cx.new(|cx| branchimport::View::new(import, window, cx));
         self.subscriptions.push(
             cx.subscribe(&dialog, |this, source, event: &ImportEvent, cx| {
                 this.on_branch_import(source, *event, cx);
@@ -69,7 +69,7 @@ impl ShellView {
 
     fn on_branch_import(
         &mut self,
-        _: Entity<BranchImportView>,
+        _: Entity<branchimport::View>,
         _: ImportEvent,
         cx: &mut Context<'_, Self>,
     ) {

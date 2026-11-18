@@ -6,7 +6,7 @@ use gpui::{
 use store::ImportBranch;
 use ui::{Button, ButtonSize, Palette, Pose, Theme};
 
-use super::BranchImportView;
+use super::View;
 use crate::filter::{empty_message, matching};
 use crate::hint as import_hint;
 use crate::look::{GAP, LEAD, LIST_HEIGHT, TEXT};
@@ -15,7 +15,7 @@ use crate::row_choice::{RowChoice, Toggle};
 
 fn import_button(
     picked: usize,
-    cx: &mut Context<'_, BranchImportView>,
+    cx: &mut Context<'_, View>,
 ) -> Button {
     let button = Button::new("import-start", "Import")
         .size(ButtonSize::Sm)
@@ -27,7 +27,7 @@ fn import_button(
 }
 
 fn pick_handler(
-    view: &Entity<BranchImportView>,
+    view: &Entity<View>,
     name: &str,
 ) -> Toggle {
     let (view, name) = (view.clone(), name.to_owned());
@@ -35,7 +35,7 @@ fn pick_handler(
 }
 
 fn lock_handler(
-    view: &Entity<BranchImportView>,
+    view: &Entity<View>,
     name: &str,
 ) -> Toggle {
     let (view, name) = (view.clone(), name.to_owned());
@@ -46,7 +46,7 @@ fn muted(palette: &Palette) -> Div {
     div().text_size(TEXT).text_color(palette.muted_foreground())
 }
 
-impl BranchImportView {
+impl View {
     pub(crate) fn row_at(
         &self,
         branch: &ImportBranch,
@@ -126,7 +126,7 @@ mod tests {
     use ui::Surface;
 
     use super::*;
-    use crate::branch_import_view::tests::{Imported, branch, open};
+    use crate::view::tests::{Imported, branch, open};
 
     #[gpui::test]
     fn a_row_exists_only_for_an_index_inside_the_list(cx: &mut TestAppContext) {

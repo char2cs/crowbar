@@ -15,7 +15,7 @@ use crate::look::{PLACEHOLDER, TITLE};
 use crate::selection::Selection;
 
 /// The branch import dialog over a source of branches; it emits [`ImportEvent::Close`] when done.
-pub struct BranchImportView {
+pub struct View {
     source: Rc<dyn BranchSource>,
     input: Entity<TextInput>,
     filter: String,
@@ -23,22 +23,20 @@ pub struct BranchImportView {
     _input_events: Subscription,
 }
 
-impl std::fmt::Debug for BranchImportView {
+impl std::fmt::Debug for View {
     fn fmt(
         &self,
         formatter: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        formatter
-            .debug_struct("BranchImportView")
-            .finish_non_exhaustive()
+        formatter.debug_struct("View").finish_non_exhaustive()
     }
 }
 
 mod rows;
 
-impl EventEmitter<ImportEvent> for BranchImportView {}
+impl EventEmitter<ImportEvent> for View {}
 
-impl BranchImportView {
+impl View {
     /// A dialog over `import` with the search field focused.
     pub fn new(
         import: Arc<BranchImport>,
@@ -116,7 +114,7 @@ impl BranchImportView {
     }
 }
 
-impl Render for BranchImportView {
+impl Render for View {
     fn render(
         &mut self,
         _window: &mut Window,
@@ -189,13 +187,13 @@ mod tests {
         cx: &'a mut TestAppContext,
         listing: BranchListing,
         imported: &Imported,
-    ) -> (Entity<BranchImportView>, &'a mut VisualTestContext) {
+    ) -> (Entity<View>, &'a mut VisualTestContext) {
         cx.update(|cx| ui::init(cx).unwrap());
         let source = Rc::new(Fake {
             listing,
             imported: Rc::clone(imported),
         });
-        cx.add_window_view(|window, cx| BranchImportView::over(source, window, cx))
+        cx.add_window_view(|window, cx| View::over(source, window, cx))
     }
 
     #[gpui::test]
@@ -209,7 +207,7 @@ mod tests {
             cx.subscribe(&view, move |_, _: &ImportEvent, _| *count.borrow_mut() += 1)
                 .detach();
         });
-        view.update(cx, BranchImportView::start);
+        view.update(cx, View::start);
         assert_eq!(imported.borrow().len(), 0, "nothing picked, nothing sent");
         view.update(cx, |view, cx| {
             view.pick("a", cx);
