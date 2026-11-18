@@ -96,6 +96,8 @@ The map of `docs/plans/2026-11-18-rust-tree.md` section 1. `tools/scripts/rust-l
 | L1 domain | logic | `layout`, `transport`, `browseragent`, `keymap`, `windowstate`, `daemonapi`, `webview`, `sidebar`, `settings` |
 | L0 foundation | logic, except `ui` (gpui) | `protocol`, `atomicfile`, `browser`, `terminal`, `supervisor`, `diagnostics`, `platform`, `chord`, `ui` |
 
+`unsafe` lives only in `app/desktop/crates/platform/src/linux/` and `src/macos/`, each block behind a safe API and listed in the **Unsafe** section of `app/desktop/crates/platform/README.md`; the iOS plugin's C ABI file `app/mobile/ios-plugin/src/ffi.rs` is the one exception (script `unsafe-home`).
+
 ## The test-file mapping (decision of 2026-11-15)
 
 ```

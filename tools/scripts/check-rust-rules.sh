@@ -33,10 +33,18 @@ scan_root() {
   done < <(cd "$root" && find . -name '*.rs' -not -path '*/target/*' -not -path '*/vendor/*' | LC_ALL=C sort)
 }
 
+# unsafe lives only in the OS layers of platform; the iOS plugin's C ABI file is the one exception (unsafe-home).
+unsafe_home() {
+  case "$1" in
+    */app/desktop/crates/platform/src/linux/*|*/app/desktop/crates/platform/src/macos/*|*/app/mobile/ios-plugin/src/ffi.rs) echo 1 ;;
+    *) echo 0 ;;
+  esac
+}
+
 check_file() { # rel path mode stem allow_unwrap allow_types
   local ri_file=0
   [[ "/$1" == */real_infra/* ]] && ri_file=1
-  awk -v ri_file="$ri_file" -v file="$1" -v repo="$repo" -v mode="$3" -v stem="$4" -v allow_unwrap="$5" -v allow_types="$6" -f "$here/tag-comments.awk" -f "$awk_file" "$2" || status=1
+  awk -v unsafe_home="$(unsafe_home "$2")" -v ri_file="$ri_file" -v file="$1" -v repo="$repo" -v mode="$3" -v stem="$4" -v allow_unwrap="$5" -v allow_types="$6" -f "$here/tag-comments.awk" -f "$awk_file" "$2" || status=1
   awk -v file="$1" -v lang=rust -v mode="$3" -f "$here/brace-rules.awk" "$2" || status=1
 }
 
@@ -76,7 +84,7 @@ scan_source() {
     done | grep . && status=1
   fi
   grep -qE "^$(printf '%s' "$rel" | sed 's/[.[\*^$/]/\\&/g')[[:space:]]+#" "$here/rust-test-exemptions.txt" 2>/dev/null && exempt=1
-  awk -v file="$rel" -v repo="$repo" -v mode=src -v stem="$stem" -v allow_unwrap="$allow_unwrap" -v allow_types="$allow_types" -v exempt="$exempt" -v is_entry="$entry" -f "$here/tag-comments.awk" -f "$awk_file" "$path" || status=1
+  awk -v unsafe_home="$(unsafe_home "$path")" -v file="$rel" -v repo="$repo" -v mode=src -v stem="$stem" -v allow_unwrap="$allow_unwrap" -v allow_types="$allow_types" -v exempt="$exempt" -v is_entry="$entry" -f "$here/tag-comments.awk" -f "$awk_file" "$path" || status=1
   awk -v file="$rel" -v lang=rust -v mode=src -f "$here/brace-rules.awk" "$path" || status=1
 }
 

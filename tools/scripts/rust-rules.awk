@@ -71,6 +71,11 @@ function track_table(raw) {
   if (raw ~ /(^|[^A-Za-z_])for[ \t(].*[ \t)]in[ \t]+.*(CASES|cases|TABLE|table|VECTORS|vectors|\.iter\(\)|\.into_iter\(\)|&\[)/ || raw ~ /\.for_each\(/) tbl_iter = 1
   if (raw ~ /macro_rules!|#\[(rstest|test_case)|#\[case\(|test_case!/) tbl_macro = 1
 }
+function check_unsafe_home(raw,   u, i) {
+  u = strip(raw); i = index(u, "//"); if (i) u = substr(u, 1, i - 1)
+  if (u ~ /(^|[^A-Za-z_])unsafe([ \t]*[{(]|[ \t]+(fn|impl|extern|trait)([^A-Za-z_]|$))/)
+    report(NR, "unsafe-home", "unsafe outside platform/src/{linux,macos}/: put it behind a safe API there (docs/rust-style.md, Crate layers)")
+}
 BEGIN { ri_active = ri_file + 0; pend_doc = 0; cfg_line = 0; in_t = 0; t_depth = 0; loc = 0 }
 {
   raw = $0
@@ -96,6 +101,7 @@ BEGIN { ri_active = ri_file + 0; pend_doc = 0; cfg_line = 0; in_t = 0; t_depth =
       raw ~ /thread::sleep|Tcp(Stream|Listener)|UdpSocket|Unix(Stream|Listener|Datagram)|Command::new|home_dir\(\)|env::var\("HOME"\)|env::temp_dir|tempfile|tempdir|TempDir|std::fs|tokio::fs|fs::(read|write|create_dir|remove|copy|rename|File|metadata|OpenOptions)|File::(open|create)|OpenOptions::new|reqwest::/)
     report(NR, "real-infra", "test touches real infrastructure (socket, fs, tempdir, process, sleep): use an in-memory fake, a channel or a paused clock")
   if (mode == "test" || in_t) close_real_infra(raw)
+  if (!unsafe_home + 0) check_unsafe_home(raw)
   if (mode == "test") next
   if (in_t) {
     st = strip(raw)
