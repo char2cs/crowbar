@@ -90,6 +90,10 @@ Logs: `~/.rig/daemon.log` (the shared daemon), `~/.rig/http.log` (web fixture), 
     rig seed [list]                     # the current profile and the ones built into the image
     rig seed empty|baseline|extras|full|noproviders   # apps stopped, daemon paused, that profile restored, apps' storage wiped, init
     rig reset                           # rig seed <current profile>
+    rig case restore-fails on|off|status   # both apps restarted on an unreadable saved layout (Tauri's
+                                        # IndexedDB made unreadable, the shell's layout.json truncated)
+    rig case missing-file on [path]|off|status   # apps restarted with a file (README.md) of
+                                        # feature/pricing-rounding moved aside: restored tabs on a gone file
     rig daemon status|stop|start|restart|kill   # the one shared daemon: stop holds it down until start;
                                         # restart and kill let the daemon loop bring it straight back
     rig daemon wedge|unwedge            # SIGSTOP/SIGCONT: the socket accepts, nothing answers

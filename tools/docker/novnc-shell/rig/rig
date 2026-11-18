@@ -282,6 +282,8 @@ seed_profile() {
   rm -rf "$HOME"/.crowbar-rig-*
   daemon_stop >/dev/null
   for n in 1 2; do remote_select "$n"; remote_wipe; done
+  rm -rf "$RIG_DIR/missing"
+  chmod -R u+rwX "$HOME/.local/share/software.rabbyte.crowbar" 2>/dev/null || true
   rm -rf "$HOME/.local/share/software.rabbyte.crowbar" "$HOME/.cache/software.rabbyte.crowbar" "$RIG_DIR/initialised"
   keyring_reset
   extract_profile "$1"
@@ -290,6 +292,59 @@ seed_profile() {
   init
 }
 reset_state() { seed_profile "$(profile)"; }
+feature_worktree() { # the baseline's feature/pricing-rounding checkout
+  git -C "$CROWBAR_HOME/seed/checkout" worktree list --porcelain |
+    awk '/^worktree /{w=$2} /^branch refs\/heads\/feature\/pricing-rounding$/{print w}'
+}
+case_cmd() { # case_cmd <name> on|off|status [args]
+  local name=${1:-} verb=${2:-status} tauri_idb=$HOME/.local/share/software.rabbyte.crowbar/databases/indexeddb
+  local rust_layout=$CROWBAR_HOME/shell/layout.json
+  case $name:$verb in
+    restore-fails:on)
+      # Tauri's pane layout lives in IndexedDB: an unreadable store makes its hydrate reject. The Rust
+      # shell's lives in layout.json: a truncated file fails to parse.
+      stop_app tauri; stop_app rust
+      [[ -d $tauri_idb ]] && chmod 000 "$tauri_idb"
+      [[ -f $rust_layout.rig ]] || cp "$rust_layout" "$rust_layout.rig"
+      head -c 40 "$rust_layout.rig" >"$rust_layout"
+      start_app tauri; start_app rust
+      echo "restore-fails on: Tauri's IndexedDB unreadable, the Rust shell's layout.json truncated"
+      ;;
+    restore-fails:off)
+      stop_app tauri; stop_app rust
+      [[ -d $tauri_idb ]] && chmod 755 "$tauri_idb"
+      [[ -f $rust_layout.rig ]] && mv "$rust_layout.rig" "$rust_layout"
+      start_app tauri; start_app rust
+      echo "restore-fails off"
+      ;;
+    restore-fails:status)
+      if [[ -f $rust_layout.rig ]]; then echo "restore-fails on"; else echo "restore-fails off"; fi
+      ;;
+    missing-file:on)
+      # A tab restored on a file that is gone: moved aside while the apps are down, so both restore it.
+      local wt file=${3:-README.md}
+      wt=$(feature_worktree)
+      [[ -e $wt/$file ]] || die "case missing-file: no $file in $wt"
+      stop_app tauri; stop_app rust
+      mkdir -p "$RIG_DIR/missing"
+      mv "$wt/$file" "$RIG_DIR/missing/" && echo "$wt/$file" >"$RIG_DIR/missing/from"
+      start_app tauri; start_app rust
+      echo "missing-file on: $wt/$file moved to ~/.rig/missing"
+      ;;
+    missing-file:off)
+      [[ -f $RIG_DIR/missing/from ]] || { echo "missing-file off"; return; }
+      local from
+      from=$(cat "$RIG_DIR/missing/from")
+      mv "$RIG_DIR/missing/$(basename "$from")" "$from"
+      rm -rf "$RIG_DIR/missing"
+      echo "missing-file off: $from back"
+      ;;
+    missing-file:status)
+      if [[ -f $RIG_DIR/missing/from ]]; then echo "missing-file on: $(cat "$RIG_DIR/missing/from")"; else echo "missing-file off"; fi
+      ;;
+    *) die "case restore-fails on|off|status | missing-file on [path in feature/pricing-rounding]|off|status" ;;
+  esac
+}
 
 # The paired-host daemons (`rig remote`, `rig remote2`): each its own home and an inner TLS
 # listener, fronted on the public port by rig-proxy.py with the daemon's own TLS key (so remote
@@ -586,6 +641,7 @@ case $sub in
     if own_mode; then own_daemon status | sed 's/^/daemon /'; else printf 'daemon %s\n' "$(python3 "$RIGX" health "$(socket)" 2>&1)"; fi
     ;;
   start) for app in $(apps_of "${1:-all}"); do start_app "$app"; done ;;
+  case) case_cmd "$@" ;;
   stop) for app in $(apps_of "${1:-all}"); do stop_app "$app"; done ;;
   restart) for app in $(apps_of "${1:-all}"); do stop_app "$app"; start_app "$app"; done ;;
   init) init ;;
