@@ -1,6 +1,11 @@
-use crate::dom_key::dom_key;
-use crate::modifier::Modifier;
-use crate::modifiers::Modifiers;
+mod dom_key;
+mod modifier;
+mod modifiers;
+
+pub use modifier::Modifier;
+pub use modifiers::Modifiers;
+
+use crate::keystroke::dom_key::dom_key;
 
 /// One key press as the shell's windowing layer reports it, free of any toolkit type.
 #[derive(Debug, Clone, PartialEq, Eq)]

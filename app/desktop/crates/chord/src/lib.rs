@@ -5,14 +5,9 @@
 //! A [`Keystroke`] is one key press as the windowing layer reports it, with its held [`Modifiers`].
 
 mod chord;
-mod dom_key;
 mod keystroke;
-mod modifier;
-mod modifiers;
 mod primary;
 
 pub use chord::Chord;
-pub use keystroke::Keystroke;
-pub use modifier::Modifier;
-pub use modifiers::Modifiers;
+pub use keystroke::{Keystroke, Modifier, Modifiers};
 pub use primary::Primary;

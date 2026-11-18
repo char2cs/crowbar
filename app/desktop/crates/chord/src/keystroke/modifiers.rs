@@ -1,4 +1,4 @@
-use crate::modifier::Modifier;
+use crate::keystroke::modifier::Modifier;
 
 const PRIMARY_BIT: u8 = 1;
 const SHIFT_BIT: u8 = 2;
