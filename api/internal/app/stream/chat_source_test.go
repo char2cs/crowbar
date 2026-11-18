@@ -23,8 +23,12 @@ type feeds struct {
 	opened []string
 }
 
-func (f *feeds) OpenFeed(_ context.Context, chatID string, since int64) (<-chan agentusecase.FeedFrame, error) {
-	f.opened = append(f.opened, fmt.Sprintf("%s since %d", chatID, since))
+func (f *feeds) OpenFeed(_ context.Context, chatID string, since, windowBytes int64) (<-chan agentusecase.FeedFrame, error) {
+	opened := fmt.Sprintf("%s since %d", chatID, since)
+	if windowBytes > 0 {
+		opened += fmt.Sprintf(" bytes %d", windowBytes)
+	}
+	f.opened = append(f.opened, opened)
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -62,7 +66,7 @@ func TestChatSource_EmitsTheChatsTelemetryBeforeItsRows(t *testing.T) {
 // openFeeds is a fake whose feed stays open until the test ends.
 type openFeeds struct{ done <-chan struct{} }
 
-func (f openFeeds) OpenFeed(context.Context, string, int64) (<-chan agentusecase.FeedFrame, error) {
+func (f openFeeds) OpenFeed(context.Context, string, int64, int64) (<-chan agentusecase.FeedFrame, error) {
 	out := make(chan agentusecase.FeedFrame)
 	go func() {
 		<-f.done
@@ -158,4 +162,18 @@ func TestChatSource_AFailedFeedRefusesItsScopeOnly(t *testing.T) {
 			assert.Equal(t, 0, conn.closeCode(), "one broken chat leaves the connection open")
 		})
 	}
+}
+
+func TestChatSource_ASubsBytesBoundTheFeedItOpens(t *testing.T) {
+	src := &feeds{frames: []agentusecase.FeedFrame{{Type: agentusecase.FeedReady}}}
+	hub := newHub(map[stream.ScopeKind]appstream.Source{
+		stream.KindChat: appstream.Following(appstream.NewChatSource(src, telemetries{}, encodeJSON)),
+	}, nil)
+	conn := newFakeConn()
+	served(t, hub, conn)
+
+	conn.sendRequest(t, stream.Request{Op: stream.OpSub, Scope: "chat:c1", Since: -200, Bytes: 262144})
+	conn.until(t, func(f stream.Frame) bool { return f.T == stream.FrameSynced })
+
+	assert.Equal(t, []string{"c1 since -200 bytes 262144"}, src.opened)
 }

@@ -61,6 +61,19 @@ func TestStream_ServesReadyThenASubscribedScope(t *testing.T) {
 	assert.Equal(t, stream.Synced("projects"), synced)
 }
 
+func TestStream_NegotiatesPermessageDeflateWithAClientThatOffersIt(t *testing.T) {
+	dialer := websocket.Dialer{EnableCompression: true}
+	conn, resp, err := dialer.Dial(serve(t, handlers.DefaultKeepAlive), nil)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	t.Cleanup(func() { require.NoError(t, conn.Close()) })
+
+	assert.Contains(t, resp.Header.Get("Sec-WebSocket-Extensions"), "permessage-deflate")
+	var ready stream.Frame
+	require.NoError(t, conn.ReadJSON(&ready))
+	assert.Equal(t, stream.Ready("e1"), ready)
+}
+
 func TestStream_RefusesACrossOriginUpgrade(t *testing.T) {
 	header := http.Header{"Origin": {"https://evil.example"}}
 	_, resp, err := websocket.DefaultDialer.Dial(serve(t, handlers.DefaultKeepAlive), header)

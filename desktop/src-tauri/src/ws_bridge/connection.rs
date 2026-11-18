@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use futures_util::{FutureExt, SinkExt, Stream, StreamExt};
+use futures_util::{SinkExt, StreamExt};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
@@ -31,10 +31,6 @@ pub(super) struct Connection {
     /// Held, never used. Its `Drop` is the signal.
     _cancel: oneshot::Sender<()>,
 }
-
-/// A batch ends at this many rows or bytes, so one message stays small enough to parse promptly.
-const MAX_BATCH_ROWS: usize = 256;
-const MAX_BATCH_BYTES: usize = 512 * 1024;
 
 type Connections = Arc<Mutex<HashMap<String, Connection>>>;
 
@@ -155,14 +151,7 @@ where
                 }
                 frame = next => match frame {
                     Ok(Some(Ok(Message::Text(text)))) => {
-                        let (frames, ended) = gather_ready_texts(text.to_string(), &mut read);
-                        for frame in frames {
-                            on_message.send(frame);
-                        }
-                        if ended {
-                            daemon_closed = true;
-                            break;
-                        }
+                        on_message.send(Frame::Text(text.to_string()))
                     }
                     Ok(Some(Ok(Message::Binary(bytes)))) => {
                         on_message.send(Frame::Binary(bytes.to_vec()))
@@ -202,48 +191,6 @@ where
     });
 
     reader
-}
-
-/// `first` and the text frames already buffered behind it, as the messages to send in order:
-/// one `Text` for a lone frame, otherwise `Texts` runs split around any binary frame. The bool
-/// is whether the stream ended while gathering. Never waits: only what is ready is taken.
-fn gather_ready_texts<R>(first: String, read: &mut R) -> (Vec<Frame>, bool)
-where
-    R: Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
-{
-    let mut frames = Vec::new();
-    let mut run = vec![first];
-    let mut bytes = run[0].len();
-    let mut ended = false;
-    while run.len() < MAX_BATCH_ROWS && bytes < MAX_BATCH_BYTES {
-        match read.next().now_or_never() {
-            None => break,
-            Some(Some(Ok(Message::Text(text)))) => {
-                bytes += text.len();
-                run.push(text.to_string());
-            }
-            Some(Some(Ok(Message::Binary(payload)))) => {
-                frames.push(texts_frame(std::mem::take(&mut run)));
-                frames.push(Frame::Binary(payload.to_vec()));
-                bytes = 0;
-            }
-            Some(Some(Ok(_))) => {}
-            Some(Some(Err(_))) | Some(None) => {
-                ended = true;
-                break;
-            }
-        }
-    }
-    frames.push(texts_frame(run));
-    frames.retain(|f| !matches!(f, Frame::Texts(rows) if rows.is_empty()));
-    (frames, ended)
-}
-
-fn texts_frame(mut rows: Vec<String>) -> Frame {
-    match rows.len() {
-        1 => Frame::Text(rows.remove(0)),
-        _ => Frame::Texts(rows),
-    }
 }
 
 #[cfg(test)]

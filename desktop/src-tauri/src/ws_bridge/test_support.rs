@@ -120,17 +120,3 @@ pub async fn accept_send_binary_then_idle(listener: UnixListener, payload: Vec<u
         }
     }
 }
-
-/// A daemon that upgrades, writes `count` text frames in one flush (a replay), then holds the
-/// stream open.
-pub async fn accept_replay_then_idle(listener: UnixListener, count: usize) {
-    if let Ok((stream, _)) = listener.accept().await {
-        if let Ok(mut ws) = tokio_tungstenite::accept_async(stream).await {
-            for i in 0..count {
-                let _ = ws.feed(Message::Text(format!("row-{i}").into())).await;
-            }
-            let _ = ws.flush().await;
-            std::future::pending::<()>().await;
-        }
-    }
-}

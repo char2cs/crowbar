@@ -172,6 +172,8 @@ func specRoutes() []string {
 		"GET " + chat + "/provider",
 		"GET " + repo + "/protected-branches",
 		"GET " + chat + "/blobs/:ref",
+		"GET " + chat + "/rows",
+		"GET " + chat + "/rows/:seq",
 		// §2.10 Search, chat-scoped (chat-scoped API spec §4.2's SHARED bucket,
 		// §8 step 4c/6): the flat chat prefix is the only surface left; the old
 		// .../workspaces/:wsId/search twin is gone.

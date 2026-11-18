@@ -49,6 +49,8 @@ type Row struct {
 	Scope  string          `json:"scope,omitempty"`  // "" = main agent, else a subagent scope id
 	At     time.Time       `json:"at"`               // stamped by the store's clock
 	Body   json.RawMessage `json:"body"`
+	// Trimmed names the body fields a preview cut; the full row is read by its seq.
+	Trimmed []string `json:"trimmed,omitempty"`
 }
 
 // NewRow encodes body into a row of kind; the store assigns chat, seq and time.

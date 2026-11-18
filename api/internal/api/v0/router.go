@@ -78,6 +78,9 @@ func (c *Container) Register(
 	chatScoped := chats.Group("/:chatId")
 	chatScoped.Use(resolveChatWorktree(c.app.Usecases.Worktree))
 	chats.GET("/:chatId/blobs/:ref", chathandlers.NewBlobs(c.app.Usecases.AgentChat).Handle)
+	rows := chathandlers.NewLedgerRows(c.app.Usecases.AgentChat)
+	chats.GET("/:chatId/rows", rows.Page)
+	chats.GET("/:chatId/rows/:seq", rows.One)
 
 	projectsPkg.Register(
 		rg,

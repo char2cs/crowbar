@@ -13,6 +13,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
@@ -77,7 +78,15 @@ func (f *fakeChatUsecase) RenameByRunner(context.Context, string, string, string
 }
 func (f *fakeChatUsecase) PurgeChat(context.Context, string) error { panic("unused") }
 
-func (f *fakeChatUsecase) OpenFeed(context.Context, string, int64) (<-chan agentusecase.FeedFrame, error) {
+func (f *fakeChatUsecase) OpenFeed(context.Context, string, int64, int64) (<-chan agentusecase.FeedFrame, error) {
+	panic("unused")
+}
+
+func (f *fakeChatUsecase) ReadRows(context.Context, string, int64, int64) (agentusecase.RowsPage, error) {
+	panic("unused")
+}
+
+func (f *fakeChatUsecase) ReadRow(context.Context, string, int64) (ledger.Row, error) {
 	panic("unused")
 }
 

@@ -1,9 +1,8 @@
 use super::*;
 use crate::ws_bridge::open_bridge;
 use crate::ws_bridge::test_support::{
-    accept_replay_then_idle, accept_send_binary_then_idle, accept_then_close, in_own_process,
-    open_fds, sentinel_sink, silent_sink, spawn_wedged_daemon, spawn_wedged_daemon_multi,
-    test_socket, ClosureSink,
+    accept_send_binary_then_idle, accept_then_close, in_own_process, open_fds, sentinel_sink,
+    silent_sink, spawn_wedged_daemon, spawn_wedged_daemon_multi, test_socket, ClosureSink,
 };
 use tokio::net::UnixListener;
 
@@ -247,53 +246,6 @@ async fn binary_frames_are_forwarded_as_raw_bytes() {
     .unwrap();
 
     assert_eq!(rx.await.unwrap(), Frame::Binary(payload));
-
-    manager.connections.lock().unwrap().remove("c1");
-    reader.await.unwrap();
-    let _ = std::fs::remove_file(&sock);
-}
-
-/// A replayed chat is hundreds of rows written back to back: each one crossing the webview
-/// boundary on its own is what made opening a long chat slow. They must arrive in order, in
-/// far fewer messages than rows.
-#[tokio::test]
-async fn a_burst_of_text_frames_reaches_the_webview_in_order_and_in_batches() {
-    let _serialised = crate::test_support::fd_tests().await;
-
-    const ROWS: usize = 2000;
-    let sock = test_socket("replay");
-    let listener = UnixListener::bind(&sock).unwrap();
-    tokio::spawn(accept_replay_then_idle(listener, ROWS));
-    let manager = WsBridgeManager::new();
-
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    let reader = open_bridge(
-        &sock,
-        "c1".to_string(),
-        "/v0/x".to_string(),
-        ClosureSink(move |frame: Frame| {
-            let _ = tx.send(frame);
-        }),
-        &manager,
-        "main".to_string(),
-        None,
-    )
-    .await
-    .unwrap();
-
-    let (mut rows, mut messages) = (Vec::new(), 0);
-    while rows.len() < ROWS {
-        messages += 1;
-        match rx.recv().await.unwrap() {
-            Frame::Text(row) => rows.push(row),
-            Frame::Texts(batch) => rows.extend(batch),
-            Frame::Binary(_) => panic!("a text frame arrived as bytes"),
-        }
-    }
-
-    let expected: Vec<String> = (0..ROWS).map(|i| format!("row-{i}")).collect();
-    assert_eq!(rows, expected);
-    assert!(messages < ROWS / 4, "{ROWS} rows took {messages} messages");
 
     manager.connections.lock().unwrap().remove("c1");
     reader.await.unwrap();
