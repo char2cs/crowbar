@@ -2,9 +2,9 @@ use gpui::{Div, ParentElement, SharedString, Styled};
 use ui::{Palette, Pose};
 
 use crate::look::TREE_HEIGHT;
-use crate::remote_folder_picker::RemoteFolderPicker;
-use crate::remote_folder_picker::muted::muted;
 use crate::tree::Toggle;
+use crate::view::View;
+use crate::view::muted::muted;
 
 pub(crate) fn centred(
     palette: &Palette,
@@ -30,7 +30,7 @@ pub(crate) fn highlighted(
 }
 
 pub(crate) fn toggler(
-    view: &gpui::Entity<RemoteFolderPicker>,
+    view: &gpui::Entity<View>,
     path: &str,
 ) -> Toggle {
     let (view, path) = (view.clone(), path.to_owned());

@@ -1,14 +1,14 @@
 //! What the picker needs of the data behind it, so the data can be replaced in tests.
 
-mod folder_reader;
-mod folder_requests;
+mod reader;
+mod requests;
 
-pub(crate) use folder_reader::FolderReader;
-pub(crate) use folder_requests::FolderRequests;
+pub(crate) use reader::Reader;
+pub(crate) use requests::Requests;
 
-pub(crate) trait FolderSource: FolderReader + FolderRequests {}
+pub(crate) trait FolderSource: Reader + Requests {}
 
-impl<T: FolderReader + FolderRequests> FolderSource for T {}
+impl<T: Reader + Requests> FolderSource for T {}
 
 #[cfg(test)]
 mod tests {

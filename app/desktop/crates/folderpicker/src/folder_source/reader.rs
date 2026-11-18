@@ -2,7 +2,7 @@
 
 use store::FolderListing;
 
-pub(crate) trait FolderReader {
+pub(crate) trait Reader {
     fn host_name(&self) -> String;
 
     fn can_ask(&self) -> bool;

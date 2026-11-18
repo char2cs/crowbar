@@ -6,14 +6,14 @@ use store::{BrowseEntry, FolderListing, ROOT_PATH};
 use ui::{Button, ButtonSize, ButtonVariant, Palette, Pose};
 
 use crate::look::{BANNER_TINT, EMPTY_ROOT, GAP, LOADING_ROOT, ROW_HEIGHT, TEXT, TREE_HEIGHT};
-use crate::remote_folder_picker::RemoteFolderPicker;
-use crate::remote_folder_picker::widgets::{centred, highlighted, inert, toggler};
 use crate::tree::FolderRow;
 use crate::tree::Shown;
 use crate::tree::tree_row;
 use crate::tree::{children_of, rows};
+use crate::view::View;
+use crate::view::widgets::{centred, highlighted, inert, toggler};
 
-impl RemoteFolderPicker {
+impl View {
     pub(crate) fn row_element(
         &self,
         (index, row): (usize, &FolderRow),
@@ -176,7 +176,7 @@ mod tests {
             .insert("/".to_owned(), FolderListing::Failed("denied".into()));
         let (picker, cx) = open(cx, &fake, &events);
         cx.run_until_parked();
-        picker.update(cx, RemoteFolderPicker::retry_root);
+        picker.update(cx, View::retry_root);
         assert_eq!(*fake.retried.borrow(), ["/".to_owned()]);
     }
 }

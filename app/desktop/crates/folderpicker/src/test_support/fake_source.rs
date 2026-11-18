@@ -5,10 +5,10 @@ use std::rc::Rc;
 use gpui::{App, Entity, TestAppContext, VisualTestContext};
 use store::{BrowseEntry, EntryKind, FolderListing};
 
-use crate::folder_source::FolderReader;
-use crate::folder_source::FolderRequests;
+use crate::folder_source::Reader;
+use crate::folder_source::Requests;
 use crate::picker_event::PickerEvent;
-use crate::remote_folder_picker::RemoteFolderPicker;
+use crate::view::View;
 
 #[derive(Default)]
 pub(crate) struct Fake {
@@ -18,7 +18,7 @@ pub(crate) struct Fake {
     pub(crate) reachable: Cell<bool>,
 }
 
-impl FolderReader for Fake {
+impl Reader for Fake {
     fn host_name(&self) -> String {
         "Box".to_owned()
     }
@@ -35,7 +35,7 @@ impl FolderReader for Fake {
     }
 }
 
-impl FolderRequests for Fake {
+impl Requests for Fake {
     fn request(
         &self,
         path: &str,
@@ -66,17 +66,17 @@ pub(crate) fn open<'a>(
     cx: &'a mut TestAppContext,
     fake: &Rc<Fake>,
     events: &Events,
-) -> (Entity<RemoteFolderPicker>, &'a mut VisualTestContext) {
+) -> (Entity<View>, &'a mut VisualTestContext) {
     cx.update(|cx| ui::init(cx).expect("ui installs"));
     let source = Rc::clone(fake);
-    let (picker, cx) = cx.add_window_view(|_, _| RemoteFolderPicker::over(source));
+    let (picker, cx) = cx.add_window_view(|_, _| View::over(source));
     let sink = Rc::clone(events);
     cx.update(|_, cx| record(&picker, sink, cx));
     (picker, cx)
 }
 
 fn record(
-    picker: &Entity<RemoteFolderPicker>,
+    picker: &Entity<View>,
     sink: Events,
     cx: &mut App,
 ) {

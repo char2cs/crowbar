@@ -1,4 +1,4 @@
-use folderpicker::{PickerEvent, RemoteFolderPicker};
+use folderpicker::PickerEvent;
 use gpui::{AppContext as _, Context, Entity, Window};
 use store::FolderChoice;
 
@@ -37,7 +37,7 @@ impl ShellView {
         let Ok(browse) = opened else {
             return;
         };
-        let picker = cx.new(|_| RemoteFolderPicker::new(browse));
+        let picker = cx.new(|_| folderpicker::View::new(browse));
         self.subscriptions
             .push(cx.subscribe(&picker, Self::on_space_folder));
         self.remote_folders = Some(picker);
@@ -46,7 +46,7 @@ impl ShellView {
 
     fn on_space_folder(
         &mut self,
-        _: Entity<RemoteFolderPicker>,
+        _: Entity<folderpicker::View>,
         event: &PickerEvent,
         cx: &mut Context<'_, Self>,
     ) {
@@ -79,7 +79,7 @@ impl ShellView {
         let Ok(browse) = opened else {
             return;
         };
-        let picker = cx.new(|_| RemoteFolderPicker::new(browse));
+        let picker = cx.new(|_| folderpicker::View::new(browse));
         self.subscriptions
             .push(cx.subscribe(&picker, Self::on_remote_folder));
         self.remote_folders = Some(picker);
@@ -88,7 +88,7 @@ impl ShellView {
 
     fn on_remote_folder(
         &mut self,
-        _: Entity<RemoteFolderPicker>,
+        _: Entity<folderpicker::View>,
         event: &PickerEvent,
         cx: &mut Context<'_, Self>,
     ) {

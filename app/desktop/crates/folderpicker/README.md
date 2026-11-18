@@ -6,7 +6,7 @@ The tree of a paired host's folders and the choice of one, over a `store::Folder
 
 ## Public interface
 
-- `RemoteFolderPicker`: the picker; it emits `PickerEvent` (`Chosen`, `Cancelled`).
+- `View`: the picker; it emits `PickerEvent` (`Chosen`, `Cancelled`).
 
 ## Depends on
 

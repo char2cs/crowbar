@@ -13,35 +13,35 @@ use gpui::{Context, EventEmitter, IntoElement, ParentElement, Render, Styled, Wi
 use store::{BrowseEntry, FolderBrowse, FolderListing, ROOT_PATH};
 use ui::{Dialog, DialogSize, Surface, Theme};
 
-use crate::folder_source::FolderReader;
-use crate::folder_source::FolderRequests;
 use crate::folder_source::FolderSource;
+use crate::folder_source::Reader;
+use crate::folder_source::Requests;
 use crate::look::{GAP, TITLE};
 use crate::picker_event::PickerEvent;
-use crate::remote_folder_picker::muted::muted;
+use crate::view::muted::muted;
 
 /// The remote folder picker; it emits a [`PickerEvent`] when a folder is chosen or it is dismissed.
-pub struct RemoteFolderPicker {
+pub struct View {
     pub(crate) source: Rc<dyn FolderSource>,
     pub(crate) expanded: BTreeSet<String>,
     pub(crate) selected: Option<BrowseEntry>,
 }
 
-impl std::fmt::Debug for RemoteFolderPicker {
+impl std::fmt::Debug for View {
     fn fmt(
         &self,
         formatter: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         formatter
-            .debug_struct("RemoteFolderPicker")
+            .debug_struct("View")
             .field("selected", &self.selected)
             .finish_non_exhaustive()
     }
 }
 
-impl EventEmitter<PickerEvent> for RemoteFolderPicker {}
+impl EventEmitter<PickerEvent> for View {}
 
-impl FolderReader for Arc<FolderBrowse> {
+impl Reader for Arc<FolderBrowse> {
     fn host_name(&self) -> String {
         FolderBrowse::host_name(self)
     }
@@ -58,7 +58,7 @@ impl FolderReader for Arc<FolderBrowse> {
     }
 }
 
-impl FolderRequests for Arc<FolderBrowse> {
+impl Requests for Arc<FolderBrowse> {
     fn request(
         &self,
         path: &str,
@@ -74,7 +74,7 @@ impl FolderRequests for Arc<FolderBrowse> {
     }
 }
 
-impl RemoteFolderPicker {
+impl View {
     /// A picker over the folders of `browse`'s host.
     pub fn new(browse: Arc<FolderBrowse>) -> Self {
         Self::over(Rc::new(browse))
@@ -96,7 +96,7 @@ impl RemoteFolderPicker {
     }
 }
 
-impl Render for RemoteFolderPicker {
+impl Render for View {
     fn render(
         &mut self,
         _window: &mut Window,

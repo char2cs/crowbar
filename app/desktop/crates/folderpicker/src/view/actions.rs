@@ -2,9 +2,9 @@ use gpui::Context;
 use store::BrowseEntry;
 
 use crate::picker_event::PickerEvent;
-use crate::remote_folder_picker::RemoteFolderPicker;
+use crate::view::View;
 
-impl RemoteFolderPicker {
+impl View {
     pub(crate) fn choose(
         &mut self,
         entry: &BrowseEntry,
@@ -52,7 +52,7 @@ mod tests {
         let (fake, events) = (reachable_fake(), Events::default());
         let (picker, cx) = open(cx, &fake, &events);
         cx.run_until_parked();
-        picker.update(cx, RemoteFolderPicker::confirm);
+        picker.update(cx, View::confirm);
         assert_eq!(events.borrow().len(), 0, "nothing chosen yet");
         picker.update(cx, |this, cx| this.choose(&folder("/srv"), cx));
         cx.run_until_parked();
@@ -60,7 +60,7 @@ mod tests {
             fake.asked.borrow().contains(&"/srv".to_owned()),
             "the opened folder is listed"
         );
-        picker.update(cx, RemoteFolderPicker::confirm);
+        picker.update(cx, View::confirm);
         assert_eq!(*events.borrow(), [PickerEvent::Chosen("/srv".to_owned())]);
     }
 
@@ -69,13 +69,13 @@ mod tests {
         let (picker, cx) = open(cx, &fake, &events);
         picker.update(cx, |this, cx| this.choose(&folder("/usr"), cx));
         fake.reachable.set(false);
-        picker.update(cx, RemoteFolderPicker::confirm);
+        picker.update(cx, View::confirm);
         assert_eq!(
             events.borrow().len(),
             0,
             "a host that does not answer is not chosen on"
         );
-        picker.update(cx, |_, cx| RemoteFolderPicker::cancel(cx));
+        picker.update(cx, |_, cx| View::cancel(cx));
         assert_eq!(*events.borrow(), [PickerEvent::Cancelled]);
         picker.update(cx, |this, cx| this.toggle("/usr", cx));
         assert!(
