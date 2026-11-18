@@ -3,8 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use gpui::{AnyView, App, AppContext as _, Entity, Window};
 use protocol::PaneId;
+use ptysession::{Ends, TerminalSessions};
 use terminal::DaemonFrame;
-use terminal_session::{Ends, TerminalSessions};
 use terminal_view::{TerminalLink, TerminalSettings, TerminalView};
 
 use crate::chat_terminals::ChatTerminals;

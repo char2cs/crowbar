@@ -1,5 +1,5 @@
 use protocol::Params;
-use terminal_session::SessionBase;
+use ptysession::SessionBase;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TerminalOwner {
@@ -15,7 +15,7 @@ impl TerminalOwner {
         chat.or_else(|| params.get("projectId").map(|id| Self::Home(id.to_owned())))
     }
 
-    pub(crate) fn base(&self) -> terminal_session::Result<SessionBase> {
+    pub(crate) fn base(&self) -> ptysession::Result<SessionBase> {
         match self {
             Self::Chat(chat) => SessionBase::chat(chat),
             Self::Home(project) => SessionBase::project_home(project),

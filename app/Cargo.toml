@@ -39,7 +39,7 @@ platform = { path = "desktop/crates/platform" }
 diagnostics = { path = "desktop/crates/diagnostics" }
 terminal = { path = "desktop/crates/terminal" }
 terminal_view = { path = "desktop/crates/terminal_view" }
-terminal_session = { path = "desktop/crates/terminal_session" }
+ptysession = { path = "desktop/crates/ptysession" }
 
 async-channel = "2"
 gpui = "=0.2.2"

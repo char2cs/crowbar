@@ -4,11 +4,11 @@ use std::sync::atomic::AtomicBool;
 
 use gpui::{AppContext as _, Context, Entity};
 use layout_view::LayoutView;
+use ptysession::TerminalSessions;
 use shell_data::{ShellData, ShellWiring};
 use sidebar::{Preferences, Sidebar, SidebarData};
 use startup_view::{MonotonicClock, StartupTiming, StartupView};
 use tab_bar::TabBar;
-use terminal_session::TerminalSessions;
 use ui::{Overlays, ToastQueue};
 
 use super::built::Built;

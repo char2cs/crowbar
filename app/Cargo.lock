@@ -1508,6 +1508,7 @@ dependencies = [
  "pane_host",
  "platform",
  "protocol",
+ "ptysession",
  "remote_folder_picker",
  "serde_json",
  "settings_ui",
@@ -1518,7 +1519,6 @@ dependencies = [
  "supervisor",
  "tab_bar",
  "terminal",
- "terminal_session",
  "terminal_view",
  "thiserror 2.0.21",
  "tokio",
@@ -5323,6 +5323,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ptysession"
+version = "0.1.0"
+dependencies = [
+ "async-channel 2.5.0",
+ "futures-util",
+ "protocol",
+ "serde_json",
+ "terminal",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-tungstenite",
+ "tracing",
+]
+
+[[package]]
 name = "pxfm"
 version = "0.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7160,21 +7175,6 @@ dependencies = [
  "alacritty_terminal",
  "serde_json",
  "thiserror 2.0.21",
-]
-
-[[package]]
-name = "terminal_session"
-version = "0.1.0"
-dependencies = [
- "async-channel 2.5.0",
- "futures-util",
- "protocol",
- "serde_json",
- "terminal",
- "thiserror 2.0.21",
- "tokio",
- "tokio-tungstenite",
- "tracing",
 ]
 
 [[package]]

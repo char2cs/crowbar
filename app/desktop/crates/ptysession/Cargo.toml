@@ -1,5 +1,5 @@
 [package]
-name = "terminal_session"
+name = "ptysession"
 description = "Connects a native terminal view to the daemon: creates the PTY session over REST and pumps its websocket through the shell's loopback relay."
 version.workspace = true
 edition.workspace = true

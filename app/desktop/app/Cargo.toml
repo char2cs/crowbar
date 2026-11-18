@@ -43,7 +43,7 @@ startup_view.workspace = true
 tab_bar.workspace = true
 thiserror.workspace = true
 terminal.workspace = true
-terminal_session.workspace = true
+ptysession.workspace = true
 terminal_view.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
 tracing.workspace = true

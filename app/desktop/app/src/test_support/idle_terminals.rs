@@ -2,7 +2,7 @@ use std::rc::Rc;
 use std::sync::{Arc, OnceLock};
 
 use protocol::HostId;
-use terminal_session::TerminalSessions;
+use ptysession::TerminalSessions;
 use tokio::runtime::Runtime;
 
 use super::NoDaemon;
