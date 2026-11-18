@@ -23,14 +23,24 @@ at once and resumes from its `seq`: a re-attach is 3 frames, not 562 (40-turn ch
 paints 280 items at attach. It is the same feed, folded by the same code; a socket
 reconnect already resumed it this way.
 
+## Shipped: persisted feed (IndexedDB `chat-feeds`, v15)
+
+`stores/lib/feed-cache.ts`, keyed `[hostId, chatId]`, value `{schema, rows, cursor {seq, from, epoch}, savedAt}`.
+`rows` is the folded feed (items, order, facts) without live text; the newest 500 items are kept,
+the 100 most recently saved chats. A schema mismatch drops the entry on read.
+
+- Open: an attach with no feed in memory reads the entry; a hit shows at once and resubscribes
+  with `since = cursor.seq`. A frame that beat the read keeps the screen.
+- Reconcile: another run's epoch, a head or resync that disagrees with the cursor (daemon holds
+  fewer rows) forgets the entry and replays the newest window behind the shown copy, replacing
+  it at ready in one write (the `widening` path).
+- Write: through on settle and per folded row, queued behind a microtask and one transaction at a
+  time; hidden/pagehide flush queued rows first.
+- Forget: chat deletion, host removal, a live epoch change. Any IndexedDB failure is a miss.
+
 ## Remaining
 
-1. **Persist the folded feed across app starts** (IndexedDB, through `lib/persistence`).
-   This is a second copy of the ledger, so it needs a cursor that makes a wrong show
-   impossible: key `(hostId, chatId)`, store `{seq, from, epoch, rows}`; show it only
-   while the daemon's ready epoch and the ledger identity agree, resume with
-   `since: seq`, and let a `resync` close discard it. Write on detach and on a quiet
-   interval's end, never per row.
+1. ~~Persist the folded feed~~ shipped, below.
 2. **Batch a replay into one message** (plan 2026-11-06-long-chat-open-window item 1):
    one socket message and one webview channel send per page, not per row.
 3. **Window by bytes, not rows**, and open smaller (a few turns) with older turns paged
