@@ -9,7 +9,7 @@ repository.workspace = true
 publish.workspace = true
 
 [features]
-# DemoData, the fixed workspace of the gallery and of the unit tests.
+# DemoShell, the fixed workspace of the gallery and of the unit tests.
 fixtures = []
 
 [dependencies]

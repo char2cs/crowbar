@@ -14,7 +14,7 @@ use crate::store::settings_core::SettingsCore;
 
 type Listeners = Rc<RefCell<BTreeMap<u64, Listener>>>;
 
-/// Implements `SettingsBackend` and `RecordBackend` over the thread-safe core. Changes the core
+/// Implements `settings::Backend` and `RecordBackend` over the thread-safe core. Changes the core
 /// made on other threads reach the modal's listeners when [`Self::deliver_pending`] runs.
 #[derive(Clone)]
 pub struct SettingsAdapter {
