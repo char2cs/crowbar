@@ -1,6 +1,6 @@
 mod handle;
 
-pub use handle::{Handle, RECEIVER};
+pub use handle::Handle;
 
 use std::cell::Cell;
 use std::rc::Rc;

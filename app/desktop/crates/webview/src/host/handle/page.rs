@@ -33,7 +33,7 @@ impl Handle {
         self.platform.snapshot(self.id)
     }
 
-    /// Delivers a text message to the page by calling its [`RECEIVER`] function.
+    /// Delivers a text message to the page by calling its `window.__crowbarReceive` function.
     ///
     /// # Errors
     /// An [`Error`](crate::Error) when the backend has stopped.

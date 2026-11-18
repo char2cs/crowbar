@@ -16,7 +16,7 @@ backends, and an in-memory mock backend for tests.
   `ProtocolResponse`.
 - The backend port: `Platform` and its capabilities `ViewLifecycle`, `ViewLayout`, `PageControl`,
   `ViewFocus`, `ViewCapture`, `BrowsingData`.
-- `Error`, `Result`, `RECEIVER`; with feature `mock`: `MockPlatform` and `Call`.
+- `Error`, `Result`; with feature `mock`: `MockPlatform` and `Call`.
 
 ## Depends on
 

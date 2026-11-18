@@ -9,8 +9,7 @@ use crate::view::Color;
 use crate::view::Id;
 use crate::view::Visibility;
 
-/// The JavaScript function a page defines to receive messages from [`Handle::post_message`].
-pub const RECEIVER: &str = "__crowbarReceive";
+pub(crate) const RECEIVER: &str = "__crowbarReceive";
 
 /// A live web view. Dropping the handle destroys the view.
 pub struct Handle {

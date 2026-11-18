@@ -56,7 +56,7 @@ pub use backend::{
     ViewLifecycle,
 };
 pub use error::{Error, Result};
-pub use host::{Handle, Host, RECEIVER};
+pub use host::{Handle, Host};
 pub use scheme::{ProtocolHandler, ProtocolRequest, ProtocolResponder, ProtocolResponse};
 pub use view::{
     Bounds, Color, Config, Id, IpcHandler, Kind, PageEvent, PageHandler, ParentWindow, Snapshot,
