@@ -6,7 +6,6 @@ use gpui::{
 };
 use ui::{HoverFill, Icon, IconName, IconWeight, Palette, Surface, Theme, UiText, radius};
 
-use crate::chord::Chord;
 use crate::chord_source::ChordSource;
 use crate::element_id::element_id;
 use crate::frame::Frame;
@@ -14,6 +13,7 @@ use crate::intent::Intent;
 use crate::shortcut::Shortcut;
 use crate::shortcut_group::ShortcutGroup;
 use crate::spacing;
+use chord::Chord;
 
 const HEIGHT: f32 = 49.0;
 const BORDER_FADE: f32 = 0.6;
@@ -161,10 +161,10 @@ mod tests {
     use crate::intent::Intent;
     use crate::key::Key;
     use crate::pressed::Pressed;
-    use crate::primary::Primary;
     use crate::settings_read::SettingsRead as _;
     use crate::test_support::{inspect, open, run};
     use crate::value::Value;
+    use chord::Primary;
 
     const COMMAND: &str = "navigation.toggleConsole";
 

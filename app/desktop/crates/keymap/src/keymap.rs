@@ -2,9 +2,9 @@ use std::collections::BTreeMap;
 
 use protocol::{CommandId, KeyBinding, KeyChord};
 
-use crate::keystroke::Keystroke;
 use crate::shell_command::ShellCommand;
 use crate::shell_keys::project_bindings;
+use chord::Keystroke;
 
 /// The chords bound to shell commands: the defaults with the user's overrides applied.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,7 +93,7 @@ fn claim_chords(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modifier::Modifier;
+    use chord::Modifier;
 
     fn forwards(
         keymap: &Keymap,

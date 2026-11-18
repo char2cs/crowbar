@@ -1,0 +1,12 @@
+[package]
+name = "chord"
+description = "The one chord model of the Crowbar shell: the mod+shift+alt+key grammar, its parser and label, and the keystroke a window reports."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

@@ -1,10 +1,10 @@
 //! The rule for turning a key press into a chord.
 
-use crate::chord::Chord;
 use crate::modifier::Modifier;
 use crate::pressed::Pressed;
-use crate::primary::Primary;
 use crate::refusal::Refusal;
+use chord::Chord;
+use chord::Primary;
 
 const MODIFIER_KEYS: [&str; 6] = ["control", "alt", "shift", "meta", "platform", "function"];
 const LAST_FUNCTION_KEY: u8 = 24;

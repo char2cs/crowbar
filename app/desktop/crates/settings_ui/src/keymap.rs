@@ -2,13 +2,13 @@
 
 use std::collections::BTreeMap;
 
-use crate::chord::Chord;
 use crate::chord_source::ChordSource;
 use crate::document::Document;
 use crate::page::Page;
 use crate::schema::Schema;
 use crate::shortcut::Shortcut;
 use crate::shortcut_group::ShortcutGroup;
+use chord::Chord;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Keymap<'a> {

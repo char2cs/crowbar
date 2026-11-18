@@ -1,4 +1,4 @@
-use crate::chord_text::dom_key;
+use crate::dom_key::dom_key;
 use crate::modifier::Modifier;
 use crate::modifiers::Modifiers;
 

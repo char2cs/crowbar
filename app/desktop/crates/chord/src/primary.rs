@@ -1,8 +1,7 @@
 //! Which key plays the part of `mod` in a chord.
 
-/// The primary shortcut modifier of the platform.
+/// The primary shortcut modifier of the platform: a closed set, so other crates match it fully.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum Primary {
     /// Control: Linux.
     Control,

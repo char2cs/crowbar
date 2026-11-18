@@ -9,6 +9,7 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+chord.workspace = true
 protocol.workspace = true
 
 [lints]

@@ -1,10 +1,10 @@
 //! The shortcut currently waiting for a key press.
 
 use crate::capture::Capture;
-use crate::chord::Chord;
 use crate::pressed::Pressed;
-use crate::primary::Primary;
 use crate::refusal::Refusal;
+use chord::Chord;
+use chord::Primary;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ChordCapture {

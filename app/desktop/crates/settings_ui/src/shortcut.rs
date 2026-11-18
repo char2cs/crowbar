@@ -1,6 +1,6 @@
 //! One rebindable command.
 
-use crate::chord::Chord;
+use chord::Chord;
 
 /// A command with its default chord; users rebind it through the keybindings page.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -68,7 +68,8 @@ impl ShellView {
 mod tests {
     use std::collections::BTreeMap;
 
-    use keymap::{Keystroke, Modifier, ShellCommand};
+    use chord::{Keystroke, Modifier};
+    use keymap::ShellCommand;
 
     use super::*;
 

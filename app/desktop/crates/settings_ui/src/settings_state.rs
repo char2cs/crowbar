@@ -7,12 +7,12 @@ use crate::chord_capture::ChordCapture;
 use crate::document::Document;
 use crate::navigation::Navigation;
 use crate::page_id::PageId;
-use crate::primary::Primary;
 use crate::prompt::Prompt;
 use crate::schema::Schema;
 use crate::scope::Scope;
 use crate::snapshot::Snapshot;
 use crate::visibility::Visibility;
+use chord::Primary;
 
 mod buttons;
 mod editing;
@@ -86,9 +86,9 @@ mod tests {
     use super::*;
     use crate::page::Page;
     use crate::page_id::PageId;
-    use crate::primary::Primary;
     use crate::snapshot::Snapshot;
     use crate::test_support::{schema, size_row, state};
+    use chord::Primary;
 
     #[test]
     fn opens_on_the_requested_page_or_the_first() {

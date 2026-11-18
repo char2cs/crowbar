@@ -1,7 +1,7 @@
 use protocol::{CommandId, KeyBinding, KeyChord};
 
-use crate::keystroke::Keystroke;
-use crate::modifier::Modifier;
+use chord::Keystroke;
+use chord::Modifier;
 
 const SLOTS: std::ops::RangeInclusive<u8> = 1..=9;
 const COMMAND_PREFIX: &str = "navigation.selectProject.";

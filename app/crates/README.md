@@ -93,6 +93,7 @@ tests/<crate>.rs         public-API tests; tests/support/ shared fakes
 | `terminal` / `terminalview` | terminal emulation (alacritty grid, daemon frame feed, selection, search, key encoding) without GPUI, and its GPUI view |
 | `store` | daemon-backed data for the shell: sidebar entities and commands, settings and records |
 | `keymap` | which chords the shell owns and how a key typed in a pane reaches it |
+| `chord` | the one chord notation (`mod+shift+alt+key`): parser, label, the primary modifier and the keystroke a window reports |
 | `platform` | open a link in the system browser, reveal a path, the rule for where a link may go |
 | `diagnostics` | rotated log file and a report file for every panic |
 | `windowstate` | remembers window size, position and maximized state |

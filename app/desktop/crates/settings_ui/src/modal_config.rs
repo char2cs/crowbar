@@ -6,10 +6,10 @@ use gpui::{App, Window};
 
 use crate::close_handler::CloseHandler;
 use crate::page_id::PageId;
-use crate::primary::Primary;
 use crate::record_backend::RecordBackend;
 use crate::schema::Schema;
 use crate::settings_backend::SettingsBackend;
+use chord::Primary;
 
 /// The schema, the two backends, the primary modifier and the optional deep link and close callback of a modal.
 pub struct ModalConfig {

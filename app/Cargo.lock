@@ -1048,6 +1048,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "chord"
+version = "0.1.0"
+
+[[package]]
 name = "cipher"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1497,6 +1501,7 @@ dependencies = [
  "browser",
  "browseragent",
  "browserbar",
+ "chord",
  "diagnostics",
  "folderpicker",
  "gpui",
@@ -3704,6 +3709,7 @@ dependencies = [
 name = "keymap"
 version = "0.1.0"
 dependencies = [
+ "chord",
  "protocol",
 ]
 
@@ -6403,6 +6409,7 @@ dependencies = [
 name = "settings_ui"
 version = "0.1.0"
 dependencies = [
+ "chord",
  "gpui",
  "thiserror 2.0.21",
  "ui",

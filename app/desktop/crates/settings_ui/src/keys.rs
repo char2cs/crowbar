@@ -34,8 +34,8 @@ fn dom_name(key: &str) -> &str {
 mod tests {
     use super::*;
     use crate::capture::Capture;
-    use crate::chord::Chord;
-    use crate::primary::Primary;
+    use chord::Chord;
+    use chord::Primary;
 
     fn captured(source: &str) -> Capture {
         let keystroke = Keystroke::parse(source).unwrap();

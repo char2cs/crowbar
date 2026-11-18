@@ -63,9 +63,9 @@ mod tests {
         use crate::catalog::KEYBINDING_OVERRIDES;
         use crate::key::Key;
         use crate::pressed::Pressed;
-        use crate::primary::Primary;
         use crate::settings_read::SettingsRead as _;
         use crate::value::Value;
+        use chord::Primary;
 
         let (harness, cx) = open(cx, "keybindings");
         run(

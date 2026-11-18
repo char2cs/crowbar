@@ -3,7 +3,6 @@
 use std::collections::BTreeMap;
 
 use super::SettingsState;
-use crate::chord::Chord;
 use crate::chord_source::ChordSource;
 use crate::effect::Effect;
 use crate::key::Key;
@@ -13,6 +12,7 @@ use crate::refusal::Refusal;
 use crate::shortcut::Shortcut;
 use crate::shortcut_group::ShortcutGroup;
 use crate::value::Value;
+use chord::Chord;
 
 impl SettingsState {
     /// The chord of `shortcut` and whether the user set it.
@@ -125,10 +125,10 @@ mod tests {
     use crate::button_spec::ButtonSpec;
     use crate::modifier::Modifier;
     use crate::page::Page;
-    use crate::primary::Primary;
     use crate::schema::Schema;
     use crate::snapshot::Snapshot;
     use crate::test_support::{Case, run_cases};
+    use chord::Primary;
 
     fn state() -> SettingsState {
         let keys = Page::new("keybindings", "Keybindings", "keyboard").block(

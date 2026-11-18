@@ -10,7 +10,6 @@ use crate::effect::Effect;
 use crate::key::Key;
 use crate::number_range::NumberRange;
 use crate::page::Page;
-use crate::primary::Primary;
 use crate::row::Row;
 use crate::schema::Schema;
 use crate::section::Section;
@@ -21,6 +20,7 @@ use crate::snapshot::Snapshot;
 use crate::validator::Validator;
 use crate::value::Value;
 use crate::values::Values;
+use chord::Primary;
 
 pub(crate) fn engine_row() -> Row {
     Row::new(

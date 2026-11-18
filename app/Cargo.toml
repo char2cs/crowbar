@@ -15,6 +15,7 @@ publish = false
 atomicfile = { path = "crates/atomicfile" }
 browser = { path = "crates/browser" }
 browseragent = { path = "crates/browseragent" }
+chord = { path = "desktop/crates/chord" }
 protocol = { path = "crates/protocol" }
 layout = { path = "crates/layout" }
 webview = { path = "desktop/crates/webview" }
