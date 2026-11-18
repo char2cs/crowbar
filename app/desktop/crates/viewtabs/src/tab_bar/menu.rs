@@ -57,10 +57,10 @@ impl TabBar {
             return Vec::new();
         };
         let bar = cx.entity();
-        let away = ui::popup::click_away(window, move |_, cx: &mut App| {
+        let away = ui::click_away(window, move |_, cx: &mut App| {
             bar.update(cx, Self::close_menu);
         });
-        vec![away, ui::popup::at(self.menu_at, menu)]
+        vec![away, ui::popup_at(self.menu_at, menu)]
     }
 }
 

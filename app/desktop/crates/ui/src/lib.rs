@@ -21,11 +21,10 @@ pub use display::{
     ToastQueueEvent, ToastSide,
 };
 pub use error::Error;
-pub use floating::popup;
 pub use floating::{
     ContextMenu, Dialog, DialogExtent, DialogSize, DialogStyle, DropdownMenu, Menu, MenuAction,
     MenuItem, OverlayGuard, OverlayHost, OverlayId, Overlays, Placement, Popover, Select, Tooltip,
-    TooltipSide,
+    TooltipSide, click_away, popup_at,
 };
 pub use foundation::{
     Appearance, CubicBezier, Glide, HoverFill, Icon, IconName, IconWeight, Motion, Palette, Pose,

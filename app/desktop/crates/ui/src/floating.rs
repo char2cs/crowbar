@@ -8,7 +8,7 @@ mod overlay_id;
 mod overlays;
 mod placement;
 mod popover;
-pub mod popup;
+mod popup;
 mod tooltip;
 mod tooltip_side;
 
@@ -22,5 +22,6 @@ pub use overlays::Overlays;
 pub use placement::Placement;
 pub use popover::Popover;
 pub(crate) use popover::bindings as popover_bindings;
+pub use popup::{click_away, popup_at};
 pub use tooltip::Tooltip;
 pub use tooltip_side::TooltipSide;

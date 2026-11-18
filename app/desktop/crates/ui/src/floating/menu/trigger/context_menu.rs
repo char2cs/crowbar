@@ -90,7 +90,7 @@ impl RenderOnce for ContextMenu {
         };
         let panel = match placement {
             Some(placement) => popup::placed(placement, OFFSET, menu),
-            None => popup::at(at, menu),
+            None => popup::popup_at(at, menu),
         };
         wrapper
             .child(popup::click_away(window, move |_, cx| close(&state, cx)))

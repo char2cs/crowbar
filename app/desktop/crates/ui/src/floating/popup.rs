@@ -123,7 +123,7 @@ pub(crate) fn beside(content: impl IntoElement) -> AnyElement {
 }
 
 /// A popup placed with its top-left corner at `position`.
-pub fn at(
+pub fn popup_at(
     position: Point<Pixels>,
     content: impl IntoElement,
 ) -> AnyElement {
