@@ -19,14 +19,12 @@ pub(crate) use slot_id::SlotId;
 pub(crate) use slot_pool::SlotPool;
 pub(crate) use slot_request::{BLANK_URL, SlotRequest};
 
-use webview::{WebViewHandle, WebViewKind};
-
 use crate::slot::slot_owner::SlotOwner;
 
 #[derive(Debug)]
 pub(crate) struct Slot {
     pub(crate) id: SlotId,
-    pub(crate) kind: WebViewKind,
-    pub(crate) handle: WebViewHandle,
+    pub(crate) kind: webview::Kind,
+    pub(crate) handle: webview::Handle,
     pub(crate) owner: SlotOwner,
 }

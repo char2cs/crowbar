@@ -5,7 +5,7 @@ use panehost::{
     DirBundle, ExtensionBundles, OriginTable, PaneBundles, PaneHost, PaneHostConfig, PaneProtocol,
 };
 use protocol::{DaemonTransport, HostId};
-use webview::{HostConfig, WebViewHost};
+use webview::HostConfig;
 
 use crate::app_options::AppOptions;
 use crate::core_panes::register_core_panes;
@@ -26,7 +26,7 @@ pub(crate) fn build_host(
         extensions: ExtensionBundles::default(),
     };
     let protocol = PaneProtocol::new(SCHEME, Arc::clone(&transport), bundles, origins.clone());
-    let webviews = WebViewHost::native(HostConfig {
+    let webviews = webview::Host::native(HostConfig {
         scheme: SCHEME.into(),
         protocol: Arc::new(protocol),
         data_dir: Some(options.state_dir().join("webview")),

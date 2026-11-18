@@ -1,8 +1,8 @@
 use crate::error::Result;
+use crate::host::handle::{Handle, RECEIVER};
 use crate::view::Snapshot;
-use crate::web_view_host::web_view_handle::{RECEIVER, WebViewHandle};
 
-impl WebViewHandle {
+impl Handle {
     /// Runs a script in the page.
     ///
     /// # Errors

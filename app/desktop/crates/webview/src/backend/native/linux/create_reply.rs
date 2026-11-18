@@ -1,18 +1,18 @@
 use std::sync::mpsc;
 
 use crate::error::Result;
-use crate::view::WebViewId;
+use crate::view::Id;
 
 pub(crate) struct CreateReply {
     pub(crate) reply: mpsc::Sender<Result<()>>,
-    pub(crate) id: WebViewId,
+    pub(crate) id: Id,
 }
 
 impl CreateReply {
     pub(crate) fn send(
         self,
         created: Result<()>,
-    ) -> Option<WebViewId> {
+    ) -> Option<Id> {
         let Err(mpsc::SendError(Ok(()))) = self.reply.send(created) else {
             return None;
         };
@@ -30,16 +30,12 @@ mod tests {
         let (reply, waiting) = mpsc::channel();
         let answered = CreateReply {
             reply: reply.clone(),
-            id: WebViewId(7),
+            id: Id(7),
         }
         .send(Ok(()));
         assert_eq!((answered, waiting.try_recv().is_ok()), (None, true));
         drop(waiting);
-        let abandoned = CreateReply {
-            reply,
-            id: WebViewId(8),
-        }
-        .send(Ok(()));
-        assert_eq!(abandoned, Some(WebViewId(8)));
+        let abandoned = CreateReply { reply, id: Id(8) }.send(Ok(()));
+        assert_eq!(abandoned, Some(Id(8)));
     }
 }

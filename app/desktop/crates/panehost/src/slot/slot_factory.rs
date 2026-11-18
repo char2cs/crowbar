@@ -1,7 +1,7 @@
 use std::cell::Cell;
 use std::sync::Arc;
 
-use webview::{Bounds, Color, IpcHandler, Visibility, WebViewConfig, WebViewHost, WebViewKind};
+use webview::{Bounds, Color, IpcHandler, Visibility};
 
 use crate::error::Result;
 use crate::slot::Slot;
@@ -16,7 +16,7 @@ use crate::slot::slot_owner::SlotOwner;
 use crate::slot::slot_request::{BLANK_URL, SlotRequest};
 
 pub(crate) struct SlotFactory {
-    webviews: WebViewHost,
+    webviews: webview::Host,
     config: PaneHostConfig,
     gate: Arc<InboxGate>,
     next: Cell<u64>,
@@ -25,7 +25,7 @@ pub(crate) struct SlotFactory {
 
 impl SlotFactory {
     pub(crate) fn new(
-        webviews: WebViewHost,
+        webviews: webview::Host,
         config: PaneHostConfig,
         gate: Arc<InboxGate>,
     ) -> Self {
@@ -51,7 +51,7 @@ impl SlotFactory {
 
     pub(crate) fn snapshot_all(
         &self,
-        ids: &[webview::WebViewId],
+        ids: &[webview::Id],
     ) -> Vec<webview::Result<Option<webview::Snapshot>>> {
         self.webviews.snapshot_all(ids)
     }
@@ -80,11 +80,11 @@ impl SlotFactory {
 
     fn config_for(
         &self,
-        kind: &WebViewKind,
+        kind: &webview::Kind,
         bounds: Bounds,
         owner: &SlotOwner,
-    ) -> WebViewConfig {
-        if *kind == WebViewKind::Browser {
+    ) -> webview::Config {
+        if *kind == webview::Kind::Browser {
             return self.browser_config(bounds, owner);
         }
         self.pane_config((kind.clone(), bounds), owner)
@@ -94,11 +94,11 @@ impl SlotFactory {
         &self,
         bounds: Bounds,
         owner: &SlotOwner,
-    ) -> WebViewConfig {
-        WebViewConfig {
+    ) -> webview::Config {
+        webview::Config {
             url: BLANK_URL.into(),
             bounds,
-            kind: WebViewKind::Browser,
+            kind: webview::Kind::Browser,
             visibility: Visibility::Hidden,
             background: None,
             initialization_script: None,
@@ -109,10 +109,10 @@ impl SlotFactory {
 
     fn pane_config(
         &self,
-        (kind, bounds): (WebViewKind, Bounds),
+        (kind, bounds): (webview::Kind, Bounds),
         owner: &SlotOwner,
-    ) -> WebViewConfig {
-        WebViewConfig {
+    ) -> webview::Config {
+        webview::Config {
             url: BLANK_URL.into(),
             bounds,
             kind,
@@ -157,7 +157,7 @@ mod tests {
     use std::rc::Rc;
 
     use protocol::{HostId, PaneId};
-    use webview::{Bounds, Call, MockPlatform, ParentWindow, WebViewKind};
+    use webview::{Bounds, Call, MockPlatform, ParentWindow};
 
     use super::*;
     use crate::slot::inbox::IpcMessage;
@@ -170,7 +170,7 @@ mod tests {
             max_idle_slots: 1,
             page_handler: None,
         };
-        let webviews = WebViewHost::with_platform(Rc::<MockPlatform>::clone(mock));
+        let webviews = webview::Host::with_platform(Rc::<MockPlatform>::clone(mock));
         (
             SlotFactory::new(webviews, config, Arc::new(InboxGate::new(sink))),
             inbox,
@@ -189,7 +189,7 @@ mod tests {
     fn request() -> SlotRequest {
         SlotRequest {
             parent: ParentWindow::X11(3),
-            kind: WebViewKind::Core,
+            kind: webview::Kind::Core,
             bounds: square(),
         }
     }
@@ -240,7 +240,7 @@ mod tests {
         factory.set_background(SURFACE);
         factory.create(request()).unwrap();
         let mut browser = request();
-        browser.kind = WebViewKind::Browser;
+        browser.kind = webview::Kind::Browser;
         factory.create(browser).unwrap();
         assert_eq!(
             created_backgrounds(&mock),

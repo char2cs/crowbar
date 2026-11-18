@@ -6,7 +6,7 @@ use protocol::ExtensionId;
 /// its own web context and process, so a hung or hostile extension pane cannot touch core
 /// panes or other extensions.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum WebViewKind {
+pub enum Kind {
     /// A pane shipped with the app.
     Core,
     /// A pane provided by the given extension.

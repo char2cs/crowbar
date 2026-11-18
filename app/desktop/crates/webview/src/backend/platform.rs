@@ -23,11 +23,11 @@ mod tests {
     use super::*;
     use crate::backend::mock::MockPlatform;
     use crate::view::Bounds;
+    use crate::view::Config;
+    use crate::view::Id;
+    use crate::view::Kind;
     use crate::view::ParentWindow;
     use crate::view::Visibility;
-    use crate::view::WebViewConfig;
-    use crate::view::WebViewId;
-    use crate::view::WebViewKind;
 
     fn rect(
         x: f64,
@@ -47,10 +47,10 @@ mod tests {
     fn a_backend_is_driven_through_the_trait_object() {
         let mock = Rc::new(MockPlatform::default());
         let platform: Rc<dyn Platform> = Rc::<MockPlatform>::clone(&mock);
-        let config = WebViewConfig {
+        let config = Config {
             url: "about:blank".into(),
             bounds: rect(0.0, 0.0, 1.0, 1.0),
-            kind: WebViewKind::Core,
+            kind: Kind::Core,
             visibility: Visibility::Hidden,
             background: None,
             initialization_script: None,
@@ -58,9 +58,9 @@ mod tests {
             on_page: None,
         };
         platform
-            .create(WebViewId(1), ParentWindow::X11(1), config)
+            .create(Id(1), ParentWindow::X11(1), config)
             .unwrap();
-        platform.destroy(WebViewId(1)).unwrap();
+        platform.destroy(Id(1)).unwrap();
         assert!(mock.live_views().is_empty(), "destroyed through the trait");
     }
 }

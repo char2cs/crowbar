@@ -24,10 +24,10 @@ use crate::backend::native::linux::gtk_state::remembered_place::RememberedPlace;
 use crate::backend::native::wry_builder::{common_attributes, register_scheme, to_rect};
 use crate::error::{Error, Result};
 use crate::scheme::ProtocolHandler;
+use crate::view::Config;
+use crate::view::Id;
+use crate::view::Kind;
 use crate::view::ParentWindow;
-use crate::view::WebViewConfig;
-use crate::view::WebViewId;
-use crate::view::WebViewKind;
 
 const BROWSER_DIR: &str = "browser";
 
@@ -38,7 +38,7 @@ pub(crate) struct GtkState {
     core_context: WebContext,
     browser_context: WebContext,
     extension_contexts: HashMap<ExtensionId, WebContext>,
-    pub(crate) views: HashMap<WebViewId, LiveView>,
+    pub(crate) views: HashMap<Id, LiveView>,
 }
 
 impl GtkState {
@@ -58,9 +58,9 @@ impl GtkState {
 
     pub(crate) fn create(
         &mut self,
-        id: WebViewId,
+        id: Id,
         parent: ParentWindow,
-        config: &WebViewConfig,
+        config: &Config,
     ) -> Result<()> {
         let ParentWindow::X11(window) = parent else {
             return Err(Error::UnsupportedParent("a Linux host needs an X11 window"));
@@ -83,10 +83,7 @@ impl GtkState {
     }
 
     pub(crate) fn clear_browsing_data(&mut self) -> Result<()> {
-        let open = self
-            .views
-            .values()
-            .find(|live| live.kind == WebViewKind::Browser);
+        let open = self.views.values().find(|live| live.kind == Kind::Browser);
         if let Some(live) = open {
             return Ok(live.view.clear_all_browsing_data()?);
         }
@@ -98,7 +95,7 @@ impl GtkState {
 
     pub(crate) fn destroy(
         &mut self,
-        id: WebViewId,
+        id: Id,
     ) -> Result<()> {
         self.views
             .remove(&id)
@@ -108,31 +105,31 @@ impl GtkState {
 
     pub(crate) fn live(
         &self,
-        id: WebViewId,
+        id: Id,
     ) -> Result<&LiveView> {
         self.views.get(&id).ok_or(Error::UnknownWebView(id))
     }
 
     fn builder_for<'a>(
         &'a mut self,
-        kind: &WebViewKind,
+        kind: &Kind,
     ) -> WebViewBuilder<'a> {
         let related = self
             .views
             .values()
-            .find(|live| live.kind == WebViewKind::Core && *kind == WebViewKind::Core)
+            .find(|live| live.kind == Kind::Core && *kind == Kind::Core)
             .map(|live| live.view.webview());
         if let Some(anchor) = related {
             return WebViewBuilder::new().with_related_view(anchor);
         }
-        if *kind == WebViewKind::Browser {
+        if *kind == Kind::Browser {
             return WebViewBuilder::new_with_web_context(&mut self.browser_context);
         }
         let scheme = self.scheme.clone();
         let protocol = Arc::clone(&self.protocol);
         let context = match kind {
-            WebViewKind::Core | WebViewKind::Browser => &mut self.core_context,
-            WebViewKind::Extension(extension) => {
+            Kind::Core | Kind::Browser => &mut self.core_context,
+            Kind::Extension(extension) => {
                 let dir = self
                     .data_dir
                     .as_ref()
@@ -224,11 +221,11 @@ mod tests {
     fn config_at(
         url: &str,
         bounds: Bounds,
-    ) -> WebViewConfig {
-        WebViewConfig {
+    ) -> Config {
+        Config {
             url: url.into(),
             bounds,
-            kind: WebViewKind::Core,
+            kind: Kind::Core,
             visibility: Visibility::Shown,
             background: None,
             initialization_script: None,
@@ -262,7 +259,7 @@ mod tests {
     fn a_parent_that_is_not_an_x11_window_is_refused() {
         let mut state = state_serving(Arc::new(Silent));
         let config = config_at("about:blank", rect(0.0, 0.0, 1.0, 1.0));
-        let refused = state.create(WebViewId(1), ParentWindow::AppKit(1), &config);
+        let refused = state.create(Id(1), ParentWindow::AppKit(1), &config);
         assert!(
             matches!(refused, Err(Error::UnsupportedParent(_))),
             "refused"
@@ -274,7 +271,7 @@ mod tests {
         let mut state = state_serving(Arc::new(Recording(sender)));
         let config = config_at("crowbar://app/page", rect(0.0, 0.0, 100.0, 100.0));
         let host = gtk::Fixed::new();
-        let _view = common_attributes(state.builder_for(&WebViewKind::Core), "wv-1", &config)
+        let _view = common_attributes(state.builder_for(&Kind::Core), "wv-1", &config)
             .build_gtk(&host)
             .unwrap();
         let window = gtk::Window::new(gtk::WindowType::Toplevel);

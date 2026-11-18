@@ -7,6 +7,6 @@ mod macos;
 mod wry_builder;
 
 #[cfg(target_os = "linux")]
-pub(crate) use linux::LinuxPlatform;
+pub(crate) use linux::GtkPlatform;
 #[cfg(target_os = "macos")]
-pub(crate) use macos::MacosPlatform;
+pub(crate) use macos::AppkitPlatform;

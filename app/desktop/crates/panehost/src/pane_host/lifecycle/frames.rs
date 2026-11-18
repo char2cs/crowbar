@@ -214,7 +214,7 @@ impl PaneHost {
 mod tests {
     use protocol::{CommandId, DisplayText, ExtensionId, PaneFrame, PaneState, PaneTitle, encode};
     use serde_json::json;
-    use webview::{Call, Visibility, WebViewKind};
+    use webview::{Call, Visibility};
 
     use super::*;
     use crate::pane_host::reconcile::PaneDisplay;
@@ -374,7 +374,7 @@ mod tests {
         f.sync(&[review], &["r"], Some("r"));
         let git = ExtensionId::new("git").unwrap();
         assert!(
-            matches!(&f.mock.calls()[0], Call::Create { kind: WebViewKind::Extension(e), .. } if e.as_str() == git.as_str()),
+            matches!(&f.mock.calls()[0], Call::Create { kind: webview::Kind::Extension(e), .. } if e.as_str() == git.as_str()),
             "extension view"
         );
         register(&mut f, "r", "ext.git.review");

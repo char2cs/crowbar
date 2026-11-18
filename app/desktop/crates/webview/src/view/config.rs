@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use crate::view::bounds::Bounds;
 use crate::view::color::Color;
+use crate::view::kind::Kind;
 use crate::view::page_event::PageHandler;
 use crate::view::visibility::Visibility;
-use crate::view::web_view_kind::WebViewKind;
 
 /// Called with the text of every message the page posts through `window.ipc.postMessage`.
 /// It runs on the platform thread and belongs to exactly one web view, so the handler's
@@ -13,13 +13,13 @@ pub type IpcHandler = Arc<dyn Fn(String) + Send + Sync + 'static>;
 
 /// What to create.
 #[derive(Clone)]
-pub struct WebViewConfig {
+pub struct Config {
     /// The page to load.
     pub url: String,
     /// Initial placement.
     pub bounds: Bounds,
     /// Core or extension view.
-    pub kind: WebViewKind,
+    pub kind: Kind,
     /// Initial visibility.
     pub visibility: Visibility,
     /// What the view shows before its page paints; `None` leaves the engine default.
@@ -32,12 +32,12 @@ pub struct WebViewConfig {
     pub on_page: Option<PageHandler>,
 }
 
-impl std::fmt::Debug for WebViewConfig {
+impl std::fmt::Debug for Config {
     fn fmt(
         &self,
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        f.debug_struct("WebViewConfig")
+        f.debug_struct("Config")
             .field("url", &self.url)
             .field("bounds", &self.bounds)
             .field("kind", &self.kind)
@@ -66,10 +66,10 @@ mod tests {
 
     #[test]
     fn debug_shows_the_page_and_hides_the_script_and_handler() {
-        let config = WebViewConfig {
+        let config = Config {
             url: "crowbar://local/x".into(),
             bounds: rect(0.0, 0.0, 1.0, 1.0),
-            kind: WebViewKind::Core,
+            kind: Kind::Core,
             visibility: Visibility::Hidden,
             background: None,
             initialization_script: Some("secret-script".into()),

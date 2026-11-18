@@ -1,6 +1,6 @@
 use layout::Layout;
 use protocol::{PaneId, RelayScope};
-use webview::{ParentWindow, WebViewKind};
+use webview::ParentWindow;
 
 use crate::catalog::PaneKind;
 use crate::catalog::PaneType;
@@ -48,7 +48,7 @@ impl PaneHost {
 
     fn revoke_relay(
         &self,
-        view: webview::WebViewId,
+        view: webview::Id,
     ) {
         let Some(assignment) = self.origins.get(view) else {
             return;
@@ -104,9 +104,9 @@ impl PaneHost {
     ) -> Result<()> {
         let browser = is_browser(&pane_type.id);
         let kind = match pane_type.id.extension() {
-            _ if browser => WebViewKind::Browser,
-            Some(extension) => WebViewKind::Extension(extension),
-            None => WebViewKind::Core,
+            _ if browser => webview::Kind::Browser,
+            Some(extension) => webview::Kind::Extension(extension),
+            None => webview::Kind::Core,
         };
         let url = self.page_url(pane_type, (visible, layout));
         let request = SlotRequest {

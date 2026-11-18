@@ -1,6 +1,6 @@
 use crate::error::Result;
+use crate::view::Id;
 use crate::view::Snapshot;
-use crate::view::WebViewId;
 
 /// Reading back the pixels of web views.
 pub trait ViewCapture {
@@ -11,7 +11,7 @@ pub trait ViewCapture {
     /// An [`Error`](crate::Error) when the view is unknown or the backend has stopped.
     fn snapshot(
         &self,
-        _id: WebViewId,
+        _id: Id,
     ) -> Result<Option<Snapshot>> {
         Ok(None)
     }
@@ -21,7 +21,7 @@ pub trait ViewCapture {
     /// The answers are in the order of `ids`.
     fn snapshot_all(
         &self,
-        ids: &[WebViewId],
+        ids: &[Id],
     ) -> Vec<Result<Option<Snapshot>>> {
         ids.iter().map(|id| self.snapshot(*id)).collect()
     }
@@ -37,7 +37,7 @@ mod tests {
 
     #[test]
     fn a_backend_that_cannot_read_pixels_answers_none_for_every_view() {
-        let answers = Blind.snapshot_all(&[WebViewId(1), WebViewId(2)]);
+        let answers = Blind.snapshot_all(&[Id(1), Id(2)]);
         assert_eq!(answers.len(), 2, "one answer per id");
         assert!(
             answers.iter().all(|answer| matches!(answer, Ok(None))),

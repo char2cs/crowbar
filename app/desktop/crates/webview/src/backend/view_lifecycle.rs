@@ -1,7 +1,7 @@
 use crate::error::Result;
+use crate::view::Config;
+use crate::view::Id;
 use crate::view::ParentWindow;
-use crate::view::WebViewConfig;
-use crate::view::WebViewId;
 
 /// Creating and destroying web views.
 pub trait ViewLifecycle {
@@ -11,9 +11,9 @@ pub trait ViewLifecycle {
     /// An [`Error`](crate::Error) when the engine cannot create the view.
     fn create(
         &self,
-        id: WebViewId,
+        id: Id,
         parent: ParentWindow,
-        config: WebViewConfig,
+        config: Config,
     ) -> Result<()>;
 
     /// Destroys a web view and frees its resources.
@@ -22,6 +22,6 @@ pub trait ViewLifecycle {
     /// An [`Error`](crate::Error) when the view is unknown or the backend has stopped.
     fn destroy(
         &self,
-        id: WebViewId,
+        id: Id,
     ) -> Result<()>;
 }

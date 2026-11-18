@@ -4,10 +4,10 @@ use platform::AppkitParent;
 use wry::{WebView, WebViewBuilder, WebViewBuilderExtDarwin};
 
 use crate::backend::browsing_data::BrowsingData;
+use crate::backend::native::macos::appkit_platform::AppkitPlatform;
 use crate::backend::native::macos::data_store::BROWSER_STORE;
-use crate::backend::native::macos::macos_platform::MacosPlatform;
 use crate::error::{Error, Result};
-use crate::view::WebViewKind;
+use crate::view::Kind;
 
 fn scratch_browser_view(parent: Option<AppkitParent>) -> Result<WebView> {
     let parent = parent.ok_or(Error::UnsupportedParent("no window hosts a web view yet"))?;
@@ -16,14 +16,14 @@ fn scratch_browser_view(parent: Option<AppkitParent>) -> Result<WebView> {
         .build_as_child(&parent)?)
 }
 
-impl BrowsingData for MacosPlatform {
+impl BrowsingData for AppkitPlatform {
     fn clear_browsing_data(&self) -> Result<()> {
         let open: Option<Rc<WebView>> = {
             let kinds = self.kinds.borrow();
             let views = self.views.borrow();
             kinds
                 .iter()
-                .find(|(_, kind)| **kind == WebViewKind::Browser)
+                .find(|(_, kind)| **kind == Kind::Browser)
                 .and_then(|(id, _)| views.get(id).cloned())
         };
         if let Some(browser) = open {

@@ -1,10 +1,10 @@
 use std::fmt;
 
-/// Identifies one web view of a [`WebViewHost`](crate::WebViewHost) for its whole life.
+/// Identifies one web view of a [`Host`](crate::Host) for its whole life.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct WebViewId(pub(crate) u64);
+pub struct Id(pub(crate) u64);
 
-impl WebViewId {
+impl Id {
     /// Parses the text form produced by [`Display`](fmt::Display).
     #[must_use]
     pub fn parse(text: &str) -> Option<Self> {
@@ -12,7 +12,7 @@ impl WebViewId {
     }
 }
 
-impl fmt::Display for WebViewId {
+impl fmt::Display for Id {
     fn fmt(
         &self,
         f: &mut fmt::Formatter<'_>,
@@ -27,10 +27,10 @@ mod tests {
 
     #[test]
     fn text_form_round_trips() {
-        let id = WebViewId(42);
+        let id = Id(42);
         assert_eq!(id.to_string(), "wv-42", "display");
-        assert_eq!(WebViewId::parse("wv-42"), Some(id), "parse");
-        assert_eq!(WebViewId::parse("42"), None, "missing prefix");
-        assert_eq!(WebViewId::parse("wv-x"), None, "not a number");
+        assert_eq!(Id::parse("wv-42"), Some(id), "parse");
+        assert_eq!(Id::parse("42"), None, "missing prefix");
+        assert_eq!(Id::parse("wv-x"), None, "not a number");
     }
 }

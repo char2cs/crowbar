@@ -1,5 +1,5 @@
 use crate::error::Result;
-use crate::view::WebViewId;
+use crate::view::Id;
 
 /// What runs in a web view's page.
 pub trait PageControl {
@@ -9,7 +9,7 @@ pub trait PageControl {
     /// An [`Error`](crate::Error) when the view is unknown or the backend has stopped.
     fn eval(
         &self,
-        id: WebViewId,
+        id: Id,
         script: &str,
     ) -> Result<()>;
 
@@ -19,7 +19,7 @@ pub trait PageControl {
     /// An [`Error`](crate::Error) when the view is unknown or the backend has stopped.
     fn navigate(
         &self,
-        id: WebViewId,
+        id: Id,
         url: &str,
     ) -> Result<()>;
 }

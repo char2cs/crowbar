@@ -9,9 +9,9 @@ use crate::backend::native::wry_builder::to_rect;
 use crate::error::Result;
 use crate::view::Bounds;
 use crate::view::Color;
+use crate::view::Id;
 use crate::view::Snapshot;
 use crate::view::Visibility;
-use crate::view::WebViewId;
 
 fn answer(
     reply: &mpsc::Sender<Result<Option<Snapshot>>>,
@@ -25,7 +25,7 @@ fn answer(
 impl GtkState {
     pub(crate) fn set_bounds(
         &self,
-        id: WebViewId,
+        id: Id,
         bounds: Bounds,
     ) -> Result<()> {
         let live = self.live(id)?;
@@ -34,7 +34,7 @@ impl GtkState {
 
     pub(crate) fn set_visibility(
         &self,
-        id: WebViewId,
+        id: Id,
         visibility: Visibility,
     ) -> Result<()> {
         let live = self.live(id)?;
@@ -46,7 +46,7 @@ impl GtkState {
 
     pub(crate) fn set_background(
         &self,
-        id: WebViewId,
+        id: Id,
         color: Color,
     ) -> Result<()> {
         Ok(self.live(id)?.view.set_background_color(color.rgba())?)
@@ -54,7 +54,7 @@ impl GtkState {
 
     pub(crate) fn eval(
         &self,
-        id: WebViewId,
+        id: Id,
         script: &str,
     ) -> Result<()> {
         Ok(self.live(id)?.view.evaluate_script(script)?)
@@ -62,7 +62,7 @@ impl GtkState {
 
     pub(crate) fn navigate(
         &self,
-        id: WebViewId,
+        id: Id,
         url: &str,
     ) -> Result<()> {
         Ok(self.live(id)?.view.load_url(url)?)
@@ -70,21 +70,21 @@ impl GtkState {
 
     pub(crate) fn focus(
         &self,
-        id: WebViewId,
+        id: Id,
     ) -> Result<()> {
         Ok(self.live(id)?.view.focus()?)
     }
 
     pub(crate) fn focus_parent(
         &self,
-        id: WebViewId,
+        id: Id,
     ) -> Result<()> {
         Ok(self.live(id)?.view.focus_parent()?)
     }
 
     pub(crate) fn snapshot(
         &self,
-        id: WebViewId,
+        id: Id,
         reply: mpsc::Sender<Result<Option<Snapshot>>>,
     ) {
         let page = match self.live(id) {

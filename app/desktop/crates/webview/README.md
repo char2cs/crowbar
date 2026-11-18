@@ -8,9 +8,9 @@ backends, and an in-memory mock backend for tests.
 
 ## Public interface
 
-- `WebViewHost` and `WebViewHandle`: create a view in a parent window, then place, show, hide,
+- `Host` and `Handle`: create a view in a parent window, then place, show, hide,
   navigate, evaluate script in and destroy it; `HostConfig`.
-- What a view is: `WebViewConfig` (with `IpcHandler`), `WebViewId`, `WebViewKind`, `Bounds`,
+- What a view is: `Config` (with `IpcHandler`), `Id`, `Kind`, `Bounds`,
   `Color`, `Visibility`, `ParentWindow`, `Snapshot`, `PageEvent` and `PageHandler`.
 - The `crowbar://` scheme: `ProtocolHandler`, `ProtocolResponder`, `ProtocolRequest`,
   `ProtocolResponse`.

@@ -3,13 +3,13 @@ use crate::backend::mock::mock_platform::MockPlatform;
 use crate::backend::page_control::PageControl;
 use crate::backend::view_capture::ViewCapture;
 use crate::error::Result;
+use crate::view::Id;
 use crate::view::Snapshot;
-use crate::view::WebViewId;
 
 impl PageControl for MockPlatform {
     fn eval(
         &self,
-        id: WebViewId,
+        id: Id,
         script: &str,
     ) -> Result<()> {
         self.require_live(id)?;
@@ -22,7 +22,7 @@ impl PageControl for MockPlatform {
 
     fn navigate(
         &self,
-        id: WebViewId,
+        id: Id,
         url: &str,
     ) -> Result<()> {
         self.require_live(id)?;
@@ -37,7 +37,7 @@ impl PageControl for MockPlatform {
 impl ViewCapture for MockPlatform {
     fn snapshot_all(
         &self,
-        ids: &[WebViewId],
+        ids: &[Id],
     ) -> Vec<Result<Option<Snapshot>>> {
         self.record(Call::SnapshotAll { ids: ids.to_vec() });
         ids.iter().map(|_| Ok(None)).collect()
@@ -52,7 +52,7 @@ mod tests {
     #[test]
     fn scripts_and_navigation_need_a_live_view_and_snapshots_are_recorded() {
         let mock = MockPlatform::default();
-        let id = WebViewId(3);
+        let id = Id(3);
         assert!(
             matches!(mock.eval(id, "1"), Err(Error::UnknownWebView(_))),
             "eval"
@@ -61,12 +61,12 @@ mod tests {
             matches!(mock.navigate(id, "x"), Err(Error::UnknownWebView(_))),
             "navigate"
         );
-        let answers = mock.snapshot_all(&[id, WebViewId(4)]);
+        let answers = mock.snapshot_all(&[id, Id(4)]);
         assert_eq!(answers.len(), 2, "one answer per id");
         assert_eq!(
             mock.calls(),
             [Call::SnapshotAll {
-                ids: vec![id, WebViewId(4)]
+                ids: vec![id, Id(4)]
             }],
             "only the snapshot was recorded"
         );

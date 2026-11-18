@@ -226,7 +226,7 @@ mod tests {
     use std::sync::mpsc;
 
     use protocol::{DaemonResponse, ExtensionId, PaneId, PaneOrigin, RelayEndpoint, RelayScope};
-    use webview::{ParentWindow, WebViewHost, WebViewId, WebViewKind};
+    use webview::ParentWindow;
 
     use super::*;
     use crate::catalog::BundleAsset;
@@ -275,21 +275,21 @@ mod tests {
         }
     }
 
-    fn blank_view(host: &WebViewHost) -> WebViewId {
-        let config = blank_config(WebViewKind::Core);
+    fn blank_view(host: &webview::Host) -> webview::Id {
+        let config = blank_config(webview::Kind::Core);
         host.create_in(ParentWindow::X11(1), config).unwrap().id()
     }
 
-    fn view_ids(count: usize) -> Vec<WebViewId> {
-        let host = WebViewHost::with_platform(std::rc::Rc::new(webview::MockPlatform::default()));
+    fn view_ids(count: usize) -> Vec<webview::Id> {
+        let host = webview::Host::with_platform(std::rc::Rc::new(webview::MockPlatform::default()));
         (0..count).map(|_| blank_view(&host)).collect()
     }
 
     struct Fixture {
         protocol: PaneProtocol,
         transport: Arc<Recording>,
-        core: WebViewId,
-        ext: WebViewId,
+        core: webview::Id,
+        ext: webview::Id,
     }
 
     fn fixture() -> Fixture {
@@ -324,7 +324,7 @@ mod tests {
 
     fn ask(
         f: &Fixture,
-        view: WebViewId,
+        view: webview::Id,
         uri: &str,
     ) -> ProtocolResponse {
         let (sender, receiver) = mpsc::channel();

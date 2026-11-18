@@ -17,7 +17,6 @@ use protocol::{
     DaemonTransport, KeyBinding, PaneId, SettingValues, ShellFrame, ThemeTokens, decode_pane_frame,
     encode,
 };
-use webview::WebViewHost;
 
 use crate::catalog::PaneRegistry;
 use crate::error::{Error, Result};
@@ -84,7 +83,7 @@ impl PaneHost {
     #[must_use]
     pub fn new(
         config: PaneHostConfig,
-        webviews: WebViewHost,
+        webviews: webview::Host,
         origins: OriginTable,
         transport: Arc<dyn DaemonTransport>,
     ) -> Self {
@@ -262,7 +261,7 @@ impl PaneHost {
 mod tests {
     use protocol::{Lifecycle, PaneState};
     use serde_json::json;
-    use webview::{Call, Visibility, WebViewKind};
+    use webview::{Call, Visibility};
 
     use super::*;
     use crate::catalog::PaneLifecycle;
@@ -286,7 +285,7 @@ mod tests {
         f.sync(&[chat], &["p1"], Some("p1"));
         let calls = f.mock.calls();
         assert!(
-            matches!(&calls[0], Call::Create { url, kind: WebViewKind::Core, visibility: Visibility::Hidden, .. } if url == "about:blank"),
+            matches!(&calls[0], Call::Create { url, kind: webview::Kind::Core, visibility: Visibility::Hidden, .. } if url == "about:blank"),
             "created blank and hidden: {calls:?}"
         );
         assert!(
@@ -488,7 +487,7 @@ mod tests {
         let Some(Call::Create { id, kind, .. }) = calls.first() else {
             panic!("no web view was created: {calls:?}");
         };
-        assert_eq!(*kind, WebViewKind::Browser);
+        assert_eq!(*kind, webview::Kind::Browser);
         assert!(f.host.origins.get(*id).is_none(), "{calls:?}");
     }
 

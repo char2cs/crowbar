@@ -6,34 +6,34 @@ use crate::backend::Platform;
 use crate::error::Result;
 use crate::view::Bounds;
 use crate::view::Color;
+use crate::view::Id;
 use crate::view::Visibility;
-use crate::view::WebViewId;
 
-/// The JavaScript function a page defines to receive messages from [`WebViewHandle::post_message`].
+/// The JavaScript function a page defines to receive messages from [`Handle::post_message`].
 pub const RECEIVER: &str = "__crowbarReceive";
 
 /// A live web view. Dropping the handle destroys the view.
-pub struct WebViewHandle {
+pub struct Handle {
     pub(crate) platform: Rc<dyn Platform>,
-    pub(crate) id: WebViewId,
+    pub(crate) id: Id,
     destroyed: bool,
 }
 
-impl std::fmt::Debug for WebViewHandle {
+impl std::fmt::Debug for Handle {
     fn fmt(
         &self,
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        f.debug_struct("WebViewHandle")
+        f.debug_struct("Handle")
             .field("id", &self.id)
             .finish_non_exhaustive()
     }
 }
 
-impl WebViewHandle {
+impl Handle {
     pub(crate) fn new(
         platform: Rc<dyn Platform>,
-        id: WebViewId,
+        id: Id,
     ) -> Self {
         Self {
             platform,
@@ -44,7 +44,7 @@ impl WebViewHandle {
 
     /// The view's id, also carried by every [`ProtocolRequest`](crate::ProtocolRequest) it makes.
     #[must_use]
-    pub fn id(&self) -> WebViewId {
+    pub fn id(&self) -> Id {
         self.id
     }
 
@@ -112,7 +112,7 @@ impl WebViewHandle {
     }
 }
 
-impl Drop for WebViewHandle {
+impl Drop for Handle {
     fn drop(&mut self) {
         if self.destroyed {
             return;
@@ -151,7 +151,7 @@ mod tests {
 
     #[test]
     fn show_and_hide_only_change_visibility() {
-        type Change = fn(&WebViewHandle);
+        type Change = fn(&Handle);
         let cases: [(&str, Change, Visibility); 2] = [
             ("hide", |view| view.hide().unwrap(), Visibility::Hidden),
             ("show", |view| view.show().unwrap(), Visibility::Shown),
@@ -163,7 +163,7 @@ mod tests {
 
     fn assert_change_is_visibility_only(
         name: &str,
-        change: fn(&WebViewHandle),
+        change: fn(&Handle),
         expected: Visibility,
     ) {
         let (mock, view) = handle();
@@ -181,11 +181,7 @@ mod tests {
     fn dropping_destroys_exactly_once() {
         let (mock, view) = handle();
         drop(view);
-        assert_eq!(
-            mock.live_views(),
-            Vec::<WebViewId>::new(),
-            "destroyed on drop"
-        );
+        assert_eq!(mock.live_views(), Vec::<Id>::new(), "destroyed on drop");
         let (mock, view) = handle();
         view.destroy().unwrap();
         let destroys = mock

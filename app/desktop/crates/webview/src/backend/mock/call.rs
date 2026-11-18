@@ -1,9 +1,9 @@
 use crate::view::Bounds;
 use crate::view::Color;
+use crate::view::Id;
+use crate::view::Kind;
 use crate::view::ParentWindow;
 use crate::view::Visibility;
-use crate::view::WebViewId;
-use crate::view::WebViewKind;
 
 /// One operation a [`MockPlatform`](crate::MockPlatform) recorded.
 #[derive(Debug, Clone, PartialEq)]
@@ -11,13 +11,13 @@ pub enum Call {
     /// A view was created.
     Create {
         /// The new view.
-        id: WebViewId,
+        id: Id,
         /// Its parent window.
         parent: ParentWindow,
         /// The page it loads.
         url: String,
         /// Core or extension view.
-        kind: WebViewKind,
+        kind: Kind,
         /// Initial placement.
         bounds: Bounds,
         /// Initial visibility.
@@ -28,58 +28,58 @@ pub enum Call {
     /// A view was moved or resized.
     SetBounds {
         /// The view.
-        id: WebViewId,
+        id: Id,
         /// The new placement.
         bounds: Bounds,
     },
     /// A view was shown or hidden.
     SetVisibility {
         /// The view.
-        id: WebViewId,
+        id: Id,
         /// The new visibility.
         visibility: Visibility,
     },
     /// A view got another colour to show before its page paints.
     SetBackground {
         /// The view.
-        id: WebViewId,
+        id: Id,
         /// The new colour.
         color: Color,
     },
     /// A script was run.
     Eval {
         /// The view.
-        id: WebViewId,
+        id: Id,
         /// The script text.
         script: String,
     },
     /// A view loaded another page.
     Navigate {
         /// The view.
-        id: WebViewId,
+        id: Id,
         /// The new page.
         url: String,
     },
     /// A view received keyboard focus.
     Focus {
         /// The view.
-        id: WebViewId,
+        id: Id,
     },
     /// Keyboard focus went back to the parent window.
     FocusParent {
         /// The view that had focus.
-        id: WebViewId,
+        id: Id,
     },
     /// The pixels of these views were asked for together, in one batch.
     SnapshotAll {
         /// The views, in the order asked.
-        ids: Vec<WebViewId>,
+        ids: Vec<Id>,
     },
     /// The browser views' storage was cleared.
     ClearBrowsingData,
     /// A view was destroyed.
     Destroy {
         /// The view.
-        id: WebViewId,
+        id: Id,
     },
 }

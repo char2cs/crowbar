@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use panehost::{OriginTable, PaneHost, PaneHostConfig};
 use protocol::HostId;
-use webview::{MockPlatform, WebViewHost};
+use webview::MockPlatform;
 
 use super::NoDaemon;
 use crate::core_panes::register_core_panes;
@@ -15,7 +15,7 @@ pub(crate) fn mock_host(mock: &Rc<MockPlatform>) -> PaneHost {
         max_idle_slots: 1,
         page_handler: None,
     };
-    let webviews = WebViewHost::with_platform(Rc::<MockPlatform>::clone(mock));
+    let webviews = webview::Host::with_platform(Rc::<MockPlatform>::clone(mock));
     let mut host = PaneHost::new(
         config,
         webviews,

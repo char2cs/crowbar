@@ -2,12 +2,12 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use crate::backend::native::linux::bounded_wait::collect_within;
-use crate::backend::native::linux::linux_platform::LinuxPlatform;
+use crate::backend::native::linux::gtk_platform::GtkPlatform;
 use crate::backend::page_control::PageControl;
 use crate::backend::view_capture::ViewCapture;
 use crate::error::Result;
+use crate::view::Id;
 use crate::view::Snapshot;
-use crate::view::WebViewId;
 
 const SNAPSHOT_PATIENCE: Duration = Duration::from_millis(400);
 
@@ -24,20 +24,20 @@ fn settle_snapshot(
     })
 }
 
-impl LinuxPlatform {
+impl GtkPlatform {
     fn ask_snapshot(
         &self,
-        id: WebViewId,
+        id: Id,
     ) -> (Result<()>, SnapshotAnswer) {
         let (reply, answer) = mpsc::channel();
         (self.post(move |state| state.snapshot(id, reply)), answer)
     }
 }
 
-impl PageControl for LinuxPlatform {
+impl PageControl for GtkPlatform {
     fn eval(
         &self,
-        id: WebViewId,
+        id: Id,
         script: &str,
     ) -> Result<()> {
         let script = script.to_owned();
@@ -46,7 +46,7 @@ impl PageControl for LinuxPlatform {
 
     fn navigate(
         &self,
-        id: WebViewId,
+        id: Id,
         url: &str,
     ) -> Result<()> {
         let url = url.to_owned();
@@ -54,17 +54,17 @@ impl PageControl for LinuxPlatform {
     }
 }
 
-impl ViewCapture for LinuxPlatform {
+impl ViewCapture for GtkPlatform {
     fn snapshot(
         &self,
-        id: WebViewId,
+        id: Id,
     ) -> Result<Option<Snapshot>> {
         self.snapshot_all(&[id]).pop().unwrap_or(Ok(None))
     }
 
     fn snapshot_all(
         &self,
-        ids: &[WebViewId],
+        ids: &[Id],
     ) -> Vec<Result<Option<Snapshot>>> {
         let (posted, answers): (Vec<_>, Vec<_>) =
             ids.iter().map(|id| self.ask_snapshot(*id)).unzip();

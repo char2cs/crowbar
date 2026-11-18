@@ -10,9 +10,9 @@ use crate::scheme::ProtocolHandler;
 use crate::scheme::ProtocolRequest;
 use crate::scheme::ProtocolResponse;
 use crate::view::Bounds;
+use crate::view::Config;
+use crate::view::Id;
 use crate::view::Visibility;
-use crate::view::WebViewConfig;
-use crate::view::WebViewId;
 use crate::view::{PageEvent, PageHandler};
 
 const HTTP_BAD_REQUEST: u16 = 400;
@@ -26,7 +26,7 @@ fn header_pair((name, value): (&HeaderName, &HeaderValue)) -> (String, String) {
 }
 
 fn protocol_request(
-    web_view: WebViewId,
+    web_view: Id,
     request: Request<Vec<u8>>,
 ) -> ProtocolRequest {
     ProtocolRequest {
@@ -53,7 +53,7 @@ fn serve(
     (view, request): (&str, Request<Vec<u8>>),
     responder: RequestAsyncResponder,
 ) {
-    let Some(web_view) = WebViewId::parse(view) else {
+    let Some(web_view) = Id::parse(view) else {
         responder.respond(plain_response(HTTP_BAD_REQUEST));
         return;
     };
@@ -66,7 +66,7 @@ fn serve(
 pub(crate) fn common_attributes<'a>(
     builder: WebViewBuilder<'a>,
     id: &'a str,
-    config: &WebViewConfig,
+    config: &Config,
 ) -> WebViewBuilder<'a> {
     let on_ipc = Arc::clone(&config.on_ipc);
     let builder = builder

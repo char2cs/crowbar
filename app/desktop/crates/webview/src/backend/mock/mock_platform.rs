@@ -4,15 +4,15 @@ use std::collections::HashMap;
 use crate::backend::mock::call::Call;
 use crate::backend::platform::Platform;
 use crate::error::{Error, Result};
+use crate::view::Id;
 use crate::view::IpcHandler;
-use crate::view::WebViewId;
 
 /// A backend that records calls instead of showing anything, for tests of code built on
-/// [`WebViewHost`](crate::WebViewHost).
+/// [`Host`](crate::Host).
 #[derive(Default)]
 pub struct MockPlatform {
     pub(crate) calls: RefCell<Vec<Call>>,
-    pub(crate) live: RefCell<HashMap<WebViewId, IpcHandler>>,
+    pub(crate) live: RefCell<HashMap<Id, IpcHandler>>,
     pub(crate) fail_next_create: Cell<bool>,
 }
 
@@ -36,8 +36,8 @@ impl MockPlatform {
 
     /// Ids of the views that are created and not yet destroyed.
     #[must_use]
-    pub fn live_views(&self) -> Vec<WebViewId> {
-        let mut ids: Vec<WebViewId> = self.live.borrow().keys().copied().collect();
+    pub fn live_views(&self) -> Vec<Id> {
+        let mut ids: Vec<Id> = self.live.borrow().keys().copied().collect();
         ids.sort();
         ids
     }
@@ -53,7 +53,7 @@ impl MockPlatform {
     /// [`Error::UnknownWebView`] when the view is not alive.
     pub fn simulate_ipc(
         &self,
-        id: WebViewId,
+        id: Id,
         text: &str,
     ) -> Result<()> {
         let handler = self
@@ -68,7 +68,7 @@ impl MockPlatform {
 
     pub(crate) fn require_live(
         &self,
-        id: WebViewId,
+        id: Id,
     ) -> Result<()> {
         if self.live.borrow().contains_key(&id) {
             return Ok(());
@@ -95,10 +95,10 @@ mod tests {
     use crate::backend::view_layout::ViewLayout;
     use crate::backend::view_lifecycle::ViewLifecycle;
     use crate::view::Bounds;
+    use crate::view::Config;
+    use crate::view::Kind;
     use crate::view::ParentWindow;
     use crate::view::Visibility;
-    use crate::view::WebViewConfig;
-    use crate::view::WebViewKind;
 
     fn rect(
         x: f64,
@@ -114,11 +114,11 @@ mod tests {
         }
     }
 
-    fn config(on_ipc: IpcHandler) -> WebViewConfig {
-        WebViewConfig {
+    fn config(on_ipc: IpcHandler) -> Config {
+        Config {
             url: "crowbar://local/".into(),
             bounds: rect(0.0, 0.0, 10.0, 10.0),
-            kind: WebViewKind::Core,
+            kind: Kind::Core,
             visibility: Visibility::Shown,
             background: None,
             initialization_script: None,
@@ -130,7 +130,7 @@ mod tests {
     #[test]
     fn records_the_life_of_a_view() {
         let mock = MockPlatform::default();
-        let id = WebViewId(1);
+        let id = Id(1);
         mock.create(id, ParentWindow::X11(9), config(Arc::new(|_| {})))
             .unwrap();
         mock.set_visibility(id, Visibility::Hidden).unwrap();
@@ -149,7 +149,7 @@ mod tests {
         assert!(mock.live_views().is_empty(), "nothing alive");
     }
 
-    type Operation = fn(&MockPlatform, WebViewId) -> Result<()>;
+    type Operation = fn(&MockPlatform, Id) -> Result<()>;
 
     const CASES: &[(&str, Operation)] = &[
         ("eval", |mock, id| mock.eval(id, "1")),
@@ -165,10 +165,7 @@ mod tests {
         let mock = MockPlatform::default();
         for (name, operation) in CASES {
             assert!(
-                matches!(
-                    operation(&mock, WebViewId(5)),
-                    Err(Error::UnknownWebView(_))
-                ),
+                matches!(operation(&mock, Id(5)), Err(Error::UnknownWebView(_))),
                 "{name}"
             );
         }
@@ -180,15 +177,15 @@ mod tests {
         let seen = Arc::new(Mutex::new(Vec::new()));
         let sink = Arc::clone(&seen);
         mock.create(
-            WebViewId(1),
+            Id(1),
             ParentWindow::X11(1),
             config(Arc::new(move |text| sink.lock().unwrap().push(text))),
         )
         .unwrap();
-        mock.create(WebViewId(2), ParentWindow::X11(1), config(Arc::new(|_| {})))
+        mock.create(Id(2), ParentWindow::X11(1), config(Arc::new(|_| {})))
             .unwrap();
-        mock.simulate_ipc(WebViewId(1), "hello").unwrap();
-        mock.simulate_ipc(WebViewId(2), "ignored").unwrap();
+        mock.simulate_ipc(Id(1), "hello").unwrap();
+        mock.simulate_ipc(Id(2), "ignored").unwrap();
         assert_eq!(
             *seen.lock().unwrap(),
             ["hello"],
@@ -201,12 +198,12 @@ mod tests {
         let mock = MockPlatform::default();
         mock.fail_next_create();
         assert!(
-            mock.create(WebViewId(1), ParentWindow::X11(1), config(Arc::new(|_| {})))
+            mock.create(Id(1), ParentWindow::X11(1), config(Arc::new(|_| {})))
                 .is_err(),
             "first fails"
         );
         assert!(
-            mock.create(WebViewId(1), ParentWindow::X11(1), config(Arc::new(|_| {})))
+            mock.create(Id(1), ParentWindow::X11(1), config(Arc::new(|_| {})))
                 .is_ok(),
             "second works"
         );

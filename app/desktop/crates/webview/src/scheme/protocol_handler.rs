@@ -4,7 +4,7 @@ use crate::scheme::protocol_response::ProtocolResponse;
 /// Completion callback of [`ProtocolHandler::handle`]; call it exactly once, from any thread.
 pub type ProtocolResponder = Box<dyn FnOnce(ProtocolResponse) + Send + 'static>;
 
-/// Serves the custom scheme of a [`WebViewHost`](crate::WebViewHost).
+/// Serves the custom scheme of a [`Host`](crate::Host).
 ///
 /// Called on the platform thread; implementations hand work to their own executor and answer
 /// through the responder.
@@ -22,7 +22,7 @@ mod tests {
     use std::sync::mpsc;
 
     use super::*;
-    use crate::view::WebViewId;
+    use crate::view::Id;
 
     struct Echo;
 
@@ -46,7 +46,7 @@ mod tests {
         let handler: &dyn ProtocolHandler = &Echo;
         handler.handle(
             ProtocolRequest {
-                web_view: WebViewId(1),
+                web_view: Id(1),
                 uri: "crowbar://local/x".into(),
                 method: "GET".into(),
                 headers: Vec::new(),

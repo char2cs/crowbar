@@ -1,10 +1,10 @@
-use crate::view::WebViewId;
+use crate::view::Id;
 
 /// A request a page made to the host's custom scheme, for example `crowbar://local/v0/health`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProtocolRequest {
     /// The web view that issued it. This is the caller's identity; the page cannot forge it.
-    pub web_view: WebViewId,
+    pub web_view: Id,
     /// The full request URI.
     pub uri: String,
     /// HTTP method.

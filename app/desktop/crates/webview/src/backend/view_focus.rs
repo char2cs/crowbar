@@ -1,5 +1,5 @@
 use crate::error::Result;
-use crate::view::WebViewId;
+use crate::view::Id;
 
 /// Which side holds keyboard focus: the page or the parent window.
 pub trait ViewFocus {
@@ -9,7 +9,7 @@ pub trait ViewFocus {
     /// An [`Error`](crate::Error) when the view is unknown or the backend has stopped.
     fn focus(
         &self,
-        id: WebViewId,
+        id: Id,
     ) -> Result<()>;
 
     /// Takes keyboard focus back from the page to the parent window.
@@ -18,6 +18,6 @@ pub trait ViewFocus {
     /// An [`Error`](crate::Error) when the view is unknown or the backend has stopped.
     fn focus_parent(
         &self,
-        id: WebViewId,
+        id: Id,
     ) -> Result<()>;
 }

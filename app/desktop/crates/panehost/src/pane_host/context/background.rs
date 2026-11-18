@@ -1,4 +1,4 @@
-use webview::{Color, WebViewKind};
+use webview::Color;
 
 use crate::error::Result;
 use crate::pane_host::PaneHost;
@@ -17,7 +17,7 @@ impl PaneHost {
         self.factory.set_background(color);
         self.pool
             .views()
-            .filter(|(kind, _)| **kind != WebViewKind::Browser)
+            .filter(|(kind, _)| **kind != webview::Kind::Browser)
             .try_for_each(|(_, handle)| handle.set_background(color))?;
         Ok(())
     }

@@ -1,7 +1,7 @@
 //! The one platform crate: native web views embedded as children of a window.
 //!
-//! [`WebViewHost::native`] starts the backend of the current platform and
-//! [`WebViewHost::create`] returns a [`WebViewHandle`] with `set_bounds`, `show`, `hide`,
+//! [`Host::native`] starts the backend of the current platform and
+//! [`Host::create`] returns a [`Handle`] with `set_bounds`, `show`, `hide`,
 //! `eval`, `post_message` and `destroy`.
 //!
 //! * Linux: web views are X11 children of the GPUI window. `WebKitGTK` is single-threaded, so a
@@ -15,22 +15,22 @@
 //!
 //! Pages talk to the shell through `window.ipc.postMessage` (one [`IpcHandler`] per view, so
 //! the closure is the sender's identity) and through the custom scheme served by a
-//! [`ProtocolHandler`]; the shell talks to pages through [`WebViewHandle::post_message`].
+//! [`ProtocolHandler`]; the shell talks to pages through [`Handle::post_message`].
 //!
 //! ```
-//! use webview::{Bounds, Visibility, WebViewConfig, WebViewHost, WebViewKind};
+//! use webview::{Bounds, Visibility, Config, Host, Kind};
 //! use webview::{MockPlatform, ParentWindow};
 //! use std::rc::Rc;
 //! use std::sync::Arc;
 //!
 //! let platform = Rc::new(MockPlatform::default());
-//! let host = WebViewHost::with_platform(platform.clone());
+//! let host = Host::with_platform(platform.clone());
 //! let view = host.create_in(
 //!     ParentWindow::X11(1),
-//!     WebViewConfig {
+//!     Config {
 //!         url: "crowbar://local/chat/".into(),
 //!         bounds: Bounds { x: 0.0, y: 0.0, width: 400.0, height: 300.0 },
-//!         kind: WebViewKind::Core,
+//!         kind: Kind::Core,
 //!         visibility: Visibility::Shown,
 //!         background: None,
 //!         initialization_script: None,
@@ -45,23 +45,23 @@
 
 mod backend;
 mod error;
+mod host;
 mod scheme;
 #[cfg(test)]
 mod test_support;
 mod view;
-mod web_view_host;
 
 pub use backend::{
     BrowsingData, HostConfig, PageControl, Platform, ViewCapture, ViewFocus, ViewLayout,
     ViewLifecycle,
 };
 pub use error::{Error, Result};
+pub use host::{Handle, Host, RECEIVER};
 pub use scheme::{ProtocolHandler, ProtocolRequest, ProtocolResponder, ProtocolResponse};
 pub use view::{
-    Bounds, Color, IpcHandler, PageEvent, PageHandler, ParentWindow, Snapshot, Visibility,
-    WebViewConfig, WebViewId, WebViewKind,
+    Bounds, Color, Config, Id, IpcHandler, Kind, PageEvent, PageHandler, ParentWindow, Snapshot,
+    Visibility,
 };
-pub use web_view_host::{RECEIVER, WebViewHandle, WebViewHost};
 
 #[cfg(feature = "mock")]
 pub use backend::Call;

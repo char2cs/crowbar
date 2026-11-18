@@ -1,7 +1,5 @@
 use std::collections::BTreeMap;
 
-use webview::{WebViewHandle, WebViewKind};
-
 use crate::slot::Slot;
 use crate::slot::slot_id::SlotId;
 
@@ -21,7 +19,7 @@ impl SlotPool {
 
     pub(crate) fn find_free(
         &self,
-        kind: &WebViewKind,
+        kind: &webview::Kind,
     ) -> Option<SlotId> {
         self.slots
             .values()
@@ -45,7 +43,7 @@ impl SlotPool {
         self.slots.get(&id)
     }
 
-    pub(crate) fn views(&self) -> impl Iterator<Item = (&WebViewKind, &WebViewHandle)> {
+    pub(crate) fn views(&self) -> impl Iterator<Item = (&webview::Kind, &webview::Handle)> {
         self.slots.values().map(|slot| (&slot.kind, &slot.handle))
     }
 
@@ -61,7 +59,7 @@ impl SlotPool {
             return;
         };
         slot.owner.clear();
-        if self.free_count() > self.max_idle || slot.kind != WebViewKind::Core {
+        if self.free_count() > self.max_idle || slot.kind != webview::Kind::Core {
             self.slots.remove(&id);
         }
     }
@@ -85,16 +83,16 @@ impl SlotPool {
 mod tests {
     use std::rc::Rc;
 
-    use webview::{MockPlatform, ParentWindow, WebViewHost};
+    use webview::{MockPlatform, ParentWindow};
 
     use super::*;
     use crate::slot::slot_owner::SlotOwner;
     use crate::test_support::blank_config;
 
     fn slot(
-        host: &WebViewHost,
+        host: &webview::Host,
         id: u64,
-        kind: WebViewKind,
+        kind: webview::Kind,
     ) -> Slot {
         let config = blank_config(kind.clone());
         let handle = host.create_in(ParentWindow::X11(1), config).unwrap();
@@ -106,44 +104,44 @@ mod tests {
         }
     }
 
-    fn host() -> WebViewHost {
-        WebViewHost::with_platform(Rc::new(MockPlatform::default()))
+    fn host() -> webview::Host {
+        webview::Host::with_platform(Rc::new(MockPlatform::default()))
     }
 
     #[test]
     fn a_free_slot_of_the_right_kind_is_found() {
         let host = host();
         let mut pool = SlotPool::new(2);
-        let ext = WebViewKind::Extension(protocol::ExtensionId::new("git").unwrap());
-        let core = pool.insert(slot(&host, 1, WebViewKind::Core));
+        let ext = webview::Kind::Extension(protocol::ExtensionId::new("git").unwrap());
+        let core = pool.insert(slot(&host, 1, webview::Kind::Core));
         pool.insert(slot(&host, 2, ext.clone()));
-        assert_eq!(pool.find_free(&WebViewKind::Core), Some(core), "core");
+        assert_eq!(pool.find_free(&webview::Kind::Core), Some(core), "core");
         assert!(pool.find_free(&ext).is_some(), "extension");
         pool.get(core)
             .unwrap()
             .owner
             .assign(protocol::PaneId::new("p").unwrap());
-        assert_eq!(pool.find_free(&WebViewKind::Core), None, "taken");
+        assert_eq!(pool.find_free(&webview::Kind::Core), None, "taken");
     }
 
-    type Case = (&'static str, WebViewKind, usize, usize, usize);
+    type Case = (&'static str, webview::Kind, usize, usize, usize);
 
-    fn git() -> WebViewKind {
-        WebViewKind::Extension(protocol::ExtensionId::new("git").unwrap())
+    fn git() -> webview::Kind {
+        webview::Kind::Extension(protocol::ExtensionId::new("git").unwrap())
     }
 
     fn cases() -> Vec<Case> {
         vec![
             (
                 "core slots are kept up to the idle limit",
-                WebViewKind::Core,
+                webview::Kind::Core,
                 1,
                 3,
                 1,
             ),
             (
                 "core slots under the limit are all kept",
-                WebViewKind::Core,
+                webview::Kind::Core,
                 4,
                 3,
                 3,
@@ -153,7 +151,7 @@ mod tests {
     }
 
     fn kept_after_releasing(
-        kind: &WebViewKind,
+        kind: &webview::Kind,
         limit: usize,
         released: u64,
     ) -> usize {

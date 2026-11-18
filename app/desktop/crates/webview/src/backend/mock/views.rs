@@ -7,17 +7,17 @@ use crate::backend::view_lifecycle::ViewLifecycle;
 use crate::error::{Error, Result};
 use crate::view::Bounds;
 use crate::view::Color;
+use crate::view::Config;
+use crate::view::Id;
 use crate::view::ParentWindow;
 use crate::view::Visibility;
-use crate::view::WebViewConfig;
-use crate::view::WebViewId;
 
 impl ViewLifecycle for MockPlatform {
     fn create(
         &self,
-        id: WebViewId,
+        id: Id,
         parent: ParentWindow,
-        config: WebViewConfig,
+        config: Config,
     ) -> Result<()> {
         if self.fail_next_create.replace(false) {
             return Err(Error::HostStopped);
@@ -37,7 +37,7 @@ impl ViewLifecycle for MockPlatform {
 
     fn destroy(
         &self,
-        id: WebViewId,
+        id: Id,
     ) -> Result<()> {
         self.live
             .borrow_mut()
@@ -51,7 +51,7 @@ impl ViewLifecycle for MockPlatform {
 impl ViewLayout for MockPlatform {
     fn set_bounds(
         &self,
-        id: WebViewId,
+        id: Id,
         bounds: Bounds,
     ) -> Result<()> {
         self.require_live(id)?;
@@ -61,7 +61,7 @@ impl ViewLayout for MockPlatform {
 
     fn set_visibility(
         &self,
-        id: WebViewId,
+        id: Id,
         visibility: Visibility,
     ) -> Result<()> {
         self.require_live(id)?;
@@ -71,7 +71,7 @@ impl ViewLayout for MockPlatform {
 
     fn set_background(
         &self,
-        id: WebViewId,
+        id: Id,
         color: Color,
     ) -> Result<()> {
         self.require_live(id)?;
@@ -83,7 +83,7 @@ impl ViewLayout for MockPlatform {
 impl ViewFocus for MockPlatform {
     fn focus(
         &self,
-        id: WebViewId,
+        id: Id,
     ) -> Result<()> {
         self.require_live(id)?;
         self.record(Call::Focus { id });
@@ -92,7 +92,7 @@ impl ViewFocus for MockPlatform {
 
     fn focus_parent(
         &self,
-        id: WebViewId,
+        id: Id,
     ) -> Result<()> {
         self.require_live(id)?;
         self.record(Call::FocusParent { id });
@@ -112,19 +112,19 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::view::WebViewKind;
+    use crate::view::Kind;
 
-    fn config() -> WebViewConfig {
+    fn config() -> Config {
         let bounds = Bounds {
             x: 0.0,
             y: 0.0,
             width: 10.0,
             height: 10.0,
         };
-        WebViewConfig {
+        Config {
             url: "crowbar://local/".into(),
             bounds,
-            kind: WebViewKind::Core,
+            kind: Kind::Core,
             visibility: Visibility::Shown,
             background: None,
             initialization_script: None,
@@ -147,7 +147,7 @@ mod tests {
     #[test]
     fn views_are_created_laid_out_focused_and_destroyed_in_order() {
         let mock = MockPlatform::default();
-        let id = WebViewId(1);
+        let id = Id(1);
         mock.create(id, ParentWindow::X11(9), config()).unwrap();
         mock.focus(id).unwrap();
         mock.focus_parent(id).unwrap();

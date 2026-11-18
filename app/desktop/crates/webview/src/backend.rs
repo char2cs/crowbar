@@ -16,10 +16,10 @@ pub use browsing_data::BrowsingData;
 pub use host_config::HostConfig;
 #[cfg(feature = "mock")]
 pub use mock::{Call, MockPlatform};
-#[cfg(target_os = "linux")]
-pub(crate) use native::LinuxPlatform;
 #[cfg(target_os = "macos")]
-pub(crate) use native::MacosPlatform;
+pub(crate) use native::AppkitPlatform;
+#[cfg(target_os = "linux")]
+pub(crate) use native::GtkPlatform;
 pub use page_control::PageControl;
 pub use platform::Platform;
 pub use view_capture::ViewCapture;

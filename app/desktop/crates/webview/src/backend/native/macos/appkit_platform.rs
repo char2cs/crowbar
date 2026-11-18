@@ -20,22 +20,22 @@ use crate::error::{Error, Result};
 use crate::scheme::ProtocolHandler;
 use crate::view::Bounds;
 use crate::view::Color;
+use crate::view::Config;
+use crate::view::Id;
+use crate::view::Kind;
 use crate::view::ParentWindow;
 use crate::view::Visibility;
-use crate::view::WebViewConfig;
-use crate::view::WebViewId;
-use crate::view::WebViewKind;
 
-pub(crate) struct MacosPlatform {
+pub(crate) struct AppkitPlatform {
     scheme: String,
     protocol: Arc<dyn ProtocolHandler>,
-    pub(crate) views: RefCell<HashMap<WebViewId, Rc<WebView>>>,
-    pub(crate) kinds: RefCell<HashMap<WebViewId, WebViewKind>>,
+    pub(crate) views: RefCell<HashMap<Id, Rc<WebView>>>,
+    pub(crate) kinds: RefCell<HashMap<Id, Kind>>,
     pub(crate) last_parent: Cell<Option<usize>>,
     pub(crate) main_thread: MainThreadMarker,
 }
 
-impl MacosPlatform {
+impl AppkitPlatform {
     pub(crate) fn start(config: HostConfig) -> Result<Self> {
         let main_thread = MainThreadMarker::new().ok_or(Error::NotMainThread)?;
         Ok(Self {
@@ -50,7 +50,7 @@ impl MacosPlatform {
 
     fn with_view<R>(
         &self,
-        id: WebViewId,
+        id: Id,
         run: impl FnOnce(&WebView) -> wry::Result<R>,
     ) -> Result<R> {
         let view = self
@@ -63,28 +63,28 @@ impl MacosPlatform {
     }
 }
 
-impl MacosPlatform {
+impl AppkitPlatform {
     fn builder_for(
         &self,
-        kind: &WebViewKind,
+        kind: &Kind,
     ) -> WebViewBuilder<'_> {
         let scheme = |builder| register_scheme(builder, &self.scheme, Arc::clone(&self.protocol));
         match kind {
-            WebViewKind::Core => scheme(WebViewBuilder::new()),
-            WebViewKind::Extension(extension) => scheme(WebViewBuilder::new())
+            Kind::Core => scheme(WebViewBuilder::new()),
+            Kind::Extension(extension) => scheme(WebViewBuilder::new())
                 .with_data_store_identifier(store_identifier(extension)),
             // PLATFORM: macos has no custom scheme here, so a browser page cannot reach the pane protocol; the fixed identifier gives it a data store apart from core and every extension.
-            WebViewKind::Browser => WebViewBuilder::new().with_data_store_identifier(BROWSER_STORE),
+            Kind::Browser => WebViewBuilder::new().with_data_store_identifier(BROWSER_STORE),
         }
     }
 }
 
-impl ViewLifecycle for MacosPlatform {
+impl ViewLifecycle for AppkitPlatform {
     fn create(
         &self,
-        id: WebViewId,
+        id: Id,
         parent: ParentWindow,
-        config: WebViewConfig,
+        config: Config,
     ) -> Result<()> {
         let ParentWindow::AppKit(address) = parent else {
             return Err(Error::UnsupportedParent(
@@ -104,7 +104,7 @@ impl ViewLifecycle for MacosPlatform {
 
     fn destroy(
         &self,
-        id: WebViewId,
+        id: Id,
     ) -> Result<()> {
         self.kinds.borrow_mut().remove(&id);
         self.views
@@ -115,10 +115,10 @@ impl ViewLifecycle for MacosPlatform {
     }
 }
 
-impl ViewLayout for MacosPlatform {
+impl ViewLayout for AppkitPlatform {
     fn set_bounds(
         &self,
-        id: WebViewId,
+        id: Id,
         bounds: Bounds,
     ) -> Result<()> {
         self.with_view(id, |view| view.set_bounds(to_rect(bounds)))
@@ -126,7 +126,7 @@ impl ViewLayout for MacosPlatform {
 
     fn set_visibility(
         &self,
-        id: WebViewId,
+        id: Id,
         visibility: Visibility,
     ) -> Result<()> {
         self.with_view(id, |view| view.set_visible(visibility == Visibility::Shown))
@@ -134,17 +134,17 @@ impl ViewLayout for MacosPlatform {
 
     fn set_background(
         &self,
-        id: WebViewId,
+        id: Id,
         color: Color,
     ) -> Result<()> {
         self.with_view(id, |view| view.set_background_color(color.rgba()))
     }
 }
 
-impl PageControl for MacosPlatform {
+impl PageControl for AppkitPlatform {
     fn eval(
         &self,
-        id: WebViewId,
+        id: Id,
         script: &str,
     ) -> Result<()> {
         self.with_view(id, |view| view.evaluate_script(script))
@@ -152,28 +152,28 @@ impl PageControl for MacosPlatform {
 
     fn navigate(
         &self,
-        id: WebViewId,
+        id: Id,
         url: &str,
     ) -> Result<()> {
         self.with_view(id, |view| view.load_url(url))
     }
 }
 
-impl Platform for MacosPlatform {}
+impl Platform for AppkitPlatform {}
 
-impl ViewCapture for MacosPlatform {}
+impl ViewCapture for AppkitPlatform {}
 
-impl ViewFocus for MacosPlatform {
+impl ViewFocus for AppkitPlatform {
     fn focus(
         &self,
-        id: WebViewId,
+        id: Id,
     ) -> Result<()> {
         self.with_view(id, WebView::focus)
     }
 
     fn focus_parent(
         &self,
-        id: WebViewId,
+        id: Id,
     ) -> Result<()> {
         self.with_view(id, WebView::focus_parent)
     }
@@ -203,7 +203,7 @@ mod tests {
             protocol: Arc::new(Silent),
             data_dir: None,
         };
-        let started = std::thread::spawn(move || MacosPlatform::start(config).map(drop))
+        let started = std::thread::spawn(move || AppkitPlatform::start(config).map(drop))
             .join()
             .unwrap();
         assert!(matches!(started, Err(Error::NotMainThread)), "refused");

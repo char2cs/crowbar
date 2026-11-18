@@ -1,5 +1,5 @@
 use protocol::PaneId;
-use webview::{Snapshot, WebViewId};
+use webview::Snapshot;
 
 use crate::error::Result;
 use crate::pane_host::PaneHost;
@@ -29,13 +29,13 @@ impl PaneHost {
     }
 
     fn capture_visible(&self) -> Vec<FrozenPane> {
-        let shown: Vec<(&PaneId, WebViewId)> = self
+        let shown: Vec<(&PaneId, webview::Id)> = self
             .panes
             .iter()
             .filter(|(_, runtime)| runtime.is_visible())
             .filter_map(|(id, runtime)| Some((id, self.pool.get(runtime.slot?)?.handle.id())))
             .collect();
-        let ids: Vec<WebViewId> = shown.iter().map(|(_, id)| *id).collect();
+        let ids: Vec<webview::Id> = shown.iter().map(|(_, id)| *id).collect();
         shown
             .into_iter()
             .zip(self.factory.snapshot_all(&ids))

@@ -1,7 +1,7 @@
 use raw_window_handle::HandleError;
 use thiserror::Error;
 
-use crate::view::WebViewId;
+use crate::view::Id;
 
 /// Everything that can go wrong while hosting web views.
 #[derive(Debug, Error)]
@@ -30,7 +30,7 @@ pub enum Error {
     NotMainThread,
     /// No live web view has this id.
     #[error("no web view {0}")]
-    UnknownWebView(WebViewId),
+    UnknownWebView(Id),
     /// The engine refused an operation.
     #[error("web view engine error: {0}")]
     Engine(#[from] wry::Error),

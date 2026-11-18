@@ -11,12 +11,12 @@ use crate::error::{Error, Result};
 type Job = Box<dyn FnOnce(&mut GtkState) + Send>;
 
 #[derive(Debug)]
-pub(crate) struct LinuxPlatform {
+pub(crate) struct GtkPlatform {
     pub(crate) jobs: async_channel::Sender<Job>,
     pub(crate) thread: Option<thread::JoinHandle<()>>,
 }
 
-impl LinuxPlatform {
+impl GtkPlatform {
     pub(crate) fn start(config: HostConfig) -> Result<Self> {
         let (jobs, inbox) = async_channel::unbounded::<Job>();
         let (ready_tx, ready_rx) = mpsc::channel();
@@ -53,7 +53,7 @@ impl LinuxPlatform {
     }
 }
 
-impl Drop for LinuxPlatform {
+impl Drop for GtkPlatform {
     fn drop(&mut self) {
         self.jobs.close();
         let Some(thread) = self.thread.take() else {
@@ -114,7 +114,7 @@ fn run_gtk_thread(
     gtk::main();
 }
 
-impl Platform for LinuxPlatform {}
+impl Platform for GtkPlatform {}
 
 #[cfg(test)]
 mod tests {
@@ -128,7 +128,7 @@ mod tests {
         }
         assert!(
             matches!(
-                LinuxPlatform::start(silent_host_config()),
+                GtkPlatform::start(silent_host_config()),
                 Err(Error::PlatformThread(_))
             ),
             "no display"

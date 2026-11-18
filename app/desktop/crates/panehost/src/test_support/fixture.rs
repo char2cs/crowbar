@@ -7,9 +7,7 @@ use protocol::{
     encode,
 };
 use serde_json::json;
-use webview::{
-    Bounds, Call, MockPlatform, ParentWindow, Visibility, WebViewConfig, WebViewHost, WebViewKind,
-};
+use webview::{Bounds, Call, MockPlatform, ParentWindow, Visibility};
 
 use crate::catalog::Multiplicity;
 use crate::catalog::PaneKind;
@@ -144,7 +142,7 @@ pub(crate) fn fixture() -> Fixture {
         max_idle_slots: 1,
         page_handler: None,
     };
-    let webviews = WebViewHost::with_platform(Rc::<MockPlatform>::clone(&mock));
+    let webviews = webview::Host::with_platform(Rc::<MockPlatform>::clone(&mock));
     let revoked = Arc::<Revocations>::default();
     let transport: Arc<dyn protocol::DaemonTransport> = Arc::<Revocations>::clone(&revoked);
     let mut host = PaneHost::new(config, webviews, OriginTable::default(), transport);
@@ -244,8 +242,8 @@ pub(crate) fn shown(mock: &MockPlatform) -> usize {
     mock.calls().iter().filter(|call| is_shown(call)).count()
 }
 
-pub(crate) fn blank_config(kind: WebViewKind) -> WebViewConfig {
-    WebViewConfig {
+pub(crate) fn blank_config(kind: webview::Kind) -> webview::Config {
+    webview::Config {
         url: String::new(),
         bounds: bounds(),
         kind,

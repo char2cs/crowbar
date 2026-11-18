@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use protocol::{PaneId, PaneOrigin};
-use webview::WebViewId;
 
 use crate::scheme::assignment::Assignment;
 
@@ -11,14 +10,14 @@ use crate::scheme::assignment::Assignment;
 /// page never names its own identity.
 #[derive(Debug, Clone, Default)]
 pub struct OriginTable {
-    entries: Arc<Mutex<HashMap<WebViewId, Assignment>>>,
+    entries: Arc<Mutex<HashMap<webview::Id, Assignment>>>,
 }
 
 impl OriginTable {
     /// Records which pane and origin a web view acts for, replacing any earlier entry.
     pub fn set(
         &self,
-        view: WebViewId,
+        view: webview::Id,
         pane: PaneId,
         origin: PaneOrigin,
     ) {
@@ -28,7 +27,7 @@ impl OriginTable {
     /// Forgets a web view.
     pub fn remove(
         &self,
-        view: WebViewId,
+        view: webview::Id,
     ) {
         self.lock().remove(&view);
     }
@@ -37,12 +36,12 @@ impl OriginTable {
     #[must_use]
     pub fn get(
         &self,
-        view: WebViewId,
+        view: webview::Id,
     ) -> Option<Assignment> {
         self.lock().get(&view).cloned()
     }
 
-    fn lock(&self) -> MutexGuard<'_, HashMap<WebViewId, Assignment>> {
+    fn lock(&self) -> MutexGuard<'_, HashMap<webview::Id, Assignment>> {
         self.entries.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
@@ -50,14 +49,14 @@ impl OriginTable {
 #[cfg(test)]
 mod tests {
     use protocol::{ExtensionId, PaneOrigin};
-    use webview::{ParentWindow, WebViewHost, WebViewKind};
+    use webview::ParentWindow;
 
     use super::*;
     use crate::test_support::blank_config;
 
-    fn view_id() -> WebViewId {
-        let host = WebViewHost::with_platform(std::rc::Rc::new(webview::MockPlatform::default()));
-        let config = blank_config(WebViewKind::Core);
+    fn view_id() -> webview::Id {
+        let host = webview::Host::with_platform(std::rc::Rc::new(webview::MockPlatform::default()));
+        let config = blank_config(webview::Kind::Core);
         host.create_in(ParentWindow::X11(1), config).unwrap().id()
     }
 
