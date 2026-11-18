@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 
 use browser_chrome::{BrowserBar, BrowserBarEvent};
 use gpui::{AnyView, App, AppContext as _, Entity};
-use pane_host::BrowseAction;
+use panehost::BrowseAction;
 use protocol::PaneId;
 
 use crate::browser_ids::BrowserIds;

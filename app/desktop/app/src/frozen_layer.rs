@@ -5,7 +5,7 @@ use gpui::{
     StyledImage as _, div, img,
 };
 use image::{Frame, RgbaImage};
-use pane_host::{FrozenPane, VisiblePane};
+use panehost::{FrozenPane, VisiblePane};
 use smallvec::SmallVec;
 use webview::{Bounds, Snapshot};
 

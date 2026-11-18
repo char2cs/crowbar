@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::collections::BTreeSet;
 
-use pane_host::BrowseAction;
+use panehost::BrowseAction;
 use protocol::PaneId;
 
 #[derive(Debug, Default)]

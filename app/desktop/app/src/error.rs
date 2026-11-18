@@ -21,7 +21,7 @@ pub(crate) enum Error {
     #[error("the layout refused a command: {0}")]
     Layout(#[from] layout::Error),
     #[error("a pane host call failed: {0}")]
-    Host(#[from] pane_host::Error),
+    Host(#[from] panehost::Error),
     #[error("a protocol value was invalid: {0}")]
     Protocol(#[from] protocol::Error),
 }

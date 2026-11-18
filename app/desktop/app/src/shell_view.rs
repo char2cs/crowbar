@@ -9,7 +9,7 @@ use gpui::{
 };
 use keymap::Keymap;
 use layout_view::{ChromeContext, LayoutView};
-use pane_host::Overlay;
+use panehost::Overlay;
 use settings_ui::SettingsModal;
 use shell_data::{SettingsAdapter, ShellData};
 use sidebar::Sidebar;

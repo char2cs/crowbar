@@ -1,4 +1,4 @@
-use pane_host::{Multiplicity, PaneKind, PaneLifecycle, PaneRegistry, PaneType};
+use panehost::{Multiplicity, PaneKind, PaneLifecycle, PaneRegistry, PaneType};
 use protocol::{PaneTypeId, Params};
 
 use crate::core_type::CoreType;

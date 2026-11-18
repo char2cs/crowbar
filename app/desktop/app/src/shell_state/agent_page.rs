@@ -1,5 +1,5 @@
 use browser::{BrowserUrl, PageState};
-use pane_host::BrowseAction;
+use panehost::BrowseAction;
 use protocol::PaneId;
 use webview::ParentWindow;
 
@@ -84,11 +84,11 @@ impl ShellState {
         &mut self,
         parent: Option<ParentWindow>,
         pane: &PaneId,
-    ) -> pane_host::Result<ViewLife> {
+    ) -> panehost::Result<ViewLife> {
         if self.host.has_view(pane) {
             return Ok(ViewLife::Live);
         }
-        let parent = parent.ok_or_else(|| pane_host::Error::NotShown(pane.clone()))?;
+        let parent = parent.ok_or_else(|| panehost::Error::NotShown(pane.clone()))?;
         self.host
             .wake_browser(parent, pane, self.history.layout())?;
         Ok(ViewLife::Fresh)

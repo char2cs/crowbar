@@ -1,6 +1,6 @@
 use browser::{AgentAnswer, BrowserUrl};
 use browseragent::{AgentCommand, AgentOp, Arming, Delivery};
-use pane_host::BrowseAction;
+use panehost::BrowseAction;
 use protocol::PaneId;
 use serde_json::{Value, json};
 use webview::ParentWindow;

@@ -7,7 +7,7 @@ use crate::notice_key::NoticeKey;
 const CLEARED: &str = "Browsing data cleared";
 const FAILED: &str = "Browsing data could not be cleared";
 
-fn notice_for(cleared: &pane_host::Result<()>) -> (ToastKind, String) {
+fn notice_for(cleared: &panehost::Result<()>) -> (ToastKind, String) {
     match cleared {
         Ok(()) => (ToastKind::Success, CLEARED.to_owned()),
         Err(error) => (ToastKind::Error, format!("{FAILED}: {error}")),
@@ -33,7 +33,7 @@ mod tests {
 
     #[test]
     fn the_notice_says_whether_the_data_was_cleared() {
-        let refusal = || pane_host::Error::WebView(webview::Error::HostStopped);
+        let refusal = || panehost::Error::WebView(webview::Error::HostStopped);
         let failure = format!("{FAILED}: {}", refusal());
         let cases = [
             (Ok(()), ToastKind::Success, CLEARED.to_owned()),

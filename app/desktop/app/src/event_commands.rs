@@ -1,5 +1,5 @@
 use layout::Command;
-use pane_host::HostEvent;
+use panehost::HostEvent;
 use protocol::PaneState;
 
 pub(crate) fn commands_for(events: &[HostEvent]) -> Vec<Command> {

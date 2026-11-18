@@ -4,7 +4,7 @@ use layout::{Command, LayoutHistory};
 use std::sync::Arc;
 
 use browseragent::Replies;
-use pane_host::{Keyboard, PaneHost};
+use panehost::{Keyboard, PaneHost};
 
 use crate::browser_ids::BrowserIds;
 use crate::browser_pages::BrowserPages;
@@ -268,7 +268,7 @@ mod tests {
             width: 400.0,
             height: 300.0,
         };
-        let shown = pane_host::VisiblePane {
+        let shown = panehost::VisiblePane {
             pane: pane.clone(),
             bounds,
         };

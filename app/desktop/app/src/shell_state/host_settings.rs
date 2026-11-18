@@ -1,4 +1,4 @@
-use pane_host::Overlay;
+use panehost::Overlay;
 
 use super::ShellState;
 

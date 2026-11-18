@@ -1,5 +1,5 @@
 [package]
-name = "pane_host"
+name = "panehost"
 description = "Pane registry, web view slot pool, lifecycle and the crowbar:// protocol router of the Crowbar shell."
 version.workspace = true
 edition.workspace = true

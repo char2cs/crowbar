@@ -6,7 +6,7 @@ use crate::serials::Serials;
 use crate::terminal_ids::TerminalIds;
 use crate::titles::Titles;
 use layout::Layout;
-use pane_host::PaneHost;
+use panehost::PaneHost;
 
 impl ShellState {
     pub(crate) fn take_notice(&mut self) -> Option<String> {

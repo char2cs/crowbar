@@ -1,7 +1,7 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use pane_host::{OriginTable, PaneHost, PaneHostConfig};
+use panehost::{OriginTable, PaneHost, PaneHostConfig};
 use protocol::HostId;
 use webview::{MockPlatform, WebViewHost};
 

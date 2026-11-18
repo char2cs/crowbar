@@ -1,5 +1,5 @@
 use gpui::{Context, Window};
-use pane_host::IpcMessage;
+use panehost::IpcMessage;
 use protocol::PaneId;
 use startup_view::StartupInput;
 use tab_bar::{MemberKind, MemberView};

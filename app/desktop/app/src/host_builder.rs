@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use pane_host::{
+use panehost::{
     DirBundle, ExtensionBundles, OriginTable, PaneBundles, PaneHost, PaneHostConfig, PaneProtocol,
 };
 use protocol::{DaemonTransport, HostId};

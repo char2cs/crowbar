@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use browser::BrowserUrl;
-use pane_host::{HostEvent, IpcMessage, LayoutSnapshot, VisiblePane};
+use panehost::{HostEvent, IpcMessage, LayoutSnapshot, VisiblePane};
 use protocol::PaneId;
 use webview::ParentWindow;
 

@@ -4,7 +4,7 @@ use browser::{BrowserUrl, SearchEngine, resolve_address};
 use browser_chrome::BrowserBarEvent;
 use browseragent::{AgentCommand, run_peer};
 use gpui::Context;
-use pane_host::BrowseAction;
+use panehost::BrowseAction;
 use protocol::PaneId;
 
 use settings_ui::{Key, SettingsRead as _, Value};

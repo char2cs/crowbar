@@ -1,6 +1,6 @@
 use browser::{agent_script, eval_script};
 use browseragent::{AgentCommand, AgentOp};
-use pane_host::BrowseAction;
+use panehost::BrowseAction;
 
 #[derive(Debug, PartialEq)]
 pub(crate) enum PageStep {

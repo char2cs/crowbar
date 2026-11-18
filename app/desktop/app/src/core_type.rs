@@ -1,4 +1,4 @@
-use pane_host::{Multiplicity, PaneKind, PaneLifecycle};
+use panehost::{Multiplicity, PaneKind, PaneLifecycle};
 
 pub(crate) struct CoreType {
     pub(crate) id: &'static str,

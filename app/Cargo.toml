@@ -18,7 +18,7 @@ browseragent = { path = "crates/browseragent" }
 protocol = { path = "crates/protocol" }
 layout = { path = "crates/layout" }
 webview = { path = "desktop/crates/webview" }
-pane_host = { path = "desktop/crates/pane_host" }
+panehost = { path = "desktop/crates/panehost" }
 ui = { path = "desktop/crates/ui" }
 sidebar = { path = "desktop/crates/sidebar" }
 layout_view = { path = "desktop/crates/layout_view" }

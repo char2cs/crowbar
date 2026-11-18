@@ -1,7 +1,7 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use pane_host::VisiblePane;
+use panehost::VisiblePane;
 use protocol::PaneId;
 use webview::{Bounds, MockPlatform, ParentWindow};
 

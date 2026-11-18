@@ -1,6 +1,6 @@
 use layout::{Rect, Tab};
 use layout_view::{ChromeContext, PaneSource, pane_holes_with};
-use pane_host::VisiblePane;
+use panehost::VisiblePane;
 use webview::Bounds;
 
 use crate::single_precision::single_precision;
