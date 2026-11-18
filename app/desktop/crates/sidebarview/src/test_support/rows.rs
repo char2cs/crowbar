@@ -4,7 +4,7 @@ use sidebar::{Row, RowKind};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::row_action::{RowAction, RowHandler};
+use crate::sidebar::{RowAction, RowHandler};
 
 pub(crate) type Seen = Rc<RefCell<Vec<RowAction>>>;
 

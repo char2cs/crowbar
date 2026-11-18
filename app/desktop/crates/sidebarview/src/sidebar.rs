@@ -1,5 +1,23 @@
 //! The sidebar entity: frame, header, space switcher, mode bar and the three panels.
 
+mod act;
+mod clock;
+mod frame_geometry;
+mod layout;
+mod row_action;
+pub(crate) mod scale;
+mod separator;
+mod sidebar_event;
+
+pub(crate) use clock::Clock;
+pub(crate) use row_action::{DragPoint, DragPress, RowAction, RowHandler};
+pub(crate) use scale::{
+    FOOT_HEIGHT, ICON_LARGE, ICON_MEDIUM, ICON_SMALL, ICON_TINY, INDENT_STEP, ROW_HEIGHT,
+    ROW_MARGIN_X, ROW_MARGIN_Y, SPACE_LG, SPACE_MD, SPACE_SM, SPACE_XL, SPACE_XS, SWITCHER_HEIGHT,
+    TEXT_BODY, TEXT_CAPTION, TEXT_LARGE, TEXT_SMALL, TRAFFIC_LIGHT_RESERVE,
+};
+pub use sidebar_event::SidebarEvent;
+
 use std::rc::Rc;
 
 use gpui::{AnyView, AppContext as _, Context, Entity, EventEmitter, FocusHandle};
@@ -9,20 +27,18 @@ use sidebar::{
 };
 use ui::{CubicBezier, Glide, ToastQueue};
 
-use crate::adapters::system_clock::system_clock;
-use crate::clock::Clock;
-use crate::drag_state::DragState;
-use crate::file_search::FileSearch;
-use crate::icon_editor::IconEditor;
-use crate::inline_edit::InlineEdit;
-use crate::merge_draft::MergeDraft;
-use crate::open_menu::OpenMenu;
-use crate::peek::Peek;
-use crate::row_bounds::RowBounds;
-use crate::scrolls::Scrolls;
-use crate::sidebar_event::SidebarEvent;
+use crate::column::switcher::icon_editor::IconEditor;
+use crate::overlays::OpenMenu;
+use crate::overlays::Peek;
+use crate::panels::DragState;
+use crate::panels::FileSearch;
+use crate::panels::InlineEdit;
+use crate::panels::MergeDraft;
+use crate::panels::RowBounds;
+use crate::panels::Scrolls;
+use crate::panels::SpaceDraft;
+use crate::sidebar::clock::adapters::system::system_clock;
 use crate::sidebarview::docked_toasts;
-use crate::space_draft::SpaceDraft;
 
 const CAROUSEL_SPAN: std::time::Duration = std::time::Duration::from_millis(300);
 

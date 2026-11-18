@@ -2,7 +2,7 @@
 #![cfg(test)]
 
 mod blank;
-mod open;
+pub(crate) mod open;
 pub(crate) mod prelude;
 mod probe;
 mod recorder;
