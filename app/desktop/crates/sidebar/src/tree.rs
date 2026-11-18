@@ -1,11 +1,12 @@
 //! The shell-owned view state of the chats tree: folds, inline input and removal.
 
-mod accessors;
 mod deletion;
 mod editing;
+mod file_panel;
 mod files_state;
 mod inline_inputs;
 mod menu_context;
+mod removing;
 mod reorder;
 mod terminal_threads;
 mod visible_row;
@@ -21,7 +22,6 @@ pub use terminal_threads::TerminalThreads;
 pub use visible_row::VisibleRow;
 
 use std::collections::BTreeSet;
-use std::time::Instant;
 
 use crate::shell::Expansion;
 use crate::shell::Nesting;
@@ -58,18 +58,6 @@ impl Tree {
     ) {
         if !self.folded.remove(row) {
             self.folded.insert(row.clone());
-        }
-    }
-
-    /// Hold the row for deletion: a countdown, or a confirmation for repositories.
-    /// An inline input open on the row closes once it is held.
-    pub fn request_removal(
-        &mut self,
-        row: &Row,
-        now: Instant,
-    ) {
-        if self.removals.request(row, now) && self.editing.row() == Some(&row.id) {
-            self.editing = Editing::Nothing;
         }
     }
 
@@ -145,7 +133,7 @@ impl Tree {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     use super::*;
     use crate::shell::RowKind;

@@ -122,7 +122,7 @@ impl Sidebar {
         let selected = self.tree.files().selected();
         let next = step_match(&rows, (&search.query, selected), direction);
         if let Some(path) = next {
-            self.tree.files_mut().select(Some(path));
+            self.tree.select_file(Some(path));
             cx.notify();
         }
     }

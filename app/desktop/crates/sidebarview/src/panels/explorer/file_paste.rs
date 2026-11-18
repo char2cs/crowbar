@@ -13,7 +13,7 @@ impl Sidebar {
         mode: ClipMode,
     ) {
         let root = self.data.workspace_root();
-        self.tree.files_mut().set_clipboard(Some(FileClipboard {
+        self.tree.set_file_clipboard(Some(FileClipboard {
             root,
             paths: vec![path],
             mode,
@@ -36,7 +36,7 @@ impl Sidebar {
             self.send(command, cx);
         }
         if !clipboard.survives_paste() {
-            self.tree.files_mut().set_clipboard(None);
+            self.tree.set_file_clipboard(None);
         }
     }
 

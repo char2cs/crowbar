@@ -131,7 +131,7 @@ impl Sidebar {
         at_risk: Vec<WorkAtRisk>,
         cx: &mut Context<'_, Self>,
     ) {
-        self.tree.removals_mut().ask_to_discard(row, at_risk);
+        self.tree.ask_to_discard(row, at_risk);
         cx.notify();
     }
 

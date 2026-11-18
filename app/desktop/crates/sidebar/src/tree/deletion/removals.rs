@@ -50,9 +50,7 @@ impl Removals {
         true
     }
 
-    /// Asks to delete the space `project`, named `label`.
-    /// A space has no row, so nothing is held; the confirmation alone decides.
-    pub fn request_project(
+    pub(crate) fn request_project(
         &mut self,
         project: ProjectId,
         label: &str,
@@ -65,9 +63,7 @@ impl Removals {
         });
     }
 
-    /// Asks again before removing the held `row`, naming the work `at_risk`.
-    /// Stops the row's countdown while asking; does nothing when the row is not held.
-    pub fn ask_to_discard(
+    pub(crate) fn ask_to_discard(
         &mut self,
         row: &RowId,
         at_risk: Vec<WorkAtRisk>,
@@ -79,16 +75,14 @@ impl Removals {
         self.confirmation = Some(Confirmation::for_hold(&hold, at_risk));
     }
 
-    /// Undoes the removal of `row`, releasing its hold so the row shows again.
-    pub fn keep(
+    pub(crate) fn keep(
         &mut self,
         row: &RowId,
     ) {
         self.tray.keep(row);
     }
 
-    /// Dismisses the confirmation and keeps the row it was asked about, if any.
-    pub fn cancel(&mut self) {
+    pub(crate) fn cancel(&mut self) {
         let Some(confirmation) = self.confirmation.take() else {
             return;
         };
@@ -97,9 +91,7 @@ impl Removals {
         }
     }
 
-    /// Accepts the confirmation and returns it, committing the removal of its row.
-    /// Returns `None` when no confirmation was waiting.
-    pub fn accept(&mut self) -> Option<Confirmation> {
+    pub(crate) fn accept(&mut self) -> Option<Confirmation> {
         let confirmation = self.confirmation.take()?;
         if let RemovalTarget::Row(row) = &confirmation.target {
             self.tray.commit(row);
@@ -107,8 +99,7 @@ impl Removals {
         Some(confirmation)
     }
 
-    /// The rows whose countdown has run out by `now`, each returned once.
-    pub fn take_due(
+    pub(crate) fn take_due(
         &mut self,
         now: Instant,
     ) -> Vec<RowId> {

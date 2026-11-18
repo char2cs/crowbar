@@ -5,7 +5,8 @@ use crate::records::record_action::RecordAction;
 use crate::records::record_flag::RecordFlag;
 use crate::records::tone::Tone;
 
-mod accessors;
+mod controls;
+mod glyph;
 
 /// A record the backend lists: a title, lines of detail, optional status, badge, switches and one action.
 #[derive(Debug, Clone, PartialEq)]
@@ -42,37 +43,6 @@ impl Record {
         }
     }
 
-    /// Draws the Phosphor icon with this file stem before the title.
-    #[must_use]
-    pub fn icon(
-        mut self,
-        stem: impl Into<String>,
-    ) -> Self {
-        self.icon = Some(stem.into());
-        self
-    }
-
-    /// Draws the SVG `markup` before the title, in place of a Phosphor icon. The caller vets the
-    /// markup: it is drawn as given.
-    #[must_use]
-    pub fn artwork(
-        mut self,
-        markup: impl Into<String>,
-    ) -> Self {
-        self.artwork = Some(markup.into());
-        self
-    }
-
-    /// Shows a status dot of `tone` on the icon.
-    #[must_use]
-    pub fn status(
-        mut self,
-        tone: Tone,
-    ) -> Self {
-        self.status = Some(tone);
-        self
-    }
-
     /// Appends a detail line.
     #[must_use]
     pub fn line(
@@ -93,31 +63,28 @@ impl Record {
         self
     }
 
-    /// Appends a switch.
+    /// The record id.
     #[must_use]
-    pub fn flag(
-        mut self,
-        flag: RecordFlag,
-    ) -> Self {
-        self.flags.push(flag);
-        self
+    pub fn id(&self) -> &str {
+        &self.id
     }
 
-    /// Offers `action` on the record.
+    /// The title text.
     #[must_use]
-    pub fn action(
-        mut self,
-        action: RecordAction,
-    ) -> Self {
-        self.action = Some(action);
-        self
+    pub fn title(&self) -> &str {
+        &self.title
     }
 
-    /// Lets the user drag the record to reorder the list.
+    /// Detail lines under the title, in order.
     #[must_use]
-    pub fn movable(mut self) -> Self {
-        self.movable = true;
-        self
+    pub fn lines(&self) -> &[Line] {
+        &self.lines
+    }
+
+    /// A badge shown after the title, if any.
+    #[must_use]
+    pub fn badge_line(&self) -> Option<&Line> {
+        self.badge.as_ref()
     }
 }
 
@@ -126,21 +93,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builders_compose_a_full_record() {
+    fn detail_lines_append_in_order_and_the_badge_follows_the_title() {
         let record = Record::new("claude", "Claude Code")
-            .icon("robot")
-            .artwork("<svg/>")
-            .status(Tone::Success)
             .line(Line::plain("v2.1"))
-            .badge(Line::plain("OK").toned(Tone::Success))
-            .flag(RecordFlag::new("enabled", "Enable").on())
-            .action(RecordAction::new("kill", "skull", "Kill"))
-            .movable();
-        assert_eq!(record.id(), "claude");
-        assert_eq!(record.icon.as_deref(), Some("robot"));
-        assert_eq!(record.artwork.as_deref(), Some("<svg/>"));
-        assert_eq!(record.status, Some(Tone::Success));
-        assert_eq!((record.lines.len(), record.flags.len()), (1, 1));
-        assert!(record.badge.is_some() && record.action.is_some() && record.movable);
+            .line(Line::plain("~/.claude"))
+            .badge(Line::plain("OK").toned(Tone::Success));
+        assert_eq!((record.id(), record.title()), ("claude", "Claude Code"));
+        let texts: Vec<&str> = record.lines().iter().map(Line::text).collect();
+        assert_eq!(texts, ["v2.1", "~/.claude"]);
+        assert_eq!(record.badge_line().map(Line::tone), Some(Tone::Success));
     }
 }

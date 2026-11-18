@@ -81,7 +81,7 @@ impl Sidebar {
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
-        self.tree.removals_mut().cancel();
+        self.tree.cancel_removal();
         cx.notify();
     }
 
@@ -89,7 +89,7 @@ impl Sidebar {
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
-        let Some(Confirmation { target, .. }) = self.tree.removals_mut().accept() else {
+        let Some(Confirmation { target, .. }) = self.tree.accept_removal() else {
             return;
         };
         let command = match target {
@@ -112,8 +112,7 @@ mod tests {
     ) {
         sidebar.update(cx, |this, cx| {
             this.tree
-                .removals_mut()
-                .request_project(ProjectId::from("inv"), "inv");
+                .request_project_removal(ProjectId::from("inv"), "inv");
             cx.notify();
         });
         cx.run_until_parked();

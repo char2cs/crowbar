@@ -18,8 +18,7 @@ impl FilesState {
         self.selected.as_deref()
     }
 
-    /// Selects the row at `path`, or clears the selection with `None`.
-    pub fn select(
+    pub(crate) fn select(
         &mut self,
         path: Option<String>,
     ) {
@@ -32,8 +31,7 @@ impl FilesState {
         self.clipboard.as_ref()
     }
 
-    /// Stages `clipboard` for the next paste, or clears the staged files with `None`.
-    pub fn set_clipboard(
+    pub(crate) fn set_clipboard(
         &mut self,
         clipboard: Option<FileClipboard>,
     ) {
@@ -45,16 +43,14 @@ impl FilesState {
         self.dialog.as_ref()
     }
 
-    /// Opens `dialog`, replacing any dialog already open.
-    pub fn show(
+    pub(crate) fn show(
         &mut self,
         dialog: FileDialog,
     ) {
         self.dialog = Some(dialog);
     }
 
-    /// Closes the open dialog and returns it, or `None` when none was open.
-    pub fn close(&mut self) -> Option<FileDialog> {
+    pub(crate) fn close(&mut self) -> Option<FileDialog> {
         self.dialog.take()
     }
 }

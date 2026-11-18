@@ -88,7 +88,7 @@ impl Sidebar {
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
-        self.tree.files_mut().close();
+        self.tree.close_file_dialog();
         cx.notify();
     }
 
@@ -96,7 +96,7 @@ impl Sidebar {
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
-        if let Some(FileDialog::Delete { path, .. }) = self.tree.files_mut().close() {
+        if let Some(FileDialog::Delete { path, .. }) = self.tree.close_file_dialog() {
             self.send(Command::DeleteFile { path }, cx);
         }
         cx.notify();
