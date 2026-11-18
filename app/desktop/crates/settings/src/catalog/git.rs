@@ -1,10 +1,10 @@
 //! The Git page.
 
 use super::rows::row;
-use crate::control::Control;
-use crate::page::Page;
-use crate::section::Section;
-use crate::value::Value;
+use crate::schema::Control;
+use crate::schema::Page;
+use crate::schema::Section;
+use crate::values::Value;
 
 pub(super) fn page() -> Page {
     Page::new("git", "Git", "git-branch")

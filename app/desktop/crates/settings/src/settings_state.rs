@@ -2,30 +2,34 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::choice::Choice;
-use crate::chord_capture::ChordCapture;
-use crate::document::Document;
-use crate::navigation::Navigation;
-use crate::page_id::PageId;
-use crate::prompt::Prompt;
+use crate::keys::ChordCapture;
+use crate::schema::PageId;
 use crate::schema::Schema;
-use crate::scope::Scope;
-use crate::snapshot::Snapshot;
-use crate::visibility::Visibility;
+use crate::schema::Scope;
+use crate::settings_state::document::Document;
+use crate::settings_state::navigation::Navigation;
+use crate::settings_state::visibility::Visibility;
+use crate::values::Choice;
+use crate::values::Snapshot;
 use chord::Primary;
 
-mod buttons;
-mod editing;
+mod document;
+mod effect;
 mod navigation;
-mod outcome;
+mod prompt;
 mod shortcuts;
-mod values;
+#[cfg(test)]
+mod test_support;
 mod visibility;
+
+pub use effect::Effect;
+pub use navigation::RailMove;
+pub use prompt::Prompt;
 
 /// Everything the modal remembers: the schema, the values on screen, the selected page, the search,
 /// the field being edited, the shortcut being captured and the confirmation being asked.
 ///
-/// Methods that change a setting return an [`Effect`](crate::effect::Effect); the view performs it against the backend and
+/// Methods that change a setting return an [`Effect`](crate::settings_state::effect::Effect); the view performs it against the backend and
 /// reports the outcome with [`SettingsState::acknowledged`] or [`SettingsState::write_failed`].
 #[derive(Debug, Clone)]
 pub struct SettingsState {
@@ -84,10 +88,10 @@ impl SettingsState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::page::Page;
-    use crate::page_id::PageId;
-    use crate::snapshot::Snapshot;
-    use crate::test_support::{schema, size_row, state};
+    use crate::schema::Page;
+    use crate::schema::PageId;
+    use crate::settings_state::test_support::state_fixtures::{schema, size_row, state};
+    use crate::values::Snapshot;
     use chord::Primary;
 
     #[test]

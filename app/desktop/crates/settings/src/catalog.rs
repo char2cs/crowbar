@@ -13,8 +13,8 @@ mod rows;
 mod sessions;
 mod terminal;
 
-use crate::error::Error;
 use crate::schema::Schema;
+use crate::values::Error;
 
 /// Source name of the agents list, to be answered by a [`crate::RecordBackend`].
 pub const AGENT_RECORDS: &str = agents::AGENTS;
@@ -57,12 +57,12 @@ pub fn default_schema() -> Result<Schema, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::choice::Choice;
-    use crate::choice_source::ChoiceSource;
-    use crate::control::Control;
-    use crate::row::Row;
-    use crate::test_support::{Case, run_cases};
-    use crate::value::Value;
+    use crate::schema::ChoiceSource;
+    use crate::schema::Control;
+    use crate::schema::Row;
+    use crate::test_support::cases::{Case, run_cases};
+    use crate::values::Choice;
+    use crate::values::Value;
 
     fn ten_pages_in_rail_order_with_unique_keys() {
         let schema = default_schema().unwrap();

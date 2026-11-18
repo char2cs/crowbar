@@ -1,107 +1,130 @@
-//! The selected page, the search query and moving through the pages.
+//! The selected page and keyboard movement along the rail.
 
-use super::SettingsState;
-use crate::page::Page;
-use crate::page_id::PageId;
-use crate::rail_move::RailMove;
-use crate::schema::Schema;
+mod paging;
+mod rail_move;
 
-impl SettingsState {
-    /// The schema being shown.
-    pub fn schema(&self) -> &Schema {
-        &self.schema
+pub use rail_move::RailMove;
+
+use crate::schema::PageId;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Navigation {
+    active: PageId,
+}
+
+impl Navigation {
+    pub(crate) fn new(active: PageId) -> Self {
+        Self { active }
     }
 
-    /// The pages the rail lists: those whose condition holds and that the search leaves.
-    pub fn visible_pages(&self) -> Vec<&Page> {
-        let ids = self.visibility.pages();
-        self.schema
-            .pages()
-            .iter()
-            .filter(|page| ids.contains(&page.id))
-            .collect()
+    pub(crate) fn active(&self) -> &PageId {
+        &self.active
     }
 
-    /// The selected page, if any page is visible.
-    pub fn page(&self) -> Option<&Page> {
-        self.schema
-            .page(self.navigation.active())
-            .filter(|page| self.visibility.pages().contains(&page.id))
-    }
-
-    /// Selects `id` when it is visible.
-    pub fn select_page(
+    pub(crate) fn select(
         &mut self,
         id: &PageId,
+        visible: &[&PageId],
     ) {
-        let visible: Vec<&PageId> = self.visibility.pages().iter().collect();
-        self.navigation.select(id, &visible);
+        if visible.contains(&id) {
+            self.active = id.clone();
+        }
     }
 
-    /// Moves the rail selection with the keyboard.
-    pub fn move_selection(
+    pub(crate) fn step(
         &mut self,
         movement: RailMove,
+        visible: &[&PageId],
     ) {
-        let visible: Vec<&PageId> = self.visibility.pages().iter().collect();
-        self.navigation.step(movement, &visible);
+        let Some(last) = visible.len().checked_sub(1) else {
+            return;
+        };
+        let current = visible.iter().position(|id| **id == self.active);
+        let target = match (movement, current) {
+            (RailMove::First, _) | (RailMove::Next, None) => 0,
+            (RailMove::Last, _) | (RailMove::Previous, None | Some(0)) => last,
+            (RailMove::Next, Some(at)) if at >= last => 0,
+            (RailMove::Next, Some(at)) => at + 1,
+            (RailMove::Previous, Some(at)) => at - 1,
+        };
+        if let Some(id) = visible.get(target) {
+            self.active = (*id).clone();
+        }
     }
 
-    /// The search text.
-    pub fn query(&self) -> &str {
-        &self.query
-    }
-
-    /// Searches pages, sections, rows, descriptions, keywords and shortcuts; the selection moves to the first visible page when its own page drops out.
-    pub fn set_query(
+    pub(crate) fn reconcile(
         &mut self,
-        query: &str,
+        visible: &[&PageId],
     ) {
-        query.clone_into(&mut self.query);
-        self.refresh();
+        if visible.contains(&&self.active) {
+            return;
+        }
+        if let Some(first) = visible.first() {
+            self.active = (*first).clone();
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::page::Page;
-    use crate::page_id::PageId;
-    use crate::rail_move::RailMove;
-    use crate::test_support::{engine_row, state};
+    use super::*;
 
-    #[test]
-    fn rail_selection_and_keyboard_movement() {
-        let mut state = state();
-        state.move_selection(RailMove::Next);
-        assert_eq!(state.page().map(Page::label), Some("Browser"));
-        state.move_selection(RailMove::Last);
-        assert_eq!(state.page().map(Page::label), Some("Keybindings"));
-        state.select_page(&PageId::from("appearance"));
-        assert_eq!(state.page().map(Page::label), Some("Appearance"));
-        assert_eq!(state.visible_pages().len(), 3);
+    fn ids() -> Vec<PageId> {
+        ["appearance", "editor", "git"].map(PageId::from).to_vec()
+    }
+
+    fn after(
+        start: &str,
+        movement: RailMove,
+    ) -> String {
+        let ids = ids();
+        let visible: Vec<&PageId> = ids.iter().collect();
+        let mut navigation = Navigation::new(PageId::from(start));
+        navigation.step(movement, &visible);
+        navigation.active().to_string()
     }
 
     #[test]
-    fn search_filters_pages_and_moves_the_selection_off_a_hidden_page() {
-        let mut state = state();
-        state.set_query("search engine");
-        let labels: Vec<&str> = state
-            .visible_pages()
-            .iter()
-            .map(|page| page.label())
-            .collect();
-        assert_eq!(labels, ["Browser"]);
+    fn arrows_wrap_and_home_end_jump() {
+        const CASES: &[(&str, RailMove, &str)] = &[
+            ("appearance", RailMove::Next, "editor"),
+            ("git", RailMove::Next, "appearance"),
+            ("appearance", RailMove::Previous, "git"),
+            ("editor", RailMove::Previous, "appearance"),
+            ("editor", RailMove::First, "appearance"),
+            ("editor", RailMove::Last, "git"),
+            ("hidden", RailMove::Next, "appearance"),
+            ("hidden", RailMove::Previous, "git"),
+        ];
+        for &(start, movement, expected) in CASES {
+            assert_eq!(after(start, movement), expected, "{start} {movement:?}");
+        }
+    }
+
+    #[test]
+    fn select_ignores_pages_that_are_not_visible_and_reconcile_falls_back() {
+        let ids = ids();
+        let visible: Vec<&PageId> = ids.iter().skip(1).collect();
+        let mut navigation = Navigation::new(PageId::from("appearance"));
+        navigation.select(&PageId::from("appearance"), &visible);
         assert_eq!(
-            state.page().map(Page::label),
-            Some("Browser"),
-            "selection follows the only match"
+            navigation.active().as_str(),
+            "appearance",
+            "hidden pages cannot be selected"
         );
-        assert!(state.row_visible(&engine_row()));
-        state.set_query("zzz");
-        assert_eq!(state.visible_pages().len(), 0);
-        assert!(state.page().is_none(), "no match shows no page");
-        state.set_query("");
-        assert_eq!(state.visible_pages().len(), 3);
-        assert_eq!(state.query(), "");
+        navigation.reconcile(&visible);
+        assert_eq!(
+            navigation.active().as_str(),
+            "editor",
+            "a hidden active page moves to the first visible"
+        );
+        navigation.select(&PageId::from("git"), &visible);
+        assert_eq!(navigation.active().as_str(), "git");
+        navigation.reconcile(&[]);
+        assert_eq!(
+            navigation.active().as_str(),
+            "git",
+            "nothing visible keeps the selection"
+        );
     }
 }

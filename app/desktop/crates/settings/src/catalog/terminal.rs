@@ -2,11 +2,11 @@
 
 use super::number_setting::NumberSetting;
 use super::rows::row;
-use crate::control::Control;
-use crate::control_width::ControlWidth;
-use crate::page::Page;
-use crate::section::Section;
-use crate::value::Value;
+use crate::schema::Control;
+use crate::schema::ControlWidth;
+use crate::schema::Page;
+use crate::schema::Section;
+use crate::values::Value;
 
 const FONT_HINT: &str = "Note: Selected font must be installed on your system to work correctly. If icons are missing, try installing a Nerd Font.";
 

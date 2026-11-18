@@ -1,15 +1,15 @@
 //! The Agents page.
 
 use super::rows::row;
-use crate::action::Action;
-use crate::control::Control;
-use crate::control_width::ControlWidth;
-use crate::heading::Heading;
-use crate::list_block::ListBlock;
-use crate::page::Page;
-use crate::row::Row;
-use crate::section::Section;
-use crate::value::Value;
+use crate::schema::Action;
+use crate::schema::Control;
+use crate::schema::ControlWidth;
+use crate::schema::Heading;
+use crate::schema::ListBlock;
+use crate::schema::Page;
+use crate::schema::Row;
+use crate::schema::Section;
+use crate::values::Value;
 
 pub(super) const AGENTS: &str = "agents";
 pub(super) const DESCRIPTORS: &str = "descriptors";
@@ -58,7 +58,7 @@ fn permission() -> Row {
 }
 
 fn upload() -> Row {
-    let button = crate::button_spec::ButtonSpec::new(
+    let button = crate::schema::ButtonSpec::new(
         "Upload agent descriptor",
         Action::backend("agents.uploadDescriptor"),
     )
@@ -76,7 +76,7 @@ fn upload() -> Row {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::block::Block;
+    use crate::schema::Block;
 
     #[test]
     fn the_page_lists_agents_then_descriptor_checks_then_the_chat_section() {

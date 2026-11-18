@@ -3,14 +3,14 @@
 use std::collections::BTreeMap;
 
 use super::rows::row;
-use crate::action::Action;
-use crate::button_spec::ButtonSpec;
-use crate::control::Control;
-use crate::control_width::ControlWidth;
-use crate::page::Page;
-use crate::section::Section;
-use crate::shortcut::Shortcut;
-use crate::shortcut_group::ShortcutGroup;
+use crate::keys::Shortcut;
+use crate::keys::ShortcutGroup;
+use crate::schema::Action;
+use crate::schema::ButtonSpec;
+use crate::schema::Control;
+use crate::schema::ControlWidth;
+use crate::schema::Page;
+use crate::schema::Section;
 
 pub(super) const OVERRIDES: &str = "keybindingUserOverrides";
 pub(super) const PRESET: &str = "keybindingPreset";

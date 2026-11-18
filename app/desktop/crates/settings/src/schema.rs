@@ -1,14 +1,29 @@
 //! The data the modal renders: pages of blocks.
 
+mod block;
+mod button_spec;
+mod condition;
+mod control;
+mod page;
+mod page_id;
+mod row;
+mod scope;
+
+pub use block::{Block, Heading, ListBlock, Section};
+pub use button_spec::{Action, ButtonSpec, Confirm};
+pub use condition::Condition;
+pub use control::{ChoiceSource, Control, ControlWidth, Issue, Nudge, NumberRange, Validator};
+pub use page::Page;
+pub use page_id::PageId;
+pub use row::Row;
+pub(crate) use scope::Scope;
+
 use std::collections::BTreeSet;
 
-use crate::error::Error;
-use crate::key::Key;
-use crate::page::Page;
-use crate::page_id::PageId;
-use crate::row::Row;
-use crate::shortcut::Shortcut;
-use crate::shortcut_group::ShortcutGroup;
+use crate::keys::Shortcut;
+use crate::keys::ShortcutGroup;
+use crate::values::Error;
+use crate::values::Key;
 use crate::values::Values;
 
 /// Every page of the modal, in rail order, with the defaults the rows declare.
@@ -156,10 +171,10 @@ fn stray<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::control::Control;
-    use crate::section::Section;
-    use crate::test_support::{Case, run_cases};
-    use crate::value::Value;
+    use crate::schema::block::Section;
+    use crate::schema::control::Control;
+    use crate::test_support::cases::{Case, run_cases};
+    use crate::values::Value;
 
     fn page(
         id: &str,

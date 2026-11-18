@@ -1,8 +1,8 @@
 //! The Active sessions page.
 
-use crate::heading::Heading;
-use crate::list_block::ListBlock;
-use crate::page::Page;
+use crate::schema::Heading;
+use crate::schema::ListBlock;
+use crate::schema::Page;
 
 pub(super) const SESSIONS: &str = "sessions";
 
@@ -18,7 +18,7 @@ pub(super) fn page() -> Page {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::block::Block;
+    use crate::schema::Block;
 
     #[test]
     fn a_heading_and_one_list_without_rows() {

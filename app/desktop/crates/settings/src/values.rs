@@ -1,9 +1,30 @@
 //! A set of setting values by key.
 
-use std::collections::BTreeMap;
+mod change;
+mod choice;
+mod error;
+mod key;
+mod settings_backend;
+mod settings_follow;
+mod settings_read;
+mod settings_write;
+mod snapshot;
+mod subscription;
+mod value;
 
-use crate::key::Key;
-use crate::value::Value;
+pub use change::Change;
+pub use choice::Choice;
+pub use error::Error;
+pub use key::Key;
+pub use settings_backend::SettingsBackend;
+pub use settings_follow::{Listener, SettingsFollow};
+pub use settings_read::SettingsRead;
+pub use settings_write::SettingsWrite;
+pub use snapshot::Snapshot;
+pub use subscription::Subscription;
+pub use value::Value;
+
+use std::collections::BTreeMap;
 
 /// The values the backend currently holds; a key that is absent has its default.
 #[derive(Debug, Clone, Default, PartialEq)]

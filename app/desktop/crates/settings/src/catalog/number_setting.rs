@@ -1,8 +1,8 @@
 //! The bounds, step and default of a numeric setting, named as data.
 
-use crate::control::Control;
-use crate::control_width::ControlWidth;
-use crate::number_range::NumberRange;
+use crate::schema::Control;
+use crate::schema::ControlWidth;
+use crate::schema::NumberRange;
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct NumberSetting {
@@ -41,7 +41,7 @@ impl NumberSetting {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::value::Value;
+    use crate::values::Value;
 
     const SETTING: NumberSetting = NumberSetting::new((10.0, 24.0, 0.5), 15.0);
 

@@ -1,10 +1,10 @@
 //! The Hosts page.
 
-use crate::action::Action;
-use crate::button_spec::ButtonSpec;
-use crate::heading::Heading;
-use crate::list_block::ListBlock;
-use crate::page::Page;
+use crate::schema::Action;
+use crate::schema::ButtonSpec;
+use crate::schema::Heading;
+use crate::schema::ListBlock;
+use crate::schema::Page;
 
 pub(super) const HOSTS: &str = "hosts";
 
@@ -21,7 +21,7 @@ pub(super) fn page() -> Page {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::block::Block;
+    use crate::schema::Block;
 
     #[test]
     fn heading_list_and_add_button_in_order() {

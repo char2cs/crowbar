@@ -1,17 +1,19 @@
 //! Chords of the shortcuts: reading them, capturing a new one and writing the overrides.
 
+mod keymap;
+
 use std::collections::BTreeMap;
 
 use super::SettingsState;
-use crate::chord_source::ChordSource;
-use crate::effect::Effect;
-use crate::key::Key;
-use crate::keymap::Keymap;
-use crate::pressed::Pressed;
-use crate::refusal::Refusal;
-use crate::shortcut::Shortcut;
-use crate::shortcut_group::ShortcutGroup;
-use crate::value::Value;
+use crate::keys::ChordSource;
+use crate::keys::Pressed;
+use crate::keys::Refusal;
+use crate::keys::Shortcut;
+use crate::keys::ShortcutGroup;
+use crate::settings_state::effect::Effect;
+use crate::settings_state::shortcuts::keymap::Keymap;
+use crate::values::Key;
+use crate::values::Value;
 use chord::Chord;
 
 impl SettingsState {
@@ -121,13 +123,13 @@ impl SettingsState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::action::Action;
-    use crate::button_spec::ButtonSpec;
-    use crate::modifier::Modifier;
-    use crate::page::Page;
+    use crate::keys::Modifier;
+    use crate::schema::Action;
+    use crate::schema::ButtonSpec;
+    use crate::schema::Page;
     use crate::schema::Schema;
-    use crate::snapshot::Snapshot;
-    use crate::test_support::{Case, run_cases};
+    use crate::test_support::cases::{Case, run_cases};
+    use crate::values::Snapshot;
     use chord::Primary;
 
     fn state() -> SettingsState {

@@ -2,11 +2,11 @@
 
 use super::number_setting::NumberSetting;
 use super::rows::row;
-use crate::control::Control;
-use crate::control_width::ControlWidth;
-use crate::page::Page;
-use crate::section::Section;
-use crate::value::Value;
+use crate::schema::Control;
+use crate::schema::ControlWidth;
+use crate::schema::Page;
+use crate::schema::Section;
+use crate::values::Value;
 
 const UI_FONT_SIZE: NumberSetting = NumberSetting::new((10.0, 24.0, 0.5), 15.0);
 
@@ -141,7 +141,7 @@ mod tests {
             .blocks
             .iter()
             .filter_map(|block| match block {
-                crate::block::Block::Section(section) => Some(section.show_header),
+                crate::schema::Block::Section(section) => Some(section.show_header),
                 _ => None,
             })
             .collect();

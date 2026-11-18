@@ -1,8 +1,8 @@
 //! Short constructors for the rows of the built-in pages.
 
-use crate::control::Control;
-use crate::row::Row;
-use crate::value::Value;
+use crate::schema::Control;
+use crate::schema::Row;
+use crate::values::Value;
 
 pub(super) fn row(
     names: (&str, &str),

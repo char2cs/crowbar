@@ -2,12 +2,12 @@
 
 use super::number_setting::NumberSetting;
 use super::rows::row;
-use crate::control::Control;
-use crate::control_width::ControlWidth;
-use crate::page::Page;
-use crate::row::Row;
-use crate::section::Section;
-use crate::value::Value;
+use crate::schema::Control;
+use crate::schema::ControlWidth;
+use crate::schema::Page;
+use crate::schema::Row;
+use crate::schema::Section;
+use crate::values::Value;
 
 const FONT_SIZE: NumberSetting = NumberSetting::new((8.0, 32.0, 1.0), 14.0);
 const LINE_HEIGHT: NumberSetting = NumberSetting::new((1.0, 2.0, 0.1), 1.4);

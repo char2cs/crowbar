@@ -2,16 +2,16 @@
 
 use super::number_setting::NumberSetting;
 use super::rows::row;
-use crate::action::Action;
-use crate::button_spec::ButtonSpec;
-use crate::condition::Condition;
-use crate::confirm::Confirm;
-use crate::control::Control;
-use crate::control_width::ControlWidth;
-use crate::page::Page;
-use crate::row::Row;
-use crate::section::Section;
-use crate::validator::Validator;
+use crate::schema::Action;
+use crate::schema::ButtonSpec;
+use crate::schema::Condition;
+use crate::schema::Confirm;
+use crate::schema::Control;
+use crate::schema::ControlWidth;
+use crate::schema::Page;
+use crate::schema::Row;
+use crate::schema::Section;
+use crate::schema::Validator;
 
 const CLEAR_DATA: &str = "browser.clearData";
 
