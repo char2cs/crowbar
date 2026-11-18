@@ -103,21 +103,6 @@ impl DemoShell {
         self
     }
 
-    /// The same data with a running agent on `row` titled `title`.
-    #[must_use]
-    pub fn with_running_agent(
-        mut self,
-        row: &str,
-        title: &str,
-    ) -> Self {
-        self.running.push(RunningAgent {
-            row: RowId::from(row),
-            title: title.to_owned(),
-            viewers: 0,
-        });
-        self
-    }
-
     /// The reference workspace before the projects scope has synced, which shows the skeleton.
     pub fn loading() -> Self {
         Self {
