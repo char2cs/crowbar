@@ -1,4 +1,4 @@
-mod bundle_entry;
+mod entry;
 
 use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
-use crate::bundle::bundle_entry::BundleEntry;
+use crate::bundle::entry::Entry;
 use crate::error::Error;
 use crate::file_store::DiskFiles;
 use crate::file_store::FileStore;
@@ -21,7 +21,7 @@ const META_NAME: &str = "meta.txt";
 pub struct Bundle {
     files: Arc<dyn FileStore>,
     version: String,
-    entries: Vec<BundleEntry>,
+    entries: Vec<Entry>,
     notes: Vec<String>,
 }
 
@@ -62,7 +62,7 @@ impl Bundle {
         name: &str,
         bytes: Vec<u8>,
     ) {
-        self.entries.push(BundleEntry {
+        self.entries.push(Entry {
             name: name.to_owned(),
             bytes,
         });
@@ -142,7 +142,7 @@ impl Bundle {
     ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
         let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
         let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
-        let manifest = BundleEntry {
+        let manifest = Entry {
             name: META_NAME.to_owned(),
             bytes: self.manifest(seconds).into_bytes(),
         };
