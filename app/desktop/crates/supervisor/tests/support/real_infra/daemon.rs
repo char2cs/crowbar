@@ -1,4 +1,6 @@
-use std::io;
+use std::io::{self, Write};
+use std::path::Path;
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use supervisor::{DaemonEvent, DaemonPaths, SupervisorConfig, Timings};
@@ -31,8 +33,7 @@ pub(crate) fn config(
     let script = dir.path().join("crowbar-api");
     let fake = env!("CARGO_BIN_EXE_fake_daemon");
     let body = format!("#!/bin/sh\nFAKE_DAEMON_MODE={mode} exec {fake} \"$@\"\n");
-    std::fs::write(&script, body)?;
-    std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755))?;
+    write_script(&script, &body)?;
     let paths = DaemonPaths {
         socket: dir.path().join("d.sock"),
         log: dir.path().join("logs").join("daemon.log"),
@@ -40,6 +41,36 @@ pub(crate) fn config(
     let mut config = SupervisorConfig::new(script, paths, None, "1.2.3-test");
     config.timings = timings;
     Ok((config, dir))
+}
+
+const WRITE_EXECUTABLE: &str = "cat > \"$1\" && chmod 755 \"$1\"";
+
+/// Writes `body` to `path` as an executable script through a short-lived `/bin/sh` child, so no
+/// descriptor of the script ever exists in the test process: a sibling test thread that forks
+/// meanwhile cannot inherit a writer of it, and executing it never fails with `ETXTBSY`.
+fn write_script(
+    path: &Path,
+    body: &str,
+) -> io::Result<()> {
+    let mut writer = Command::new("/bin/sh")
+        .args(["-c", WRITE_EXECUTABLE, "sh"])
+        .arg(path)
+        .stdin(Stdio::piped())
+        .spawn()?;
+    let mut input = writer
+        .stdin
+        .take()
+        .ok_or_else(|| io::Error::other("no stdin pipe"))?;
+    input.write_all(body.as_bytes())?;
+    drop(input);
+    let status = writer.wait()?;
+    if !status.success() {
+        return Err(io::Error::other(format!(
+            "writing {} failed: {status}",
+            path.display()
+        )));
+    }
+    Ok(())
 }
 
 async fn first_matching(

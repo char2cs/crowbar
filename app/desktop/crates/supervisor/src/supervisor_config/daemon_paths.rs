@@ -162,11 +162,9 @@ mod tests {
     #[tokio::test]
     #[ignore = "real-infra: runs a real script that never answers to prove the timeout"]
     async fn a_binary_that_never_answers_is_given_up_on() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         let script = dir.path().join("hang.sh");
-        std::fs::write(&script, "#!/bin/sh\nexec sleep 60\n").unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test_support::script::write_script(&script, "#!/bin/sh\nexec sleep 60\n").unwrap();
         let err = DaemonPaths::resolve_within(&script, None, Duration::from_millis(200))
             .await
             .unwrap_err();

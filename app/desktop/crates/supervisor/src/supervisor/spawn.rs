@@ -64,6 +64,7 @@ mod tests {
     use crate::supervisor::supervision::Bus;
     use crate::supervisor_config::DaemonPaths;
     use crate::supervisor_config::SupervisorConfig;
+    use crate::test_support::script::write_script;
     use std::sync::Arc;
 
     #[tokio::test]
@@ -93,12 +94,11 @@ mod tests {
     async fn a_daemon_whose_log_cannot_be_opened_never_blocks_on_a_full_pipe() {
         let dir = tempfile::tempdir().unwrap();
         let script = dir.path().join("noisy.sh");
-        std::fs::write(
+        write_script(
             &script,
             "#!/bin/sh\nhead -c 1048576 /dev/zero >&2\nhead -c 1048576 /dev/zero\n",
         )
         .unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
         let paths = DaemonPaths {
             socket: dir.path().join("run").join("d.sock"),
             log: dir.path().to_path_buf(),
