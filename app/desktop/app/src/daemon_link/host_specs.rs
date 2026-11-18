@@ -1,4 +1,4 @@
-use shell_data::HostSpec;
+use store::HostSpec;
 
 use super::DaemonLink;
 use super::LOCAL_HOST;

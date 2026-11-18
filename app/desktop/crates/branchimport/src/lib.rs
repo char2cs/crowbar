@@ -1,6 +1,6 @@
 //! The branch import dialog of the Crowbar shell.
 //!
-//! [`BranchImportView`] lists the remote branches of one repository from a [`shell_data::BranchImport`],
+//! [`BranchImportView`] lists the remote branches of one repository from a [`store::BranchImport`],
 //! lets the user pick branches and lock some of them, and starts the batch import. It emits
 //! [`ImportEvent::Close`] when it is done or dismissed.
 

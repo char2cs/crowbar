@@ -1,7 +1,7 @@
 //! The four screens of the first-run flow.
 
 use gpui::{Context, Div, FontWeight, ParentElement, Styled, div};
-use shell_data::Tool;
+use store::Tool;
 use ui::{Button, ButtonSize, ButtonVariant, IconName, Wordmark};
 
 use super::OobeView;

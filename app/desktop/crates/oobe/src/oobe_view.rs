@@ -2,7 +2,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{Context, EventEmitter, IntoElement, ParentElement, Render, Styled, Window, div};
-use shell_data::SystemCheck;
+use store::SystemCheck;
 use ui::Theme;
 
 use crate::backdrop::backdrop;

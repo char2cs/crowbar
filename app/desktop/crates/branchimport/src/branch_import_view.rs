@@ -6,7 +6,7 @@ use std::sync::Arc;
 use gpui::{
     AppContext as _, Context, Entity, EventEmitter, IntoElement, Render, Subscription, Window,
 };
-use shell_data::BranchImport;
+use store::BranchImport;
 use ui::{Dialog, DialogSize, Surface, TextInput, TextInputEvent, TextInputStyle, Theme};
 
 use crate::branch_source::BranchSource;
@@ -138,7 +138,7 @@ mod tests {
     use std::rc::Rc;
 
     use gpui::{TestAppContext, VisualTestContext};
-    use shell_data::{Availability, BranchListing, ImportBranch, ImportPlan};
+    use store::{Availability, BranchListing, ImportBranch, ImportPlan};
 
     use super::*;
 

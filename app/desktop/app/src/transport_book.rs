@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use protocol::HostId;
-use shell_data::{BookError, BookFuture, HostBook, PairingRequest};
+use store::{BookError, BookFuture, HostBook, PairingRequest};
 use transport::{HostRegistry, PairRequest, TokenStore};
 
 pub(crate) struct TransportBook {

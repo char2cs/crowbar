@@ -4,7 +4,7 @@ use gpui::{
     AnyElement, App, AppContext as _, ClickEvent, Context, Div, Entity, IntoElement, ParentElement,
     SharedString, Styled, Window, div,
 };
-use shell_data::{PairingPending, PairingState};
+use store::{PairingPending, PairingState};
 use ui::{Button, ButtonSize, ButtonVariant, Palette, Surface, TextInput, TextInputStyle};
 
 use crate::look::{FINGERPRINT_PAD, FINGERPRINT_TINT, GAP, LABEL_GAP, TEXT};

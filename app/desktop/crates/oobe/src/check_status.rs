@@ -1,4 +1,4 @@
-use shell_data::{Tool, ToolReport};
+use store::{Tool, ToolReport};
 use ui::IconName;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

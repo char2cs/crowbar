@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use shell_data::{ChangeSignal, Outcome, OutcomeSink};
+use store::{ChangeSignal, Outcome, OutcomeSink};
 
 use crate::shell_request::ShellRequest;
 

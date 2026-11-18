@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use gpui::{App, Entity, TestAppContext, VisualTestContext};
-use shell_data::{BrowseEntry, EntryKind, FolderListing};
+use store::{BrowseEntry, EntryKind, FolderListing};
 
 use crate::folder_reader::FolderReader;
 use crate::folder_requests::FolderRequests;

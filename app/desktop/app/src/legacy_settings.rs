@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use shell_data::LegacyImport;
+use store::LegacyImport;
 
 use crate::app_options::AppOptions;
 

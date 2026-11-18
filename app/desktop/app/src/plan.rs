@@ -1,4 +1,4 @@
-use shell_data::{ChatSurface, ChatTerminal};
+use store::{ChatSurface, ChatTerminal};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Plan {
@@ -20,7 +20,7 @@ impl Plan {
 
 #[cfg(test)]
 mod tests {
-    use shell_data::ChatPhase;
+    use store::ChatPhase;
 
     use super::*;
 

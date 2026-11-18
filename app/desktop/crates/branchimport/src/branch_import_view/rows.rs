@@ -3,7 +3,7 @@
 use gpui::{
     Context, Div, Entity, IntoElement, ParentElement, SharedString, Styled, div, uniform_list,
 };
-use shell_data::ImportBranch;
+use store::ImportBranch;
 use ui::{Button, ButtonSize, Palette, Pose, Theme};
 
 use super::BranchImportView;
@@ -120,9 +120,9 @@ impl BranchImportView {
 #[cfg(test)]
 mod tests {
     use gpui::TestAppContext;
-    use shell_data::Availability;
+    use store::Availability;
 
-    use shell_data::BranchListing;
+    use store::BranchListing;
     use ui::Surface;
 
     use super::*;

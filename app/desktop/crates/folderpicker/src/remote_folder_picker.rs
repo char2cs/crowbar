@@ -5,7 +5,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{Context, EventEmitter, IntoElement, ParentElement, Render, Styled, Window, div};
-use shell_data::{BrowseEntry, FolderBrowse, FolderListing, ROOT_PATH};
+use store::{BrowseEntry, FolderBrowse, FolderListing, ROOT_PATH};
 use ui::{Dialog, DialogSize, Surface, Theme};
 
 use crate::folder_reader::FolderReader;

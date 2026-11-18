@@ -1,6 +1,6 @@
 //! The line under the list that says what the import will do.
 
-use shell_data::ImportPlan;
+use store::ImportPlan;
 
 fn branches(count: usize) -> String {
     if count == 1 {

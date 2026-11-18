@@ -2,7 +2,7 @@ use gpui::{
     AnyElement, Context, Div, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled, div, uniform_list,
 };
-use shell_data::{BrowseEntry, FolderListing, ROOT_PATH};
+use store::{BrowseEntry, FolderListing, ROOT_PATH};
 use ui::{Button, ButtonSize, ButtonVariant, Palette, Pose};
 
 use crate::folder_row::FolderRow;
@@ -162,7 +162,7 @@ impl RemoteFolderPicker {
 #[cfg(test)]
 mod tests {
     use gpui::TestAppContext;
-    use shell_data::FolderListing;
+    use store::FolderListing;
 
     use super::*;
     use crate::test_support::{Events, open, reachable_fake};

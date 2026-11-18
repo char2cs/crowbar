@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use shell_data::{BranchImport, BranchListing, ImportPlan};
+use store::{BranchImport, BranchListing, ImportPlan};
 
 pub(crate) trait BranchSource {
     fn listing(&self) -> BranchListing;

@@ -1,5 +1,5 @@
 use gpui::{App, Pixels, TextSystem, font, px};
-use shell_data::SystemFonts;
+use store::SystemFonts;
 
 const PROBE_SIZE: Pixels = px(16.0);
 const NARROW: char = 'i';

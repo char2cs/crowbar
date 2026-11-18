@@ -4,7 +4,7 @@ use crate::shell_request::ShellRequest;
 #[derive(Debug, Clone)]
 pub(crate) struct SidebarRequests {
     pub(crate) requests: Requests,
-    pub(crate) data: shell_data::SidebarCommands,
+    pub(crate) data: store::SidebarCommands,
 }
 
 impl sidebar::CommandSink for SidebarRequests {
@@ -12,7 +12,7 @@ impl sidebar::CommandSink for SidebarRequests {
         &self,
         command: sidebar::Command,
     ) -> Result<(), sidebar::Error> {
-        if shell_data::ShellData::serves(&command) {
+        if store::ShellData::serves(&command) {
             return self.data.dispatch(command);
         }
         self.requests
@@ -53,23 +53,23 @@ mod tests {
 
     const NOTES: &str = "/nonexistent-crowbar-home/notes.json";
 
-    fn desk() -> shell_data::HostDesk {
+    fn desk() -> store::HostDesk {
         let registry = Arc::new(transport::HostRegistry::in_memory());
         let tokens = Arc::new(transport::MemoryTokenStore::default());
-        shell_data::HostDesk {
+        store::HostDesk {
             book: Arc::new(crate::transport_book::TransportBook::new(registry, tokens)),
-            notes: Arc::new(shell_data::HostNotes::open(NOTES.into()).unwrap()),
+            notes: Arc::new(store::HostNotes::open(NOTES.into()).unwrap()),
         }
     }
 
-    fn data(runtime: &tokio::runtime::Runtime) -> shell_data::ShellData {
+    fn data(runtime: &tokio::runtime::Runtime) -> store::ShellData {
         let transport: Arc<dyn DaemonTransport> = Arc::new(NoDaemon);
-        let wiring = shell_data::ShellWiring {
+        let wiring = store::ShellWiring {
             desk: desk(),
             signal: Arc::new(|| {}),
             outcome: Arc::new(|_| {}),
         };
-        shell_data::ShellData::start(runtime.handle(), &transport, Vec::new(), wiring)
+        store::ShellData::start(runtime.handle(), &transport, Vec::new(), wiring)
     }
 
     #[test]

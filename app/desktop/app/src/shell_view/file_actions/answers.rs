@@ -67,7 +67,7 @@ mod tests {
 
     fn heard_after(
         cx: &mut TestAppContext,
-        answer: Result<u8, shell_data::FileError>,
+        answer: Result<u8, store::FileError>,
     ) -> Vec<String> {
         let (probe, cx) = cx.add_window_view(|_, _| Probe::default());
         let (done, reply) = file_reply::channel();
@@ -83,7 +83,7 @@ mod tests {
     #[gpui::test]
     fn an_answer_reaches_the_view_and_a_failure_reaches_its_handler(cx: &mut TestAppContext) {
         assert_eq!(heard_after(cx, Ok(7)), ["got 7"]);
-        let refused = shell_data::FileError::Local {
+        let refused = store::FileError::Local {
             path: "disk".into(),
             source: std::io::Error::other("no space"),
         };

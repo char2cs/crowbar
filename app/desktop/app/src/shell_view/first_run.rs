@@ -125,7 +125,7 @@ impl ShellView {
     fn queue_pairing(&self) {
         send(
             &self.requests,
-            ShellRequest::Outcome(shell_data::Outcome::PairHost),
+            ShellRequest::Outcome(store::Outcome::PairHost),
         );
     }
 }

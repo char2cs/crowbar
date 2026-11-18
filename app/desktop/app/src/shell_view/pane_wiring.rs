@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use shell_data::ShellData;
+use store::ShellData;
 
 use crate::daemon_link::DaemonLink;
 use crate::shell_request::ShellRequest;

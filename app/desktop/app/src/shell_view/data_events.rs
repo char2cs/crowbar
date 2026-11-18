@@ -2,8 +2,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use gpui::{AsyncApp, Context, PathPromptOptions, WeakEntity, Window};
-use shell_data::{Outcome as DataOutcome, SettingsAdapter};
 use std::sync::atomic::Ordering;
+use store::{Outcome as DataOutcome, SettingsAdapter};
 use ui::ToastKind;
 
 use super::ShellView;

@@ -1,5 +1,5 @@
 use protocol::{PaneTypeId, Params};
-use shell_data::{ChatSurface, ChatTerminal};
+use store::{ChatSurface, ChatTerminal};
 
 use crate::core_panes::{CHAT, TERMINAL};
 
@@ -17,7 +17,7 @@ pub(crate) fn route(
 
 #[cfg(test)]
 mod tests {
-    use shell_data::ChatPhase;
+    use store::ChatPhase;
 
     use super::*;
     use crate::core_panes::{chat_params, chat_type};

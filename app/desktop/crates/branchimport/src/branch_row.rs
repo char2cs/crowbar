@@ -1,7 +1,7 @@
 //! One branch of the list: protected and imported ones are shown faded, the rest can be picked.
 
 use gpui::{ClickEvent, Div, ElementId, ParentElement, SharedString, Styled, div};
-use shell_data::{Availability, ImportBranch};
+use store::{Availability, ImportBranch};
 use ui::{Button, Checkbox, Icon, IconName, Palette, Pose};
 
 use crate::row_choice::{RowChoice, Toggle};

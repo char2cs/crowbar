@@ -1,4 +1,4 @@
-use shell_data::{FileDone, FileError};
+use store::{FileDone, FileError};
 
 pub(crate) type Reply<T> = async_channel::Receiver<Result<T, FileError>>;
 

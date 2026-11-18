@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use gpui::Entity;
-use shell_data::ShellData;
+use store::ShellData;
 
 use crate::shell_request::ShellRequest;
 use crate::workspace::Workspace;

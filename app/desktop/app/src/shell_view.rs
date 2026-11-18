@@ -11,9 +11,9 @@ use keymap::Keymap;
 use layoutview::{ChromeContext, LayoutView};
 use panehost::Overlay;
 use settings_ui::SettingsModal;
-use shell_data::{SettingsAdapter, ShellData};
 use sidebar::Sidebar;
 use startup::StartupView;
+use store::{SettingsAdapter, ShellData};
 use ui::{Surface, Theme, ToastQueue};
 use viewtabs::{SidebarState, TabBar};
 
@@ -87,7 +87,7 @@ pub(crate) struct ShellView {
     keymap: Keymap,
     watches: Watches,
     family_names: crate::family_names::FamilyNames,
-    system_fonts: shell_data::SystemFonts,
+    system_fonts: store::SystemFonts,
     requests: async_channel::Sender<ShellRequest>,
     data: Rc<ShellData>,
     data_queued: Arc<AtomicBool>,
@@ -145,7 +145,7 @@ impl ShellView {
             keymap: Keymap::defaults(),
             watches: Watches::default(),
             family_names: crate::family_names::FamilyNames::default(),
-            system_fonts: shell_data::SystemFonts::default(),
+            system_fonts: store::SystemFonts::default(),
             requests,
             data: built.data,
             data_queued: built.data_queued,

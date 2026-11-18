@@ -27,7 +27,7 @@ transport = { path = "crates/transport" }
 supervisor = { path = "desktop/crates/supervisor" }
 startup = { path = "desktop/crates/startup" }
 settings_ui = { path = "desktop/crates/settings_ui" }
-shell_data = { path = "desktop/crates/shell_data" }
+store = { path = "desktop/crates/store" }
 keymap = { path = "desktop/crates/keymap" }
 browserbar = { path = "desktop/crates/browserbar" }
 branchimport = { path = "desktop/crates/branchimport" }

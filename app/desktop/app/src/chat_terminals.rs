@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use shell_data::{ChatTerminal, ShellData};
+use store::{ChatTerminal, ShellData};
 
 pub(crate) type Lookup = Rc<dyn Fn(&str) -> Option<ChatTerminal>>;
 pub(crate) type Resume = Rc<dyn Fn(&str)>;
@@ -59,7 +59,7 @@ fn resume_chat(
 
 #[cfg(test)]
 mod tests {
-    use shell_data::{ChatPhase, ChatSurface};
+    use store::{ChatPhase, ChatSurface};
 
     use super::*;
 

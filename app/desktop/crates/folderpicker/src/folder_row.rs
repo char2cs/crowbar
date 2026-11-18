@@ -1,6 +1,6 @@
 //! One visible row of the tree.
 
-use shell_data::BrowseEntry;
+use store::BrowseEntry;
 use ui::Pose;
 
 use crate::folder_note::FolderNote;

@@ -1,5 +1,5 @@
 use gpui::Context;
-use shell_data::BrowseEntry;
+use store::BrowseEntry;
 
 use crate::picker_event::PickerEvent;
 use crate::remote_folder_picker::RemoteFolderPicker;

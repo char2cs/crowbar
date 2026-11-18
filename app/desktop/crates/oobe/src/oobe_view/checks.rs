@@ -1,6 +1,6 @@
 //! What the system check says about the tools the flow needs.
 
-use shell_data::Tool;
+use store::Tool;
 
 use super::OobeView;
 use crate::check_status::CheckStatus;
@@ -34,7 +34,7 @@ mod tests {
     use std::rc::Rc;
 
     use gpui::TestAppContext;
-    use shell_data::ToolReport;
+    use store::ToolReport;
 
     use super::*;
     use crate::oobe_screen::OobeScreen;

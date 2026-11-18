@@ -172,7 +172,7 @@ mod tests {
     use gpui::TestAppContext;
     use layout::{Command, Layout, PaneInstance, TabId};
     use protocol::{PaneState, PaneTypeId, Params};
-    use shell_data::{ChatPhase, ChatSurface, ChatTerminal};
+    use store::{ChatPhase, ChatSurface, ChatTerminal};
 
     use super::*;
     use crate::core_panes::TERMINAL;

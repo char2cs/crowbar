@@ -1,5 +1,5 @@
 [package]
-name = "shell_data"
+name = "store"
 description = "Daemon-backed data for the native shell: sidebar entities and commands, settings and records."
 version.workspace = true
 edition.workspace = true

@@ -7,7 +7,7 @@ use gpui::{
     Context, Div, Entity, EventEmitter, IntoElement, ParentElement, Render, Styled, Subscription,
     Window, div,
 };
-use shell_data::{PairingPending, PairingSession, PairingStage, PairingState};
+use store::{PairingPending, PairingSession, PairingStage, PairingState};
 use ui::{Dialog, DialogSize, Palette, Surface, TextInput, TextInputEvent, Theme};
 
 use crate::look::{ADDRESS_PLACEHOLDER, CODE_PLACEHOLDER, GAP, NAME_PLACEHOLDER, TITLE};

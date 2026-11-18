@@ -5,9 +5,9 @@ use std::sync::atomic::AtomicBool;
 use gpui::{AppContext as _, Context, Entity};
 use layoutview::LayoutView;
 use ptysession::TerminalSessions;
-use shell_data::{ShellData, ShellWiring};
 use sidebar::{Preferences, Sidebar, SidebarData};
 use startup::{MonotonicClock, StartupTiming, StartupView};
+use store::{ShellData, ShellWiring};
 use ui::{Overlays, ToastQueue};
 use viewtabs::TabBar;
 
@@ -56,7 +56,7 @@ pub(super) fn start_data(
 
 fn terminal_sessions(link: &DaemonLink) -> TerminalSessions {
     let (transport, host) = (link.transport(), link.local_host());
-    TerminalSessions::new(transport, host, link.handle(), shell_data::CORE_ORIGIN)
+    TerminalSessions::new(transport, host, link.handle(), store::CORE_ORIGIN)
 }
 
 pub(super) fn build_panes<V: 'static>(

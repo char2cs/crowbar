@@ -1,7 +1,7 @@
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 
-use shell_data::{Tool, ToolReport};
+use store::{Tool, ToolReport};
 
 use crate::check_source::CheckSource;
 

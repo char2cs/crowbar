@@ -1,6 +1,6 @@
 //! The words of each stage of the dialog.
 
-use shell_data::PairingStage;
+use store::PairingStage;
 
 pub(crate) fn lead(stage: PairingStage) -> &'static str {
     match stage {

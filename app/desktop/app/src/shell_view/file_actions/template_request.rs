@@ -1,4 +1,4 @@
-use shell_data::Overwrite;
+use store::Overwrite;
 
 pub(super) struct TemplateRequest<'a> {
     pub(super) source: &'a str,

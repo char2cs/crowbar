@@ -30,7 +30,7 @@ pub(crate) struct DaemonLink {
     transport: Arc<dyn DaemonTransport>,
     pub(crate) daemon: Arc<Transport>,
     registry: Arc<HostRegistry>,
-    desk: shell_data::HostDesk,
+    desk: store::HostDesk,
     phases: async_channel::Receiver<StartupInput>,
     sender: async_channel::Sender<StartupInput>,
     host: HostId,
@@ -87,7 +87,7 @@ impl DaemonLink {
         self.runtime.handle().clone()
     }
 
-    pub(crate) fn desk(&self) -> shell_data::HostDesk {
+    pub(crate) fn desk(&self) -> store::HostDesk {
         self.desk.clone()
     }
 
@@ -112,10 +112,10 @@ fn host_desk(
     options: &AppOptions,
     registry: &Arc<HostRegistry>,
     tokens: Arc<dyn TokenStore>,
-) -> Result<shell_data::HostDesk> {
-    let notes = shell_data::HostNotes::open(options.state_dir().join("host-notes.json"))
+) -> Result<store::HostDesk> {
+    let notes = store::HostNotes::open(options.state_dir().join("host-notes.json"))
         .map_err(|e| Error::Daemon(e.to_string()))?;
-    Ok(shell_data::HostDesk {
+    Ok(store::HostDesk {
         book: Arc::new(TransportBook::new(Arc::clone(registry), tokens)),
         notes: Arc::new(notes),
     })

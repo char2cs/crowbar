@@ -805,7 +805,7 @@ name = "branchimport"
 version = "0.1.0"
 dependencies = [
  "gpui",
- "shell_data",
+ "store",
  "ui",
 ]
 
@@ -1512,10 +1512,10 @@ dependencies = [
  "ptysession",
  "serde_json",
  "settings_ui",
- "shell_data",
  "sidebar",
  "smallvec",
  "startup",
+ "store",
  "supervisor",
  "terminal",
  "terminalview",
@@ -2167,7 +2167,7 @@ name = "folderpicker"
 version = "0.1.0"
 dependencies = [
  "gpui",
- "shell_data",
+ "store",
  "ui",
 ]
 
@@ -4725,7 +4725,7 @@ name = "oobe"
 version = "0.1.0"
 dependencies = [
  "gpui",
- "shell_data",
+ "store",
  "ui",
 ]
 
@@ -4766,7 +4766,7 @@ name = "pairing"
 version = "0.1.0"
 dependencies = [
  "gpui",
- "shell_data",
+ "store",
  "ui",
 ]
 
@@ -6463,28 +6463,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "shell_data"
-version = "0.1.0"
-dependencies = [
- "atomicfile",
- "base64",
- "futures-util",
- "getrandom 0.3.4",
- "ignore",
- "protocol",
- "rusqlite",
- "serde",
- "serde_json",
- "settings_ui",
- "sidebar",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "tokio-tungstenite",
- "tracing",
-]
-
-[[package]]
 name = "shlex"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6755,6 +6733,28 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
+
+[[package]]
+name = "store"
+version = "0.1.0"
+dependencies = [
+ "atomicfile",
+ "base64",
+ "futures-util",
+ "getrandom 0.3.4",
+ "ignore",
+ "protocol",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "settings_ui",
+ "sidebar",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-tungstenite",
+ "tracing",
+]
 
 [[package]]
 name = "strict-num"

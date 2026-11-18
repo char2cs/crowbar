@@ -1,6 +1,6 @@
 //! What the picker reads of the data behind it.
 
-use shell_data::FolderListing;
+use store::FolderListing;
 
 pub(crate) trait FolderReader {
     fn host_name(&self) -> String;

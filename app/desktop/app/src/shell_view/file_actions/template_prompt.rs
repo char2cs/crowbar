@@ -1,5 +1,5 @@
 use gpui::{AppContext as _, Context, ParentElement as _, Styled as _, Window};
-use shell_data::TemplateOutcome;
+use store::TemplateOutcome;
 
 use super::ShellView;
 use super::template_request::TemplateRequest;

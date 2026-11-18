@@ -1,6 +1,6 @@
 //! Which branches the list shows and what it says when it shows none.
 
-use shell_data::{BranchListing, ImportBranch};
+use store::{BranchListing, ImportBranch};
 
 use crate::row_look::{FAILED, LOADING, NONE_MATCH, NONE_ON_REMOTE};
 
@@ -33,7 +33,7 @@ pub(crate) fn empty_message(
 
 #[cfg(test)]
 mod tests {
-    use shell_data::Availability;
+    use store::Availability;
 
     use super::*;
 

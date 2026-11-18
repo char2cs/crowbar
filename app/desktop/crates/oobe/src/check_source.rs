@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use shell_data::{SystemCheck, Tool, ToolReport};
+use store::{SystemCheck, Tool, ToolReport};
 
 pub(crate) trait CheckSource {
     fn report(

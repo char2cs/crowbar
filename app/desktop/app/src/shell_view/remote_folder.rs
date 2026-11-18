@@ -1,6 +1,6 @@
 use folderpicker::{PickerEvent, RemoteFolderPicker};
 use gpui::{AppContext as _, Context, Entity, Window};
-use shell_data::FolderChoice;
+use store::FolderChoice;
 
 use super::ShellView;
 
@@ -102,7 +102,7 @@ impl ShellView {
 
 #[cfg(test)]
 mod tests {
-    use shell_data::FolderChoice;
+    use store::FolderChoice;
 
     use super::*;
 

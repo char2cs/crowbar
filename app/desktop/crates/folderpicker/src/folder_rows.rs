@@ -1,7 +1,7 @@
 //! The visible rows of the tree: each folder's own children, and below every opened folder its
 //! rows or the note that stands in for them.
 
-use shell_data::{BrowseEntry, EntryKind, FolderListing};
+use store::{BrowseEntry, EntryKind, FolderListing};
 use ui::Pose;
 
 use crate::folder_note::FolderNote;

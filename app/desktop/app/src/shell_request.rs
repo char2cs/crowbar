@@ -12,7 +12,7 @@ pub(crate) enum ShellRequest {
     /// The user answered the unsaved changes question.
     Closing(crate::close_choice::CloseChoice),
     DataChanged,
-    Outcome(shell_data::Outcome),
+    Outcome(store::Outcome),
     Overlays {
         open: bool,
     },

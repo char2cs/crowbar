@@ -4,7 +4,7 @@ use gpui::{
     App, Div, ElementId, Hsla, InteractiveElement, IntoElement, ParentElement, SharedString,
     StatefulInteractiveElement, Styled, Window, div,
 };
-use shell_data::EntryKind;
+use store::EntryKind;
 use ui::{Icon, IconName, Palette, Pose};
 
 use crate::folder_note::FolderNote;

@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use shell_data::{PairingSession, PairingState};
+use store::{PairingSession, PairingState};
 
 use crate::pairing_action::PairingAction;
 
