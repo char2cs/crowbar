@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use crate::startup_clock::StartupClock;
+use crate::startup_view::startup_clock::StartupClock;
 
 /// The real clock: time since it was created.
 #[derive(Debug, Clone, Copy)]

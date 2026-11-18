@@ -1,7 +1,7 @@
 use std::cell::Cell;
 use std::time::Duration;
 
-use crate::startup_clock::StartupClock;
+use crate::startup_view::StartupClock;
 
 /// A clock the test moves by hand.
 #[derive(Debug, Default)]

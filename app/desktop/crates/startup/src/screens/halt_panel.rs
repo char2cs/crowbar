@@ -5,12 +5,12 @@ use gpui::{
 };
 use ui::{Badge, BadgeVariant, Icon, IconName, IconWeight, Surface, Theme, UiText, radius};
 
-use crate::command_button::CommandButton;
-use crate::detail_box::DetailBox;
-use crate::halt_reason::HaltReason;
-use crate::spacing::{CARD_PADDING, GAP_MD, GAP_SM, TITLE_ICON};
+use crate::screens::command_button::CommandButton;
+use crate::screens::detail_box::DetailBox;
+use crate::screens::spacing::{CARD_PADDING, GAP_MD, GAP_SM, TITLE_ICON};
 use crate::startup_actions::StartupActions;
 use crate::startup_command::StartupCommand;
+use crate::startup_machine::HaltReason;
 
 const WIDTH: f32 = 480.0;
 const TINT: f32 = 0.1;

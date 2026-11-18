@@ -1,24 +1,22 @@
 use std::rc::Rc;
 
-use crate::app_phase::AppPhase;
+use crate::startup_machine::AppPhase;
 use gpui::{
     AnimationExt, App, Context, EventEmitter, IntoElement, ParentElement, Render, Styled, Task,
     Window, div, px,
 };
 use ui::{CubicBezier, Motion, Surface, Theme, timing};
 
-use crate::halt_panel::HaltPanel;
-use crate::handover::Handover;
-use crate::outage_panel::OutagePanel;
+use crate::screens::HaltPanel;
+use crate::screens::OutagePanel;
+use crate::screens::WaitingPanel;
+use crate::screens::wordmark;
 use crate::startup_actions::StartupActions;
-use crate::startup_clock::StartupClock;
-use crate::startup_event::StartupEvent;
-use crate::startup_input::StartupInput;
+use crate::startup_machine::StartupInput;
 use crate::startup_machine::StartupMachine;
-use crate::startup_screen::StartupScreen;
-use crate::startup_timing::StartupTiming;
-use crate::waiting_panel::WaitingPanel;
-use crate::wordmark::wordmark;
+use crate::startup_machine::StartupScreen;
+use crate::startup_machine::StartupTiming;
+use crate::startup_view::handover::Handover;
 
 const STAGE_GAP: f32 = 36.0;
 
@@ -39,7 +37,15 @@ pub struct StartupView {
     titled: String,
 }
 
+mod adapters;
+mod handing_over;
 mod handover;
+mod startup_clock;
+mod startup_event;
+
+pub use adapters::MonotonicClock;
+pub use startup_clock::StartupClock;
+pub use startup_event::StartupEvent;
 
 impl StartupView {
     /// A view in its starting state; `actions` receives the user's commands.
@@ -206,9 +212,9 @@ mod tests {
     use gpui::{Entity, TestAppContext, VisualTestContext};
 
     use super::*;
-    use crate::migration_step::MigrationStep;
-    use crate::outage::Outage;
     use crate::startup_command::StartupCommand;
+    use crate::startup_machine::MigrationStep;
+    use crate::startup_machine::Outage;
     use crate::test_support::{ManualClock, RecordingActions, click_across};
 
     pub(super) const REVEAL: Duration = Duration::from_millis(250);

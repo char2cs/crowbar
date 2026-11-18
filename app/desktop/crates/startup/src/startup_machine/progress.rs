@@ -1,10 +1,10 @@
 //! How inputs map to screens and how migration progress is kept.
 
 use super::StartupMachine;
-use crate::halt_reason::HaltReason;
-use crate::migration_step::MigrationStep;
-use crate::startup_input::StartupInput;
-use crate::startup_screen::StartupScreen;
+use crate::startup_machine::halt_reason::HaltReason;
+use crate::startup_machine::migration_step::MigrationStep;
+use crate::startup_machine::startup_input::StartupInput;
+use crate::startup_machine::startup_screen::StartupScreen;
 
 impl StartupMachine {
     pub(crate) fn screen_for(

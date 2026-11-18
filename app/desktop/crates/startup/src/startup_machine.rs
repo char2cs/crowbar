@@ -1,11 +1,6 @@
 use std::mem::discriminant;
 use std::time::Duration;
 
-use crate::migration_step::MigrationStep;
-use crate::startup_input::StartupInput;
-use crate::startup_screen::StartupScreen;
-use crate::startup_timing::StartupTiming;
-
 /// Turns the stream of supervisor inputs into the screen to show.
 ///
 /// Time is a `Duration` since any fixed origin that the caller passes with every call; the
@@ -27,7 +22,22 @@ pub struct StartupMachine {
     now: Duration,
 }
 
+mod app_phase;
+mod halt_reason;
+mod migration_step;
+mod outage;
 mod progress;
+mod startup_input;
+mod startup_screen;
+mod startup_timing;
+
+pub use app_phase::AppPhase;
+pub use halt_reason::HaltReason;
+pub use migration_step::MigrationStep;
+pub use outage::Outage;
+pub use startup_input::StartupInput;
+pub use startup_screen::StartupScreen;
+pub use startup_timing::StartupTiming;
 
 impl StartupMachine {
     /// A machine showing [`StartupScreen::Starting`] from `now`.
@@ -127,8 +137,8 @@ impl StartupMachine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::halt_reason::HaltReason;
-    use crate::outage::Outage;
+    use crate::startup_machine::halt_reason::HaltReason;
+    use crate::startup_machine::outage::Outage;
 
     const REVEAL: Duration = Duration::from_millis(250);
     const VISIBLE: Duration = Duration::from_millis(600);

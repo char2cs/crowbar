@@ -1,6 +1,6 @@
 //! Shows the startup view in one phase, or plays a whole start-up.
 //!
-//! Usage: `startup_gallery [--phase starting|migrating|halted|restarting|unresponsive|gave-up|stopped|demo]
+//! Usage: `startupgallery [--phase starting|migrating|halted|restarting|unresponsive|gave-up|stopped|demo]
 //! [--theme crowbar|frosted] [--mode light|dark] [--size WxH]`.
 
 mod phases;

@@ -1,8 +1,8 @@
-use crate::app_phase::AppPhase;
+use crate::startup_machine::app_phase::AppPhase;
 
-use crate::halt_reason::HaltReason;
-use crate::migration_step::MigrationStep;
-use crate::outage::Outage;
+use crate::startup_machine::halt_reason::HaltReason;
+use crate::startup_machine::migration_step::MigrationStep;
+use crate::startup_machine::outage::Outage;
 
 /// What the full-screen view shows right now.
 #[derive(Debug, Clone, PartialEq)]

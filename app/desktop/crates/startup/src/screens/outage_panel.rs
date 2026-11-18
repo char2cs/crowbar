@@ -9,12 +9,12 @@ use ui::{
     radius, shadow,
 };
 
-use crate::command_button::CommandButton;
-use crate::detail_box::DetailBox;
-use crate::outage::Outage;
-use crate::spacing::{CARD_PADDING, GAP_MD, GAP_SM, TITLE_ICON};
+use crate::screens::command_button::CommandButton;
+use crate::screens::detail_box::DetailBox;
+use crate::screens::spacing::{CARD_PADDING, GAP_MD, GAP_SM, TITLE_ICON};
 use crate::startup_actions::StartupActions;
 use crate::startup_command::StartupCommand;
+use crate::startup_machine::Outage;
 
 const WIDTH: f32 = 560.0;
 const SPINNER_SIZE: f32 = 18.0;
