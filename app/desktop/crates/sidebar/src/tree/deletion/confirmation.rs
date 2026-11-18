@@ -65,7 +65,7 @@ impl Confirmation {
         }
     }
 
-    /// The confirm button's text: "Delete <noun>", or "Delete anyway" when work is at risk.
+    /// The confirm button's text: `"Delete <noun>"`, or "Delete anyway" when work is at risk.
     pub fn confirm_label(&self) -> String {
         if self.at_risk.is_empty() {
             return format!("Delete {}", self.kind.noun());

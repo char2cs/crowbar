@@ -1,4 +1,4 @@
-//! The AppKit backend: WKWebView views and their website data.
+//! The `AppKit` backend: `WKWebView` views and their website data.
 
 #[cfg(target_os = "macos")]
 mod appkit_platform;
