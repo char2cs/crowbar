@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use protocol::{PANE_SETTING_KEYS, SettingValues};
 use serde_json::{Number, Value as Json, json};
-use settings_ui::{Key, Value};
+use settings::{Key, Value};
 
 pub(crate) fn follows(key: &Key) -> bool {
     PANE_SETTING_KEYS.contains(&key.as_str())

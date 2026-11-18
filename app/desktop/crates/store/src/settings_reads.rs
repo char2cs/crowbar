@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use settings_ui::{Change, Key, Value};
+use settings::{Change, Key, Value};
 
 use crate::call::Call;
 use crate::descriptors;
@@ -107,7 +107,7 @@ impl SettingsCore {
 
 #[cfg(test)]
 mod tests {
-    use settings_ui::Records;
+    use settings::Records;
 
     use super::*;
     use crate::test_support::{AGENTS, LEVEL_TRUSTED, SettingsRig};

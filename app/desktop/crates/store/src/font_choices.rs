@@ -1,6 +1,6 @@
 //! The options of the Appearance and Terminal font and theme selects.
 
-use settings_ui::Choice;
+use settings::Choice;
 
 use crate::system_fonts::SystemFonts;
 

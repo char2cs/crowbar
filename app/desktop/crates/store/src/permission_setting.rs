@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use settings_ui::{Change, Key, Value};
+use settings::{Change, Key, Value};
 
 use crate::call::Call;
 use crate::permission_key::{PERMISSION, PERMISSION_PATH};

@@ -158,7 +158,7 @@ impl ShellView {
 
     pub(super) fn show_settings_page(
         &mut self,
-        page: Option<settings_ui::PageId>,
+        page: Option<settings::PageId>,
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {

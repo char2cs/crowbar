@@ -1,11 +1,11 @@
 use gpui::Context;
-use settings_ui::{Key, SettingsWrite as _, Value};
+use settings::{Key, SettingsWrite as _, Value};
 use ui::ToastKind;
 
 use super::ShellView;
 use crate::notice_key::NoticeKey;
 
-fn refusal(error: &settings_ui::Error) -> (ToastKind, String) {
+fn refusal(error: &settings::Error) -> (ToastKind, String) {
     (
         ToastKind::Error,
         format!("The setting was not saved: {error}"),
@@ -37,7 +37,7 @@ mod tests {
 
     #[test]
     fn a_refused_switch_says_the_setting_was_not_saved_and_why() {
-        let (kind, text) = refusal(&settings_ui::Error::Unavailable("disk full".into()));
+        let (kind, text) = refusal(&settings::Error::Unavailable("disk full".into()));
         assert_eq!(kind, ToastKind::Error);
         assert!(text.starts_with("The setting was not saved:") && text.contains("disk full"));
     }

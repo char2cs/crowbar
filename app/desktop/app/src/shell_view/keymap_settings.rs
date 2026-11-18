@@ -1,6 +1,6 @@
 use gpui::Context;
 use keymap::Keymap;
-use settings_ui::{
+use settings::{
     Change, KEYBINDING_OVERRIDES, KEYBINDING_PRESET, Key, SettingsFollow as _, SettingsRead as _,
     Value, preset_overrides,
 };

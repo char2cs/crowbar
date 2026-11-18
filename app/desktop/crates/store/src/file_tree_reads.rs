@@ -1,6 +1,6 @@
 //! The Files and Changes panels' look, read from the stored settings.
 
-use settings_ui::Value;
+use settings::Value;
 use sidebar::{FileDensity, FileTreeFlag, FileTreeView, IconTheme};
 
 const INDENT: &str = "fileTreeIndentSize";

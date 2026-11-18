@@ -28,7 +28,8 @@ viewtabs = { path = "desktop/crates/viewtabs" }
 transport = { path = "crates/transport" }
 supervisor = { path = "desktop/crates/supervisor" }
 startup = { path = "desktop/crates/startup" }
-settings_ui = { path = "desktop/crates/settings_ui" }
+settings = { path = "desktop/crates/settings" }
+settingsview = { path = "desktop/crates/settingsview" }
 store = { path = "desktop/crates/store" }
 keymap = { path = "desktop/crates/keymap" }
 browserbar = { path = "desktop/crates/browserbar" }

@@ -1,4 +1,4 @@
-use settings_ui::Value;
+use settings::Value;
 use terminal::CursorShape;
 use terminalview::TerminalSettings;
 

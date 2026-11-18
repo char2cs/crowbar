@@ -1,4 +1,4 @@
-use settings_ui::{Change, SettingsBackend, SettingsFollow as _, SettingsRead as _};
+use settings::{Change, SettingsBackend, SettingsFollow as _, SettingsRead as _};
 
 use super::ShellView;
 use crate::pane_settings::{follows, value_of, values_of};
@@ -28,7 +28,7 @@ fn store_one(
     let Some(value) = value_of(json) else {
         return tracing::warn!(%key, "a pane wrote a setting value of no known shape");
     };
-    if let Err(error) = backend.set(&settings_ui::Key::new(key.as_str()), value) {
+    if let Err(error) = backend.set(&settings::Key::new(key.as_str()), value) {
         tracing::warn!(%key, %error, "storing a pane's setting failed");
     }
 }
@@ -63,7 +63,7 @@ impl ShellView {
             return;
         };
         let limit = backend
-            .get(&settings_ui::Key::new(MAX_OPEN_TABS))
+            .get(&settings::Key::new(MAX_OPEN_TABS))
             .and_then(|value| value.as_number());
         self.state.set_open_limit(limit);
         match values_of(|key| backend.get(key)) {
@@ -75,7 +75,7 @@ impl ShellView {
 
 #[cfg(test)]
 mod tests {
-    use settings_ui::{Key, Value};
+    use settings::{Key, Value};
 
     use super::*;
 

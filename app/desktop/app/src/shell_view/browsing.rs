@@ -7,7 +7,7 @@ use gpui::Context;
 use panehost::BrowseAction;
 use protocol::PaneId;
 
-use settings_ui::{Key, SettingsRead as _, Value};
+use settings::{Key, SettingsRead as _, Value};
 
 use super::ShellView;
 use crate::agent_requests::AgentRequests;

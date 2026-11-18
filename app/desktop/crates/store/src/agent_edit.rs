@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use settings_ui::{Change, Error, RecordCommand};
+use settings::{Change, Error, RecordCommand};
 
 use crate::agent_records::{self, ENABLED, TOOLS};
 use crate::call::Call;
@@ -118,7 +118,7 @@ mod tests {
 
     use super::*;
     use crate::test_support::{AGENTS, AGENTS_PUT, SettingsRig, agents_ready};
-    use settings_ui::Change;
+    use settings::Change;
 
     fn two_agent_updates(all: &[Change]) -> bool {
         all.iter()

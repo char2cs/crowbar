@@ -1,6 +1,6 @@
 //! The Descriptor checks list: one record per descriptor, its findings as lines.
 
-use settings_ui::{Line, Record, Tone};
+use settings::{Line, Record, Tone};
 
 use crate::descriptor_finding::DescriptorFinding;
 use crate::descriptor_report::DescriptorReport;

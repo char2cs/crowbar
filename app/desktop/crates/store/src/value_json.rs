@@ -1,6 +1,6 @@
 //! Setting values as the settings file stores them.
 
-use settings_ui::Value;
+use settings::Value;
 
 pub(crate) fn to_json(value: &Value) -> serde_json::Value {
     match value {

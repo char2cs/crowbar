@@ -1,6 +1,6 @@
 //! A list the daemon is asked for: still loading, failed, or read.
 
-use settings_ui::{Record, Records};
+use settings::{Record, Records};
 
 #[derive(Debug, Clone)]
 pub(crate) enum Loadable<T> {

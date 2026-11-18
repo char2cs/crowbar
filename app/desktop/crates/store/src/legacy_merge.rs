@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use settings_ui::Value;
+use settings::Value;
 
 use crate::legacy_store::Entries;
 use crate::value_json::from_json;

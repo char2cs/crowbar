@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use settings_ui::{
+use settings::{
     Change, Error, Key, Listener, RecordBackend, RecordCommand, Records, SettingsFollow,
     SettingsRead, SettingsWrite, Snapshot, Subscription, Value,
 };

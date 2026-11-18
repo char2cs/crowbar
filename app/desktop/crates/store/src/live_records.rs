@@ -1,6 +1,6 @@
 //! The Active sessions and Hosts lists, read from what the streams hold.
 
-use settings_ui::{Confirm, Line, Record, RecordAction, Tone};
+use settings::{Confirm, Line, Record, RecordAction, Tone};
 
 use crate::chat_record::ChatRecord;
 use crate::host_slot::HostSlot;

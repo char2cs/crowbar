@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use settings_ui::{Error, RecordCommand, Records};
+use settings::{Error, RecordCommand, Records};
 
 use crate::agent_records;
 use crate::call::Call;

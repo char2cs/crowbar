@@ -1,5 +1,5 @@
 use gpui::Context;
-use settings_ui::{Key, SettingsRead as _, Value};
+use settings::{Key, SettingsRead as _, Value};
 use sidebarview::Sidebar;
 
 use super::ShellView;

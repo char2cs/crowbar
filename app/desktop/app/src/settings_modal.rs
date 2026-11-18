@@ -1,7 +1,8 @@
 use std::rc::Rc;
 
 use gpui::{App, AppContext as _, Context, Entity, Window};
-use settings_ui::{ModalConfig, PageId, SettingsModal, default_schema};
+use settings::{PageId, default_schema};
+use settingsview::{ModalConfig, SettingsModal};
 use store::SettingsAdapter;
 
 use crate::error::{Error, Result};

@@ -1,0 +1,32 @@
+[package]
+name = "settingsview"
+description = "The native settings dialog of the Crowbar shell: the GPUI modal drawn over the settings model."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+# The gallery binary runs the dialog over the settings crate's FakeBackend.
+fake = ["settings/fake"]
+
+[[bin]]
+name = "gallery"
+path = "src/bin/gallery/main.rs"
+required-features = ["fake"]
+
+[dependencies]
+chord.workspace = true
+gpui.workspace = true
+settings.workspace = true
+thiserror.workspace = true
+ui.workspace = true
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
+settings = { workspace = true, features = ["fake"] }
+
+[lints]
+workspace = true

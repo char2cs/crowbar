@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use settings_ui::{Change, Error, Key, Snapshot, Value, Values};
+use settings::{Change, Error, Key, Snapshot, Value, Values};
 use tokio::runtime::Handle;
 
 use crate::change_signal::ChangeSignal;

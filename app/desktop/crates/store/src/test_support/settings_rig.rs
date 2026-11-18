@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex, PoisonError};
 
-use settings_ui::{Change, Key, Value};
+use settings::{Change, Key, Value};
 use tokio::runtime::Handle;
 use tokio::sync::Notify;
 

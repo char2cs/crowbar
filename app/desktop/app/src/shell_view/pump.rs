@@ -146,7 +146,7 @@ impl ShellView {
             },
             Ok(SidebarAction::OpenSettings) => self.show_settings(window, cx),
             Ok(SidebarAction::OpenHosts) => {
-                let hosts = settings_ui::PageId::from(crate::settings_modal::HOSTS_PAGE);
+                let hosts = settings::PageId::from(crate::settings_modal::HOSTS_PAGE);
                 self.show_settings_page(Some(hosts), window, cx);
             },
             Ok(SidebarAction::OpenFile(path)) => self.open_workspace_file(&path, cx),
@@ -155,7 +155,7 @@ impl ShellView {
             Ok(SidebarAction::ImportBranches(row)) => self.show_branch_import(&row, window, cx),
             Ok(SidebarAction::Reveal(path)) => self.reveal_workspace_path(&path),
             Ok(SidebarAction::SetFileTreeFlag { key, on }) => {
-                self.set_file_tree_flag((key, settings_ui::Value::Bool(on)), cx);
+                self.set_file_tree_flag((key, settings::Value::Bool(on)), cx);
             },
             Ok(SidebarAction::Unserved) => self.perform_file_action(command, window, cx),
             Err(error) => tracing::warn!(%error, "a sidebar command was invalid"),

@@ -10,7 +10,7 @@ use gpui::{
 use keymap::Keymap;
 use layoutview::{ChromeContext, LayoutView};
 use panehost::Overlay;
-use settings_ui::SettingsModal;
+use settingsview::SettingsModal;
 use sidebarview::Sidebar;
 use startup::StartupView;
 use store::{SettingsAdapter, ShellData};

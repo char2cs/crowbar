@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use settings_ui::Value;
+use settings::Value;
 
 use crate::error::{Error, Result};
 use crate::file_store::{FileStore, read_text};

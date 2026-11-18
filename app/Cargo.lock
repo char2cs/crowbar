@@ -1516,7 +1516,8 @@ dependencies = [
  "protocol",
  "ptysession",
  "serde_json",
- "settings_ui",
+ "settings",
+ "settingsview",
  "sidebar",
  "sidebarview",
  "smallvec",
@@ -6406,11 +6407,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "settings_ui"
+name = "settings"
+version = "0.1.0"
+dependencies = [
+ "chord",
+ "settings",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "settingsview"
 version = "0.1.0"
 dependencies = [
  "chord",
  "gpui",
+ "settings",
  "thiserror 2.0.21",
  "ui",
 ]
@@ -6757,7 +6768,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
- "settings_ui",
+ "settings",
  "sidebar",
  "tempfile",
  "thiserror 2.0.21",

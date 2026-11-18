@@ -1,0 +1,57 @@
+//! One line of text under a record's title.
+
+use crate::tone::Tone;
+
+/// A line of text with its tone and family.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Line {
+    /// The text shown.
+    pub text: String,
+    /// Whether the text uses the monospace family.
+    pub mono: bool,
+    /// The tone the text is coloured in.
+    pub tone: Tone,
+}
+
+impl Line {
+    /// A muted line of plain text.
+    pub fn plain(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            mono: false,
+            tone: Tone::Neutral,
+        }
+    }
+
+    /// The same line in the monospace family.
+    #[must_use]
+    pub fn mono(mut self) -> Self {
+        self.mono = true;
+        self
+    }
+
+    /// The same line in `tone`.
+    #[must_use]
+    pub fn toned(
+        mut self,
+        tone: Tone,
+    ) -> Self {
+        self.tone = tone;
+        self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builders_change_family_and_tone() {
+        let line = Line::plain("homelab:3737").mono().toned(Tone::Error);
+        assert_eq!(
+            (line.text.as_str(), line.mono, line.tone),
+            ("homelab:3737", true, Tone::Error)
+        );
+        assert_eq!(Line::plain("x").tone, Tone::Neutral);
+    }
+}

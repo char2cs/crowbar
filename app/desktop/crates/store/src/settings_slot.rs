@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, OnceLock};
 
-use settings_ui::{Key, Value};
+use settings::{Key, Value};
 
 type Reader = Arc<dyn Fn(&Key) -> Option<Value> + Send + Sync>;
 

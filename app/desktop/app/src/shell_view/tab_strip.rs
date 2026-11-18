@@ -1,6 +1,6 @@
 use gpui::Context;
 use layout::Tab;
-use settings_ui::{Key, SettingsRead as _};
+use settings::{Key, SettingsRead as _};
 use viewtabs::TabView;
 
 use super::ShellView;
@@ -43,7 +43,7 @@ impl ShellView {
         let stored = self
             .settings_backend()
             .and_then(|backend| backend.get(&Key::new(TAB_LIST_SCOPE)));
-        TabScope::from_setting(stored.as_ref().and_then(settings_ui::Value::as_text))
+        TabScope::from_setting(stored.as_ref().and_then(settings::Value::as_text))
     }
 
     fn tab_projects(

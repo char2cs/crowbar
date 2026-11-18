@@ -1,7 +1,7 @@
 //! The Agents page's list, from the daemon's providers.
 
 use serde_json::{Value, json};
-use settings_ui::{Line, Record, RecordFlag, Tone};
+use settings::{Line, Record, RecordFlag, Tone};
 
 use crate::artwork;
 use crate::provider::Provider;
