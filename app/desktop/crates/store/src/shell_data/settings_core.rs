@@ -20,7 +20,6 @@ pub use system_fonts::SystemFonts;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use daemonapi::DaemonClient;
 use settings::{Change, Error, Key, Snapshot, Value, Values};
 use tokio::runtime::Handle;
 
@@ -51,7 +50,7 @@ pub struct SettingsCore {
     outbox: Mutex<Vec<Change>>,
     pub(crate) hub: Arc<Hub>,
     pub(crate) handle: Handle,
-    pub(crate) local: DaemonClient,
+    pub(crate) local: daemonapi::Client,
     signal: ChangeSignal,
     fonts: SystemFonts,
     pub(crate) outcome: OutcomeSink,

@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use daemonapi::{Call, DaemonClient, read::read, routes::query::encode};
+use daemonapi::{Call, read::read, routes::query::encode};
 use serde_json::json;
 use sidebar::Error;
 
@@ -33,7 +33,7 @@ async fn change_and_reload(
 }
 
 async fn say_content(
-    client: &DaemonClient,
+    client: &daemonapi::Client,
     route: String,
     outcome: &OutcomeSink,
 ) {

@@ -2,7 +2,6 @@
 
 use std::sync::Arc;
 
-use daemonapi::DaemonClient;
 use tokio::runtime::Handle;
 
 use crate::live::ChangeSignal;
@@ -17,7 +16,7 @@ pub(crate) struct SettingsWiring {
     pub(crate) file: SettingFile,
     pub(crate) hub: Arc<Hub>,
     pub(crate) handle: Handle,
-    pub(crate) local: DaemonClient,
+    pub(crate) local: daemonapi::Client,
     pub(crate) signal: ChangeSignal,
     pub(crate) fonts: SystemFonts,
     pub(crate) outcome: OutcomeSink,

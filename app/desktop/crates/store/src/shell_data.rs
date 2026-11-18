@@ -17,7 +17,6 @@ pub use system_check::{SystemCheck, Tool, ToolReport};
 
 use std::sync::Arc;
 
-use daemonapi::DaemonClient;
 use protocol::DaemonTransport;
 use sidebar::Command;
 use tokio::runtime::Handle;
@@ -89,7 +88,7 @@ impl ShellData {
             .into_iter()
             .filter_map(|(spec, dial)| slot_for(transport, spec).map(|slot| (slot, dial)))
             .unzip();
-        let followed: Vec<(String, DaemonClient)> = slots
+        let followed: Vec<(String, daemonapi::Client)> = slots
             .iter()
             .map(|slot| (slot.spec.id.clone(), slot.client.clone()))
             .collect();

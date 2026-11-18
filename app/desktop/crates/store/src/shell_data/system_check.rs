@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use daemonapi::{DaemonClient, read::read};
+use daemonapi::read::read;
 use tokio::runtime::Handle;
 
 use crate::live::ChangeSignal;
@@ -18,7 +18,7 @@ use crate::live::ChangeSignal;
 /// Asks this computer's daemon whether git and the forge CLIs are there. A probe that fails reads
 /// as a tool that is not installed, so the screen can still guide the user.
 pub struct SystemCheck {
-    client: DaemonClient,
+    client: daemonapi::Client,
     handle: Handle,
     signal: ChangeSignal,
     round: AtomicU64,
@@ -38,7 +38,7 @@ impl std::fmt::Debug for SystemCheck {
 
 impl SystemCheck {
     pub(crate) fn start(
-        client: DaemonClient,
+        client: daemonapi::Client,
         handle: Handle,
         signal: ChangeSignal,
     ) -> Arc<Self> {

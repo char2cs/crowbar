@@ -1,6 +1,6 @@
 //! Reading the `.gitignore` files that a directory listing shows.
 
-use daemonapi::{DaemonClient, read::read};
+use daemonapi::read::read;
 
 use crate::live::held::FileEntry;
 use crate::live::panel_loader::document_body::DocumentBody;
@@ -19,7 +19,7 @@ fn listed(entries: &[FileEntry]) -> Option<&FileEntry> {
 
 pub(crate) async fn learn(
     hub: &Hub,
-    client: &DaemonClient,
+    client: &daemonapi::Client,
     listing: &ListedDirectory<'_>,
 ) {
     let ListedDirectory {

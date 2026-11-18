@@ -1,7 +1,5 @@
 //! The host a picker follows: who it is and how to reach it.
 
-use daemonapi::DaemonClient;
-
 use crate::live::State;
 use crate::reads::{active_project, host_of};
 
@@ -9,7 +7,7 @@ use crate::reads::{active_project, host_of};
 pub(crate) struct Followed {
     pub(crate) id: String,
     pub(crate) name: String,
-    pub(crate) client: DaemonClient,
+    pub(crate) client: daemonapi::Client,
 }
 
 pub(crate) fn named(

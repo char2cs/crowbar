@@ -17,7 +17,7 @@ pub(crate) use host_dialling::{Dialled, relay_for, slot_for};
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use daemonapi::{DaemonClient, Dial};
+use daemonapi::Dial;
 use protocol::DaemonTransport;
 use tokio::runtime::Handle;
 use tokio::sync::mpsc;
@@ -80,7 +80,7 @@ impl Fleet {
 
     pub(crate) fn run(
         &self,
-        (host, client): (String, DaemonClient),
+        (host, client): (String, daemonapi::Client),
         dial: Arc<dyn Dial>,
     ) {
         let (control, inbox) = mpsc::unbounded_channel();

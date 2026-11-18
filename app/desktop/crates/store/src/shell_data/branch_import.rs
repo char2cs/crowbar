@@ -19,7 +19,7 @@ pub use import_plan::ImportPlan;
 
 use std::sync::{Arc, Mutex};
 
-use daemonapi::{Call, DaemonClient, read::read};
+use daemonapi::{Call, read::read};
 use serde_json::json;
 use tokio::runtime::Handle;
 
@@ -41,7 +41,7 @@ use daemonapi::{new_id, routes};
 /// The branches of one repository's remote, loaded once and shown by the import dialog.
 pub struct BranchImport {
     scope: ImportScope,
-    client: DaemonClient,
+    client: daemonapi::Client,
     hub: Arc<Hub>,
     handle: Handle,
     outcome: OutcomeSink,
@@ -64,7 +64,7 @@ impl std::fmt::Debug for BranchImport {
 fn scope_of(
     state: &State,
     row: &str,
-) -> Option<(ImportScope, DaemonClient)> {
+) -> Option<(ImportScope, daemonapi::Client)> {
     let target = resolve(state, row).filter(|target| !target.repo.is_empty())?;
     let slot = state
         .hosts

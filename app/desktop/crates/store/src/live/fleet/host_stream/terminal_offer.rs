@@ -1,7 +1,5 @@
 //! Whether a host offers any agent that runs in a terminal.
 
-use daemonapi::DaemonClient;
-
 use crate::live::fleet::catalog as providers;
 use crate::live::fleet::catalog::Provider;
 use crate::live::state::Hub;
@@ -9,7 +7,7 @@ use crate::live::state::Hub;
 pub(crate) async fn read_terminal_support(
     hub: &Hub,
     host: &str,
-    client: &DaemonClient,
+    client: &daemonapi::Client,
 ) {
     let all = match providers::list(client).await {
         Ok(all) => all,

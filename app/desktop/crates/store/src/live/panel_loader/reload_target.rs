@@ -1,12 +1,10 @@
 //! The directory listing to load again once a change to the workspace's files has run.
 
-use daemonapi::DaemonClient;
-
 use crate::live::panel_loader::load_directory;
 use crate::live::state::Hub;
 
 pub(crate) struct ReloadTarget {
-    pub(crate) client: Option<DaemonClient>,
+    pub(crate) client: Option<daemonapi::Client>,
     pub(crate) chat: String,
     pub(crate) directory: String,
 }

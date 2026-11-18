@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use daemonapi::{CORE_ORIGIN, DaemonClient, Dial, RelayDial};
+use daemonapi::{CORE_ORIGIN, Dial, RelayDial};
 use protocol::{DaemonTransport, HostId};
 
 use crate::live::held::HostSlot;
@@ -30,7 +30,7 @@ pub(crate) fn slot_for(
     spec: HostSpec,
 ) -> Option<HostSlot> {
     let id = addressable(&spec.id)?;
-    let client = DaemonClient::new(Arc::clone(transport), id);
+    let client = daemonapi::Client::new(Arc::clone(transport), id);
     Some(HostSlot::new(spec, client))
 }
 

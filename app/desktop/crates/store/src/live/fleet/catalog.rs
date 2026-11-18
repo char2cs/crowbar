@@ -6,14 +6,14 @@ mod surface;
 pub(crate) use provider::Provider;
 pub(crate) use surface::Surface;
 
-use daemonapi::{Call, DaemonClient, decode::typed};
+use daemonapi::{Call, decode::typed};
 use serde_json::Value;
 
 use crate::error::Result;
 
 const PATH: &str = "/v0/settings/chat/providers";
 
-pub(crate) async fn list(client: &DaemonClient) -> Result<Vec<Provider>> {
+pub(crate) async fn list(client: &daemonapi::Client) -> Result<Vec<Provider>> {
     let data = client.send(Call::get(PATH)).await?;
     Ok(typed(PATH, data)?)
 }

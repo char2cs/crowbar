@@ -12,7 +12,7 @@ speaks the daemon's API through it.
 
 ## Public interface
 
-- `DaemonClient`: `new(transport, host)`, `send(Call)` (the envelope's `data`), `bytes(Call)`.
+- `Client`: `new(transport, host)`, `send(Call)` (the envelope's `data`), `bytes(Call)`.
 - `Call`: `get`, `post`, `put`, `patch`, `delete`, then `json`, `yaml`, `form`, `idempotent`,
   `discarding_work`.
 - `Error` (Request, Refused, Body, Json, Stream) and `Result`.

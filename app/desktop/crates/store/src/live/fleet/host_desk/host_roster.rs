@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use daemonapi::{Call, DaemonClient};
+use daemonapi::Call;
 use tokio::runtime::Handle;
 
 use crate::error::Error;
@@ -60,7 +60,7 @@ impl HostRoster {
     fn client_of(
         &self,
         host: &str,
-    ) -> Option<DaemonClient> {
+    ) -> Option<daemonapi::Client> {
         self.fleet.hub().read(|state| {
             state
                 .hosts

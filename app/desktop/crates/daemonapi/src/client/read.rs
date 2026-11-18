@@ -2,9 +2,9 @@
 
 use serde::de::DeserializeOwned;
 
-use crate::daemon_client::DaemonClient;
-use crate::daemon_client::call::Call;
-use crate::daemon_client::decode::typed;
+use crate::client::Client;
+use crate::client::call::Call;
+use crate::client::decode::typed;
 use crate::error::Result;
 
 /// Gets `path` through `client` and returns the answer's `data` as the type the route promises.
@@ -12,9 +12,9 @@ use crate::error::Result;
 /// # Errors
 ///
 /// `Error::Request`, `Error::Refused` or `Error::Body` when the request fails, as in
-/// [`DaemonClient::send`], and `Error::Json` when the `data` is not a `T`.
+/// [`Client::send`], and `Error::Json` when the `data` is not a `T`.
 pub async fn read<T: DeserializeOwned>(
-    client: &DaemonClient,
+    client: &Client,
     path: String,
 ) -> Result<T> {
     let data = client.send(Call::get(path.clone())).await?;
@@ -32,7 +32,7 @@ mod tests {
 
     async fn readable(body: &str) -> bool {
         let daemon = FakeDaemon::shared();
-        let client = DaemonClient::new(
+        let client = Client::new(
             Arc::<FakeDaemon>::clone(&daemon),
             HostId::new("local").unwrap(),
         );

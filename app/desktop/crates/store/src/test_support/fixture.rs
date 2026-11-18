@@ -1,4 +1,4 @@
-use daemonapi::{DaemonClient, Frame};
+use daemonapi::Frame;
 use std::sync::Arc;
 
 use protocol::HostId;
@@ -116,7 +116,7 @@ pub(crate) fn state() -> (State, Arc<FakeDaemon>) {
 /// A state of the one host `spec` that has heard [`frames`], and the daemon its client talks to.
 pub(crate) fn state_on(spec: HostSpec) -> (State, Arc<FakeDaemon>) {
     let daemon = FakeDaemon::shared();
-    let client = DaemonClient::new(Arc::<FakeDaemon>::clone(&daemon), local());
+    let client = daemonapi::Client::new(Arc::<FakeDaemon>::clone(&daemon), local());
     let id = spec.id.clone();
     let mut state = State::new(vec![HostSlot::new(spec, client)]);
     for frame in frames() {

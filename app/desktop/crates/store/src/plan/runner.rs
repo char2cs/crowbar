@@ -1,6 +1,6 @@
 //! Carrying out a plan: the requests in order, the local row meanwhile, the outcome after.
 
-use daemonapi::{Call, DaemonClient};
+use daemonapi::Call;
 
 use crate::live::Hub;
 use crate::live::PlanError;
@@ -53,7 +53,7 @@ async fn carry_out(
 
 async fn chosen_provider(
     hub: &Hub,
-    client: &DaemonClient,
+    client: &daemonapi::Client,
     plan: &Plan,
 ) -> Result<Option<Provider>, PlanError> {
     if !plan.needs_provider {
@@ -63,7 +63,7 @@ async fn chosen_provider(
 }
 
 async fn send(
-    client: &DaemonClient,
+    client: &daemonapi::Client,
     mut call: Call,
     chosen: Option<(&Provider, Surface)>,
 ) -> Result<(), PlanError> {
@@ -81,7 +81,7 @@ async fn send(
 fn client_of(
     state: &State,
     host: &str,
-) -> Option<DaemonClient> {
+) -> Option<daemonapi::Client> {
     state
         .hosts
         .iter()
@@ -90,7 +90,7 @@ fn client_of(
 }
 
 async fn pick_provider(
-    client: &DaemonClient,
+    client: &daemonapi::Client,
     hub: &Hub,
     host: &str,
 ) -> Result<Provider, PlanError> {

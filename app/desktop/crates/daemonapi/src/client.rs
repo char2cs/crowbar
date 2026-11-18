@@ -23,24 +23,24 @@ use crate::error::{Error, Result};
 ///
 /// Every request goes out with the core origin; a clone shares the transport.
 #[derive(Clone)]
-pub struct DaemonClient {
+pub struct Client {
     transport: Arc<dyn DaemonTransport>,
     host: HostId,
 }
 
-impl std::fmt::Debug for DaemonClient {
+impl std::fmt::Debug for Client {
     fn fmt(
         &self,
         formatter: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         formatter
-            .debug_struct("DaemonClient")
+            .debug_struct("Client")
             .field("host", &self.host)
             .finish_non_exhaustive()
     }
 }
 
-impl DaemonClient {
+impl Client {
     /// A client of `host` that sends its requests through `transport`.
     pub fn new(
         transport: Arc<dyn DaemonTransport>,
@@ -167,7 +167,7 @@ mod tests {
         let daemon = FakeDaemon::shared();
         daemon.answer(("GET", "/img"), 200, "rawbytes");
         daemon.ok("POST", "/v0/projects", r#"{"id":"p"}"#);
-        let client = DaemonClient::new(
+        let client = Client::new(
             Arc::<FakeDaemon>::clone(&daemon),
             HostId::new("local").unwrap(),
         );
@@ -193,7 +193,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_unknown_route_is_a_refusal_and_a_bad_path_is_a_request_error() {
-        let client = DaemonClient::new(FakeDaemon::shared(), HostId::new("local").unwrap());
+        let client = Client::new(FakeDaemon::shared(), HostId::new("local").unwrap());
         let refused = client.send(Call::get("/v0/none")).await.unwrap_err();
         assert!(
             matches!(refused, Error::Refused { status: 404, .. }),

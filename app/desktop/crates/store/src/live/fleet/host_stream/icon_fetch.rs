@@ -1,6 +1,6 @@
 //! Bringing the daemon's space images to disk when a project says it has one.
 
-use daemonapi::{Call, DaemonClient};
+use daemonapi::Call;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -47,7 +47,7 @@ fn projects_with_images(
 pub(crate) fn follow(
     hub: &Arc<Hub>,
     host: &str,
-    client: &DaemonClient,
+    client: &daemonapi::Client,
 ) {
     for ask in wanted(hub, host) {
         spawn_fetch(hub, client, ask);
@@ -56,7 +56,7 @@ pub(crate) fn follow(
 
 fn spawn_fetch(
     hub: &Arc<Hub>,
-    client: &DaemonClient,
+    client: &daemonapi::Client,
     ask: IconAsk,
 ) {
     let (hub, client) = (Arc::clone(hub), client.clone());
@@ -65,7 +65,7 @@ fn spawn_fetch(
 
 async fn fetch(
     hub: &Hub,
-    client: &DaemonClient,
+    client: &daemonapi::Client,
     ask: IconAsk,
 ) {
     let IconAsk { project, url, path } = ask;
@@ -74,7 +74,7 @@ async fn fetch(
 }
 
 async fn save(
-    client: &DaemonClient,
+    client: &daemonapi::Client,
     url: &str,
     path: PathBuf,
 ) -> Option<PathBuf> {

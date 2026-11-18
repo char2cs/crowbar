@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use daemonapi::{Call, DaemonClient, read::read};
+use daemonapi::{Call, read::read};
 use serde_json::json;
 
 use crate::error::Result;
@@ -37,7 +37,7 @@ pub(crate) fn join(
 
 #[derive(Debug, Clone)]
 pub(crate) struct FileSession {
-    client: DaemonClient,
+    client: daemonapi::Client,
     target: FileTarget,
 }
 

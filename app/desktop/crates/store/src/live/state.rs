@@ -11,7 +11,7 @@ pub use change_signal::ChangeSignal;
 pub use chat_terminal::{ChatPhase, ChatSurface, ChatTerminal};
 pub(crate) use hub::Hub;
 
-use daemonapi::{DaemonClient, Frame, Switch};
+use daemonapi::{Frame, Switch};
 use std::collections::BTreeMap;
 
 use crate::live::held::HostSlot;
@@ -80,14 +80,14 @@ impl State {
     pub(crate) fn client_of_chat(
         &self,
         chat: &str,
-    ) -> Option<DaemonClient> {
+    ) -> Option<daemonapi::Client> {
         self.hosts
             .iter()
             .find(|slot| slot.store.chats.get(chat).is_some())
             .map(|slot| slot.client.clone())
     }
 
-    pub(crate) fn local_client(&self) -> Option<DaemonClient> {
+    pub(crate) fn local_client(&self) -> Option<daemonapi::Client> {
         self.hosts
             .iter()
             .find(|slot| slot.spec.endpoint.is_none())

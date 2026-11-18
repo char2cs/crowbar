@@ -15,7 +15,7 @@ pub(crate) use document_body::DocumentBody;
 pub(crate) use file_target::FileTarget;
 pub(crate) use reload_target::ReloadTarget;
 
-use daemonapi::{DaemonClient, read::read};
+use daemonapi::read::read;
 
 use crate::live::held::FileEntry;
 use crate::live::panel_loader::git_diff_body::GitDiffBody;
@@ -39,7 +39,7 @@ pub(crate) fn tree_path(
 
 pub(crate) async fn load_directory(
     hub: &Hub,
-    client: &DaemonClient,
+    client: &daemonapi::Client,
     (chat, directory): (&str, &str),
 ) {
     let listed = read::<Vec<FileEntry>>(client, tree_path(chat, directory)).await;
@@ -60,7 +60,7 @@ pub(crate) async fn load_directory(
 
 pub(crate) async fn load_changes(
     hub: &Hub,
-    client: &DaemonClient,
+    client: &daemonapi::Client,
     chat: &str,
 ) {
     let answer = read::<GitStatusBody>(client, format!("/v0/chats/{chat}/git/status")).await;
@@ -81,7 +81,7 @@ pub(crate) async fn load_changes(
 
 async fn load_open_threads(
     hub: &Hub,
-    client: &DaemonClient,
+    client: &daemonapi::Client,
     chat: &str,
 ) -> u32 {
     let Some(path) = hub.read(|state| threads_path(state, chat)) else {
@@ -109,7 +109,7 @@ fn threads_path(
 }
 
 async fn load_counts(
-    client: &DaemonClient,
+    client: &daemonapi::Client,
     chat: &str,
 ) -> LineCounts {
     let mut diffs = diff_of(client, chat, "false").await;
@@ -118,7 +118,7 @@ async fn load_counts(
 }
 
 async fn diff_of(
-    client: &DaemonClient,
+    client: &daemonapi::Client,
     chat: &str,
     staged: &str,
 ) -> Vec<GitDiffBody> {
@@ -143,7 +143,7 @@ mod tests {
         Some((file.added, file.deleted))
     }
 
-    fn rig() -> (Arc<Hub>, DaemonClient, Arc<FakeDaemon>) {
+    fn rig() -> (Arc<Hub>, daemonapi::Client, Arc<FakeDaemon>) {
         let (mut state, daemon) = state();
         state.panels.follow(Some("hc".into()));
         let client = state.hosts[0].client.clone();

@@ -1,19 +1,19 @@
 //! The agent descriptors a computer loads, and installing another.
 
-use daemonapi::{Call, DaemonClient, decode::typed};
+use daemonapi::{Call, decode::typed};
 
 use crate::error::Result;
 use crate::shell_data::settings_core::agents::descriptor_report::DescriptorReport;
 
 pub(crate) const PATH: &str = "/v0/settings/chat/descriptors";
 
-pub(crate) async fn list(client: &DaemonClient) -> Result<Vec<DescriptorReport>> {
+pub(crate) async fn list(client: &daemonapi::Client) -> Result<Vec<DescriptorReport>> {
     let data = client.send(Call::get(PATH)).await?;
     Ok(typed(PATH, data)?)
 }
 
 pub(crate) async fn upload(
-    client: &DaemonClient,
+    client: &daemonapi::Client,
     text: Vec<u8>,
 ) -> Result<DescriptorReport> {
     let data = client.send(Call::post(PATH).yaml(text)).await?;

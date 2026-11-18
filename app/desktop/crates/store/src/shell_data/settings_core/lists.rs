@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use daemonapi::{Call, DaemonClient};
+use daemonapi::Call;
 use settings::{Error, RecordCommand, Records};
 
 use crate::shell_data::settings_core::agents::{descriptor_records, records as agent_records};
@@ -15,7 +15,7 @@ use crate::shell_data::settings_core::{
 };
 
 async fn end_session(
-    client: DaemonClient,
+    client: daemonapi::Client,
     path: String,
 ) {
     if let Err(error) = client.send(Call::post(path)).await {

@@ -1,7 +1,5 @@
 //! Everything the shell holds of one host.
 
-use daemonapi::DaemonClient;
-
 use crate::live::held::entity_store::EntityStore;
 use crate::live::held::host_spec::HostSpec;
 use crate::live::held::link_state::LinkState;
@@ -9,7 +7,7 @@ use crate::live::held::link_state::LinkState;
 #[derive(Debug)]
 pub(crate) struct HostSlot {
     pub(crate) spec: HostSpec,
-    pub(crate) client: DaemonClient,
+    pub(crate) client: daemonapi::Client,
     pub(crate) store: EntityStore,
     pub(crate) link: LinkState,
     pub(crate) terminal_threads: bool,
@@ -18,7 +16,7 @@ pub(crate) struct HostSlot {
 impl HostSlot {
     pub(crate) fn new(
         spec: HostSpec,
-        client: DaemonClient,
+        client: daemonapi::Client,
     ) -> Self {
         Self {
             spec,
@@ -37,7 +35,7 @@ mod tests {
 
     #[test]
     fn a_new_slot_is_connecting_with_nothing_heard_and_no_terminal_agent() {
-        let client = DaemonClient::new(FakeDaemon::shared(), local());
+        let client = daemonapi::Client::new(FakeDaemon::shared(), local());
         let spec = HostSpec {
             id: "local".into(),
             name: "L".into(),

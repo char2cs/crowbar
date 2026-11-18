@@ -9,7 +9,7 @@ mod terminal_offer;
 
 use std::sync::Arc;
 
-use daemonapi::{Connection, DaemonClient, Dial, Frame, frame::decode};
+use daemonapi::{Connection, Dial, Frame, frame::decode};
 use serde_json::json;
 use tokio::sync::mpsc;
 
@@ -29,7 +29,7 @@ pub(crate) struct HostStream {
     pub(crate) hub: Arc<Hub>,
     pub(crate) host: String,
     pub(crate) dial: Arc<dyn Dial>,
-    pub(crate) client: DaemonClient,
+    pub(crate) client: daemonapi::Client,
 }
 
 impl HostStream {
@@ -202,7 +202,7 @@ mod tests {
     use tokio::sync::Notify;
 
     use super::*;
-    use daemonapi::{DaemonClient, Opening};
+    use daemonapi::Opening;
 
     use crate::live::held::HostSlot;
     use crate::live::held::HostSpec;
@@ -252,7 +252,7 @@ mod tests {
     fn start(connections: Vec<Connection>) -> Rig {
         let changed = Arc::new(Notify::new());
         let wake = Arc::clone(&changed);
-        let client = DaemonClient::new(FakeDaemon::shared(), local());
+        let client = daemonapi::Client::new(FakeDaemon::shared(), local());
         let spec = HostSpec {
             id: "local".into(),
             name: "L".into(),
