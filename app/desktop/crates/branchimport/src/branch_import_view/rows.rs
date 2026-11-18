@@ -7,11 +7,11 @@ use store::ImportBranch;
 use ui::{Button, ButtonSize, Palette, Pose, Theme};
 
 use super::BranchImportView;
-use crate::branch_filter::{empty_message, matching};
-use crate::branch_row::branch_row;
-use crate::import_hint;
+use crate::filter::{empty_message, matching};
+use crate::hint as import_hint;
+use crate::look::{GAP, LEAD, LIST_HEIGHT, TEXT};
+use crate::row::branch_row;
 use crate::row_choice::{RowChoice, Toggle};
-use crate::row_look::{GAP, LEAD, LIST_HEIGHT, TEXT};
 
 fn import_button(
     picked: usize,

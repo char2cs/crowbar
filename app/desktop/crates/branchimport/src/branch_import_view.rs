@@ -11,7 +11,7 @@ use ui::{Dialog, DialogSize, Surface, TextInput, TextInputEvent, TextInputStyle,
 
 use crate::branch_source::BranchSource;
 use crate::import_event::ImportEvent;
-use crate::row_look::{PLACEHOLDER, TITLE};
+use crate::look::{PLACEHOLDER, TITLE};
 use crate::selection::Selection;
 
 /// The branch import dialog over a source of branches; it emits [`ImportEvent::Close`] when done.

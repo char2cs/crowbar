@@ -4,14 +4,14 @@
 //! lets the user pick branches and lock some of them, and starts the batch import. It emits
 //! [`ImportEvent::Close`] when it is done or dismissed.
 
-mod branch_filter;
 mod branch_import_view;
-mod branch_row;
 mod branch_source;
+mod filter;
+mod hint;
 mod import_event;
-mod import_hint;
+mod look;
+mod row;
 mod row_choice;
-mod row_look;
 mod selection;
 
 pub use branch_import_view::BranchImportView;

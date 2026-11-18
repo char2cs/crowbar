@@ -2,7 +2,7 @@
 
 use store::{BranchListing, ImportBranch};
 
-use crate::row_look::{FAILED, LOADING, NONE_MATCH, NONE_ON_REMOTE};
+use crate::look::{FAILED, LOADING, NONE_MATCH, NONE_ON_REMOTE};
 
 pub(crate) fn matching(
     listing: &BranchListing,

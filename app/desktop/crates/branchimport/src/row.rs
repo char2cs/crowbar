@@ -4,8 +4,8 @@ use gpui::{ClickEvent, Div, ElementId, ParentElement, SharedString, Styled, div}
 use store::{Availability, ImportBranch};
 use ui::{Button, Checkbox, Icon, IconName, Palette, Pose};
 
+use crate::look::{GAP, ICON, ROW_HEIGHT, TEXT, UNAVAILABLE_OPACITY};
 use crate::row_choice::{RowChoice, Toggle};
-use crate::row_look::{GAP, ICON, ROW_HEIGHT, TEXT, UNAVAILABLE_OPACITY};
 
 fn name(branch: &ImportBranch) -> Div {
     div()
