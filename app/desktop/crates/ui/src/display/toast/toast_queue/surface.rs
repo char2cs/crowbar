@@ -3,9 +3,9 @@
 use gpui::{Context, Pixels, Point};
 
 use super::ToastQueue;
+use crate::display::toast::toast_queue::swipe::Swipe;
 use crate::display::toast::toast_queue::toast_id::ToastId;
 use crate::display::toast::toast_queue::toast_placement::ToastPlacement;
-use crate::display::toast::toast_queue::toast_swipe::ToastSwipe;
 
 impl ToastQueue {
     pub(crate) fn begin_swipe(
@@ -13,7 +13,7 @@ impl ToastQueue {
         toast: ToastId,
         origin: Point<Pixels>,
     ) {
-        self.swipe = Some(ToastSwipe { toast, origin });
+        self.swipe = Some(Swipe { toast, origin });
     }
 
     pub(crate) fn drag_swipe(

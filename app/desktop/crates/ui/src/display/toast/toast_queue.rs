@@ -2,8 +2,8 @@
 
 use gpui::{Context, EventEmitter, SharedString};
 
-use crate::display::toast::toast_queue::toast_entry::ToastEntry;
-use crate::display::toast::toast_queue::toast_swipe::ToastSwipe;
+use crate::display::toast::toast_queue::entry::Entry;
+use crate::display::toast::toast_queue::swipe::Swipe;
 use crate::foundation::opaque_debug;
 use crate::foundation::tokens::timing;
 
@@ -14,23 +14,23 @@ const MAX_TOASTS: usize = 8;
 /// Newest toasts come first. Automatic toasts expire after five seconds, pinned ones stay until
 /// [`ToastQueue::dismiss`], the close button or a swipe removes them.
 pub struct ToastQueue {
-    pub(crate) entries: Vec<ToastEntry>,
+    pub(crate) entries: Vec<Entry>,
     pub(crate) placement: ToastPlacement,
-    pub(crate) swipe: Option<ToastSwipe>,
+    pub(crate) swipe: Option<Swipe>,
     next: u64,
 }
 
+mod entry;
 mod selection;
 mod surface;
+mod swipe;
 mod timer;
 mod toast_content;
-mod toast_entry;
 mod toast_id;
 mod toast_lifetime;
 mod toast_placement;
 mod toast_queue_event;
 mod toast_side;
-mod toast_swipe;
 mod view;
 
 pub use toast_content::ToastContent;
@@ -114,7 +114,7 @@ impl ToastQueue {
         let timer = Self::expiry(id, lifetime.timeout(kind), cx);
         self.entries.insert(
             0,
-            ToastEntry {
+            Entry {
                 id,
                 key,
                 kind,

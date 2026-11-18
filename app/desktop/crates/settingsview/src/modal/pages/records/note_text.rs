@@ -1,7 +1,7 @@
 //! Small muted text.
 
 use gpui::{App, IntoElement, ParentElement, Styled, div};
-use ui::{Surface, Theme, UiText};
+use ui::{ScaledText, Surface, Theme};
 
 pub(crate) fn note_text(
     text: &str,
@@ -10,7 +10,7 @@ pub(crate) fn note_text(
     let theme = *Theme::of(cx);
     div()
         .font_family(theme.ui_family())
-        .text_size(UiText::Sm.size(&theme))
+        .text_size(ScaledText::Sm.size(&theme))
         .text_color(theme.palette(Surface::Window).muted_foreground())
         .child(text.to_owned())
 }

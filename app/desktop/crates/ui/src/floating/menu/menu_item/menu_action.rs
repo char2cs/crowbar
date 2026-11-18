@@ -4,8 +4,8 @@ use std::rc::Rc;
 
 use gpui::{App, SharedString, Window};
 
-use crate::floating::menu::menu_item::menu_tone::MenuTone;
 use crate::floating::menu::menu_item::nested_items::NestedItems;
+use crate::floating::menu::menu_item::tone::Tone;
 use crate::foundation::IconName;
 
 pub(crate) type Select = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
@@ -17,7 +17,7 @@ pub struct MenuAction {
     pub(crate) icon: Option<IconName>,
     pub(crate) shortcut: Option<SharedString>,
     pub(crate) checked: bool,
-    pub(crate) tone: MenuTone,
+    pub(crate) tone: Tone,
     pub(crate) disabled: bool,
     pub(crate) submenu: Option<NestedItems>,
     pub(crate) on_select: Select,
@@ -46,7 +46,7 @@ impl MenuAction {
             icon: None,
             shortcut: None,
             checked: false,
-            tone: MenuTone::Normal,
+            tone: Tone::Normal,
             disabled: false,
             submenu: None,
             on_select: Rc::new(on_select),
@@ -83,7 +83,7 @@ impl MenuAction {
     /// Colours the row as destructive.
     #[must_use]
     pub fn destructive(mut self) -> Self {
-        self.tone = MenuTone::Destructive;
+        self.tone = Tone::Destructive;
         self
     }
 
@@ -108,7 +108,7 @@ mod tests {
         let action = action();
         assert_eq!(action.label.as_ref(), "Rename");
         assert!(!action.checked && !action.disabled);
-        assert_eq!(action.tone, MenuTone::Normal);
+        assert_eq!(action.tone, Tone::Normal);
         assert!(action.icon.is_none() && action.shortcut.is_none());
     }
 
@@ -123,6 +123,6 @@ mod tests {
         assert_eq!(action.icon, Some(IconName::Check));
         assert_eq!(action.shortcut.as_ref().map(AsRef::as_ref), Some("F2"));
         assert!(action.checked && action.disabled);
-        assert_eq!(action.tone, MenuTone::Destructive);
+        assert_eq!(action.tone, Tone::Destructive);
     }
 }

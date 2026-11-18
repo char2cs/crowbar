@@ -6,7 +6,7 @@ use gpui::{
 
 use crate::control::editor::field::chrome;
 use crate::control::editor::text_input::TextInput;
-use crate::control::editor::text_input::text_input_element::TextInputElement;
+use crate::control::editor::text_input::line_element::LineElement;
 use crate::control::editor::text_input_style::TextInputStyle;
 use crate::foundation::Icon;
 use crate::foundation::IconName;
@@ -56,7 +56,7 @@ impl Render for TextInput {
             })
             .shadow(shadows)
             .children(self.leading.map(|icon| leading(icon, palette)))
-            .child(TextInputElement::new(cx.entity(), palette))
+            .child(LineElement::new(cx.entity(), palette))
     }
 }
 

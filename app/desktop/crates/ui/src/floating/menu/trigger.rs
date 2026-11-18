@@ -4,8 +4,8 @@ mod context_menu;
 mod context_state;
 mod dropdown_menu;
 mod dropdown_state;
-mod menu_spec;
 mod select;
+mod spec;
 
 pub use context_menu::ContextMenu;
 pub use dropdown_menu::DropdownMenu;

@@ -1,7 +1,7 @@
 //! The animated values of a toast: shake, pulse and fade.
 
+use crate::display::toast::phase::Phase;
 use crate::display::toast::toast_kind::ToastKind;
-use crate::display::toast::toast_phase::ToastPhase;
 use crate::foundation::Keyframes;
 
 pub(crate) fn shake_offset(
@@ -27,12 +27,12 @@ pub(crate) fn pulse_scale(
 }
 
 pub(crate) fn fade(
-    phase: ToastPhase,
+    phase: Phase,
     delta: f32,
 ) -> f32 {
     match phase {
-        ToastPhase::Shown => delta,
-        ToastPhase::Leaving => 1.0 - delta,
+        Phase::Shown => delta,
+        Phase::Leaving => 1.0 - delta,
     }
 }
 
@@ -67,11 +67,11 @@ mod tests {
 
     #[test]
     fn fade_runs_in_for_a_new_toast_and_out_for_a_leaving_one() {
-        const CASES: &[(ToastPhase, f32, f32)] = &[
-            (ToastPhase::Shown, 0.0, 0.0),
-            (ToastPhase::Shown, 1.0, 1.0),
-            (ToastPhase::Leaving, 0.0, 1.0),
-            (ToastPhase::Leaving, 1.0, 0.0),
+        const CASES: &[(Phase, f32, f32)] = &[
+            (Phase::Shown, 0.0, 0.0),
+            (Phase::Shown, 1.0, 1.0),
+            (Phase::Leaving, 0.0, 1.0),
+            (Phase::Leaving, 1.0, 0.0),
         ];
         for &(phase, delta, opacity) in CASES {
             assert!(

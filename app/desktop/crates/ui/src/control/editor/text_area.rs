@@ -4,10 +4,10 @@ mod binding;
 mod editing;
 mod fields;
 mod input_method;
+mod layout;
 mod mouse;
 mod render;
-mod text_area_element;
-mod text_area_layout;
+mod wrapped_element;
 
 pub(crate) use binding::bindings;
 pub use render::{TextAreaCondition, TextAreaSize};
@@ -18,9 +18,9 @@ use gpui::{
     SharedString, Task, Window, px,
 };
 
-use crate::control::editor::text_area::text_area_layout::TextAreaLayout;
-use crate::control::editor::text_buffer::TextBuffer;
-use crate::control::editor::text_history::TextHistory;
+use crate::control::editor::buffer::Buffer;
+use crate::control::editor::history::History;
+use crate::control::editor::text_area::layout::Layout;
 use crate::control::editor::text_input_event::TextInputEvent;
 use crate::foundation::Surface;
 use crate::foundation::opaque_debug;
@@ -30,11 +30,11 @@ use crate::foundation::opaque_debug;
 /// `Enter` inserts a newline, `Ctrl+Enter` (`Cmd+Enter` on macOS) emits `Submitted`, `Escape` emits
 /// `Cancelled`. The field grows with its text up to [`TextArea::max_height`], then scrolls.
 pub struct TextArea {
-    pub(crate) buffer: TextBuffer,
-    pub(crate) history: TextHistory,
+    pub(crate) buffer: Buffer,
+    pub(crate) history: History,
     pub(crate) placeholder: SharedString,
     pub(crate) focus_handle: FocusHandle,
-    pub(crate) layout: TextAreaLayout,
+    pub(crate) layout: Layout,
     pub(crate) bounds: Option<Bounds<Pixels>>,
     pub(crate) scroll: Pixels,
     pub(crate) revealed: usize,
@@ -66,11 +66,11 @@ impl TextArea {
         cx: &mut Context<'_, Self>,
     ) -> Self {
         Self {
-            buffer: TextBuffer::default(),
-            history: TextHistory::default(),
+            buffer: Buffer::default(),
+            history: History::default(),
             placeholder: placeholder.into(),
             focus_handle: cx.focus_handle(),
-            layout: TextAreaLayout::default(),
+            layout: Layout::default(),
             bounds: None,
             scroll: px(0.0),
             revealed: 0,
@@ -119,7 +119,7 @@ impl TextArea {
         text: &str,
         cx: &mut Context<'_, Self>,
     ) {
-        self.history = TextHistory::default();
+        self.history = History::default();
         self.buffer.set_text(text);
         cx.notify();
     }

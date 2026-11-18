@@ -4,8 +4,8 @@ use gpui::{Context, MouseDownEvent, MouseUpEvent, Pixels, Point, ScrollWheelEven
 
 use crate::control::editor::field::SelectionDrag;
 use crate::control::editor::text_area::TextArea;
-use crate::control::editor::text_area::text_area_element::Viewport;
-use crate::control::editor::text_area::text_area_element::clamp;
+use crate::control::editor::text_area::wrapped_element::Viewport;
+use crate::control::editor::text_area::wrapped_element::clamp;
 use crate::foundation::Direction;
 use crate::foundation::Pose;
 use crate::foundation::tokens::timing;

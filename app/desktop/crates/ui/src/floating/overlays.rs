@@ -1,8 +1,8 @@
 //! The installed overlay host and the factory of overlay guards.
 
-mod overlay_slot;
+mod slot;
 
-pub(crate) use overlay_slot::OverlaySlot;
+pub(crate) use slot::Slot;
 
 use std::cell::Cell;
 use std::rc::Rc;

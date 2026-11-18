@@ -2,16 +2,16 @@ use std::ops::Range;
 
 use gpui::{Bounds, FocusHandle, Pixels, ShapedLine, SharedString};
 
-use crate::control::editor::field::FieldFocus;
-use crate::control::editor::field::FieldSelection;
-use crate::control::editor::field::FieldText;
+use crate::control::editor::field::Focus;
+use crate::control::editor::field::Selection;
+use crate::control::editor::field::Text;
 use crate::control::editor::text_input::TextInput;
-use crate::control::editor::text_input::text_input_layout::TextInputLayout;
-use crate::control::editor::text_input::text_surface::TextSurface;
+use crate::control::editor::text_input::layout::Layout;
+use crate::control::editor::text_input::line_surface::LineSurface;
 
-impl TextSurface for TextInput {}
+impl LineSurface for TextInput {}
 
-impl FieldText for TextInput {
+impl Text for TextInput {
     fn content(&self) -> &str {
         self.buffer.text()
     }
@@ -21,7 +21,7 @@ impl FieldText for TextInput {
     }
 }
 
-impl FieldSelection for TextInput {
+impl Selection for TextInput {
     fn marked_range(&self) -> Option<Range<usize>> {
         self.buffer.marked()
     }
@@ -31,13 +31,13 @@ impl FieldSelection for TextInput {
     }
 }
 
-impl FieldFocus for TextInput {
+impl Focus for TextInput {
     fn input_focus(&self) -> FocusHandle {
         self.focus_handle.clone()
     }
 }
 
-impl TextInputLayout for TextInput {
+impl Layout for TextInput {
     fn centered(&self) -> bool {
         self.style.centered()
     }

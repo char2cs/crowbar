@@ -6,7 +6,7 @@ use gpui::{
     StatefulInteractiveElement, Styled, Window, div, px,
 };
 
-use crate::control::toggle::handler::ToggleHandler;
+use crate::control::toggle::handler::Handler;
 use crate::foundation::Appearance;
 use crate::foundation::Icon;
 use crate::foundation::IconName;
@@ -32,7 +32,7 @@ pub struct Checkbox {
     checked: bool,
     disabled: bool,
     surface: Surface,
-    on_change: Option<ToggleHandler>,
+    on_change: Option<Handler>,
 }
 
 impl Checkbox {

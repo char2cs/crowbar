@@ -14,8 +14,8 @@ use crate::foundation::CloseHandler;
 
 use crate::display::toast::Toast;
 use crate::display::toast::toast_queue::ToastQueue;
+use crate::display::toast::toast_queue::entry::Entry;
 use crate::display::toast::toast_queue::selection::visible;
-use crate::display::toast::toast_queue::toast_entry::ToastEntry;
 use crate::display::toast::toast_queue::toast_placement::ToastPlacement;
 use crate::display::toast::toast_queue::toast_side::ToastSide;
 use crate::foundation::tokens::spacing;
@@ -53,7 +53,7 @@ fn close_handler(
 }
 
 fn card(
-    entry: &ToastEntry,
+    entry: &Entry,
     cx: &mut Context<'_, ToastQueue>,
 ) -> Stateful<Div> {
     let id = entry.id;

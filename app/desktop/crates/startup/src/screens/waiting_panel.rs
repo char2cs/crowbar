@@ -1,7 +1,7 @@
 use gpui::{
     App, FontWeight, IntoElement, ParentElement, RenderOnce, SharedString, Styled, Window, div, px,
 };
-use ui::{ProgressBar, Surface, Theme, UiText};
+use ui::{ProgressBar, ScaledText, Surface, Theme};
 
 use crate::machine::MigrationStep;
 
@@ -65,7 +65,7 @@ impl WaitingPanel {
             div()
                 .flex_none()
                 .font_family(theme.mono_family())
-                .text_size(UiText::Xs.size(theme))
+                .text_size(ScaledText::Xs.size(theme))
                 .child(count)
         });
         div()
@@ -73,7 +73,7 @@ impl WaitingPanel {
             .justify_between()
             .gap(px(CAPTION_GAP))
             .w(px(WIDTH))
-            .text_size(UiText::Sm.size(theme))
+            .text_size(ScaledText::Sm.size(theme))
             .text_color(muted)
             .child(div().min_w_0().truncate().child(self.caption.clone()))
             .children(count)
@@ -96,7 +96,7 @@ impl RenderOnce for WaitingPanel {
                 .mt(px(FOOTNOTE_MARGIN))
                 .max_w(px(WIDTH))
                 .text_center()
-                .text_size(UiText::Xs.size(&theme))
+                .text_size(ScaledText::Xs.size(&theme))
                 .text_color(muted)
                 .child(note)
         });
@@ -107,7 +107,7 @@ impl RenderOnce for WaitingPanel {
             .gap(px(STACK_GAP))
             .child(
                 div()
-                    .text_size(UiText::Xl.size(&theme))
+                    .text_size(ScaledText::Xl.size(&theme))
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(self.headline),
             )

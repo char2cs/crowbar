@@ -6,9 +6,9 @@ use gpui::{
     Bounds, Context, EntityInputHandler, Pixels, Point, UTF16Selection, Window, point, size,
 };
 
+use crate::control::editor::history::Edit;
 use crate::control::editor::text_area::TextArea;
 use crate::control::editor::text_area::editing::edit_kind;
-use crate::control::editor::text_history::Edit;
 use crate::control::editor::text_input::CARET_WIDTH;
 
 type IgnoreDisabledInput = bool;

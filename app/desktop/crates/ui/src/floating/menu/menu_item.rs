@@ -1,11 +1,11 @@
 //! The entries of a menu.
 
 mod menu_action;
-mod menu_tone;
 mod nested_items;
+mod tone;
 
 pub use menu_action::MenuAction;
-pub(crate) use menu_tone::MenuTone;
+pub(crate) use tone::Tone;
 
 use std::rc::Rc;
 

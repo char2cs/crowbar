@@ -12,10 +12,10 @@ use crate::floating::tooltip_side::TooltipSide;
 use crate::foundation::CubicBezier;
 use crate::foundation::Motion;
 use crate::foundation::Pose;
+use crate::foundation::ScaledText;
 use crate::foundation::Surface;
 use crate::foundation::Theme;
 use crate::foundation::Tween;
-use crate::foundation::UiText;
 use crate::foundation::motion::adapters::clock as system_clock;
 use crate::foundation::motion::hover;
 use crate::foundation::opaque_debug;
@@ -97,7 +97,7 @@ impl Tooltip {
             .border_color(palette.border().opacity(BORDER_OPACITY))
             .bg(palette.card().opacity(FILL_OPACITY))
             .text_color(palette.foreground())
-            .text_size(UiText::Sm.size(&theme))
+            .text_size(ScaledText::Sm.size(&theme))
             .font_family(theme.ui_family())
             .whitespace_nowrap()
             .shadow(shadow::lg(opacity::PERCENT_10))

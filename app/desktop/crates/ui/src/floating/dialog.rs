@@ -7,9 +7,9 @@ use gpui::{
     MouseButton, ParentElement, RenderOnce, Styled, Window, anchored, div, hsla, point, px,
 };
 
-use crate::floating::dialog::dialog_header::DialogHeader;
-use crate::floating::overlays::OverlaySlot;
+use crate::floating::dialog::header::Header;
 use crate::floating::overlays::Overlays;
+use crate::floating::overlays::Slot;
 use crate::foundation::CloseHandler;
 use crate::foundation::CubicBezier;
 use crate::foundation::IconName;
@@ -35,7 +35,7 @@ const BOTTOM_SHARE: f32 = 3.0;
 #[derive(IntoElement)]
 pub struct Dialog {
     id: ElementId,
-    header: DialogHeader,
+    header: Header,
     size: DialogSize,
     style: DialogStyle,
     extent: Option<DialogExtent>,
@@ -45,9 +45,9 @@ pub struct Dialog {
 }
 
 mod dialog_extent;
-mod dialog_header;
 mod dialog_size;
 mod dialog_style;
+mod header;
 mod heading;
 
 pub use dialog_extent::DialogExtent;
@@ -59,7 +59,7 @@ impl Dialog {
     pub fn new(id: impl Into<ElementId>) -> Self {
         let id = id.into();
         Self {
-            header: DialogHeader::new(id.clone()),
+            header: Header::new(id.clone()),
             id,
             size: DialogSize::default(),
             style: DialogStyle::default(),
@@ -208,7 +208,7 @@ impl RenderOnce for Dialog {
     ) -> impl IntoElement {
         let theme = *Theme::of(cx);
         let viewport = window.viewport_size();
-        let slot = window.use_keyed_state((self.id.clone(), "overlay"), cx, |_, cx| OverlaySlot {
+        let slot = window.use_keyed_state((self.id.clone(), "overlay"), cx, |_, cx| Slot {
             guard: Overlays::open(cx, whole_window(viewport)),
         });
         slot.read(cx).guard.update(whole_window(viewport));

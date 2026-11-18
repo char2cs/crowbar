@@ -7,8 +7,8 @@ use gpui::{
 };
 use settings::{FlagLook, RecordFlag};
 use ui::{
-    Badge, Button, ButtonSize, ButtonVariant, DragGhost, Icon, IconName, Surface, Switch, Theme,
-    UiText,
+    Badge, Button, ButtonSize, ButtonVariant, DragGhost, Icon, IconName, ScaledText, Surface,
+    Switch, Theme,
 };
 
 use crate::modal::pages::records::drag_record::DragRecord;
@@ -53,7 +53,7 @@ pub(crate) fn record_view(
         .px(spacing::TIGHT)
         .py(spacing::SNUG)
         .font_family(theme.ui_family())
-        .text_size(UiText::Sm.size(&theme))
+        .text_size(ScaledText::Sm.size(&theme))
         .children(grip)
         .children(leading)
         .children(artwork)
@@ -167,7 +167,7 @@ fn line_text(
     let palette = theme.palette(Surface::Window);
     div()
         .font_family(line_family(line, theme))
-        .text_size(UiText::Xs.size(theme))
+        .text_size(ScaledText::Xs.size(theme))
         .text_color(tone_color(line.tone, palette))
         .child(line.text.clone())
 }

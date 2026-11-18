@@ -3,7 +3,7 @@ use std::rc::Rc;
 use gpui::{
     App, FontWeight, IntoElement, ParentElement, RenderOnce, SharedString, Styled, Window, div, px,
 };
-use ui::{Badge, BadgeVariant, Icon, IconName, IconWeight, Surface, Theme, UiText, radius};
+use ui::{Badge, BadgeVariant, Icon, IconName, IconWeight, ScaledText, Surface, Theme, radius};
 
 use crate::actions::Actions;
 use crate::command::Command;
@@ -45,7 +45,7 @@ impl HaltPanel {
             .items_center()
             .gap(px(GAP_SM))
             .text_color(destructive)
-            .text_size(UiText::Lg.size(theme))
+            .text_size(ScaledText::Lg.size(theme))
             .font_weight(FontWeight::SEMIBOLD)
             .child(
                 Icon::new(IconName::WarningCircle)
@@ -85,7 +85,7 @@ impl RenderOnce for HaltPanel {
             .code()
             .map(|code| Badge::new(code.to_owned()).variant(BadgeVariant::Destructive));
         let hint = div()
-            .text_size(UiText::Xs.size(&theme))
+            .text_size(ScaledText::Xs.size(&theme))
             .text_color(palette.muted_foreground())
             .child("Quit Crowbar, fix the cause above, and open it again.");
         div()
@@ -99,7 +99,7 @@ impl RenderOnce for HaltPanel {
             .border_1()
             .border_color(destructive.opacity(TINT_BORDER))
             .bg(destructive.opacity(TINT))
-            .text_size(UiText::Sm.size(&theme))
+            .text_size(ScaledText::Sm.size(&theme))
             .text_color(palette.foreground())
             .child(Self::title(&theme))
             .children(reason)

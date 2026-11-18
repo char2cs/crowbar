@@ -5,7 +5,7 @@ mod reset_button;
 
 use gpui::{App, IntoElement, ParentElement, Styled, Window, div, px};
 use settings::Row;
-use ui::{HoverFill, Surface, Theme, UiText, radius};
+use ui::{HoverFill, ScaledText, Surface, Theme, radius};
 
 use crate::frame::Frame;
 use crate::frame::element_id;
@@ -24,7 +24,7 @@ pub(crate) fn row_view(
 ) -> impl IntoElement {
     let theme = *Theme::of(cx);
     let palette = theme.palette(Surface::Window);
-    let text_size = UiText::Sm.size(&theme);
+    let text_size = ScaledText::Sm.size(&theme);
     let description = frame.state.description(row).map(|text| {
         div()
             .line_height(px(TEXT_LINE))

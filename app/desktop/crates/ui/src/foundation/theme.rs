@@ -4,10 +4,10 @@ mod appearance;
 mod color_mix;
 mod focus_ring;
 mod palette;
+mod scaled_text;
 mod surface;
 mod theme_id;
 mod theme_mode;
-mod ui_text;
 mod vibrancy;
 mod with;
 
@@ -15,10 +15,10 @@ pub use appearance::Appearance;
 pub(crate) use color_mix::mix;
 pub use focus_ring::focus_ring;
 pub use palette::Palette;
+pub use scaled_text::ScaledText;
 pub use surface::Surface;
 pub use theme_id::ThemeId;
 pub use theme_mode::ThemeMode;
-pub use ui_text::UiText;
 pub use vibrancy::Vibrancy;
 
 use gpui::{App, Global};

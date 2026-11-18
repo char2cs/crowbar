@@ -9,7 +9,7 @@ use gpui::{
 
 use crate::floating::menu::menu_item::MenuItem;
 use crate::floating::menu::trigger::context_state::ContextState;
-use crate::floating::menu::trigger::menu_spec::MenuSpec;
+use crate::floating::menu::trigger::spec::Spec;
 use crate::floating::placement::Placement;
 use crate::floating::popup;
 use crate::foundation::opaque_debug;
@@ -23,7 +23,7 @@ const OFFSET: f32 = 4.0;
 pub struct ContextMenu {
     id: ElementId,
     child: AnyElement,
-    spec: MenuSpec,
+    spec: Spec,
     placement: Option<Placement>,
 }
 
@@ -37,7 +37,7 @@ impl ContextMenu {
         Self {
             id: id.into(),
             child: child.into_any_element(),
-            spec: MenuSpec::new(items.into()),
+            spec: Spec::new(items.into()),
             placement: None,
         }
     }
@@ -99,7 +99,7 @@ impl RenderOnce for ContextMenu {
     }
 }
 
-impl MenuSpec {
+impl Spec {
     fn open_at(
         &self,
         state: &Entity<ContextState>,

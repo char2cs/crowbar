@@ -1,11 +1,11 @@
 //! Which toasts a column shows when it has room for only a few.
 
-use crate::display::toast::toast_queue::toast_entry::ToastEntry;
+use crate::display::toast::toast_queue::entry::Entry;
 
 pub(crate) fn visible(
-    entries: &[ToastEntry],
+    entries: &[Entry],
     limit: Option<usize>,
-) -> Vec<&ToastEntry> {
+) -> Vec<&Entry> {
     let Some(limit) = limit else {
         return entries.iter().collect();
     };
@@ -28,11 +28,11 @@ mod tests {
     use crate::display::toast::toast_queue::toast_id::ToastId;
     use crate::display::toast::toast_queue::toast_lifetime::ToastLifetime;
 
-    fn entries(lifetimes: &[ToastLifetime]) -> Vec<ToastEntry> {
+    fn entries(lifetimes: &[ToastLifetime]) -> Vec<Entry> {
         lifetimes
             .iter()
             .zip(0..)
-            .map(|(&lifetime, id)| ToastEntry {
+            .map(|(&lifetime, id)| Entry {
                 id: ToastId(id),
                 key: None,
                 kind: ToastKind::Info,

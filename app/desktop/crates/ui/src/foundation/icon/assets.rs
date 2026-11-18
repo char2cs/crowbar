@@ -4,8 +4,8 @@ use std::borrow::Cow;
 
 use gpui::{AssetSource, SharedString};
 
+use crate::foundation::icon::file::File;
 use crate::foundation::icon::files::FILES;
-use crate::foundation::icon::icon_file::IconFile;
 
 pub(crate) const WORDMARK_PATH: &str = "brand/crowbar-wordmark.svg";
 const WORDMARK: &[u8] = include_bytes!("../../../assets/brand/crowbar-wordmark.svg");
@@ -16,7 +16,7 @@ pub fn assets() -> impl AssetSource {
 }
 
 struct Assets {
-    files: &'static [IconFile],
+    files: &'static [File],
 }
 
 impl AssetSource for Assets {

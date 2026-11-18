@@ -15,7 +15,7 @@ use gpui::{
 use crate::control::editor::text_area::TextArea;
 use crate::control::editor::text_area::binding::CONTEXT;
 use crate::control::editor::text_area::render::chrome::text_area_chrome;
-use crate::control::editor::text_area::text_area_element::TextAreaElement;
+use crate::control::editor::text_area::wrapped_element::WrappedElement;
 use crate::foundation::Pose;
 use crate::foundation::Theme;
 use crate::foundation::tokens::radius;
@@ -54,7 +54,7 @@ impl Render for TextArea {
             .when(!self.accepts_input(), |field| {
                 field.opacity(DISABLED_OPACITY)
             })
-            .child(TextAreaElement::new(cx.entity(), palette, limit))
+            .child(WrappedElement::new(cx.entity(), palette, limit))
     }
 }
 

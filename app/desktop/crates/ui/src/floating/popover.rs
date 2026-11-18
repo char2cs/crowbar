@@ -1,7 +1,7 @@
 //! A panel of arbitrary content anchored to a trigger.
 
 mod actions;
-mod popover_state;
+mod state;
 
 pub(crate) use actions::bindings;
 
@@ -14,7 +14,7 @@ use gpui::{
 
 use crate::floating::placement::Placement;
 use crate::floating::popover::actions::{CONTEXT, ClosePopover};
-use crate::floating::popover::popover_state::PopoverState;
+use crate::floating::popover::state::State;
 use crate::floating::popup;
 use crate::foundation::Surface;
 use crate::foundation::Theme;
@@ -69,11 +69,10 @@ impl RenderOnce for Popover {
         window: &mut Window,
         cx: &mut App,
     ) -> impl IntoElement {
-        let state =
-            window.use_keyed_state((self.id.clone(), "popover"), cx, |_, cx| PopoverState {
-                open: false,
-                focus: cx.focus_handle(),
-            });
+        let state = window.use_keyed_state((self.id.clone(), "popover"), cx, |_, cx| State {
+            open: false,
+            focus: cx.focus_handle(),
+        });
         let opener = state.clone();
         let wrapper = div()
             .id(self.id)
@@ -93,7 +92,7 @@ impl RenderOnce for Popover {
 }
 
 fn panel(
-    state: &Entity<PopoverState>,
+    state: &Entity<State>,
     content: &Content,
     window: &mut Window,
     cx: &mut App,
@@ -121,7 +120,7 @@ fn panel(
 }
 
 fn open(
-    state: &Entity<PopoverState>,
+    state: &Entity<State>,
     window: &mut Window,
     cx: &mut App,
 ) {
@@ -137,7 +136,7 @@ fn open(
 }
 
 fn close(
-    state: &Entity<PopoverState>,
+    state: &Entity<State>,
     cx: &mut App,
 ) {
     state.update(cx, |state, cx| {

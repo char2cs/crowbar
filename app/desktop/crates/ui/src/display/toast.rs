@@ -1,15 +1,15 @@
 //! The toast card.
 
+mod close;
 mod motion;
+mod phase;
 #[cfg(test)]
 mod test_support;
-mod toast_close;
 mod toast_kind;
-mod toast_phase;
 mod toast_queue;
 
+pub(crate) use phase::Phase;
 pub use toast_kind::ToastKind;
-pub(crate) use toast_phase::ToastPhase;
 pub use toast_queue::{
     ToastContent, ToastId, ToastLifetime, ToastPlacement, ToastQueue, ToastQueueEvent, ToastSide,
 };
@@ -21,8 +21,8 @@ use gpui::{
 };
 
 use crate::display::spinner::Spinner;
+use crate::display::toast::close::Close;
 use crate::display::toast::motion::{fade, pulse_scale, shake_offset};
-use crate::display::toast::toast_close::ToastClose;
 use crate::foundation::CloseHandler;
 use crate::foundation::CubicBezier;
 use crate::foundation::Icon;
@@ -54,7 +54,7 @@ pub struct Toast {
     updates: u32,
     on_close: Option<CloseHandler>,
     fill: bool,
-    phase: ToastPhase,
+    phase: Phase,
 }
 
 impl Toast {
@@ -71,7 +71,7 @@ impl Toast {
             updates: 0,
             on_close: None,
             fill: false,
-            phase: ToastPhase::Shown,
+            phase: Phase::Shown,
         }
     }
 
@@ -105,7 +105,7 @@ impl Toast {
     /// Fades the card out instead of in; the owner removes it once the fade is done.
     #[must_use]
     pub fn leaving(mut self) -> Self {
-        self.phase = ToastPhase::Leaving;
+        self.phase = Phase::Leaving;
         self
     }
 }
@@ -178,7 +178,7 @@ impl RenderOnce for Toast {
         let close = self
             .on_close
             .clone()
-            .map(|handler| ToastClose::new((self.id.clone(), "close"), handler));
+            .map(|handler| Close::new((self.id.clone(), "close"), handler));
         let card = self.frame(&theme).child(body).children(close);
         let motion = Motion::of(cx);
         let (kind, updates, phase) = (self.kind, self.updates, self.phase);

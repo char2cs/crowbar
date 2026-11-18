@@ -1,11 +1,11 @@
 //! Text fields: the buffer, the edit history, the single-line input and the multi-line area.
 
+mod buffer;
 mod field;
+mod history;
 #[cfg(test)]
 mod test_support;
 mod text_area;
-mod text_buffer;
-mod text_history;
 mod text_input;
 mod text_input_event;
 mod text_input_style;

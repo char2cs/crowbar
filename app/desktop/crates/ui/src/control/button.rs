@@ -7,8 +7,8 @@ use gpui::{
     StyleRefinement, Styled, Window, div, hsla,
 };
 
-use crate::control::button::button_colors::ButtonColors;
 use crate::control::button::click_handler::ClickHandler;
+use crate::control::button::colors::Colors;
 use crate::display::Spinner;
 use crate::foundation::Icon;
 use crate::foundation::IconName;
@@ -37,10 +37,10 @@ pub struct Button {
 }
 
 mod appearance;
-mod button_colors;
 mod button_size;
 mod button_variant;
 mod click_handler;
+mod colors;
 
 pub use button_size::ButtonSize;
 pub use button_variant::ButtonVariant;
@@ -108,7 +108,7 @@ impl Button {
 impl Button {
     fn frame(
         &self,
-        colors: &ButtonColors,
+        colors: &Colors,
         background: Hsla,
     ) -> Div {
         let size = self.size;
@@ -137,7 +137,7 @@ impl Button {
 
     fn content_color(
         &self,
-        colors: &ButtonColors,
+        colors: &Colors,
     ) -> Hsla {
         if self.loading {
             return hsla(0.0, 0.0, 0.0, 0.0);
@@ -158,7 +158,7 @@ impl RenderOnce for Button {
     ) -> impl IntoElement {
         let theme = *Theme::of(cx);
         let palette = theme.palette(self.surface);
-        let colors = ButtonColors::resolve(self.variant, palette, theme.appearance());
+        let colors = Colors::resolve(self.variant, palette, theme.appearance());
         let hover = hover::track(&self.id, Pose::Off, window, cx);
         let background = hover::color(
             &hover,
@@ -196,14 +196,14 @@ impl RenderOnce for Button {
     }
 }
 
-fn pressed(colors: &ButtonColors) -> impl FnOnce(StyleRefinement) -> StyleRefinement + use<> {
+fn pressed(colors: &Colors) -> impl FnOnce(StyleRefinement) -> StyleRefinement + use<> {
     let (fill, shadow) = (colors.pressed_background, Vec::new());
     move |style| style.bg(fill).shadow(shadow)
 }
 
 fn indicator(
     id: &ElementId,
-    colors: &ButtonColors,
+    colors: &Colors,
     size: ButtonSize,
 ) -> Div {
     let spinner = Spinner::new((id.clone(), "loading"))

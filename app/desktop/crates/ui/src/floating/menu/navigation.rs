@@ -10,7 +10,7 @@ use std::rc::Rc;
 
 use gpui::{Context, DismissEvent, Window};
 
-use super::{Menu, MenuItem, MenuLevel, MenuNavigation};
+use super::{Level, Menu, MenuItem, Navigation};
 use crate::floating::menu::navigation::actions::{
     CloseSubmenu, Confirm, Dismiss, OpenSubmenu as OpenSubmenuAction,
 };
@@ -78,8 +78,8 @@ impl Menu {
         cx: &mut Context<'_, Self>,
     ) {
         match self.level {
-            MenuLevel::Root => cx.emit(DismissEvent),
-            MenuLevel::Nested => cx.emit(MenuNavigation::Back),
+            Level::Root => cx.emit(DismissEvent),
+            Level::Nested => cx.emit(Navigation::Back),
         }
     }
 
@@ -89,8 +89,8 @@ impl Menu {
         _: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        if self.level == MenuLevel::Nested {
-            cx.emit(MenuNavigation::Back);
+        if self.level == Level::Nested {
+            cx.emit(Navigation::Back);
         }
     }
 

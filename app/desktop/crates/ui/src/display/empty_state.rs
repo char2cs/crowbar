@@ -6,9 +6,9 @@ use gpui::{
 
 use crate::foundation::Icon;
 use crate::foundation::IconName;
+use crate::foundation::ScaledText;
 use crate::foundation::Surface;
 use crate::foundation::Theme;
-use crate::foundation::UiText;
 use crate::foundation::opaque_debug;
 use crate::foundation::tokens::spacing;
 
@@ -109,14 +109,14 @@ impl RenderOnce for EmptyState {
             }))
             .child(
                 div()
-                    .text_size(UiText::Sm.size(&theme))
+                    .text_size(ScaledText::Sm.size(&theme))
                     .line_height(spacing::STEP_4)
                     .child(self.message),
             )
             .children(self.description.map(|text| {
                 div()
                     .max_w(MESSAGE_MAX_WIDTH)
-                    .text_size(UiText::Xs.size(&theme))
+                    .text_size(ScaledText::Xs.size(&theme))
                     .line_height(HINT_LINE_HEIGHT)
                     .child(text)
             }))

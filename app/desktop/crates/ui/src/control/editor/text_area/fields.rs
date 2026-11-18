@@ -2,19 +2,19 @@ use std::ops::Range;
 
 use gpui::{Bounds, FocusHandle, Pixels, SharedString};
 
-use crate::control::editor::field::FieldEditable;
-use crate::control::editor::field::FieldFocus;
-use crate::control::editor::field::FieldSelection;
-use crate::control::editor::field::FieldText;
+use crate::control::editor::field::Editable;
+use crate::control::editor::field::Focus;
+use crate::control::editor::field::Selection;
+use crate::control::editor::field::Text;
 use crate::control::editor::text_area::TextArea;
-use crate::control::editor::text_area::text_area_element::TextAreaCaret;
-use crate::control::editor::text_area::text_area_element::TextAreaSink;
-use crate::control::editor::text_area::text_area_element::TextAreaSurface;
-use crate::control::editor::text_area::text_area_layout::TextAreaLayout;
+use crate::control::editor::text_area::layout::Layout;
+use crate::control::editor::text_area::wrapped_element::Caret;
+use crate::control::editor::text_area::wrapped_element::Sink;
+use crate::control::editor::text_area::wrapped_element::WrappedSurface;
 
-impl TextAreaSurface for TextArea {}
+impl WrappedSurface for TextArea {}
 
-impl FieldText for TextArea {
+impl Text for TextArea {
     fn content(&self) -> &str {
         self.buffer.text()
     }
@@ -24,7 +24,7 @@ impl FieldText for TextArea {
     }
 }
 
-impl FieldSelection for TextArea {
+impl Selection for TextArea {
     fn marked_range(&self) -> Option<Range<usize>> {
         self.buffer.marked()
     }
@@ -34,7 +34,7 @@ impl FieldSelection for TextArea {
     }
 }
 
-impl TextAreaCaret for TextArea {
+impl Caret for TextArea {
     fn cursor(&self) -> usize {
         self.buffer.cursor()
     }
@@ -48,22 +48,22 @@ impl TextAreaCaret for TextArea {
     }
 }
 
-impl FieldEditable for TextArea {
+impl Editable for TextArea {
     fn editable(&self) -> bool {
         self.accepts_input()
     }
 }
 
-impl FieldFocus for TextArea {
+impl Focus for TextArea {
     fn input_focus(&self) -> FocusHandle {
         self.focus_handle.clone()
     }
 }
 
-impl TextAreaSink for TextArea {
+impl Sink for TextArea {
     fn record_layout(
         &mut self,
-        layout: TextAreaLayout,
+        layout: Layout,
         bounds: Bounds<Pixels>,
         scroll: Pixels,
     ) {

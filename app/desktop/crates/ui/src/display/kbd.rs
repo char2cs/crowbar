@@ -2,9 +2,9 @@
 
 use gpui::{App, IntoElement, ParentElement, RenderOnce, SharedString, Styled, Window, div, px};
 
+use crate::foundation::ScaledText;
 use crate::foundation::Surface;
 use crate::foundation::Theme;
-use crate::foundation::UiText;
 use crate::foundation::tokens::radius;
 use crate::foundation::tokens::spacing;
 
@@ -43,7 +43,7 @@ impl RenderOnce for Kbd {
             .border_color(palette.border())
             .bg(palette.card())
             .text_color(palette.muted_foreground())
-            .text_size(UiText::Sm.size(&theme))
+            .text_size(ScaledText::Sm.size(&theme))
             .font_family(theme.ui_family())
             .line_height(px(MIN_HEIGHT - 2.0))
             .child(self.keys)

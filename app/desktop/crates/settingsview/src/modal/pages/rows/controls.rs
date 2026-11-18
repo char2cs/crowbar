@@ -7,7 +7,7 @@ mod select;
 
 use gpui::{AnyElement, App, IntoElement, ParentElement, Styled, Window, div, px};
 use settings::{Control, Row};
-use ui::{Surface, Switch, Theme, UiText};
+use ui::{ScaledText, Surface, Switch, Theme};
 
 use crate::frame::Frame;
 use crate::frame::element_id;
@@ -70,7 +70,7 @@ fn readout_control(
     div()
         .max_w(px(READOUT_WIDTH))
         .font_family(readout_family(&row.control, &theme))
-        .text_size(UiText::Sm.size(&theme))
+        .text_size(ScaledText::Sm.size(&theme))
         .text_color(theme.palette(Surface::Window).muted_foreground())
         .child(frame.state.field_text(row))
 }

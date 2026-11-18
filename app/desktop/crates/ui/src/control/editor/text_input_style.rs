@@ -2,8 +2,8 @@
 
 use gpui::{Pixels, px};
 
+use crate::foundation::ScaledText;
 use crate::foundation::Theme;
-use crate::foundation::UiText;
 use crate::foundation::tokens::radius;
 use crate::foundation::tokens::text_size;
 
@@ -65,7 +65,7 @@ impl TextInputStyle {
     ) -> Pixels {
         match self {
             Self::Bare => px(BARE_TEXT),
-            Self::Stepper => UiText::Sm.size(&theme),
+            Self::Stepper => ScaledText::Sm.size(&theme),
             Self::Standard | Self::Compact => text_size::SM,
         }
     }

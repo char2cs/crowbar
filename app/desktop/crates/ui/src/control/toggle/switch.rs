@@ -6,7 +6,7 @@ use gpui::{
     StatefulInteractiveElement, Styled, Window, div, px,
 };
 
-use crate::control::toggle::handler::ToggleHandler;
+use crate::control::toggle::handler::Handler;
 use crate::foundation::CubicBezier;
 use crate::foundation::Palette;
 use crate::foundation::Pose;
@@ -36,7 +36,7 @@ pub struct Switch {
     checked: bool,
     disabled: bool,
     surface: Surface,
-    on_change: Option<ToggleHandler>,
+    on_change: Option<Handler>,
 }
 
 impl Switch {

@@ -1,8 +1,8 @@
 //! Equal-width tab list with a sliding selection pill.
 
+mod cell;
 mod indicator;
 mod slide_state;
-mod tab_cell;
 mod tab_item;
 mod tabs_style;
 
@@ -14,9 +14,9 @@ use gpui::{
     Styled, Window, div, px,
 };
 
+use crate::control::tabs::cell::Cell;
 use crate::control::tabs::indicator::{GAP, tab_indicator};
 use crate::control::tabs::slide_state::SlideState;
-use crate::control::tabs::tab_cell::TabCell;
 use crate::foundation::CubicBezier;
 use crate::foundation::IndexHandler;
 use crate::foundation::Motion;
@@ -123,7 +123,7 @@ impl RenderOnce for Tabs {
         let cells = self.items.into_iter().enumerate().map(|(index, item)| {
             let id = ElementId::from((id.clone(), SharedString::from(format!("tab-{index}"))));
             let pose = Pose::from(index == self.selected);
-            TabCell::new(id, item, look)
+            Cell::new(id, item, look)
                 .at(index, pose)
                 .on_select(self.on_select.clone())
         });

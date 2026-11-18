@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use gpui::{Hsla, PaintQuad, ShapedLine, TextRun, UnderlineStyle, px};
 
-use crate::control::editor::field::text_frame::TextFrame;
+use crate::control::editor::field::frame::Frame;
 use crate::foundation::Keyframes;
 use crate::foundation::Motion;
 use crate::foundation::tokens::timing;
@@ -11,8 +11,8 @@ use crate::foundation::tokens::timing;
 pub(crate) fn caret_frame(
     line: ShapedLine,
     caret: PaintQuad,
-) -> TextFrame {
-    TextFrame {
+) -> Frame {
+    Frame {
         line,
         selection: None,
         caret: Some(caret),
@@ -22,8 +22,8 @@ pub(crate) fn caret_frame(
 pub(crate) fn band_frame(
     line: ShapedLine,
     band: PaintQuad,
-) -> TextFrame {
-    TextFrame {
+) -> Frame {
+    Frame {
         line,
         selection: Some(band),
         caret: None,

@@ -5,7 +5,7 @@ use gpui::{
     Styled, Window, div, px,
 };
 use settings::{ChordSource, Shortcut, ShortcutGroup};
-use ui::{HoverFill, Icon, IconName, IconWeight, Palette, Surface, Theme, UiText, radius};
+use ui::{HoverFill, Icon, IconName, IconWeight, Palette, ScaledText, Surface, Theme, radius};
 
 use crate::frame::Frame;
 use crate::frame::element_id;
@@ -44,7 +44,7 @@ pub(crate) fn shortcut_row(
         .border_b_1()
         .border_color(palette.border().opacity(BORDER_FADE))
         .font_family(theme.ui_family())
-        .text_size(UiText::Sm.size(&theme));
+        .text_size(ScaledText::Sm.size(&theme));
     HoverFill::new(
         element_id("shortcut", &command),
         palette.muted().opacity(0.5),
@@ -122,7 +122,7 @@ fn chord_button(
         .border_color(border)
         .bg(palette.background())
         .font_family(theme.mono_family())
-        .text_size(UiText::Sm.size(theme))
+        .text_size(ScaledText::Sm.size(theme))
         .text_color(color)
         .cursor_pointer()
         .on_click(frame.sink.send(Intent::Capture(command.to_owned())))

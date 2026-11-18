@@ -5,17 +5,17 @@ mod binding;
 mod commands;
 mod fields;
 mod input_method;
+mod layout;
+mod line_element;
+mod line_surface;
 mod mouse;
 mod render;
-mod text_input_element;
-mod text_input_layout;
-mod text_surface;
 
 pub(crate) use actions::{
     Backspace, Cancel, Copy, Cut, Delete, End, Home, Left, Paste, Right, SelectAll, SelectLeft,
     SelectRight, Submit, bindings, word_bindings,
 };
-pub(crate) use text_input_element::{CARET_WIDTH, PLACEHOLDER_OPACITY};
+pub(crate) use line_element::{CARET_WIDTH, PLACEHOLDER_OPACITY};
 
 use gpui::AppContext as _;
 use gpui::{
@@ -23,7 +23,7 @@ use gpui::{
     SharedString, Window,
 };
 
-use crate::control::editor::text_buffer::TextBuffer;
+use crate::control::editor::buffer::Buffer;
 use crate::control::editor::text_input_event::TextInputEvent;
 use crate::control::editor::text_input_style::TextInputStyle;
 use crate::foundation::IconName;
@@ -32,7 +32,7 @@ use crate::foundation::opaque_debug;
 
 /// A text field entity; render it as a child and subscribe to [`TextInputEvent`].
 pub struct TextInput {
-    pub(crate) buffer: TextBuffer,
+    pub(crate) buffer: Buffer,
     pub(crate) placeholder: SharedString,
     pub(crate) focus_handle: FocusHandle,
     pub(crate) layout: Option<ShapedLine>,
@@ -61,7 +61,7 @@ impl TextInput {
         cx: &mut Context<'_, Self>,
     ) -> Self {
         Self {
-            buffer: TextBuffer::default(),
+            buffer: Buffer::default(),
             placeholder: placeholder.into(),
             focus_handle: cx.focus_handle(),
             layout: None,

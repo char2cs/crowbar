@@ -1,7 +1,7 @@
 //! A large heading with an optional explanation, as used above sections and pages.
 
 use gpui::{App, ParentElement, Styled, div, px};
-use ui::{Surface, Theme, UiText};
+use ui::{ScaledText, Surface, Theme};
 
 use crate::frame::spacing;
 
@@ -19,7 +19,7 @@ pub(crate) fn title_block(
     let note = description.map(|text| {
         div()
             .font_family(theme.ui_family())
-            .text_size(UiText::Sm.size(&theme))
+            .text_size(ScaledText::Sm.size(&theme))
             .line_height(px(TEXT_LINE))
             .text_color(palette.muted_foreground())
             .child(text.to_owned())

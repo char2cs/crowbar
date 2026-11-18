@@ -27,7 +27,7 @@ Status: `verified` = implemented, unit tested and rendered in the gallery (crowb
 | Area | Items | Status |
 | --- | --- | --- |
 | Theme | `Theme`, `ThemeId`, `ThemeMode`, `Appearance`, `Surface`, `Palette` (53 colour tokens as accessors returning `Hsla`) | verified |
-| Metrics | `radius::{SM,MD,LG,XL,XXL,FULL}`, `text_size::{XS..XL, UiText}`, `shadow::{xs,sm,md,lg,xs_tinted,dropdown,handle}`, `layer::*` (z order), `timing::*` (durations) | unverified |
+| Metrics | `radius::{SM,MD,LG,XL,XXL,FULL}`, `text_size::{XS..XL, ScaledText}`, `shadow::{xs,sm,md,lg,xs_tinted,dropdown,handle}`, `layer::*` (z order), `timing::*` (durations) | unverified |
 | Fonts | `font::{register, UI_FAMILY, HEADING_FAMILY, MONO_FAMILY}` (Cal Sans UI, Instrument Serif, Geist Mono) | verified |
 | Icons | `Icon`, `IconName`, `IconWeight`, `assets()` (Phosphor: 56 icons, 92 weight files) | verified |
 | Motion | `CubicBezier`, `Motion` (reduced motion, animation factory) | verified |
@@ -61,7 +61,7 @@ unruled header and no body padding); `Select::compact` (28px trigger); `IconName
 
 ## Text area
 
-`TextArea` is a multi-line `TextInput`: it shares `TextBuffer` (selection, graphemes, UTF-16 for IME), the clipboard
+`TextArea` is a multi-line `TextInput`: it shares `Buffer` (selection, graphemes, UTF-16 for IME), the clipboard
 commands and `TextInputEvent` with the single-line field. Build it with `TextArea::build(placeholder, cx)` (or
 `cx.new(|cx| TextArea::new(..).size(..).max_height(..))`), render the entity, subscribe to `TextInputEvent`.
 

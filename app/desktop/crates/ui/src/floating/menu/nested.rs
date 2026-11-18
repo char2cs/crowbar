@@ -1,7 +1,7 @@
 //! Opening, closing and placing the nested menu of a submenu row.
 
-pub(crate) mod menu_level;
-pub(crate) mod menu_navigation;
+pub(crate) mod level;
+pub(crate) mod navigation;
 pub(crate) mod open_submenu;
 
 use gpui::{
@@ -12,7 +12,7 @@ use gpui::{
 use crate::floating::menu::Menu;
 use crate::floating::menu::menu_item::MenuItem;
 use crate::floating::menu::navigation::step;
-use crate::floating::menu::nested::menu_navigation::MenuNavigation;
+use crate::floating::menu::nested::navigation::Navigation;
 use crate::floating::menu::nested::open_submenu::OpenSubmenu;
 use crate::floating::popup;
 use crate::foundation::Direction;
@@ -40,7 +40,7 @@ impl Menu {
             cx.notify();
         });
         let dismissed = cx.subscribe(&menu, |_, _, _: &DismissEvent, cx| cx.emit(DismissEvent));
-        let returned = cx.subscribe_in(&menu, window, |this, _, _: &MenuNavigation, window, cx| {
+        let returned = cx.subscribe_in(&menu, window, |this, _, _: &Navigation, window, cx| {
             this.submenu = None;
             window.focus(&this.focus_handle);
             cx.notify();

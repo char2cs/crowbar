@@ -1,6 +1,6 @@
 //! The embedded icon files; generated from the Phosphor assets in `assets/icons`.
 
-use crate::foundation::icon::icon_file::IconFile;
+use crate::foundation::icon::file::File;
 use crate::foundation::icon::icon_name::IconName;
 use crate::foundation::icon::icon_weight::IconWeight;
 
@@ -22,7 +22,7 @@ macro_rules! weight_dir {
 macro_rules! files {
     ($(($name:ident, $stem:literal, [$($weight:ident),+])),+ $(,)?) => {
         &[$($(
-            IconFile {
+            File {
                 name: IconName::$name,
                 weight: IconWeight::$weight,
                 path: concat!("icons/", weight_dir!($weight), "/", $stem, ".svg"),
@@ -38,7 +38,7 @@ macro_rules! files {
     };
 }
 
-pub(crate) const FILES: &[IconFile] = files![
+pub(crate) const FILES: &[File] = files![
     (ChatsCircle, "chats-circle", [Regular, Fill]),
     (FolderOpen, "folder-open", [Regular, Fill, Duotone]),
     (Folder, "folder", [Regular, Duotone, Fill]),

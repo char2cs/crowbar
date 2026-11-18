@@ -1,7 +1,7 @@
 //! The text shown when a search matches nothing.
 
 use gpui::{App, IntoElement, ParentElement, Styled, div};
-use ui::{Surface, Theme, UiText};
+use ui::{ScaledText, Surface, Theme};
 
 use crate::frame::spacing;
 
@@ -12,7 +12,7 @@ pub(crate) fn empty_view(cx: &App) -> impl IntoElement {
         .flex()
         .justify_center()
         .font_family(theme.ui_family())
-        .text_size(UiText::Sm.size(&theme))
+        .text_size(ScaledText::Sm.size(&theme))
         .text_color(theme.palette(Surface::Window).muted_foreground())
         .child("No matching settings")
 }

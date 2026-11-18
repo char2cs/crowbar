@@ -1,8 +1,8 @@
 //! Small status and count pills.
 
-mod badge_paint;
 mod badge_size;
 mod badge_variant;
+mod paint;
 
 pub use badge_size::BadgeSize;
 pub use badge_variant::BadgeVariant;
@@ -11,7 +11,7 @@ use gpui::{
     App, FontWeight, IntoElement, ParentElement, RenderOnce, SharedString, Styled, Window, div,
 };
 
-use crate::display::badge::badge_paint::BadgePaint;
+use crate::display::badge::paint::Paint;
 use crate::foundation::Surface;
 use crate::foundation::Theme;
 
@@ -73,7 +73,7 @@ impl RenderOnce for Badge {
         cx: &mut App,
     ) -> impl IntoElement {
         let theme = *Theme::of(cx);
-        let paint = BadgePaint::of(
+        let paint = Paint::of(
             self.variant,
             theme.palette(self.surface),
             theme.appearance(),

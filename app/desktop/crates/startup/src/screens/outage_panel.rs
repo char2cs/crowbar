@@ -5,8 +5,8 @@ use gpui::{
     RenderOnce, Styled, Window, div, px,
 };
 use ui::{
-    Button, ButtonSize, ButtonVariant, Icon, IconName, IconWeight, Spinner, Surface, Theme, UiText,
-    radius, shadow,
+    Button, ButtonSize, ButtonVariant, Icon, IconName, IconWeight, ScaledText, Spinner, Surface,
+    Theme, radius, shadow,
 };
 
 use crate::actions::Actions;
@@ -48,7 +48,7 @@ impl OutagePanel {
             .flex()
             .items_center()
             .gap(px(TITLE_GAP))
-            .text_size(UiText::Lg.size(theme))
+            .text_size(ScaledText::Lg.size(theme))
             .font_weight(FontWeight::SEMIBOLD)
             .child(lead)
             .child(self.outage.headline())
@@ -143,7 +143,7 @@ impl RenderOnce for OutagePanel {
             .border_color(palette.border())
             .bg(palette.popover())
             .shadow(shadow::lg(SHADOW_OPACITY))
-            .text_size(UiText::Sm.size(&theme))
+            .text_size(ScaledText::Sm.size(&theme))
             .text_color(palette.foreground())
             .child(self.title(&theme))
             .child(

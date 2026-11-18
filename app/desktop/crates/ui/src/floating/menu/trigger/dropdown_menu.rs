@@ -9,7 +9,7 @@ use gpui::{
 
 use crate::floating::menu::menu_item::MenuItem;
 use crate::floating::menu::trigger::dropdown_state::DropdownState;
-use crate::floating::menu::trigger::menu_spec::MenuSpec;
+use crate::floating::menu::trigger::spec::Spec;
 use crate::floating::placement::Placement;
 use crate::floating::popup;
 use crate::foundation::opaque_debug;
@@ -21,7 +21,7 @@ const OFFSET: f32 = 4.0;
 pub struct DropdownMenu {
     id: ElementId,
     trigger: AnyElement,
-    spec: MenuSpec,
+    spec: Spec,
     placement: Placement,
 }
 
@@ -35,7 +35,7 @@ impl DropdownMenu {
         Self {
             id: id.into(),
             trigger: trigger.into_any_element(),
-            spec: MenuSpec::new(items.into()),
+            spec: Spec::new(items.into()),
             placement: Placement::default(),
         }
     }
@@ -89,7 +89,7 @@ impl RenderOnce for DropdownMenu {
 
 fn toggle(
     state: &Entity<DropdownState>,
-    spec: &MenuSpec,
+    spec: &Spec,
     window: &mut Window,
     cx: &mut App,
 ) {

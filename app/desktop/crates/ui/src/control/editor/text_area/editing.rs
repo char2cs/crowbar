@@ -4,9 +4,9 @@ use std::ops::Range;
 
 use gpui::{ClipboardItem, Context};
 
+use crate::control::editor::buffer::Buffer;
+use crate::control::editor::history::Edit;
 use crate::control::editor::text_area::TextArea;
-use crate::control::editor::text_buffer::TextBuffer;
-use crate::control::editor::text_history::Edit;
 use crate::foundation::Direction;
 
 pub(crate) fn edit_kind(
@@ -29,7 +29,7 @@ impl TextArea {
         &mut self,
         kind: Edit,
         cx: &mut Context<'_, Self>,
-        change: impl FnOnce(&mut TextBuffer),
+        change: impl FnOnce(&mut Buffer),
     ) {
         if !self.accepts_input() {
             return;
@@ -128,7 +128,7 @@ impl TextArea {
 
     fn restore(
         &mut self,
-        snapshot: TextBuffer,
+        snapshot: Buffer,
         cx: &mut Context<'_, Self>,
     ) {
         self.buffer = snapshot;

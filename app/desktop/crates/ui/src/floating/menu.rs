@@ -8,11 +8,11 @@ use gpui::{
     canvas, div, px,
 };
 
-use crate::floating::menu::menu_row::MenuRow;
 use crate::floating::menu::navigation::actions::{CONTEXT, SelectNext, SelectPrevious};
-use crate::floating::menu::nested::menu_level::MenuLevel;
-use crate::floating::menu::nested::menu_navigation::MenuNavigation;
+use crate::floating::menu::nested::level::Level;
+use crate::floating::menu::nested::navigation::Navigation;
 use crate::floating::menu::nested::open_submenu::OpenSubmenu;
+use crate::floating::menu::row::Row;
 use crate::floating::menu::row_handlers::{RowHandler, RowHandlers};
 use crate::floating::overlay_guard::OverlayGuard;
 use crate::floating::overlays::Overlays;
@@ -35,14 +35,14 @@ pub struct Menu {
     min_width: Pixels,
     pub(crate) focus_handle: FocusHandle,
     overlay: Rc<OverlayGuard>,
-    pub(crate) level: MenuLevel,
+    pub(crate) level: Level,
     pub(crate) submenu: Option<OpenSubmenu<Menu>>,
 }
 
 mod menu_item;
-mod menu_row;
 mod navigation;
 mod nested;
+mod row;
 mod row_handlers;
 mod trigger;
 
@@ -52,7 +52,7 @@ pub use trigger::{ContextMenu, DropdownMenu, Select};
 
 impl EventEmitter<DismissEvent> for Menu {}
 
-impl EventEmitter<MenuNavigation> for Menu {}
+impl EventEmitter<Navigation> for Menu {}
 
 impl Focusable for Menu {
     fn focus_handle(
@@ -72,7 +72,7 @@ impl Menu {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> Self {
-        Self::at_level(items.into(), MenuLevel::Root, window, cx)
+        Self::at_level(items.into(), Level::Root, window, cx)
     }
 
     pub(crate) fn nested(
@@ -80,12 +80,12 @@ impl Menu {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> Self {
-        Self::at_level(items, MenuLevel::Nested, window, cx)
+        Self::at_level(items, Level::Nested, window, cx)
     }
 
     fn at_level(
         items: Rc<[MenuItem]>,
-        level: MenuLevel,
+        level: Level,
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> Self {
@@ -143,7 +143,7 @@ impl Menu {
         match item {
             MenuItem::Action(action) => {
                 let highlight = Pose::from(self.highlighted == Some(index));
-                let row = MenuRow::new(index, action.clone(), highlight, handlers.clone());
+                let row = Row::new(index, action.clone(), highlight, handlers.clone());
                 self.with_submenu(index, row.into_any_element())
             },
             MenuItem::Separator => div()

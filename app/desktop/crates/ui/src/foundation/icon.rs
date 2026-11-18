@@ -1,8 +1,8 @@
 //! The icon element.
 
 mod assets;
+mod file;
 mod files;
-mod icon_file;
 mod icon_name;
 mod icon_weight;
 mod wordmark;
