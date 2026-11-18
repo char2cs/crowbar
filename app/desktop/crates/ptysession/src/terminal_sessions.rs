@@ -12,10 +12,10 @@ use crate::ends::Ends;
 use crate::error::{Error, Result};
 use crate::rest::Binding;
 use crate::rest::Rest;
-use crate::rest::SessionBase;
+use crate::rest::SessionPaths;
 use crate::stream::Attachment;
+use crate::stream::End;
 use crate::stream::Reconnect;
-use crate::stream::StreamEnd;
 use crate::stream::pump;
 use crate::stream::{CONNECT_TIMEOUT, header, stream_error, within};
 use crate::stream::{Dial, tcp_dial};
@@ -81,7 +81,7 @@ impl TerminalSessions {
     /// into the terminal itself; a dropped connection reattaches to the same PTY; dropping the view ends the session and kills it.
     pub fn start(
         &self,
-        base: SessionBase,
+        base: SessionPaths,
         pane: PaneId,
         ends: Ends,
     ) {
@@ -92,7 +92,7 @@ impl TerminalSessions {
     /// for the PTY of an agent runner.
     pub fn watch(
         &self,
-        (base, session): (SessionBase, String),
+        (base, session): (SessionPaths, String),
         pane: PaneId,
         ends: Ends,
     ) {
@@ -101,7 +101,7 @@ impl TerminalSessions {
 
     fn spawn(
         &self,
-        (base, binding): (SessionBase, Binding),
+        (base, binding): (SessionPaths, Binding),
         pane: PaneId,
         ends: Ends,
     ) {
@@ -113,7 +113,7 @@ impl TerminalSessions {
 
     async fn run(
         &self,
-        (base, binding): (&SessionBase, &Binding),
+        (base, binding): (&SessionPaths, &Binding),
         pane: PaneId,
         ends: Ends,
     ) {
@@ -127,7 +127,7 @@ impl TerminalSessions {
 
     async fn attach(
         &self,
-        (base, binding): (&SessionBase, &Binding),
+        (base, binding): (&SessionPaths, &Binding),
         scope: &RelayScope,
         ends: &Ends,
     ) -> Result<()> {
@@ -147,7 +147,7 @@ impl TerminalSessions {
 
     async fn keep_attached(
         &self,
-        target: (&SessionBase, &str),
+        target: (&SessionPaths, &str),
         attachment: &Attachment,
     ) {
         let mut reconnect = Reconnect::default();
@@ -156,14 +156,14 @@ impl TerminalSessions {
 
     async fn round(
         &self,
-        target: (&SessionBase, &str),
+        target: (&SessionPaths, &str),
         attachment: &Attachment,
         reconnect: &mut Reconnect,
     ) -> bool {
         let outcome = self.stream(target, attachment).await;
         let reason = match outcome {
-            Ok(StreamEnd::ViewGone | StreamEnd::Exited) => return true,
-            Ok(StreamEnd::Lost) => {
+            Ok(End::ViewGone | End::Exited) => return true,
+            Ok(End::Lost) => {
                 reconnect.connected();
                 "the connection dropped".to_owned()
             },
@@ -175,9 +175,9 @@ impl TerminalSessions {
 
     async fn stream(
         &self,
-        (base, session): (&SessionBase, &str),
+        (base, session): (&SessionPaths, &str),
         attachment: &Attachment,
-    ) -> Result<StreamEnd> {
+    ) -> Result<End> {
         let endpoint = self
             .rest
             .transport
@@ -405,7 +405,7 @@ mod tests {
         };
         let (frames, view_frames) = unbounded();
         let (_view_messages, messages) = unbounded();
-        let base = SessionBase::chat("c1").unwrap();
+        let base = SessionPaths::chat("c1").unwrap();
         let pane = PaneId::new("t1").unwrap();
         let ends = Ends { frames, messages };
         match case.watching {
@@ -437,7 +437,7 @@ mod tests {
         let server = tokio::spawn(serve_held(accepted));
         let (frames, view_frames) = unbounded();
         let (view_messages, messages) = unbounded();
-        let base = SessionBase::chat("c1").unwrap();
+        let base = SessionPaths::chat("c1").unwrap();
         let pane = PaneId::new("t1").unwrap();
         sessions(&daemon, dial).start(base, pane, Ends { frames, messages });
         first_output(&view_frames).await;
@@ -454,7 +454,7 @@ mod tests {
         let daemon = daemon();
         let (frames, view_frames) = unbounded();
         let (_view_messages, messages) = unbounded();
-        let base = SessionBase::chat("c1").unwrap();
+        let base = SessionPaths::chat("c1").unwrap();
         let pane = PaneId::new("t1").unwrap();
         sessions(&daemon, refusing_dial()).start(base, pane, Ends { frames, messages });
         let notice = notice_text(&view_frames).await;

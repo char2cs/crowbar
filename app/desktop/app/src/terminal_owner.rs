@@ -1,5 +1,5 @@
 use protocol::Params;
-use ptysession::SessionBase;
+use ptysession::SessionPaths;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TerminalOwner {
@@ -15,10 +15,10 @@ impl TerminalOwner {
         chat.or_else(|| params.get("projectId").map(|id| Self::Home(id.to_owned())))
     }
 
-    pub(crate) fn base(&self) -> ptysession::Result<SessionBase> {
+    pub(crate) fn base(&self) -> ptysession::Result<SessionPaths> {
         match self {
-            Self::Chat(chat) => SessionBase::chat(chat),
-            Self::Home(project) => SessionBase::project_home(project),
+            Self::Chat(chat) => SessionPaths::chat(chat),
+            Self::Home(project) => SessionPaths::project_home(project),
         }
     }
 }
@@ -38,7 +38,7 @@ mod tests {
         for (key, id, route) in CASES {
             let params = Params::default().with(key, id).unwrap();
             let base = TerminalOwner::of(&params).map(|owner| owner.base().unwrap());
-            let path = base.as_ref().map_or("", SessionBase::create_path);
+            let path = base.as_ref().map_or("", SessionPaths::create_path);
             assert_eq!(path, route, "{key}");
         }
     }

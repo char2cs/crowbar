@@ -10,7 +10,7 @@ including reconnects and recovery.
 
 - `TerminalSessions`: creates or attaches a chat's terminal session and runs its stream.
 - `Ends`: the terminal's ends of a running session.
-- `SessionBase`: the daemon paths of one chat's terminal sessions.
+- `SessionPaths`: the daemon paths of one chat's terminal sessions.
 - `Error`, `Result`.
 
 ## Depends on

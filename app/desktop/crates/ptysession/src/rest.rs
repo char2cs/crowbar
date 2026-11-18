@@ -1,10 +1,10 @@
 //! Creating and killing sessions through the shell's transport.
 
 mod binding;
-mod session_base;
+mod session_paths;
 
 pub(crate) use binding::Binding;
-pub use session_base::SessionBase;
+pub use session_paths::SessionPaths;
 
 use std::sync::Arc;
 
@@ -26,7 +26,7 @@ pub(crate) struct Rest {
 impl Rest {
     pub(crate) async fn create(
         &self,
-        base: &SessionBase,
+        base: &SessionPaths,
     ) -> Result<String> {
         let path = base.create_path();
         let response = self.send("POST", path).await?;
@@ -37,7 +37,7 @@ impl Rest {
 
     pub(crate) async fn kill(
         &self,
-        base: &SessionBase,
+        base: &SessionPaths,
         session: &str,
     ) -> Result<()> {
         let path = base.kill_path(session);
@@ -140,7 +140,7 @@ mod tests {
     #[tokio::test]
     async fn creating_posts_to_the_chat_and_reads_the_session_id() {
         let (rest, canned) = rest(CREATED, r#"{"success":true,"data":{"sessionId":"s9"}}"#);
-        let base = SessionBase::chat("c1").unwrap();
+        let base = SessionPaths::chat("c1").unwrap();
         assert_eq!(rest.create(&base).await.unwrap(), "s9");
         assert_eq!(
             *canned.seen.lock().unwrap(),
@@ -171,7 +171,7 @@ mod tests {
         let mut errors = Vec::new();
         for (status, body) in FAILURES {
             let (rest, _) = rest(status, body);
-            let base = SessionBase::chat("c1").unwrap();
+            let base = SessionPaths::chat("c1").unwrap();
             errors.push(rest.create(&base).await.unwrap_err().to_string());
         }
         errors

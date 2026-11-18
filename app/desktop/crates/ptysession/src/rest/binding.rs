@@ -2,7 +2,7 @@
 
 use crate::error::Result;
 use crate::rest::Rest;
-use crate::rest::session_base::SessionBase;
+use crate::rest::session_paths::SessionPaths;
 
 #[derive(Debug, Clone)]
 pub(crate) enum Binding {
@@ -14,7 +14,7 @@ impl Binding {
     pub(crate) async fn session(
         &self,
         rest: &Rest,
-        base: &SessionBase,
+        base: &SessionPaths,
     ) -> Result<String> {
         match self {
             Self::Create => rest.create(base).await,
@@ -25,7 +25,7 @@ impl Binding {
     pub(crate) async fn release(
         &self,
         rest: &Rest,
-        base: &SessionBase,
+        base: &SessionPaths,
         session: &str,
     ) {
         if !matches!(self, Self::Create) {

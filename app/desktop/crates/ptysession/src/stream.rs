@@ -3,18 +3,18 @@
 mod attachment;
 pub(crate) mod dial;
 mod duplex;
+mod end;
 mod handshake;
 mod reconnect;
 mod recovery;
-mod stream_end;
 mod wire;
 
 pub(crate) use attachment::Attachment;
 pub(crate) use dial::{Dial, tcp_dial};
+pub(crate) use end::End;
 pub(crate) use handshake::{CONNECT_TIMEOUT, header, stream_error, within};
 pub(crate) use reconnect::Reconnect;
 pub(crate) use recovery::{notice, recover};
-pub(crate) use stream_end::StreamEnd;
 
 use std::ops::ControlFlow;
 use std::pin::pin;
@@ -34,7 +34,7 @@ use crate::stream::wire::{frame_of, message_of};
 pub(crate) async fn pump<S>(
     socket: WebSocketStream<S>,
     ends: Ends,
-) -> StreamEnd
+) -> End
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -47,7 +47,7 @@ where
 async fn deliver_frames<S>(
     stream: SplitStream<WebSocketStream<S>>,
     frames: Sender<DaemonFrame>,
-) -> StreamEnd
+) -> End
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -56,14 +56,14 @@ where
         .filter_map(|message| ready(message.ok().and_then(|m| frame_of(&m))));
     match relay(decoded, &frames).await {
         ControlFlow::Break(end) => end,
-        ControlFlow::Continue(()) => StreamEnd::Lost,
+        ControlFlow::Continue(()) => End::Lost,
     }
 }
 
 async fn relay(
     mut decoded: impl Stream<Item = DaemonFrame> + Unpin,
     frames: &Sender<DaemonFrame>,
-) -> ControlFlow<StreamEnd> {
+) -> ControlFlow<End> {
     while let Some(frame) = decoded.next().await {
         deliver(frame, frames).await?;
     }
@@ -73,13 +73,13 @@ async fn relay(
 async fn deliver(
     frame: DaemonFrame,
     frames: &Sender<DaemonFrame>,
-) -> ControlFlow<StreamEnd> {
+) -> ControlFlow<End> {
     let exited = matches!(frame, DaemonFrame::Exit(_));
     if frames.send(frame).await.is_err() {
-        return ControlFlow::Break(StreamEnd::ViewGone);
+        return ControlFlow::Break(End::ViewGone);
     }
     if exited {
-        return ControlFlow::Break(StreamEnd::Exited);
+        return ControlFlow::Break(End::Exited);
     }
     ControlFlow::Continue(())
 }
@@ -87,7 +87,7 @@ async fn deliver(
 async fn send_messages<S>(
     mut sink: SplitSink<WebSocketStream<S>, Message>,
     messages: Receiver<ClientMessage>,
-) -> StreamEnd
+) -> End
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -96,9 +96,9 @@ where
         sent = sink.send(message_of(&message)).await.is_ok();
     }
     if sent {
-        return StreamEnd::ViewGone;
+        return End::ViewGone;
     }
-    StreamEnd::Lost
+    End::Lost
 }
 
 #[cfg(test)]
@@ -155,7 +155,7 @@ mod tests {
         let (_view_messages, messages) = unbounded();
         let end = pump(socket, Ends { frames, messages }).await;
         server.await.unwrap();
-        assert_eq!(end, StreamEnd::Lost);
+        assert_eq!(end, End::Lost);
     }
 
     async fn serve_exit(far: tokio::io::DuplexStream) {
@@ -171,12 +171,9 @@ mod tests {
         Dropped,
     }
 
-    const CASES: [(View, StreamEnd); 2] = [
-        (View::Kept, StreamEnd::Exited),
-        (View::Dropped, StreamEnd::ViewGone),
-    ];
+    const CASES: [(View, End); 2] = [(View::Kept, End::Exited), (View::Dropped, End::ViewGone)];
 
-    async fn ends_of_each_case() -> Vec<StreamEnd> {
+    async fn ends_of_each_case() -> Vec<End> {
         let mut ends = Vec::new();
         for (view, _) in CASES {
             ends.push(end_of_stream(view).await);
@@ -186,11 +183,11 @@ mod tests {
 
     #[tokio::test]
     async fn the_end_of_a_stream_says_whether_the_session_or_only_the_connection_ended() {
-        let expected: Vec<StreamEnd> = CASES.iter().map(|(_, end)| *end).collect();
+        let expected: Vec<End> = CASES.iter().map(|(_, end)| *end).collect();
         assert_eq!(ends_of_each_case().await, expected, "exit, then view gone");
     }
 
-    async fn end_of_stream(view: View) -> StreamEnd {
+    async fn end_of_stream(view: View) -> End {
         let (near, far) = duplex(PIPE);
         tokio::spawn(serve_exit(far));
         let (socket, _) = client_async("ws://terminal/ws", near).await.unwrap();

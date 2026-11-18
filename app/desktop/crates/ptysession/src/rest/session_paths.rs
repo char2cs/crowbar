@@ -4,9 +4,9 @@ use crate::error::{Error, Result};
 
 /// Where a chat's terminal sessions live: `/v0/chats/:chatId/terminals`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SessionBase(String);
+pub struct SessionPaths(String);
 
-impl SessionBase {
+impl SessionPaths {
     /// The sessions of `chat`.
     ///
     /// # Errors
@@ -79,8 +79,8 @@ mod tests {
     #[test]
     fn paths_follow_the_daemon_routes() {
         let bases = [
-            SessionBase::chat(CASES[0].0).unwrap(),
-            SessionBase::project_home(CASES[1].0).unwrap(),
+            SessionPaths::chat(CASES[0].0).unwrap(),
+            SessionPaths::project_home(CASES[1].0).unwrap(),
         ];
         for (base, case) in bases.iter().zip(CASES) {
             assert_eq!(base.create_path(), case.1);
@@ -92,9 +92,9 @@ mod tests {
     #[test]
     fn an_id_cannot_change_the_path() {
         for id in REFUSED {
-            assert!(SessionBase::chat(id).is_err(), "{id:?} must be refused");
+            assert!(SessionPaths::chat(id).is_err(), "{id:?} must be refused");
             assert!(
-                SessionBase::project_home(id).is_err(),
+                SessionPaths::project_home(id).is_err(),
                 "{id:?} must be refused"
             );
         }

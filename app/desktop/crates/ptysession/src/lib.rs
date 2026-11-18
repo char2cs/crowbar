@@ -11,5 +11,5 @@ mod test_support;
 
 pub use ends::Ends;
 pub use error::{Error, Result};
-pub use rest::SessionBase;
+pub use rest::SessionPaths;
 pub use terminal_sessions::TerminalSessions;
