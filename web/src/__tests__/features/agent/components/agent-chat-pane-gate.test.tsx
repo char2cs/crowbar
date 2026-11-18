@@ -15,6 +15,12 @@ import {
 } from '@/features/panes/stores/window-pane-store'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 import { seedChatPaneRecord } from '@/__tests__/__fixtures__/view-state'
+import { hostIdForWorkspace } from '@/lib/host-resolve'
+import { entityStore } from '@/core/entities/entity-store'
+import { getDB, resetDB } from '@/lib/persistence/idb'
+import { IDBFactory } from 'fake-indexeddb'
+import { hydrateHostPlacements, startHostPlacementCache } from '@/lib/persistence/host-placements'
+import { chatEntity, putEntities, workspaceDTO } from '@/__tests__/__fixtures__/sidebar-entities'
 import {
   loadProjects,
   pairRemoteHost,
@@ -27,13 +33,13 @@ import {
 // network. Its textarea stands in for the view's composer.
 const probe = vi.hoisted(() => ({ mounts: 0 }))
 vi.mock('@/features/agent/chat/agent-chat-view', () => ({
-  AgentChatView: () => {
+  AgentChatView: ({ visible }: { visible: boolean }) => {
     useEffect(() => {
       probe.mounts++
     }, [])
     return createElement(
       'div',
-      { 'data-testid': 'chat-view' },
+      { 'data-testid': 'chat-view', 'data-visible': String(visible) },
       createElement('textarea', { 'aria-label': 'composer' }),
     )
   },
@@ -234,5 +240,103 @@ describe('AgentChatPaneGate where no remote host was ever paired', () => {
 
     expect(await screen.findByTestId('chat-view')).toBeInTheDocument()
     expect(screen.queryByText(WAITING)).toBeNull()
+  })
+})
+
+// A cold start: the daemons have not listed anything, but the last run's placements are on disk.
+describe('AgentChatPaneGate before any host has listed', () => {
+  async function lastRunPlaced(hostId: string, wsId = 'w-remote') {
+    const stop = startHostPlacementCache()
+    putEntities('workspace', [workspaceDTO({ id: wsId })], hostId)
+    putEntities('chat', [chatEntity({ id: 'c1' })], hostId)
+    await vi.waitFor(async () =>
+      expect((await (await getDB()).getAll('host-placements')).length).toBe(2),
+    )
+    stop()
+    resetHostWorld()
+    pairRemoteHost('host-1')
+    await hydrateHostPlacements()
+  }
+
+  beforeEach(async () => {
+    globalThis.indexedDB = new IDBFactory()
+    resetDB()
+    await hydrateHostPlacements()
+    pairRemoteHost('host-1')
+    recordWorkspaceScope({ projectId: 'p-remote', repoId: 'r1', wsId: 'w-remote' })
+  })
+
+  it('mounts the chat on the host the last run placed it on, with no list', async () => {
+    await lastRunPlaced('host-1')
+
+    mount('w-remote')
+
+    expect(await screen.findByTestId('chat-view')).toBeInTheDocument()
+    expect(screen.queryByText(WAITING)).toBeNull()
+  })
+
+  it('shows the recalled chat at once: its placement vouches for it until the list lands', async () => {
+    await lastRunPlaced('host-1')
+
+    mount('w-remote')
+
+    expect(await screen.findByTestId('chat-view')).toHaveAttribute('data-visible', 'true')
+  })
+
+  it('does not route a call that creates data by the recalled host', async () => {
+    await lastRunPlaced('host-1')
+
+    expect(() => hostIdForWorkspace('w-remote')).toThrow()
+  })
+
+  it('stays mounted when the list lands and agrees', async () => {
+    await lastRunPlaced('host-1')
+    mount('w-remote')
+    const view = await screen.findByTestId('chat-view')
+
+    await act(async () => loadProjects(projectOn('p-remote', 'host-1')))
+    act(() => putEntities('workspace', [workspaceDTO({ id: 'w-remote' })], 'host-1'))
+
+    expect(screen.getByTestId('chat-view')).toBe(view)
+    expect(probe.mounts).toBe(1)
+  })
+
+  it('leaves for the empty state when the list lands without the workspace', async () => {
+    await lastRunPlaced('host-1')
+    mount('w-remote')
+    await screen.findByTestId('chat-view')
+
+    await act(async () => loadProjects(projectOn('p-local', 'local'), projectOn('p-x', 'host-1')))
+
+    expect(screen.queryByTestId('chat-view')).toBeNull()
+    expect(screen.getByText('Chat unavailable')).toBeInTheDocument()
+  })
+
+  it('ignores a placement on a host that was removed', async () => {
+    await lastRunPlaced('host-gone')
+
+    mount('w-remote')
+
+    expect(screen.getByText(WAITING)).toBeInTheDocument()
+    expect(screen.queryByTestId('chat-view')).toBeNull()
+  })
+
+  it('opens the local chat from its placement while a paired host has not listed', async () => {
+    await lastRunPlaced('local', 'w1')
+
+    mount('w1')
+
+    expect(await screen.findByTestId('chat-view')).toBeInTheDocument()
+    expect(entityStore.getState().loaded).toEqual({})
+  })
+
+  it('waits as before when nothing could be read back', async () => {
+    globalThis.indexedDB = undefined as unknown as IDBFactory
+    resetDB()
+    await hydrateHostPlacements()
+
+    mount('w-remote')
+
+    expect(screen.getByText(WAITING)).toBeInTheDocument()
   })
 })

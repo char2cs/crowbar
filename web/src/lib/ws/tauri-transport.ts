@@ -39,13 +39,10 @@ export class TauriWebSocket {
     // The Channel carries each raw frame the Rust reader forwards, which starts
     // before ws_open's reply: frames that beat it wait in `early`, so onopen
     // always precedes onmessage as the WebSocket contract promises.
-    const channel = new Channel<string | string[] | ArrayBuffer>()
-    // An array is rows the bridge found already queued behind one another, sent as one message.
-    channel.onmessage = (message) => {
-      for (const frame of Array.isArray(message) ? message : [message]) {
-        if (this.early) this.early.push(frame)
-        else this.deliver(frame)
-      }
+    const channel = new Channel<string | ArrayBuffer>()
+    channel.onmessage = (frame) => {
+      if (this.early) this.early.push(frame)
+      else this.deliver(frame)
     }
 
     void invoke('ws_open', {

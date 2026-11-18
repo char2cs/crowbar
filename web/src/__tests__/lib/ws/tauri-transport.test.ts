@@ -4,7 +4,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 // at it and reads which ws_* commands were invoked.
 
 interface MockChannel {
-  onmessage: ((data: string | string[] | ArrayBuffer) => void) | null
+  onmessage: ((data: string | ArrayBuffer) => void) | null
 }
 
 const channels: MockChannel[] = []
@@ -14,7 +14,7 @@ const invoke = vi.fn(async (_command: string, _args?: unknown): Promise<unknown>
 vi.mock('@tauri-apps/api/core', () => ({
   convertFileSrc: (path: string) => path,
   Channel: class {
-    onmessage: ((data: string | string[] | ArrayBuffer) => void) | null = null
+    onmessage: ((data: string | ArrayBuffer) => void) | null = null
     constructor() {
       channels.push(this)
     }
@@ -69,28 +69,6 @@ describe('TauriWebSocket', () => {
     expect(TauriWebSocket.CONNECTING).toBe(0)
     expect(TauriWebSocket.OPEN).toBe(1)
     expect(TauriWebSocket.CLOSED).toBe(3)
-  })
-
-  it('hears a batch of rows as the same messages, in order, as if each had arrived alone', async () => {
-    const open = gateOpen()
-    const sock = new TauriWebSocket('/v0/chats/c/stream')
-    const events = record(sock)
-
-    channels[0].onmessage?.(['early-1', 'early-2'])
-    open.resolve()
-    await opened(sock)
-    channels[0].onmessage?.(['a', 'b', 'c'])
-    channels[0].onmessage?.('d')
-
-    expect(events).toEqual([
-      'open@1',
-      'msg early-1@1',
-      'msg early-2@1',
-      'msg a@1',
-      'msg b@1',
-      'msg c@1',
-      'msg d@1',
-    ])
   })
 
   it('invokes ws_open with the conn id, path, and Channel, then fires onopen and goes OPEN', async () => {

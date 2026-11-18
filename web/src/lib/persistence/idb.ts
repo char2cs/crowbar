@@ -39,7 +39,13 @@ const RETIRED_V12 = [
 ]
 
 async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
-  return openDB<CrowbarDB>('crowbar', 14, {
+  return openDB<CrowbarDB>('crowbar', 16, {
+    // Another window upgrading must not wait on this connection: close it, the next call reopens.
+    blocking() {
+      _db?.close()
+      resetDB()
+    },
+    terminated: resetDB,
     upgrade(db, oldVersion) {
       // Retired stores are no longer in CrowbarDB; the upgrade chain still
       // creates and then drops them, so it goes through the untyped handle.
@@ -122,6 +128,14 @@ async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
         if (!raw.objectStoreNames.contains('editor-drafts')) {
           db.createObjectStore('editor-drafts', { keyPath: 'uri' })
         }
+      }
+      if (oldVersion < 15) {
+        const feeds = db.createObjectStore('chat-feeds', { keyPath: ['hostId', 'chatId'] })
+        feeds.createIndex('savedAt', 'savedAt')
+        feeds.createIndex('chatId', 'chatId')
+      }
+      if (oldVersion < 16) {
+        db.createObjectStore('host-placements', { keyPath: 'key' }).createIndex('hostId', 'hostId')
       }
     },
   })

@@ -7,15 +7,15 @@ import { AgentChatUnavailable } from '@/features/agent/components/agent-chat-una
 import { DraftChatPane } from '@/features/agent/components/draft-chat-pane'
 import { isDraftChatId } from '@/features/agent/lib/draft-chat'
 import { pendingChatSurfaces } from '@/features/panes/stores/pending-chat-surfaces'
-import { useResolvedHost } from '@/lib/host-resolve'
+import { useChatPaneHost } from '@/lib/host-resolve-cached'
 import { useHostUnavailable } from '@/lib/host-unavailability'
 
-// Mounts the chat body only once its workspace's host resolves (a paired install restores panes
-// before the project list names hosts) since every read is addressed through it; unmounts if the
-// host stops resolving, and meanwhile says what it waits for.
+// Mounts the chat body only once its workspace's host resolves, or is recalled from the last run
+// before that host lists, since every read is addressed through it; unmounts if the host stops
+// resolving, and meanwhile says what it waits for.
 export function AgentChatPaneGate(props: AgentChatPaneProps) {
   const { paneId, wsId } = props
-  const hostId = useResolvedHost({ wsId })
+  const hostId = useChatPaneHost(wsId, props.chatId)
   const unavailable = useHostUnavailable({ wsId })
   // Passive, so it follows the wrapper's layout-effect `begin` even in one commit.
   useEffect(() => pendingChatSurfaces.getState().end(paneId), [paneId])
