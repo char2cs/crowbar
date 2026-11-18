@@ -7,8 +7,8 @@ use ui::Theme;
 
 use crate::backdrop::backdrop;
 use crate::check_source::CheckSource;
-use crate::oobe_event::OobeEvent;
-use crate::oobe_screen::OobeScreen;
+use crate::event::Event;
+use crate::screen::Screen;
 
 mod checks;
 mod parts;
@@ -17,40 +17,40 @@ mod screens;
 use self::parts::stage;
 
 /// The first-run screens over the brand gradient.
-pub struct OobeView {
-    screen: OobeScreen,
+pub struct View {
+    screen: Screen,
     source: Option<Rc<dyn CheckSource>>,
 }
 
-impl std::fmt::Debug for OobeView {
+impl std::fmt::Debug for View {
     fn fmt(
         &self,
         formatter: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         formatter
-            .debug_struct("OobeView")
+            .debug_struct("View")
             .field("screen", &self.screen)
             .finish_non_exhaustive()
     }
 }
 
-impl EventEmitter<OobeEvent> for OobeView {}
+impl EventEmitter<Event> for View {}
 
-impl OobeView {
+impl View {
     /// The first run of a computer with a daemon of its own, starting on the brand.
     #[must_use]
     pub fn first_run(check: Arc<SystemCheck>) -> Self {
-        Self::over(OobeScreen::Welcome, Some(Rc::new(check)))
+        Self::over(Screen::Welcome, Some(Rc::new(check)))
     }
 
     /// The way in for an install with no daemon of its own: connect to a host.
     #[must_use]
     pub fn add_host() -> Self {
-        Self::over(OobeScreen::AddHost, None)
+        Self::over(Screen::AddHost, None)
     }
 
     fn over(
-        screen: OobeScreen,
+        screen: Screen,
         source: Option<Rc<dyn CheckSource>>,
     ) -> Self {
         Self { screen, source }
@@ -58,7 +58,7 @@ impl OobeView {
 
     /// The screen showing now.
     #[must_use]
-    pub fn screen(&self) -> OobeScreen {
+    pub fn screen(&self) -> Screen {
         self.screen
     }
 
@@ -74,7 +74,7 @@ impl OobeView {
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
-        if self.screen == OobeScreen::SystemCheck && !self.git_ready() {
+        if self.screen == Screen::SystemCheck && !self.git_ready() {
             return;
         }
         self.screen = self.screen.next();
@@ -82,11 +82,11 @@ impl OobeView {
     }
 
     fn request_host(cx: &mut Context<'_, Self>) {
-        cx.emit(OobeEvent::AddHost);
+        cx.emit(Event::AddHost);
     }
 
     fn request_folder(cx: &mut Context<'_, Self>) {
-        cx.emit(OobeEvent::ChooseFolder);
+        cx.emit(Event::ChooseFolder);
     }
 
     fn recheck(
@@ -100,17 +100,17 @@ impl OobeView {
     }
 }
 
-impl Render for OobeView {
+impl Render for View {
     fn render(
         &mut self,
         _window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
         let content = match self.screen {
-            OobeScreen::Welcome => Self::welcome(cx),
-            OobeScreen::SystemCheck => self.system_check(cx),
-            OobeScreen::AddSpace => Self::add_space(cx),
-            OobeScreen::AddHost => Self::host(cx),
+            Screen::Welcome => Self::welcome(cx),
+            Screen::SystemCheck => self.system_check(cx),
+            Screen::AddSpace => Self::add_space(cx),
+            Screen::AddHost => Self::host(cx),
         };
         div()
             .size_full()
@@ -132,33 +132,33 @@ mod tests {
 
     pub(super) fn open<'a>(
         cx: &'a mut TestAppContext,
-        screen: OobeScreen,
+        screen: Screen,
         check: &Rc<FakeCheck>,
-    ) -> (Entity<OobeView>, &'a mut VisualTestContext) {
+    ) -> (Entity<View>, &'a mut VisualTestContext) {
         cx.update(|cx| ui::init(cx).expect("the design system installs"));
         let source: Rc<dyn CheckSource> = Rc::clone(check) as Rc<dyn CheckSource>;
-        let (view, cx) = cx.add_window_view(move |_, _| OobeView::over(screen, Some(source)));
+        let (view, cx) = cx.add_window_view(move |_, _| View::over(screen, Some(source)));
         cx.run_until_parked();
         (view, cx)
     }
 
     pub(super) fn screen_of(
-        view: &Entity<OobeView>,
+        view: &Entity<View>,
         cx: &mut VisualTestContext,
-    ) -> OobeScreen {
+    ) -> Screen {
         view.read_with(cx, |view, _| view.screen())
     }
 
     fn collect(
-        sink: Rc<RefCell<Vec<OobeEvent>>>
-    ) -> impl FnMut(Entity<OobeView>, &OobeEvent, &mut gpui::App) + 'static {
+        sink: Rc<RefCell<Vec<Event>>>
+    ) -> impl FnMut(Entity<View>, &Event, &mut gpui::App) + 'static {
         move |_, event, _| sink.borrow_mut().push(*event)
     }
 
     fn events(
-        view: &Entity<OobeView>,
+        view: &Entity<View>,
         cx: &mut VisualTestContext,
-    ) -> Rc<RefCell<Vec<OobeEvent>>> {
+    ) -> Rc<RefCell<Vec<Event>>> {
         let seen = Rc::new(RefCell::new(Vec::new()));
         let sink = Rc::clone(&seen);
         cx.update(|_, cx| cx.subscribe(view, collect(sink)).detach());
@@ -168,19 +168,19 @@ mod tests {
     #[gpui::test]
     fn the_welcome_button_leads_to_the_system_check(cx: &mut TestAppContext) {
         let check = Rc::new(FakeCheck::default());
-        let (view, cx) = open(cx, OobeScreen::Welcome, &check);
-        view.update(cx, OobeView::advance);
-        assert_eq!(screen_of(&view, cx), OobeScreen::SystemCheck);
+        let (view, cx) = open(cx, Screen::Welcome, &check);
+        view.update(cx, View::advance);
+        assert_eq!(screen_of(&view, cx), Screen::SystemCheck);
     }
 
     #[gpui::test]
     fn the_last_screens_ask_the_shell_for_what_they_offer(cx: &mut TestAppContext) {
         let check = Rc::new(FakeCheck::default());
-        let (view, cx) = open(cx, OobeScreen::AddSpace, &check);
+        let (view, cx) = open(cx, Screen::AddSpace, &check);
         let seen = events(&view, cx);
-        view.update(cx, |_, cx| OobeView::request_folder(cx));
-        view.update(cx, |_, cx| OobeView::request_host(cx));
-        let expected = [OobeEvent::ChooseFolder, OobeEvent::AddHost];
+        view.update(cx, |_, cx| View::request_folder(cx));
+        view.update(cx, |_, cx| View::request_host(cx));
+        let expected = [Event::ChooseFolder, Event::AddHost];
         assert_eq!(seen.borrow().as_slice(), expected, "the two requests");
     }
 }

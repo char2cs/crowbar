@@ -1,5 +1,4 @@
 use gpui::{AppContext as _, Context, Entity};
-use oobe::{OobeEvent, OobeView};
 use sidebar::{Command, CommandSink as _, Host, HostId, HostKind, SpaceList as _};
 
 use super::ShellView;
@@ -23,7 +22,7 @@ impl ShellView {
         let landing = landing_for(spaces, view.sync(), &census);
         match (&self.first_run, landing) {
             (Some((shown, oobe)), now) if *shown == now => {
-                oobe.update(cx, OobeView::changed);
+                oobe.update(cx, oobe::View::changed);
             },
             (_, Landing::Home) => self.leave_first_run(cx),
             (_, now) => self.enter_first_run(now, cx),
@@ -37,15 +36,16 @@ impl ShellView {
     ) {
         let oobe = match landing {
             Landing::FirstRun => self.first_run_view(cx),
-            _ => Some(cx.new(|_| OobeView::add_host())),
+            _ => Some(cx.new(|_| oobe::View::add_host())),
         };
         let Some(oobe) = oobe else {
             return;
         };
-        self.subscriptions
-            .push(cx.subscribe(&oobe, |this, source, event: &OobeEvent, cx| {
+        self.subscriptions.push(
+            cx.subscribe(&oobe, |this, source, event: &oobe::Event, cx| {
                 this.on_oobe(source, *event, cx);
-            }));
+            }),
+        );
         self.first_run = Some((landing, oobe));
         self.update_overlay(cx);
     }
@@ -53,14 +53,14 @@ impl ShellView {
     fn first_run_view(
         &mut self,
         cx: &mut Context<'_, Self>,
-    ) -> Option<Entity<OobeView>> {
+    ) -> Option<Entity<oobe::View>> {
         let (signal, _) = crate::data_signal::callbacks(&self.requests, &self.data_queued);
         let check = self
             .data
             .system_check(signal)
             .inspect_err(|error| tracing::warn!(%error, "the system check could not start"))
             .ok()?;
-        Some(cx.new(|_| OobeView::first_run(check)))
+        Some(cx.new(|_| oobe::View::first_run(check)))
     }
 
     fn leave_first_run(
@@ -74,13 +74,13 @@ impl ShellView {
 
     fn on_oobe(
         &mut self,
-        _: Entity<OobeView>,
-        event: OobeEvent,
+        _: Entity<oobe::View>,
+        event: oobe::Event,
         cx: &mut Context<'_, Self>,
     ) {
         match event {
-            OobeEvent::ChooseFolder => self.choose_first_space(cx),
-            OobeEvent::AddHost => self.queue_pairing(),
+            oobe::Event::ChooseFolder => self.choose_first_space(cx),
+            oobe::Event::AddHost => self.queue_pairing(),
             _ => {},
         }
     }

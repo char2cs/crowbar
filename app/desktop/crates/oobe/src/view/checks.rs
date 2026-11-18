@@ -2,10 +2,10 @@
 
 use store::Tool;
 
-use super::OobeView;
+use super::View;
 use crate::check_status::CheckStatus;
 
-impl OobeView {
+impl View {
     pub(crate) fn git_ready(&self) -> bool {
         self.status_of(Tool::Git) == CheckStatus::Ready
     }
@@ -37,32 +37,24 @@ mod tests {
     use store::ToolReport;
 
     use super::*;
-    use crate::oobe_screen::OobeScreen;
-    use crate::oobe_view::tests::{open, screen_of};
+    use crate::screen::Screen;
     use crate::test_support::FakeCheck;
+    use crate::view::tests::{open, screen_of};
 
     #[gpui::test]
     fn continue_waits_for_git_and_a_missing_git_offers_another_check(cx: &mut TestAppContext) {
         let check = Rc::new(FakeCheck::default());
-        let (view, cx) = open(cx, OobeScreen::SystemCheck, &check);
-        view.update(cx, OobeView::advance);
-        assert_eq!(
-            screen_of(&view, cx),
-            OobeScreen::SystemCheck,
-            "still probing"
-        );
+        let (view, cx) = open(cx, Screen::SystemCheck, &check);
+        view.update(cx, View::advance);
+        assert_eq!(screen_of(&view, cx), Screen::SystemCheck, "still probing");
         for tool in Tool::ALL {
             check.answer(tool, ToolReport::default());
         }
-        view.update(cx, OobeView::changed);
+        view.update(cx, View::changed);
         cx.run_until_parked();
-        view.update(cx, OobeView::advance);
-        view.update(cx, OobeView::recheck);
-        assert_eq!(
-            screen_of(&view, cx),
-            OobeScreen::SystemCheck,
-            "git is missing"
-        );
+        view.update(cx, View::advance);
+        view.update(cx, View::recheck);
+        assert_eq!(screen_of(&view, cx), Screen::SystemCheck, "git is missing");
         assert!(check.reruns() > 0, "Check again asks the daemon again");
         check.answer(
             Tool::Git,
@@ -71,9 +63,9 @@ mod tests {
                 ..ToolReport::default()
             },
         );
-        view.update(cx, OobeView::changed);
+        view.update(cx, View::changed);
         cx.run_until_parked();
-        view.update(cx, OobeView::advance);
-        assert_eq!(screen_of(&view, cx), OobeScreen::AddSpace);
+        view.update(cx, View::advance);
+        assert_eq!(screen_of(&view, cx), Screen::AddSpace);
     }
 }

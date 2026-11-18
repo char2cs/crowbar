@@ -1,7 +1,7 @@
 use gpui::{Div, Hsla, ParentElement, Styled, div, linear_color_stop, linear_gradient};
 
 use crate::look::{BASE, BRAND_GROUND, GRADIENT_ANGLE, ORANGE, ORANGE_STRENGTH, TEAL, color};
-use crate::oobe_screen::OobeScreen;
+use crate::screen::Screen;
 
 fn clear(hue: Hsla) -> Hsla {
     Hsla { a: 0.0, ..hue }
@@ -18,8 +18,8 @@ fn layer(
     ))
 }
 
-pub(crate) fn backdrop(screen: OobeScreen) -> Div {
-    if screen == OobeScreen::AddHost {
+pub(crate) fn backdrop(screen: Screen) -> Div {
+    if screen == Screen::AddHost {
         return div().size_full().bg(color(BRAND_GROUND));
     }
     let teal = color(TEAL);
@@ -43,10 +43,10 @@ mod tests {
     #[test]
     fn the_host_screen_is_the_brand_ground_and_the_others_start_from_the_base_tone() {
         let cases = [
-            (OobeScreen::AddHost, BRAND_GROUND),
-            (OobeScreen::Welcome, BASE),
-            (OobeScreen::SystemCheck, BASE),
-            (OobeScreen::AddSpace, BASE),
+            (Screen::AddHost, BRAND_GROUND),
+            (Screen::Welcome, BASE),
+            (Screen::SystemCheck, BASE),
+            (Screen::AddSpace, BASE),
         ];
         for (screen, ground) in cases {
             let mut shown = backdrop(screen);

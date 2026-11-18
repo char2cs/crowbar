@@ -4,7 +4,7 @@ use gpui::{Context, Div, FontWeight, ParentElement, Styled, div};
 use store::Tool;
 use ui::{Button, ButtonSize, ButtonVariant, IconName, Wordmark};
 
-use super::OobeView;
+use super::View;
 use super::parts::{DANGER, column, heading, status_icon};
 use crate::check_status::{description, label};
 use crate::look::{
@@ -16,7 +16,7 @@ use crate::look::{
 };
 use crate::pill_button::PillButton;
 
-impl OobeView {
+impl View {
     pub(crate) fn welcome(cx: &mut Context<'_, Self>) -> Div {
         column(STAGE_GAP)
             .child(Wordmark::new(WELCOME_LOGO).color(white(1.0)))
@@ -192,18 +192,18 @@ mod tests {
 
     use gpui::TestAppContext;
 
-    use crate::oobe_screen::OobeScreen;
-    use crate::oobe_view::tests::{open, screen_of};
+    use crate::screen::Screen;
     use crate::test_support::FakeCheck;
+    use crate::view::tests::{open, screen_of};
 
     #[gpui::test]
     fn every_screen_renders(cx: &mut TestAppContext) {
         let check = Rc::new(FakeCheck::default());
         for screen in [
-            OobeScreen::Welcome,
-            OobeScreen::SystemCheck,
-            OobeScreen::AddSpace,
-            OobeScreen::AddHost,
+            Screen::Welcome,
+            Screen::SystemCheck,
+            Screen::AddSpace,
+            Screen::AddHost,
         ] {
             let (view, cx) = open(cx, screen, &check);
             assert_eq!(screen_of(&view, cx), screen);

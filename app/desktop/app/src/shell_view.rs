@@ -78,7 +78,7 @@ pub(crate) struct ShellView {
     file_prompt: Option<Entity<crate::file_prompt::FilePrompt>>,
     rename_prompt: Option<(protocol::PaneId, Entity<crate::rename_prompt::RenamePrompt>)>,
     pairing: Option<Entity<pairing::View>>,
-    first_run: Option<(crate::landing::Landing, Entity<oobe::OobeView>)>,
+    first_run: Option<(crate::landing::Landing, Entity<oobe::View>)>,
     window_title: String,
     unsaved: Option<Entity<crate::unsaved_dialog::UnsavedDialog>>,
     pending_close: Option<crate::pending_close::PendingClose>,
