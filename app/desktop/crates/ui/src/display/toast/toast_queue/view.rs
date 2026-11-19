@@ -58,6 +58,7 @@ fn card(
 ) -> Stateful<Div> {
     let id = entry.id;
     let toast = Toast::new(("toast", id.0), entry.kind, entry.message.clone())
+        .when_some(entry.title.clone(), Toast::title)
         .updated(entry.updates)
         .full_width()
         .on_close(close_handler(cx.entity(), id))

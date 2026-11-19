@@ -36,6 +36,7 @@ mod tests {
                 id: ToastId(id),
                 key: None,
                 kind: ToastKind::Info,
+                title: None,
                 message: "m".into(),
                 lifetime,
                 updates: 0,

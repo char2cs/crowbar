@@ -16,8 +16,8 @@ pub use toast_queue::{
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    Animation, AnimationExt, App, Div, ElementId, Hsla, IntoElement, ParentElement, RenderOnce,
-    SharedString, Styled, Window, div, px, relative,
+    Animation, AnimationExt, App, Div, ElementId, FontWeight, Hsla, IntoElement, ParentElement,
+    RenderOnce, SharedString, Styled, Window, div, px, relative,
 };
 
 use crate::display::spinner::Spinner;
@@ -41,8 +41,9 @@ use crate::foundation::tokens::text_size;
 use crate::foundation::tokens::timing;
 
 const CLOSE_CLEARANCE: f32 = 24.0;
+const TITLE_GAP: f32 = 2.0;
 
-/// A message card: icon by tone and text.
+/// A message card: icon by tone and text, under a title when it has one.
 ///
 /// An updated error shakes and an updated success pulses; the card fades in when it first appears and
 /// out when it is [`Toast::leaving`]. With [`Toast::on_close`] it shows the corner close button.
@@ -50,6 +51,7 @@ const CLOSE_CLEARANCE: f32 = 24.0;
 pub struct Toast {
     id: ElementId,
     kind: ToastKind,
+    title: Option<SharedString>,
     message: SharedString,
     updates: u32,
     on_close: Option<CloseHandler>,
@@ -67,12 +69,23 @@ impl Toast {
         Self {
             id: id.into(),
             kind,
+            title: None,
             message: message.into(),
             updates: 0,
             on_close: None,
             fill: false,
             phase: Phase::Shown,
         }
+    }
+
+    /// Puts `title` above the message in medium weight; the message then reads muted, as detail.
+    #[must_use]
+    pub fn title(
+        mut self,
+        title: SharedString,
+    ) -> Self {
+        self.title = Some(title);
+        self
     }
 
     /// Marks the toast as updated `updates` times; an updated error shakes again, a success pulses.
@@ -138,6 +151,24 @@ impl Toast {
         }
     }
 
+    fn text(
+        &self,
+        palette: &Palette,
+    ) -> Div {
+        let text = div().min_w_0();
+        let Some(title) = self.title.clone() else {
+            return text.child(self.message.clone());
+        };
+        let detail = div()
+            .text_color(palette.muted_foreground())
+            .child(self.message.clone());
+        text.flex()
+            .flex_col()
+            .gap(px(TITLE_GAP))
+            .child(div().font_weight(FontWeight::MEDIUM).child(title))
+            .child(detail)
+    }
+
     fn frame(
         &self,
         theme: &Theme,
@@ -174,7 +205,7 @@ impl RenderOnce for Toast {
             .min_w_0()
             .when(closable, |body| body.pr(px(CLOSE_CLEARANCE)))
             .child(self.glyph(theme.palette(Surface::Window)))
-            .child(div().min_w_0().child(self.message.clone()));
+            .child(self.text(theme.palette(Surface::Window)));
         let close = self
             .on_close
             .clone()
@@ -264,6 +295,18 @@ mod tests {
             gpui::Modifiers::none(),
         );
         assert_eq!(closed.get(), 1);
+    }
+
+    #[gpui::test]
+    fn a_titled_toast_stacks_its_title_over_the_message(cx: &mut TestAppContext) {
+        let plain = measure(cx, |_, _| Toast::new("t", ToastKind::Error, "busy"));
+        let titled = measure(cx, |_, _| {
+            Toast::new("t", ToastKind::Error, "busy").title("Couldn't remove x".into())
+        });
+        assert!(
+            titled.size.height > plain.size.height,
+            "the title takes a line of its own"
+        );
     }
 
     #[gpui::test]

@@ -108,7 +108,11 @@ impl ToastQueue {
         (content, lifetime): (ToastContent, ToastLifetime),
         cx: &mut Context<'_, Self>,
     ) -> ToastId {
-        let ToastContent { kind, message } = content;
+        let ToastContent {
+            kind,
+            title,
+            message,
+        } = content;
         let id = ToastId(self.next);
         self.next += 1;
         let timer = Self::expiry(id, lifetime.timeout(kind), cx);
@@ -118,6 +122,7 @@ impl ToastQueue {
                 id,
                 key,
                 kind,
+                title,
                 message,
                 lifetime,
                 updates: 0,
@@ -148,11 +153,16 @@ impl ToastQueue {
         (content, lifetime): (ToastContent, ToastLifetime),
         cx: &mut Context<'_, Self>,
     ) {
-        let ToastContent { kind, message } = content;
+        let ToastContent {
+            kind,
+            title,
+            message,
+        } = content;
         let Some(entry) = self.entries.iter_mut().find(|entry| entry.id == id) else {
             return;
         };
         entry.kind = kind;
+        entry.title = title;
         entry.message = message;
         entry.lifetime = lifetime;
         entry.updates += 1;
