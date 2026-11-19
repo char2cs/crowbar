@@ -877,6 +877,9 @@ pub struct Window {
     prompt: Option<RenderablePromptHandle>,
     pub(crate) client_inset: Option<Pixels>,
     overlay_of: Option<AnyWindowHandle>,
+    /// Keys typed while this window's focus was on an element no frame had rendered yet and an
+    /// overlay could take it, as when a menu opens: kept for whichever window renders it.
+    keys_for_unrendered_focus: Vec<PlatformInput>,
     overlay_shown: bool,
     input_region: Vec<Bounds<Pixels>>,
     content_region: Vec<Bounds<Pixels>>,
@@ -1275,6 +1278,7 @@ impl Window {
             prompt: None,
             client_inset: None,
             overlay_of,
+            keys_for_unrendered_focus: Vec::new(),
             overlay_shown: false,
             input_region: Vec::new(),
             content_region: Vec::new(),
@@ -1305,6 +1309,9 @@ fn input_region(hitboxes: &[Hitbox]) -> Vec<Bounds<Pixels>> {
 
 /// A fill at least this opaque is shown as is without a compositor.
 const OPAQUE_ALPHA: f32 = 0.999;
+
+/// The most keys a window keeps for a focused element that has not been rendered yet.
+const MAX_HELD_KEYS: usize = 32;
 
 /// The parts of `scene` painted opaque, in logical pixels: opaque solid fills, glyphs, images,
 /// paths, underlines and surfaces, each clipped to its content mask.
@@ -1475,6 +1482,7 @@ impl Window {
         }
 
         self.focus = Some(handle.id);
+        self.keys_for_unrendered_focus.clear();
         self.clear_pending_keystrokes();
         self.refresh();
     }
@@ -2031,6 +2039,15 @@ impl Window {
         mem::swap(&mut self.rendered_frame, &mut self.next_frame);
         self.next_frame.clear();
         self.report_overlay_input(focus_was_rendered, cx);
+        if !self.keys_for_unrendered_focus.is_empty() && !self.rendered_frame.focus_path().is_empty() {
+            let held = mem::take(&mut self.keys_for_unrendered_focus);
+            let window = self.handle;
+            cx.defer(move |cx| {
+                window
+                    .update(cx, |_, window, cx| window.replay(held, cx))
+                    .log_err();
+            });
+        }
         let current_focus_path = self.rendered_frame.focus_path();
         let current_window_active = self.rendered_frame.window_active;
 
@@ -2089,15 +2106,23 @@ impl Window {
         if takes_keys != self.takes_keys {
             self.platform_window.set_takes_keys(takes_keys);
             self.takes_keys = takes_keys;
+            let overlay = self.handle;
             cx.defer(move |cx| {
-                owner
+                let held = owner
                     .update(cx, |_, window, cx| {
                         window
                             .overlay_keys_observers
                             .clone()
                             .retain(&(), |callback| callback(window, cx));
+                        mem::take(&mut window.keys_for_unrendered_focus)
                     })
-                    .log_err();
+                    .log_err()
+                    .unwrap_or_default();
+                if takes_keys && !held.is_empty() {
+                    overlay
+                        .update(cx, |_, window, cx| window.replay(held, cx))
+                        .log_err();
+                }
             });
         }
     }
@@ -3765,7 +3790,7 @@ impl Window {
     /// Dispatch a mouse or keyboard event on the window.
     #[profiling::function]
     pub fn dispatch_event(&mut self, event: PlatformInput, cx: &mut App) -> DispatchEventResult {
-        if self.forward_drag_to_owner(&event, cx) {
+        if self.forward_drag_to_owner(&event, cx) || self.hold_key_for_overlay(&event, cx) {
             return DispatchEventResult::default();
         }
         self.last_input_timestamp.set(Instant::now());
@@ -3860,6 +3885,34 @@ impl Window {
         DispatchEventResult {
             propagate: cx.propagate_event,
             default_prevented: self.default_prevented,
+        }
+    }
+
+    /// Keeps a key typed after the focus moved and before a frame rendered the new focus, when
+    /// an overlay of this window could be the one to render it: a key typed right after a menu
+    /// opens, before the overlay's first frame, reaches the menu. Returns whether it was kept.
+    fn hold_key_for_overlay(&mut self, event: &PlatformInput, cx: &App) -> bool {
+        let is_key = matches!(event, PlatformInput::KeyDown(_) | PlatformInput::KeyUp(_));
+        let unrendered = self.focus.is_some() && self.rendered_frame.focus != self.focus;
+        if !is_key || !unrendered || self.overlay_of.is_some() {
+            return false;
+        }
+        let handle = self.handle;
+        let has_overlay = cx
+            .windows
+            .values()
+            .flatten()
+            .any(|window| window.overlay_of == Some(handle));
+        let room = self.keys_for_unrendered_focus.len() < MAX_HELD_KEYS;
+        if has_overlay && room {
+            self.keys_for_unrendered_focus.push(event.clone());
+        }
+        has_overlay
+    }
+
+    fn replay(&mut self, keys: Vec<PlatformInput>, cx: &mut App) {
+        for key in keys {
+            self.dispatch_event(key, cx);
         }
     }
 

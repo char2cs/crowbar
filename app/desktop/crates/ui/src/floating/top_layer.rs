@@ -338,4 +338,17 @@ mod tests {
         top.run_until_parked();
         assert_eq!(dropped.get(), 1, "the owner holds the drop target");
     }
+
+    #[gpui::test]
+    fn a_key_typed_before_the_top_layer_draws_reaches_the_focused_element(cx: &mut TestAppContext) {
+        let (toggled, mut owner, mut top) = toggled(cx);
+        let key = gpui::Keystroke::parse("a").unwrap_or_else(|error| panic!("{error}"));
+        owner.update(|window, cx| {
+            window.focus(&toggled.focus);
+            window.dispatch_keystroke(key, cx);
+        });
+        owner.run_until_parked();
+        assert!(top.update(|window, _| window.takes_keys()), "opened");
+        assert_eq!(toggled.pressed.get(), 1, "the early key was kept for it");
+    }
 }
