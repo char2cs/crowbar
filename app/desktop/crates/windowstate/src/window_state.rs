@@ -3,8 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::placement::Placement;
 use crate::rect::Rect;
 
-/// The smallest window the shell lays out correctly, in logical pixels (width, height).
-pub const MIN_SIZE: (f32, f32) = (640.0, 480.0);
+pub(crate) const MIN_SIZE: (f32, f32) = (640.0, 480.0);
 
 /// The size of a first-run window, in logical pixels (width, height).
 pub const DEFAULT_SIZE: (f32, f32) = (1280.0, 800.0);
@@ -21,7 +20,7 @@ pub struct WindowState {
 }
 
 impl WindowState {
-    /// Where to open given the connected `displays`. The bounds are grown to [`MIN_SIZE`]; if
+    /// Where to open given the connected `displays`. The bounds are grown to at least 640×480; if
     /// less than a quarter of the window is on any display, it moves onto the first display
     /// (the primary one); with no displays known the remembered bounds are used as they are.
     #[must_use]

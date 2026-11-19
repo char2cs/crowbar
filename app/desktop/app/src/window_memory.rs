@@ -4,7 +4,7 @@ use gpui::{
     App, Bounds, Pixels, SharedString, TitlebarOptions, Window, WindowBounds, WindowOptions, point,
     px, size,
 };
-use windowstate::{DEFAULT_SIZE, MIN_SIZE, Placement, Rect, WindowState, WindowStore};
+use windowstate::{DEFAULT_SIZE, Placement, Rect, WindowState, WindowStore};
 
 pub(crate) const WINDOW_TITLE: &str = "Crowbar";
 
@@ -31,7 +31,6 @@ impl WindowMemory {
         let placement = self.placement(&displays).unwrap_or_else(|| first_run(cx));
         WindowOptions {
             window_bounds: Some(window_bounds(&placement)),
-            window_min_size: Some(size(px(MIN_SIZE.0), px(MIN_SIZE.1))),
             titlebar: Some(titlebar()),
             ..WindowOptions::default()
         }
@@ -163,5 +162,12 @@ mod tests {
         });
         assert_eq!(windowed, WindowBounds::Windowed(BOUNDS));
         assert_eq!(maximized, WindowBounds::Maximized(BOUNDS));
+    }
+
+    #[gpui::test]
+    fn the_window_may_shrink_below_the_sidebar_drawer_breakpoint(cx: &mut gpui::TestAppContext) {
+        let memory = WindowMemory::new(Path::new("/nonexistent/crowbar/window.json"));
+        let least = cx.update(|cx| memory.options(cx).window_min_size);
+        assert_eq!(least, None, "develop's window declares no minimum size");
     }
 }
