@@ -56,6 +56,7 @@ use uuid::Uuid;
 mod prompts;
 
 use crate::util::atomic_incr_if_not_zero;
+use crate::color::BackgroundTag;
 pub use prompts::*;
 
 pub(crate) const DEFAULT_WINDOW_SIZE: Size<Pixels> = size(px(1536.), px(864.));
@@ -875,7 +876,9 @@ pub struct Window {
     prompt: Option<RenderablePromptHandle>,
     pub(crate) client_inset: Option<Pixels>,
     overlay_of: Option<AnyWindowHandle>,
+    overlay_shown: bool,
     input_region: Vec<Bounds<Pixels>>,
+    content_region: Vec<Bounds<Pixels>>,
     takes_keys: bool,
     #[cfg(any(feature = "inspector", debug_assertions))]
     inspector: Option<Entity<Inspector>>,
@@ -1213,7 +1216,10 @@ impl Window {
             platform_window.set_app_id(&app_id);
         }
 
-        platform_window.map_window().unwrap();
+        // An overlay starts hidden; its owner shows it while it has something to float.
+        if overlay_of.is_none() {
+            platform_window.map_window().unwrap();
+        }
 
         Ok(Window {
             handle,
@@ -1267,7 +1273,9 @@ impl Window {
             prompt: None,
             client_inset: None,
             overlay_of,
+            overlay_shown: false,
             input_region: Vec::new(),
+            content_region: Vec::new(),
             takes_keys: false,
             image_cache_stack: Vec::new(),
             #[cfg(any(feature = "inspector", debug_assertions))]
@@ -1285,11 +1293,49 @@ impl Window {
 
 /// The hitboxes of a frame as clipped rectangles, without those another one contains.
 fn input_region(hitboxes: &[Hitbox]) -> Vec<Bounds<Pixels>> {
-    let mut clipped: Vec<Bounds<Pixels>> = hitboxes
-        .iter()
-        .map(|hitbox| hitbox.bounds.intersect(&hitbox.content_mask.bounds))
-        .filter(|bounds| !bounds.is_empty())
-        .collect();
+    uncovered(
+        hitboxes
+            .iter()
+            .map(|hitbox| hitbox.bounds.intersect(&hitbox.content_mask.bounds))
+            .collect(),
+    )
+}
+
+/// A fill at least this opaque is shown as is without a compositor.
+const OPAQUE_ALPHA: f32 = 0.999;
+
+/// The parts of `scene` painted opaque, in logical pixels: opaque solid fills, glyphs, images,
+/// paths, underlines and surfaces, each clipped to its content mask.
+fn content_region(scene: &Scene, scale_factor: f32) -> Vec<Bounds<Pixels>> {
+    let opaque_fills = scene.quads.iter().filter(|quad| {
+        quad.background.tag == BackgroundTag::Solid && quad.background.solid.a >= OPAQUE_ALPHA
+    });
+    let painted = opaque_fills
+        .map(|quad| (quad.bounds, quad.content_mask.bounds))
+        .chain(scene.monochrome_sprites.iter().map(|s| (s.bounds, s.content_mask.bounds)))
+        .chain(scene.polychrome_sprites.iter().map(|s| (s.bounds, s.content_mask.bounds)))
+        .chain(scene.paths.iter().map(|p| (p.bounds, p.content_mask.bounds)))
+        .chain(scene.underlines.iter().map(|u| (u.bounds, u.content_mask.bounds)))
+        .chain(scene.surfaces.iter().map(|s| (s.bounds, s.content_mask.bounds)));
+    let to_logical = |bounds: Bounds<ScaledPixels>| {
+        Bounds::new(
+            point(px(bounds.origin.x.0 / scale_factor), px(bounds.origin.y.0 / scale_factor)),
+            size(
+                px(bounds.size.width.0 / scale_factor),
+                px(bounds.size.height.0 / scale_factor),
+            ),
+        )
+    };
+    uncovered(
+        painted
+            .map(|(bounds, mask)| to_logical(bounds.intersect(&mask)))
+            .collect(),
+    )
+}
+
+/// `rects` without the empty ones and those another one contains, largest first.
+fn uncovered(mut clipped: Vec<Bounds<Pixels>>) -> Vec<Bounds<Pixels>> {
+    clipped.retain(|bounds| !bounds.is_empty());
     let area = |bounds: &Bounds<Pixels>| f32::from(bounds.size.width) * f32::from(bounds.size.height);
     clipped.sort_by(|a, b| area(b).total_cmp(&area(a)));
     let mut region: Vec<Bounds<Pixels>> = Vec::new();
@@ -2029,6 +2075,11 @@ impl Window {
             self.platform_window.set_input_region(&region);
             self.input_region = region;
         }
+        let content = content_region(&self.rendered_frame.scene, self.scale_factor());
+        if content != self.content_region {
+            self.platform_window.set_content_region(&content);
+            self.content_region = content;
+        }
         let takes_keys = !self.rendered_frame.focus_path().is_empty();
         if takes_keys != self.takes_keys {
             self.platform_window.set_takes_keys(takes_keys);
@@ -2065,6 +2116,28 @@ impl Window {
     /// of the last frame. Clicks anywhere else fall through to the owner.
     pub fn input_region(&self) -> &[Bounds<Pixels>] {
         &self.input_region
+    }
+
+    /// For an overlay window: shows it over its owner, or hides it. An overlay starts hidden,
+    /// so an idle one is no window at all on screen.
+    pub fn set_overlay_shown(&mut self, shown: bool) {
+        if self.overlay_of.is_none() || shown == self.overlay_shown {
+            return;
+        }
+        self.overlay_shown = shown;
+        self.platform_window.set_overlay_shown(shown);
+    }
+
+    /// For an overlay window: whether it is shown (see [`Window::set_overlay_shown`]).
+    pub fn is_overlay_shown(&self) -> bool {
+        self.overlay_shown
+    }
+
+    /// For an overlay window: the rectangles of the last frame that paint opaque content, the
+    /// parts a display without a compositor shows. Shadows and translucent fills, such as a
+    /// dialog's scrim, are left out, since only a compositor can blend them.
+    pub fn content_region(&self) -> &[Bounds<Pixels>] {
+        &self.content_region
     }
 
     /// For an overlay window: whether it receives the owner's keyboard input, which it does

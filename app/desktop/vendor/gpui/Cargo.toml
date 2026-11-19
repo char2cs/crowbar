@@ -553,6 +553,7 @@ features = [
     "xkb",
     "randr",
     "shape",
+    "xfixes",
     "xinput",
     "cursor",
     "resource_manager",

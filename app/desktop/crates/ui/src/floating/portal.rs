@@ -180,6 +180,25 @@ mod tests {
     }
 
     #[gpui::test]
+    fn the_top_layer_is_shown_only_while_a_portal_floats_something(cx: &mut TestAppContext) {
+        let shown = Rc::new(std::cell::Cell::new(false));
+        let showing = Rc::clone(&shown);
+        let (mut owner, mut top) = open_floating(cx, move |_, _| {
+            let portal = showing.get().then(|| Portal::here("p", |_, _| floated()));
+            div().children(portal)
+        });
+        assert!(!top.update(|window, _| window.is_overlay_shown()), "idle: hidden");
+        shown.set(true);
+        owner.update(|window, _| window.refresh());
+        settle(&mut owner);
+        assert!(top.update(|window, _| window.is_overlay_shown()), "floating: shown");
+        shown.set(false);
+        owner.update(|window, _| window.refresh());
+        settle(&mut owner);
+        assert!(!top.update(|window, _| window.is_overlay_shown()), "idle again: hidden");
+    }
+
+    #[gpui::test]
     fn without_a_top_layer_the_window_paints_the_portal_itself(cx: &mut TestAppContext) {
         let cx = crate::test_support::probe::open(cx, |_, _| {
             trigger(Portal::here("p", |_, _| floated()))

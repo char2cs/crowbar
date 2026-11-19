@@ -468,4 +468,25 @@ mod tests {
         top.simulate_keystrokes("a");
         assert_eq!(typed.get(), 1);
     }
+
+    #[gpui::test]
+    fn without_a_compositor_only_the_card_shows_not_the_scrim(cx: &mut TestAppContext) {
+        cx.update(|cx| cx.set_global(Motion::reduced()));
+        let (mut owner, mut top) = open_floating(cx, |_, _| {
+            crate::floating::Portal::window("dialog", |_, _| Dialog::new("d").title("Rename"))
+        });
+        cx.update(|cx| cx.set_global(Motion::reduced()));
+        owner.update(|window, _| window.refresh());
+        owner.run_until_parked();
+        let card = top.debug_bounds("ui-dialog").unwrap_or_default();
+        let content = top.update(|window, _| window.content_region().to_vec());
+        assert!(content.contains(&card), "the card: {content:?}");
+        let inside = |r: &gpui::Bounds<gpui::Pixels>| {
+            r.left() >= card.left()
+                && r.top() >= card.top()
+                && r.right() <= card.right()
+                && r.bottom() <= card.bottom()
+        };
+        assert!(content.iter().all(inside), "nothing past the card: {content:?}");
+    }
 }

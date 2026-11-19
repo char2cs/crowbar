@@ -18,6 +18,47 @@ pub(crate) struct OverlayLink {
     pub(crate) owner_bounds: Bounds<Pixels>,
     pub(crate) takes_keys: bool,
     pub(crate) region: Vec<xproto::Rectangle>,
+    /// What the last frame painted opaque, in device pixels.
+    pub(crate) content: Vec<xproto::Rectangle>,
+    /// Whether a compositor blends the overlay over its owner.
+    pub(crate) composited: bool,
+}
+
+/// A rectangle just outside the window, set in place of an empty shape. Reparenting window
+/// managers such as openbox copy a client's shape onto their frame only while it has rectangles
+/// and take an empty one for no shape, which leaves the whole frame painted and clickable.
+pub(crate) const NOTHING: xproto::Rectangle = xproto::Rectangle {
+    x: -1,
+    y: -1,
+    width: 1,
+    height: 1,
+};
+
+/// `_MOTIF_WM_HINTS` of an overlay: the decorations field is set and asks for none, whether or
+/// not a compositor runs, so no window manager draws a title bar or border around it.
+pub(crate) const UNDECORATED: [u32; 5] = [MWM_HINTS_DECORATIONS, 0, 0, 0, 0];
+const MWM_HINTS_DECORATIONS: u32 = 1 << 1;
+
+/// The rectangles of a shape covering `rects`, or [`NOTHING`] when there are none.
+pub(crate) fn shape_rects(rects: &[xproto::Rectangle]) -> Vec<xproto::Rectangle> {
+    if rects.is_empty() {
+        return vec![NOTHING];
+    }
+    rects.to_vec()
+}
+
+/// The bounding shape of an overlay: none while a compositor blends its transparent pixels;
+/// without one they would show black, so the window is cut down to what it painted opaque.
+pub(crate) fn bounding(
+    content: &[xproto::Rectangle],
+    composited: bool,
+) -> Option<Vec<xproto::Rectangle>> {
+    (!composited).then(|| shape_rects(content))
+}
+
+/// The selection a compositing manager owns on screen `screen` (EWMH `_NET_WM_CM_Sn`).
+pub(crate) fn compositor_selection(screen: usize) -> String {
+    format!("_NET_WM_CM_S{screen}")
 }
 
 /// An overlay window's rectangle in root coordinates and the owner's origin inside it, in
@@ -218,6 +259,8 @@ mod tests {
             owner_bounds: Bounds::default(),
             takes_keys,
             region: Vec::new(),
+            content: Vec::new(),
+            composited: true,
         }
     }
 
@@ -300,5 +343,36 @@ mod tests {
         assert!(!holds_pointer(&held, point(10, 20)), "root coordinates are offset");
         held.region.clear();
         assert!(!holds_pointer(&held, point(110, 70)), "an empty region takes nothing");
+    }
+
+    fn rectangle(x: i16, y: i16, width: u16, height: u16) -> xproto::Rectangle {
+        xproto::Rectangle { x, y, width, height }
+    }
+
+    #[test]
+    fn an_empty_shape_is_a_rectangle_outside_the_window() {
+        let menu = rectangle(10, 20, 100, 50);
+        assert_eq!(shape_rects(&[]), vec![NOTHING]);
+        assert_eq!(shape_rects(&[menu]), vec![menu]);
+        assert!(NOTHING.x < 0 && NOTHING.y < 0, "outside the window");
+    }
+
+    #[test]
+    fn only_an_uncomposited_overlay_is_cut_to_its_content() {
+        let menu = rectangle(10, 20, 100, 50);
+        assert_eq!(bounding(&[menu], true), None);
+        assert_eq!(bounding(&[menu], false), Some(vec![menu]));
+        assert_eq!(bounding(&[], false), Some(vec![NOTHING]));
+    }
+
+    #[test]
+    fn an_overlay_asks_for_no_decorations() {
+        assert_eq!(UNDECORATED[0] & MWM_HINTS_DECORATIONS, MWM_HINTS_DECORATIONS, "flags");
+        assert_eq!(UNDECORATED[2], 0, "decorations: none");
+    }
+
+    #[test]
+    fn the_compositor_selection_is_named_after_the_screen_number() {
+        assert_eq!(compositor_selection(0), "_NET_WM_CM_S0");
     }
 }

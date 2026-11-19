@@ -555,6 +555,8 @@ pub(crate) trait PlatformWindow: HasWindowHandle + HasDisplayHandle {
         None
     }
     fn set_input_region(&self, _region: &[Bounds<Pixels>]) {}
+    fn set_content_region(&self, _region: &[Bounds<Pixels>]) {}
+    fn set_overlay_shown(&self, _shown: bool) {}
     fn set_takes_keys(&self, _takes_keys: bool) {}
 
     #[cfg(any(test, feature = "test-support"))]

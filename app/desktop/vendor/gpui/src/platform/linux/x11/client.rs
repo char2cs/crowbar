@@ -31,7 +31,8 @@ use x11rb::{
         AtomEnum, ChangeWindowAttributesAux, ClientMessageData, ClientMessageEvent,
         ConnectionExt as _, EventMask, Visibility,
     },
-    protocol::{Event, randr, render, xinput, xkb, xproto},
+    protocol::xfixes::ConnectionExt as _,
+    protocol::{Event, randr, render, xfixes, xinput, xkb, xproto},
     resource_manager::Database,
     wrapper::ConnectionExt as _,
     xcb_ffi::XCBConnection,
@@ -186,6 +187,9 @@ pub struct X11ClientState {
     pub(crate) xcb_connection: Rc<XCBConnection>,
     xkb_device_id: i32,
     client_side_decorations_supported: bool,
+    /// `_NET_WM_CM_Sn` of the screen, owned by its compositing manager while one runs.
+    compositor_selection: xproto::Atom,
+    composited: bool,
     pub(crate) x_root_index: usize,
     pub(crate) _resource_database: Database,
     pub(crate) atoms: XcbAtoms,
@@ -332,6 +336,7 @@ impl X11Client {
         xcb_connection.prefetch_extension_information(randr::X11_EXTENSION_NAME)?;
         xcb_connection.prefetch_extension_information(render::X11_EXTENSION_NAME)?;
         xcb_connection.prefetch_extension_information(xinput::X11_EXTENSION_NAME)?;
+        xcb_connection.prefetch_extension_information(xfixes::X11_EXTENSION_NAME)?;
 
         // Announce to X server that XInput up to 2.1 is supported. To increase this to 2.2 and
         // beyond, support for touch events would need to be added.
@@ -352,6 +357,8 @@ impl X11Client {
             .reply()
             .context("Failed to get XCB atoms")?;
 
+        let (compositor_selection, composited) =
+            watch_compositor(&xcb_connection, x_root_index)?;
         let root = xcb_connection.setup().roots[0].root;
         let compositor_present = check_compositor_present(&xcb_connection, root);
         let gtk_frame_extents_supported =
@@ -490,6 +497,8 @@ impl X11Client {
             xcb_connection,
             xkb_device_id,
             client_side_decorations_supported,
+            compositor_selection,
+            composited,
             x_root_index,
             _resource_database: resource_database,
             atoms,
@@ -808,6 +817,27 @@ impl X11Client {
         owner.set_hovered(false);
     }
 
+    /// A compositing manager started or stopped: overlays are cut down to their content while
+    /// none runs.
+    fn follow_compositor(&self, selection: xproto::Atom) {
+        let mut state = self.0.borrow_mut();
+        if selection != state.compositor_selection {
+            return;
+        }
+        let composited = selection_owned(&state.xcb_connection, selection);
+        state.composited = composited;
+        let overlays: Vec<X11WindowStatePtr> = state
+            .windows
+            .values()
+            .filter(|window_ref| window_ref.window.state.borrow().overlay.is_some())
+            .map(|window_ref| window_ref.window.clone())
+            .collect();
+        drop(state);
+        for overlay in overlays {
+            overlay.set_composited(composited);
+        }
+    }
+
     fn follow_owner(&self, owner: xproto::Window) {
         let overlays = self.overlays_of(owner);
         if overlays.is_empty() {
@@ -936,6 +966,9 @@ impl X11Client {
                         .handle_input(PlatformInput::FileDrop(FileDropEvent::Submit { position }));
                     self.0.borrow_mut().xdnd_state = Xdnd::default();
                 }
+            }
+            Event::XfixesSelectionNotify(event) => {
+                self.follow_compositor(event.selection);
             }
             Event::SelectionNotify(event) => {
                 let window = self.get_window(event.requestor)?;
@@ -1797,6 +1830,8 @@ impl X11ClientState {
             owner_bounds: placement.owner_bounds(area.size, self.scale_factor),
             takes_keys: false,
             region: Vec::new(),
+            content: Vec::new(),
+            composited: self.composited,
         };
         Some((link, placement.window))
     }
@@ -2031,6 +2066,49 @@ pub fn mode_refresh_rate(mode: &randr::ModeInfo) -> Duration {
 
 fn fp3232_to_f32(value: xinput::Fp3232) -> f32 {
     value.integral as f32 + value.frac as f32 / u32::MAX as f32
+}
+
+/// The compositor selection of screen `screen` and whether it is owned now. XFixes reports every
+/// later change of its owner as an `XfixesSelectionNotify` on the root window.
+fn watch_compositor(
+    xcb_connection: &XCBConnection,
+    screen: usize,
+) -> anyhow::Result<(xproto::Atom, bool)> {
+    let name = overlay::compositor_selection(screen);
+    let selection = get_reply(
+        || format!("Failed to intern {name}"),
+        xcb_connection.intern_atom(false, name.as_bytes()),
+    )?
+    .atom;
+    get_reply(
+        || "XFixes QueryVersion failed",
+        xcb_connection.xfixes_query_version(XFIXES_MAJOR_VERSION, 0),
+    )?;
+    let root = xcb_connection.setup().roots[screen].root;
+    check_reply(
+        || "XFixes SelectSelectionInput for the compositor failed",
+        xcb_connection.xfixes_select_selection_input(
+            root,
+            selection,
+            xfixes::SelectionEventMask::SET_SELECTION_OWNER
+                | xfixes::SelectionEventMask::SELECTION_WINDOW_DESTROY
+                | xfixes::SelectionEventMask::SELECTION_CLIENT_CLOSE,
+        ),
+    )?;
+    Ok((selection, selection_owned(xcb_connection, selection)))
+}
+
+/// XFixes 1 is the first version with selection events.
+const XFIXES_MAJOR_VERSION: u32 = 1;
+
+fn selection_owned(xcb_connection: &XCBConnection, selection: xproto::Atom) -> bool {
+    get_reply(
+        || "Failed to get the compositor selection owner",
+        xcb_connection.get_selection_owner(selection),
+    )
+    .map(|reply| reply.owner != x11rb::NONE)
+    .log_err()
+    .unwrap_or(false)
 }
 
 fn check_compositor_present(xcb_connection: &XCBConnection, root: u32) -> bool {

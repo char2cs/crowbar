@@ -614,7 +614,7 @@ impl X11WindowState {
             )?;
 
             if let Some(link) = overlay.as_ref() {
-                set_overlay_properties(xcb, x_window, atoms, link.owner, bounds)?;
+                set_overlay_properties(xcb, x_window, atoms, link, bounds)?;
             }
 
             get_reply(
@@ -751,9 +751,24 @@ fn set_overlay_properties(
     xcb: &Rc<XCBConnection>,
     x_window: xproto::Window,
     atoms: &XcbAtoms,
-    owner: xproto::Window,
+    link: &OverlayLink,
     bounds: Bounds<DevicePixels>,
 ) -> anyhow::Result<()> {
+    let owner = link.owner;
+    if let Some(rects) = overlay::bounding(&link.content, link.composited) {
+        check_reply(
+            || "X11 cutting an overlay down to nothing failed.",
+            xcb.shape_rectangles(
+                shape::SO::SET,
+                shape::SK::BOUNDING,
+                xproto::ClipOrdering::UNSORTED,
+                x_window,
+                0,
+                0,
+                &rects,
+            ),
+        )?;
+    }
     check_reply(
         || "X11 setting WM_TRANSIENT_FOR for an overlay failed.",
         xcb.change_property32(
@@ -796,6 +811,8 @@ fn set_overlay_properties(
         width,
         height,
     ));
+    // A window manager that frames the overlay keeps the overlay itself, not the frame, here.
+    size_hints.win_gravity = Some(xproto::Gravity::STATIC);
     check_reply(
         || "X11 setting WM_NORMAL_HINTS for an overlay failed.",
         size_hints.set_normal_hints(xcb, x_window),
@@ -809,7 +826,7 @@ fn set_overlay_properties(
             x_window,
             0,
             0,
-            &[],
+            &[overlay::NOTHING],
         ),
     )?;
     check_reply(
@@ -1235,6 +1252,46 @@ impl X11WindowStatePtr {
     /// Moves X focus to `owner` when it sits in a child of the owner, such as a web view, so
     /// the owner's key events reach an overlay that starts taking keys. Focus held by another
     /// application stays where it is.
+    /// Cuts the overlay down to its content while no compositor runs, and lifts the cut otherwise.
+    fn apply_bounding(&self) {
+        let state = self.state.borrow();
+        let Some(link) = state.overlay.as_ref() else {
+            return;
+        };
+        let request = match overlay::bounding(&link.content, link.composited) {
+            Some(rects) => self.xcb.shape_rectangles(
+                shape::SO::SET,
+                shape::SK::BOUNDING,
+                xproto::ClipOrdering::UNSORTED,
+                self.x_window,
+                0,
+                0,
+                &rects,
+            ),
+            None => self.xcb.shape_mask(
+                shape::SO::SET,
+                shape::SK::BOUNDING,
+                self.x_window,
+                0,
+                0,
+                x11rb::NONE,
+            ),
+        };
+        check_reply(|| "X11 setting the bounding shape of an overlay failed.", request).log_err();
+        xcb_flush(&self.xcb);
+    }
+
+    /// A compositing manager started (`true`) or stopped.
+    pub(crate) fn set_composited(&self, composited: bool) {
+        let mut state = self.state.borrow_mut();
+        let Some(link) = state.overlay.as_mut() else {
+            return;
+        };
+        link.composited = composited;
+        drop(state);
+        self.apply_bounding();
+    }
+
     fn pull_keyboard_to(&self, owner: xproto::Window) {
         let Some(focus) = self
             .xcb
@@ -1777,8 +1834,10 @@ impl PlatformWindow for X11Window {
     fn request_decorations(&self, mut decorations: crate::WindowDecorations) {
         let mut state = self.0.state.borrow_mut();
 
+        let is_overlay = state.overlay.is_some();
         if matches!(decorations, crate::WindowDecorations::Client)
             && !state.client_side_decorations_supported
+            && !is_overlay
         {
             log::info!(
                 "x11: no compositor present, falling back to server-side window decorations"
@@ -1788,6 +1847,7 @@ impl PlatformWindow for X11Window {
 
         // https://github.com/rust-windowing/winit/blob/master/src/platform_impl/linux/x11/util/hint.rs#L53-L87
         let hints_data: [u32; 5] = match decorations {
+            _ if is_overlay => overlay::UNDECORATED,
             WindowDecorations::Server => [1 << 1, 0, 1, 0, 0],
             WindowDecorations::Client => [1 << 1, 0, 0, 0, 0],
         };
@@ -1868,11 +1928,41 @@ impl PlatformWindow for X11Window {
                 self.0.x_window,
                 0,
                 0,
-                &link.region,
+                &overlay::shape_rects(&link.region),
             ),
         )
         .log_err();
         xcb_flush(&self.0.xcb);
+    }
+
+    fn set_content_region(&self, region: &[Bounds<Pixels>]) {
+        let mut state = self.0.state.borrow_mut();
+        let rects = overlay::device_rects(region, state.scale_factor);
+        let Some(link) = state.overlay.as_mut() else {
+            return;
+        };
+        link.content = rects;
+        drop(state);
+        self.0.apply_bounding();
+    }
+
+    fn set_overlay_shown(&self, shown: bool) {
+        let state = self.0.state.borrow();
+        if state.overlay.is_none() {
+            return;
+        }
+        drop(state);
+        if shown {
+            check_reply(|| "X11 mapping an overlay failed.", self.0.xcb.map_window(self.0.x_window))
+                .log_err();
+            return xcb_flush(&self.0.xcb);
+        }
+        check_reply(|| "X11 unmapping an overlay failed.", self.0.xcb.unmap_window(self.0.x_window))
+            .log_err();
+        if let Some(link) = self.0.state.borrow_mut().overlay.as_mut() {
+            link.content.clear();
+        }
+        self.0.apply_bounding();
     }
 
     fn set_takes_keys(&self, takes_keys: bool) {

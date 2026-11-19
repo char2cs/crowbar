@@ -59,7 +59,8 @@ impl Layers {
         let Some(window) = self.window.get().copied() else {
             return;
         };
-        cx.defer(move |cx| redraw_now(window, focus.as_ref(), cx));
+        let floating = !self.shown.borrow().is_empty();
+        cx.defer(move |cx| redraw_now(window, (focus.as_ref(), floating), cx));
     }
 
     pub(crate) fn take_keys(
@@ -81,18 +82,19 @@ impl Layers {
 
 fn redraw_now(
     window: AnyWindowHandle,
-    focus: Option<&FocusHandle>,
+    shown: (Option<&FocusHandle>, bool),
     cx: &mut App,
 ) {
-    if let Err(error) = window.update(cx, |_, window, _| show(focus, window)) {
+    if let Err(error) = window.update(cx, |_, window, _| show(shown, window)) {
         tracing::debug!(%error, "the top layer closed before it could redraw");
     }
 }
 
 fn show(
-    focus: Option<&FocusHandle>,
+    (focus, floating): (Option<&FocusHandle>, bool),
     window: &mut Window,
 ) {
+    window.set_overlay_shown(floating);
     if let Some(focus) = focus {
         window.focus(focus);
     }

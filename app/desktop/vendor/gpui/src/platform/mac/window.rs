@@ -1522,6 +1522,19 @@ impl PlatformWindow for MacWindow {
         }
     }
 
+    // PLATFORM: hiding a child window with orderOut detaches it from its owner, so a hidden
+    // overlay stays attached and turns fully transparent instead.
+    fn set_overlay_shown(&self, shown: bool) {
+        let lock = self.0.lock();
+        if lock.owner.is_none() {
+            return;
+        }
+        let alpha: f64 = if shown { 1.0 } else { 0.0 };
+        unsafe {
+            let _: () = msg_send![lock.native_window, setAlphaValue: alpha];
+        }
+    }
+
     fn set_takes_keys(&self, takes_keys: bool) {
         let lock = self.0.lock();
         let Some(owner) = lock.owner else {
