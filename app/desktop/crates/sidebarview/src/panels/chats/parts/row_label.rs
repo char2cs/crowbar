@@ -111,7 +111,7 @@ fn sublabel(
         .relative()
         .top(px(SUBLABEL_NUDGE))
         .text_color(palette.muted_foreground())
-        .child(branch);
+        .child(div().min_w_0().truncate().child(branch));
     counts
         .filter(|(count, ..)| *count > 0)
         .fold(line, |line, (count, sign, color)| {
@@ -127,7 +127,7 @@ mod tests {
     use super::*;
     use sidebar::{Workspace, WorkspaceStatus};
 
-    use crate::test_support::{chat, measure};
+    use crate::test_support::{chat, measure, mount};
 
     fn height(
         cx: &mut TestAppContext,
@@ -152,5 +152,57 @@ mod tests {
             held_by_path: None,
         });
         assert!(height(cx, two) > plain);
+    }
+
+    #[gpui::test]
+    fn a_title_too_long_for_its_row_ends_in_an_ellipsis(cx: &mut TestAppContext) {
+        let laid = std::rc::Rc::new(std::cell::RefCell::new(gpui::TextLayout::default()));
+        let seen = std::rc::Rc::clone(&laid);
+        mount(cx, move |_, _| {
+            let text = gpui::StyledText::new("Perf fixture: a chat title far too long for the row");
+            seen.replace(text.layout().clone());
+            let title = div().truncate().text_size(px(TITLE_SIZE)).child(text);
+            div()
+                .flex()
+                .w(px(120.0))
+                .child(div().flex().flex_col().flex_1().min_w_0().child(title))
+        });
+        let text = laid.borrow().text();
+        assert!(text.ends_with('…'), "{text}");
+    }
+
+    #[gpui::test]
+    fn a_branch_line_too_long_for_its_row_ends_in_an_ellipsis(cx: &mut TestAppContext) {
+        let laid = std::rc::Rc::new(std::cell::RefCell::new(gpui::TextLayout::default()));
+        let seen = std::rc::Rc::clone(&laid);
+        mount(cx, move |_, _| {
+            let text = gpui::StyledText::new("feature/pricing-rounding-and-more");
+            seen.replace(text.layout().clone());
+            let line = div()
+                .flex()
+                .gap(SPACE_XS)
+                .truncate()
+                .text_size(px(SUBLABEL_SIZE))
+                .child(div().min_w_0().truncate().child(text));
+            let line = line.relative().top(px(SUBLABEL_NUDGE)).font_family("Lilex");
+            let column = div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w_0()
+                .justify_center()
+                .overflow_hidden()
+                .child(div().truncate().child("Untitled chat"))
+                .child(line);
+            div()
+                .flex()
+                .items_center()
+                .w(px(140.0))
+                .child(div().flex_none().size(px(16.0)))
+                .child(column)
+                .child(div().flex_none().w(px(50.0)))
+        });
+        let text = laid.borrow().text();
+        assert!(text.ends_with('…'), "{text}");
     }
 }
