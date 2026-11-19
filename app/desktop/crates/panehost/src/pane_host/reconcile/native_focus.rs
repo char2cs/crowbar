@@ -19,6 +19,16 @@ impl PaneHost {
         }
     }
 
+    pub(crate) fn settle_keyboard(
+        &self,
+        held_by: Keyboard,
+    ) -> Result<()> {
+        if held_by == self.keyboard {
+            return self.hand_focus_to_native();
+        }
+        self.apply_keyboard()
+    }
+
     fn keyboard_page(&self) -> Option<&Slot> {
         let page_has_keys = self.keyboard == Keyboard::Pane && self.overlay == Overlay::Inactive;
         if !page_has_keys {
@@ -34,7 +44,7 @@ impl PaneHost {
         runtime.slot.and_then(|id| self.pool.get(id))
     }
 
-    pub(crate) fn hand_focus_to_native(&self) -> Result<()> {
+    fn hand_focus_to_native(&self) -> Result<()> {
         let Some(focused) = self.focused.as_ref().and_then(|pane| self.panes.get(pane)) else {
             return Ok(());
         };
@@ -94,6 +104,28 @@ mod tests {
                 .filter_map(focus_call)
                 .collect();
             assert_eq!(focus_calls, Vec::from_iter(wanted), "{name}");
+        }
+    }
+
+    #[test]
+    fn the_active_page_takes_the_keyboard_back_when_the_shell_hands_it_over() {
+        let cases = [
+            ("handed from the shell", Keyboard::Shell, vec!["focus"]),
+            ("already the page's", Keyboard::Pane, vec![]),
+        ];
+        for (name, held_by, wanted) in cases {
+            let mut f = fixture();
+            let panes = [instance("p1", "core.chat")];
+            f.sync(&panes, &["p1"], Some("p1"));
+            register(&mut f, "p1", "core.chat");
+            f.sync_with(&panes, &["p1"], (Some("p1"), held_by));
+            let before = f.mock.calls().len();
+            f.sync_with(&panes, &["p1"], (Some("p1"), Keyboard::Pane));
+            let focus_calls: Vec<&str> = f.mock.calls()[before..]
+                .iter()
+                .filter_map(focus_call)
+                .collect();
+            assert_eq!(focus_calls, wanted, "{name}");
         }
     }
 

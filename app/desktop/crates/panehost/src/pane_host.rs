@@ -182,9 +182,9 @@ impl PaneHost {
             failures.note(self.show(snapshot.parent, visible, snapshot.layout));
         }
         self.focused.clone_from(&snapshot.focused);
-        self.keyboard = snapshot.keyboard;
+        let held_by = std::mem::replace(&mut self.keyboard, snapshot.keyboard);
         failures.note(self.route_activation(snapshot.layout));
-        failures.note(self.hand_focus_to_native());
+        failures.note(self.settle_keyboard(held_by));
         SyncReport {
             events,
             failure: failures.into_first(),
