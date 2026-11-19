@@ -2,7 +2,9 @@
 
 use ui::{IconName, IconWeight};
 
-use sidebar::{Activity, Expansion, Lock, Row, RowKind, WorkspaceStatus, Worktree};
+use sidebar::{Activity, Expansion, Row, RowKind};
+
+use crate::panels::chats::parts::chat_glyph::ChatGlyph;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RowGlyph {
@@ -25,7 +27,8 @@ impl RowGlyph {
         if row.kind == RowKind::Folder {
             return Self::folder(expansion);
         }
-        Self::branch_or_chat(row)
+        let glyph = ChatGlyph::of(row);
+        Self::Icon(glyph.icon, glyph.weight)
     }
 
     fn folder(expansion: Expansion) -> Self {
@@ -35,41 +38,12 @@ impl RowGlyph {
         };
         Self::Icon(name, IconWeight::Duotone)
     }
-
-    fn branch_or_chat(row: &Row) -> Self {
-        if let Some(workspace) = &row.workspace {
-            let (name, weight) = status_glyph(workspace.status);
-            return Self::Icon(name, weight);
-        }
-        if row.lock == Lock::Locked {
-            return Self::Icon(IconName::Lock, IconWeight::Fill);
-        }
-        if row.worktree == Worktree::Owned {
-            return Self::Icon(IconName::GitBranch, IconWeight::Fill);
-        }
-        Self::Icon(IconName::ChatsCircle, IconWeight::Regular)
-    }
-}
-
-pub(crate) fn status_glyph(status: WorkspaceStatus) -> (IconName, IconWeight) {
-    match status {
-        WorkspaceStatus::Placeholder | WorkspaceStatus::PrConflicts => {
-            (IconName::Warning, IconWeight::Fill)
-        },
-        WorkspaceStatus::Locked => (IconName::Lock, IconWeight::Fill),
-        WorkspaceStatus::New => (IconName::GitBranch, IconWeight::Fill),
-        WorkspaceStatus::Deleted | WorkspaceStatus::PrClosed => {
-            (IconName::GitFork, IconWeight::Fill)
-        },
-        WorkspaceStatus::PrOpen => (IconName::GitPullRequest, IconWeight::Fill),
-        WorkspaceStatus::PrMerged => (IconName::GitMerge, IconWeight::Fill),
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sidebar::Workspace;
+    use sidebar::{Lock, Workspace, WorkspaceStatus, Worktree};
 
     fn working_repo() -> Row {
         let mut row = Row::new("r", RowKind::RepoHeader, 0, "demo");
@@ -160,27 +134,6 @@ mod tests {
     fn the_glyph_follows_activity_kind_status_lock_and_worktree() {
         for (name, build, expansion, expected) in CASES {
             assert_eq!(RowGlyph::of(&build(), *expansion), *expected, "{name}");
-        }
-    }
-
-    #[test]
-    fn every_status_has_the_spec_glyph() {
-        let cases = [
-            (WorkspaceStatus::Placeholder, IconName::Warning),
-            (WorkspaceStatus::Locked, IconName::Lock),
-            (WorkspaceStatus::New, IconName::GitBranch),
-            (WorkspaceStatus::PrConflicts, IconName::Warning),
-            (WorkspaceStatus::Deleted, IconName::GitFork),
-            (WorkspaceStatus::PrClosed, IconName::GitFork),
-            (WorkspaceStatus::PrOpen, IconName::GitPullRequest),
-            (WorkspaceStatus::PrMerged, IconName::GitMerge),
-        ];
-        for (status, icon) in cases {
-            assert_eq!(status_glyph(status), (icon, IconWeight::Fill), "{status:?}");
-            assert!(
-                ui::Icon::path(icon, IconWeight::Fill).is_some(),
-                "{icon:?} fill is embedded"
-            );
         }
     }
 }

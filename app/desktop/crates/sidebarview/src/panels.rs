@@ -9,6 +9,7 @@ mod message;
 mod scrolls;
 
 pub(crate) use changes::MergeDraft;
+pub use chats::ChatGlyph;
 pub(crate) use chats::{DragState, RowBounds, foot_menu, row_menu};
 pub(crate) use create_space::SpaceDraft;
 pub(crate) use edit::Field;

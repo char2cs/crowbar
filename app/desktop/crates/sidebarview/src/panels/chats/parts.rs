@@ -1,5 +1,6 @@
 //! The parts a chats row is built from: clusters, verbs, glyphs, labels, the shell, focus, input, reports and bounds.
 
+mod chat_glyph;
 mod cluster_spec;
 mod row_bounds;
 mod row_cluster;
@@ -11,6 +12,7 @@ mod row_report;
 mod row_shell;
 mod row_verb;
 
+pub use chat_glyph::ChatGlyph;
 pub(crate) use cluster_spec::ClusterSpec;
 pub(crate) use row_bounds::RowBounds;
 pub(crate) use row_cluster::cluster;
