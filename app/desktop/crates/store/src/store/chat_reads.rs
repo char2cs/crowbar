@@ -21,13 +21,18 @@ impl Store {
             .read(|state| crate::live::chat_project::of(state, chat))
     }
 
-    /// Whether `chat` has a turn running; `false` when it is not loaded.
-    pub fn chat_working(
+    /// `chat` as a view tab draws it: its title, or "Untitled chat" provisionally, and the
+    /// branch status of the workspace it owns; `None` when it is not loaded.
+    pub fn chat_row(
         &self,
         chat: &str,
-    ) -> bool {
-        self.hub
-            .read(|state| crate::live::chat_working::of(state, chat))
+    ) -> Option<sidebar::Row> {
+        self.hub.read(|state| {
+            state
+                .hosts
+                .iter()
+                .find_map(|slot| crate::rows::chat_member::of(&slot.store, chat))
+        })
     }
 }
 
@@ -61,7 +66,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_loaded_chat_reads_its_project_and_whether_it_works() {
+    async fn a_loaded_chat_reads_its_project_and_its_tab_row() {
         let data = local_store();
         let frame = Frame::decode(
             r#"{"t":"entity","scope":"projects","kind":"chat","id":"c","v":1,"data":{"id":"c","projectId":"p","working":true}}"#,
@@ -69,8 +74,12 @@ mod tests {
         .unwrap();
         data.hub.edit(|state| state.apply("local", frame));
         assert_eq!(data.chat_project("c").as_deref(), Some("p"));
-        assert!(data.chat_working("c"), "its turn runs");
-        assert!(!data.chat_working("gone"), "an unknown chat is idle");
+        let row = data.chat_row("c").unwrap();
+        assert_eq!(row.activity, sidebar::Activity::Working, "its turn runs");
+        assert!(
+            data.chat_row("gone").is_none(),
+            "an unknown chat has no row"
+        );
         assert!(data.chat_terminal("gone").is_none());
     }
 }

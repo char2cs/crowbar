@@ -1,58 +1,8 @@
 use gpui::{Context, Window};
 use panehost::IpcMessage;
-use protocol::PaneId;
-use viewtabs::{MemberKind, MemberView};
 
 use super::ShellView;
 use crate::shell_request::ShellRequest;
-
-use crate::chat_label::NEW_CHAT;
-
-const TERMINAL_LABEL: &str = "Terminal";
-const THREAD_ID: &str = "threadId";
-
-pub(super) fn member(
-    (titles, layout): (&crate::titles::Titles, &layout::Layout),
-    working: &dyn Fn(&str) -> bool,
-    pane: &PaneId,
-) -> MemberView {
-    let title = titles.get(pane);
-    let kind = kind_of(layout, pane);
-    MemberView {
-        pane: pane.clone(),
-        label: title
-            .as_ref()
-            .map_or_else(|| untitled(kind).into(), |title| title.to_string().into()),
-        provisional: title.is_none(),
-        working: thread_of(layout, pane).is_some_and(working),
-        kind,
-    }
-}
-
-fn thread_of<'a>(
-    layout: &'a layout::Layout,
-    pane: &PaneId,
-) -> Option<&'a str> {
-    layout.pane(pane)?.params.get(THREAD_ID)
-}
-
-fn kind_of(
-    layout: &layout::Layout,
-    pane: &PaneId,
-) -> MemberKind {
-    match layout.pane(pane).map(|instance| instance.type_id.as_str()) {
-        Some(crate::core_panes::TERMINAL) => MemberKind::Terminal,
-        Some(crate::core_panes::NEW_TAB) => MemberKind::NewTab,
-        _ => MemberKind::Chat,
-    }
-}
-
-fn untitled(kind: MemberKind) -> &'static str {
-    if kind == MemberKind::Terminal {
-        return TERMINAL_LABEL;
-    }
-    NEW_CHAT
-}
 
 impl ShellView {
     pub(super) fn spawn_tasks(
@@ -212,90 +162,50 @@ async fn stepped<V: 'static, T>(
 
 #[cfg(test)]
 mod tests {
+    use gpui::{IntoElement, Render, TestAppContext};
+
     use super::*;
-    use crate::core_panes::{CHAT, NEW_TAB, TERMINAL};
-    use crate::titles::Titles;
 
-    type Case = (
-        &'static str,
-        Option<&'static str>,
-        (MemberKind, &'static str, bool),
-    );
-
-    const CASES: [Case; 5] = [
-        (CHAT, Some("Review"), (MemberKind::Chat, "Review", false)),
-        (TERMINAL, Some("zsh"), (MemberKind::Terminal, "zsh", false)),
-        (CHAT, None, (MemberKind::Chat, NEW_CHAT, true)),
-        (TERMINAL, None, (MemberKind::Terminal, "Terminal", true)),
-        (NEW_TAB, None, (MemberKind::NewTab, NEW_CHAT, true)),
-    ];
-
-    fn layout_holding(
-        pane: &PaneId,
-        type_id: &str,
-        params: protocol::Params,
-    ) -> layout::Layout {
-        let mut layout = layout::Layout::default();
-        let tab = layout::TabId(1);
-        layout
-            .apply(layout::Command::AddTab {
-                id: tab,
-                title: "t".into(),
-            })
-            .unwrap();
-        let instance = layout::PaneInstance {
-            pane_id: pane.clone(),
-            type_id: protocol::PaneTypeId::new(type_id).unwrap(),
-            params,
-            state: protocol::PaneState::default(),
-        };
-        layout
-            .apply(layout::Command::OpenPane {
-                tab,
-                instance,
-                placement: None,
-            })
-            .unwrap();
-        layout
+    #[derive(Default)]
+    struct Collector {
+        seen: Vec<u8>,
     }
 
-    fn titled(
-        pane: &PaneId,
-        title: Option<&str>,
-    ) -> Titles {
-        let titles = Titles::default();
-        if let Some(text) = title {
-            titles.set(pane.clone(), protocol::PaneTitle::new(text).unwrap());
-        }
-        titles
-    }
-
-    #[test]
-    fn a_member_carries_its_pane_and_a_title_or_the_kind_default_until_one_arrives() {
-        for (type_id, title, (kind, label, provisional)) in CASES {
-            let pane = PaneId::new("p7").unwrap();
-            let titles = titled(&pane, title);
-            let layout = layout_holding(&pane, type_id, protocol::Params::default());
-            let member = member((&titles, &layout), &|_| true, &pane);
-            assert_eq!(
-                (member.pane, member.label.as_ref(), member.kind),
-                (pane, label, kind),
-                "{type_id} {title:?}"
-            );
-            assert_eq!(member.provisional, provisional, "{type_id} {title:?}");
-            assert!(!member.working, "{type_id} {title:?}");
+    impl Render for Collector {
+        fn render(
+            &mut self,
+            _: &mut Window,
+            _: &mut Context<'_, Self>,
+        ) -> impl IntoElement {
+            gpui::Empty
         }
     }
 
-    #[test]
-    fn a_chat_member_spins_while_its_thread_works() {
-        let pane = PaneId::new("p7").unwrap();
-        let thread = protocol::Params::default().with("threadId", "c1").unwrap();
-        let layout = layout_holding(&pane, CHAT, thread);
-        let titles = titled(&pane, Some("Review"));
-        let busy = member((&titles, &layout), &|chat| chat == "c1", &pane);
-        assert!(busy.working, "its thread is working");
-        let idle = member((&titles, &layout), &|_| false, &pane);
-        assert!(!idle.working, "its thread is idle");
+    fn collect(
+        view: &mut Collector,
+        item: u8,
+        _: &mut Window,
+        _: &mut Context<'_, Collector>,
+    ) {
+        view.seen.push(item);
+    }
+
+    #[gpui::test]
+    async fn drain_hands_every_item_to_the_view_in_order_and_ends_with_the_channel(
+        cx: &mut TestAppContext
+    ) {
+        let (view, cx) = cx.add_window_view(|_, _| Collector::default());
+        let (sender, receiver) = async_channel::unbounded();
+        for item in [3, 1, 2] {
+            sender.try_send(item).unwrap();
+        }
+        drop(sender);
+        let weak = view.downgrade();
+        let task = cx.update(|window, cx| {
+            window.spawn(cx, async move |cx| drain(receiver, weak, cx, collect).await)
+        });
+        task.await;
+        let seen = view.read_with(cx, |view, _| view.seen.clone());
+        assert_eq!(seen, [3, 1, 2]);
     }
 }

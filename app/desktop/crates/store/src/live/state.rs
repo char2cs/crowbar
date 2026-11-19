@@ -3,7 +3,6 @@
 mod change_signal;
 pub(crate) mod chat_project;
 mod chat_terminal;
-pub(crate) mod chat_working;
 mod hub;
 mod local_rows;
 pub(crate) mod workspace_root;
