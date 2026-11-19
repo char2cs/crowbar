@@ -28,8 +28,8 @@ impl ShellState {
         self.react(report.events)
     }
 
-    pub(crate) fn window_activated(&self) {
-        if let Err(error) = self.host.window_activated() {
+    pub(crate) fn apply_keyboard(&self) {
+        if let Err(error) = self.host.apply_keyboard() {
             tracing::warn!(%error, "giving the keyboard back to its owner failed");
         }
     }
@@ -203,7 +203,7 @@ mod tests {
         let text = encode(&register).unwrap();
         rig.shell.handle_ipc(IpcMessage { pane, text });
         let before = rig.mock.calls().len();
-        rig.shell.window_activated();
+        rig.shell.apply_keyboard();
         let calls = rig.mock.calls();
         let focused = calls[before..]
             .iter()

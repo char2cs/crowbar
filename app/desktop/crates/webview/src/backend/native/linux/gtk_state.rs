@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use gtk::glib::Cast as _;
+use gtk::glib::{Cast as _, Propagation};
 use gtk::prelude::WidgetExt as _;
 use platform::{InputFocus, XlibParent};
 use protocol::ExtensionId;
@@ -30,6 +30,7 @@ use crate::view::Config;
 use crate::view::Id;
 use crate::view::Kind;
 use crate::view::ParentWindow;
+use crate::view::{PageEvent, PageHandler};
 
 const BROWSER_DIR: &str = "browser";
 const NO_PAGE_WINDOW: &str = "the web view got no X11 window of its own";
@@ -41,6 +42,19 @@ fn page_window_of(view: &WebView) -> Result<u32> {
         .and_then(|window| window.downcast::<gdkx11::X11Window>().ok())
         .and_then(|window| u32::try_from(window.xid()).ok());
     page_window.ok_or(Error::UnsupportedParent(NO_PAGE_WINDOW))
+}
+
+fn report_presses(
+    view: &WebView,
+    on_page: Option<PageHandler>,
+) {
+    let Some(on_page) = on_page else {
+        return;
+    };
+    view.webview().connect_button_press_event(move |_, _| {
+        on_page(PageEvent::Pressed);
+        Propagation::Proceed
+    });
 }
 
 pub(crate) struct GtkState {
@@ -89,6 +103,7 @@ impl GtkState {
             .build_as_child(&XlibParent::new(window))?;
         let wanted = to_rect(config.bounds);
         let page_window = page_window_of(&view)?;
+        report_presses(&view, config.on_page.clone());
         self.views.insert(
             id,
             LiveView {

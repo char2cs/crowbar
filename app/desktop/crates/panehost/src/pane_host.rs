@@ -215,12 +215,13 @@ impl PaneHost {
             .panes
             .get(&message.pane)
             .map(|runtime| &runtime.type_id);
+        if let Some(event) = focus_report(&message) {
+            return Ok(vec![event]);
+        }
         if let Some(events) = type_id.and_then(|type_id| browser_event(&message, type_id)) {
             return Ok(events);
         }
-        let report = hover_report(&message)
-            .or_else(|| focus_report(&message))
-            .or_else(|| drop_report(&message));
+        let report = hover_report(&message).or_else(|| drop_report(&message));
         if let Some(event) = report {
             return Ok(vec![event]);
         }
@@ -491,6 +492,21 @@ mod tests {
         assert!(f.host.origins.get(*id).is_none(), "{calls:?}");
     }
 
+    fn a_press_on_a_browser_page_focuses_its_pane() {
+        let mut f = fixture();
+        f.host
+            .registry_mut()
+            .register(pane_type("core.browser", PaneLifecycle::Parkable))
+            .unwrap();
+        f.sync(&[instance("b1", "core.browser")], &["b1"], None);
+        let pane = PaneId::new("b1").unwrap();
+        let press = IpcMessage {
+            pane: pane.clone(),
+            text: r#"{"sdk":1,"kind":"shell.focus"}"#.into(),
+        };
+        assert_eq!(f.ipc(press), [HostEvent::PageFocused { pane }]);
+    }
+
     fn only_a_browser_pane_with_a_web_view_can_be_browsed() {
         let mut f = fixture();
         f.host
@@ -532,6 +548,7 @@ mod tests {
         removing_a_pane_from_the_layout_destroys_it_and_frees_its_view,
         send_to_a_pane_without_a_web_view_is_a_typed_error,
         a_browser_pane_gets_no_origin_so_the_relay_never_authorises_it,
+        a_press_on_a_browser_page_focuses_its_pane,
         only_a_browser_pane_with_a_web_view_can_be_browsed,
     ];
 

@@ -6,13 +6,14 @@ use crate::pane_host::reconcile::Keyboard;
 use crate::slot::Slot;
 
 impl PaneHost {
-    /// Gives the keyboard back to whoever holds it in the shell's model once the window is
-    /// active again: the window manager hands the focus to the window itself, never to a page.
+    /// Gives native keyboard focus to whoever owns the keyboard in the shell's model: the focused
+    /// page, or the window. Call it when the window system may have moved the focus on its own:
+    /// the window manager hands it to the window on activation and on a press, never to a page.
     ///
     /// # Errors
     /// [`Error::WebView`](crate::error::Error::WebView) when the web view cannot take or give
     /// back the keyboard.
-    pub fn window_activated(&self) -> Result<()> {
+    pub fn apply_keyboard(&self) -> Result<()> {
         match self.keyboard_page() {
             Some(slot) => Ok(slot.handle.focus()?),
             None => self.hand_focus_to_native(),
@@ -58,7 +59,7 @@ mod tests {
     use crate::test_support::{fixture, instance, register};
 
     #[test]
-    fn window_activation_gives_the_keyboard_back_to_its_owner() {
+    fn the_keyboard_goes_back_to_its_owner() {
         let cases = [
             (
                 "the page holds the keyboard",
@@ -87,7 +88,7 @@ mod tests {
             f.sync_with(&panes, &["p1"], (Some("p1"), keyboard));
             f.host.set_overlay(overlay).unwrap();
             let before = f.mock.calls().len();
-            f.host.window_activated().unwrap();
+            f.host.apply_keyboard().unwrap();
             let focus_calls: Vec<&str> = f.mock.calls()[before..]
                 .iter()
                 .filter_map(focus_call)

@@ -11,6 +11,7 @@ use crate::slot::id::Id;
 use crate::slot::inbox::Gate;
 use crate::slot::inbox::drop_handler;
 use crate::slot::inbox::open_envelope;
+use crate::slot::inbox::press_handler;
 use crate::slot::inbox::{page_handler, pick_handler};
 use crate::slot::owner::Owner;
 use crate::slot::request::{BLANK_URL, Request};
@@ -103,7 +104,11 @@ impl Factory {
             background: None,
             initialization_script: None,
             on_ipc: pick_handler(owner.clone(), self.gate.sink()),
-            on_page: Some(page_handler(owner.clone(), self.gate.sink())),
+            on_page: Some(press_handler(
+                Some(page_handler(owner.clone(), self.gate.sink())),
+                owner.clone(),
+                self.gate.sink(),
+            )),
         }
     }
 
@@ -120,11 +125,14 @@ impl Factory {
             background: self.background.get(),
             initialization_script: Some(bootstrap_script(&self.config.scheme, &self.config.host)),
             on_ipc: self.ipc_for(owner),
-            on_page: self
-                .config
-                .page_handler
-                .clone()
-                .or_else(|| Some(drop_handler(owner.clone(), self.gate.sink()))),
+            on_page: Some(press_handler(
+                self.config
+                    .page_handler
+                    .clone()
+                    .or_else(|| Some(drop_handler(owner.clone(), self.gate.sink()))),
+                owner.clone(),
+                self.gate.sink(),
+            )),
         }
     }
 

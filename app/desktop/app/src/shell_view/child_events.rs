@@ -1,4 +1,4 @@
-use gpui::{Context, Entity, Subscription, Window};
+use gpui::{Context, Entity, MouseDownEvent, Subscription, Window};
 use layout::Command;
 use layoutview::LayoutEvent;
 use sidebarview::Sidebar;
@@ -41,6 +41,16 @@ impl ShellView {
         ]
     }
 
+    pub(super) fn on_shell_pressed(
+        &mut self,
+        _: &MouseDownEvent,
+        _: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.state.keep_keyboard_in_shell();
+        self.sync(cx);
+    }
+
     fn on_window_activation(
         &self,
         window: &Window,
@@ -48,7 +58,7 @@ impl ShellView {
         if !window.is_window_active() {
             return;
         }
-        self.state.window_activated();
+        self.state.apply_keyboard();
     }
 
     fn on_workspace(

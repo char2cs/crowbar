@@ -1,18 +1,21 @@
-//! A native web view against a real X server and `WebKitGTK`: where its keys go.
+//! Native web views against a real X server and `WebKitGTK`: where their keys go and what a press
+//! on them reports.
+//!
+//! GTK runs on one thread per process, so one test drives every case on one host.
 #![cfg(target_os = "linux")]
 
 use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
 use webview::{
-    Bounds, Config, Handle, Host, HostConfig, IpcHandler, Kind, ParentWindow, ProtocolHandler,
-    ProtocolRequest, ProtocolResponder, ProtocolResponse, Visibility,
+    Bounds, Config, Handle, Host, HostConfig, IpcHandler, Kind, PageHandler, ParentWindow,
+    ProtocolHandler, ProtocolRequest, ProtocolResponder, ProtocolResponse, Visibility,
 };
 use x11rb::connection::Connection as _;
 use x11rb::protocol::Event;
 use x11rb::protocol::xproto::{
-    ConnectionExt as _, CreateWindowAux, EventMask, KEY_PRESS_EVENT, KEY_RELEASE_EVENT, Screen,
-    WindowClass,
+    BUTTON_PRESS_EVENT, BUTTON_RELEASE_EVENT, ConnectionExt as _, CreateWindowAux, EventMask,
+    KEY_PRESS_EVENT, KEY_RELEASE_EVENT, Screen, WindowClass,
 };
 use x11rb::protocol::xtest::ConnectionExt as _;
 use x11rb::rust_connection::RustConnection;
@@ -29,6 +32,8 @@ const PAGE_WAIT: Duration = Duration::from_secs(30);
 const KEY_WAIT: Duration = Duration::from_secs(5);
 const KEYCODE_A: u8 = 38;
 const SIDE: u16 = 300;
+const INSIDE: i16 = 50;
+const LEFT_BUTTON: u8 = 1;
 
 struct Page(&'static str);
 
@@ -48,6 +53,13 @@ impl ProtocolHandler for Page {
 
 fn forward_to(sender: mpsc::Sender<String>) -> IpcHandler {
     Arc::new(move |text| sender.send(text).unwrap_or_else(drop))
+}
+
+fn report_to(sender: mpsc::Sender<String>) -> PageHandler {
+    Arc::new(move |event| {
+        sender.send(format!("{event:?}")).unwrap_or_else(drop);
+        true
+    })
 }
 
 fn is_mapped(
@@ -115,8 +127,8 @@ fn page_in(
         visibility: Visibility::Shown,
         background: None,
         initialization_script: None,
-        on_ipc: forward_to(sender),
-        on_page: None,
+        on_ipc: forward_to(sender.clone()),
+        on_page: Some(report_to(sender)),
     };
     let view = host.create_in(ParentWindow::X11(parent), config)?;
     wait_for(&messages, "ready", PAGE_WAIT)?;
@@ -134,6 +146,17 @@ fn park_pointer_outside(
     Ok(())
 }
 
+fn press(
+    connection: &RustConnection,
+    screen: &Screen,
+) -> TestResult {
+    for event in [BUTTON_PRESS_EVENT, BUTTON_RELEASE_EVENT] {
+        connection.xtest_fake_input(event, LEFT_BUTTON, CURRENT_TIME, screen.root, 0, 0, 0)?;
+    }
+    connection.get_input_focus()?.reply()?;
+    Ok(())
+}
+
 fn type_a(
     connection: &RustConnection,
     screen: &Screen,
@@ -145,9 +168,46 @@ fn type_a(
     Ok(())
 }
 
+fn a_focused_view_takes_keys_while_the_pointer_is_elsewhere(
+    connection: &RustConnection,
+    screen: &Screen,
+    host: &Host,
+    parent: u32,
+) -> TestResult {
+    let (view, messages) = page_in(host, parent)?;
+    park_pointer_outside(connection, screen)?;
+    view.focus()?;
+    view.eval("window.ipc.postMessage('focused')")?;
+    wait_for(&messages, "focused", PAGE_WAIT)?;
+    type_a(connection, screen)?;
+    assert_eq!(
+        wait_for(&messages, "key a", KEY_WAIT),
+        Ok(()),
+        "the page never saw the key"
+    );
+    Ok(())
+}
+
+fn a_press_on_the_page_is_reported(
+    connection: &RustConnection,
+    screen: &Screen,
+    host: &Host,
+    parent: u32,
+) -> TestResult {
+    let (_view, messages) = page_in(host, parent)?;
+    connection.warp_pointer(NONE, parent, 0, 0, 0, 0, INSIDE, INSIDE)?;
+    press(connection, screen)?;
+    assert_eq!(
+        wait_for(&messages, "Pressed", KEY_WAIT),
+        Ok(()),
+        "the press was not reported"
+    );
+    Ok(())
+}
+
 #[test]
 #[ignore = "needs display"]
-fn a_focused_view_takes_keys_while_the_pointer_is_elsewhere() -> TestResult {
+fn native_views_on_x11() -> TestResult {
     let (connection, screen_index) = RustConnection::connect(None)?;
     let screen = connection.setup().roots[screen_index].clone();
     let parent = mapped_parent(&connection, &screen)?;
@@ -156,16 +216,6 @@ fn a_focused_view_takes_keys_while_the_pointer_is_elsewhere() -> TestResult {
         protocol: Arc::new(Page(PAGE)),
         data_dir: None,
     })?;
-    let (view, messages) = page_in(&host, parent)?;
-    park_pointer_outside(&connection, &screen)?;
-    view.focus()?;
-    view.eval("window.ipc.postMessage('focused')")?;
-    wait_for(&messages, "focused", PAGE_WAIT)?;
-    type_a(&connection, &screen)?;
-    assert_eq!(
-        wait_for(&messages, "key a", KEY_WAIT),
-        Ok(()),
-        "the page never saw the key"
-    );
-    Ok(())
+    a_focused_view_takes_keys_while_the_pointer_is_elsewhere(&connection, &screen, &host, parent)?;
+    a_press_on_the_page_is_reported(&connection, &screen, &host, parent)
 }

@@ -16,6 +16,9 @@ pub enum PageEvent {
     /// Files from the operating system were dropped on the page; the page still gets its own
     /// drop events.
     FilesDropped(Vec<PathBuf>),
+    /// A mouse button went down on the page. Reported on Linux, where a press does not give the
+    /// page the keyboard by itself; the page still gets its own pointer events.
+    Pressed,
 }
 
 /// Receives every [`PageEvent`] of one web view on the platform thread. Its answer matters only

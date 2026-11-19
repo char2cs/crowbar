@@ -76,11 +76,17 @@ impl ShellView {
     fn on_ipc(
         &mut self,
         message: IpcMessage,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
         let outcome = self.state.handle_ipc(message);
+        let page_took_focus = !outcome.focused.is_empty();
         self.apply_outcome(outcome, cx);
+        if !page_took_focus {
+            return;
+        }
+        window.focus(&self.focus);
+        self.state.apply_keyboard();
     }
 
     fn feed_startup(

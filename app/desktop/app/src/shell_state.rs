@@ -149,6 +149,10 @@ impl ShellState {
         self.keyboard = Keyboard::Shell;
     }
 
+    pub(crate) fn keep_keyboard_in_shell(&mut self) {
+        self.keyboard = Keyboard::Shell;
+    }
+
     fn run(
         &mut self,
         commands: Vec<Command>,
@@ -277,11 +281,17 @@ mod tests {
 
     enum Via {
         Strip,
+        ShellPress,
         Elsewhere,
     }
 
     const CASES: &[(&str, Via, usize)] = &[
         ("a strip press keeps the keys in the shell", Via::Strip, 1),
+        (
+            "a press on the shell's own surface keeps them too",
+            Via::ShellPress,
+            1,
+        ),
         (
             "any other command gives them to the page",
             Via::Elsewhere,
@@ -289,17 +299,29 @@ mod tests {
         ),
     ];
 
+    fn focus_via(
+        shell: &mut ShellState,
+        via: &Via,
+        pane: &PaneId,
+    ) {
+        let focus = vec![Command::FocusPane { pane: pane.clone() }];
+        match via {
+            Via::Strip => shell.apply_from_strip(focus),
+            Via::ShellPress => {
+                shell.apply(focus);
+                shell.keep_keyboard_in_shell();
+            },
+            Via::Elsewhere => shell.apply(focus),
+        }
+    }
+
     #[test]
-    fn only_a_strip_keeps_the_keyboard_from_the_page_that_becomes_active() {
+    fn only_a_strip_or_a_shell_press_keeps_the_keyboard_from_the_page_that_becomes_active() {
         for (name, via, handed) in CASES {
             let mut rig = shell_rig();
             let pane = crate::test_support::synced_chat(&mut rig);
             let before = handed_back(&rig);
-            let focus = vec![Command::FocusPane { pane: pane.clone() }];
-            match via {
-                Via::Strip => rig.shell.apply_from_strip(focus),
-                Via::Elsewhere => rig.shell.apply(focus),
-            }
+            focus_via(&mut rig.shell, via, &pane);
             sync_chat(&mut rig, &pane);
             assert_eq!(handed_back(&rig) - before, *handed, "{name}");
         }

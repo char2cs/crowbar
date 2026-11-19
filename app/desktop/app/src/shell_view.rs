@@ -282,6 +282,7 @@ impl Render for ShellView {
             .size_full()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key_down))
+            .capture_any_mouse_down(cx.listener(Self::on_shell_pressed))
             .relative()
             .bg(palette.background())
             .child(self.sidebar.clone())
