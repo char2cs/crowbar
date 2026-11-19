@@ -10,6 +10,7 @@ mod browser_ids;
 mod browser_pages;
 mod browser_tabs;
 mod byte_source;
+mod caret_follower;
 mod chat_label;
 mod chat_route;
 mod chat_terminals;
@@ -212,7 +213,8 @@ fn main() -> anyhow::Result<()> {
     )?;
     legacy_settings::import_old_settings(std::env::var_os("HOME").map(PathBuf::from), &options);
     let link = Rc::new(DaemonLink::start(&options)?);
-    let host = build_host(&options, link.transport(), Path::is_file)?;
+    let (caret, caret_changes) = caret_follower::channel();
+    let host = build_host(&options, (link.transport(), caret), Path::is_file)?;
     let store = LayoutStore::on_disk(options.state_dir().join("layout.json"));
     let state = ShellState::new(host, store)?;
     let preferences_path = options.state_dir().join("sidebar.json");
@@ -225,7 +227,10 @@ fn main() -> anyhow::Result<()> {
     };
     Application::new()
         .with_assets(ui::assets())
-        .run(move |cx: &mut App| start(cx, (&options, parts)));
+        .run(move |cx: &mut App| {
+            caret_follower::follow(caret_changes, cx);
+            start(cx, (&options, parts));
+        });
     shutdown.shutdown();
     Ok(())
 }

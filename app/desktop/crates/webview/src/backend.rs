@@ -1,6 +1,8 @@
 //! The Platform trait a backend implements, its capabilities and the host configuration it reads.
 
 mod browsing_data;
+mod caret_blink;
+mod desktop_settings;
 mod host_config;
 #[cfg(feature = "mock")]
 mod mock;
@@ -13,6 +15,8 @@ mod view_layout;
 mod view_lifecycle;
 
 pub use browsing_data::BrowsingData;
+pub use caret_blink::{CaretBlink, CaretReport};
+pub use desktop_settings::DesktopSettings;
 pub use host_config::HostConfig;
 #[cfg(feature = "mock")]
 pub use mock::{Call, MockPlatform};

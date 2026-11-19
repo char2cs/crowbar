@@ -1,4 +1,6 @@
 use crate::backend::browsing_data::BrowsingData;
+use crate::backend::caret_blink::CaretReport;
+use crate::backend::desktop_settings::DesktopSettings;
 use crate::backend::mock::call::Call;
 use crate::backend::mock::mock_platform::MockPlatform;
 use crate::backend::view_focus::ViewFocus;
@@ -107,6 +109,16 @@ impl BrowsingData for MockPlatform {
     }
 }
 
+impl DesktopSettings for MockPlatform {
+    fn follow_caret(
+        &self,
+        _report: CaretReport,
+    ) -> Result<()> {
+        self.record(Call::FollowCaret);
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -139,6 +151,7 @@ mod tests {
             Call::Focus { .. } => "focus",
             Call::FocusParent { .. } => "focus_parent",
             Call::ClearBrowsingData => "clear",
+            Call::FollowCaret => "follow_caret",
             Call::Destroy { .. } => "destroy",
             _ => "other",
         }
@@ -152,11 +165,19 @@ mod tests {
         mock.focus(id).unwrap();
         mock.focus_parent(id).unwrap();
         mock.clear_browsing_data().unwrap();
+        mock.follow_caret(Arc::new(|_| ())).unwrap();
         mock.destroy(id).unwrap();
         let kinds: Vec<&str> = mock.calls().iter().map(kind_of).collect();
         assert_eq!(
             kinds,
-            ["create", "focus", "focus_parent", "clear", "destroy"],
+            [
+                "create",
+                "focus",
+                "focus_parent",
+                "clear",
+                "follow_caret",
+                "destroy"
+            ],
             "order"
         );
     }

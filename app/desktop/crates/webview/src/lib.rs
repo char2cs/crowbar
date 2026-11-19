@@ -52,8 +52,8 @@ mod test_support;
 mod view;
 
 pub use backend::{
-    BrowsingData, HostConfig, PageControl, Platform, ViewCapture, ViewFocus, ViewLayout,
-    ViewLifecycle,
+    BrowsingData, CaretBlink, CaretReport, DesktopSettings, HostConfig, PageControl, Platform,
+    ViewCapture, ViewFocus, ViewLayout, ViewLifecycle,
 };
 pub use error::{Error, Result};
 pub use host::{Handle, Host};

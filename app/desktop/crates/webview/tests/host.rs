@@ -1,21 +1,22 @@
-//! Native web views against a real X server and `WebKitGTK`: where their keys go and what a press
-//! on them reports.
+//! Native web views against a real X server and `WebKitGTK`: where their keys go, what a press
+//! on them reports and the caret blink the desktop's settings manager announces.
 //!
 //! GTK runs on one thread per process, so one test drives every case on one host.
 #![cfg(target_os = "linux")]
 
 use std::sync::{Arc, mpsc};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use webview::{
-    Bounds, Config, Handle, Host, HostConfig, IpcHandler, Kind, PageHandler, ParentWindow,
-    ProtocolHandler, ProtocolRequest, ProtocolResponder, ProtocolResponse, Visibility,
+    Bounds, CaretBlink, Config, Handle, Host, HostConfig, IpcHandler, Kind, PageHandler,
+    ParentWindow, ProtocolHandler, ProtocolRequest, ProtocolResponder, ProtocolResponse,
+    Visibility,
 };
 use x11rb::connection::Connection as _;
 use x11rb::protocol::Event;
 use x11rb::protocol::xproto::{
-    BUTTON_PRESS_EVENT, BUTTON_RELEASE_EVENT, ConnectionExt as _, CreateWindowAux, EventMask,
-    KEY_PRESS_EVENT, KEY_RELEASE_EVENT, Screen, WindowClass,
+    BUTTON_PRESS_EVENT, BUTTON_RELEASE_EVENT, ClientMessageEvent, ConnectionExt as _,
+    CreateWindowAux, EventMask, KEY_PRESS_EVENT, KEY_RELEASE_EVENT, PropMode, Screen, WindowClass,
 };
 use x11rb::protocol::xtest::ConnectionExt as _;
 use x11rb::rust_connection::RustConnection;
@@ -34,6 +35,15 @@ const KEYCODE_A: u8 = 38;
 const SIDE: u16 = 300;
 const INSIDE: i16 = 50;
 const LEFT_BUTTON: u8 = 1;
+const REPORT_WAIT: Duration = Duration::from_secs(10);
+const LITTLE_ENDIAN: u8 = 0;
+const INTEGER: u8 = 0;
+const BLINK: &str = "Net/CursorBlink";
+const BLINK_TIME: &str = "Net/CursorBlinkTime";
+const MANAGER: &str = "MANAGER";
+const SETTINGS: &str = "_XSETTINGS_SETTINGS";
+const FORMAT_BYTES: u8 = 8;
+const FORMAT_WORDS: u8 = 32;
 
 struct Page(&'static str);
 
@@ -205,6 +215,166 @@ fn a_press_on_the_page_is_reported(
     Ok(())
 }
 
+struct Manager {
+    connection: RustConnection,
+    window: u32,
+    settings: u32,
+    serial: u32,
+}
+
+impl Manager {
+    fn start() -> TestResult<Self> {
+        let (connection, screen_index) = RustConnection::connect(None)?;
+        let root = connection
+            .setup()
+            .roots
+            .get(screen_index)
+            .ok_or("no screen")?
+            .root;
+        let window = owner_window(&connection, root)?;
+        let selection = atom(&connection, &format!("_XSETTINGS_S{screen_index}"))?;
+        let settings = atom(&connection, SETTINGS)?;
+        let mut manager = Self {
+            connection,
+            window,
+            settings,
+            serial: 0,
+        };
+        manager.announce((1, 1000))?;
+        manager.claim(root, selection)?;
+        Ok(manager)
+    }
+
+    fn claim(
+        &self,
+        root: u32,
+        selection: u32,
+    ) -> TestResult {
+        self.connection
+            .set_selection_owner(self.window, selection, CURRENT_TIME)?;
+        let message = ClientMessageEvent::new(
+            FORMAT_WORDS,
+            root,
+            atom(&self.connection, MANAGER)?,
+            [CURRENT_TIME, selection, self.window, 0, 0],
+        );
+        self.connection
+            .send_event(false, root, EventMask::STRUCTURE_NOTIFY, message)?;
+        self.connection.flush()?;
+        Ok(())
+    }
+
+    fn announce(
+        &mut self,
+        (blink, time): (i32, i32),
+    ) -> TestResult {
+        self.serial += 1;
+        let mut bytes = vec![LITTLE_ENDIAN, 0, 0, 0];
+        bytes.extend(self.serial.to_le_bytes());
+        bytes.extend(2_u32.to_le_bytes());
+        integer(&mut bytes, (BLINK, blink), self.serial);
+        integer(&mut bytes, (BLINK_TIME, time), self.serial);
+        self.connection.change_property(
+            PropMode::REPLACE,
+            self.window,
+            self.settings,
+            self.settings,
+            FORMAT_BYTES,
+            u32::try_from(bytes.len())?,
+            &bytes,
+        )?;
+        self.connection.flush()?;
+        Ok(())
+    }
+}
+
+fn owner_window(
+    connection: &RustConnection,
+    root: u32,
+) -> TestResult<u32> {
+    let window = connection.generate_id()?;
+    let aux = CreateWindowAux::new().event_mask(EventMask::PROPERTY_CHANGE);
+    connection.create_window(
+        COPY_DEPTH_FROM_PARENT,
+        window,
+        root,
+        0,
+        0,
+        1,
+        1,
+        0,
+        WindowClass::INPUT_ONLY,
+        0,
+        &aux,
+    )?;
+    Ok(window)
+}
+
+fn atom(
+    connection: &RustConnection,
+    name: &str,
+) -> TestResult<u32> {
+    Ok(connection
+        .intern_atom(false, name.as_bytes())?
+        .reply()?
+        .atom)
+}
+
+fn integer(
+    bytes: &mut Vec<u8>,
+    (name, value): (&str, i32),
+    serial: u32,
+) {
+    bytes.extend([INTEGER, 0]);
+    bytes.extend(u16::try_from(name.len()).unwrap_or_default().to_le_bytes());
+    bytes.extend(name.as_bytes());
+    bytes.resize(bytes.len().next_multiple_of(4), 0);
+    bytes.extend(serial.to_le_bytes());
+    bytes.extend(value.to_le_bytes());
+}
+
+fn until_reported(
+    reports: &mpsc::Receiver<CaretBlink>,
+    wanted: CaretBlink,
+) -> Result<(), Vec<CaretBlink>> {
+    let deadline = Instant::now() + REPORT_WAIT;
+    let mut heard = Vec::new();
+    let found = std::iter::from_fn(|| {
+        reports
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .ok()
+    })
+    .inspect(|blink| heard.push(*blink))
+    .any(|blink| blink == wanted);
+    if found {
+        return Ok(());
+    }
+    Err(heard)
+}
+
+fn the_caret_follows_the_desktop_settings_manager(host: &Host) -> TestResult {
+    let (sender, reports) = mpsc::channel();
+    host.follow_caret(Arc::new(move |blink| {
+        sender.send(blink).unwrap_or_default();
+    }))?;
+    let mut manager = Manager::start()?;
+    let phase = |millis| CaretBlink::Every(Duration::from_millis(millis));
+    assert_eq!(
+        until_reported(&reports, phase(500)),
+        Ok(()),
+        "1000 ms cycle"
+    );
+    manager.announce((0, 1000))?;
+    assert_eq!(
+        until_reported(&reports, CaretBlink::Steady),
+        Ok(()),
+        "blink off"
+    );
+    manager.announce((1, 800))?;
+    assert_eq!(until_reported(&reports, phase(400)), Ok(()), "800 ms cycle");
+    Ok(())
+}
+
 #[test]
 #[ignore = "needs display"]
 fn native_views_on_x11() -> TestResult {
@@ -217,5 +387,6 @@ fn native_views_on_x11() -> TestResult {
         data_dir: None,
     })?;
     a_focused_view_takes_keys_while_the_pointer_is_elsewhere(&connection, &screen, &host, parent)?;
-    a_press_on_the_page_is_reported(&connection, &screen, &host, parent)
+    a_press_on_the_page_is_reported(&connection, &screen, &host, parent)?;
+    the_caret_follows_the_desktop_settings_manager(&host)
 }

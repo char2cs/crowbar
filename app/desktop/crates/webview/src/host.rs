@@ -55,6 +55,17 @@ impl Host {
         self.platform.clear_browsing_data()
     }
 
+    /// Reports the desktop's caret blink to `report` now and again whenever it changes.
+    ///
+    /// # Errors
+    /// An [`Error`](crate::Error) when the backend has stopped.
+    pub fn follow_caret(
+        &self,
+        report: crate::backend::CaretReport,
+    ) -> Result<()> {
+        self.platform.follow_caret(report)
+    }
+
     /// Creates a web view inside `window` and returns its handle.
     ///
     /// # Errors

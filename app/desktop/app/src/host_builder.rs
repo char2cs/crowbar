@@ -13,7 +13,7 @@ const SCHEME: &str = "crowbar";
 
 pub(crate) fn build_host(
     options: &AppOptions,
-    transport: Arc<dyn DaemonTransport>,
+    (transport, caret): (Arc<dyn DaemonTransport>, webview::CaretReport),
     is_file: impl Fn(&Path) -> bool,
 ) -> Result<PaneHost> {
     let origins = OriginTable::default();
@@ -29,6 +29,7 @@ pub(crate) fn build_host(
         protocol: Arc::new(protocol),
         data_dir: Some(options.state_dir().join("webview")),
     })?;
+    webviews.follow_caret(caret)?;
     let config = panehost::Config {
         scheme: SCHEME.into(),
         host: HostId::new("local")?,
@@ -65,7 +66,12 @@ mod tests {
     fn a_missing_bundle_stops_the_host_before_any_web_view_exists() {
         let missing = PathBuf::from("/nonexistent-crowbar-panes");
         let transport = Arc::new(NoDaemon::timing_out());
-        let error = build_host(&options(missing.clone()), transport, |_| false).unwrap_err();
+        let error = build_host(
+            &options(missing.clone()),
+            (transport, Arc::new(|_| ())),
+            |_| false,
+        )
+        .unwrap_err();
         assert!(
             matches!(&error, Error::PanesMissing(entry) if entry.starts_with(&missing)),
             "{error}"

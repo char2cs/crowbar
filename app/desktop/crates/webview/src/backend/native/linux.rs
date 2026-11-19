@@ -4,6 +4,8 @@
 mod bounded_wait;
 mod capture;
 #[cfg(target_os = "linux")]
+mod caret_settings;
+#[cfg(target_os = "linux")]
 mod create_reply;
 #[cfg(target_os = "linux")]
 mod gtk_platform;

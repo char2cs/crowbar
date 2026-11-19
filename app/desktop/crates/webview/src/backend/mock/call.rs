@@ -77,6 +77,8 @@ pub enum Call {
     },
     /// The browser views' storage was cleared.
     ClearBrowsingData,
+    /// The desktop's caret blink was followed.
+    FollowCaret,
     /// A view was destroyed.
     Destroy {
         /// The view.
