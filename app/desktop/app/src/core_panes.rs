@@ -4,7 +4,7 @@ use protocol::{PaneTypeId, Params};
 use crate::core_type::CoreType;
 use crate::error::Result;
 
-pub(crate) const CHAT: &str = "core.chat";
+pub(crate) const CHAT: &str = PaneTypeId::CHAT;
 pub(crate) const EDITOR: &str = "core.editor";
 pub(crate) const REVIEW: &str = "core.review";
 pub(crate) const CONSOLE: &str = "core.console";

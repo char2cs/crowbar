@@ -82,10 +82,10 @@ impl LayoutView {
         let Some(tab) = &self.tab else {
             return Vec::new();
         };
-        tab.groups(self.local())
+        tab.leaves(self.local())
             .into_iter()
-            .filter(|slot| !slot.panes.contains(pane))
-            .map(|slot| slot.active)
+            .filter(|(_, group)| !group.contains(pane))
+            .filter_map(|(_, group)| group.shown().cloned())
             .collect()
     }
 }

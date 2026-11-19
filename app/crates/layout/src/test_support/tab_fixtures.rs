@@ -20,6 +20,14 @@ pub(crate) fn pane(name: &str) -> PaneInstance {
     }
 }
 
+pub(crate) fn editor(name: &str) -> PaneInstance {
+    PaneInstance {
+        type_id: PaneTypeId::new("core.terminal").unwrap(),
+        params: Params::default().with("terminalId", name).unwrap(),
+        ..pane(name)
+    }
+}
+
 pub(crate) fn at(
     target: &str,
     edge: Edge,

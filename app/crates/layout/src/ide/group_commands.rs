@@ -16,6 +16,9 @@ pub(crate) fn open(
     if layout.pane(&instance.pane_id).is_some() {
         return Err(Error::DuplicatePane(instance.pane_id));
     }
+    if instance.type_id.is_chat() {
+        return Err(Error::ChatIsNotATab(instance.pane_id));
+    }
     let home = layout.index_of_pane(onto.0)?;
     if let Some(open_already) = layout.find_pane(&instance.type_id, &instance.params) {
         let existing = open_already.pane_id.clone();
@@ -35,6 +38,9 @@ pub(crate) fn join(
     pane: &PaneId,
     onto: Seat<'_>,
 ) -> Result<()> {
+    if layout.tab_of(pane).is_some_and(|tab| tab.is_chat(pane)) {
+        return Err(Error::ChatIsNotATab(pane.clone()));
+    }
     let pinned = layout
         .tab_of(pane)
         .and_then(|tab| tab.group_of(pane))
@@ -179,12 +185,51 @@ mod tests {
         tab: u64,
         new: &str,
     ) {
+        let placement = layout
+            .tab(TabId(tab))
+            .and_then(Tab::focused)
+            .map(|target| Placement {
+                target: target.clone(),
+                edge: Edge::Right,
+            });
         let command = Command::OpenPane {
             tab: TabId(tab),
             instance: pane(new),
-            placement: None,
+            placement,
         };
         apply(layout, command);
+    }
+
+    fn chat(name: &str) -> PaneInstance {
+        PaneInstance {
+            type_id: PaneTypeId::new(PaneTypeId::CHAT).unwrap(),
+            params: Params::default().with("chatId", name).unwrap(),
+            ..pane(name)
+        }
+    }
+
+    #[test]
+    fn a_chat_never_becomes_an_editor_tab() {
+        let opening = open_cmd(chat("q"), ("a", None));
+        refuses(
+            opening,
+            &Error::ChatIsNotATab(id("q")),
+            "opened onto a group",
+        );
+        let mut layout = fixture();
+        let beside = Command::OpenPane {
+            tab: TabId(3),
+            instance: chat("q"),
+            placement: Some(at("z", Edge::Right)),
+        };
+        apply(&mut layout, beside);
+        let before = layout.clone();
+        assert_eq!(
+            layout.apply(join_cmd("q", ("a", None))),
+            Err(Error::ChatIsNotATab(id("q"))),
+            "moved onto a group"
+        );
+        assert_eq!(layout, before, "unchanged");
     }
 
     fn add_tab(
@@ -274,10 +319,9 @@ mod tests {
         tab: u64,
     ) -> Vec<String> {
         let tab = layout.tab(TabId(tab)).unwrap();
-        let groups = tab.groups(SCREEN);
-        groups
+        tab.leaves(SCREEN)
             .iter()
-            .map(|slot| written(&slot.panes, &slot.active))
+            .filter_map(|(_, group)| Some(written(group.tabs(), group.shown()?)))
             .collect()
     }
 
@@ -958,7 +1002,7 @@ mod tests {
     }
 
     #[test]
-    fn a_strip_member_moved_to_another_tab_splits_there_and_leaves_its_strip() {
+    fn a_tab_moved_to_another_tab_joins_the_focused_group_there() {
         let mut layout = fixture();
         let command = Command::MovePaneToTab {
             pane: id("b"),
@@ -967,7 +1011,7 @@ mod tests {
         };
         apply(&mut layout, command);
         assert_eq!(strips(&layout, 1), ["a c*", "d*", "e f*"], "source");
-        assert_eq!(strips(&layout, 3), ["z*", "b*"], "destination");
+        assert_eq!(strips(&layout, 3), ["z b*"], "destination");
     }
 
     fn undoable() -> Vec<Command> {

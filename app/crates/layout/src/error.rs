@@ -31,6 +31,10 @@ pub enum Error {
     /// The pane is the only one of its tab, so it cannot be detached from its siblings.
     #[error("pane {0} is the only pane of its tab")]
     OnlyPane(PaneId),
+    /// The pane is a chat, which is never an editor tab: it cannot join a group's tabs or swap
+    /// with one.
+    #[error("pane {0} is a chat, not an editor tab")]
+    ChatIsNotATab(PaneId),
     /// An index is outside the list it addresses.
     #[error("index {index} is out of range for {len} items")]
     IndexOutOfRange {

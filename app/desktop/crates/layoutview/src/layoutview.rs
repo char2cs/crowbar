@@ -1,10 +1,10 @@
-use layout::{GroupSlot, Rect, Tab};
+use layout::{DEFAULT_CHAT_SHARE, PaneGroup, Presentation, Rect, Tab};
+use protocol::PaneId;
 
 use crate::chrome_context::ChromeContext;
 use crate::pane_frame::PaneFrame;
 use crate::pane_hole::PaneHole;
 use crate::pane_source::PaneSource;
-use crate::pane_strip::STRIP_HEIGHT;
 
 /// The content hole of every pane of `tab` when the layout fills `content`. The shell gives
 /// these rectangles to the pane host in place of the model's raw slots, so web views sit inside
@@ -15,13 +15,32 @@ pub fn pane_holes(
     content: Rect,
     chrome: ChromeContext,
 ) -> Vec<PaneHole> {
-    tab.groups(content)
+    tab.leaves(content)
         .into_iter()
-        .map(|group| PaneHole {
-            rect: below_strip(PaneFrame::new(group.rect, content, chrome).hole, &group),
-            pane: group.active,
+        .flat_map(|(rect, group)| {
+            let hole = PaneFrame::new(rect, content, chrome).hole;
+            let shown = Presentation::of(group, hole, chrome.sidebar.side(), DEFAULT_CHAT_SHARE);
+            holes_of(group, &shown)
         })
         .collect()
+}
+
+fn holes_of(
+    group: &PaneGroup,
+    shown: &Presentation,
+) -> Vec<PaneHole> {
+    let hole = |pane: Option<&PaneId>, rect: Option<Rect>| {
+        pane.cloned()
+            .zip(rect)
+            .map(|(pane, rect)| PaneHole { pane, rect })
+    };
+    [
+        hole(group.chat(), shown.chat),
+        hole(group.active_tab(), shown.editor),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 /// Like [`pane_holes`], but asks `source` about each pane: a native pane gets no hole because no
@@ -38,21 +57,6 @@ pub fn pane_holes_with(
         .filter(|hole| !source.is_native(&hole.pane))
         .map(|hole| below_chrome(hole, source))
         .collect()
-}
-
-fn below_strip(
-    hole: Rect,
-    group: &GroupSlot,
-) -> Rect {
-    if group.panes.len() < 2 {
-        return hole;
-    }
-    let strip = STRIP_HEIGHT.min(hole.height);
-    Rect {
-        y: hole.y + strip,
-        height: hole.height - strip,
-        ..hole
-    }
 }
 
 fn below_chrome(
@@ -203,32 +207,31 @@ mod tests {
     }
 
     #[test]
-    fn a_group_with_a_strip_starts_its_hole_below_the_strip_and_hides_the_others() {
-        let mut layout = layout_of("a", &[("b", "a", Edge::Right)]);
-        let stacked = crate::test_support::chat("c");
-        layout
-            .apply(layout::Command::OpenPaneInGroup {
-                instance: stacked,
-                onto: pane_id("b"),
-                index: None,
-            })
-            .expect("stack");
+    fn a_chat_and_its_active_editor_tab_each_get_a_hole_the_tab_below_its_tab_bar() {
+        let mut layout = layout_of("a", &[]);
+        for name in ["t1", "t2"] {
+            crate::test_support::open_tab(&mut layout, name);
+        }
         let tab = layout.active_tab().expect("tab");
         let holes = pane_holes(tab, CONTENT, CHROME);
-        let plain = pane_holes(
-            layout_of("a", &[("b", "a", Edge::Right)])
-                .active_tab()
-                .expect("tab"),
+        let lone = pane_holes(
+            layout_of("a", &[]).active_tab().expect("tab"),
             CONTENT,
             CHROME,
         );
-        assert_eq!(holes.len(), 2, "one hole per group, not per pane");
-        assert_eq!(holes[1].pane, pane_id("c"), "the shown pane");
+        let panes: Vec<_> = holes.iter().map(|hole| hole.pane.clone()).collect();
         assert_eq!(
-            holes[1].rect.y - plain[1].rect.y,
-            STRIP_HEIGHT,
-            "below the strip"
+            panes,
+            [pane_id("a"), pane_id("t2")],
+            "the chat and the active tab"
         );
-        assert_eq!(holes[0].rect, plain[0].rect, "a lone pane has no strip");
+        let (chat, editor) = (holes[0].rect, holes[1].rect);
+        assert!(chat.width < lone[0].rect.width, "the chat shares the group");
+        assert!(editor.x > chat.x + chat.width, "the editor past the sash");
+        assert_eq!(
+            editor.y - chat.y,
+            layout::TOP_ROW_HEIGHT,
+            "below the tab bar"
+        );
     }
 }

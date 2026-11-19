@@ -20,12 +20,9 @@ impl Tab {
         }
         self.require(pane)?;
         self.require(&placement.target)?;
-        let mut rest = self
-            .tree
-            .clone()
-            .and_then(|tree| tree.without(pane))
-            .ok_or_else(|| Error::PaneNotFound(placement.target.clone()))?;
-        if !rest.split_leaf(&placement.target, pane, placement.edge) {
+        let (rest, fresh) = self.lifted(pane);
+        let mut rest = rest.ok_or_else(|| Error::PaneNotFound(placement.target.clone()))?;
+        if !rest.split_leaf(&placement.target, fresh, placement.edge) {
             return Err(Error::PaneNotFound(placement.target.clone()));
         }
         self.tree = Some(rest);
@@ -42,11 +39,16 @@ impl Tab {
         }
         self.require(a)?;
         self.require(b)?;
-        if let Some(tree) = self.tree.as_mut() {
-            let pins = [a, b].map(|pane| (pane, pin_of(tree, pane)));
-            tree.swap_leaves(a, b);
-            keep_pins(tree, pins);
+        self.check_swappable(a, b)?;
+        let chats = self.is_chat(a);
+        let Some(tree) = self.tree.as_mut() else {
+            return Ok(());
+        };
+        if chats {
+            tree.swap_groups(a, b);
+            return Ok(());
         }
+        swap_tabs(tree, a, b);
         if let Some(shown) = self.focused.clone().filter(|pane| pane == a || pane == b) {
             self.show(&shown);
         }
@@ -142,6 +144,16 @@ impl Tab {
 
 type Restore = fn(&mut PaneGroup, &PaneId);
 
+fn swap_tabs(
+    tree: &mut SplitNode,
+    a: &PaneId,
+    b: &PaneId,
+) {
+    let pins = [a, b].map(|pane| (pane, pin_of(tree, pane)));
+    tree.swap_leaves(a, b);
+    keep_pins(tree, pins);
+}
+
 fn pin_of(
     tree: &SplitNode,
     pane: &PaneId,
@@ -182,9 +194,46 @@ mod tests {
     use crate::edge::Edge;
     use crate::split_node::MIN_PANE_EXTENT;
     use crate::tab_id::TabId;
-    use crate::test_support::tab_fixtures::{at, id, order, screen, tab_with};
+    use crate::test_support::tab_fixtures::{at, editor, id, order, screen, tab_with};
 
     type Breaker = fn(&mut Tab);
+
+    #[test]
+    fn focusing_the_chat_selects_it_and_focusing_a_tab_selects_the_tab() {
+        let mut tab = tab_with(&["a"]);
+        tab.open(editor("t1"), None).unwrap();
+        tab.focus(&id("a")).unwrap();
+        let group = tab.group_of(&id("a")).unwrap();
+        assert!(group.chat_selected(), "chat selected");
+        assert_eq!(group.active_tab(), Some(&id("t1")), "the tab stays active");
+        tab.focus(&id("t1")).unwrap();
+        assert!(
+            !tab.group_of(&id("a")).unwrap().chat_selected(),
+            "tab selected"
+        );
+        tab.validate().unwrap();
+    }
+
+    #[test]
+    fn moving_a_chat_takes_its_editor_tabs_along() {
+        let mut tab = tab_with(&["a", "b"]);
+        tab.open(editor("t1"), None).unwrap();
+        tab.relocate(&id("b"), &at("a", Edge::Left)).unwrap();
+        assert_eq!(order(&tab), ["b", "t1", "a"], "b and its tab left of a");
+        assert_eq!(tab.group_count(), 2, "still two places");
+        tab.validate().unwrap();
+    }
+
+    #[test]
+    fn a_chat_and_an_editor_tab_never_swap() {
+        let mut tab = tab_with(&["a"]);
+        tab.open(editor("t1"), None).unwrap();
+        assert_eq!(
+            tab.swap(&id("a"), &id("t1")),
+            Err(Error::ChatIsNotATab(id("a"))),
+            "refused"
+        );
+    }
 
     #[test]
     fn relocate_lands_on_the_requested_edge() {

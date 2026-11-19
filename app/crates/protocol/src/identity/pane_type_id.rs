@@ -9,6 +9,8 @@ use crate::identity::pane_kind::PaneKind;
 use crate::identity::pane_origin::PaneOrigin;
 use crate::string_id::check_text;
 
+mod chat;
+
 fn malformed() -> Error {
     Error::malformed(
         "pane type id",

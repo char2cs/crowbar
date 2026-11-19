@@ -29,7 +29,7 @@ impl ShellView {
             .filter(|tab| scope.lists(project.as_deref(), &self.tab_projects(tab)))
             .map(|tab| TabView {
                 id: tab.id(),
-                members: crate::stack_policy::listed(tab)
+                members: crate::group_focus::listed(tab)
                     .iter()
                     .map(|pane| member((&titles, layout), &rows, pane))
                     .collect(),

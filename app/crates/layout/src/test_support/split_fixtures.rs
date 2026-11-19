@@ -5,7 +5,10 @@ use crate::test_support::tab_fixtures::id;
 
 pub(crate) fn two_by_one() -> SplitNode {
     let mut tree = SplitNode::leaf(id("a"));
-    assert!(tree.split_leaf(&id("a"), &id("b"), Edge::Right), "split a");
+    assert!(
+        tree.split_leaf(&id("a"), SplitNode::leaf(id("b")), Edge::Right),
+        "split a"
+    );
     tree
 }
 
@@ -13,11 +16,11 @@ pub(crate) fn two_by_one() -> SplitNode {
 pub(crate) fn nested_left() -> SplitNode {
     let mut tree = SplitNode::leaf(id("a"));
     assert!(
-        tree.split_leaf(&id("a"), &id("x"), Edge::Right),
+        tree.split_leaf(&id("a"), SplitNode::leaf(id("x")), Edge::Right),
         "x right of a"
     );
     assert!(
-        tree.split_leaf(&id("a"), &id("b"), Edge::Right),
+        tree.split_leaf(&id("a"), SplitNode::leaf(id("b")), Edge::Right),
         "b right of a"
     );
     tree

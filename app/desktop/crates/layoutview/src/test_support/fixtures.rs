@@ -14,6 +14,13 @@ pub(crate) fn chat(name: &str) -> PaneInstance {
     }
 }
 
+pub(crate) fn editor(name: &str) -> PaneInstance {
+    PaneInstance {
+        type_id: PaneTypeId::new("core.terminal").expect("valid type"),
+        ..chat(name)
+    }
+}
+
 pub(crate) fn layout_of(
     first: &str,
     others: &[(&str, &str, layout::Edge)],
@@ -57,12 +64,35 @@ fn open_beside(
     layout.apply(command).expect("open pane");
 }
 
-/// Tab 1 with chat `a` beside a group of `b` and `c`.
+/// Opens `name` as an editor tab of the focused group of tab 1.
+pub(crate) fn open_tab(
+    layout: &mut Layout,
+    name: &str,
+) {
+    let open = Command::OpenPane {
+        tab: TabId(1),
+        instance: editor(name),
+        placement: None,
+    };
+    layout.apply(open).expect("open a tab");
+}
+
+/// Tab 1 with chat `a` beside a group of the editor tabs `b` and `c`.
 pub(crate) fn stacked_layout() -> Layout {
-    let mut layout = layout_of("a", &[("b", "a", layout::Edge::Right)]);
+    let mut layout = layout_of("a", &[]);
+    let placement = Placement {
+        target: pane_id("a"),
+        edge: layout::Edge::Right,
+    };
+    let beside = Command::OpenPane {
+        tab: TabId(1),
+        instance: editor("b"),
+        placement: Some(placement),
+    };
+    layout.apply(beside).expect("b beside a");
     layout
         .apply(Command::OpenPaneInGroup {
-            instance: chat("c"),
+            instance: editor("c"),
             onto: pane_id("b"),
             index: None,
         })
@@ -75,16 +105,28 @@ fn stack_onto_a(
     name: &str,
 ) {
     let open = Command::OpenPaneInGroup {
-        instance: chat(name),
+        instance: editor(name),
         onto: pane_id("a"),
         index: None,
     };
     layout.apply(open).expect("stack");
 }
 
-/// Tab 1 holding one group that stacks `a`, `b` and `c`, with `shown` shown and focused.
+/// Tab 1 holding one group of the editor tabs `a`, `b` and `c`, with `shown` shown and focused.
 pub(crate) fn strip_layout(shown: &str) -> Layout {
-    let mut layout = layout_of("a", &[]);
+    let mut layout = Layout::default();
+    layout
+        .apply(Command::AddTab {
+            id: TabId(1),
+            title: "Tab".into(),
+        })
+        .expect("add tab");
+    let first = Command::OpenPane {
+        tab: TabId(1),
+        instance: editor("a"),
+        placement: None,
+    };
+    layout.apply(first).expect("open a");
     for name in ["b", "c"] {
         stack_onto_a(&mut layout, name);
     }

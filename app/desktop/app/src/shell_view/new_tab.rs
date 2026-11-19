@@ -5,9 +5,9 @@ use protocol::PaneId;
 use super::ShellView;
 use crate::core_panes::NEW_TAB;
 use crate::focused_chat::focused_chat;
+use crate::group_focus::focused_group;
 use crate::new_tab_action::NewTabAction;
 use crate::pane_spec::PaneSpec;
-use crate::stack_policy::stack_target;
 
 impl ShellView {
     pub(super) fn new_tab(
@@ -33,7 +33,7 @@ impl ShellView {
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
-        if let Some(pane) = page_in_stack(self.state.layout()) {
+        if let Some(pane) = page_in_group(self.state.layout()) {
             self.state.apply(vec![Command::FocusPane { pane }]);
             self.refresh(cx);
             return;
@@ -72,9 +72,9 @@ fn stage_view(
     }]
 }
 
-fn page_in_stack(layout: &Layout) -> Option<PaneId> {
+fn page_in_group(layout: &Layout) -> Option<PaneId> {
     let tab = layout.active_tab()?;
-    let group = tab.group_of(&stack_target(tab)?)?;
+    let group = focused_group(tab)?;
     let is_page = |pane: &&PaneId| {
         tab.pane(pane)
             .is_some_and(|found| found.type_id.as_str() == NEW_TAB)
@@ -96,7 +96,6 @@ const fn opened_pane(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::stack_policy::place;
 
     fn instance(
         name: &str,
@@ -139,20 +138,23 @@ mod tests {
     }
 
     #[test]
-    fn a_view_keeps_one_new_tab_page_in_its_stack() {
+    fn a_group_keeps_one_new_tab_page_among_its_tabs() {
         let mut layout = Layout::default();
         layout
             .apply(stage_view(&layout, TabId(1)).remove(0))
             .unwrap();
-        assert_eq!(page_in_stack(&layout), None, "an empty view has none");
+        assert_eq!(page_in_group(&layout), None, "an empty view has none");
         for (name, kind) in [("c1", "core.chat"), ("e1", "core.editor"), ("n1", NEW_TAB)] {
             let instance = instance(name, kind);
             layout
-                .apply(place(layout.active_tab().unwrap(), instance))
+                .apply(crate::pane_opener::open_in_tab(
+                    layout.active_tab().unwrap(),
+                    instance,
+                ))
                 .unwrap();
         }
-        let page = page_in_stack(&layout).map(|pane| pane.as_str().to_owned());
-        assert_eq!(page.as_deref(), Some("n1"), "the stack's page is found");
+        let page = page_in_group(&layout).map(|pane| pane.as_str().to_owned());
+        assert_eq!(page.as_deref(), Some("n1"), "the group's page is found");
     }
 
     #[test]

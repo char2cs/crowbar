@@ -206,6 +206,18 @@ mod tests {
         }
     }
 
+    fn open_beside(
+        tab: u64,
+        name: &str,
+        target: &str,
+    ) -> Command {
+        Command::OpenPane {
+            tab: TabId(tab),
+            instance: instance(name),
+            placement: Some(at(target, Edge::Right)),
+        }
+    }
+
     fn open_chat(
         tab: u64,
         name: &str,
@@ -356,8 +368,8 @@ mod tests {
         let mut layout = layout(vec![
             add(1),
             open_chat(1, "p1", "chat-7", None),
-            open(1, "t1"),
-            open(1, "t2"),
+            open_beside(1, "t1", "p1"),
+            open_beside(1, "t2", "t1"),
         ]);
         layout
             .apply(open_chat(1, "x", "chat-7", Some(at("t2", Edge::Right))))

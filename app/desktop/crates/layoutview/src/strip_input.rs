@@ -29,7 +29,7 @@ impl LayoutView {
         group: &PaneGroup,
         cx: &mut Context<'_, Self>,
     ) -> Option<PaneStrip> {
-        if group.tabs().len() < 2 {
+        if group.tabs().is_empty() {
             return None;
         }
         let active = group.active_tab()?;

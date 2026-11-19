@@ -1,6 +1,8 @@
 use protocol::PaneId;
 use serde::{Deserialize, Serialize};
 
+use crate::pane_instance::PaneInstance;
+
 /// One place of a tab's split tree, as develop's `PaneGroup`: at most one chat, and the editor
 /// tabs shown beside it or over it.
 ///
@@ -19,6 +21,20 @@ pub struct PaneGroup {
 }
 
 impl PaneGroup {
+    pub(crate) fn holding(instance: &PaneInstance) -> Self {
+        if !instance.type_id.is_chat() {
+            return Self::single(instance.pane_id.clone());
+        }
+        Self {
+            chat: Some(instance.pane_id.clone()),
+            tabs: Vec::new(),
+            active: None,
+            pinned: 0,
+            editor_open: false,
+            chat_selected: true,
+        }
+    }
+
     pub(crate) fn single(pane: PaneId) -> Self {
         Self {
             chat: None,
@@ -91,56 +107,48 @@ impl PaneGroup {
     pub(crate) fn is_empty(&self) -> bool {
         self.chat.is_none() && self.tabs.is_empty()
     }
-
-    pub(crate) fn is_consistent(&self) -> bool {
-        let mut sorted: Vec<&PaneId> = self.tabs.iter().collect();
-        sorted.sort();
-        sorted.dedup();
-        let active_ok = match &self.active {
-            Some(active) => self.tabs.contains(active),
-            None => self.tabs.is_empty(),
-        };
-        let chat_apart = self
-            .chat
-            .as_ref()
-            .is_none_or(|chat| !self.tabs.contains(chat));
-        sorted.len() == self.tabs.len()
-            && active_ok
-            && chat_apart
-            && !self.is_empty()
-            && self.pinned <= self.tabs.len()
-    }
 }
 
 #[cfg(test)]
 mod tests {
+    use protocol::{PaneState, PaneTypeId, Params};
+
     use super::*;
 
-    fn id(name: &str) -> PaneId {
-        PaneId::new(name).unwrap()
-    }
-
-    fn group(
-        names: &[&str],
-        active: &str,
-    ) -> PaneGroup {
-        PaneGroup {
-            tabs: names.iter().map(|name| id(name)).collect(),
-            active: Some(id(active)),
-            ..PaneGroup::single(id(active))
+    fn instance(
+        name: &str,
+        kind: &str,
+    ) -> PaneInstance {
+        PaneInstance {
+            pane_id: PaneId::new(name).unwrap(),
+            type_id: PaneTypeId::new(kind).unwrap(),
+            params: Params::default(),
+            state: PaneState::default(),
         }
     }
 
     #[test]
-    fn consistency_needs_distinct_members_and_a_member_as_active() {
-        assert!(group(&["a", "b"], "b").is_consistent(), "fine");
-        assert!(!group(&["a", "a"], "a").is_consistent(), "duplicate");
-        assert!(!group(&["a", "b"], "z").is_consistent(), "active outside");
-        assert!(!group(&[], "a").is_consistent(), "empty");
-        let chat_among_tabs = PaneGroup {
-            chat: Some(id("a")),
-            ..group(&["a", "b"], "b")
-        };
-        assert!(!chat_among_tabs.is_consistent(), "chat among the tabs");
+    fn a_group_shows_its_chat_until_an_editor_tab_is_selected() {
+        let chat = instance("c", PaneTypeId::CHAT);
+        let mut group = PaneGroup::holding(&chat);
+        assert_eq!(group.shown(), Some(&chat.pane_id), "a lone chat");
+        group.tabs = vec![PaneId::new("t").unwrap()];
+        group.active = group.tabs.first().cloned();
+        assert_eq!(group.shown(), Some(&chat.pane_id), "chat still selected");
+        group.chat_selected = false;
+        assert_eq!(group.shown(), group.active_tab(), "the tab once selected");
+    }
+
+    #[test]
+    fn a_pane_that_is_not_a_chat_starts_a_chatless_group_as_its_tab() {
+        let terminal = instance("t", "core.terminal");
+        let group = PaneGroup::holding(&terminal);
+        assert_eq!(group.chat(), None, "no chat");
+        assert_eq!(
+            group.tabs(),
+            std::slice::from_ref(&terminal.pane_id),
+            "the tab"
+        );
+        assert!(group.editor_open(), "its editor shows");
     }
 }

@@ -22,7 +22,7 @@ pub(crate) fn open_commands(
     let Some(tab) = layout.active_tab() else {
         return Ok(open_in_new_tab(serials.next_tab(), instance));
     };
-    Ok(vec![crate::stack_policy::place(tab, instance)])
+    Ok(vec![open_pane(tab.id(), instance)])
 }
 
 pub(crate) fn open_view_commands(
@@ -66,7 +66,7 @@ pub(crate) fn open_in_tab(
     tab: &Tab,
     instance: PaneInstance,
 ) -> Command {
-    crate::stack_policy::place(tab, instance)
+    open_pane(tab.id(), instance)
 }
 
 fn open_pane(

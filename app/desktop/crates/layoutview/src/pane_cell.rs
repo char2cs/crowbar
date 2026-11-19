@@ -1,9 +1,8 @@
 use std::rc::Rc;
 
-use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, AnyView, App, ElementId, InteractiveElement, IntoElement, MouseButton,
-    ParentElement, RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
+    AnyElement, App, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement,
+    RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
 use layout::Rect;
 use protocol::PaneId;
@@ -13,13 +12,10 @@ use crate::insets::Insets;
 
 use crate::pane_frame::PaneFrame;
 use crate::pane_handle::PaneHandle;
-use crate::pane_strip::{PaneStrip, STRIP_HEIGHT};
 use crate::ring_paint::RingPaint;
 
 const RING_WIDTH_LIGHT: f32 = 2.0;
 const RING_WIDTH_DARK: f32 = 1.0;
-
-type Chrome = Option<(AnyView, f32)>;
 
 pub(crate) type CellAction = Rc<dyn Fn(&mut Window, &mut App)>;
 
@@ -29,8 +25,6 @@ pub(crate) struct PaneCell {
     pub(crate) slot: Rect,
     pub(crate) frame: PaneFrame,
     pub(crate) content: AnyElement,
-    pub(crate) chrome: Chrome,
-    pub(crate) strip: Option<PaneStrip>,
     pub(crate) ring_opacity: f32,
     pub(crate) handle: Option<PaneHandle>,
     pub(crate) on_enter: CellAction,
@@ -50,7 +44,6 @@ impl RenderOnce for PaneCell {
         let id = ElementId::from(SharedString::from(self.pane.as_str().to_owned()));
         let (handle_left, handle_top) = handle_origin(&frame);
         let seat = (handle_left - self.slot.x, handle_top - self.slot.y);
-        let offset = f32::from(self.strip.is_some()) * STRIP_HEIGHT;
         div()
             .id(id)
             .absolute()
@@ -62,14 +55,7 @@ impl RenderOnce for PaneCell {
                 route([&leave, &enter], usize::from(*hovered), window, cx);
             })
             .on_mouse_down(MouseButton::Left, move |_, window, cx| press(window, cx))
-            .child(
-                pane_box(&frame, self.slot, palette)
-                    .when_some(self.chrome, |frame, (chrome, height)| {
-                        frame.child(chrome_strip(chrome, offset, height))
-                    })
-                    .when_some(self.strip, ParentElement::child)
-                    .child(self.content),
-            )
+            .child(pane_box(&frame, self.slot, palette).child(self.content))
             .child(ring(
                 &frame,
                 self.slot,
@@ -105,20 +91,6 @@ pub(crate) fn pane_box(
     palette: &Palette,
 ) -> gpui::Div {
     boxed(frame, slot, palette.pane_border(), palette.pane_chrome_bg())
-}
-
-fn chrome_strip(
-    chrome: AnyView,
-    top: f32,
-    height: f32,
-) -> gpui::Div {
-    div()
-        .absolute()
-        .top(px(top))
-        .left_0()
-        .w_full()
-        .h(px(height))
-        .child(chrome)
 }
 
 fn route(

@@ -1,15 +1,15 @@
 use std::time::Instant;
 
 use gpui::{
-    AnyElement, AnyView, App, Context, Hsla, InteractiveElement, IntoElement, MouseButton,
-    MouseDownEvent, ParentElement, Render, Styled, Window, canvas, div, px,
+    AnyElement, App, Context, Hsla, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
+    ParentElement, Render, Styled, Window, canvas, div, px,
 };
-use layout::{Axis, DragSubject, PaneSlot, Rect, Sash as ModelSash};
+use layout::{Axis, DragSubject, Rect, Sash as ModelSash};
 use protocol::PaneId;
 use ui::{DraggedRow, Motion, Portal, Sash, SashDrag, Surface, Theme, Wordmark};
 
 use crate::layout_view::LayoutView;
-use crate::pane_cell::{PaneCell, pane_box};
+use crate::pane_cell::pane_box;
 use crate::pane_frame::PaneFrame;
 use crate::pane_handle::PaneHandle;
 use crate::pane_strip::STRIP_HEIGHT;
@@ -89,64 +89,7 @@ impl LayoutView {
         Some(stage.into_any_element())
     }
 
-    fn pane_cells(
-        &self,
-        window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) -> Vec<AnyElement> {
-        let Some(tab) = &self.tab else {
-            return Vec::new();
-        };
-        let local = self.local();
-        tab.layout(local)
-            .into_iter()
-            .map(|slot| self.pane_cell(slot, window, cx))
-            .collect()
-    }
-
-    fn pane_cell(
-        &self,
-        slot: PaneSlot,
-        window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) -> AnyElement {
-        let (now, motion) = (self.clock.now(), Motion::of(cx));
-        let frame = PaneFrame::new(slot.rect, self.local(), self.chrome);
-        let content = self.source.content(&slot.pane, window, cx);
-        let chrome = self.chrome_for(&slot.pane, window, cx);
-        let slot_pane = slot.pane.clone();
-        PaneCell {
-            handle: self.handle_for(&slot.pane, (now, motion), cx),
-            ring_opacity: self.rings.opacity(&slot.pane, now, motion),
-            on_enter: Self::enter_action(&slot.pane, cx),
-            on_leave: Self::leave_action(&slot.pane, cx),
-            on_press: Self::press_action(&slot.pane, cx),
-            pane: slot.pane,
-            slot: slot.rect,
-            frame,
-            content,
-            chrome,
-            strip: self.strip_of(&slot_pane, cx),
-        }
-        .into_any_element()
-    }
-
-    fn chrome_for(
-        &self,
-        pane: &PaneId,
-        window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) -> Option<(AnyView, f32)> {
-        let height = self.source.chrome_height(pane);
-        if height <= 0.0 {
-            return None;
-        }
-        self.source
-            .chrome(pane, window, cx)
-            .map(|view| (view, height))
-    }
-
-    fn handle_for(
+    pub(crate) fn handle_for(
         &self,
         pane: &PaneId,
         (now, motion): (Instant, Motion),

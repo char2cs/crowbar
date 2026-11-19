@@ -161,7 +161,7 @@ mod tests {
             (
                 vec![],
                 vec![LayoutEvent::Announce(
-                    "Cannot close pinned tab core.chat".into()
+                    "Cannot close pinned tab core.terminal".into()
                 )]
             ),
             "b is shown and pinned"

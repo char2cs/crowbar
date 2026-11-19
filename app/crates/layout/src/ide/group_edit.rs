@@ -104,6 +104,25 @@ impl PaneGroup {
             *member = exchanged(member);
         }
     }
+
+    pub(crate) fn is_consistent(&self) -> bool {
+        let mut sorted: Vec<&PaneId> = self.tabs.iter().collect();
+        sorted.sort();
+        sorted.dedup();
+        let active_ok = match &self.active {
+            Some(active) => self.tabs.contains(active),
+            None => self.tabs.is_empty(),
+        };
+        let chat_apart = self
+            .chat
+            .as_ref()
+            .is_none_or(|chat| !self.tabs.contains(chat));
+        sorted.len() == self.tabs.len()
+            && active_ok
+            && chat_apart
+            && !self.is_empty()
+            && self.pinned <= self.tabs.len()
+    }
 }
 
 #[cfg(test)]
@@ -220,5 +239,18 @@ mod tests {
             Some(&id("c")),
             "active follows the place"
         );
+    }
+
+    #[test]
+    fn consistency_needs_distinct_members_and_a_member_as_active() {
+        assert!(group(&["a", "b"], "b").is_consistent(), "fine");
+        assert!(!group(&["a", "a"], "a").is_consistent(), "duplicate");
+        assert!(!group(&["a", "b"], "z").is_consistent(), "active outside");
+        assert!(!group(&[], "a").is_consistent(), "empty");
+        let chat_among_tabs = PaneGroup {
+            chat: Some(id("a")),
+            ..group(&["a", "b"], "b")
+        };
+        assert!(!chat_among_tabs.is_consistent(), "chat among the tabs");
     }
 }

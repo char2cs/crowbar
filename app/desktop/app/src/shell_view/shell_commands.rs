@@ -101,7 +101,7 @@ impl ShellView {
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
-        if crate::stack_policy::editor_focused(self.state.layout()) {
+        if crate::group_focus::editor_focused(self.state.layout()) {
             return self.new_tab(cx);
         }
         self.start_chat(sidebar::Command::NewThread);
@@ -163,7 +163,7 @@ impl ShellView {
             .state
             .layout()
             .active_tab()
-            .and_then(crate::stack_policy::close_target);
+            .and_then(crate::group_focus::close_target);
         if let Some(pane) = target {
             self.apply_guarded(vec![Command::ClosePane { pane }], cx);
         }

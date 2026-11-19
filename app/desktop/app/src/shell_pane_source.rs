@@ -105,7 +105,7 @@ impl layoutview::PaneTabs for ShellPaneSource {
         &self,
         instance: &layout::PaneInstance,
     ) -> bool {
-        crate::stack_policy::stacks(&instance.type_id)
+        !instance.type_id.is_chat()
     }
 }
 

@@ -1,7 +1,7 @@
 use crate::axis::Axis;
 use crate::branch::Branch;
 use crate::division::Division;
-use crate::group_slot::GroupSlot;
+use crate::ide::pane_group::PaneGroup;
 use crate::pane_slot::PaneSlot;
 use crate::rect::Rect;
 use crate::sash::Sash;
@@ -62,20 +62,12 @@ impl SplitNode {
         }
     }
 
-    pub(crate) fn place_groups(
+    pub(crate) fn place_leaves(
         &self,
         bounds: Rect,
-    ) -> Vec<GroupSlot> {
+    ) -> Vec<(Rect, &PaneGroup)> {
         match self {
-            Self::Leaf(group) => group
-                .shown()
-                .map(|active| GroupSlot {
-                    rect: bounds,
-                    panes: group.members(),
-                    active: active.clone(),
-                })
-                .into_iter()
-                .collect(),
+            Self::Leaf(group) => vec![(bounds, group)],
             Self::Split {
                 axis,
                 ratio,
@@ -84,8 +76,8 @@ impl SplitNode {
             } => {
                 let parts = divide(bounds, *axis, *ratio);
                 [
-                    first.place_groups(parts.first),
-                    second.place_groups(parts.second),
+                    first.place_leaves(parts.first),
+                    second.place_leaves(parts.second),
                 ]
                 .concat()
             },
@@ -121,7 +113,7 @@ impl SplitNode {
     }
 }
 
-fn divide(
+pub(crate) fn divide(
     bounds: Rect,
     axis: Axis,
     ratio: f32,
@@ -199,7 +191,10 @@ mod tests {
     #[test]
     fn place_leaves_room_for_the_sash_and_divides_nested_splits_by_axis() {
         let mut nested = two_by_one();
-        assert!(nested.split_leaf(&id("b"), &id("c"), Edge::Bottom), "nest");
+        assert!(
+            nested.split_leaf(&id("b"), SplitNode::leaf(id("c")), Edge::Bottom),
+            "nest"
+        );
         let cases = [
             (
                 "500 + 6 sash + 500",
@@ -260,7 +255,10 @@ mod tests {
     #[test]
     fn sashes_are_listed_with_their_path_outermost_first() {
         let mut tree = two_by_one();
-        assert!(tree.split_leaf(&id("b"), &id("c"), Edge::Bottom), "nest");
+        assert!(
+            tree.split_leaf(&id("b"), SplitNode::leaf(id("c")), Edge::Bottom),
+            "nest"
+        );
         let sashes = tree.place_sashes(bounds(1006.0, 1006.0), &[]);
         let found: Vec<SashFacts> = sashes
             .iter()
@@ -289,7 +287,10 @@ mod tests {
     #[test]
     fn split_rect_follows_paths_with_the_real_sizes() {
         let mut tree = two_by_one();
-        assert!(tree.split_leaf(&id("b"), &id("c"), Edge::Bottom), "nest");
+        assert!(
+            tree.split_leaf(&id("b"), SplitNode::leaf(id("c")), Edge::Bottom),
+            "nest"
+        );
         let (axis, rect) = tree
             .split_rect(&[Branch::Second], bounds(1006.0, 1006.0))
             .unwrap();

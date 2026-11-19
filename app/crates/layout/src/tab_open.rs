@@ -2,6 +2,7 @@ use protocol::PaneId;
 
 use crate::edge::Edge;
 use crate::error::{Error, Result};
+use crate::ide::pane_group::PaneGroup;
 use crate::pane_instance::PaneInstance;
 use crate::placement::Placement;
 use crate::split_node::SplitNode;
@@ -36,7 +37,12 @@ impl Tab {
     ) -> Result<()> {
         let id = instance.pane_id.clone();
         self.check_open(&id, placement.as_ref())?;
-        self.insert_leaf(&id, placement)?;
+        let joins = placement.is_none() && self.tree.is_some() && !instance.type_id.is_chat();
+        if joins {
+            let focused = self.target_of(None)?;
+            return self.open_in_group(instance, (&focused, None));
+        }
+        self.insert_leaf(&instance, placement)?;
         self.focused = Some(id.clone());
         self.panes.insert(id, instance);
         Ok(())
@@ -44,18 +50,19 @@ impl Tab {
 
     fn insert_leaf(
         &mut self,
-        id: &PaneId,
+        instance: &PaneInstance,
         placement: Option<Placement>,
     ) -> Result<()> {
+        let fresh = SplitNode::Leaf(PaneGroup::holding(instance));
         if self.tree.is_none() {
-            self.tree = Some(SplitNode::leaf(id.clone()));
+            self.tree = Some(fresh);
             return Ok(());
         }
         let placement = self.resolve(placement)?;
         let split = self
             .tree
             .as_mut()
-            .is_some_and(|tree| tree.split_leaf(&placement.target, id, placement.edge));
+            .is_some_and(|tree| tree.split_leaf(&placement.target, fresh, placement.edge));
         split
             .then_some(())
             .ok_or(Error::PaneNotFound(placement.target))
@@ -129,7 +136,75 @@ impl Tab {
 mod tests {
     use super::*;
     use crate::tab_id::TabId;
-    use crate::test_support::tab_fixtures::{at, id, order, pane, tab_with};
+    use crate::test_support::tab_fixtures::{at, editor, id, order, pane, tab_with};
+
+    fn group_of<'a>(
+        tab: &'a Tab,
+        name: &str,
+    ) -> &'a PaneGroup {
+        tab.group_of(&id(name)).unwrap()
+    }
+
+    #[test]
+    fn a_chat_opens_in_a_group_of_its_own_with_the_editor_closed() {
+        let tab = tab_with(&["a", "b"]);
+        let group = group_of(&tab, "a");
+        assert_eq!(group.chat(), Some(&id("a")), "the chat");
+        assert!(group.tabs().is_empty(), "no editor tab");
+        assert!(!group.editor_open(), "editor closed");
+        assert_eq!(tab.group_count(), 2, "one place per chat");
+    }
+
+    #[test]
+    fn any_other_pane_joins_the_focused_group_as_its_active_editor_tab() {
+        let mut tab = tab_with(&["a", "b"]);
+        tab.open(editor("t1"), None).unwrap();
+        tab.open(editor("t2"), None).unwrap();
+        let group = group_of(&tab, "b");
+        assert_eq!(group.tabs(), [id("t1"), id("t2")], "tabs in opening order");
+        assert_eq!(group.active_tab(), Some(&id("t2")), "the newest is active");
+        assert!(
+            group.editor_open() && !group.chat_selected(),
+            "editor shown"
+        );
+        assert_eq!(tab.group_count(), 2, "no new place");
+        assert_eq!(tab.focused(), Some(&id("t2")), "focused");
+        tab.validate().unwrap();
+    }
+
+    #[test]
+    fn an_editor_pane_placed_at_an_edge_opens_a_group_of_its_own() {
+        let mut tab = tab_with(&["a"]);
+        tab.open(editor("t1"), Some(at("a", Edge::Right))).unwrap();
+        assert_eq!(tab.group_count(), 2, "a new place");
+        assert_eq!(group_of(&tab, "t1").chat(), None, "without a chat");
+        tab.validate().unwrap();
+    }
+
+    #[test]
+    fn closing_the_last_editor_tab_closes_the_editor_and_focuses_the_chat() {
+        let mut tab = tab_with(&["a"]);
+        tab.open(editor("t1"), None).unwrap();
+        tab.take_pane(&id("t1")).unwrap();
+        let group = group_of(&tab, "a");
+        assert!(
+            group.tabs().is_empty() && !group.editor_open(),
+            "editor closed"
+        );
+        assert_eq!(tab.focused(), Some(&id("a")), "the chat");
+        tab.validate().unwrap();
+    }
+
+    #[test]
+    fn closing_the_chat_leaves_its_editor_tabs_in_place() {
+        let mut tab = tab_with(&["a"]);
+        tab.open(editor("t1"), None).unwrap();
+        tab.take_pane(&id("a")).unwrap();
+        assert_eq!(group_of(&tab, "t1").chat(), None, "chatless");
+        assert_eq!(tab.group_count(), 1, "same place");
+        assert_eq!(tab.focused(), Some(&id("t1")), "focus on the tab");
+        tab.validate().unwrap();
+    }
 
     #[test]
     fn first_pane_becomes_root_and_focus() {

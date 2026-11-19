@@ -3,24 +3,26 @@ use protocol::PaneId;
 use crate::axis::Axis;
 use crate::branch::Branch;
 use crate::edge::Edge;
+use crate::ide::pane_group::PaneGroup;
 use crate::split_node::{EQUAL_SHARE, SplitNode};
 
 impl SplitNode {
     pub(crate) fn split_leaf(
         &mut self,
         target: &PaneId,
-        new: &PaneId,
+        fresh: Self,
         edge: Edge,
     ) -> bool {
         match self {
             Self::Leaf(group) if group.contains(target) => {
-                *self = Self::beside(Self::Leaf(group.clone()), Self::leaf(new.clone()), edge);
+                *self = Self::beside(Self::Leaf(group.clone()), fresh, edge);
                 true
             },
             Self::Leaf(_) => false,
-            Self::Split { first, second, .. } => {
-                first.split_leaf(target, new, edge) || second.split_leaf(target, new, edge)
+            Self::Split { first, .. } if first.group_of(target).is_some() => {
+                first.split_leaf(target, fresh, edge)
             },
+            Self::Split { second, .. } => second.split_leaf(target, fresh, edge),
         }
     }
 
@@ -53,18 +55,33 @@ impl SplitNode {
         self,
         pane: &PaneId,
     ) -> Option<Self> {
+        self.pruned(pane, |mut group, pane| {
+            group.take(pane);
+            (!group.is_empty()).then_some(group)
+        })
+    }
+
+    pub(crate) fn without_group_of(
+        self,
+        pane: &PaneId,
+    ) -> Option<Self> {
+        self.pruned(pane, |_, _| None)
+    }
+
+    fn pruned(
+        self,
+        pane: &PaneId,
+        cut: fn(PaneGroup, &PaneId) -> Option<PaneGroup>,
+    ) -> Option<Self> {
         match self {
-            Self::Leaf(mut group) if group.contains(pane) => {
-                group.take(pane);
-                (!group.is_empty()).then_some(Self::Leaf(group))
-            },
+            Self::Leaf(group) if group.contains(pane) => cut(group, pane).map(Self::Leaf),
             Self::Leaf(_) => Some(self),
             Self::Split {
                 axis,
                 ratio,
                 first,
                 second,
-            } => match (first.without(pane), second.without(pane)) {
+            } => match (first.pruned(pane, cut), second.pruned(pane, cut)) {
                 (Some(first), Some(second)) => Some(Self::split(axis, ratio, first, second)),
                 (kept, None) | (None, kept) => kept,
             },
@@ -103,6 +120,34 @@ impl SplitNode {
         }
     }
 
+    pub(crate) fn swap_groups(
+        &mut self,
+        a: &PaneId,
+        b: &PaneId,
+    ) {
+        let (Some(first), Some(second)) = (self.group_of(a).cloned(), self.group_of(b).cloned())
+        else {
+            return;
+        };
+        self.exchange_groups(&first, &second);
+    }
+
+    fn exchange_groups(
+        &mut self,
+        x: &PaneGroup,
+        y: &PaneGroup,
+    ) {
+        match self {
+            Self::Leaf(group) if group == x => *group = y.clone(),
+            Self::Leaf(group) if group == y => *group = x.clone(),
+            Self::Leaf(_) => {},
+            Self::Split { first, second, .. } => {
+                first.exchange_groups(x, y);
+                second.exchange_groups(x, y);
+            },
+        }
+    }
+
     pub(crate) fn split_at_mut(
         &mut self,
         path: &[Branch],
@@ -136,7 +181,10 @@ mod tests {
         ];
         for (edge, order, expected_axis) in cases {
             let mut tree = SplitNode::leaf(id("a"));
-            assert!(tree.split_leaf(&id("a"), &id("n"), edge), "{edge:?}");
+            assert!(
+                tree.split_leaf(&id("a"), SplitNode::leaf(id("n")), edge),
+                "{edge:?}"
+            );
             assert_eq!(panes(&tree), order, "{edge:?} order");
             assert!(
                 matches!(tree, SplitNode::Split { axis, ratio, .. } if axis == expected_axis && (ratio - EQUAL_SHARE).abs() < f32::EPSILON),
@@ -150,7 +198,7 @@ mod tests {
         let mut tree = two_by_one();
         let before = tree.clone();
         assert!(
-            !tree.split_leaf(&id("zz"), &id("n"), Edge::Left),
+            !tree.split_leaf(&id("zz"), SplitNode::leaf(id("n")), Edge::Left),
             "missing target"
         );
         assert_eq!(tree, before, "unchanged");
@@ -172,7 +220,10 @@ mod tests {
     #[test]
     fn without_keeps_ratios_of_untouched_splits() {
         let mut tree = two_by_one();
-        assert!(tree.split_leaf(&id("b"), &id("c"), Edge::Bottom), "nest");
+        assert!(
+            tree.split_leaf(&id("b"), SplitNode::leaf(id("c")), Edge::Bottom),
+            "nest"
+        );
         let SplitNode::Split { first, second, .. } = tree.without(&id("a")).unwrap() else {
             panic!("a split remains");
         };
@@ -200,11 +251,14 @@ mod tests {
     #[test]
     fn the_neighbour_of_a_pane_beside_a_stack_is_the_stack_side_facing_it() {
         let mut tree = two_by_one();
-        assert!(tree.split_leaf(&id("b"), &id("c"), Edge::Bottom), "stack");
+        assert!(
+            tree.split_leaf(&id("b"), SplitNode::leaf(id("c")), Edge::Bottom),
+            "stack"
+        );
         assert_eq!(tree.neighbour_of(&id("a")), Some(&id("b")), "a to the top");
         let mut left_stack = two_by_one();
         assert!(
-            left_stack.split_leaf(&id("a"), &id("c"), Edge::Bottom),
+            left_stack.split_leaf(&id("a"), SplitNode::leaf(id("c")), Edge::Bottom),
             "stack"
         );
         assert_eq!(
@@ -224,7 +278,10 @@ mod tests {
     #[test]
     fn split_at_mut_follows_paths_to_splits_only() {
         let mut tree = two_by_one();
-        assert!(tree.split_leaf(&id("b"), &id("c"), Edge::Bottom), "nest");
+        assert!(
+            tree.split_leaf(&id("b"), SplitNode::leaf(id("c")), Edge::Bottom),
+            "nest"
+        );
         assert!(tree.split_at_mut(&[]).is_some(), "root split");
         assert!(
             tree.split_at_mut(&[Branch::Second]).is_some(),
