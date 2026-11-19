@@ -62,6 +62,7 @@ mod new_tab_view;
 mod notice_key;
 mod notices;
 mod open_all;
+mod open_chats;
 mod outcome;
 mod page_shot;
 mod pane_opener;

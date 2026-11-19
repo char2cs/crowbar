@@ -236,6 +236,11 @@ impl ShellView {
         self.source.native().follow(layout, &titles);
         let tab = layout.active_tab().cloned();
         self.data.focus_chat(focused_chat(layout).as_deref());
+        let open = crate::open_chats::open_chats(layout)
+            .into_iter()
+            .map(sidebar::RowId::from);
+        self.sidebar
+            .update(cx, |sidebar, cx| sidebar.set_open_chats(open, cx));
         self.follow_focus(cx);
         self.push_tabs(cx);
         let (chrome, sidebar_state) = self.chrome(cx);
