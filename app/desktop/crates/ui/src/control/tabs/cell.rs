@@ -23,7 +23,6 @@ use crate::foundation::tokens::spacing;
 use crate::foundation::tokens::text_size;
 
 const DISABLED_OPACITY: f32 = 0.64;
-const MUTED_TEXT: f32 = 0.72;
 const ICON_WITH_LABEL: f32 = 16.0;
 const ICON_ALONE: f32 = 14.0;
 
@@ -85,7 +84,7 @@ impl Cell {
             .flex_1()
             .items_center()
             .justify_center()
-            .gap(spacing::STEP_1_5)
+            .gap(px(style.icon_gap()))
             .h(px(style.tab_height()))
             .px(spacing::STEP_2)
             .rounded(radius::MD)
@@ -108,8 +107,8 @@ impl Cell {
         if self.selected == Pose::On {
             return style.active_text(palette);
         }
-        let rest = palette.muted_foreground().opacity(MUTED_TEXT);
-        hover::color(hover_state, rest..palette.foreground(), window, cx)
+        let rest = style.rest_text(palette);
+        hover::color(hover_state, rest..palette.muted_foreground(), window, cx)
     }
 
     fn icon_weight(&self) -> IconWeight {

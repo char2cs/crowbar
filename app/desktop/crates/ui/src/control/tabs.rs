@@ -135,7 +135,7 @@ impl RenderOnce for Tabs {
             .gap(px(GAP))
             .p(px(GAP))
             .rounded(radius::LG)
-            .bg(palette.muted())
+            .bg(self.style.track(palette))
             .min_h(px(self.style.tab_height() + 2.0 * GAP))
             .child(
                 div()
