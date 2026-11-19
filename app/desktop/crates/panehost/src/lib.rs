@@ -3,10 +3,9 @@
 //! * [`PaneRegistry`] lists the pane types (id, entry page, [`PaneLifecycle`],
 //!   [`Multiplicity`]); built-in and extension panes are the same thing to it.
 //! * [`PaneHost`] follows the layout: web views live in a pool of slots that follow the
-//!   visible panes, hidden panes are parked or kept alive by their type's lifecycle, focus
-//!   decides `activate` and `deactivate`, and native overlays hide web views without telling
-//!   any pane. A pane whose type is gone shows a placeholder and keeps its state; a pane that
-//!   fails shows the error in its own frame.
+//!   visible panes, hidden panes are parked or kept alive by their type's lifecycle, and focus
+//!   decides `activate` and `deactivate`. A pane whose type is gone shows a placeholder and
+//!   keeps its state; a pane that fails shows the error in its own frame.
 //! * [`PaneProtocol`] serves the `crowbar://` scheme: built pane bundles from a
 //!   [`BundleSource`] and everything else through [`protocol::DaemonTransport`], authorized
 //!   per web view so an extension pane reaches only its own bundle and routes.
@@ -28,8 +27,7 @@ pub use catalog::{
 };
 pub use error::{Error, Result};
 pub use pane_host::{
-    BrowseAction, FrozenPane, Keyboard, LayoutSnapshot, Overlay, PaneDisplay, PaneHost, SyncReport,
-    VisiblePane,
+    BrowseAction, Keyboard, LayoutSnapshot, PaneDisplay, PaneHost, SyncReport, VisiblePane,
 };
 pub use protocol::PaneOrigin;
 pub use scheme::{Assignment, OriginTable, PaneProtocol};

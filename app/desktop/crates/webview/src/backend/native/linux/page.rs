@@ -1,7 +1,6 @@
 use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use crate::backend::native::linux::bounded_wait::collect_within;
 use crate::backend::native::linux::gtk_platform::GtkPlatform;
 use crate::backend::page_control::PageControl;
 use crate::backend::view_capture::ViewCapture;
@@ -59,21 +58,8 @@ impl ViewCapture for GtkPlatform {
         &self,
         id: Id,
     ) -> Result<Option<Snapshot>> {
-        self.snapshot_all(&[id]).pop().unwrap_or(Ok(None))
-    }
-
-    fn snapshot_all(
-        &self,
-        ids: &[Id],
-    ) -> Vec<Result<Option<Snapshot>>> {
-        let (posted, answers): (Vec<_>, Vec<_>) =
-            ids.iter().map(|id| self.ask_snapshot(*id)).unzip();
-        let replies = collect_within(&answers, SNAPSHOT_PATIENCE, Instant::now);
-        posted
-            .into_iter()
-            .zip(replies)
-            .map(|(posted, reply)| settle_snapshot(posted, reply))
-            .collect()
+        let (posted, answer) = self.ask_snapshot(id);
+        settle_snapshot(posted, answer.recv_timeout(SNAPSHOT_PATIENCE).ok())
     }
 }
 

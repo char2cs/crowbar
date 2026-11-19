@@ -8,7 +8,7 @@ use ptysession::TerminalSessions;
 use sidebar::Preferences;
 use sidebarview::Sidebar;
 use startup::MonotonicClock;
-use ui::{Overlays, ToastQueue};
+use ui::ToastQueue;
 use viewtabs::TabBar;
 
 use super::built::Built;
@@ -20,24 +20,12 @@ use crate::chat_terminals::ChatTerminals;
 use crate::daemon_link::DaemonLink;
 use crate::native_panes::NativePanes;
 use crate::notices::floating_at;
-use crate::overlay_requests::OverlayRequests;
 use crate::shell_pane_source::ShellPaneSource;
 use crate::shell_request::ShellRequest;
 use crate::sidebar_requests::SidebarRequests;
 use crate::startup_requests::StartupRequests;
 use crate::terminal_panes::TerminalPanes;
 use crate::workspace::Workspace;
-
-pub(super) fn overlay_channel<V: 'static>(
-    cx: &mut Context<'_, V>
-) -> (
-    async_channel::Sender<ShellRequest>,
-    async_channel::Receiver<ShellRequest>,
-) {
-    let (requests, queue) = async_channel::unbounded();
-    Overlays::install(Rc::new(OverlayRequests::new(requests.clone())), cx);
-    (requests, queue)
-}
 
 pub(super) fn start_data(
     link: &DaemonLink,

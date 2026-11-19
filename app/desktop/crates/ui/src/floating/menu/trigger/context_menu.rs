@@ -78,6 +78,7 @@ impl RenderOnce for ContextMenu {
         };
         let (opener, spec) = (state.clone(), self.spec);
         let placement = self.placement;
+        let id = self.id.clone();
         let wrapper = div()
             .id(self.id)
             .relative()
@@ -88,12 +89,19 @@ impl RenderOnce for ContextMenu {
         let Some(menu) = open else {
             return wrapper.into_any_element();
         };
+        let content: popup::Content = Rc::new(move |_, _| menu.clone().into_any_element());
         let panel = match placement {
-            Some(placement) => popup::placed(placement, OFFSET, menu),
-            None => popup::popup_at(at, menu),
+            Some(placement) => {
+                popup::placed((id.clone(), "menu").into(), placement, OFFSET, content)
+            },
+            None => popup::popup_at((id.clone(), "menu"), at, move |window, cx| {
+                content(window, cx)
+            }),
         };
         wrapper
-            .child(popup::click_away(window, move |_, cx| close(&state, cx)))
+            .child(popup::click_away((id, "away"), move |_, cx| {
+                close(&state, cx);
+            }))
             .child(panel)
             .into_any_element()
     }
@@ -138,7 +146,7 @@ mod tests {
 
     use super::*;
     use crate::floating::menu::menu_item::MenuAction;
-    use crate::test_support::probe::open;
+    use crate::test_support::probe::{open, open_floating, settle};
 
     fn nested(chosen: &Rc<Cell<u32>>) -> Vec<MenuItem> {
         let chosen = Rc::clone(chosen);
@@ -232,5 +240,31 @@ mod tests {
         cx.run_until_parked();
         cx.simulate_keystrokes("enter");
         assert_eq!(chosen.get(), 0);
+    }
+
+    #[gpui::test]
+    fn a_context_menu_floats_in_the_top_layer_at_the_pointer(cx: &mut TestAppContext) {
+        let chosen = Rc::new(Cell::new(0));
+        let (mut owner, mut top) = open_floating(cx, build(&chosen));
+        let at = point(px(40.0), px(30.0));
+        owner.simulate_event(gpui::MouseDownEvent {
+            button: MouseButton::Right,
+            position: at,
+            modifiers: gpui::Modifiers::none(),
+            click_count: 1,
+            first_mouse: false,
+        });
+        owner.run_until_parked();
+        assert_eq!(owner.debug_bounds("ui-menu"), None, "nothing in the window");
+        let menu = top.debug_bounds("ui-menu").unwrap_or_default();
+        assert_eq!(menu.origin, at);
+        let away = point(px(700.0), px(500.0));
+        top.simulate_click(away, gpui::Modifiers::none());
+        settle(&mut top);
+        assert_eq!(
+            top.debug_bounds("ui-menu"),
+            None,
+            "a press outside closes it"
+        );
     }
 }

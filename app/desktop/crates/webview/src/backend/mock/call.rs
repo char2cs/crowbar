@@ -70,10 +70,10 @@ pub enum Call {
         /// The view that had focus.
         id: Id,
     },
-    /// The pixels of these views were asked for together, in one batch.
-    SnapshotAll {
-        /// The views, in the order asked.
-        ids: Vec<Id>,
+    /// The pixels of a view were asked for.
+    Snapshot {
+        /// The view.
+        id: Id,
     },
     /// The browser views' storage was cleared.
     ClearBrowsingData,

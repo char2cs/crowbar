@@ -18,7 +18,6 @@ impl ShellState {
         parent: ParentWindow,
         visible: Vec<VisiblePane>,
     ) -> Outcome {
-        self.frozen.set_holes(&visible);
         let snapshot = LayoutSnapshot::from_layout(self.history.layout(), parent, visible)
             .with_keyboard(self.keyboard);
         let report = self.host.sync(&snapshot);

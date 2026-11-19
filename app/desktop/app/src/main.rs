@@ -39,7 +39,6 @@ mod focus_neighbour;
 mod focused_chat;
 mod frame_clock;
 mod frame_stats;
-mod frozen_layer;
 mod holes;
 mod host_builder;
 mod hosts;
@@ -62,7 +61,6 @@ mod notice_key;
 mod notices;
 mod open_all;
 mod outcome;
-mod overlay_requests;
 mod page_shot;
 mod pane_opener;
 mod pane_settings;
@@ -187,8 +185,12 @@ fn start(
         remember_close(&memory, window, cx, &view);
         view
     });
-    if let Err(error) = opened {
-        return quit_after(cx, &error, "could not open the window");
+    let main = match opened {
+        Ok(main) => main,
+        Err(error) => return quit_after(cx, &error, "could not open the window"),
+    };
+    if let Err(error) = ui::TopLayer::open(main.into(), cx) {
+        return quit_after(cx, &error, "could not open the window's top layer");
     }
     cx.activate(true);
 }

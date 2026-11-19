@@ -1,5 +1,5 @@
 use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::error::{Error, Result};
 
@@ -12,22 +12,6 @@ pub(crate) fn wait_for<T>(
         Err(mpsc::RecvTimeoutError::Timeout) => Err(Error::TimedOut),
         Err(mpsc::RecvTimeoutError::Disconnected) => Err(Error::HostStopped),
     }
-}
-
-pub(crate) fn collect_within<T>(
-    answers: &[mpsc::Receiver<T>],
-    patience: Duration,
-    now: impl Fn() -> Instant,
-) -> Vec<Option<T>> {
-    let deadline = now() + patience;
-    answers
-        .iter()
-        .map(|answer| {
-            answer
-                .recv_timeout(deadline.saturating_duration_since(now()))
-                .ok()
-        })
-        .collect()
 }
 
 #[cfg(test)]
@@ -48,24 +32,5 @@ mod tests {
         );
         drop(reply);
         assert!(matches!(wait_for(&answer, SHORT), Err(Error::HostStopped)));
-    }
-
-    #[test]
-    fn one_deadline_covers_every_answer() {
-        let (fast, fast_answer) = mpsc::channel();
-        let (_silent, silent_answer) = mpsc::channel::<u8>();
-        let (_late, late_answer) = mpsc::channel::<u8>();
-        fast.send(7_u8).unwrap();
-        let started = Instant::now();
-        let answers = collect_within(
-            &[fast_answer, silent_answer, late_answer],
-            SHORT * 2,
-            Instant::now,
-        );
-        assert_eq!(answers, [Some(7), None, None], "only the fast one answered");
-        assert!(
-            started.elapsed() < SHORT * 4,
-            "two silent views did not each wait their own full patience"
-        );
     }
 }

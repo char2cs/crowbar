@@ -1,7 +1,8 @@
 //! The sliding drop line, drawn above the whole window while a row is dragged.
 
 use gpui::{
-    AnyElement, Context, IntoElement, ParentElement, Window, anchored, deferred, point, px,
+    AnchoredPositionMode, AnyElement, Context, IntoElement, ParentElement, Window, anchored,
+    deferred, point, px,
 };
 use ui::{Motion, Surface, Theme, layer};
 
@@ -37,6 +38,7 @@ impl Sidebar {
         let at = slide.at(clock);
         let color = Theme::of(cx).palette(Surface::Chrome).sidebar_drop_line();
         let line = anchored()
+            .position_mode(AnchoredPositionMode::Local)
             .position(point(px(at.left), px(at.top)))
             .child(drop_line(at, color));
         Some(
@@ -46,7 +48,7 @@ impl Sidebar {
         )
     }
 
-    fn line_target(&self) -> Option<LineBox> {
+    pub(crate) fn line_target(&self) -> Option<LineBox> {
         let hint = self.drag.hint.as_ref()?;
         LineBox::of(self.row_bounds.of(&hint.row)?, hint.mode)
     }

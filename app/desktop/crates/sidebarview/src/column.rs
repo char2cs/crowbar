@@ -52,7 +52,7 @@ impl Sidebar {
             .child(bar)
             .child(div().flex_1().min_h_0().child(panel))
             .child(div().flex_none().h(px(FOOT_HEIGHT)))
-            .child(self.toast_layer())
+            .children(self.toast_layer(cx))
             .into_any_element()
     }
 }

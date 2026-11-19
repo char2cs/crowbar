@@ -11,9 +11,6 @@ pub(crate) enum ShellRequest {
     Closing(crate::close_choice::CloseChoice),
     DataChanged,
     Outcome(store::Outcome),
-    Overlays {
-        open: bool,
-    },
     Command(keymap::ShellCommand),
     /// The stored keybinding overrides changed.
     KeymapChanged,

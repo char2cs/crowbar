@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use gpui::App;
 use layout::{DragSubject, PaneSlot, Rect, Tab};
-use ui::{Motion, OverlayGuard, Overlays};
+use ui::Motion;
 
 use crate::drop_hit::DropHit;
 use crate::drop_target::DropTarget;
@@ -14,12 +14,11 @@ pub(crate) struct DropHover {
     subject: Option<DragSubject>,
     target: Option<DropTarget>,
     preview: Option<RectTween>,
-    overlay: Option<OverlayGuard>,
 }
 
 impl DropHover {
     pub(crate) fn is_dragging(&self) -> bool {
-        self.overlay.is_some()
+        self.subject.is_some()
     }
 
     pub(crate) fn preview(
@@ -71,10 +70,6 @@ impl DropHover {
         hit: DropHit<'_>,
         cx: &App,
     ) {
-        let guard = self
-            .overlay
-            .get_or_insert_with(|| Overlays::open(cx, hit.window_bounds));
-        guard.update(hit.window_bounds);
         self.subject = Some(hit.subject.clone());
         let target = DropTarget::resolve(hit.subject, hit.point, hit.slots, hit.joinable);
         let rect = target
@@ -114,7 +109,7 @@ fn preview_rect(
 
 #[cfg(test)]
 mod tests {
-    use gpui::{Bounds, Pixels, TestAppContext, point, px, size};
+    use gpui::TestAppContext;
     use layout::{DragSubject, Edge, PaneSlot, Rect};
 
     use super::*;
@@ -127,10 +122,6 @@ mod tests {
         height: 400.0,
     };
 
-    fn bounds() -> Bounds<Pixels> {
-        Bounds::new(point(px(0.0), px(0.0)), size(px(806.0), px(400.0)))
-    }
-
     fn hit_at<'a>(
         subject: &'a DragSubject,
         point: (f32, f32),
@@ -141,7 +132,6 @@ mod tests {
             point,
             slots,
             joinable: &[],
-            window_bounds: bounds(),
             now: Instant::now(),
         }
     }

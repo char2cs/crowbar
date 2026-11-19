@@ -134,3 +134,44 @@ pub(crate) fn open_under_row_source<'a>(
         clock,
     }
 }
+
+/// A layout view in a window with a top layer, which shows what floats above the panes.
+pub(crate) struct Floating {
+    pub(crate) view: Entity<LayoutView>,
+    pub(crate) window: VisualTestContext,
+    pub(crate) top: VisualTestContext,
+    pub(crate) clock: Rc<Cell<Instant>>,
+}
+
+pub(crate) fn open_floating(
+    cx: &mut TestAppContext,
+    layout: &Layout,
+) -> Floating {
+    cx.update(|cx| {
+        ui::init(cx).expect("ui init");
+        cx.set_global(Theme::default());
+        cx.set_global(Motion::default());
+    });
+    let clock = Rc::new(Cell::new(Instant::now()));
+    let reading = Rc::clone(&clock);
+    let window = cx.add_window(move |_, _| {
+        let source = Rc::new(FakeSource::starting_at_first_tab());
+        LayoutView::with_clock(source, Rc::new(move || reading.get()))
+    });
+    let view = window
+        .entity(cx)
+        .unwrap_or_else(|error| panic!("the view: {error}"));
+    let owner: gpui::AnyWindowHandle = window.into();
+    let top = cx.update(|cx| ui::TopLayer::open(owner, cx));
+    let top = top.unwrap_or_else(|error| panic!("the top layer: {error}"));
+    let mut window = VisualTestContext::from_window(owner, cx);
+    let tab = layout.active_tab().cloned();
+    view.update(&mut window, |view, cx| view.set_tab(tab, cx));
+    window.run_until_parked();
+    Floating {
+        view,
+        window,
+        top: VisualTestContext::from_window(top, cx),
+        clock,
+    }
+}

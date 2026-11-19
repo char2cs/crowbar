@@ -35,12 +35,12 @@ impl PageControl for MockPlatform {
 }
 
 impl ViewCapture for MockPlatform {
-    fn snapshot_all(
+    fn snapshot(
         &self,
-        ids: &[Id],
-    ) -> Vec<Result<Option<Snapshot>>> {
-        self.record(Call::SnapshotAll { ids: ids.to_vec() });
-        ids.iter().map(|_| Ok(None)).collect()
+        id: Id,
+    ) -> Result<Option<Snapshot>> {
+        self.record(Call::Snapshot { id });
+        Ok(None)
     }
 }
 
@@ -61,13 +61,10 @@ mod tests {
             matches!(mock.navigate(id, "x"), Err(Error::UnknownWebView(_))),
             "navigate"
         );
-        let answers = mock.snapshot_all(&[id, Id(4)]);
-        assert_eq!(answers.len(), 2, "one answer per id");
+        assert!(matches!(mock.snapshot(id), Ok(None)), "no pixels");
         assert_eq!(
             mock.calls(),
-            [Call::SnapshotAll {
-                ids: vec![id, Id(4)]
-            }],
+            [Call::Snapshot { id }],
             "only the snapshot was recorded"
         );
     }

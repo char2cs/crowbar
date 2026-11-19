@@ -1,12 +1,10 @@
 mod browser;
 mod context;
 mod lifecycle;
-mod overlay;
 mod reconcile;
 mod refusals;
 
 pub use browser::BrowseAction;
-pub use overlay::{FrozenPane, Overlay};
 pub use reconcile::{Keyboard, LayoutSnapshot, PaneDisplay, SyncReport, VisiblePane};
 
 use std::collections::BTreeMap;
@@ -51,7 +49,6 @@ pub struct PaneHost {
     pub(crate) keybindings: Vec<KeyBinding>,
     pub(crate) theme: Option<ThemeTokens>,
     pub(crate) settings: Option<SettingValues>,
-    pub(crate) overlay: Overlay,
     pub(crate) focused: Option<PaneId>,
     pub(crate) keyboard: Keyboard,
     pub(crate) inbox: async_channel::Receiver<IpcMessage>,
@@ -99,7 +96,6 @@ impl PaneHost {
             keybindings: Vec::new(),
             theme: None,
             settings: None,
-            overlay: Overlay::Inactive,
             focused: None,
             keyboard: Keyboard::default(),
             inbox,

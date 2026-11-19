@@ -47,7 +47,7 @@ impl ShellView {
             }),
         );
         self.first_run = Some((landing, oobe));
-        self.update_overlay(cx);
+        cx.notify();
     }
 
     fn first_run_view(
@@ -68,7 +68,7 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) {
         if self.first_run.take().is_some() {
-            self.update_overlay(cx);
+            cx.notify();
         }
     }
 

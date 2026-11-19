@@ -21,7 +21,7 @@ const DETACH: f32 = 10.0;
 const CLOSE: f32 = 8.0;
 const GHOST_WIDTH: f32 = 160.0;
 
-#[derive(IntoElement)]
+#[derive(Clone, IntoElement)]
 pub(crate) struct PaneHandle {
     pub(crate) pane: PaneId,
     pub(crate) label: SharedString,
@@ -47,6 +47,7 @@ impl RenderOnce for PaneHandle {
         let name = self.pane.as_str().to_owned();
         let grip = grip(self.pane, self.label, ink);
         div()
+            .debug_selector(|| "pane-handle".into())
             .flex()
             .items_start()
             .gap(px(GAP))

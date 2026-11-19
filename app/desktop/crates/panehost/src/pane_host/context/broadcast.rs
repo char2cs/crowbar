@@ -3,25 +3,9 @@ use protocol::{ExtensionStatus, KeyBinding, PaneId, ShellFrame, ThemeTokens};
 
 use crate::error::Result;
 use crate::pane_host::PaneHost;
-use crate::pane_host::overlay::Overlay;
 use crate::pane_host::reconcile::Failures;
 
 impl PaneHost {
-    /// Hides or shows every pane for a native overlay. No pane is told.
-    ///
-    /// # Errors
-    /// [`Error::WebView`](crate::error::Error::WebView) when a web view cannot be driven.
-    pub fn set_overlay(
-        &mut self,
-        overlay: Overlay,
-    ) -> Result<()> {
-        self.overlay = overlay;
-        self.panes
-            .values()
-            .filter(|runtime| runtime.is_visible())
-            .try_for_each(|runtime| self.set_native_visibility(runtime))
-    }
-
     /// Replaces the active keybindings and pushes them to mounted panes.
     ///
     /// # Errors
@@ -90,39 +74,9 @@ impl PaneHost {
 #[cfg(test)]
 mod tests {
     use protocol::{CommandId, KeyChord};
-    use webview::{Call, Visibility};
 
     use super::*;
     use crate::test_support::*;
-
-    fn last_visibility_is(
-        f: &Fixture,
-        expected: Visibility,
-    ) -> bool {
-        matches!(
-            f.mock.calls().last(),
-            Some(Call::SetVisibility { visibility, .. }) if *visibility == expected
-        )
-    }
-
-    #[test]
-    fn an_overlay_hides_web_views_without_telling_any_pane() {
-        let mut f = fixture();
-        let panes = [instance("p1", "core.chat")];
-        f.sync(&panes, &["p1"], Some("p1"));
-        register(&mut f, "p1", "core.chat");
-        let before = frames_sent(&f.mock).len();
-        f.host.set_overlay(Overlay::Active).unwrap();
-        assert!(last_visibility_is(&f, Visibility::Hidden), "hidden");
-        f.sync(&panes, &["p1"], Some("p1"));
-        assert!(
-            last_visibility_is(&f, Visibility::Hidden),
-            "stays hidden while the overlay lasts"
-        );
-        f.host.set_overlay(Overlay::Inactive).unwrap();
-        assert!(last_visibility_is(&f, Visibility::Shown), "shown again");
-        assert_eq!(frames_sent(&f.mock).len(), before, "no frame was sent");
-    }
 
     #[test]
     fn keybindings_reach_mounted_panes_now_and_later() {

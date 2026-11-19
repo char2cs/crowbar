@@ -8,7 +8,6 @@ use crate::pane_host::PaneHost;
 use crate::pane_host::lifecycle::pane_phase::PanePhase;
 use crate::pane_host::lifecycle::pane_runtime::PaneRuntime;
 use crate::pane_host::lifecycle::stage::Stage;
-use crate::pane_host::overlay::Overlay;
 use crate::pane_host::reconcile::Failures;
 use crate::pane_host::reconcile::LayoutSnapshot;
 use crate::slot::HostEvent;
@@ -169,7 +168,7 @@ impl PaneHost {
             return Ok(());
         };
         let failed = matches!(runtime.phase, PanePhase::Failed(_));
-        let shown = self.overlay == Overlay::Inactive && runtime.is_visible() && !failed;
+        let shown = runtime.is_visible() && !failed;
         if shown {
             return Ok(slot.handle.show()?);
         }

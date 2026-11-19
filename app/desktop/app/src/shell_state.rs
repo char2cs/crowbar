@@ -11,7 +11,6 @@ use crate::browser_pages::BrowserPages;
 use crate::closed_panes::ClosedPanes;
 use crate::dirty_panes::DirtyPanes;
 use crate::error::{Error, Result};
-use crate::frozen_layer::FrozenLayer;
 use crate::layout_store::LayoutStore;
 use crate::layout_writer::LayoutWriter;
 use crate::loaded_layout::LoadedLayout;
@@ -45,7 +44,6 @@ pub(crate) struct ShellState {
     terminals: TerminalIds,
     serials: Serials,
     closed: ClosedPanes,
-    frozen: FrozenLayer,
     keyboard: Keyboard,
     pages: BrowserPages,
     replies: Arc<Replies>,
@@ -94,7 +92,6 @@ impl ShellState {
             terminals,
             serials,
             closed: ClosedPanes::default(),
-            frozen: FrozenLayer::default(),
             keyboard: Keyboard::default(),
             pages: BrowserPages::default(),
             replies: Arc::default(),

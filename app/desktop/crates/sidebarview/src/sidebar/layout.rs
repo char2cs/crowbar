@@ -2,11 +2,11 @@
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Context, Div, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
+    AnyElement, Context, Div, Entity, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
     ParentElement, Render, Stateful, Styled, Window, div, px,
 };
 use sidebar::{DockSide, Visibility};
-use ui::{Motion, Surface, Theme};
+use ui::{Motion, Portal, Surface, Theme};
 
 use crate::sidebar::Sidebar;
 use crate::sidebar::geometry::Geometry;
@@ -52,17 +52,61 @@ impl Render for Sidebar {
             DockSide::Left => row.child(side_column).child(handle).child(content),
             DockSide::Right => row.child(content).child(handle).child(side_column),
         };
-        row.child(Self::exit_listener(cx))
-            .children(self.floating(&geometry, window, cx))
+        let sidebar = cx.entity();
+        let layers = self
+            .floats(&geometry, cx)
+            .then(|| floating_layers(sidebar, geometry));
+        row.child(Self::exit_listener(cx)).children(layers)
+    }
+}
+
+fn floating_layers(
+    sidebar: Entity<Sidebar>,
+    geometry: Geometry,
+) -> Portal {
+    Portal::cover("sidebar-layers", move |window, cx| {
+        sidebar.update(cx, |this, cx| this.layers(&geometry, window, cx))
+    })
+}
+
+impl Sidebar {
+    /// Whether anything floats over the window: the peek card or drawer, a dialog, the drop
+    /// line or a menu.
+    fn floats(
+        &mut self,
+        geometry: &Geometry,
+        cx: &Context<'_, Self>,
+    ) -> bool {
+        if self.line_target().is_none() {
+            self.drag.slide = None;
+        }
+        geometry.is_drawer()
+            || self.peek.is_shown(Motion::of(cx))
+            || self.tree.removals().confirmation().is_some()
+            || self.tree.files().dialog().is_some()
+            || self.question.is_some()
+            || self.line_target().is_some()
+            || self.menu.is_some()
+    }
+
+    /// What floats over the window, painted in its top layer above the panes.
+    fn layers(
+        &mut self,
+        geometry: &Geometry,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> Div {
+        div()
+            .relative()
+            .size_full()
+            .children(self.floating(geometry, window, cx))
             .children(self.confirm_layer(cx))
             .children(self.file_dialog_layer(cx))
             .children(self.question_layer(cx))
             .children(self.drop_line_layer(window, cx))
-            .children(self.menu_layer(window, cx))
+            .children(self.menu_layer(cx))
     }
-}
 
-impl Sidebar {
     fn handle(
         &self,
         geometry: &Geometry,

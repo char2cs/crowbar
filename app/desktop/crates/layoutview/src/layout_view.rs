@@ -4,7 +4,7 @@ use std::time::Instant;
 use gpui::{App, Bounds, Context, EventEmitter, Pixels};
 use layout::{Rect, Tab};
 use protocol::PaneId;
-use ui::{Motion, OverlayGuard};
+use ui::Motion;
 
 use crate::chrome_context::ChromeContext;
 use crate::clock::Clock;
@@ -27,7 +27,6 @@ pub struct LayoutView {
     pub(crate) drop: DropHover,
     pub(crate) rings: PaneFades,
     pub(crate) handles: PaneFades,
-    pub(crate) handle_overlay: Option<OverlayGuard>,
     pub(crate) clock: Rc<dyn Clock>,
 }
 
@@ -67,7 +66,6 @@ impl LayoutView {
             drop: DropHover::default(),
             rings: PaneFades::default(),
             handles: PaneFades::default(),
-            handle_overlay: None,
             clock,
         }
     }
@@ -162,23 +160,29 @@ mod tests {
     }
 
     #[gpui::test]
-    fn a_drag_over_a_pane_offers_a_preview_in_window_coordinates_until_it_ends(
-        cx: &mut TestAppContext
-    ) {
-        let harness = open(cx, &side_by_side());
-        let (view, cx) = (harness.view, harness.cx);
+    fn the_drop_preview_floats_above_the_panes_until_the_drag_leaves(cx: &mut TestAppContext) {
+        let mut floating = crate::test_support::open_floating(cx, &side_by_side());
+        let (view, window) = (floating.view.clone(), &mut floating.window);
         let over = DragSubject::Chat("t1".into());
-        let at = point(px(10.0), px(100.0));
-        view.update(cx, |view, cx| view.hover(&over, at, cx));
-        let shown = view.read_with(cx, |view, cx| view.drop_preview(cx).is_some());
-        view.update(cx, |view, cx| {
+        view.update(window, |view, cx| {
+            view.hover(&over, point(px(10.0), px(100.0)), cx);
+        });
+        window.run_until_parked();
+        assert_eq!(
+            window.debug_bounds("drop-preview"),
+            None,
+            "nothing in the window"
+        );
+        assert!(floating.top.debug_bounds("drop-preview").is_some());
+        view.update(window, |view, cx| {
             view.hover(&over, point(px(-5.0), px(-5.0)), cx);
         });
-        let gone = view.read_with(cx, |view, cx| view.drop_preview(cx).is_none());
+        window.update(|_, _| {});
+        window.run_until_parked();
         assert_eq!(
-            (shown, gone),
-            (true, true),
-            "preview while over a pane, none outside"
+            floating.top.debug_bounds("drop-preview"),
+            None,
+            "gone outside"
         );
     }
 

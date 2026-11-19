@@ -50,13 +50,6 @@ impl Factory {
         self.webviews.clear_browsing_data()
     }
 
-    pub(crate) fn snapshot_all(
-        &self,
-        ids: &[webview::Id],
-    ) -> Vec<webview::Result<Option<webview::Snapshot>>> {
-        self.webviews.snapshot_all(ids)
-    }
-
     pub(crate) fn create(
         &self,
         request: Request,

@@ -72,6 +72,7 @@ impl RenderOnce for DropdownMenu {
         });
         let open = state.read(cx).open.clone();
         let (trigger_state, spec) = (state.clone(), self.spec);
+        let id = self.id.clone();
         let wrapper = div()
             .id(self.id)
             .relative()
@@ -80,9 +81,17 @@ impl RenderOnce for DropdownMenu {
         let Some(menu) = open else {
             return wrapper.into_any_element();
         };
+        let content: popup::Content = Rc::new(move |_, _| menu.clone().into_any_element());
         wrapper
-            .child(popup::click_away(window, move |_, cx| close(&state, cx)))
-            .child(popup::placed(self.placement, OFFSET, menu))
+            .child(popup::click_away((id.clone(), "away"), move |_, cx| {
+                close(&state, cx);
+            }))
+            .child(popup::placed(
+                (id, "menu").into(),
+                self.placement,
+                OFFSET,
+                content,
+            ))
             .into_any_element()
     }
 }
@@ -128,7 +137,7 @@ mod tests {
     use super::*;
     use crate::control::Button;
     use crate::floating::menu::menu_item::MenuAction;
-    use crate::test_support::probe::open;
+    use crate::test_support::probe::{open, open_floating};
 
     fn build(chosen: &Rc<Cell<usize>>) -> impl Fn(&mut Window, &mut App) -> DropdownMenu + 'static {
         let chosen = Rc::clone(chosen);
@@ -179,5 +188,24 @@ mod tests {
             (menu.right() - trigger.right()).abs() < px(0.5),
             "{menu:?} ends with {trigger:?}"
         );
+    }
+
+    #[gpui::test]
+    fn an_open_dropdown_floats_in_the_top_layer_where_web_views_cannot_cover_it(
+        cx: &mut TestAppContext
+    ) {
+        let chosen = Rc::new(Cell::new(0));
+        let (mut owner, mut top) = open_floating(cx, build(&chosen));
+        owner.simulate_click(point(px(10.0), px(10.0)), gpui::Modifiers::none());
+        owner.run_until_parked();
+        assert_eq!(owner.debug_bounds("ui-menu"), None, "nothing in the window");
+        let menu = top.debug_bounds("ui-menu").unwrap_or_default();
+        let trigger = owner.debug_bounds("probe").unwrap_or_default();
+        assert!(
+            menu.origin.y >= trigger.bottom(),
+            "{menu:?} below {trigger:?}"
+        );
+        top.simulate_keystrokes("down enter");
+        assert_eq!(chosen.get(), 1, "the keyboard reaches the floating menu");
     }
 }

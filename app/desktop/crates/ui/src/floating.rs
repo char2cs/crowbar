@@ -1,27 +1,27 @@
-//! Everything painted above the window: overlays, popovers, dialogs, menus and tooltips.
+//! Everything painted above the window: the top layer and its portals, popovers, dialogs, menus,
+//! tooltips and drag ghosts.
 
 mod dialog;
+mod drag_ghost;
 mod menu;
-mod overlay_guard;
-mod overlay_host;
-mod overlay_id;
-mod overlays;
 mod placement;
 mod popover;
 mod popup;
+mod portal;
 mod tooltip;
 mod tooltip_side;
+mod top_layer;
 
+pub(crate) use dialog::bindings as dialog_bindings;
 pub use dialog::{Dialog, DialogExtent, DialogSize, DialogStyle};
+pub use drag_ghost::DragGhost;
 pub(crate) use menu::bindings as menu_bindings;
 pub use menu::{ContextMenu, DropdownMenu, Menu, MenuAction, MenuItem, Select};
-pub use overlay_guard::OverlayGuard;
-pub use overlay_host::OverlayHost;
-pub use overlay_id::OverlayId;
-pub use overlays::Overlays;
 pub use placement::Placement;
 pub use popover::Popover;
 pub(crate) use popover::bindings as popover_bindings;
 pub use popup::{click_away, popup_at};
+pub use portal::Portal;
 pub use tooltip::Tooltip;
 pub use tooltip_side::TooltipSide;
+pub use top_layer::TopLayer;

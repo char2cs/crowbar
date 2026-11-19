@@ -1,8 +1,8 @@
 //! Showing toasts at the bottom of the sidebar column.
 
-use gpui::{AnyElement, Context, IntoElement};
+use gpui::{AnyElement, App, Context, IntoElement, ParentElement, Styled, div};
 use sidebar::DockSide;
-use ui::{ToastContent, ToastLifetime, ToastPlacement, ToastSide};
+use ui::{Portal, ToastContent, ToastLifetime, ToastPlacement, ToastSide};
 
 use crate::sidebar::Sidebar;
 
@@ -34,8 +34,16 @@ impl Sidebar {
         self.toasts.update(cx, |queue, cx| queue.clear(key, cx));
     }
 
-    pub(crate) fn toast_layer(&self) -> AnyElement {
-        self.toasts.clone().into_any_element()
+    pub(crate) fn toast_layer(
+        &self,
+        cx: &App,
+    ) -> Option<AnyElement> {
+        if self.toasts.read(cx).is_empty() {
+            return None;
+        }
+        let toasts = self.toasts.clone();
+        let layer = Portal::here("sidebar-toasts", move |_, _| toasts.clone());
+        Some(div().absolute().inset_0().child(layer).into_any_element())
     }
 
     /// The toast edge matching the sidebar's dock edge: toasts swipe away toward it.
@@ -138,5 +146,22 @@ mod tests {
                 "{side:?}"
             );
         }
+    }
+
+    #[gpui::test]
+    fn a_toast_floats_above_the_panes_over_the_foot_of_the_column(cx: &mut TestAppContext) {
+        let mut floating = crate::test_support::open_floating(cx, DemoShell::reference());
+        let sidebar = floating.sidebar.clone();
+        sidebar.update(&mut floating.window, |this, cx| {
+            this.toast(info("Saved"), (None, ToastLifetime::Pinned), cx);
+        });
+        floating.window.run_until_parked();
+        assert_eq!(
+            floating.window.debug_bounds("ui-toast"),
+            None,
+            "nothing in the window"
+        );
+        let toast = floating.top.debug_bounds("ui-toast").unwrap_or_default();
+        assert!(toast.right() <= px(294.0), "{toast:?} inside the column");
     }
 }

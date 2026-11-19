@@ -50,17 +50,17 @@ impl TabBar {
 
     pub(crate) fn menu_layers(
         &self,
-        window: &Window,
         cx: &mut Context<'_, Self>,
     ) -> Vec<AnyElement> {
         let Some(menu) = self.menu.clone() else {
             return Vec::new();
         };
         let bar = cx.entity();
-        let away = ui::click_away(window, move |_, cx: &mut App| {
+        let away = ui::click_away("tab-menu-away", move |_, cx: &mut App| {
             bar.update(cx, Self::close_menu);
         });
-        vec![away, ui::popup_at(self.menu_at, menu)]
+        let popup = ui::popup_at("tab-menu", self.menu_at, move |_, _| menu.clone());
+        vec![away, popup]
     }
 }
 

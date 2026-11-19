@@ -56,7 +56,6 @@ impl LayoutView {
             point: self.local_point(position),
             slots: &slots,
             joinable: &joinable,
-            window_bounds: self.bounds,
             now: self.clock.now(),
         };
         self.drop.over(hit, cx);

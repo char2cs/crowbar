@@ -9,11 +9,10 @@ use gpui::{
 };
 use keymap::Keymap;
 use layoutview::{ChromeContext, LayoutView};
-use panehost::Overlay;
 use settingsview::SettingsModal;
 use sidebarview::Sidebar;
 use store::SettingsAdapter;
-use ui::{Surface, Theme, ToastQueue};
+use ui::{Portal, Surface, Theme, ToastQueue, layer};
 use viewtabs::{SidebarState, TabBar};
 
 mod appearance_settings;
@@ -61,7 +60,7 @@ use crate::shell_parts::ShellParts;
 use crate::shell_request::ShellRequest;
 use crate::shell_state::ShellState;
 
-use self::children::{build_children, overlay_channel};
+use self::children::build_children;
 
 pub(crate) struct ShellView {
     state: ShellState,
@@ -92,7 +91,6 @@ pub(crate) struct ShellView {
     data_queued: Arc<AtomicBool>,
     settings_backend: Option<SettingsAdapter>,
     placement: Option<(webview::ParentWindow, webview::Bounds)>,
-    overlays_open: bool,
     hover: HoverTracker,
     focus_surface: Option<sidebar::Mode>,
     ports: Ports,
@@ -107,7 +105,7 @@ impl ShellView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> Self {
-        let (requests, queue) = overlay_channel(cx);
+        let (requests, queue) = async_channel::unbounded();
         let mut built = build_children(&parts, &requests, cx);
         built.subscriptions = Self::subscribe_children(&built, window, cx);
         let mut view = Self::assemble(parts, built, requests, cx.focus_handle());
@@ -150,7 +148,6 @@ impl ShellView {
             data_queued: built.data_queued,
             settings_backend: None,
             placement: None,
-            overlays_open: false,
             hover: HoverTracker::default(),
             focus_surface: None,
             readout: crate::readout_state::ReadoutState::new(Arc::clone(&parts.ports.clock)),
@@ -177,8 +174,9 @@ impl ShellView {
         self.watch_pane_settings();
     }
 
-    fn overlay(&self) -> Overlay {
-        let covered = self.startup.is_some()
+    /// Whether a shell-wide modal covers the window, which then holds the keyboard.
+    fn modal_open(&self) -> bool {
+        self.startup.is_some()
             || self.settings.is_some()
             || self.branch_import.is_some()
             || self.remote_folders.is_some()
@@ -187,19 +185,38 @@ impl ShellView {
             || self.pairing.is_some()
             || self.first_run.is_some()
             || self.unsaved.is_some()
-            || self.overlays_open;
-        if covered {
-            return Overlay::Active;
-        }
-        Overlay::Inactive
     }
 
-    fn update_overlay(
-        &mut self,
+    /// What floats over the panes, painted in the window's top layer while any is shown.
+    fn floating(
+        &self,
         cx: &mut Context<'_, Self>,
-    ) {
-        self.state.set_overlay(self.overlay());
-        cx.notify();
+    ) -> Option<Portal> {
+        let shown =
+            self.modal_open() || self.readout.view.is_some() || !self.notices.read(cx).is_empty();
+        if !shown {
+            return None;
+        }
+        let shell = cx.entity();
+        let portal = Portal::cover("shell-layers", move |_, cx| shell.read(cx).layers());
+        Some(portal.priority(layer::MODAL))
+    }
+
+    fn layers(&self) -> Div {
+        div()
+            .relative()
+            .size_full()
+            .children(layer(self.settings.as_ref()))
+            .children(layer(self.branch_import.as_ref()))
+            .children(layer(self.remote_folders.as_ref()))
+            .children(self.prompt_layer())
+            .children(layer(self.rename_prompt.as_ref().map(|(_, prompt)| prompt)))
+            .children(layer(self.first_run.as_ref().map(|(_, oobe)| oobe)))
+            .children(layer(self.pairing.as_ref()))
+            .children(layer(self.unsaved.as_ref()))
+            .children(layer(self.startup.as_ref()))
+            .children(self.readout.view.clone())
+            .child(self.notices.clone())
     }
 
     fn chrome(
@@ -286,19 +303,7 @@ impl Render for ShellView {
             .relative()
             .bg(palette.background())
             .child(self.sidebar.clone())
-            .children(self.state.frozen_elements())
-            .children(self.layout.read(cx).drop_preview(cx))
-            .children(layer(self.settings.as_ref()))
-            .children(layer(self.branch_import.as_ref()))
-            .children(layer(self.remote_folders.as_ref()))
-            .children(self.prompt_layer())
-            .children(layer(self.rename_prompt.as_ref().map(|(_, prompt)| prompt)))
-            .children(layer(self.first_run.as_ref().map(|(_, oobe)| oobe)))
-            .children(layer(self.pairing.as_ref()))
-            .children(layer(self.unsaved.as_ref()))
-            .children(layer(self.startup.as_ref()))
-            .children(self.readout.view.clone())
-            .child(self.notices.clone())
+            .children(self.floating(cx))
     }
 }
 
@@ -338,5 +343,75 @@ mod tests {
             .iter()
             .all(|edge| *edge == Some(gpui::px(0.0).into()));
         assert!(pinned, "{inset:?}");
+    }
+
+    struct Opened {
+        shell: Entity<ShellView>,
+        window: gpui::VisualTestContext,
+        top: gpui::VisualTestContext,
+        mock: Rc<webview::MockPlatform>,
+        pane: protocol::PaneId,
+    }
+
+    fn open_shell(cx: &mut TestAppContext) -> Opened {
+        cx.update(|cx| ui::init(cx).expect("ui installs"));
+        let mut rig = crate::test_support::shell_rig();
+        let pane = crate::test_support::synced_chat(&mut rig);
+        let ports = Ports {
+            clock: Arc::new(crate::test_support::FixedClock::at(0)),
+            bytes: Arc::new(crate::test_support::MemoryFiles::default()),
+        };
+        let parts = ShellParts {
+            state: rig.shell,
+            link: Rc::new(crate::test_support::link_without_daemon()),
+            preferences_path: PathBuf::from("/nonexistent/sidebar.json"),
+            ports,
+        };
+        let window = cx.add_window(move |window, cx| ShellView::new(parts, window, cx));
+        let shell = window.entity(cx).expect("the shell view");
+        let owner: gpui::AnyWindowHandle = window.into();
+        let top = cx
+            .update(|cx| ui::TopLayer::open(owner, cx))
+            .expect("the top layer opens");
+        let window = gpui::VisualTestContext::from_window(owner, cx);
+        window.run_until_parked();
+        Opened {
+            shell,
+            window,
+            top: gpui::VisualTestContext::from_window(top, cx),
+            mock: rig.mock,
+            pane,
+        }
+    }
+
+    fn hidden_views(mock: &webview::MockPlatform) -> usize {
+        mock.calls().iter().filter(|call| hides(call)).count()
+    }
+
+    fn hides(call: &webview::Call) -> bool {
+        let webview::Call::SetVisibility { visibility, .. } = call else {
+            return false;
+        };
+        *visibility == webview::Visibility::Hidden
+    }
+
+    #[gpui::test]
+    fn a_prompt_floats_above_the_panes_and_leaves_them_shown(cx: &mut TestAppContext) {
+        let mut opened = open_shell(cx);
+        let before = hidden_views(&opened.mock);
+        let pane = opened.pane.clone();
+        opened
+            .shell
+            .update_in(&mut opened.window, |shell, window, cx| {
+                shell.ask_rename((&pane, "Chat"), window, cx);
+            });
+        opened.window.run_until_parked();
+        assert_eq!(
+            opened.window.debug_bounds("ui-dialog"),
+            None,
+            "nothing in the window"
+        );
+        assert!(opened.top.debug_bounds("ui-dialog").is_some());
+        assert_eq!(hidden_views(&opened.mock), before, "no web view was hidden");
     }
 }

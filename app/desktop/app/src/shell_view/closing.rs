@@ -71,7 +71,7 @@ impl ShellView {
         );
         self.unsaved = Some(dialog);
         self.pending_close = Some(pending);
-        self.update_overlay(cx);
+        cx.notify();
     }
 
     fn on_unsaved_choice(
@@ -91,7 +91,7 @@ impl ShellView {
     ) {
         self.unsaved = None;
         let Some(pending) = self.pending_close.take() else {
-            return self.update_overlay(cx);
+            return cx.notify();
         };
         if choice == CloseChoice::Save {
             self.request_saves(pending.dirty());
@@ -127,7 +127,7 @@ impl ShellView {
             CloseStep::Wait(pending) => self.pending_close = Some(pending),
             CloseStep::Stop => {},
         }
-        self.update_overlay(cx);
+        cx.notify();
     }
 
     fn request_saves(

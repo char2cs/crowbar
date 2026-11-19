@@ -16,7 +16,8 @@ of their own.
 let application = gpui::Application::new().with_assets(ui::assets());
 application.run(|cx| {
     ui::init(cx)?;                       // fonts, Theme, Motion, key bindings
-    ui::Overlays::install(host, cx);     // pane host implements ui::OverlayHost (optional until web views exist)
+    let main = cx.open_window(options, build)?;
+    ui::TopLayer::open(main.into(), cx)?; // floating elements paint here, above native web views
     // later, live: ui::Theme::of(cx).with_mode(ThemeMode::Dark).install(cx);
 });
 ```
@@ -42,7 +43,7 @@ Status: `verified` = implemented, unit tested and rendered in the gallery (crowb
 | Motion | `CubicBezier`, `Motion` (reduced motion, animation factory) | verified |
 | Controls | `Button` (with `loading()`), `ButtonVariant`, `ButtonSize`, `Switch`, `Checkbox`, `TextInput`, `Select`, `Tabs`, `TabItem`, `TabsStyle` | verified |
 | Text area | `TextArea`, `TextAreaSize`, `TextAreaCondition` | unverified (no React golden at component level) |
-| Overlays | `OverlayHost`, `Overlays`, `OverlayGuard`, `Menu`, `MenuItem`, `MenuAction`, `DropdownMenu`, `ContextMenu` (right click, `MenuAction::submenu`, arrow/left/right keys), `Popover`, `Dialog`, `DialogSize`, `Tooltip`, `TooltipSide` | unverified |
+| Overlays | `TopLayer`, `Portal`, `DragGhost`, `click_away`, `popup_at`, `Menu`, `MenuItem`, `MenuAction`, `DropdownMenu`, `ContextMenu` (right click, `MenuAction::submenu`, arrow/left/right keys), `Popover`, `Dialog`, `DialogSize`, `Tooltip`, `TooltipSide` | unverified |
 | Display | `Badge`, `Kbd`, `Toast`, `ToastKind`, `ToastQueue`, `ToastContent`, `ToastId`, `ToastLifetime`, `ToastPlacement`, `ToastSide`, `ToastQueueEvent`, `Separator`, `Skeleton`, `Spinner`, `ProgressBar`, `EmptyState`, `ScrollArea`, `Sash`, `SashDrag`, `DragHandle`, `Axis` | verified |
 
 ## Depends on
@@ -56,8 +57,10 @@ No workspace crate. External: `gpui` (rendering, layout, text, windows), `thiser
   them dark in light mode). Popups, dialogs and tooltips always use `Surface::Window`.
 - Colours: `Theme::of(cx).palette(Surface::Window).border()` and friends. Never hard-code a hex value.
 - Hover and focus: components fade colours over 150ms and draw the focus ring only for keyboard focus.
-- Overlays tell the shell which window rectangle they cover through `OverlayHost`; the pane host hides web
-  views under it. A modal dialog reports the whole window.
+- Floating elements reach the window's `TopLayer`, a transparent overlay window above the native web views,
+  through a `Portal`: `Portal::here` paints where the portal sits, `Portal::window` over the whole window and
+  `Portal::cover` for a modal layer that holds portals of its own. Web views are never hidden or snapshotted.
+  A window without a top layer (tests, the gallery) paints the portal itself, above the rest of the window.
 - Reduced motion: install `Motion::reduced()` as a global when the OS asks for it; every animation collapses
   to 10 microseconds, spinners keep turning.
 

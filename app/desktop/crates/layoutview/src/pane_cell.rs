@@ -7,7 +7,7 @@ use gpui::{
 };
 use layout::Rect;
 use protocol::PaneId;
-use ui::{Appearance, Palette, Surface, Theme};
+use ui::{Appearance, Palette, Portal, Surface, Theme};
 
 use crate::insets::Insets;
 
@@ -48,7 +48,8 @@ impl RenderOnce for PaneCell {
         let frame = self.frame;
         let (enter, leave, press) = (self.on_enter, self.on_leave, self.on_press);
         let id = ElementId::from(SharedString::from(self.pane.as_str().to_owned()));
-        let (handle_left, _) = handle_origin(&frame);
+        let (handle_left, handle_top) = handle_origin(&frame);
+        let seat = (handle_left - self.slot.x, handle_top - self.slot.y);
         let offset = f32::from(self.strip.is_some()) * STRIP_HEIGHT;
         div()
             .id(id)
@@ -78,11 +79,24 @@ impl RenderOnce for PaneCell {
                     opacity: self.ring_opacity,
                 },
             ))
-            .when_some(self.handle, |cell, handle| {
-                let (left, top) = (handle_left - self.slot.x, frame.outer.y - self.slot.y);
-                cell.child(div().absolute().left(px(left)).top(px(top)).child(handle))
-            })
+            .children(self.handle.map(|handle| floated_handle(handle, seat)))
     }
+}
+
+fn floated_handle(
+    handle: PaneHandle,
+    (left, top): (f32, f32),
+) -> impl IntoElement {
+    let (width, height) = PaneHandle::size();
+    let id = SharedString::from(format!("pane-handle-{}", handle.pane.as_str()));
+    let floated = Portal::here(id, move |_, _| handle.clone());
+    div()
+        .absolute()
+        .left(px(left))
+        .top(px(top))
+        .w(px(width))
+        .h(px(height))
+        .child(floated)
 }
 
 fn body(

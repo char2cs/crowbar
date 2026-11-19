@@ -16,8 +16,8 @@ pub use toast_queue::{
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    Animation, AnimationExt, App, Div, ElementId, FontWeight, Hsla, IntoElement, ParentElement,
-    RenderOnce, SharedString, Styled, Window, div, px, relative,
+    Animation, AnimationExt, App, Div, ElementId, FontWeight, Hsla, InteractiveElement,
+    IntoElement, ParentElement, RenderOnce, SharedString, Styled, Window, div, px, relative,
 };
 
 use crate::display::spinner::Spinner;
@@ -219,6 +219,7 @@ impl RenderOnce for Toast {
             move |card, delta| settle(card, kind, updates, delta),
         );
         div()
+            .debug_selector(|| "ui-toast".into())
             .when(self.fill, Styled::w_full)
             .child(replayed)
             .with_animation(

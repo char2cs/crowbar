@@ -72,7 +72,7 @@ impl ShellView {
             }),
         );
         self.file_prompt = Some(prompt);
-        self.update_overlay(cx);
+        cx.notify();
     }
 
     fn on_file_prompt(
@@ -82,7 +82,7 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) {
         self.file_prompt = None;
-        self.update_overlay(cx);
+        cx.notify();
         let PromptEvent::Confirmed(pending) = event else {
             return;
         };

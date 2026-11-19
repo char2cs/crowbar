@@ -86,4 +86,41 @@ mod tests {
         );
         assert!(sidebar.read_with(cx, |this, _| this.question.is_none()));
     }
+
+    #[gpui::test]
+    fn the_kill_question_floats_above_the_panes_and_answers_a_click(cx: &mut TestAppContext) {
+        let mut floating = crate::test_support::open_floating(cx, DemoShell::reference());
+        let sidebar = floating.sidebar.clone();
+        let question = Question::kill(RowId::from("chat"), "Refactor");
+        sidebar.update_in(&mut floating.window, |this, window, cx| {
+            this.apply(Intent::Ask(question), window, cx);
+        });
+        floating.window.run_until_parked();
+        assert_eq!(
+            floating.window.debug_bounds("ui-dialog"),
+            None,
+            "nothing in the window"
+        );
+        let card = floating.top.debug_bounds("ui-dialog").unwrap_or_default();
+        let accept = point(card.right() - px(40.0), card.bottom() - px(24.0));
+        floating.top.simulate_click(accept, gpui::Modifiers::none());
+        assert_eq!(
+            floating.recorder.sent(),
+            vec![Command::KillAgent(RowId::from("chat"))]
+        );
+    }
+
+    #[gpui::test]
+    fn escape_cancels_the_question(cx: &mut TestAppContext) {
+        let mut floating = crate::test_support::open_floating(cx, DemoShell::reference());
+        let sidebar = floating.sidebar.clone();
+        let question = Question::kill(RowId::from("chat"), "Refactor");
+        sidebar.update_in(&mut floating.window, |this, window, cx| {
+            this.apply(Intent::Ask(question), window, cx);
+        });
+        floating.window.run_until_parked();
+        crate::test_support::press(&mut floating.top, "escape");
+        assert_eq!(floating.recorder.sent(), Vec::new());
+        assert!(sidebar.read_with(&floating.window, |this, _| this.question.is_none()));
+    }
 }

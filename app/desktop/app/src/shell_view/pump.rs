@@ -126,7 +126,7 @@ impl ShellView {
             ShellRequest::CloseSettings => {
                 self.settings = None;
                 window.focus(&self.focus);
-                self.update_overlay(cx);
+                cx.notify();
             },
             ShellRequest::Closing(choice) => self.choose_closing(choice, window, cx),
             ShellRequest::SelectProject(slot) => self.select_project(slot),
@@ -140,10 +140,6 @@ impl ShellView {
             ShellRequest::Browse { pane, event } => self.browse(&pane, event, cx),
             ShellRequest::Agent(command) => self.run_agent(&command, cx),
             ShellRequest::Command(command) => self.run_shell_command(command, window, cx),
-            ShellRequest::Overlays { open } => {
-                self.overlays_open = open;
-                self.update_overlay(cx);
-            },
         }
     }
 

@@ -6,7 +6,7 @@ use gpui::{
 };
 use layout::{Axis, DragSubject, PaneSlot, Rect, Sash as ModelSash};
 use protocol::PaneId;
-use ui::{DraggedRow, Motion, Sash, SashDrag, Surface, Theme, Wordmark};
+use ui::{DraggedRow, Motion, Portal, Sash, SashDrag, Surface, Theme, Wordmark};
 
 use crate::layout_view::LayoutView;
 use crate::pane_cell::PaneCell;
@@ -51,6 +51,7 @@ impl Render for LayoutView {
             .children(self.logo())
             .children(self.pane_cells(window, cx))
             .children(self.sashes(cx))
+            .children(self.drop_layer(cx))
             .on_drag_move::<DragSubject>(cx.listener(Self::drag_over))
             .on_drag_move::<DraggedRow>(cx.listener(Self::row_over))
             .on_drag_move::<SashDrag>(cx.listener(Self::sash_moved))
@@ -197,24 +198,15 @@ impl LayoutView {
             .into_any_element()
     }
 
-    /// The highlight of where a drag in progress would land, in window coordinates. The shell
-    /// draws it above the frozen pane snapshots, which would cover it inside this view.
-    #[must_use]
-    pub fn drop_preview(
+    /// The highlight of where a drag in progress would land, above the panes' web views.
+    fn drop_layer(
         &self,
         cx: &App,
     ) -> Option<AnyElement> {
         let rect = self.drop.preview(self.clock.now(), Motion::of(cx))?;
-        let palette = Theme::of(cx).palette(Surface::Window);
-        let highlight = preview_box(rect, palette.secondary());
-        let area = div()
-            .absolute()
-            .left(self.bounds.origin.x)
-            .top(self.bounds.origin.y)
-            .w(self.bounds.size.width)
-            .h(self.bounds.size.height)
-            .child(highlight);
-        Some(area.into_any_element())
+        let accent = Theme::of(cx).palette(Surface::Window).secondary();
+        let preview = Portal::here("drop-preview", move |_, _| preview_box(rect, accent));
+        Some(div().absolute().inset_0().child(preview).into_any_element())
     }
 }
 
@@ -230,6 +222,7 @@ fn preview_box(
     accent: Hsla,
 ) -> gpui::Div {
     div()
+        .debug_selector(|| "drop-preview".into())
         .absolute()
         .left(px(rect.x))
         .top(px(rect.y))

@@ -16,8 +16,8 @@ pub(crate) use menu_entry::MenuEntry;
 pub(crate) use open_menu::OpenMenu;
 
 use gpui::{
-    AnyElement, App, Context, InteractiveElement, IntoElement, MouseButton, ParentElement, Styled,
-    Window, anchored, deferred, div, point, px,
+    AnchoredPositionMode, AnyElement, App, Context, InteractiveElement, IntoElement, MouseButton,
+    ParentElement, Styled, Window, anchored, deferred, div, px,
 };
 use ui::layer;
 
@@ -29,17 +29,15 @@ const WINDOW_MARGIN: f32 = 8.0;
 impl Sidebar {
     pub(crate) fn menu_layer(
         &self,
-        window: &Window,
         cx: &mut Context<'_, Self>,
     ) -> Option<AnyElement> {
         let menu = self.menu.as_ref()?;
         let entries = self.menu_entries();
-        let viewport = window.viewport_size();
         let (close_left, close_right) = (Self::closer(cx), Self::closer(cx));
         let away = div()
             .occlude()
-            .w(viewport.width)
-            .h(viewport.height)
+            .absolute()
+            .size_full()
             .on_mouse_down(MouseButton::Left, close_left)
             .on_mouse_down(MouseButton::Right, close_right);
         let list = MenuList {
@@ -50,13 +48,15 @@ impl Sidebar {
             focus: Some(menu.focus.clone()),
         };
         let popup = anchored()
+            .position_mode(AnchoredPositionMode::Local)
             .position(menu.at)
             .snap_to_window_with_margin(px(WINDOW_MARGIN))
             .child(list);
-        let scrim = anchored().position(point(px(0.0), px(0.0))).child(away);
         Some(
             div()
-                .child(deferred(scrim).with_priority(layer::MENU - 1))
+                .absolute()
+                .size_full()
+                .child(away)
                 .child(deferred(popup).with_priority(layer::MENU))
                 .into_any_element(),
         )

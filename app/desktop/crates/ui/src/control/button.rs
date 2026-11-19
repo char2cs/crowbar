@@ -2,9 +2,9 @@
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, ClickEvent, Div, ElementId, FontWeight, Hsla, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, RenderOnce, SharedString, StatefulInteractiveElement,
-    StyleRefinement, Styled, Window, div, hsla,
+    App, ClickEvent, Div, ElementId, FocusHandle, FontWeight, Hsla, InteractiveElement,
+    IntoElement, MouseButton, ParentElement, RenderOnce, SharedString, StatefulInteractiveElement,
+    Styled, Window, div, hsla,
 };
 
 use crate::control::button::click_handler::ClickHandler;
@@ -33,6 +33,7 @@ pub struct Button {
     surface: Surface,
     disabled: bool,
     loading: bool,
+    focus: Option<FocusHandle>,
     on_click: Option<ClickHandler>,
 }
 
@@ -76,6 +77,7 @@ impl Button {
             surface: Surface::default(),
             disabled: false,
             loading: false,
+            focus: None,
             on_click: None,
         }
     }
@@ -91,6 +93,16 @@ impl Button {
     #[must_use]
     pub fn loading(mut self) -> Self {
         self.loading = true;
+        self
+    }
+
+    /// Tracks `focus`, so its owner can focus the button; a tab stop unless `focus` is not one.
+    #[must_use]
+    pub fn focus_handle(
+        mut self,
+        focus: FocusHandle,
+    ) -> Self {
+        self.focus = Some(focus);
         self
     }
 
@@ -167,9 +179,8 @@ impl RenderOnce for Button {
             cx,
         );
         let content = self.content_color(&colors);
-        let icon = self
-            .icon
-            .map(|name| Icon::new(name).size(self.size.icon()).color(content));
+        let icon =
+            (self.icon.map(Icon::new)).map(|icon| icon.size(self.size.icon()).color(content));
         let spinner = self
             .loading
             .then(|| indicator(&self.id, &colors, self.size));
@@ -181,10 +192,12 @@ impl RenderOnce for Button {
             .when(enabled, |d| {
                 d.cursor_pointer()
                     .on_hover(hover::listener(&hover))
+                    .focusable()
                     .tab_stop(true)
+                    .active(colors.pressed())
+                    .when_some(self.focus, |d, focus| d.track_focus(&focus))
             })
             .when(!enabled, |d| d.opacity(DISABLED_OPACITY))
-            .when(enabled, |d| d.active(pressed(&colors)))
             .focus(move |s| s.shadow(ring))
             .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
             .children(icon)
@@ -194,11 +207,6 @@ impl RenderOnce for Button {
                 d.on_click(handler)
             })
     }
-}
-
-fn pressed(colors: &Colors) -> impl FnOnce(StyleRefinement) -> StyleRefinement + use<> {
-    let (fill, shadow) = (colors.pressed_background, Vec::new());
-    move |style| style.bg(fill).shadow(shadow)
 }
 
 fn indicator(

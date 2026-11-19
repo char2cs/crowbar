@@ -44,10 +44,6 @@ impl ShellState {
     pub(crate) fn host(&self) -> &PaneHost {
         &self.host
     }
-
-    pub(crate) fn frozen_elements(&self) -> Vec<gpui::AnyElement> {
-        self.frozen.elements()
-    }
 }
 
 #[cfg(test)]

@@ -1,5 +1,3 @@
-use panehost::Overlay;
-
 use super::ShellState;
 
 impl ShellState {
@@ -39,46 +37,27 @@ impl ShellState {
             tracing::warn!(%error, "sending the settings to panes failed");
         }
     }
-
-    pub(crate) fn set_overlay(
-        &mut self,
-        overlay: Overlay,
-    ) {
-        if overlay == Overlay::Active {
-            return self.freeze_panes();
-        }
-        if let Err(error) = self.host.set_overlay(overlay) {
-            tracing::warn!(%error, "showing web views after an overlay failed");
-        }
-        self.frozen.replace(Vec::new());
-    }
-
-    fn freeze_panes(&mut self) {
-        if self.host.is_overlaid() {
-            return;
-        }
-        match self.host.freeze() {
-            Ok(frozen) => self.frozen.replace(frozen),
-            Err(error) => tracing::warn!(%error, "hiding web views for an overlay failed"),
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::test_support::{shell_rig, synced_chat};
 
     #[test]
-    fn an_overlay_hides_the_web_views_until_it_closes() {
+    fn a_theme_change_recolours_the_live_pane_views() {
         let mut rig = shell_rig();
         synced_chat(&mut rig);
-        rig.shell.set_overlay(Overlay::Active);
-        assert!(
-            rig.shell.host().is_overlaid(),
-            "hidden while the overlay is up"
-        );
-        rig.shell.set_overlay(Overlay::Inactive);
-        assert!(!rig.shell.host().is_overlaid(), "shown again");
+        let theme = ui::Theme::default();
+        rig.shell.set_theme(theme);
+        let painted: Vec<_> = rig
+            .mock
+            .calls()
+            .into_iter()
+            .filter_map(|call| match call {
+                webview::Call::SetBackground { color, .. } => Some(color),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(painted, vec![crate::pane_theme::surface_color(theme)]);
     }
 }

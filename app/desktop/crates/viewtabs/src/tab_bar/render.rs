@@ -53,7 +53,7 @@ impl Render for TabBar {
             .child(self.row(now, motion, cx))
             .children(self.ghost())
             .children(self.drop_line(now, motion, cx))
-            .children(self.menu_layers(window, cx))
+            .children(self.menu_layers(cx))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::released))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::released))
             .on_drag_move::<DragSubject>(cx.listener(Self::drag_over))

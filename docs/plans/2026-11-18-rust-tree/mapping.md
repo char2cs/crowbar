@@ -488,7 +488,7 @@ Format: `old path (relative to the old crate) → new path (relative to app/)`. 
 - `src/dialog_size.rs` → `desktop/crates/ui/src/floating/dialog/dialog_size.rs` · stem = type name (type-name check; the type is re-exported from the crate root)
 - `src/dialog_style.rs` → `desktop/crates/ui/src/floating/dialog/dialog_style.rs` · caller: gallery only; stem = type name (type-name check; the type is re-exported from the crate root)
 - `src/direction.rs` → `desktop/crates/ui/src/foundation/direction.rs` · shared by menu and text cursors
-- `src/drag_ghost.rs` → `desktop/crates/ui/src/control/drag/drag_ghost.rs` · stem = type name (type-name check; the type is re-exported from the crate root)
+- `src/drag_ghost.rs` → `desktop/crates/ui/src/floating/drag_ghost.rs` · paints through a Portal, so it sits with the floating family; stem = type name (type-name check; the type is re-exported from the crate root)
 - `src/drag_handle.rs` → `desktop/crates/ui/src/control/drag/drag_handle.rs` · caller: gallery only; keep, see notes; stem = type name (type-name check; the type is re-exported from the crate root)
 - `src/dragged_row.rs` → `desktop/crates/ui/src/control/drag/dragged_row.rs` · shared payload of sidebarview and layoutview, must stay in ui
 - `src/dropdown_menu.rs` → `desktop/crates/ui/src/floating/menu/trigger/dropdown_menu.rs` · crate-API name kept
@@ -532,11 +532,11 @@ Format: `old path (relative to the old crate) → new path (relative to app/)`. 
 - `src/opacity.rs` → `desktop/crates/ui/src/foundation/tokens/opacity.rs` · no caller outside the crate: pub(crate), drop pub mod
 - `src/opaque_debug.rs` → `desktop/crates/ui/src/foundation/opaque_debug.rs` · name already states intent (Debug for closure-holding components)
 - `src/open_submenu.rs` → `desktop/crates/ui/src/floating/menu/nested/open_submenu.rs`
-- `src/overlay_guard.rs` → `desktop/crates/ui/src/floating/overlay_guard.rs` · crate-API name kept; beside Overlays, not inside overlays/
-- `src/overlay_host.rs` → `desktop/crates/ui/src/floating/overlay_host.rs` · crate-API name kept; beside Overlays, not inside overlays/
-- `src/overlay_id.rs` → `desktop/crates/ui/src/floating/overlay_id.rs` · crate-API name kept; beside Overlays, not inside overlays/
-- `src/overlay_slot.rs` → `desktop/crates/ui/src/floating/overlays/slot.rs` · OverlaySlot -> Slot
-- `src/overlays.rs` → `desktop/crates/ui/src/floating/overlays.rs`
+- `src/overlay_guard.rs` → (none) · deleted: the top layer replaced the freeze path
+- `src/overlay_host.rs` → (none) · deleted: the top layer replaced the freeze path
+- `src/overlay_id.rs` → (none) · deleted: the top layer replaced the freeze path
+- `src/overlay_slot.rs` → (none) · deleted: the top layer replaced the freeze path
+- `src/overlays.rs` → (none) · deleted: the top layer replaced the freeze path
 - `src/palette.rs` → `desktop/crates/ui/src/foundation/theme/palette.rs`
 - `src/palette/crowbar_chrome_light.rs` → `desktop/crates/ui/src/foundation/theme/palette/crowbar_chrome_light.rs`
 - `src/palette/crowbar_dark.rs` → `desktop/crates/ui/src/foundation/theme/palette/crowbar_dark.rs`
@@ -1169,7 +1169,7 @@ Format: `old path (relative to the old crate) → new path (relative to app/)`. 
 - `src/failures.rs` → `desktop/crates/panehost/src/pane_host/reconcile/failures.rs`
 - `src/focus_message.rs` → `desktop/crates/panehost/src/slot/inbox/focus_message.rs` · kept: a page's focus report focuses its pane on a click into the page (split panes need it; not strip-only)
 - `src/frame_kind.rs` → `desktop/crates/panehost/src/slot/inbox/frame_kind.rs`
-- `src/frozen_pane.rs` → `desktop/crates/panehost/src/pane_host/overlay/frozen_pane.rs`
+- `src/frozen_pane.rs` → (none) · deleted: the top layer replaced the freeze path
 - `src/host_event.rs` → `desktop/crates/panehost/src/slot/inbox/host_event.rs`
 - `src/hover_message.rs` → `desktop/crates/panehost/src/slot/inbox/hover_message.rs`
 - `src/inbox_gate.rs` → `desktop/crates/panehost/src/slot/inbox/gate.rs` · InboxGate -> Gate · stutter
@@ -1182,7 +1182,7 @@ Format: `old path (relative to the old crate) → new path (relative to app/)`. 
 - `src/mime.rs` → `desktop/crates/panehost/src/catalog/pages/mime.rs`
 - `src/multiplicity.rs` → `desktop/crates/panehost/src/catalog/multiplicity.rs`
 - `src/origin_table.rs` → `desktop/crates/panehost/src/scheme/origin_table.rs`
-- `src/overlay.rs` → `desktop/crates/panehost/src/pane_host/overlay.rs` · module root; still holds Overlay
+- `src/overlay.rs` → (none) · deleted: the top layer replaced the freeze path
 - `src/owned_pane.rs` → `desktop/crates/panehost/src/slot/owned_pane.rs`
 - `src/pane_background.rs` → `desktop/crates/panehost/src/pane_host/context/background.rs` · stutter
 - `src/pane_bundles.rs` → `desktop/crates/panehost/src/catalog/pages/pane_bundles.rs`
@@ -1190,7 +1190,7 @@ Format: `old path (relative to the old crate) → new path (relative to app/)`. 
 - `src/pane_host.rs` → `desktop/crates/panehost/src/pane_host.rs` · entry PaneHost
 - `src/pane_host_config.rs` → `desktop/crates/panehost/src/slot/config.rs` · PaneHostConfig -> Config · stutter; its consumer is the slot factory
 - `src/pane_host_frames.rs` → `desktop/crates/panehost/src/pane_host/lifecycle/frames.rs` · stutter
-- `src/pane_host_freeze.rs` → `desktop/crates/panehost/src/pane_host/overlay/freeze.rs` · stutter
+- `src/pane_host_freeze.rs` → (none) · deleted: the top layer replaced the freeze path
 - `src/pane_host_messages.rs` → `desktop/crates/panehost/src/pane_host/context/broadcast.rs` · stutter (keybindings, theme, overlay, extension status pushed to panes)
 - `src/pane_host_refusals.rs` → `desktop/crates/panehost/src/pane_host/refusals.rs` · stutter
 - `src/pane_host_slots.rs` → `desktop/crates/panehost/src/pane_host/lifecycle/placement.rs` · stutter; slots name is taken by crate::slots
@@ -1766,7 +1766,7 @@ Format: `old path (relative to the old crate) → new path (relative to app/)`. 
 - `src/focused_chat.rs` → `desktop/app/src/panes/tracking/focused_chat.rs`
 - `src/frame_clock.rs` → `desktop/app/src/shell/window/readout/frame_clock.rs`
 - `src/frame_stats.rs` → `desktop/app/src/shell/window/readout/frame_stats.rs`
-- `src/frozen_layer.rs` → `desktop/app/src/panes/content/frozen_layer.rs`
+- `src/frozen_layer.rs` → (none) · deleted: the top layer replaced the freeze path
 - `src/holes.rs` → `desktop/app/src/panes/content/holes.rs`
 - `src/host_builder.rs` → `desktop/app/src/panes/kinds/host_builder.rs`
 - `src/hosts.rs` → `desktop/app/src/shell/view/events/first_run/hosts.rs`
@@ -1790,7 +1790,7 @@ Format: `old path (relative to the old crate) → new path (relative to app/)`. 
 - `src/notices.rs` → `desktop/app/src/shell/window/notice_placement.rs` · fn floating_at; avoids clash with view/events/notices.rs
 - `src/open_all.rs` → `desktop/app/src/shell/view/sidebar/files/open_all.rs`
 - `src/outcome.rs` → `desktop/app/src/shell/state/outcome.rs`
-- `src/overlay_requests.rs` → `desktop/app/src/shell/inbox/overlay_requests.rs`
+- `src/overlay_requests.rs` → (none) · deleted: the top layer replaced the freeze path
 - `src/page_shot.rs` → `desktop/app/src/shell/state/agent/page_shot.rs`
 - `src/pane_opener.rs` → `desktop/app/src/panes/kinds/pane_opener.rs` · stack_policy::place becomes a plain OpenPane
 - `src/pane_settings.rs` → `desktop/app/src/shell/view/settings/pane.rs` · stutter: settings

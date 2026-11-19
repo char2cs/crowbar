@@ -149,4 +149,63 @@ mod tests {
             None
         );
     }
+
+    fn ask_delete(floating: &mut crate::test_support::Floating) {
+        let ask = Intent::RequestFileDelete {
+            path: "src/lib.rs".into(),
+            is_dir: false,
+        };
+        let sidebar = floating.sidebar.clone();
+        sidebar.update_in(&mut floating.window, |this, window, cx| {
+            this.apply(ask, window, cx);
+        });
+        floating.window.run_until_parked();
+    }
+
+    #[gpui::test]
+    fn the_delete_dialog_floats_centred_above_the_panes(cx: &mut TestAppContext) {
+        let mut floating = crate::test_support::open_floating(cx, DemoShell::reference());
+        ask_delete(&mut floating);
+        assert_eq!(
+            floating.window.debug_bounds("ui-dialog"),
+            None,
+            "nothing in the window"
+        );
+        let card = floating.top.debug_bounds("ui-dialog").unwrap_or_default();
+        let centre = card.origin.x + card.size.width / 2.0;
+        assert!(
+            (centre - px(600.0)).abs() < px(1.0),
+            "{card:?} centred in 1200px"
+        );
+    }
+
+    #[gpui::test]
+    fn escape_cancels_the_delete_dialog(cx: &mut TestAppContext) {
+        let mut floating = crate::test_support::open_floating(cx, DemoShell::reference());
+        ask_delete(&mut floating);
+        crate::test_support::press(&mut floating.top, "enter escape");
+        assert!(
+            floating.recorder.sent().is_empty(),
+            "return on the close button and escape send nothing"
+        );
+        let open = floating.sidebar.read_with(&floating.window, |this, _| {
+            this.tree.files().dialog().is_some()
+        });
+        assert!(!open, "escape closed it");
+    }
+
+    #[gpui::test]
+    fn tab_reaches_cancel_then_delete_from_the_close_button(cx: &mut TestAppContext) {
+        let mut floating = crate::test_support::open_floating(cx, DemoShell::reference());
+        ask_delete(&mut floating);
+        crate::test_support::press(&mut floating.top, "tab enter");
+        assert!(floating.recorder.sent().is_empty(), "Cancel sends nothing");
+        crate::test_support::settle(&mut floating.window);
+        ask_delete(&mut floating);
+        crate::test_support::press(&mut floating.top, "tab tab enter");
+        let want = Command::DeleteFile {
+            path: "src/lib.rs".into(),
+        };
+        assert_eq!(floating.recorder.sent(), vec![want]);
+    }
 }

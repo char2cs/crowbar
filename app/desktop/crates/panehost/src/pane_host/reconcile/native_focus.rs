@@ -1,6 +1,5 @@
 use crate::error::Result;
 use crate::pane_host::PaneHost;
-use crate::pane_host::overlay::Overlay;
 use crate::pane_host::reconcile::Keyboard;
 use crate::slot::Slot;
 
@@ -30,8 +29,7 @@ impl PaneHost {
     }
 
     fn keyboard_page(&self) -> Option<&Slot> {
-        let page_has_keys = self.keyboard == Keyboard::Pane && self.overlay == Overlay::Inactive;
-        if !page_has_keys {
+        if self.keyboard != Keyboard::Pane {
             return None;
         }
         let runtime = self
@@ -71,32 +69,19 @@ mod tests {
     #[test]
     fn the_keyboard_goes_back_to_its_owner() {
         let cases = [
-            (
-                "the page holds the keyboard",
-                Keyboard::Pane,
-                Overlay::Inactive,
-                Some("focus"),
-            ),
+            ("the page holds the keyboard", Keyboard::Pane, Some("focus")),
             (
                 "the shell holds the keyboard",
                 Keyboard::Shell,
-                Overlay::Inactive,
                 Some("focus_parent"),
             ),
-            (
-                "an overlay covers the page",
-                Keyboard::Pane,
-                Overlay::Active,
-                None,
-            ),
         ];
-        for (name, keyboard, overlay, wanted) in cases {
+        for (name, keyboard, wanted) in cases {
             let mut f = fixture();
             let panes = [instance("p1", "core.chat")];
             f.sync(&panes, &["p1"], Some("p1"));
             register(&mut f, "p1", "core.chat");
             f.sync_with(&panes, &["p1"], (Some("p1"), keyboard));
-            f.host.set_overlay(overlay).unwrap();
             let before = f.mock.calls().len();
             f.host.apply_keyboard().unwrap();
             let focus_calls: Vec<&str> = f.mock.calls()[before..]

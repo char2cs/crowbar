@@ -74,6 +74,7 @@ impl RenderOnce for Popover {
             focus: cx.focus_handle(),
         });
         let opener = state.clone();
+        let id = self.id.clone();
         let wrapper = div()
             .id(self.id)
             .relative()
@@ -83,10 +84,18 @@ impl RenderOnce for Popover {
             return wrapper.into_any_element();
         }
         let closer = state.clone();
-        let panel = panel(&state, &self.content, window, cx);
+        let content = self.content;
+        let panel: popup::Content = Rc::new(move |window, cx| panel(&state, &content, window, cx));
         wrapper
-            .child(popup::click_away(window, move |_, cx| close(&closer, cx)))
-            .child(popup::placed(self.placement, OFFSET, panel))
+            .child(popup::click_away((id.clone(), "away"), move |_, cx| {
+                close(&closer, cx);
+            }))
+            .child(popup::placed(
+                (id, "panel").into(),
+                self.placement,
+                OFFSET,
+                panel,
+            ))
             .into_any_element()
     }
 }
@@ -153,7 +162,7 @@ mod tests {
 
     use super::*;
     use crate::control::Button;
-    use crate::test_support::probe::open;
+    use crate::test_support::probe::{open, open_floating, settle};
 
     fn build(
         _: &mut Window,
@@ -202,5 +211,18 @@ mod tests {
         cx.simulate_click(point(px(700.0), px(500.0)), gpui::Modifiers::none());
         cx.run_until_parked();
         assert!(cx.debug_bounds("popover-body").is_none());
+    }
+
+    #[gpui::test]
+    fn an_open_popover_floats_in_the_top_layer_and_takes_the_keyboard(cx: &mut TestAppContext) {
+        let (mut owner, mut top) = open_floating(cx, build);
+        owner.simulate_click(point(px(10.0), px(10.0)), gpui::Modifiers::none());
+        owner.run_until_parked();
+        assert!(owner.debug_bounds("popover-body").is_none());
+        assert!(top.debug_bounds("popover-body").is_some());
+        assert!(top.update(|window, _| window.takes_keys()));
+        top.simulate_keystrokes("escape");
+        settle(&mut top);
+        assert!(top.debug_bounds("popover-body").is_none());
     }
 }

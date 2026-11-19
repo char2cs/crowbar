@@ -25,7 +25,7 @@ impl ShellView {
             },
         ));
         self.pairing = Some(dialog);
-        self.update_overlay(cx);
+        cx.notify();
     }
 
     fn on_pairing(
@@ -36,7 +36,7 @@ impl ShellView {
     ) {
         if matches!(event, pairing::Event::Close) {
             self.pairing = None;
-            self.update_overlay(cx);
+            cx.notify();
         }
     }
 
@@ -64,7 +64,7 @@ impl ShellView {
             }),
         );
         self.branch_import = Some(dialog);
-        self.update_overlay(cx);
+        cx.notify();
     }
 
     fn on_branch_import(
@@ -74,7 +74,7 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) {
         self.branch_import = None;
-        self.update_overlay(cx);
+        cx.notify();
     }
 
     pub(in crate::shell_view) fn export_diagnostics(&self) {

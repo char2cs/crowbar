@@ -1,6 +1,6 @@
 //! Resolved colours of one button variant.
 
-use gpui::{BoxShadow, Hsla, hsla};
+use gpui::{BoxShadow, Hsla, StyleRefinement, Styled, hsla};
 
 use crate::control::button::button_variant::ButtonVariant;
 use crate::foundation::Appearance;
@@ -31,6 +31,11 @@ fn white() -> Hsla {
 }
 
 impl Colors {
+    pub(crate) fn pressed(&self) -> impl FnOnce(StyleRefinement) -> StyleRefinement + use<> {
+        let (fill, shadow) = (self.pressed_background, Vec::new());
+        move |style| style.bg(fill).shadow(shadow)
+    }
+
     pub(crate) fn resolve(
         variant: ButtonVariant,
         palette: &Palette,

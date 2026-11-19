@@ -177,7 +177,7 @@ impl ShellView {
         if let Some(modal) = &self.settings {
             modal.read(cx).focus(window);
         }
-        self.update_overlay(cx);
+        cx.notify();
     }
 }
 

@@ -2,13 +2,11 @@
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, ElementId, IntoElement, ParentElement, RenderOnce, SharedString, Styled,
-    Window, div,
+    AnyElement, App, ElementId, FocusHandle, IntoElement, ParentElement, RenderOnce, SharedString,
+    Styled, Window, div,
 };
 
-use crate::control::Button;
-use crate::control::ButtonSize;
-use crate::control::ButtonVariant;
+use crate::floating::dialog::close_button::close_button;
 use crate::floating::dialog::dialog_style::DialogStyle;
 use crate::foundation::CloseHandler;
 use crate::foundation::Icon;
@@ -25,6 +23,7 @@ pub(crate) struct Header {
     icon: Option<IconName>,
     actions: Option<AnyElement>,
     on_close: Option<CloseHandler>,
+    pub(crate) close_focus: Option<FocusHandle>,
     ruled: bool,
     style: DialogStyle,
 }
@@ -37,6 +36,7 @@ impl Header {
             icon: None,
             actions: None,
             on_close: None,
+            close_focus: None,
             ruled: true,
             style: DialogStyle::default(),
         }
@@ -104,6 +104,10 @@ impl RenderOnce for Header {
         let (px_x, px_y) = style.header_padding();
         let title = self.title.map(|title| title_text(title, style, &theme));
         let close = close_button(self.id, self.on_close, style);
+        let close = match self.close_focus {
+            Some(focus) => close.focus_handle(focus),
+            None => close,
+        };
         let frame = div().flex().flex_none().px(px_x).py(px_y);
         match style {
             DialogStyle::Plain => frame
@@ -145,24 +149,6 @@ fn title_text(
         .text_size(style.title_size())
         .line_height(style.title_line())
         .child(title)
-}
-
-fn close_button(
-    id: ElementId,
-    on_close: Option<CloseHandler>,
-    style: DialogStyle,
-) -> Button {
-    let size = match style {
-        DialogStyle::App => ButtonSize::Sm,
-        DialogStyle::Plain => ButtonSize::Lg,
-    };
-    let close = Button::icon_only((id, "close"), IconName::X)
-        .variant(ButtonVariant::Ghost)
-        .size(size);
-    match on_close {
-        Some(handler) => close.on_click(move |_, window, cx| handler(window, cx)),
-        None => close,
-    }
 }
 
 fn actions_slot(actions: AnyElement) -> impl IntoElement {

@@ -55,7 +55,7 @@ impl ShellView {
         &self,
         window: &Window,
     ) {
-        if !window.is_window_active() {
+        if !window.is_window_active() || self.modal_open() {
             return;
         }
         self.state.apply_keyboard();
@@ -160,7 +160,7 @@ impl ShellView {
         }
         window.set_window_title(&self.window_title);
         self.startup = None;
-        self.update_overlay(cx);
+        cx.notify();
     }
 }
 

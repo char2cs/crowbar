@@ -25,6 +25,7 @@ pub fn init(cx: &mut App) -> Result<(), Error> {
     cx.set_global(ShimmerClock::starting_now());
     cx.bind_keys(crate::floating::menu_bindings());
     cx.bind_keys(crate::floating::popover_bindings());
+    cx.bind_keys(crate::floating::dialog_bindings());
     cx.bind_keys(crate::control::text_input_bindings());
     cx.bind_keys(crate::control::text_area_bindings());
     Ok(())

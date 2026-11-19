@@ -4,10 +4,11 @@ use gpui::StatefulInteractiveElement as _;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce,
-    SharedString, Styled, Window, anchored, deferred, div, px,
+    SharedString, Styled, Window, anchored, div, px,
 };
 
 use crate::display::Kbd;
+use crate::floating::portal::Portal;
 use crate::floating::tooltip_side::TooltipSide;
 use crate::foundation::CubicBezier;
 use crate::foundation::Motion;
@@ -79,34 +80,34 @@ impl Tooltip {
     }
 }
 
-impl Tooltip {
-    fn card(
-        &self,
-        theme: Theme,
-        opacity: f32,
-    ) -> gpui::Div {
-        let palette = theme.palette(Surface::Window);
-        div()
-            .flex()
-            .items_center()
-            .gap(spacing::STEP_2)
-            .px(spacing::STEP_2_5)
-            .py(spacing::STEP_1_5)
-            .rounded(radius::LG)
-            .border_1()
-            .border_color(palette.border().opacity(BORDER_OPACITY))
-            .bg(palette.card().opacity(FILL_OPACITY))
-            .text_color(palette.foreground())
-            .text_size(ScaledText::Sm.size(&theme))
-            .font_family(theme.ui_family())
-            .whitespace_nowrap()
-            .shadow(shadow::lg(opacity::PERCENT_10))
-            .opacity(opacity)
-            .debug_selector(|| "tooltip-card".into())
-            .child(self.text.clone())
-            .children(self.shortcut.clone().map(Kbd::new))
-    }
+fn card(
+    (text, shortcut): (SharedString, Option<SharedString>),
+    theme: Theme,
+    opacity: f32,
+) -> gpui::Div {
+    let palette = theme.palette(Surface::Window);
+    div()
+        .flex()
+        .items_center()
+        .gap(spacing::STEP_2)
+        .px(spacing::STEP_2_5)
+        .py(spacing::STEP_1_5)
+        .rounded(radius::LG)
+        .border_1()
+        .border_color(palette.border().opacity(BORDER_OPACITY))
+        .bg(palette.card().opacity(FILL_OPACITY))
+        .text_color(palette.foreground())
+        .text_size(ScaledText::Sm.size(&theme))
+        .font_family(theme.ui_family())
+        .whitespace_nowrap()
+        .shadow(shadow::lg(opacity::PERCENT_10))
+        .opacity(opacity)
+        .debug_selector(|| "tooltip-card".into())
+        .child(text)
+        .children(shortcut.map(Kbd::new))
+}
 
+impl Tooltip {
     fn placement(
         &self,
         slide: f32,
@@ -134,8 +135,17 @@ impl RenderOnce for Tooltip {
         if shown.running {
             window.request_animation_frame();
         }
-        let card = self.card(theme, shown.value);
         let placement = self.placement(SLIDE * (1.0 - shown.value));
+        let (text, shortcut, opacity) = (self.text, self.shortcut, shown.value);
+        let floating = Portal::here((self.id.clone(), "card"), move |_, _| {
+            let card = card((text.clone(), shortcut.clone()), theme, opacity);
+            div().w_full().flex().justify_center().child(
+                anchored()
+                    .snap_to_window_with_margin(px(WINDOW_MARGIN))
+                    .child(card),
+            )
+        })
+        .priority(layer::TOOLTIP);
         div()
             .id(self.id)
             .relative()
@@ -143,12 +153,7 @@ impl RenderOnce for Tooltip {
             .on_hover(hover::listener(&hover_state))
             .capture_any_mouse_down(dismiss(&hover_state))
             .child(self.trigger)
-            .when(shown.value > 0.0, |d| {
-                let snapped = anchored()
-                    .snap_to_window_with_margin(px(WINDOW_MARGIN))
-                    .child(card);
-                d.child(placement.child(deferred(snapped).with_priority(layer::TOOLTIP)))
-            })
+            .when(opacity > 0.0, |d| d.child(placement.child(floating)))
     }
 }
 
@@ -168,7 +173,7 @@ mod tests {
     use super::*;
     use crate::control::Button;
     use crate::foundation::IconName;
-    use crate::test_support::probe::{measure, open};
+    use crate::test_support::probe::{measure, open, open_floating};
 
     #[gpui::test]
     fn wrapping_does_not_change_the_trigger_size(cx: &mut TestAppContext) {
@@ -235,5 +240,29 @@ mod tests {
         cx.simulate_mouse_move(point(px(10.0), px(10.0)), None, gpui::Modifiers::none());
         let before = cx.debug_bounds("probe").map(|b| b.size);
         assert_eq!(before.map(|s| f32::from(s.height)), Some(32.0));
+    }
+
+    #[gpui::test]
+    fn a_resting_tooltip_floats_in_the_top_layer_and_lets_clicks_through(cx: &mut TestAppContext) {
+        let (mut owner, mut top) = open_floating(cx, |_, _| {
+            Tooltip::new("t", "Settings", Button::icon_only("b", IconName::Gear))
+        });
+        owner.update(|_, cx| cx.set_global(Motion::reduced()));
+        owner.simulate_mouse_move(point(px(10.0), px(10.0)), None, gpui::Modifiers::none());
+        owner.run_until_parked();
+        owner.simulate_mouse_move(point(px(11.0), px(11.0)), None, gpui::Modifiers::none());
+        owner.run_until_parked();
+        assert_eq!(
+            owner.debug_bounds("tooltip-card"),
+            None,
+            "nothing in the window"
+        );
+        let card = top.debug_bounds("tooltip-card").unwrap_or_default();
+        let trigger = owner.debug_bounds("probe").unwrap_or_default();
+        assert!(
+            card.origin.y >= trigger.bottom(),
+            "{card:?} below {trigger:?}"
+        );
+        assert!(top.update(|window, _| window.input_region().is_empty()));
     }
 }

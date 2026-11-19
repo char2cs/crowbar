@@ -3,13 +3,14 @@
 use std::rc::Rc;
 
 use gpui::{
-    Animation, AnimationExt, AnyElement, App, Bounds, ElementId, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, RenderOnce, Styled, Window, anchored, div, hsla, point, px,
+    Animation, AnimationExt, AnyElement, App, Div, ElementId, InteractiveElement, IntoElement,
+    MouseButton, ParentElement, RenderOnce, Stateful, Styled, Window, anchored, div, hsla, point,
+    px,
 };
 
+use crate::floating::dialog::actions::{CONTEXT, CloseDialog, FocusNext, FocusPrevious};
+use crate::floating::dialog::focus::Focus;
 use crate::floating::dialog::header::Header;
-use crate::floating::overlays::Overlays;
-use crate::floating::overlays::Slot;
 use crate::foundation::CloseHandler;
 use crate::foundation::CubicBezier;
 use crate::foundation::IconName;
@@ -44,12 +45,16 @@ pub struct Dialog {
     on_close: Option<CloseHandler>,
 }
 
+mod actions;
+mod close_button;
 mod dialog_extent;
 mod dialog_size;
 mod dialog_style;
+mod focus;
 mod header;
 mod heading;
 
+pub(crate) use actions::bindings;
 pub use dialog_extent::DialogExtent;
 pub use dialog_size::DialogSize;
 pub use dialog_style::DialogStyle;
@@ -127,14 +132,19 @@ impl Dialog {
         self,
         theme: Theme,
         viewport: gpui::Size<gpui::Pixels>,
-    ) -> gpui::Stateful<gpui::Div> {
+    ) -> Stateful<Div> {
         let palette = theme.palette(Surface::Window);
         let header = (!self.header.is_empty()).then_some(self.header);
         let footer = self
             .footer
             .map(|footer| footer_bar(footer, (palette, self.style)));
         let padding = self.extent.map_or(self.style.body_padding(), |_| px(0.0));
-        let frame = div().id((self.id, "popup")).occlude().flex().flex_col();
+        let frame = div()
+            .id((self.id, "popup"))
+            .debug_selector(|| "ui-dialog".into())
+            .occlude()
+            .flex()
+            .flex_col();
         let frame = match self.extent {
             Some(extent) => {
                 let fixed = extent.size(viewport);
@@ -164,7 +174,7 @@ impl Dialog {
 fn footer_bar(
     footer: AnyElement,
     (palette, style): (&Palette, DialogStyle),
-) -> gpui::Div {
+) -> Div {
     let (px_x, px_y) = style.footer_padding();
     div()
         .flex()
@@ -179,11 +189,27 @@ fn footer_bar(
         .child(footer)
 }
 
-fn spacer(share: f32) -> gpui::Div {
+fn spacer(share: f32) -> Div {
     let mut spacer = div();
     spacer.style().flex_grow = Some(share);
     spacer.style().flex_basis = Some(px(0.0).into());
     spacer
+}
+
+fn keyboard(
+    layer: Stateful<Div>,
+    focus: Focus,
+    on_close: Option<CloseHandler>,
+) -> Stateful<Div> {
+    let (ahead, root) = (focus.clone(), focus.root.clone());
+    layer
+        .key_context(CONTEXT)
+        .track_focus(&root)
+        .on_action(move |_: &CloseDialog, window, cx| fire(on_close.as_ref(), window, cx))
+        .on_action(move |_: &FocusNext, window, cx| ahead.step(Window::focus_next, window, cx))
+        .on_action(move |_: &FocusPrevious, window, cx| {
+            focus.step(Window::focus_prev, window, cx);
+        })
 }
 
 fn fire(
@@ -196,10 +222,6 @@ fn fire(
     }
 }
 
-fn whole_window(viewport: gpui::Size<gpui::Pixels>) -> Bounds<gpui::Pixels> {
-    Bounds::new(point(px(0.0), px(0.0)), viewport)
-}
-
 impl RenderOnce for Dialog {
     fn render(
         self,
@@ -208,15 +230,21 @@ impl RenderOnce for Dialog {
     ) -> impl IntoElement {
         let theme = *Theme::of(cx);
         let viewport = window.viewport_size();
-        let slot = window.use_keyed_state((self.id.clone(), "overlay"), cx, |_, cx| Slot {
-            guard: Overlays::open(cx, whole_window(viewport)),
+        let focus = window.use_keyed_state((self.id.clone(), "focus"), cx, |window, cx| {
+            Focus::opening(window, cx)
         });
-        slot.read(cx).guard.update(whole_window(viewport));
+        let focus = focus.read(cx).clone();
         let duration = Motion::of(cx).duration(timing::SLOW);
         let (id, scrim_close) = (self.id.clone(), self.on_close.clone());
-        let popup = self.popup(theme, viewport);
-        let layer = div()
-            .id((id.clone(), "scrim"))
+        let keyed = keyboard(
+            div().id((id.clone(), "scrim")),
+            focus.clone(),
+            self.on_close.clone(),
+        );
+        let mut dialog = self;
+        dialog.header.close_focus = Some(focus.close);
+        let popup = dialog.popup(theme, viewport);
+        let layer = keyed
             .occlude()
             .flex()
             .flex_col()
@@ -247,53 +275,10 @@ mod tests {
     use std::cell::{Cell, RefCell};
     use std::rc::Rc;
 
-    use gpui::{Bounds, ParentElement, Pixels, TestAppContext, div, point, px};
+    use gpui::{InteractiveElement, ParentElement, TestAppContext, div, point, px};
 
     use super::*;
-    use crate::floating::overlay_host::OverlayHost;
-    use crate::floating::overlay_id::OverlayId;
-    use crate::test_support::probe::open;
-
-    #[derive(Default)]
-    struct Recorder {
-        events: RefCell<Vec<String>>,
-    }
-
-    impl OverlayHost for Recorder {
-        fn overlay_changed(
-            &self,
-            _: OverlayId,
-            bounds: Bounds<Pixels>,
-        ) {
-            self.events.borrow_mut().push(format!(
-                "changed {}x{}",
-                f32::from(bounds.size.width),
-                f32::from(bounds.size.height)
-            ));
-        }
-
-        fn overlay_closed(
-            &self,
-            _: OverlayId,
-        ) {
-            self.events.borrow_mut().push("closed".into());
-        }
-    }
-
-    #[gpui::test]
-    fn dialog_reports_the_whole_window_to_the_host(cx: &mut TestAppContext) {
-        let recorder = Rc::new(Recorder::default());
-        let host = Rc::clone(&recorder);
-        let cx = open(cx, |_, _| Dialog::new("d").title("Title"));
-        cx.update(|_, cx| Overlays::install(host as Rc<dyn OverlayHost>, cx));
-        cx.simulate_resize(gpui::size(px(640.0), px(480.0)));
-        cx.run_until_parked();
-        let events = recorder.events.borrow();
-        assert!(
-            events.iter().all(|event| event.starts_with("changed")),
-            "{events:?}"
-        );
-    }
+    use crate::test_support::probe::{open, open_floating};
 
     #[gpui::test]
     fn close_button_and_scrim_both_call_on_close(cx: &mut TestAppContext) {
@@ -383,5 +368,104 @@ mod tests {
             text.bottom(),
             footer.top()
         );
+    }
+
+    type Log = Rc<RefCell<Vec<&'static str>>>;
+
+    fn confirm(log: &Log) -> Dialog {
+        let record = |name: &'static str| {
+            let log = Rc::clone(log);
+            move |_: &gpui::ClickEvent, _: &mut Window, _: &mut App| log.borrow_mut().push(name)
+        };
+        let closed = Rc::clone(log);
+        Dialog::new("d")
+            .title("Delete File")
+            .body("Are you sure?")
+            .footer(
+                div()
+                    .flex()
+                    .child(
+                        crate::control::Button::new("cancel", "Cancel").on_click(record("cancel")),
+                    )
+                    .child(
+                        crate::control::Button::new("delete", "Delete").on_click(record("delete")),
+                    ),
+            )
+            .on_close(move |_, _| closed.borrow_mut().push("close"))
+    }
+
+    fn open_confirm(cx: &mut TestAppContext) -> (Log, gpui::VisualTestContext) {
+        let log = Log::default();
+        let shown = Rc::clone(&log);
+        let (_, top) = open_floating(cx, move |_, _| {
+            let shown = Rc::clone(&shown);
+            crate::floating::Portal::window("dialog", move |_, _| confirm(&shown))
+        });
+        (log, top)
+    }
+
+    fn press(
+        cx: &mut gpui::VisualTestContext,
+        keys: &str,
+    ) {
+        for key in keys.split(' ') {
+            cx.simulate_keystrokes(key);
+            let keystroke = gpui::Keystroke::parse(key).unwrap_or_else(|error| panic!("{error}"));
+            cx.simulate_event(gpui::KeyUpEvent { keystroke });
+        }
+    }
+
+    #[gpui::test]
+    fn escape_closes_the_dialog(cx: &mut TestAppContext) {
+        let (log, mut top) = open_confirm(cx);
+        top.simulate_keystrokes("escape");
+        assert_eq!(*log.borrow(), vec!["close"]);
+    }
+
+    #[gpui::test]
+    fn focus_starts_on_the_close_button_where_return_does_nothing(cx: &mut TestAppContext) {
+        let (log, mut top) = open_confirm(cx);
+        assert!(
+            top.update(|window, _| window.takes_keys()),
+            "the dialog has focus"
+        );
+        press(&mut top, "enter");
+        assert!(log.borrow().is_empty(), "{:?}", log.borrow());
+    }
+
+    #[gpui::test]
+    fn tab_cycles_close_cancel_delete_and_back_inside_the_dialog(cx: &mut TestAppContext) {
+        let (log, mut top) = open_confirm(cx);
+        press(&mut top, "tab enter tab enter tab enter tab enter");
+        assert_eq!(*log.borrow(), vec!["cancel", "delete", "cancel"]);
+        press(&mut top, "shift-tab shift-tab enter");
+        assert_eq!(*log.borrow(), vec!["cancel", "delete", "cancel", "delete"]);
+    }
+
+    fn counting_dialog(
+        field: &gpui::FocusHandle,
+        typed: &Rc<Cell<usize>>,
+    ) -> Dialog {
+        let count = Rc::clone(typed);
+        let body = div()
+            .size(px(20.0))
+            .track_focus(field)
+            .on_key_down(move |_, _, _| count.set(count.get() + 1));
+        Dialog::new("d").title("Rename").body(body)
+    }
+
+    #[gpui::test]
+    fn a_dialog_body_that_focuses_its_own_field_keeps_that_focus(cx: &mut TestAppContext) {
+        let field = cx.update(|cx| cx.focus_handle());
+        let (inner, typed) = (field.clone(), Rc::new(Cell::new(0)));
+        let count = Rc::clone(&typed);
+        let (mut owner, mut top) = open_floating(cx, move |_, _| {
+            let (inner, count) = (inner.clone(), Rc::clone(&count));
+            crate::floating::Portal::window("dialog", move |_, _| counting_dialog(&inner, &count))
+        });
+        owner.update(|window, _| window.focus(&field));
+        owner.run_until_parked();
+        top.simulate_keystrokes("a");
+        assert_eq!(typed.get(), 1);
     }
 }

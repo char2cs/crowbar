@@ -11,9 +11,9 @@ mod test_support;
 mod ui;
 
 pub use control::{
-    Axis, Button, ButtonSize, ButtonVariant, Checkbox, DragGhost, DragHandle, DraggedRow, Sash,
-    SashDrag, Separator, Switch, TabItem, Tabs, TabsStyle, TextArea, TextAreaCondition,
-    TextAreaSize, TextInput, TextInputEvent, TextInputStyle,
+    Axis, Button, ButtonSize, ButtonVariant, Checkbox, DragHandle, DraggedRow, Sash, SashDrag,
+    Separator, Switch, TabItem, Tabs, TabsStyle, TextArea, TextAreaCondition, TextAreaSize,
+    TextInput, TextInputEvent, TextInputStyle,
 };
 pub use display::{
     Badge, BadgeSize, BadgeVariant, EmptyState, FlickerSpinner, Kbd, ProgressBar, ScrollArea,
@@ -22,9 +22,9 @@ pub use display::{
 };
 pub use error::Error;
 pub use floating::{
-    ContextMenu, Dialog, DialogExtent, DialogSize, DialogStyle, DropdownMenu, Menu, MenuAction,
-    MenuItem, OverlayGuard, OverlayHost, OverlayId, Overlays, Placement, Popover, Select, Tooltip,
-    TooltipSide, click_away, popup_at,
+    ContextMenu, Dialog, DialogExtent, DialogSize, DialogStyle, DragGhost, DropdownMenu, Menu,
+    MenuAction, MenuItem, Placement, Popover, Portal, Select, Tooltip, TooltipSide, TopLayer,
+    click_away, popup_at,
 };
 pub use foundation::{
     Appearance, CaretBlink, CubicBezier, Glide, HoverFill, Icon, IconName, IconWeight, Motion,

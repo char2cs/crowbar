@@ -3,109 +3,44 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, Corner, InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels,
-    Point, Styled, Window, anchored, deferred, div, point, px, relative,
+    AnchoredPositionMode, AnyElement, App, Corner, Div, ElementId, InteractiveElement, IntoElement,
+    MouseButton, ParentElement, Pixels, Point, Styled, Window, anchored, div, px, relative,
 };
 
 use crate::floating::placement::Placement;
+use crate::floating::portal::Portal;
 use crate::foundation::tokens::layer;
 
 const WINDOW_MARGIN: f32 = 8.0;
 const SUBMENU_GAP: f32 = 2.0;
 const SUBMENU_RISE: f32 = 5.0;
 
+pub(crate) type Content = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
+
 pub(crate) fn placed(
+    id: ElementId,
     placement: Placement,
     offset: f32,
-    content: impl IntoElement,
+    content: Content,
 ) -> AnyElement {
-    match placement {
-        Placement::Below => below(offset, content),
-        Placement::BelowEnd => below_end(offset, content),
-        Placement::BelowCentre => below_centre(offset, content),
-        Placement::Right => right_of(offset, content),
-    }
-}
-
-pub(crate) fn below(
-    offset: f32,
-    content: impl IntoElement,
-) -> AnyElement {
-    div()
-        .absolute()
-        .left_0()
-        .top_full()
-        .mt(px(offset))
-        .child(
-            deferred(
-                anchored()
-                    .snap_to_window_with_margin(px(WINDOW_MARGIN))
-                    .child(content),
-            )
-            .with_priority(layer::MENU),
-        )
-        .into_any_element()
-}
-
-pub(crate) fn below_end(
-    offset: f32,
-    content: impl IntoElement,
-) -> AnyElement {
-    div()
-        .absolute()
-        .right_0()
-        .top_full()
-        .mt(px(offset))
-        .child(
-            deferred(
-                anchored()
-                    .anchor(Corner::TopRight)
-                    .snap_to_window_with_margin(px(WINDOW_MARGIN))
-                    .child(content),
-            )
-            .with_priority(layer::MENU),
-        )
-        .into_any_element()
-}
-
-pub(crate) fn below_centre(
-    offset: f32,
-    content: impl IntoElement,
-) -> AnyElement {
-    div()
-        .absolute()
-        .left(relative(0.5))
-        .top_full()
-        .mt(px(offset))
-        .child(
-            deferred(
-                anchored()
-                    .snap_to_window_with_margin(px(WINDOW_MARGIN))
-                    .child(content),
-            )
-            .with_priority(layer::MENU),
-        )
-        .into_any_element()
-}
-
-pub(crate) fn right_of(
-    offset: f32,
-    content: impl IntoElement,
-) -> AnyElement {
-    div()
-        .absolute()
-        .left_full()
-        .top_0()
-        .ml(px(offset))
-        .child(
-            deferred(
-                anchored()
-                    .snap_to_window_with_margin(px(WINDOW_MARGIN))
-                    .child(content),
-            )
-            .with_priority(layer::MENU),
-        )
-        .into_any_element()
+    let anchor = div().absolute().top_full().mt(px(offset));
+    let (anchor, corner) = match placement {
+        Placement::Below => (anchor.left_0(), Corner::TopLeft),
+        Placement::BelowEnd => (anchor.right_0(), Corner::TopRight),
+        Placement::BelowCentre => (anchor.left(relative(0.5)), Corner::TopLeft),
+        Placement::Right => (
+            div().absolute().left_full().top_0().ml(px(offset)),
+            Corner::TopLeft,
+        ),
+    };
+    let portal = Portal::here(id, move |window, cx| {
+        anchored()
+            .anchor(corner)
+            .snap_to_window_with_margin(px(WINDOW_MARGIN))
+            .child(content(window, cx))
+    })
+    .priority(layer::MENU);
+    anchor.child(portal).into_any_element()
 }
 
 pub(crate) fn beside(content: impl IntoElement) -> AnyElement {
@@ -122,40 +57,45 @@ pub(crate) fn beside(content: impl IntoElement) -> AnyElement {
         .into_any_element()
 }
 
-/// A popup placed with its top-left corner at `position`.
-pub fn popup_at(
+/// A popup in the window's top layer with its top-left corner at `position`, in window
+/// coordinates; `content` is built in the window that paints it.
+pub fn popup_at<E: IntoElement>(
+    id: impl Into<ElementId>,
     position: Point<Pixels>,
-    content: impl IntoElement,
+    content: impl Fn(&mut Window, &mut App) -> E + 'static,
 ) -> AnyElement {
-    deferred(
+    Portal::window(id, move |window, cx| {
         anchored()
+            .position_mode(AnchoredPositionMode::Local)
             .position(position)
             .snap_to_window_with_margin(px(WINDOW_MARGIN))
-            .child(content),
-    )
-    .with_priority(layer::MENU)
+            .child(content(window, cx))
+    })
+    .priority(layer::MENU)
     .into_any_element()
 }
 
-/// A window-sized layer behind a popup; a press on it, with either button, runs `on_press`.
+/// A window-sized layer in the window's top layer, behind its popups; a press on it, with
+/// either button, runs `on_press`.
 pub fn click_away(
-    window: &Window,
+    id: impl Into<ElementId>,
     on_press: impl Fn(&mut Window, &mut App) + 'static,
 ) -> AnyElement {
-    let viewport = window.viewport_size();
     let on_press = Rc::new(on_press);
-    let on_right = Rc::clone(&on_press);
-    let layer = div()
+    Portal::window(id, move |_, _| away_layer(&on_press))
+        .priority(layer::MENU - 1)
+        .into_any_element()
+}
+
+fn away_layer(on_press: &Rc<impl Fn(&mut Window, &mut App) + 'static>) -> Div {
+    let (on_left, on_right) = (Rc::clone(on_press), Rc::clone(on_press));
+    div()
         .occlude()
-        .w(viewport.width)
-        .h(viewport.height)
-        .on_mouse_down(MouseButton::Left, move |_, window, cx| on_press(window, cx))
+        .size_full()
+        .on_mouse_down(MouseButton::Left, move |_, window, cx| on_left(window, cx))
         .on_mouse_down(MouseButton::Right, move |_, window, cx| {
             on_right(window, cx);
-        });
-    deferred(anchored().position(point(px(0.0), px(0.0))).child(layer))
-        .with_priority(layer::MENU - 1)
-        .into_any_element()
+        })
 }
 
 #[cfg(test)]
@@ -168,6 +108,17 @@ mod tests {
     use super::*;
     use crate::test_support::probe::open;
 
+    fn placed_content(placement: Placement) -> AnyElement {
+        let content: Content = Rc::new(|_, _| {
+            div()
+                .w(px(80.0))
+                .h(px(20.0))
+                .debug_selector(|| "popup-content".into())
+                .into_any_element()
+        });
+        placed("popup".into(), placement, 4.0, content)
+    }
+
     fn tally(counter: &Rc<Cell<u32>>) -> impl Fn(&mut Window, &mut App) + 'static {
         let counter = Rc::clone(counter);
         move |_, _| counter.set(counter.get() + 1)
@@ -177,13 +128,13 @@ mod tests {
     fn press_anywhere_runs_the_close_handler_once_per_press(cx: &mut TestAppContext) {
         let presses = Rc::new(Cell::new(0));
         let counter = Rc::clone(&presses);
-        let cx = open(cx, move |window, _| {
+        let cx = open(cx, move |_, _| {
             let counter = Rc::clone(&counter);
             div()
                 .relative()
                 .w(px(40.0))
                 .h(px(20.0))
-                .child(click_away(window, tally(&counter)))
+                .child(click_away("away", tally(&counter)))
         });
         cx.simulate_click(point(px(300.0), px(300.0)), gpui::Modifiers::none());
         assert_eq!(presses.get(), 1);
@@ -194,13 +145,11 @@ mod tests {
     #[gpui::test]
     fn content_is_laid_out_right_of_the_trigger_top_aligned(cx: &mut TestAppContext) {
         let cx = open(cx, |_, _| {
-            div().relative().w(px(100.0)).h(px(30.0)).child(right_of(
-                4.0,
-                div()
-                    .w(px(80.0))
-                    .h(px(20.0))
-                    .debug_selector(|| "popup-content".into()),
-            ))
+            div()
+                .relative()
+                .w(px(100.0))
+                .h(px(30.0))
+                .child(placed_content(Placement::Right))
         });
         let trigger = cx.debug_bounds("probe").unwrap_or_default();
         let content = cx.debug_bounds("popup-content").unwrap_or_default();
@@ -214,13 +163,11 @@ mod tests {
     #[gpui::test]
     fn content_is_laid_out_below_the_trigger(cx: &mut TestAppContext) {
         let cx = open(cx, |_, _| {
-            div().relative().w(px(100.0)).h(px(30.0)).child(below(
-                4.0,
-                div()
-                    .w(px(80.0))
-                    .h(px(20.0))
-                    .debug_selector(|| "popup-content".into()),
-            ))
+            div()
+                .relative()
+                .w(px(100.0))
+                .h(px(30.0))
+                .child(placed_content(Placement::Below))
         });
         let trigger = cx.debug_bounds("probe").unwrap_or_default();
         let content = cx.debug_bounds("popup-content").unwrap_or_default();
@@ -233,13 +180,11 @@ mod tests {
     #[gpui::test]
     fn an_end_aligned_popup_shares_the_right_edge_of_its_trigger(cx: &mut TestAppContext) {
         let cx = open(cx, |_, _| {
-            div().relative().w(px(100.0)).h(px(30.0)).child(below_end(
-                4.0,
-                div()
-                    .w(px(80.0))
-                    .h(px(20.0))
-                    .debug_selector(|| "popup-content".into()),
-            ))
+            div()
+                .relative()
+                .w(px(100.0))
+                .h(px(30.0))
+                .child(placed_content(Placement::BelowEnd))
         });
         let trigger = cx.debug_bounds("probe").unwrap_or_default();
         let content = cx.debug_bounds("popup-content").unwrap_or_default();
@@ -257,13 +202,7 @@ mod tests {
                 .relative()
                 .w(px(100.0))
                 .h(px(30.0))
-                .child(below_centre(
-                    4.0,
-                    div()
-                        .w(px(80.0))
-                        .h(px(20.0))
-                        .debug_selector(|| "popup-content".into()),
-                ))
+                .child(placed_content(Placement::BelowCentre))
         });
         let trigger = cx.debug_bounds("probe").unwrap_or_default();
         let content = cx.debug_bounds("popup-content").unwrap_or_default();

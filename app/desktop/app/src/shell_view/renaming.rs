@@ -22,7 +22,7 @@ impl ShellView {
             }),
         );
         self.rename_prompt = Some((pane.clone(), prompt));
-        self.update_overlay(cx);
+        cx.notify();
     }
 
     fn on_rename_prompt(
@@ -33,7 +33,7 @@ impl ShellView {
     ) {
         let asked = self.rename_prompt.take().map(|(pane, _)| pane);
         window.focus(&self.focus);
-        self.update_overlay(cx);
+        cx.notify();
         let Some((pane, name)) = confirmed(asked.as_ref(), event) else {
             return;
         };

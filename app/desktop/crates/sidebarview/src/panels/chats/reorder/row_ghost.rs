@@ -3,6 +3,7 @@
 use std::rc::Rc;
 
 use gpui::{AnyElement, App, Context, IntoElement, Render, Window};
+use ui::{Portal, layer};
 
 pub(crate) type GhostBuild = Rc<dyn Fn(&mut App) -> AnyElement>;
 
@@ -20,15 +21,18 @@ impl Render for RowGhost {
     fn render(
         &mut self,
         _window: &mut Window,
-        cx: &mut Context<'_, Self>,
+        _cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
-        (self.build)(cx)
+        let build = Rc::clone(&self.build);
+        Portal::here("row-ghost", move |_, cx| build(cx)).priority(layer::TOOLTIP)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use gpui::{AppContext, Styled, TestAppContext, div, px};
+    use gpui::{
+        AppContext, InteractiveElement, StatefulInteractiveElement, Styled, TestAppContext, div, px,
+    };
 
     use super::*;
     use crate::test_support::measure;
@@ -41,5 +45,68 @@ mod tests {
             cx.new(|_| RowGhost::new(build))
         });
         assert_eq!(f32::from(bounds.size.height), 7.0);
+    }
+
+    #[derive(Clone)]
+    struct Lifted;
+
+    struct Source;
+
+    impl Render for Source {
+        fn render(
+            &mut self,
+            _: &mut Window,
+            _: &mut Context<'_, Self>,
+        ) -> impl IntoElement {
+            div().id("row").size(px(40.0)).on_drag(Lifted, lift)
+        }
+    }
+
+    fn lift(
+        _: &Lifted,
+        _: gpui::Point<gpui::Pixels>,
+        _: &mut Window,
+        cx: &mut App,
+    ) -> gpui::Entity<RowGhost> {
+        cx.new(|_| RowGhost::new(Rc::new(ghost)))
+    }
+
+    fn ghost(_: &mut App) -> AnyElement {
+        div()
+            .h(px(7.0))
+            .w(px(30.0))
+            .debug_selector(|| "row-ghost".into())
+            .into_any_element()
+    }
+
+    #[gpui::test]
+    fn the_ghost_follows_the_pointer_above_the_panes(cx: &mut TestAppContext) {
+        cx.update(|cx| ui::init(cx).expect("ui installs"));
+        let owner: gpui::AnyWindowHandle = cx.add_window(|_, _| Source).into();
+        let top = cx
+            .update(|cx| ui::TopLayer::open(owner, cx))
+            .expect("the top layer opens");
+        let (mut owner, mut top) = (
+            gpui::VisualTestContext::from_window(owner, cx),
+            gpui::VisualTestContext::from_window(top, cx),
+        );
+        let modifiers = gpui::Modifiers::none();
+        owner.simulate_mouse_down(
+            gpui::point(px(5.0), px(5.0)),
+            gpui::MouseButton::Left,
+            modifiers,
+        );
+        owner.simulate_mouse_move(
+            gpui::point(px(80.0), px(60.0)),
+            gpui::MouseButton::Left,
+            modifiers,
+        );
+        owner.run_until_parked();
+        assert_eq!(
+            owner.debug_bounds("row-ghost"),
+            None,
+            "nothing in the window"
+        );
+        assert!(top.debug_bounds("row-ghost").is_some());
     }
 }

@@ -3,8 +3,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, Bounds, Context, InteractiveElement, IntoElement, ParentElement, Pixels,
-    Render, Styled, TestAppContext, VisualTestContext, Window, div,
+    AnyElement, AnyWindowHandle, App, Bounds, Context, InteractiveElement, IntoElement,
+    ParentElement, Pixels, Render, Styled, TestAppContext, VisualTestContext, Window, div,
 };
 
 use crate::foundation::Motion;
@@ -43,12 +43,44 @@ pub(crate) fn open<E: IntoElement>(
         cx.set_global(Motion::default());
         cx.bind_keys(crate::floating::menu_bindings());
         cx.bind_keys(crate::floating::popover_bindings());
+        cx.bind_keys(crate::floating::dialog_bindings());
         cx.bind_keys(crate::control::text_input_bindings());
     });
     let build: Build = Rc::new(move |window, cx| build(window, cx).into_any_element());
     let (_, cx) = cx.add_window_view(move |_, _| Probe { build });
     cx.run_until_parked();
     cx
+}
+
+/// Opens a window showing `build()` and its top layer; returns the window, then the top layer.
+pub(crate) fn open_floating<E: IntoElement>(
+    cx: &mut TestAppContext,
+    build: impl Fn(&mut Window, &mut App) -> E + 'static,
+) -> (VisualTestContext, VisualTestContext) {
+    cx.update(|cx| {
+        cx.set_global(Theme::default());
+        cx.set_global(Motion::default());
+        cx.bind_keys(crate::floating::menu_bindings());
+        cx.bind_keys(crate::floating::popover_bindings());
+        cx.bind_keys(crate::floating::dialog_bindings());
+        cx.bind_keys(crate::control::text_input_bindings());
+    });
+    let build: Build = Rc::new(move |window, cx| build(window, cx).into_any_element());
+    let owner: AnyWindowHandle = cx.add_window(move |_, _| Probe { build }).into();
+    let top = cx.update(|cx| crate::floating::TopLayer::open(owner, cx));
+    let top = top.unwrap_or_else(|error| panic!("open the top layer: {error}"));
+    cx.run_until_parked();
+    (
+        VisualTestContext::from_window(owner, cx),
+        VisualTestContext::from_window(top, cx),
+    )
+}
+
+/// Lets a closed floating element leave the top layer: the test platform draws inside an effect
+/// flush, so the state of a portal that stopped rendering is released on the next one.
+pub(crate) fn settle(cx: &mut VisualTestContext) {
+    cx.update(|_, _| {});
+    cx.run_until_parked();
 }
 
 /// Bounds of the element built by `build`, laid out at its natural size.

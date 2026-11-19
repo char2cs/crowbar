@@ -1,15 +1,10 @@
-use std::time::Instant;
-
-use gpui::{
-    Bounds, Context, DragMoveEvent, MouseDownEvent, Pixels, Point, Window, point, px, size,
-};
+use gpui::{Context, DragMoveEvent, MouseDownEvent, Pixels, Point, Window};
 use layout::{Command, Sash};
 use protocol::PaneId;
-use ui::{Motion, Overlays, SashDrag};
+use ui::SashDrag;
 
 use crate::layout_event::LayoutEvent;
 use crate::layout_view::LayoutView;
-use crate::pane_handle::PaneHandle;
 use crate::sash_grab::SashGrab;
 
 impl LayoutView {
@@ -72,7 +67,6 @@ impl LayoutView {
         cx: &mut Context<'_, Self>,
     ) {
         self.sync_fades(cx);
-        self.sync_handle_overlay(cx);
         cx.notify();
     }
 
@@ -129,41 +123,6 @@ impl LayoutView {
         }));
     }
 
-    pub(crate) fn sync_handle_overlay(
-        &mut self,
-        cx: &mut Context<'_, Self>,
-    ) {
-        let Some(bounds) = self.handle_bounds(self.clock.now(), Motion::of(cx)) else {
-            self.handle_overlay = None;
-            return;
-        };
-        match &self.handle_overlay {
-            Some(guard) => guard.update(bounds),
-            None => self.handle_overlay = Some(Overlays::open(cx, bounds)),
-        }
-    }
-
-    fn handle_bounds(
-        &self,
-        now: Instant,
-        motion: Motion,
-    ) -> Option<Bounds<Pixels>> {
-        let pane = self.hovered.as_ref()?;
-        let tab = self.tab.as_ref().filter(|tab| tab.len() > 1)?;
-        if self.handles.opacity(pane, now, motion) <= 0.0 && self.hovered.is_none() {
-            return None;
-        }
-        let slot = tab
-            .layout(self.local())
-            .into_iter()
-            .find(|slot| &slot.pane == pane)?;
-        let frame = crate::pane_frame::PaneFrame::new(slot.rect, self.local(), self.chrome);
-        let (width, height) = PaneHandle::size();
-        let left = frame.outer.x + (frame.outer.width - width) / 2.0;
-        let origin = self.bounds.origin + point(px(left), px(frame.outer.y));
-        Some(Bounds::new(origin, size(px(width), px(height))))
-    }
-
     pub(crate) fn local_point(
         &self,
         position: Point<Pixels>,
@@ -181,7 +140,7 @@ mod tests {
     use crate::test_support::{layout_of, open, pane_id};
 
     #[gpui::test]
-    fn hovering_a_pane_of_a_split_opens_an_overlay_for_its_handle_only_while_hovered(
+    fn hovering_a_pane_of_a_split_marks_it_hovered_until_the_pointer_leaves(
         cx: &mut TestAppContext
     ) {
         let layout = layout_of("a", &[("b", "a", Edge::Right)]);
@@ -205,5 +164,23 @@ mod tests {
         view.read_with(cx, |view, _| {
             assert_eq!(view.hovered, Some(pane_id("a")), "still a");
         });
+    }
+
+    #[gpui::test]
+    fn the_handle_of_a_hovered_pane_floats_above_its_web_view(cx: &mut TestAppContext) {
+        let layout = layout_of("a", &[("b", "a", Edge::Right)]);
+        let mut floating = crate::test_support::open_floating(cx, &layout);
+        let (view, window) = (floating.view.clone(), &mut floating.window);
+        view.update(window, |view, cx| view.pane_entered(&pane_id("a"), cx));
+        let later = floating.clock.get() + std::time::Duration::from_secs(1);
+        floating.clock.set(later);
+        view.update(window, |_, cx| cx.notify());
+        window.run_until_parked();
+        assert_eq!(
+            window.debug_bounds("pane-handle"),
+            None,
+            "nothing in the window"
+        );
+        assert!(floating.top.debug_bounds("pane-handle").is_some());
     }
 }

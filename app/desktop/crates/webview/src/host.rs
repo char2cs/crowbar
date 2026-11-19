@@ -13,7 +13,6 @@ use crate::error::Result;
 use crate::view::Config;
 use crate::view::Id;
 use crate::view::ParentWindow;
-use crate::view::Snapshot;
 
 /// Creates web views as children of a window and owns the platform thread they live on.
 pub struct Host {
@@ -54,15 +53,6 @@ impl Host {
     /// An [`Error`](crate::Error) when the backend has stopped or the engine refuses.
     pub fn clear_browsing_data(&self) -> Result<()> {
         self.platform.clear_browsing_data()
-    }
-
-    /// The pixels of several views, asked together under one deadline, in the order of `ids`.
-    #[must_use]
-    pub fn snapshot_all(
-        &self,
-        ids: &[Id],
-    ) -> Vec<Result<Option<Snapshot>>> {
-        self.platform.snapshot_all(ids)
     }
 
     /// Creates a web view inside `window` and returns its handle.

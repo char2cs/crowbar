@@ -5,7 +5,7 @@ use std::rc::Rc;
 use gpui::{
     AnyElement, App, Context, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable,
     FontWeight, InteractiveElement, IntoElement, ParentElement, Pixels, Render, Styled, Window,
-    canvas, div, px,
+    div, px,
 };
 
 use crate::floating::menu::navigation::actions::{CONTEXT, SelectNext, SelectPrevious};
@@ -14,8 +14,6 @@ use crate::floating::menu::nested::navigation::Navigation;
 use crate::floating::menu::nested::open_submenu::OpenSubmenu;
 use crate::floating::menu::row::Row;
 use crate::floating::menu::row_handlers::{RowHandler, RowHandlers};
-use crate::floating::overlay_guard::OverlayGuard;
-use crate::floating::overlays::Overlays;
 use crate::foundation::Direction;
 use crate::foundation::Palette;
 use crate::foundation::Pose;
@@ -34,7 +32,6 @@ pub struct Menu {
     pub(crate) highlighted: Option<usize>,
     min_width: Pixels,
     pub(crate) focus_handle: FocusHandle,
-    overlay: Rc<OverlayGuard>,
     pub(crate) level: Level,
     pub(crate) submenu: Option<OpenSubmenu<Menu>>,
 }
@@ -99,7 +96,6 @@ impl Menu {
             highlighted: None,
             min_width: Self::DEFAULT_MIN_WIDTH,
             focus_handle,
-            overlay: Rc::new(Overlays::open(cx, gpui::Bounds::default())),
             level,
             submenu: None,
         }
@@ -164,12 +160,6 @@ impl Menu {
     }
 }
 
-fn bounds_probe(guard: Rc<OverlayGuard>) -> impl IntoElement {
-    canvas(move |bounds, _, _| guard.update(bounds), |_, (), _, _| {})
-        .absolute()
-        .size_full()
-}
-
 impl Render for Menu {
     fn render(
         &mut self,
@@ -177,7 +167,6 @@ impl Render for Menu {
         cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
         let palette = Theme::of(cx).palette(Surface::Window);
-        let guard = Rc::clone(&self.overlay);
         let handlers = Self::handlers(cx);
         let rows = self
             .items
@@ -212,7 +201,6 @@ impl Render for Menu {
             .text_color(palette.foreground())
             .font_family(Theme::of(cx).ui_family())
             .shadow(shadow::md(opacity::PERCENT_10))
-            .child(bounds_probe(guard))
             .children(rows)
     }
 }

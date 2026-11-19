@@ -41,7 +41,7 @@ impl ShellView {
         self.subscriptions
             .push(cx.subscribe(&picker, Self::on_space_folder));
         self.remote_folders = Some(picker);
-        self.update_overlay(cx);
+        cx.notify();
     }
 
     fn on_space_folder(
@@ -51,7 +51,7 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) {
         self.remote_folders = None;
-        self.update_overlay(cx);
+        cx.notify();
         let PickerEvent::Chosen(path) = event else {
             return;
         };
@@ -83,7 +83,7 @@ impl ShellView {
         self.subscriptions
             .push(cx.subscribe(&picker, Self::on_remote_folder));
         self.remote_folders = Some(picker);
-        self.update_overlay(cx);
+        cx.notify();
     }
 
     fn on_remote_folder(
@@ -93,7 +93,7 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) {
         self.remote_folders = None;
-        self.update_overlay(cx);
+        cx.notify();
         if let PickerEvent::Chosen(path) = event {
             self.add_repo(path);
         }
