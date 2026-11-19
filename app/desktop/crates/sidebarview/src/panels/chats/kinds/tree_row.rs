@@ -9,7 +9,7 @@ use gpui::{
     RenderOnce, SharedString, Stateful, StatefulInteractiveElement, Styled, Window, div, px,
 };
 use sidebar::{Expansion, Presence, Row, RowId, RowKind};
-use ui::{DraggedRow, FlickerSpinner, Icon, Palette, Surface};
+use ui::{DraggedRow, FlickerSpinner, Icon, Palette, Pose, Surface};
 
 use crate::column::mark_view;
 use crate::panels::chats::parts::ClusterSpec;
@@ -19,6 +19,7 @@ use crate::panels::chats::parts::RowInput;
 use crate::panels::chats::parts::cluster;
 use crate::panels::chats::parts::label;
 use crate::panels::chats::parts::row_shell;
+use crate::panels::chats::parts::{hovered_by, row_hover};
 use crate::panels::chats::parts::{ringed, row_focus};
 use crate::panels::chats::reorder::GhostBuild;
 use crate::panels::chats::reorder::draggable;
@@ -59,7 +60,11 @@ impl RenderOnce for TreeRow {
         };
         let id = ElementId::from(group.clone());
         let focus = row_focus(&id, window, cx);
-        let shell = ringed(row_shell(id, self.row.depth, palette), &focus, palette)
+        let hover = row_hover(&id, window, cx);
+        let live = self.input.is_none() && self.drag.ghost.is_none();
+        let buttons = (live && *hover.read(cx) == Pose::On).then(|| cluster(&spec));
+        let shell = row_shell(id, self.row.depth, palette);
+        let shell = ringed(hovered_by(shell, &hover), &focus, palette)
             .group(group)
             .hover(move |style| style.bg(idle))
             .when(self.row.presence == Presence::Open, move |d| d.bg(idle))
@@ -69,12 +74,11 @@ impl RenderOnce for TreeRow {
                 self.input.as_ref(),
                 (theme.mono_family(), palette),
             ))
-            .child(cluster(&spec));
+            .children(buttons);
         let shell = self.drag.style(shell, palette);
         let shell = tracked(shell, &self.row.id, &self.bounds);
         let payload = payload_of(&self.row);
         let ghost = ghost_of(self.row.clone(), self.expansion, self.width);
-        let live = self.input.is_none() && self.drag.ghost.is_none();
         let handler = Rc::clone(&self.handler);
         let shell = shell.when(live, move |d| draggable(d, payload, ghost, &handler));
         let shell = with_menu(shell, &self.row.id, &self.handler);

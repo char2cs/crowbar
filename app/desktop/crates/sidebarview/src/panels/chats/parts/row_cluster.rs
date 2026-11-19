@@ -15,7 +15,6 @@ use crate::sidebar::RowAction;
 const BUTTON_PADDING: f32 = 6.0;
 const VERB_ICON: f32 = 12.0;
 const MENU_ICON: f32 = 14.0;
-const CLUSTER_INSET: f32 = 6.0;
 const CLUSTER_GAP: f32 = 6.0;
 
 pub(crate) fn cluster(spec: &ClusterSpec<'_>) -> Div {
@@ -23,20 +22,11 @@ pub(crate) fn cluster(spec: &ClusterSpec<'_>) -> Div {
         .into_iter()
         .map(|verb| verb_button(spec, verb));
     let fold = (spec.row.nesting == Nesting::Parent).then(|| fold_button(spec));
-    let palette = spec.palette;
     div()
-        .absolute()
-        .right(px(CLUSTER_INSET))
-        .top_0()
-        .bottom_0()
-        .invisible()
-        .group_hover(spec.group.clone(), StyleRefinement::visible)
         .flex()
+        .flex_none()
         .items_center()
         .gap(px(CLUSTER_GAP))
-        .pl(px(CLUSTER_GAP))
-        .bg(palette.chrome_bg().blend(palette.sidebar_element_idle()))
-        .rounded(radius::LG)
         .children(buttons)
         .children(fold)
 }
@@ -132,8 +122,11 @@ mod tests {
     use super::*;
     use sidebar::{Expansion, Row};
 
+    use crate::panels::chats::parts::row_hover::{hovered_by, row_hover};
+    use crate::panels::chats::parts::row_shell::row_shell;
     use crate::sidebar::RowHandler;
-    use crate::test_support::{chat, measure, recording_handler};
+    use crate::test_support::{chat, mount, recording_handler};
+    use gpui::{InteractiveElement, ParentElement, Styled, div, point};
 
     fn spec_of<'a>(
         row: &'a Row,
@@ -150,13 +143,28 @@ mod tests {
     }
 
     #[gpui::test]
-    fn the_cluster_is_laid_out_without_taking_flow_space(cx: &mut TestAppContext) {
+    fn the_cluster_takes_room_from_the_label_only_while_hovered(cx: &mut TestAppContext) {
         let (handler, _) = recording_handler();
         let row = chat("Refactor");
-        let bounds = measure(cx, move |_, cx| {
+        let cx = mount(cx, move |window, cx| {
             let palette = Theme::of(cx).palette(Surface::Chrome);
-            cluster(&spec_of(&row, palette, &handler))
+            let id = ElementId::from("row");
+            let hover = row_hover(&id, window, cx);
+            let shown = *hover.read(cx) == ui::Pose::On;
+            let label = div().flex_1().h_full().debug_selector(|| "label".into());
+            let buttons = shown.then(|| cluster(&spec_of(&row, palette, &handler)));
+            hovered_by(row_shell(id, 0, palette), &hover)
+                .child(label)
+                .children(buttons)
         });
-        assert_eq!(f32::from(bounds.size.height), 0.0);
+        let width = |cx: &mut gpui::VisualTestContext| {
+            f32::from(cx.debug_bounds("label").unwrap_or_default().size.width)
+        };
+        let resting = width(cx);
+        cx.simulate_mouse_move(point(px(40.0), px(18.0)), None, gpui::Modifiers::none());
+        cx.run_until_parked();
+        let hovered = width(cx);
+        assert_eq!(resting, 294.0 - 2.0 * (6.0 + 6.0 + 1.0), "resting");
+        assert!(hovered < resting - 40.0, "hovered {hovered}");
     }
 }
