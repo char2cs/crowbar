@@ -14,6 +14,8 @@ Drop the vendored copy when upstream gpui implements the X11 handles in a publis
 
 Drop it when a published gpui converts SVG images to BGRA. Tracking: zed-industries/zed, `Image::to_image_data`.
 
+`gpui-svg-inherit-color.patch` (`src/elements/svg.rs`): an svg with no colour of its own paints in the text colour in force where it is painted, as an inline SVG on `currentColor` does in the browser. Upstream paints nothing, so `ui::Icon` had to pin the colour while the tree was built, before a parent's `.hover()` text colour applies; the tab strip's close glyph darkens on hover through this.
+
 `gpui-external-paths.patch` (`src/interactive.rs`): `ExternalPaths::from_paths` builds the file-drop payload `ExternalPaths` otherwise only gets from a platform, so the sidebar's file-drop test can drive its `on_drop` handler. Drop it when a published gpui exposes a constructor.
 
 `gpui-overlay-window.patch` gives a window an overlay window: the shell's top layer, a transparent window kept over the owner's content area, so floating elements paint above the owner's native web views.

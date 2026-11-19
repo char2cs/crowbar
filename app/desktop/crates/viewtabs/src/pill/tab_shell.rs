@@ -229,7 +229,7 @@ fn close_button(
     palette: &Palette,
     close: CloseAction,
 ) -> impl IntoElement {
-    let (_, muted) = ink(look, palette);
+    let (strong, muted) = ink(look, palette);
     let hover_fill = palette.sidebar_element_hover();
     div()
         .id(ElementId::from((id.clone(), "close")))
@@ -242,10 +242,11 @@ fn close_button(
         .justify_center()
         .rounded(radius::FULL)
         .cursor(CursorStyle::PointingHand)
-        .hover(move |style| style.bg(hover_fill))
+        .text_color(muted)
+        .hover(move |style| style.bg(hover_fill).text_color(strong))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click(move |_, window, cx| close(window, cx))
-        .child(Icon::new(IconName::X).size(px(CLOSE_GLYPH)).color(muted))
+        .child(Icon::new(IconName::X).size(px(CLOSE_GLYPH)))
 }
 
 #[cfg(test)]

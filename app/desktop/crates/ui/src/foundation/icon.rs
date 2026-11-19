@@ -12,6 +12,7 @@ pub use icon_name::IconName;
 pub use icon_weight::IconWeight;
 pub use wordmark::Wordmark;
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     App, Hsla, IntoElement, Pixels, RenderOnce, Styled, Transformation, Window, px, radians, svg,
 };
@@ -98,16 +99,15 @@ impl Icon {
 impl RenderOnce for Icon {
     fn render(
         self,
-        window: &mut Window,
+        _window: &mut Window,
         _cx: &mut App,
     ) -> impl IntoElement {
         let path = Self::path(self.name, self.weight).unwrap_or(MISSING_PATH);
-        let color = self.color.unwrap_or_else(|| window.text_style().color);
         svg()
             .path(path)
             .size(self.size)
             .flex_none()
-            .text_color(color)
+            .when_some(self.color, Styled::text_color)
             .with_transformation(Transformation::rotate(radians(self.rotation)))
     }
 }
