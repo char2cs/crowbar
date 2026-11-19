@@ -107,4 +107,34 @@ mod tests {
             "a fade should run right after entering"
         );
     }
+
+    #[gpui::test]
+    fn the_pointer_leaving_the_window_fades_the_fill_out(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            cx.set_global(Theme::default());
+            cx.set_global(Motion::default());
+        });
+        let (view, cx) = cx.add_window_view(|_, _| Probe { state: None });
+        let inside = point(px(10.0), px(10.0));
+        cx.simulate_mouse_move(inside, None, gpui::Modifiers::none());
+        cx.simulate_event(gpui::MouseExitEvent {
+            position: inside,
+            pressed_button: None,
+            modifiers: gpui::Modifiers::none(),
+        });
+        let state = view.read_with(cx, |probe, _| probe.state.clone());
+        let tween = Tween::new(
+            crate::foundation::tokens::timing::DEFAULT,
+            CubicBezier::DEFAULT,
+        );
+        let later = Instant::now() + std::time::Duration::from_secs(1);
+        let rest = state.map(|state| {
+            state.read_with(cx, |s, _| s.position(tween, Motion::default(), later).value)
+        });
+        assert_eq!(
+            rest,
+            Some(0.0),
+            "the fill should rest off once the pointer left"
+        );
+    }
 }

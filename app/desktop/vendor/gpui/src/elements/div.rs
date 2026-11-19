@@ -20,7 +20,8 @@ use crate::{
     DispatchPhase, Display, Element, ElementId, Entity, FocusHandle, Global, GlobalElementId,
     Hitbox, HitboxBehavior, HitboxId, InspectorElementId, IntoElement, IsZero, KeyContext,
     KeyDownEvent, KeyUpEvent, KeyboardButton, KeyboardClickEvent, LayoutId, ModifiersChangedEvent,
-    MouseButton, MouseClickEvent, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Overflow,
+    MouseButton, MouseClickEvent, MouseDownEvent, MouseExitEvent, MouseMoveEvent, MouseUpEvent,
+    Overflow,
     ParentElement, Pixels, Point, Render, ScrollWheelEvent, SharedString, Size, Style,
     StyleRefinement, Styled, Task, TooltipId, Visibility, Window, WindowControlArea, point, px,
     size,
@@ -2258,6 +2259,8 @@ impl Interactivity {
                     .get_or_insert_with(Default::default)
                     .clone();
 
+                let hover_listener = Rc::new(hover_listener);
+                let left = (was_hovered.clone(), hover_listener.clone());
                 window.on_mouse_event(move |_: &MouseMoveEvent, phase, window, cx| {
                     if phase != DispatchPhase::Bubble {
                         return;
@@ -2273,6 +2276,15 @@ impl Interactivity {
 
                         hover_listener(&is_hovered, window, cx);
                     }
+                });
+                // The pointer leaving the window unhovers too, though no move follows it.
+                window.on_mouse_event(move |_: &MouseExitEvent, phase, window, cx| {
+                    let (was_hovered, hover_listener) = &left;
+                    if phase != DispatchPhase::Bubble || !*was_hovered.borrow() {
+                        return;
+                    }
+                    *was_hovered.borrow_mut() = false;
+                    hover_listener(&false, window, cx);
                 });
             }
 

@@ -1449,8 +1449,11 @@ impl X11Client {
                 state.modifiers = modifiers;
                 drop(state);
 
+                // Only a drag keeps the owner's pointer while it crosses into the overlay, so the
+                // owner's drop targets follow it; otherwise the owner hears the leave, as a page
+                // under a dialog does, and nothing under the overlay stays hovered.
                 let root = point(event.root_x >> 16, event.root_y >> 16);
-                if self.overlay_holds_pointer(event.event, root) {
+                if pressed_button.is_some() && self.overlay_holds_pointer(event.event, root) {
                     return Some(());
                 }
                 let window = self.get_window(event.event)?;

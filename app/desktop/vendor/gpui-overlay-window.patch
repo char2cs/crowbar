@@ -38,6 +38,43 @@
      /// Registers a callback to be invoked when the window appearance changes.
      pub fn observe_window_appearance(
          &self,
+--- a/src/elements/div.rs
++++ b/src/elements/div.rs
+@@ -20,7 +20,8 @@ use crate::{
+     DispatchPhase, Display, Element, ElementId, Entity, FocusHandle, Global, GlobalElementId,
+     Hitbox, HitboxBehavior, HitboxId, InspectorElementId, IntoElement, IsZero, KeyContext,
+     KeyDownEvent, KeyUpEvent, KeyboardButton, KeyboardClickEvent, LayoutId, ModifiersChangedEvent,
+-    MouseButton, MouseClickEvent, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Overflow,
++    MouseButton, MouseClickEvent, MouseDownEvent, MouseExitEvent, MouseMoveEvent, MouseUpEvent,
++    Overflow,
+     ParentElement, Pixels, Point, Render, ScrollWheelEvent, SharedString, Size, Style,
+     StyleRefinement, Styled, Task, TooltipId, Visibility, Window, WindowControlArea, point, px,
+     size,
+@@ -2258,6 +2259,8 @@ impl Interactivity {
+                     .get_or_insert_with(Default::default)
+                     .clone();
+ 
++                let hover_listener = Rc::new(hover_listener);
++                let left = (was_hovered.clone(), hover_listener.clone());
+                 window.on_mouse_event(move |_: &MouseMoveEvent, phase, window, cx| {
+                     if phase != DispatchPhase::Bubble {
+                         return;
+@@ -2274,6 +2277,15 @@ impl Interactivity {
+                         hover_listener(&is_hovered, window, cx);
+                     }
+                 });
++                // The pointer leaving the window unhovers too, though no move follows it.
++                window.on_mouse_event(move |_: &MouseExitEvent, phase, window, cx| {
++                    let (was_hovered, hover_listener) = &left;
++                    if phase != DispatchPhase::Bubble || !*was_hovered.borrow() {
++                        return;
++                    }
++                    *was_hovered.borrow_mut() = false;
++                    hover_listener(&false, window, cx);
++                });
+             }
+ 
+             if let Some(tooltip_builder) = self.tooltip_builder.take() {
 --- a/src/platform.rs
 +++ b/src/platform.rs
 @@ -550,6 +550,15 @@ pub(crate) trait PlatformWindow: HasWindowHandle + HasDisplayHandle {
@@ -526,12 +563,15 @@
                  let mut state = self.0.borrow_mut();
  
                  // Set last scroll values to `None` so that a large delta isn't created if scrolling is done outside the window (the valuator is global)
-@@ -1229,13 +1449,19 @@ impl X11Client {
+@@ -1229,13 +1449,22 @@ impl X11Client {
                  state.modifiers = modifiers;
                  drop(state);
  
++                // Only a drag keeps the owner's pointer while it crosses into the overlay, so the
++                // owner's drop targets follow it; otherwise the owner hears the leave, as a page
++                // under a dialog does, and nothing under the overlay stays hovered.
 +                let root = point(event.root_x >> 16, event.root_y >> 16);
-+                if self.overlay_holds_pointer(event.event, root) {
++                if pressed_button.is_some() && self.overlay_holds_pointer(event.event, root) {
 +                    return Some(());
 +                }
                  let window = self.get_window(event.event)?;
@@ -548,7 +588,7 @@
              }
              Event::XinputHierarchy(event) => {
                  let mut state = self.0.borrow_mut();
-@@ -1311,7 +1537,7 @@ impl X11Client {
+@@ -1311,7 +1540,7 @@ impl X11Client {
      }
  
      fn xim_handle_commit(&self, window: xproto::Window, text: String) -> Option<()> {
@@ -557,7 +597,7 @@
              log::error!("bug: Failed to get window for XIM commit");
              return None;
          };
-@@ -1323,7 +1549,7 @@ impl X11Client {
+@@ -1323,7 +1552,7 @@ impl X11Client {
      }
  
      fn xim_handle_preedit(&self, window: xproto::Window, text: String) -> Option<()> {
@@ -566,7 +606,7 @@
              log::error!("bug: Failed to get window for XIM preedit");
              return None;
          };
-@@ -1456,6 +1682,7 @@ impl LinuxClient for X11Client {
+@@ -1456,6 +1685,7 @@ impl LinuxClient for X11Client {
              .xcb_connection
              .generate_id()
              .context("X11: Failed to generate window ID")?;
@@ -574,7 +614,7 @@
  
          let window = X11Window::new(
              handle,
-@@ -1471,6 +1698,7 @@ impl LinuxClient for X11Client {
+@@ -1471,6 +1701,7 @@ impl LinuxClient for X11Client {
              state.scale_factor,
              state.common.appearance,
              parent_window,
@@ -582,7 +622,7 @@
          )?;
          check_reply(
              || "Failed to set XdndAware property",
-@@ -1671,6 +1899,34 @@ impl LinuxClient for X11Client {
+@@ -1671,6 +1902,34 @@ impl LinuxClient for X11Client {
  }
  
  impl X11ClientState {
@@ -617,7 +657,7 @@
      fn has_xim(&self) -> bool {
          self.ximc.is_some() && self.xim_handler.is_some()
      }
-@@ -1699,8 +1955,10 @@ impl X11ClientState {
+@@ -1699,8 +1958,10 @@ impl X11ClientState {
          let Some(window_ref) = self.windows.get_mut(&x_window) else {
              return;
          };
@@ -629,7 +669,7 @@
          match (is_visible, window_ref.refresh_state.take()) {
              (false, refresh_state @ Some(RefreshState::Hidden { .. }))
              | (false, refresh_state @ None)
-@@ -1903,6 +2161,67 @@ fn fp3232_to_f32(value: xinput::Fp3232) -> f32 {
+@@ -1903,6 +2164,67 @@ fn fp3232_to_f32(value: xinput::Fp3232) -> f32 {
      value.integral as f32 + value.frac as f32 / u32::MAX as f32
  }
  
@@ -2041,7 +2081,16 @@
  
          #[cfg(any(feature = "inspector", debug_assertions))]
          {
-@@ -865,6 +868,7 @@ pub struct Window {
+@@ -852,6 +855,8 @@ pub struct Window {
+     pub(crate) focus_lost_listeners: SubscriberSet<(), AnyObserver>,
+     default_prevented: bool,
+     mouse_position: Point<Pixels>,
++    /// The pointer left the window (`MouseExited`) and has not come back: nothing is hovered.
++    pointer_outside: bool,
+     mouse_hit_test: HitTest,
+     modifiers: Modifiers,
+     capslock: Capslock,
+@@ -865,6 +870,7 @@ pub struct Window {
      pub(crate) last_input_timestamp: Rc<Cell<Instant>>,
      pub(crate) refreshing: bool,
      pub(crate) activation_observers: SubscriberSet<(), AnyObserver>,
@@ -2049,7 +2098,7 @@
      pub(crate) focus: Option<FocusId>,
      focus_enabled: bool,
      pending_input: Option<PendingInput>,
-@@ -872,6 +876,14 @@ pub struct Window {
+@@ -872,6 +878,14 @@ pub struct Window {
      pub(crate) pending_input_observers: SubscriberSet<(), AnyObserver>,
      prompt: Option<RenderablePromptHandle>,
      pub(crate) client_inset: Option<Pixels>,
@@ -2064,7 +2113,7 @@
      #[cfg(any(feature = "inspector", debug_assertions))]
      inspector: Option<Entity<Inspector>>,
  }
-@@ -948,6 +960,7 @@ impl Window {
+@@ -948,6 +962,7 @@ impl Window {
              window_decorations,
              #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
              tabbing_identifier,
@@ -2072,7 +2121,7 @@
          } = options;
  
          let bounds = window_bounds
-@@ -968,6 +981,7 @@ impl Window {
+@@ -968,6 +983,7 @@ impl Window {
                  window_min_size,
                  #[cfg(target_os = "macos")]
                  tabbing_identifier,
@@ -2080,7 +2129,7 @@
              },
          )?;
  
-@@ -993,6 +1007,10 @@ impl Window {
+@@ -993,6 +1009,10 @@ impl Window {
          let next_frame_callbacks: Rc<RefCell<Vec<FrameCallback>>> = Default::default();
          let last_input_timestamp = Rc::new(Cell::new(Instant::now()));
  
@@ -2091,7 +2140,7 @@
          platform_window
              .request_decorations(window_decorations.unwrap_or(WindowDecorations::Server));
          platform_window.set_background_appearance(window_background);
-@@ -1202,7 +1220,10 @@ impl Window {
+@@ -1202,7 +1222,10 @@ impl Window {
              platform_window.set_app_id(&app_id);
          }
  
@@ -2103,7 +2152,15 @@
  
          Ok(Window {
              handle,
-@@ -1248,6 +1269,7 @@ impl Window {
+@@ -1235,6 +1258,7 @@ impl Window {
+             focus_lost_listeners: SubscriberSet::new(),
+             default_prevented: true,
+             mouse_position,
++            pointer_outside: false,
+             mouse_hit_test: HitTest::default(),
+             modifiers,
+             capslock,
+@@ -1248,6 +1272,7 @@ impl Window {
              last_input_timestamp,
              refreshing: false,
              activation_observers: SubscriberSet::new(),
@@ -2111,7 +2168,7 @@
              focus: None,
              focus_enabled: true,
              pending_input: None,
-@@ -1255,6 +1277,12 @@ impl Window {
+@@ -1255,6 +1280,12 @@ impl Window {
              pending_input_observers: SubscriberSet::new(),
              prompt: None,
              client_inset: None,
@@ -2124,7 +2181,7 @@
              image_cache_stack: Vec::new(),
              #[cfg(any(feature = "inspector", debug_assertions))]
              inspector: None,
-@@ -1269,6 +1297,71 @@ impl Window {
+@@ -1269,6 +1300,71 @@ impl Window {
      }
  }
  
@@ -2196,7 +2253,7 @@
  #[derive(Clone, Debug, Default, PartialEq, Eq)]
  pub(crate) struct DispatchEventResult {
      pub propagate: bool,
-@@ -1389,6 +1482,7 @@ impl Window {
+@@ -1389,6 +1485,7 @@ impl Window {
          }
  
          self.focus = Some(handle.id);
@@ -2204,7 +2261,7 @@
          self.clear_pending_keystrokes();
          self.refresh();
      }
-@@ -1939,8 +2033,21 @@ impl Window {
+@@ -1939,8 +2036,21 @@ impl Window {
          self.invalidator.set_phase(DrawPhase::Focus);
          let previous_focus_path = self.rendered_frame.focus_path();
          let previous_window_active = self.rendered_frame.window_active;
@@ -2226,7 +2283,7 @@
          let current_focus_path = self.rendered_frame.focus_path();
          let current_window_active = self.rendered_frame.window_active;
  
-@@ -1980,6 +2087,110 @@ impl Window {
+@@ -1980,6 +2090,110 @@ impl Window {
          ArenaClearNeeded
      }
  
@@ -2337,7 +2394,16 @@
      fn record_entities_accessed(&mut self, cx: &mut App) {
          let mut entities_ref = cx.entities.accessed_entities.borrow_mut();
          let mut entities = mem::take(entities_ref.deref_mut());
-@@ -3579,6 +3790,9 @@ impl Window {
+@@ -2062,7 +2276,7 @@ impl Window {
+             tooltip_element = self.prepaint_tooltip(cx);
+         }
+ 
+-        self.mouse_hit_test = self.next_frame.hit_test(self.mouse_position);
++        self.mouse_hit_test = self.pointer_hit_test(&self.next_frame);
+ 
+         // Now actually paint the elements.
+         self.invalidator.set_phase(DrawPhase::Paint);
+@@ -3579,6 +3793,9 @@ impl Window {
      /// Dispatch a mouse or keyboard event on the window.
      #[profiling::function]
      pub fn dispatch_event(&mut self, event: PlatformInput, cx: &mut App) -> DispatchEventResult {
@@ -2347,7 +2413,37 @@
          self.last_input_timestamp.set(Instant::now());
          // Handlers may set this to false by calling `stop_propagation`.
          cx.propagate_event = true;
-@@ -3674,6 +3888,76 @@ impl Window {
+@@ -3590,11 +3807,13 @@ impl Window {
+             // API for the mouse position can only occur on the main thread.
+             PlatformInput::MouseMove(mouse_move) => {
+                 self.mouse_position = mouse_move.position;
++                self.pointer_outside = false;
+                 self.modifiers = mouse_move.modifiers;
+                 PlatformInput::MouseMove(mouse_move)
+             }
+             PlatformInput::MouseDown(mouse_down) => {
+                 self.mouse_position = mouse_down.position;
++                self.pointer_outside = false;
+                 self.modifiers = mouse_down.modifiers;
+                 PlatformInput::MouseDown(mouse_down)
+             }
+@@ -3605,6 +3824,7 @@ impl Window {
+             }
+             PlatformInput::MouseExited(mouse_exited) => {
+                 self.modifiers = mouse_exited.modifiers;
++                self.pointer_outside = true;
+                 PlatformInput::MouseExited(mouse_exited)
+             }
+             PlatformInput::ModifiersChanged(modifiers_changed) => {
+@@ -3614,6 +3834,7 @@ impl Window {
+             }
+             PlatformInput::ScrollWheel(scroll_wheel) => {
+                 self.mouse_position = scroll_wheel.position;
++                self.pointer_outside = false;
+                 self.modifiers = scroll_wheel.modifiers;
+                 PlatformInput::ScrollWheel(scroll_wheel)
+             }
+@@ -3674,8 +3895,86 @@ impl Window {
          }
      }
  
@@ -2421,10 +2517,21 @@
 +        owner_only
 +    }
 +
++    /// What the pointer is over in `frame`: nothing once it has left the window.
++    fn pointer_hit_test(&self, frame: &Frame) -> HitTest {
++        if self.pointer_outside {
++            return HitTest::default();
++        }
++        frame.hit_test(self.mouse_position)
++    }
++
      fn dispatch_mouse_event(&mut self, event: &dyn Any, cx: &mut App) {
-         let hit_test = self.rendered_frame.hit_test(self.mouse_position());
+-        let hit_test = self.rendered_frame.hit_test(self.mouse_position());
++        let hit_test = self.pointer_hit_test(&self.rendered_frame);
          if hit_test != self.mouse_hit_test {
-@@ -4787,7 +5071,7 @@ impl<V: 'static> From<WindowHandle<V>> for AnyWindowHandle {
+             self.mouse_hit_test = hit_test;
+             self.reset_cursor_style(cx);
+@@ -4787,7 +5086,7 @@ impl<V: 'static> From<WindowHandle<V>> for AnyWindowHandle {
  }
  
  /// A handle to a window with any root view type, which can be downcast to a window with a specific root view type.
@@ -2433,7 +2540,7 @@
  pub struct AnyWindowHandle {
      pub(crate) id: WindowId,
      state_type: TypeId,
-@@ -5101,3 +5385,20 @@ pub fn outline(
+@@ -5101,3 +5400,20 @@ pub fn outline(
          border_style,
      }
  }

@@ -855,6 +855,8 @@ pub struct Window {
     pub(crate) focus_lost_listeners: SubscriberSet<(), AnyObserver>,
     default_prevented: bool,
     mouse_position: Point<Pixels>,
+    /// The pointer left the window (`MouseExited`) and has not come back: nothing is hovered.
+    pointer_outside: bool,
     mouse_hit_test: HitTest,
     modifiers: Modifiers,
     capslock: Capslock,
@@ -1256,6 +1258,7 @@ impl Window {
             focus_lost_listeners: SubscriberSet::new(),
             default_prevented: true,
             mouse_position,
+            pointer_outside: false,
             mouse_hit_test: HitTest::default(),
             modifiers,
             capslock,
@@ -2273,7 +2276,7 @@ impl Window {
             tooltip_element = self.prepaint_tooltip(cx);
         }
 
-        self.mouse_hit_test = self.next_frame.hit_test(self.mouse_position);
+        self.mouse_hit_test = self.pointer_hit_test(&self.next_frame);
 
         // Now actually paint the elements.
         self.invalidator.set_phase(DrawPhase::Paint);
@@ -3804,11 +3807,13 @@ impl Window {
             // API for the mouse position can only occur on the main thread.
             PlatformInput::MouseMove(mouse_move) => {
                 self.mouse_position = mouse_move.position;
+                self.pointer_outside = false;
                 self.modifiers = mouse_move.modifiers;
                 PlatformInput::MouseMove(mouse_move)
             }
             PlatformInput::MouseDown(mouse_down) => {
                 self.mouse_position = mouse_down.position;
+                self.pointer_outside = false;
                 self.modifiers = mouse_down.modifiers;
                 PlatformInput::MouseDown(mouse_down)
             }
@@ -3819,6 +3824,7 @@ impl Window {
             }
             PlatformInput::MouseExited(mouse_exited) => {
                 self.modifiers = mouse_exited.modifiers;
+                self.pointer_outside = true;
                 PlatformInput::MouseExited(mouse_exited)
             }
             PlatformInput::ModifiersChanged(modifiers_changed) => {
@@ -3828,6 +3834,7 @@ impl Window {
             }
             PlatformInput::ScrollWheel(scroll_wheel) => {
                 self.mouse_position = scroll_wheel.position;
+                self.pointer_outside = false;
                 self.modifiers = scroll_wheel.modifiers;
                 PlatformInput::ScrollWheel(scroll_wheel)
             }
@@ -3958,8 +3965,16 @@ impl Window {
         owner_only
     }
 
+    /// What the pointer is over in `frame`: nothing once it has left the window.
+    fn pointer_hit_test(&self, frame: &Frame) -> HitTest {
+        if self.pointer_outside {
+            return HitTest::default();
+        }
+        frame.hit_test(self.mouse_position)
+    }
+
     fn dispatch_mouse_event(&mut self, event: &dyn Any, cx: &mut App) {
-        let hit_test = self.rendered_frame.hit_test(self.mouse_position());
+        let hit_test = self.pointer_hit_test(&self.rendered_frame);
         if hit_test != self.mouse_hit_test {
             self.mouse_hit_test = hit_test;
             self.reset_cursor_style(cx);
