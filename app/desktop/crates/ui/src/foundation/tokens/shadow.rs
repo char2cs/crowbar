@@ -26,6 +26,7 @@ const XS: &[Offsets] = &[(1.0, 2.0, 0.0)];
 const SM: &[Offsets] = &[(1.0, 3.0, 0.0), (1.0, 2.0, -1.0)];
 const MD: &[Offsets] = &[(4.0, 6.0, -1.0), (2.0, 4.0, -2.0)];
 const LG: &[Offsets] = &[(10.0, 15.0, -3.0), (4.0, 6.0, -4.0)];
+const XL: &[Offsets] = &[(20.0, 25.0, -5.0), (8.0, 10.0, -6.0)];
 const DROPDOWN: &[Offsets] = &[(14.0, 30.0, -24.0)];
 const DROPDOWN_ALPHA: f32 = 0.45;
 const HANDLE: &[Offsets] = &[(0.0, 5.0, 1.0)];
@@ -58,6 +59,11 @@ pub fn md(alpha: f32) -> Vec<BoxShadow> {
 /// `shadow-lg` with every layer at `alpha`.
 pub fn lg(alpha: f32) -> Vec<BoxShadow> {
     layers(LG, alpha)
+}
+
+/// `shadow-xl` with every layer at `alpha`.
+pub fn xl(alpha: f32) -> Vec<BoxShadow> {
+    layers(XL, alpha)
 }
 
 /// `shadow-xs` tinted with `color`, as buttons do with `shadow-primary/24`.
@@ -116,6 +122,11 @@ mod tests {
             "shadow-lg",
             || lg(0.05),
             &[(10.0, 15.0, -3.0, 0.05), (4.0, 6.0, -4.0, 0.05)],
+        ),
+        (
+            "shadow-xl",
+            || xl(0.1),
+            &[(20.0, 25.0, -5.0, 0.1), (8.0, 10.0, -6.0, 0.1)],
         ),
         ("dropdown", dropdown, &[(14.0, 30.0, -24.0, 0.45)]),
         ("handle", handle, &[(0.0, 5.0, 1.0, 0.1)]),

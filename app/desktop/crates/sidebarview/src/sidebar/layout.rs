@@ -14,7 +14,8 @@ use crate::sidebar::scale::{HANDLE_HIT, PEEK_INSET};
 
 const FRAME_SHADOW: f32 = 0.2;
 
-const SCRIM_ALPHA: f32 = 0.4;
+const SCRIM_ALPHA: f32 = 0.3;
+const DRAWER_SHADOW: f32 = 0.1;
 // PLATFORM: Chrome spreads develop's 1px line over two pixels at half alpha; GPUI snaps quads.
 const HOVER_LINE_ALPHA: f32 = 0.3;
 const LINE_SPAN: f32 = 2.0;
@@ -156,17 +157,6 @@ impl Sidebar {
         self.begin_resize(event.position.x, window, cx);
     }
 
-    fn slide(
-        &self,
-        geometry: &Geometry,
-        motion: Motion,
-    ) -> f32 {
-        if geometry.is_drawer() {
-            return 1.0;
-        }
-        self.peek.position(motion)
-    }
-
     fn floating(
         &mut self,
         geometry: &Geometry,
@@ -180,23 +170,46 @@ impl Sidebar {
         if self.peek.is_moving(motion) {
             window.request_animation_frame();
         }
-        let width = self
-            .panel
-            .preferred()
-            .min(geometry.container - 2.0 * PEEK_INSET);
-        let slide = self.slide(geometry, motion);
-        let card = self.card((geometry.side, width, slide), window, cx);
         let layer = div().absolute().size_full();
         if geometry.is_drawer() {
+            let drawer = self.drawer(geometry, window, cx);
             return Some(
                 layer
                     .occlude()
                     .child(Self::scrim(cx))
-                    .child(card)
+                    .child(drawer)
                     .into_any_element(),
             );
         }
+        let width = self
+            .panel
+            .preferred()
+            .min(geometry.container - 2.0 * PEEK_INSET);
+        let slide = self.peek.position(motion);
+        let card = self.card((geometry.side, width, slide), window, cx);
         Some(layer.child(card).into_any_element())
+    }
+
+    fn drawer(
+        &mut self,
+        geometry: &Geometry,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> Div {
+        let palette = Theme::of(cx).palette(Surface::Chrome);
+        let width = self.panel.preferred().min(geometry.container);
+        div()
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .w(px(width))
+            .bg(palette.background())
+            .shadow(ui::shadow::xl(DRAWER_SHADOW))
+            .debug_selector(|| "sidebar-drawer".into())
+            .when(geometry.side == DockSide::Left, Styled::left_0)
+            .when(geometry.side == DockSide::Right, Styled::right_0)
+            .occlude()
+            .child(self.body(width, window, cx))
     }
 
     fn card(
@@ -295,5 +308,25 @@ mod tests {
             this.begin_resize(px(294.0), window, cx);
         });
         assert!(sidebar.read_with(cx, |this, _| this.resizing.is_some()));
+    }
+
+    #[gpui::test]
+    fn a_narrow_window_lays_the_sidebar_over_its_whole_height_at_the_edge(cx: &mut TestAppContext) {
+        let mut floating = crate::test_support::open_floating(cx, DemoShell::reference());
+        floating
+            .window
+            .simulate_resize(gpui::size(px(600.0), px(800.0)));
+        floating.window.run_until_parked();
+        let drawer = floating
+            .top
+            .debug_bounds("sidebar-drawer")
+            .unwrap_or_default();
+        let placed = (
+            f32::from(drawer.origin.x),
+            f32::from(drawer.origin.y),
+            f32::from(drawer.size.width),
+            f32::from(drawer.size.height),
+        );
+        assert_eq!(placed, (0.0, 0.0, 294.0, 800.0));
     }
 }
