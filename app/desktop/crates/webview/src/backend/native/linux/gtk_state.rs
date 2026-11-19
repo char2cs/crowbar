@@ -44,15 +44,21 @@ fn page_window_of(view: &WebView) -> Result<u32> {
     page_window.ok_or(Error::UnsupportedParent(NO_PAGE_WINDOW))
 }
 
-fn report_presses(
+fn report_pointer(
     view: &WebView,
     on_page: Option<PageHandler>,
 ) {
     let Some(on_page) = on_page else {
         return;
     };
+    let pressed = Arc::clone(&on_page);
     view.webview().connect_button_press_event(move |_, _| {
-        on_page(PageEvent::Pressed);
+        pressed(PageEvent::Pressed);
+        Propagation::Proceed
+    });
+    view.webview().connect_motion_notify_event(move |_, event| {
+        let (x, y) = event.position();
+        on_page(PageEvent::PointerMoved { x, y });
         Propagation::Proceed
     });
 }
@@ -103,7 +109,7 @@ impl GtkState {
             .build_as_child(&XlibParent::new(window))?;
         let wanted = to_rect(config.bounds);
         let page_window = page_window_of(&view)?;
-        report_presses(&view, config.on_page.clone());
+        report_pointer(&view, config.on_page.clone());
         self.views.insert(
             id,
             LiveView {

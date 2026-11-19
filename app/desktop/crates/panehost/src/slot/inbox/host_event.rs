@@ -76,6 +76,15 @@ pub enum HostEvent {
         /// Whether the pointer is over it.
         hovered: bool,
     },
+    /// The pointer moved over a pane's page, which GPUI cannot see over a web view.
+    PointerMoved {
+        /// The pane.
+        pane: PaneId,
+        /// Distance from the page's left edge, in logical pixels.
+        x: f64,
+        /// Distance from the page's top edge, in logical pixels.
+        y: f64,
+    },
     /// A pane's page took native keyboard focus: the user clicked or tabbed into it.
     PageFocused {
         /// The pane.

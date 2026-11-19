@@ -33,6 +33,7 @@ use crate::slot::browser_event;
 use crate::slot::drop_report;
 use crate::slot::focus_report;
 use crate::slot::parse_hover;
+use crate::slot::pointer_report;
 
 /// Owns every pane web view: places them from the layout, pools and parks them, delivers
 /// lifecycle frames, and turns what pages post into [`HostEvent`]s.
@@ -217,7 +218,9 @@ impl PaneHost {
         if let Some(events) = type_id.and_then(|type_id| browser_event(&message, type_id)) {
             return Ok(events);
         }
-        let report = hover_report(&message).or_else(|| drop_report(&message));
+        let report = hover_report(&message)
+            .or_else(|| pointer_report(&message))
+            .or_else(|| drop_report(&message));
         if let Some(event) = report {
             return Ok(vec![event]);
         }

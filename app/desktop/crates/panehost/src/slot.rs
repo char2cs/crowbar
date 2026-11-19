@@ -13,7 +13,7 @@ pub(crate) use factory::Factory;
 pub(crate) use id::Id;
 pub(crate) use inbox::{
     Gate, IpcNotice, MAX_MESSAGE_BYTES, browser_event, drop_report, first_url, focus_report,
-    is_browser, parse_hover,
+    is_browser, parse_hover, pointer_report,
 };
 pub use inbox::{HostEvent, IpcMessage};
 pub(crate) use pool::Pool;

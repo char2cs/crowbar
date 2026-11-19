@@ -97,6 +97,7 @@ impl ShellState {
             },
             HostEvent::StateChanged { .. }
             | HostEvent::StateDiscarded { .. }
+            | HostEvent::PointerMoved { .. }
             | HostEvent::FilesDropped { .. } => {},
             HostEvent::BrowserPage { pane, update } => self.note_page(pane, update, outcome),
         }
