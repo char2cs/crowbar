@@ -46,9 +46,7 @@ impl ShellView {
         }
         self.sidebar.update(cx, |_, cx| cx.notify());
         self.update_landing(cx);
-        if self.narrows_tabs() {
-            self.push_tabs(cx);
-        }
+        self.push_tabs(cx);
         if self.source.native().terminals_attached() {
             self.refresh(cx);
         }

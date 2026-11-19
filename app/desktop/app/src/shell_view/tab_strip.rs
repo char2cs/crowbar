@@ -18,6 +18,7 @@ impl ShellView {
         let project = self.data.active_project();
         let titles = self.state.titles();
         let layout = self.state.layout();
+        let working = |chat: &str| self.data.chat_working(chat);
         let tabs: Vec<TabView> = layout
             .tabs()
             .iter()
@@ -26,17 +27,13 @@ impl ShellView {
                 id: tab.id(),
                 members: crate::stack_policy::listed(tab)
                     .iter()
-                    .map(|pane| member((&titles, layout), pane))
+                    .map(|pane| member((&titles, layout), &working, pane))
                     .collect(),
             })
             .collect();
         let active = layout.active_tab().map(Tab::id);
         self.tabs
             .update(cx, |bar, cx| bar.set_tabs(tabs, active, cx));
-    }
-
-    pub(super) fn narrows_tabs(&mut self) -> bool {
-        self.tab_scope() == TabScope::Project
     }
 
     fn tab_scope(&mut self) -> TabScope {

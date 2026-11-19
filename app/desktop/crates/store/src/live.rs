@@ -21,4 +21,4 @@ pub use outcome::{Outcome, OutcomeSink};
 pub(crate) use panel_loader::{DocumentBody, FileTarget, ReloadTarget, load_directory, tree_path};
 pub(crate) use plan_error::PlanError;
 pub use state::{ChangeSignal, ChatPhase, ChatSurface, ChatTerminal};
-pub(crate) use state::{Hub, State, chat_project, workspace_root};
+pub(crate) use state::{Hub, State, chat_project, chat_working, workspace_root};

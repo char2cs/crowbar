@@ -9,9 +9,11 @@ use crate::shell_request::ShellRequest;
 use crate::chat_label::NEW_CHAT;
 
 const TERMINAL_LABEL: &str = "Terminal";
+const THREAD_ID: &str = "threadId";
 
 pub(super) fn member(
     (titles, layout): (&crate::titles::Titles, &layout::Layout),
+    working: &dyn Fn(&str) -> bool,
     pane: &PaneId,
 ) -> MemberView {
     let title = titles.get(pane);
@@ -22,9 +24,16 @@ pub(super) fn member(
             .as_ref()
             .map_or_else(|| untitled(kind).into(), |title| title.to_string().into()),
         provisional: title.is_none(),
-        working: false,
+        working: thread_of(layout, pane).is_some_and(working),
         kind,
     }
+}
+
+fn thread_of<'a>(
+    layout: &'a layout::Layout,
+    pane: &PaneId,
+) -> Option<&'a str> {
+    layout.pane(pane)?.params.get(THREAD_ID)
 }
 
 fn kind_of(
@@ -228,6 +237,7 @@ mod tests {
     fn layout_holding(
         pane: &PaneId,
         type_id: &str,
+        params: protocol::Params,
     ) -> layout::Layout {
         let mut layout = layout::Layout::default();
         let tab = layout::TabId(1);
@@ -240,7 +250,7 @@ mod tests {
         let instance = layout::PaneInstance {
             pane_id: pane.clone(),
             type_id: protocol::PaneTypeId::new(type_id).unwrap(),
-            params: protocol::Params::default(),
+            params,
             state: protocol::PaneState::default(),
         };
         layout
@@ -269,7 +279,8 @@ mod tests {
         for (type_id, title, (kind, label, provisional)) in CASES {
             let pane = PaneId::new("p7").unwrap();
             let titles = titled(&pane, title);
-            let member = member((&titles, &layout_holding(&pane, type_id)), &pane);
+            let layout = layout_holding(&pane, type_id, protocol::Params::default());
+            let member = member((&titles, &layout), &|_| true, &pane);
             assert_eq!(
                 (member.pane, member.label.as_ref(), member.kind),
                 (pane, label, kind),
@@ -278,5 +289,17 @@ mod tests {
             assert_eq!(member.provisional, provisional, "{type_id} {title:?}");
             assert!(!member.working, "{type_id} {title:?}");
         }
+    }
+
+    #[test]
+    fn a_chat_member_spins_while_its_thread_works() {
+        let pane = PaneId::new("p7").unwrap();
+        let thread = protocol::Params::default().with("threadId", "c1").unwrap();
+        let layout = layout_holding(&pane, CHAT, thread);
+        let titles = titled(&pane, Some("Review"));
+        let busy = member((&titles, &layout), &|chat| chat == "c1", &pane);
+        assert!(busy.working, "its thread is working");
+        let idle = member((&titles, &layout), &|_| false, &pane);
+        assert!(!idle.working, "its thread is idle");
     }
 }

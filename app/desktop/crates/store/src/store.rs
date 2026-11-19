@@ -1,6 +1,7 @@
 //! The shell's daemon data: one stream per host feeding the sidebar, and the commands back.
 
 mod branch_import;
+mod chat_reads;
 mod dialogs;
 mod folder_browse;
 mod pairing_session;
@@ -21,7 +22,6 @@ use protocol::DaemonTransport;
 use sidebar::Command;
 use tokio::runtime::Handle;
 
-use crate::live::ChatTerminal;
 use crate::live::DiskFiles;
 use crate::live::Fleet;
 use crate::live::HostDesk;
@@ -116,23 +116,6 @@ impl Store {
             desk,
             settings,
         }
-    }
-
-    /// The surface, runner, terminal session and phase of `chat`; `None` when it is not loaded.
-    pub fn chat_terminal(
-        &self,
-        chat: &str,
-    ) -> Option<ChatTerminal> {
-        self.hub.read(|state| ChatTerminal::of(state, chat))
-    }
-
-    /// The project `chat` belongs to; `None` when it is not loaded or has none.
-    pub fn chat_project(
-        &self,
-        chat: &str,
-    ) -> Option<String> {
-        self.hub
-            .read(|state| crate::live::chat_project::of(state, chat))
     }
 
     /// The sidebar's read side.
