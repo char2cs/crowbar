@@ -235,7 +235,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn dragging_a_strip_tab_over_the_layout_opens_the_overlay_that_freezes_web_views(
+    fn dragging_a_strip_tab_over_the_layout_starts_a_drag_after_its_first_moves(
         cx: &mut TestAppContext
     ) {
         let harness = open_with(cx, &stacked_layout(), stacking());
@@ -247,10 +247,7 @@ mod tests {
         cx.simulate_mouse_move(tab + point(px(20.0), px(2.0)), MouseButton::Left, none);
         cx.simulate_mouse_move(tab + point(px(25.0), px(10.0)), MouseButton::Left, none);
         let dragging = view.read_with(cx, |view, _| view.drop.is_dragging());
-        assert!(
-            dragging,
-            "the first moves of a strip tab drag open the overlay"
-        );
+        assert!(dragging, "the first moves of a strip tab start a drag");
     }
 
     #[gpui::test]
