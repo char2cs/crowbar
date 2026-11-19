@@ -1033,27 +1033,6 @@ mod tests {
         assert_eq!(crate::model::load(&bytes).unwrap(), layout, "round trip");
     }
 
-    fn version_one_file() -> serde_json::Value {
-        let pane = |name: &str, kind: &str| serde_json::json!({"paneId": name, "type": kind, "params": {"id": name}, "state": null});
-        let tree = serde_json::json!({"node": "split", "axis": "horizontal", "ratio": 0.5,
-            "first": {"node": "leaf", "pane": "a"}, "second": {"node": "leaf", "pane": "b"}});
-        let tab = serde_json::json!({"id": 1, "title": "old", "tree": tree, "focused": "b",
-            "panes": {"a": pane("a", "core.chat"), "b": pane("b", "core.terminal")}});
-        serde_json::json!({"version": 1, "active": 1, "tabs": [tab]})
-    }
-
-    #[test]
-    fn a_version_one_file_loads_as_groups_of_one_and_then_stacks() {
-        let bytes = version_one_file().to_string();
-        let mut layout = crate::model::load(bytes.as_bytes()).unwrap();
-        assert_eq!(strips(&layout, 1), ["a*", "b*"], "arrangement kept");
-        stack(&mut layout, "n", "b");
-        assert_eq!(strips(&layout, 1), ["a*", "b n*"], "new panes stack");
-        let saved = crate::model::store(&layout).unwrap();
-        let saved: serde_json::Value = serde_json::from_slice(&saved).unwrap();
-        assert_eq!(saved["version"], serde_json::json!(crate::SCHEMA_VERSION));
-    }
-
     fn stored_group(
         panes: &serde_json::Value,
         active: &str,
@@ -1063,7 +1042,8 @@ mod tests {
         let tree = serde_json::json!({"node": "leaf", "panes": panes, "active": active});
         let tab = serde_json::json!({"id": 1, "title": "t", "tree": tree, "focused": focused,
             "panes": {"a": terminal("a"), "b": terminal("b")}});
-        serde_json::json!({"version": 2, "active": 1, "tabs": [tab]}).to_string()
+        serde_json::json!({"version": crate::SCHEMA_VERSION, "active": 1, "tabs": [tab]})
+            .to_string()
     }
 
     #[test]

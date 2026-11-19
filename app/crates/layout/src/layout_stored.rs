@@ -7,7 +7,7 @@ use serde_json::Value;
 use crate::error::{Error, Result};
 use crate::layout::{Layout, MAX_TABS};
 use crate::layout_document::LayoutDocument;
-use crate::schema::{SCHEMA_VERSION, upgrade};
+use crate::schema::{SCHEMA_VERSION, is_current};
 use crate::tab::Tab;
 use crate::tab_id::TabId;
 
@@ -83,8 +83,10 @@ impl<'de> Deserialize<'de> for Layout {
 
 impl Layout {
     pub(crate) fn from_stored(stored: Value) -> Result<Self> {
-        let upgraded = upgrade(stored)?;
-        let document: LayoutDocument<'static> = serde_json::from_value(upgraded)
+        if !is_current(&stored)? {
+            return Ok(Self::default());
+        }
+        let document: LayoutDocument<'static> = serde_json::from_value(stored)
             .map_err(|source| Error::Unreadable(source.to_string()))?;
         let layout = Self {
             tabs: document.tabs.into_owned(),
@@ -152,18 +154,20 @@ mod tests {
     }
 
     #[test]
-    fn an_unversioned_layout_from_the_first_format_is_migrated() {
-        let mut value = serde_json::to_value(sample()).unwrap();
-        value.as_object_mut().unwrap().remove("version");
-        let migrated: Layout = serde_json::from_value(value).unwrap();
-        assert_eq!(migrated, sample(), "same layout");
+    fn a_layout_of_another_version_loads_as_the_default_layout() {
+        let value = serde_json::to_value(sample()).unwrap();
+        for version in [None, Some(SCHEMA_VERSION - 1), Some(SCHEMA_VERSION + 1)] {
+            let mut document = value.clone();
+            document["version"] = version.map_or(Value::Null, Value::from);
+            let loaded: Layout = serde_json::from_value(document).unwrap();
+            assert_eq!(loaded, Layout::default(), "{version:?}");
+        }
     }
 
     #[test]
-    fn a_layout_from_a_newer_app_or_with_stray_data_is_refused() {
+    fn a_layout_with_stray_or_broken_data_is_refused() {
         let value = serde_json::to_value(sample()).unwrap();
         let cases = [
-            ("newer", "version", json!(SCHEMA_VERSION + 1), "newer"),
             ("unknown field", "surprise", json!(true), ""),
             ("dangling active tab", "active", json!(77), "invalid layout"),
         ];

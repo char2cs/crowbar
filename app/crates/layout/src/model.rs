@@ -1,15 +1,15 @@
 use crate::error::{Error, Result};
 use crate::layout::Layout;
 
-/// Reads a layout from its stored JSON, whatever version wrote it.
+/// Reads a layout from its stored JSON.
 ///
-/// Older formats are migrated, newer ones refused, and the result satisfies every [`Layout`]
-/// invariant, so a damaged file is an error rather than a broken window.
+/// A document of another schema version, older or newer, loads as the default layout with a
+/// warning; the result satisfies every [`Layout`] invariant, so a damaged file is an error rather
+/// than a broken window.
 ///
 /// # Errors
-/// [`Error::Unreadable`] for text that is not a layout document,
-/// [`Error::UnsupportedSchema`] for a version newer than this build reads and
-/// [`Error::Invalid`] for data that breaks an invariant.
+/// [`Error::Unreadable`] for text that is not a layout document and [`Error::Invalid`] for data
+/// that breaks an invariant.
 pub fn load(stored: &[u8]) -> Result<Layout> {
     let value =
         serde_json::from_slice(stored).map_err(|source| Error::Unreadable(source.to_string()))?;
@@ -45,23 +45,24 @@ mod tests {
     }
 
     #[test]
-    fn stored_and_legacy_documents_load_as_the_same_layout() {
+    fn a_stored_layout_loads_back_and_another_version_loads_as_the_default() {
+        assert_eq!(
+            load(&store(&layout()).unwrap()).unwrap(),
+            layout(),
+            "round trip"
+        );
         let legacy = json!({"tabs": [{"id": 1, "title": "one", "panes": {}, "tree": null, "focused": null}], "active": 1});
-        let cases = [
-            ("round trip", store(&layout()).unwrap()),
-            (
-                "unversioned format migrated",
-                legacy.to_string().into_bytes(),
-            ),
-        ];
-        for (name, bytes) in cases {
-            assert_eq!(load(&bytes).unwrap(), layout(), "{name}");
+        let newer = json!({"version": SCHEMA_VERSION + 1, "tabs": 3});
+        for other in [legacy, newer] {
+            let loaded = load(other.to_string().as_bytes()).unwrap();
+            assert_eq!(loaded, Layout::default(), "{other}");
         }
     }
 
     #[test]
     fn unreadable_and_broken_data_are_distinct_errors() {
-        let broken = json!({"version": 1, "tabs": [], "active": 4});
+        let broken = json!({"version": SCHEMA_VERSION, "tabs": [], "active": 4});
+        let shape = json!({"version": SCHEMA_VERSION, "tabs": 3});
         let cases = [
             (
                 "syntax",
@@ -70,7 +71,7 @@ mod tests {
             ),
             (
                 "shape",
-                b"{\"tabs\": 3}".to_vec(),
+                shape.to_string().into_bytes(),
                 Error::Unreadable(String::new()),
             ),
             (
@@ -87,18 +88,5 @@ mod tests {
                 "{name}"
             );
         }
-    }
-
-    #[test]
-    fn newer_data_is_refused_with_the_supported_version() {
-        let newer = json!({"version": SCHEMA_VERSION + 1, "tabs": [], "active": null});
-        assert_eq!(
-            load(newer.to_string().as_bytes()),
-            Err(Error::UnsupportedSchema {
-                found: SCHEMA_VERSION + 1,
-                supported: SCHEMA_VERSION
-            }),
-            "newer"
-        );
     }
 }

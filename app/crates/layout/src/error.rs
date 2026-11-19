@@ -59,14 +59,6 @@ pub enum Error {
         /// The limit.
         limit: usize,
     },
-    /// Stored layout data was written by a newer version of the app.
-    #[error("layout schema version {found} is newer than the supported version {supported}")]
-    UnsupportedSchema {
-        /// The version found in the data.
-        found: u32,
-        /// The newest version this build reads.
-        supported: u32,
-    },
     /// Stored layout data is not readable JSON of the expected shape.
     #[error("cannot read the stored layout: {0}")]
     Unreadable(String),
