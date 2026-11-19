@@ -1,25 +1,24 @@
-//! Where one spinner is in its sprite, and the one timer that repaints it at its next step.
+//! Where one spinner is in its sprite; the shared clock repaints it at the next tick.
 
 use std::rc::Rc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-use gpui::{Context, Task};
+use gpui::Context;
 
+use crate::display::flicker_spinner::spinner_clock;
 use crate::display::flicker_spinner::sprite::Sprite;
 use crate::display::flicker_spinner::sprites;
 
 pub(crate) struct Playback {
     sprite: Option<Rc<Sprite>>,
     started: Instant,
-    step: Option<Task<()>>,
 }
 
 impl Playback {
     pub(crate) fn start(cx: &mut Context<'_, Self>) -> Self {
         Self {
             sprite: sprites::pick().map(Rc::new),
-            started: cx.background_executor().now(),
-            step: None,
+            started: spinner_clock::aligned_now(cx),
         }
     }
 
@@ -29,36 +28,16 @@ impl Playback {
     ) -> Option<(Rc<Sprite>, usize)> {
         let sprite = Rc::clone(self.sprite.as_ref()?);
         let elapsed = cx.background_executor().now() - self.started;
-        let (frame, left) = sprite.frame_at(elapsed);
-        self.arm(left, cx);
+        let (frame, _) = sprite.frame_at(elapsed);
+        spinner_clock::wake(cx.entity_id(), cx);
         Some((sprite, frame))
     }
-
-    fn arm(
-        &mut self,
-        left: Duration,
-        cx: &mut Context<'_, Self>,
-    ) {
-        if self.step.is_some() {
-            return;
-        }
-        self.step = Some(cx.spawn(async move |playback, cx| {
-            cx.background_executor().timer(left).await;
-            playback.update(cx, step).unwrap_or_default();
-        }));
-    }
-}
-
-fn step(
-    playback: &mut Playback,
-    cx: &mut Context<'_, Playback>,
-) {
-    playback.step = None;
-    cx.notify();
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use gpui::{AppContext as _, TestAppContext};
 
     use super::*;

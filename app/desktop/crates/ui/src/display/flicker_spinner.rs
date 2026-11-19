@@ -3,6 +3,7 @@
 mod dot;
 mod markup;
 mod playback;
+mod spinner_clock;
 mod sprite;
 mod sprites;
 
@@ -158,6 +159,43 @@ mod tests {
         assert_eq!(draws.get(), settled + 1, "one frame at the step");
         cx.executor().advance_clock(STEP * 10);
         assert_eq!(draws.get(), settled + 11, "one frame per step");
+    }
+
+    struct Pair {
+        draws: Rc<Cell<usize>>,
+        second: bool,
+    }
+
+    impl Render for Pair {
+        fn render(
+            &mut self,
+            _: &mut Window,
+            _: &mut Context<'_, Self>,
+        ) -> impl IntoElement {
+            self.draws.set(self.draws.get() + 1);
+            let second = self.second.then(|| FlickerSpinner::new("second"));
+            div().child(FlickerSpinner::new("first")).children(second)
+        }
+    }
+
+    #[gpui::test]
+    fn spinners_started_apart_step_together_on_one_redraw(cx: &mut TestAppContext) {
+        cx.update(|cx| cx.set_global(Theme::default()));
+        let draws = Rc::new(Cell::new(0));
+        let counter = Rc::clone(&draws);
+        let (pair, cx) = cx.add_window_view(|_, _| Pair {
+            draws: counter,
+            second: false,
+        });
+        cx.executor().advance_clock(STEP / 2);
+        pair.update(cx, |pair, cx| {
+            pair.second = true;
+            cx.notify();
+        });
+        cx.run_until_parked();
+        let settled = draws.get();
+        cx.executor().advance_clock(STEP * 10);
+        assert_eq!(draws.get(), settled + 10, "one redraw per tick for both");
     }
 
     #[gpui::test]

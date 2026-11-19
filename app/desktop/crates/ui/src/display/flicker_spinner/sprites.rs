@@ -52,8 +52,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-
-    const STEP: Duration = Duration::from_millis(90);
+    use crate::display::flicker_spinner::spinner_clock::STEP;
 
     #[test]
     fn every_bundled_sprite_parses_and_steps_every_ninety_milliseconds() {
