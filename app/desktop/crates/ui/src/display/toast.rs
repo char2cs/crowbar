@@ -27,7 +27,6 @@ use crate::foundation::CloseHandler;
 use crate::foundation::CubicBezier;
 use crate::foundation::Icon;
 use crate::foundation::IconName;
-use crate::foundation::IconWeight;
 use crate::foundation::Motion;
 use crate::foundation::Palette;
 use crate::foundation::Surface;
@@ -126,14 +125,15 @@ impl Toast {
 fn tone(
     kind: ToastKind,
     palette: &Palette,
-) -> (IconName, Hsla) {
-    match kind {
+) -> Icon {
+    let (name, color): (IconName, Hsla) = match kind {
         ToastKind::Info => (IconName::Info, palette.info()),
         ToastKind::Success => (IconName::CheckCircle, palette.success()),
         ToastKind::Warning => (IconName::Warning, palette.warning()),
         ToastKind::Error => (IconName::WarningCircle, palette.destructive()),
         ToastKind::Loading => (IconName::CircleNotch, palette.muted_foreground()),
-    }
+    };
+    Icon::new(name).color(color)
 }
 
 impl Toast {
@@ -141,13 +141,9 @@ impl Toast {
         &self,
         palette: &Palette,
     ) -> gpui::AnyElement {
-        let (name, color) = tone(self.kind, palette);
         match self.kind {
             ToastKind::Loading => Spinner::new((self.id.clone(), "spin")).into_any_element(),
-            _ => Icon::new(name)
-                .weight(IconWeight::Fill)
-                .color(color)
-                .into_any_element(),
+            kind => tone(kind, palette).into_any_element(),
         }
     }
 
@@ -255,6 +251,21 @@ mod tests {
 
     use super::*;
     use crate::test_support::probe::measure;
+
+    #[test]
+    fn glyphs_are_outlined_as_on_develop() {
+        let palette = Theme::default();
+        let palette = palette.palette(Surface::Window);
+        for kind in [
+            ToastKind::Info,
+            ToastKind::Success,
+            ToastKind::Warning,
+            ToastKind::Error,
+        ] {
+            let glyph = format!("{:?}", tone(kind, palette));
+            assert!(glyph.contains("Regular"), "{kind:?}: {glyph}");
+        }
+    }
 
     #[gpui::test]
     fn every_kind_renders_a_card(cx: &mut TestAppContext) {
