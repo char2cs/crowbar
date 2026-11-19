@@ -1,8 +1,10 @@
-//! Sync input and output: the layout snapshot, visible panes, keyboard owner, sync report, failures and pane display.
+//! Sync input and output: the layout snapshot, visible panes, keyboard owner and where native
+//! focus goes, sync report, failures and pane display.
 
 pub(crate) mod failures;
 pub(crate) mod keyboard;
 pub(crate) mod layout_snapshot;
+mod native_focus;
 pub(crate) mod pane_display;
 pub(crate) mod sync_report;
 mod visible_pane;

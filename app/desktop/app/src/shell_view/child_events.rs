@@ -35,7 +35,20 @@ impl ShellView {
             cx.subscribe_in(&built.startup, window, |this, _, event, window, cx| {
                 this.on_startup(*event, window, cx);
             }),
+            cx.observe_window_activation(window, |this, window, _| {
+                this.on_window_activation(window);
+            }),
         ]
+    }
+
+    fn on_window_activation(
+        &self,
+        window: &Window,
+    ) {
+        if !window.is_window_active() {
+            return;
+        }
+        self.state.window_activated();
     }
 
     fn on_workspace(

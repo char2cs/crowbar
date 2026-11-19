@@ -28,6 +28,12 @@ impl ShellState {
         self.react(report.events)
     }
 
+    pub(crate) fn window_activated(&self) {
+        if let Err(error) = self.host.window_activated() {
+            tracing::warn!(%error, "giving the keyboard back to its owner failed");
+        }
+    }
+
     pub(crate) fn handle_ipc(
         &mut self,
         message: IpcMessage,
@@ -183,7 +189,27 @@ mod tests {
     use webview::Call;
 
     use super::*;
+    use crate::core_panes::chat_type;
     use crate::test_support::{shell_rig, synced_chat};
+
+    #[test]
+    fn a_chat_takes_the_keyboard_again_when_the_window_is_activated() {
+        let mut rig = shell_rig();
+        let pane = synced_chat(&mut rig);
+        let register = PaneFrame::Register {
+            type_id: chat_type().unwrap(),
+            sdk: protocol::SDK_VERSION,
+        };
+        let text = encode(&register).unwrap();
+        rig.shell.handle_ipc(IpcMessage { pane, text });
+        let before = rig.mock.calls().len();
+        rig.shell.window_activated();
+        let calls = rig.mock.calls();
+        let focused = calls[before..]
+            .iter()
+            .any(|call| matches!(call, Call::Focus { .. }));
+        assert!(focused, "{calls:?}");
+    }
 
     #[test]
     fn an_opened_chat_gets_a_web_view_in_the_window() {

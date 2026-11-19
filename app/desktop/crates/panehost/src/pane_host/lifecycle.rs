@@ -4,5 +4,5 @@ mod frames;
 pub(crate) mod pane_phase;
 pub(crate) mod pane_runtime;
 mod placement;
-mod stage;
+pub(crate) mod stage;
 mod visibility;
