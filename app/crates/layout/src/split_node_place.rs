@@ -38,10 +38,14 @@ impl SplitNode {
         bounds: Rect,
     ) -> Vec<PaneSlot> {
         match self {
-            Self::Leaf(group) => vec![PaneSlot {
-                pane: group.active().clone(),
-                rect: bounds,
-            }],
+            Self::Leaf(group) => group
+                .shown()
+                .map(|pane| PaneSlot {
+                    pane: pane.clone(),
+                    rect: bounds,
+                })
+                .into_iter()
+                .collect(),
             Self::Split {
                 axis,
                 ratio,
@@ -63,11 +67,15 @@ impl SplitNode {
         bounds: Rect,
     ) -> Vec<GroupSlot> {
         match self {
-            Self::Leaf(group) => vec![GroupSlot {
-                rect: bounds,
-                panes: group.panes().to_vec(),
-                active: group.active().clone(),
-            }],
+            Self::Leaf(group) => group
+                .shown()
+                .map(|active| GroupSlot {
+                    rect: bounds,
+                    panes: group.members(),
+                    active: active.clone(),
+                })
+                .into_iter()
+                .collect(),
             Self::Split {
                 axis,
                 ratio,

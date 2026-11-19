@@ -1,11 +1,11 @@
-use crate::close_panes;
 use crate::command::Command;
 use crate::error::Result;
-use crate::group_commands;
+use crate::ide::close_panes;
+use crate::ide::group_commands;
+use crate::ide::pin_commands;
 use crate::layout::Layout;
 use crate::pane_commands;
 use crate::pane_instance::PaneInstance;
-use crate::pin_commands;
 use crate::tab_commands;
 
 impl Layout {

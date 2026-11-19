@@ -4,7 +4,6 @@ use crate::edge::Edge;
 use crate::error::{Error, Result};
 use crate::pane_instance::PaneInstance;
 use crate::placement::Placement;
-use crate::remaining::Remaining;
 use crate::split_node::SplitNode;
 use crate::tab::{MAX_PANES_PER_TAB, Tab};
 
@@ -85,10 +84,8 @@ impl Tab {
     ) -> Option<PaneId> {
         let tree = self.tree.as_ref()?;
         let mut group = tree.group_of(pane)?.clone();
-        match group.take(pane) {
-            Remaining::Active(next) => Some(next),
-            Remaining::Nothing => tree.neighbour_of(pane).cloned(),
-        }
+        group.take(pane);
+        group.shown().or_else(|| tree.neighbour_of(pane)).cloned()
     }
 
     fn target_of(

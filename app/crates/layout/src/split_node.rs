@@ -2,7 +2,7 @@ use protocol::PaneId;
 use serde::{Deserialize, Serialize};
 
 use crate::axis::Axis;
-use crate::group::Group;
+use crate::ide::pane_group::PaneGroup;
 
 /// Thickness of the divider between two panes, in logical pixels. Panes share what is left, so
 /// the stored ratio is exactly the rendered ratio.
@@ -19,8 +19,8 @@ pub(crate) const EQUAL_SHARE: f32 = 0.5;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "node", rename_all = "camelCase")]
 pub enum SplitNode {
-    /// A group of stacked panes, one of them shown.
-    Leaf(Group),
+    /// A chat and its editor tabs.
+    Leaf(PaneGroup),
     /// Two children sharing the available space.
     Split {
         /// How the children are arranged.
@@ -37,26 +37,26 @@ pub enum SplitNode {
 
 impl SplitNode {
     pub(crate) fn leaf(pane: PaneId) -> Self {
-        Self::Leaf(Group::single(pane))
+        Self::Leaf(PaneGroup::single(pane))
     }
 
     pub(crate) fn pane_ids(&self) -> Vec<PaneId> {
         match self {
-            Self::Leaf(group) => group.panes().to_vec(),
+            Self::Leaf(group) => group.members(),
             Self::Split { first, second, .. } => [first.pane_ids(), second.pane_ids()].concat(),
         }
     }
 
-    pub(crate) fn first_pane(&self) -> &PaneId {
+    pub(crate) fn first_pane(&self) -> Option<&PaneId> {
         match self {
-            Self::Leaf(group) => group.active(),
+            Self::Leaf(group) => group.shown(),
             Self::Split { first, .. } => first.first_pane(),
         }
     }
 
-    pub(crate) fn last_pane(&self) -> &PaneId {
+    pub(crate) fn last_pane(&self) -> Option<&PaneId> {
         match self {
-            Self::Leaf(group) => group.active(),
+            Self::Leaf(group) => group.shown(),
             Self::Split { second, .. } => second.last_pane(),
         }
     }
@@ -71,7 +71,7 @@ impl SplitNode {
     pub(crate) fn group_of(
         &self,
         pane: &PaneId,
-    ) -> Option<&Group> {
+    ) -> Option<&PaneGroup> {
         match self {
             Self::Leaf(group) => group.contains(pane).then_some(group),
             Self::Split { first, second, .. } => {
@@ -83,7 +83,7 @@ impl SplitNode {
     pub(crate) fn group_of_mut(
         &mut self,
         pane: &PaneId,
-    ) -> Option<&mut Group> {
+    ) -> Option<&mut PaneGroup> {
         match self {
             Self::Leaf(group) => group.contains(pane).then_some(group),
             Self::Split { first, second, .. } => match first.group_of_mut(pane) {

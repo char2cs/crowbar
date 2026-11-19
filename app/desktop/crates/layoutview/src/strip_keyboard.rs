@@ -1,5 +1,5 @@
 use gpui::{App, Entity};
-use layout::{Command, Group};
+use layout::{Command, PaneGroup};
 use protocol::PaneId;
 
 use crate::layout_event::LayoutEvent;
@@ -7,13 +7,13 @@ use crate::layout_view::LayoutView;
 use crate::strip_key::{StripKey, strip_command};
 
 pub(crate) struct StripKeyboard {
-    group: Group,
+    group: PaneGroup,
     pinned: Vec<(PaneId, String)>,
 }
 
 impl StripKeyboard {
     pub(crate) fn new(
-        group: Group,
+        group: PaneGroup,
         pinned: Vec<(PaneId, String)>,
     ) -> Self {
         Self { group, pinned }
@@ -25,7 +25,10 @@ impl StripKeyboard {
         view: &Entity<LayoutView>,
         cx: &mut App,
     ) {
-        let Some(pressed) = strip_command(&self.group, self.group.active(), key) else {
+        let Some(shown) = self.group.active_tab() else {
+            return;
+        };
+        let Some(pressed) = strip_command(&self.group, shown, key) else {
             return;
         };
         let event = event_of(pressed, &self.pinned);

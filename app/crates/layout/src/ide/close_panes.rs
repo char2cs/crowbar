@@ -66,7 +66,8 @@ mod tests {
     fn shown_of(layout: &Layout) -> Option<PaneId> {
         let tab = layout.active_tab()?;
         let first = tab.pane_ids().into_iter().next()?;
-        tab.group_of(&first).map(|group| group.active().clone())
+        tab.group_of(&first)
+            .and_then(|group| group.active_tab().cloned())
     }
 
     fn focused(layout: &Layout) -> Option<PaneId> {

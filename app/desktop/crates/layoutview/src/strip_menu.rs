@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use gpui::{Context, SharedString};
-use layout::{CloseScope, Command, Group};
+use layout::{CloseScope, Command, PaneGroup};
 use protocol::PaneId;
 use ui::{IconName, MenuAction, MenuItem};
 
@@ -18,7 +18,7 @@ const CLOSE_HINT: &str = "Ctrl+W";
 impl LayoutView {
     pub(crate) fn tab_menu(
         &self,
-        group: &Group,
+        group: &PaneGroup,
         pane: &PaneId,
         cx: &mut Context<'_, Self>,
     ) -> Rc<[MenuItem]> {
@@ -91,7 +91,7 @@ impl LayoutView {
 }
 
 fn pin_action(
-    group: &Group,
+    group: &PaneGroup,
     pane: &PaneId,
     view: &gpui::Entity<LayoutView>,
 ) -> MenuAction {

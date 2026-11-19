@@ -55,7 +55,7 @@ impl LayoutView {
         }
         let dragged = tab
             .group_of(onto)
-            .and_then(|group| group.panes().iter().position(|member| member == pane));
+            .and_then(|group| group.tabs().iter().position(|member| member == pane));
         let index = Some(insertion_index(before, dragged));
         cx.emit(LayoutEvent::Apply(Command::MoveToGroup {
             pane: pane.clone(),

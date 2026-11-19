@@ -1,63 +1,19 @@
 use protocol::PaneId;
-use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
-use crate::remaining::Remaining;
+use crate::ide::pane_group::PaneGroup;
 
-/// The panes that share one place in a tab's split tree: a strip of stacked panes of which
-/// exactly one, the active pane, is shown.
-///
-/// A group is never empty and its active pane is always one of its members. The first
-/// [`Group::pinned_count`] members are pinned: they stay in front of the others, and no pane
-/// moves across that line except by pinning or unpinning.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Group {
-    pub(crate) panes: Vec<PaneId>,
-    pub(crate) active: PaneId,
-    #[serde(default)]
-    pub(crate) pinned: usize,
-}
-
-impl Group {
-    pub(crate) fn single(pane: PaneId) -> Self {
-        Self {
-            panes: vec![pane.clone()],
-            active: pane,
-            pinned: 0,
-        }
-    }
-
-    /// The members in strip order.
-    #[must_use]
-    pub fn panes(&self) -> &[PaneId] {
-        &self.panes
-    }
-
-    /// The member that is shown.
-    #[must_use]
-    pub fn active(&self) -> &PaneId {
-        &self.active
-    }
-
-    /// Whether `pane` is a member.
-    #[must_use]
-    pub fn contains(
-        &self,
-        pane: &PaneId,
-    ) -> bool {
-        self.panes.contains(pane)
-    }
-
-    pub(crate) fn len(&self) -> usize {
-        self.panes.len()
-    }
-
+impl PaneGroup {
     pub(crate) fn activate(
         &mut self,
         pane: &PaneId,
     ) {
-        if self.contains(pane) {
-            self.active = pane.clone();
+        if self.chat.as_ref() == Some(pane) {
+            self.chat_selected = true;
+        }
+        if self.tabs.contains(pane) {
+            self.active = Some(pane.clone());
+            self.chat_selected = false;
         }
     }
 
@@ -77,31 +33,41 @@ impl Group {
         pane: PaneId,
         index: Option<usize>,
     ) -> Result<()> {
-        let at = Self::check_index(index, self.panes.len())?.max(self.pinned);
-        self.panes.insert(at, pane.clone());
-        self.active = pane;
+        let at = Self::check_index(index, self.tabs.len())?.max(self.pinned);
+        if self.tabs.is_empty() {
+            self.editor_open = true;
+        }
+        self.tabs.insert(at, pane.clone());
+        self.active = Some(pane);
+        self.chat_selected = false;
         Ok(())
     }
 
     pub(crate) fn take(
         &mut self,
         pane: &PaneId,
-    ) -> Remaining {
-        let Some(position) = self.panes.iter().position(|member| member == pane) else {
-            return Remaining::Active(self.active.clone());
+    ) {
+        if self.chat.as_ref() == Some(pane) {
+            self.chat = None;
+            return;
+        }
+        let Some(position) = self.tabs.iter().position(|member| member == pane) else {
+            return;
         };
-        self.panes.remove(position);
+        self.tabs.remove(position);
         if position < self.pinned {
             self.pinned -= 1;
         }
-        let heir = self.panes.get(position).or_else(|| self.panes.last());
-        let Some(heir) = heir.cloned() else {
-            return Remaining::Nothing;
-        };
-        if &self.active == pane {
-            self.active = heir;
+        if self.tabs.is_empty() {
+            self.editor_open = false;
         }
-        Remaining::Active(self.active.clone())
+        if self.active.as_ref() == Some(pane) {
+            self.active = self
+                .tabs
+                .get(position)
+                .or_else(|| self.tabs.last())
+                .cloned();
+        }
     }
 
     pub(crate) fn reorder(
@@ -109,12 +75,13 @@ impl Group {
         pane: &PaneId,
         index: Option<usize>,
     ) -> Result<()> {
-        let others = self.panes.len().saturating_sub(1);
+        let others = self.tabs.len().saturating_sub(1);
         let at = Self::check_index(index, others)?;
         let at = at.clamp(*self.reach(pane).start(), *self.reach(pane).end());
-        self.panes.retain(|member| member != pane);
-        self.panes.insert(at, pane.clone());
-        self.active = pane.clone();
+        self.tabs.retain(|member| member != pane);
+        self.tabs.insert(at, pane.clone());
+        self.active = Some(pane.clone());
+        self.chat_selected = false;
         Ok(())
     }
 
@@ -128,18 +95,14 @@ impl Group {
             same if same == b => a.clone(),
             other => other.clone(),
         };
-        for member in self.panes.iter_mut().chain([&mut self.active]) {
+        let members = self
+            .tabs
+            .iter_mut()
+            .chain(&mut self.active)
+            .chain(&mut self.chat);
+        for member in members {
             *member = exchanged(member);
         }
-    }
-
-    pub(crate) fn is_consistent(&self) -> bool {
-        let mut sorted: Vec<&PaneId> = self.panes.iter().collect();
-        sorted.sort();
-        sorted.dedup();
-        sorted.len() == self.panes.len()
-            && self.contains(&self.active)
-            && self.pinned <= self.panes.len()
     }
 }
 
@@ -154,16 +117,16 @@ mod tests {
     fn group(
         names: &[&str],
         active: &str,
-    ) -> Group {
-        Group {
-            panes: names.iter().map(|name| id(name)).collect(),
-            active: id(active),
-            pinned: 0,
+    ) -> PaneGroup {
+        PaneGroup {
+            tabs: names.iter().map(|name| id(name)).collect(),
+            active: Some(id(active)),
+            ..PaneGroup::single(id(active))
         }
     }
 
-    fn names(group: &Group) -> Vec<String> {
-        group.panes().iter().map(ToString::to_string).collect()
+    fn names(group: &PaneGroup) -> Vec<String> {
+        group.tabs().iter().map(ToString::to_string).collect()
     }
 
     #[test]
@@ -178,7 +141,7 @@ mod tests {
             let mut stack = group(&["a", "b"], "a");
             stack.insert(id("x"), index).unwrap();
             assert_eq!(names(&stack), expected, "{name}");
-            assert_eq!(stack.active(), &id("x"), "{name}: shown");
+            assert_eq!(stack.active_tab(), Some(&id("x")), "{name}: shown");
         }
     }
 
@@ -203,11 +166,8 @@ mod tests {
         ];
         for (name, taken, expected) in cases {
             let mut stack = group(&["a", "b", "c"], taken);
-            assert_eq!(
-                stack.take(&id(taken)),
-                Remaining::Active(id(expected)),
-                "{name}"
-            );
+            stack.take(&id(taken));
+            assert_eq!(stack.active_tab(), Some(&id(expected)), "{name}");
             assert!(stack.is_consistent(), "{name}: consistent");
         }
     }
@@ -215,14 +175,17 @@ mod tests {
     #[test]
     fn taking_a_hidden_pane_keeps_the_active_one() {
         let mut stack = group(&["a", "b", "c"], "c");
-        assert_eq!(stack.take(&id("a")), Remaining::Active(id("c")), "kept");
+        stack.take(&id("a"));
+        assert_eq!(stack.active_tab(), Some(&id("c")), "kept");
         assert_eq!(names(&stack), ["b", "c"], "rest");
     }
 
     #[test]
     fn taking_the_only_pane_leaves_nothing() {
-        let mut stack = Group::single(id("a"));
-        assert_eq!(stack.take(&id("a")), Remaining::Nothing, "gone");
+        let mut stack = PaneGroup::single(id("a"));
+        stack.take(&id("a"));
+        assert!(stack.is_empty(), "gone");
+        assert_eq!(stack.active_tab(), None, "nothing shown");
     }
 
     #[test]
@@ -237,7 +200,7 @@ mod tests {
             let mut stack = group(&["a", "b", "c"], "a");
             stack.reorder(&id(moved), index).unwrap();
             assert_eq!(names(&stack), expected, "{name}");
-            assert_eq!(stack.active(), &id(moved), "{name}: shown");
+            assert_eq!(stack.active_tab(), Some(&id(moved)), "{name}: shown");
         }
         let mut stack = group(&["a", "b", "c"], "a");
         assert_eq!(
@@ -252,14 +215,10 @@ mod tests {
         let mut stack = group(&["a", "b", "c"], "a");
         stack.exchange(&id("a"), &id("c"));
         assert_eq!(names(&stack), ["c", "b", "a"], "members");
-        assert_eq!(stack.active(), &id("c"), "active follows the place");
-    }
-
-    #[test]
-    fn consistency_needs_distinct_members_and_a_member_as_active() {
-        assert!(group(&["a", "b"], "b").is_consistent(), "fine");
-        assert!(!group(&["a", "a"], "a").is_consistent(), "duplicate");
-        assert!(!group(&["a", "b"], "z").is_consistent(), "active outside");
-        assert!(!group(&[], "a").is_consistent(), "empty");
+        assert_eq!(
+            stack.active_tab(),
+            Some(&id("c")),
+            "active follows the place"
+        );
     }
 }

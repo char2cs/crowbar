@@ -55,11 +55,11 @@ impl DropTarget {
         let Some(group) = tab.group_of(dragged) else {
             return slots;
         };
-        let Some(other) = group.panes().iter().find(|member| *member != dragged) else {
+        let Some(other) = group.tabs().iter().find(|member| *member != dragged) else {
             return slots;
         };
-        let shown = group.active();
-        for slot in slots.iter_mut().filter(|slot| &slot.pane == shown) {
+        let shown = group.shown();
+        for slot in slots.iter_mut().filter(|slot| Some(&slot.pane) == shown) {
             slot.pane = other.clone();
         }
         slots

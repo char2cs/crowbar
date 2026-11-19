@@ -1,8 +1,8 @@
 use protocol::PaneId;
 
 use crate::error::{Error, Result};
-use crate::group::Group;
 use crate::group_slot::GroupSlot;
+use crate::ide::pane_group::PaneGroup;
 use crate::pane_instance::PaneInstance;
 use crate::rect::Rect;
 use crate::split_node::SplitNode;
@@ -26,7 +26,7 @@ impl Tab {
     pub fn group_of(
         &self,
         pane: &PaneId,
-    ) -> Option<&Group> {
+    ) -> Option<&PaneGroup> {
         self.tree.as_ref().and_then(|tree| tree.group_of(pane))
     }
 
@@ -50,7 +50,7 @@ impl Tab {
         pane: &PaneId,
     ) -> bool {
         self.group_of(pane)
-            .is_some_and(|group| group.active() == pane)
+            .is_some_and(|group| group.shown() == Some(pane))
     }
 
     pub(crate) fn check_open_in_group(
@@ -70,7 +70,7 @@ impl Tab {
         let group = self
             .group_of(onto.0)
             .ok_or_else(|| Error::PaneNotFound(onto.0.clone()))?;
-        Group::check_index(onto.1, group.len()).map(drop)
+        PaneGroup::check_index(onto.1, group.len()).map(drop)
     }
 
     pub(crate) fn open_in_group(
@@ -107,7 +107,7 @@ impl Tab {
         let destination = self
             .group_of(onto.0)
             .ok_or_else(|| Error::PaneNotFound(onto.0.clone()))?;
-        Group::check_index(onto.1, destination.len())?;
+        PaneGroup::check_index(onto.1, destination.len())?;
         let mut rest = self
             .tree
             .clone()
@@ -177,7 +177,7 @@ mod tests {
         assert_eq!(tab.group_count(), 2, "groups");
         assert_eq!(tab.len(), 3, "panes");
         assert_eq!(
-            tab.group_of(&id("a")).map(Group::len),
+            tab.group_of(&id("a")).map(PaneGroup::len),
             Some(2),
             "strip of two"
         );

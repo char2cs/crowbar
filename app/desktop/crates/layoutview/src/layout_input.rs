@@ -105,7 +105,7 @@ impl LayoutView {
             .tab
             .as_ref()
             .and_then(|tab| tab.group_of(pane))
-            .map(|group| group.panes().to_vec());
+            .map(|group| group.tabs().to_vec());
         match members {
             Some(panes) if panes.len() > 1 => {
                 cx.emit(LayoutEvent::Apply(Command::ClosePanes { panes }));

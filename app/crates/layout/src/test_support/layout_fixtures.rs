@@ -109,7 +109,7 @@ pub(crate) fn strip(layout: &Layout) -> String {
     let tab = layout.tab(TabId(1)).unwrap();
     let group = tab.group_of(&tab.pane_ids()[0]).unwrap();
     let written: Vec<String> = group
-        .panes()
+        .tabs()
         .iter()
         .map(|pane| {
             let pinned = group.is_pinned(pane).then(|| format!("[{pane}]"));

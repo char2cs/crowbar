@@ -2,48 +2,48 @@ use std::ops::RangeInclusive;
 
 use protocol::PaneId;
 
-use crate::close_scope::CloseScope;
-use crate::group::Group;
-use crate::strip_step::StripStep;
+use crate::ide::close_scope::CloseScope;
+use crate::ide::pane_group::PaneGroup;
+use crate::ide::strip_step::StripStep;
 
-impl Group {
-    /// How many members, from the front, are pinned.
+impl PaneGroup {
+    /// How many tabs, from the front, are pinned.
     #[must_use]
     pub fn pinned_count(&self) -> usize {
         self.pinned
     }
 
-    /// Whether `pane` is a pinned member.
+    /// Whether `pane` is a pinned tab.
     #[must_use]
     pub fn is_pinned(
         &self,
         pane: &PaneId,
     ) -> bool {
-        self.panes
+        self.tabs
             .iter()
             .take(self.pinned)
             .any(|member| member == pane)
     }
 
-    /// The member a keyboard `step` from `from` lands on; `None` at either end of the strip,
-    /// when already there, or when `from` is not a member.
+    /// The tab a keyboard `step` from `from` lands on; `None` at either end of the tab bar, when
+    /// already there, or when `from` is not a tab.
     #[must_use]
     pub fn step(
         &self,
         from: &PaneId,
         step: StripStep,
     ) -> Option<&PaneId> {
-        let at = self.panes.iter().position(|member| member == from)?;
+        let at = self.tabs.iter().position(|member| member == from)?;
         let target = match step {
             StripStep::Previous => at.checked_sub(1)?,
             StripStep::Next => at + 1,
             StripStep::First => 0,
-            StripStep::Last => self.panes.len().saturating_sub(1),
+            StripStep::Last => self.tabs.len().saturating_sub(1),
         };
-        self.panes.get(target).filter(|found| *found != from)
+        self.tabs.get(target).filter(|found| *found != from)
     }
 
-    /// The members a bulk close started on `anchor` reaches. Pinned members are never in it,
+    /// The tabs a bulk close started on `anchor` reaches. Pinned tabs are never in it,
     /// and neither is `anchor` itself unless the scope is [`CloseScope::All`].
     #[must_use]
     pub fn closable(
@@ -51,8 +51,8 @@ impl Group {
         anchor: &PaneId,
         scope: CloseScope,
     ) -> Vec<PaneId> {
-        let anchor_at = self.panes.iter().position(|member| member == anchor);
-        self.panes
+        let anchor_at = self.tabs.iter().position(|member| member == anchor);
+        self.tabs
             .iter()
             .enumerate()
             .skip(self.pinned)
@@ -69,7 +69,7 @@ impl Group {
         &self,
         pane: &PaneId,
     ) -> RangeInclusive<usize> {
-        let others = self.panes.len().saturating_sub(1);
+        let others = self.tabs.len().saturating_sub(1);
         let loose_from = self.pinned - usize::from(self.is_pinned(pane));
         if self.is_pinned(pane) {
             return 0..=loose_from;
@@ -81,14 +81,14 @@ impl Group {
         &mut self,
         pane: &PaneId,
     ) {
-        let Some(at) = self.panes.iter().position(|member| member == pane) else {
+        let Some(at) = self.tabs.iter().position(|member| member == pane) else {
             return;
         };
         if at < self.pinned {
             return;
         }
-        let moved = self.panes.remove(at);
-        self.panes.insert(self.pinned, moved);
+        let moved = self.tabs.remove(at);
+        self.tabs.insert(self.pinned, moved);
         self.pinned += 1;
     }
 
@@ -99,12 +99,12 @@ impl Group {
         if !self.is_pinned(pane) {
             return;
         }
-        let Some(at) = self.panes.iter().position(|member| member == pane) else {
+        let Some(at) = self.tabs.iter().position(|member| member == pane) else {
             return;
         };
-        let moved = self.panes.remove(at);
+        let moved = self.tabs.remove(at);
         self.pinned -= 1;
-        self.panes.insert(self.pinned, moved);
+        self.tabs.insert(self.pinned, moved);
     }
 }
 
@@ -119,26 +119,26 @@ mod tests {
     fn group(
         names: &[&str],
         active: &str,
-    ) -> Group {
-        Group {
-            panes: names.iter().map(|name| id(name)).collect(),
-            active: id(active),
-            pinned: 0,
+    ) -> PaneGroup {
+        PaneGroup {
+            tabs: names.iter().map(|name| id(name)).collect(),
+            active: Some(id(active)),
+            ..PaneGroup::single(id(active))
         }
     }
 
     fn pinned_group(
         names: &[&str],
         pinned: usize,
-    ) -> Group {
-        Group {
+    ) -> PaneGroup {
+        PaneGroup {
             pinned,
             ..group(names, names[0])
         }
     }
 
-    fn names(group: &Group) -> Vec<String> {
-        group.panes().iter().map(ToString::to_string).collect()
+    fn names(group: &PaneGroup) -> Vec<String> {
+        group.tabs().iter().map(ToString::to_string).collect()
     }
 
     #[test]
@@ -167,7 +167,11 @@ mod tests {
             ["d", "c", "a", "b"],
             "unpinning a loose pane is a no-op"
         );
-        assert_eq!(stack.active(), &id("a"), "the shown pane never changes");
+        assert_eq!(
+            stack.active_tab(),
+            Some(&id("a")),
+            "the shown pane never changes"
+        );
         assert!(
             stack.is_pinned(&id("d")) && !stack.is_pinned(&id("c")),
             "flags"

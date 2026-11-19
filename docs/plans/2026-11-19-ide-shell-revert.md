@@ -19,6 +19,20 @@ Tree plan section 7 step 6, approved. Spec: develop `web/src/features/panes` (`t
 - Schema v3: the v2 leaf group folds into a `PaneGroup` (first chat member = `chat`, the rest =
   `editor_tabs`, active kept). Older files still load.
 
+## Decisions taken during the work
+- The strip model is reshaped, not deleted: it is develop's editor-tab behaviour. `ClosePanes` and
+  `CloseScope` are the tab context menu's close others / to the right / all, `StripStep` is
+  `use-tab-keyboard-nav.ts`, `PinPane`/`UnpinPane` and the pins are `isPinned` (pinned tabs first),
+  `OpenPaneInGroup` is `openContent(..., { paneId })` and `MoveToGroup` is a tab drag or reorder.
+  These files move to `layout/src/ide/` and act on editor tabs only. Only `remaining.rs`, and
+  `tab_groups.rs` and `group_slot.rs` once the presentation geometry replaces them, are deleted.
+- `PaneGroup` is held inline in the leaf, with no side map: `{ chat, tabs, active, pinned,
+  editor_open, chat_selected }`. Pins are a count of leading tabs, as the strip kept them, not a
+  flag per tab; there is no group id and no preview flag until a row needs one.
+- Step 1 is two commits: the data shape with no behaviour change (schema v3; older files load as
+  the default layout, so there is no migration), then chat and tabs merged into one group together
+  with the step-2 presentation geometry.
+
 ## Geometry (`layout/src/ide/presentation.rs`, pure)
 - Port `use-pane-presentation.ts`: tabs | side | stacked from the leaf size, chat first unless the
   sidebar is on the right. It returns the rects for the top row, the tab bar, the chat, the sash and

@@ -22,7 +22,7 @@ pub(crate) fn unpin(
 fn group_of<'a>(
     layout: &'a mut Layout,
     pane: &PaneId,
-) -> Result<&'a mut crate::group::Group> {
+) -> Result<&'a mut crate::ide::pane_group::PaneGroup> {
     layout
         .tab_of_mut(pane)?
         .tree

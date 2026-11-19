@@ -2,7 +2,7 @@ use protocol::{PaneId, PaneState};
 
 use crate::branch::Branch;
 use crate::error::{Error, Result};
-use crate::group::Group;
+use crate::ide::pane_group::PaneGroup;
 use crate::placement::Placement;
 use crate::rect::Rect;
 use crate::split_extent::{extent_of, ratio_for};
@@ -140,7 +140,7 @@ impl Tab {
     }
 }
 
-type Restore = fn(&mut Group, &PaneId);
+type Restore = fn(&mut PaneGroup, &PaneId);
 
 fn pin_of(
     tree: &SplitNode,
@@ -150,9 +150,9 @@ fn pin_of(
         .group_of(pane)
         .is_some_and(|group| group.is_pinned(pane));
     if pinned {
-        return Group::pin;
+        return PaneGroup::pin;
     }
-    Group::unpin
+    PaneGroup::unpin
 }
 
 fn keep_pins(

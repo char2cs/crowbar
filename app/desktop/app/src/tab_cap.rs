@@ -41,7 +41,7 @@ fn visible(
     };
     let showing = tab
         .group_of(pane)
-        .is_some_and(|group| group.active() == pane);
+        .is_some_and(|group| group.shown() == Some(pane));
     showing || tab.focused() == Some(pane)
 }
 

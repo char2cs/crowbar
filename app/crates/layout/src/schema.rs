@@ -5,7 +5,7 @@ use crate::error::{Error, Result};
 const VERSION_KEY: &str = "version";
 
 /// The version of the stored layout format this build writes, and the only one it reads.
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 pub(crate) fn is_current(document: &Value) -> Result<bool> {
     let fields = document

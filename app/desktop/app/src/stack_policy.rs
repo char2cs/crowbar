@@ -24,7 +24,7 @@ pub(crate) fn editor_focused(layout: &Layout) -> bool {
 }
 
 pub(crate) fn close_target(tab: &Tab) -> Option<PaneId> {
-    let editor = stack_target(tab).and_then(|pane| tab.group_of(&pane).map(|g| g.active().clone()));
+    let editor = stack_target(tab).and_then(|pane| tab.group_of(&pane)?.active_tab().cloned());
     if editor.is_some() {
         return editor;
     }
@@ -48,7 +48,7 @@ pub(crate) fn listed(tab: &Tab) -> Vec<PaneId> {
     tab.pane_ids()
         .first()
         .and_then(|first| tab.group_of(first))
-        .map(|group| group.active().clone())
+        .and_then(|group| group.shown().cloned())
         .into_iter()
         .collect()
 }

@@ -3,7 +3,6 @@ use protocol::PaneId;
 use crate::axis::Axis;
 use crate::branch::Branch;
 use crate::edge::Edge;
-use crate::remaining::Remaining;
 use crate::split_node::{EQUAL_SHARE, SplitNode};
 
 impl SplitNode {
@@ -55,9 +54,9 @@ impl SplitNode {
         pane: &PaneId,
     ) -> Option<Self> {
         match self {
-            Self::Leaf(mut group) if group.contains(pane) => match group.take(pane) {
-                Remaining::Nothing => None,
-                Remaining::Active(_) => Some(Self::Leaf(group)),
+            Self::Leaf(mut group) if group.contains(pane) => {
+                group.take(pane);
+                (!group.is_empty()).then_some(Self::Leaf(group))
             },
             Self::Leaf(_) => Some(self),
             Self::Split {
@@ -80,10 +79,10 @@ impl SplitNode {
             return None;
         };
         if first.is_leaf_of(pane) {
-            return Some(second.first_pane());
+            return second.first_pane();
         }
         if second.is_leaf_of(pane) {
-            return Some(first.last_pane());
+            return first.last_pane();
         }
         first
             .neighbour_of(pane)

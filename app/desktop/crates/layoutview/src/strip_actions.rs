@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use gpui::{App, Context, Entity};
-use layout::{Command, Group};
+use layout::{Command, PaneGroup};
 use protocol::PaneId;
 
 use crate::layout_event::LayoutEvent;
@@ -32,11 +32,11 @@ impl LayoutView {
 
     pub(crate) fn keys_action(
         &self,
-        group: &Group,
+        group: &PaneGroup,
         cx: &mut Context<'_, Self>,
     ) -> StripKeys {
         let pinned: Vec<(PaneId, String)> = group
-            .panes()
+            .tabs()
             .iter()
             .filter(|pane| group.is_pinned(pane))
             .map(|pane| (pane.clone(), self.look_of(pane).label.to_string()))
@@ -48,11 +48,11 @@ impl LayoutView {
 
     pub(crate) fn overflow_of(
         &self,
-        group: &Group,
+        group: &PaneGroup,
         cx: &mut Context<'_, Self>,
     ) -> Vec<OverflowEntry> {
         group
-            .panes()
+            .tabs()
             .iter()
             .map(|pane| OverflowEntry {
                 label: self.look_of(pane).label,

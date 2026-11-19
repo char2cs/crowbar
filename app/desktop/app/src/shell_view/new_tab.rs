@@ -79,7 +79,7 @@ fn page_in_stack(layout: &Layout) -> Option<PaneId> {
         tab.pane(pane)
             .is_some_and(|found| found.type_id.as_str() == NEW_TAB)
     };
-    group.panes().iter().find(is_page).cloned()
+    group.tabs().iter().find(is_page).cloned()
 }
 
 fn page_name(serial: &str) -> String {

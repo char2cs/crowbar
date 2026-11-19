@@ -1,4 +1,4 @@
-use layout::{Group, StripStep};
+use layout::{PaneGroup, StripStep};
 use protocol::PaneId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -9,7 +9,7 @@ pub(crate) enum StripKey {
 }
 
 pub(crate) fn strip_command(
-    group: &Group,
+    group: &PaneGroup,
     shown: &PaneId,
     key: &str,
 ) -> Option<StripKey> {
@@ -26,7 +26,7 @@ pub(crate) fn strip_command(
 }
 
 fn close_shown(
-    group: &Group,
+    group: &PaneGroup,
     shown: &PaneId,
 ) -> StripKey {
     let pane = shown.clone();

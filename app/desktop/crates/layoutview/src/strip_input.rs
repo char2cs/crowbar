@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use gpui::Context;
-use layout::{DragSubject, Group};
+use layout::{DragSubject, PaneGroup};
 use protocol::PaneId;
 
 use crate::layout_event::LayoutEvent;
@@ -26,28 +26,26 @@ impl LayoutView {
 
     fn strip_for(
         &self,
-        group: &Group,
+        group: &PaneGroup,
         cx: &mut Context<'_, Self>,
     ) -> Option<PaneStrip> {
-        if group.panes().len() < 2 {
+        if group.tabs().len() < 2 {
             return None;
         }
+        let active = group.active_tab()?;
         let tabs = group
-            .panes()
+            .tabs()
             .iter()
             .enumerate()
             .map(|(index, pane)| self.strip_tab(group, TabSeat::at(pane, index), cx))
             .collect();
-        let end = group.panes().len();
+        let end = group.tabs().len();
         Some(PaneStrip {
-            key: group.panes().first()?.clone(),
+            key: group.tabs().first()?.clone(),
             tabs,
-            shown: group
-                .panes()
-                .iter()
-                .position(|pane| pane == group.active())?,
-            at_end_drop: Self::drop_action(group.active(), end, cx),
-            add: Self::add_action(group.active(), cx),
+            shown: group.tabs().iter().position(|pane| pane == active)?,
+            at_end_drop: Self::drop_action(active, end, cx),
+            add: Self::add_action(active, cx),
             keys: self.keys_action(group, cx),
             overflow: self.overflow_of(group, cx),
         })
@@ -55,7 +53,7 @@ impl LayoutView {
 
     fn strip_tab(
         &self,
-        group: &Group,
+        group: &PaneGroup,
         seat: TabSeat<'_>,
         cx: &mut Context<'_, Self>,
     ) -> StripTab {
@@ -73,7 +71,7 @@ impl LayoutView {
     }
 
     fn actions_of(
-        group: &Group,
+        group: &PaneGroup,
         seat: TabSeat<'_>,
         cx: &mut Context<'_, Self>,
     ) -> TabActions {
@@ -82,12 +80,12 @@ impl LayoutView {
             select: Self::select_action(seat.pane, cx),
             close: Self::end_action(group, seat.pane, &remove, cx),
             remove,
-            drop: Self::drop_action(group.active(), seat.index, cx),
+            drop: Self::drop_action(group.active_tab().unwrap_or(seat.pane), seat.index, cx),
         }
     }
 
     fn end_action(
-        group: &Group,
+        group: &PaneGroup,
         pane: &PaneId,
         remove: &TabAction,
         cx: &mut Context<'_, Self>,
@@ -152,7 +150,7 @@ impl LayoutView {
 }
 
 fn end_of(
-    group: &Group,
+    group: &PaneGroup,
     pane: &PaneId,
 ) -> TabEnd {
     if group.is_pinned(pane) {
@@ -162,10 +160,10 @@ fn end_of(
 }
 
 pub(crate) fn state_in(
-    group: &Group,
+    group: &PaneGroup,
     pane: &PaneId,
 ) -> TabState {
-    if pane == group.active() {
+    if group.active_tab() == Some(pane) {
         return TabState::Active;
     }
     TabState::Idle

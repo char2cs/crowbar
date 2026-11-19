@@ -1,9 +1,9 @@
 use protocol::PaneId;
 
 use crate::error::{Error, Result};
+use crate::ide::pin_commands;
 use crate::layout::Layout;
 use crate::pane_instance::PaneInstance;
-use crate::pin_commands;
 use crate::tab::Tab;
 
 type Seat<'a> = (&'a PaneId, Option<usize>);
@@ -306,8 +306,8 @@ mod tests {
         let tab = layout.tab(TabId(1)).unwrap();
         assert_eq!((tab.group_count(), tab.len()), (3, 6), "places and panes");
         let stacked = tab.group_of(&id("b")).unwrap();
-        assert_eq!(stacked.panes(), [id("a"), id("b"), id("c")], "strip order");
-        assert_eq!(stacked.active(), &id("c"), "shown");
+        assert_eq!(stacked.tabs(), [id("a"), id("b"), id("c")], "strip order");
+        assert_eq!(stacked.active_tab(), Some(&id("c")), "shown");
         assert!(tab.group_of(&id("x")).is_none(), "another tab's pane");
         assert_eq!(tab.pane_ids().len(), 6, "hidden panes are listed too");
         assert_eq!(tab.layout(SCREEN).len(), 3, "one slot per group");
@@ -1039,7 +1039,8 @@ mod tests {
         focused: &str,
     ) -> String {
         let terminal = |name: &str| serde_json::json!({"paneId": name, "type": "core.terminal", "params": {"id": name}, "state": null});
-        let tree = serde_json::json!({"node": "leaf", "panes": panes, "active": active});
+        let tree = serde_json::json!({"node": "leaf", "chat": null, "tabs": panes, "active": active,
+            "pinned": 0, "editorOpen": true, "chatSelected": false});
         let tab = serde_json::json!({"id": 1, "title": "t", "tree": tree, "focused": focused,
             "panes": {"a": terminal("a"), "b": terminal("b")}});
         serde_json::json!({"version": crate::SCHEMA_VERSION, "active": 1, "tabs": [tab]})
