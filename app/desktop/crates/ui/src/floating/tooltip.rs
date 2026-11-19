@@ -3,8 +3,8 @@
 use gpui::StatefulInteractiveElement as _;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce,
-    SharedString, Styled, Window, anchored, div, px,
+    AnyElement, App, ElementId, InteractiveElement, IntoElement, ParentElement, Pixels, Point,
+    RenderOnce, SharedString, Styled, Window, anchored, div, px,
 };
 
 use crate::display::Kbd;
@@ -128,6 +128,8 @@ impl RenderOnce for Tooltip {
     ) -> impl IntoElement {
         let theme = *Theme::of(cx);
         let hover_state = hover::track(&self.id, Pose::Off, window, cx);
+        let entry =
+            window.use_keyed_state((self.id.clone(), "entry"), cx, |_, _| None::<Point<Pixels>>);
         let tween = Tween::new(timing::DEFAULT, CubicBezier::EASE).delayed(timing::TOOLTIP_DELAY);
         let shown = hover_state
             .read(cx)
@@ -150,11 +152,45 @@ impl RenderOnce for Tooltip {
             .id(self.id)
             .relative()
             .flex_none()
-            .on_hover(hover::listener(&hover_state))
+            .on_hover(note_entry(&hover_state, &entry))
+            .on_mouse_move(arm(&hover_state, &entry))
             .capture_any_mouse_down(dismiss(&hover_state))
             .child(self.trigger)
             .when(opacity > 0.0, |d| d.child(placement.child(floating)))
     }
+}
+
+fn note_entry(
+    state: &gpui::Entity<crate::foundation::ToggleState>,
+    entry: &gpui::Entity<Option<Point<Pixels>>>,
+) -> impl Fn(&bool, &mut Window, &mut App) + 'static {
+    let (state, entry) = (state.clone(), entry.clone());
+    move |hovered, window, cx| {
+        let at = hovered.then(|| window.mouse_position());
+        entry.update(cx, |entry, _| *entry = at);
+        state.update(cx, |s, cx| s.set(Pose::Off, cx));
+    }
+}
+
+fn arm(
+    state: &gpui::Entity<crate::foundation::ToggleState>,
+    entry: &gpui::Entity<Option<Point<Pixels>>>,
+) -> impl Fn(&gpui::MouseMoveEvent, &mut Window, &mut App) + 'static {
+    let (state, entry) = (state.clone(), entry.clone());
+    move |event, _, cx| arm_on_move(&state, &entry, event.position, cx)
+}
+
+fn arm_on_move(
+    state: &gpui::Entity<crate::foundation::ToggleState>,
+    entry: &gpui::Entity<Option<Point<Pixels>>>,
+    position: Point<Pixels>,
+    cx: &mut App,
+) {
+    if !entry.read(cx).is_some_and(|at| at != position) {
+        return;
+    }
+    entry.update(cx, |entry, _| *entry = None);
+    state.update(cx, |s, cx| s.set(Pose::On, cx));
 }
 
 fn dismiss(
@@ -228,6 +264,28 @@ mod tests {
         assert!(
             cx.debug_bounds("tooltip-card").is_none(),
             "gone after a press"
+        );
+    }
+
+    #[gpui::test]
+    fn hover_gained_under_a_still_pointer_shows_no_card_until_it_moves(cx: &mut TestAppContext) {
+        let cx = open(cx, |_, _| {
+            Tooltip::new("t", "Settings", Button::icon_only("b", IconName::Gear))
+        });
+        cx.update(|_, cx| cx.set_global(Motion::reduced()));
+        cx.simulate_mouse_move(point(px(10.0), px(10.0)), None, gpui::Modifiers::none());
+        cx.run_until_parked();
+        cx.simulate_mouse_move(point(px(10.0), px(10.0)), None, gpui::Modifiers::none());
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("tooltip-card").is_none(),
+            "the pointer has not moved"
+        );
+        cx.simulate_mouse_move(point(px(11.0), px(11.0)), None, gpui::Modifiers::none());
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("tooltip-card").is_some(),
+            "shown once it moves"
         );
     }
 
