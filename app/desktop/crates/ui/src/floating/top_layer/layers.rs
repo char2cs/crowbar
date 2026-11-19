@@ -14,7 +14,6 @@ type Shown = BTreeMap<(usize, EntityId), Layer>;
 pub(crate) struct Layers {
     window: OnceCell<AnyWindowHandle>,
     shown: RefCell<Shown>,
-    mirrored: RefCell<Option<FocusHandle>>,
 }
 
 impl Layers {
@@ -35,11 +34,7 @@ impl Layers {
         shown.retain(|(_, key), _| *key != slot);
         shown.insert((layer.priority, slot), layer);
         drop(shown);
-        let focus = owner_focus.filter(|focus| self.mirrored.borrow().as_ref() != Some(focus));
-        if focus.is_some() {
-            self.mirrored.replace(focus.clone());
-        }
-        self.redraw(focus, cx);
+        self.redraw(owner_focus, cx);
     }
 
     pub(crate) fn hide(

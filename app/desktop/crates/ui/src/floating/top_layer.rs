@@ -141,12 +141,13 @@ mod tests {
     use std::cell::Cell;
 
     use gpui::{
-        FocusHandle, InteractiveElement, Render, StatefulInteractiveElement, TestAppContext, px,
+        FocusHandle, InteractiveElement, Render, StatefulInteractiveElement, TestAppContext,
+        VisualTestContext, px,
     };
 
     use super::*;
     use crate::floating::Portal;
-    use crate::test_support::probe::open_floating;
+    use crate::test_support::probe::{open_floating, settle};
 
     fn focusable(focus: &FocusHandle) -> gpui::Div {
         div().size(px(10.0)).track_focus(focus)
@@ -193,6 +194,72 @@ mod tests {
         top.run_until_parked();
         assert!(!top.update(|window, _| window.takes_keys()));
         assert!(owner.update(|window, _| focus.is_focused(window)));
+    }
+
+    struct Toggled {
+        focus: FocusHandle,
+        back: FocusHandle,
+        showing: Rc<Cell<bool>>,
+        pressed: Rc<Cell<usize>>,
+    }
+
+    fn toggled(cx: &mut TestAppContext) -> (Toggled, VisualTestContext, VisualTestContext) {
+        let (focus, back) = cx.update(|cx| (cx.focus_handle(), cx.focus_handle()));
+        let toggled = Toggled {
+            focus: focus.clone(),
+            back: back.clone(),
+            showing: Rc::new(Cell::new(true)),
+            pressed: Rc::new(Cell::new(0)),
+        };
+        let (showing, pressed) = (Rc::clone(&toggled.showing), Rc::clone(&toggled.pressed));
+        let (owner, top) = open_floating(cx, move |_, _| {
+            let (inner, count) = (focus.clone(), Rc::clone(&pressed));
+            let portal = Portal::here("p", move |_, _| counting(&inner, &count));
+            focusable(&back).children(showing.get().then_some(portal))
+        });
+        (toggled, owner, top)
+    }
+
+    fn close(
+        toggled: &Toggled,
+        owner: &mut VisualTestContext,
+    ) {
+        toggled.showing.set(false);
+        owner.update(|window, _| window.focus(&toggled.back));
+        settle(owner);
+    }
+
+    #[gpui::test]
+    fn a_floating_element_opened_again_takes_the_keyboard_again(cx: &mut TestAppContext) {
+        let (toggled, mut owner, mut top) = toggled(cx);
+        owner.update(|window, _| window.focus(&toggled.focus));
+        owner.run_until_parked();
+        toggled.showing.set(false);
+        owner.update(|window, _| window.refresh());
+        owner.run_until_parked();
+        toggled.showing.set(true);
+        owner.update(|window, _| window.focus(&toggled.focus));
+        owner.update(|window, _| window.refresh());
+        owner.run_until_parked();
+        assert!(
+            top.update(|window, _| window.takes_keys()),
+            "the second open"
+        );
+        top.simulate_keystrokes("a");
+        assert_eq!(toggled.pressed.get(), 1);
+    }
+
+    #[gpui::test]
+    fn the_owner_keeps_the_focus_it_restores_when_a_floating_element_closes(
+        cx: &mut TestAppContext
+    ) {
+        let (toggled, mut owner, mut top) = toggled(cx);
+        owner.update(|window, _| window.focus(&toggled.focus));
+        owner.run_until_parked();
+        close(&toggled, &mut owner);
+        assert!(!top.update(|window, _| window.takes_keys()), "closed");
+        let restored = owner.update(|window, _| toggled.back.is_focused(window));
+        assert!(restored, "the owner's restore stands");
     }
 
     #[gpui::test]

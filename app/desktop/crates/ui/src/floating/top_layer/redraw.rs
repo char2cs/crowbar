@@ -13,7 +13,7 @@ impl Redraw {
         window: AnyWindowHandle,
         cx: &mut App,
     ) {
-        if let Err(error) = window.update(cx, |_, window, _| self.apply(window)) {
+        if let Err(error) = window.update(cx, |_, window, cx| self.apply(window, cx)) {
             tracing::debug!(%error, "the top layer closed before it could redraw");
         }
     }
@@ -21,9 +21,11 @@ impl Redraw {
     fn apply(
         self,
         window: &mut Window,
+        cx: &App,
     ) {
         window.set_overlay_shown(self.floating);
-        if let Some(focus) = &self.focus {
+        let moved_within = |focus: &FocusHandle| focus.contains_focused(window, cx);
+        if let Some(focus) = self.focus.as_ref().filter(|focus| !moved_within(focus)) {
             window.focus(focus);
         }
         window.refresh();

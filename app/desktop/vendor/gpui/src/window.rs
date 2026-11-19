@@ -2023,9 +2023,12 @@ impl Window {
         self.invalidator.set_phase(DrawPhase::Focus);
         let previous_focus_path = self.rendered_frame.focus_path();
         let previous_window_active = self.rendered_frame.window_active;
+        let focus_was_rendered = self.focus.is_some_and(|focus| {
+            !self.rendered_frame.dispatch_tree.focus_path(focus).is_empty()
+        });
         mem::swap(&mut self.rendered_frame, &mut self.next_frame);
         self.next_frame.clear();
-        self.report_overlay_input(cx);
+        self.report_overlay_input(focus_was_rendered, cx);
         let current_focus_path = self.rendered_frame.focus_path();
         let current_window_active = self.rendered_frame.window_active;
 
@@ -2065,11 +2068,11 @@ impl Window {
         ArenaClearNeeded
     }
 
-    fn report_overlay_input(&mut self, cx: &mut App) {
+    fn report_overlay_input(&mut self, focus_was_rendered: bool, cx: &mut App) {
         let Some(owner) = self.overlay_of else {
             return;
         };
-        self.hand_back_focus(owner, cx);
+        self.hand_back_focus(owner, focus_was_rendered, cx);
         let region = input_region(&self.rendered_frame.hitboxes);
         if region != self.input_region {
             self.platform_window.set_input_region(&region);
@@ -2088,14 +2091,15 @@ impl Window {
     }
 
     /// An overlay that was asked to focus an element it does not render, such as one its owner
-    /// renders, passes the focus on to its owner.
-    fn hand_back_focus(&mut self, owner: AnyWindowHandle, cx: &mut App) {
+    /// renders, passes the focus on to its owner. Focus on an element it stopped rendering, such
+    /// as a closed dialog, is dropped: the owner decides where its own focus goes.
+    fn hand_back_focus(&mut self, owner: AnyWindowHandle, was_rendered: bool, cx: &mut App) {
         if self.focus.is_none() || !self.rendered_frame.focus_path().is_empty() {
             return;
         }
         let handle = self.focused(cx);
         self.focus = None;
-        let Some(handle) = handle else {
+        let Some(handle) = handle.filter(|_| !was_rendered) else {
             return;
         };
         cx.defer(move |cx| {
