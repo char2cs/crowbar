@@ -52,15 +52,15 @@ impl TextInput {
             }))
             .on_action(cx.listener(|this, _: &actions::SelectAll, _, cx| {
                 this.buffer.select_all();
-                cx.notify();
+                this.restart_blink(cx);
             }))
             .on_action(cx.listener(|this, _: &actions::Home, _, cx| {
                 this.buffer.move_to(0);
-                cx.notify();
+                this.restart_blink(cx);
             }))
             .on_action(cx.listener(|this, _: &actions::End, _, cx| {
                 this.buffer.move_to(this.buffer.text().len());
-                cx.notify();
+                this.restart_blink(cx);
             }))
     }
 

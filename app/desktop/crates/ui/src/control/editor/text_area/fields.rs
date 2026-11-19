@@ -2,6 +2,8 @@ use std::ops::Range;
 
 use gpui::{Bounds, FocusHandle, Pixels, SharedString};
 
+use crate::control::editor::field::Blink;
+use crate::control::editor::field::Blinking;
 use crate::control::editor::field::Editable;
 use crate::control::editor::field::Focus;
 use crate::control::editor::field::Selection;
@@ -51,6 +53,16 @@ impl Caret for TextArea {
 impl Editable for TextArea {
     fn editable(&self) -> bool {
         self.accepts_input()
+    }
+}
+
+impl Blinking for TextArea {
+    fn blink(&self) -> &Blink {
+        &self.blink
+    }
+
+    fn blink_mut(&mut self) -> &mut Blink {
+        &mut self.blink
     }
 }
 

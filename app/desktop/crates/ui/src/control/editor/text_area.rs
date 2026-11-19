@@ -19,6 +19,7 @@ use gpui::{
 };
 
 use crate::control::editor::buffer::Buffer;
+use crate::control::editor::field::Blink;
 use crate::control::editor::history::History;
 use crate::control::editor::text_area::layout::Layout;
 use crate::control::editor::text_input_event::TextInputEvent;
@@ -46,6 +47,7 @@ pub struct TextArea {
     pub(crate) size: TextAreaSize,
     pub(crate) limit: Option<Pixels>,
     pub(crate) condition: TextAreaCondition,
+    pub(crate) blink: Blink,
 }
 
 impl EventEmitter<TextInputEvent> for TextArea {}
@@ -82,6 +84,7 @@ impl TextArea {
             size: TextAreaSize::default(),
             limit: None,
             condition: TextAreaCondition::default(),
+            blink: Blink::default(),
         }
     }
 
@@ -121,7 +124,7 @@ impl TextArea {
     ) {
         self.history = History::default();
         self.buffer.set_text(text);
-        cx.notify();
+        self.restart_blink(cx);
     }
 
     /// Moves keyboard focus to the field.
@@ -141,6 +144,14 @@ impl TextArea {
         cx: &mut Context<'_, Self>,
     ) {
         cx.emit(TextInputEvent::Changed(self.buffer.text().to_owned()));
+        self.restart_blink(cx);
+    }
+
+    pub(crate) fn restart_blink(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.blink.restart();
         cx.notify();
     }
 }

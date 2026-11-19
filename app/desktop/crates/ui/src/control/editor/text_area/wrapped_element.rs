@@ -21,7 +21,7 @@ use gpui::{
 };
 
 use crate::control::editor::field::capture_pointer;
-use crate::control::editor::field::caret_color;
+use crate::control::editor::field::tend;
 use crate::control::editor::text_area::layout::Layout;
 use crate::control::editor::text_area::wrapped_element::frame::Frame;
 use crate::control::editor::text_area::wrapped_element::scroll::reveal;
@@ -30,7 +30,6 @@ use crate::control::editor::text_input::CARET_WIDTH;
 use crate::foundation::Motion;
 use crate::foundation::Palette;
 use crate::foundation::Pose;
-use crate::foundation::motion::adapters::clock as system_clock;
 
 pub(crate) struct WrappedElement<S: WrappedSurface> {
     area: Entity<S>,
@@ -89,15 +88,12 @@ impl<S: WrappedSurface> WrappedElement<S> {
                 )
             })
             .collect();
-        let blink = caret_color(
-            self.palette.foreground(),
-            system_clock::now(),
-            Motion::of(cx),
-        );
         let spot = layout.point_for_index(area.cursor());
         let caret = Bounds::new(origin + spot, size(px(CARET_WIDTH), layout.line_height()));
         Frame {
-            caret: selection.is_empty().then(|| fill(caret, blink)),
+            caret: selection
+                .is_empty()
+                .then(|| fill(caret, self.palette.foreground())),
             layout,
             origin,
             scroll,
@@ -116,10 +112,8 @@ fn paint_frame(
         window.paint_quad(band);
     }
     frame.layout.paint(frame.origin, window, cx);
-    let blinking = frame.caret.take().filter(|_| caret == Pose::On);
-    if let Some(quad) = blinking {
+    if let Some(quad) = frame.caret.take().filter(|_| caret == Pose::On) {
         window.paint_quad(quad);
-        window.request_animation_frame();
     }
 }
 
@@ -204,24 +198,42 @@ impl<S: WrappedSurface> Element for WrappedElement<S> {
             let handler = ElementInputHandler::new(bounds, self.area.clone());
             window.handle_input(&focus, handler, cx);
         }
-        let caret = Pose::from(editable && focus.is_focused(window));
+        let lit = editable && focus.is_focused(window) && window.is_window_active();
+        let blinks = Pose::from(lit && frame.caret.is_some() && !Motion::of(cx).is_reduced());
+        let shown = self.area.read(cx).blink().is_shown() || blinks == Pose::Off;
+        let caret = Pose::from(lit && shown);
         window.with_content_mask(Some(ContentMask { bounds }), |window| {
             paint_frame(frame, caret, window, cx);
         });
         let layout = frame.layout.clone();
         let scroll = frame.scroll;
-        self.area
-            .update(cx, |area, _| area.record_layout(layout, bounds, scroll));
+        self.area.update(cx, |area, cx| {
+            area.record_layout(layout, bounds, scroll);
+            tend(area, blinks, cx);
+        });
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use gpui::{AvailableSpace, TestAppContext, px, size};
 
     use super::*;
-    use crate::control::editor::test_support::area::{area, area_text, area_with};
+    use crate::control::editor::field::Blinking as _;
+    use crate::control::editor::test_support::area::{area, area_text, area_with, drawn_area};
     use crate::control::editor::text_area::TextArea;
+    use crate::foundation::tokens::timing;
+
+    const JUST_BEFORE: Duration = Duration::from_millis(1);
+
+    fn shown(
+        entity: &Entity<TextArea>,
+        cx: &mut gpui::VisualTestContext,
+    ) -> bool {
+        entity.read_with(cx, |area, _| area.blink().is_shown())
+    }
 
     fn grown_height(
         entity: &Entity<TextArea>,
@@ -231,6 +243,29 @@ mod tests {
             area.bounds
                 .map_or(0.0, |bounds| f32::from(bounds.size.height))
         })
+    }
+
+    #[gpui::test]
+    fn a_focused_area_schedules_only_the_next_blink(cx: &mut TestAppContext) {
+        let (entity, draws, cx) = drawn_area(cx);
+        let settled = draws.get();
+        cx.executor()
+            .advance_clock(timing::CARET_BLINK.saturating_sub(JUST_BEFORE));
+        assert_eq!(draws.get(), settled, "no frame before the blink edge");
+        cx.executor().advance_clock(JUST_BEFORE);
+        assert_eq!(draws.get(), settled + 1, "one frame at the edge");
+        assert!(!shown(&entity, cx), "the edge hides the caret");
+        cx.simulate_keystrokes("left");
+        assert!(shown(&entity, cx), "a caret move shows it again");
+    }
+
+    #[gpui::test]
+    fn an_inactive_window_requests_no_frames_for_the_area_caret(cx: &mut TestAppContext) {
+        let (_, draws, cx) = drawn_area(cx);
+        cx.deactivate_window();
+        let settled = draws.get();
+        cx.executor().advance_clock(timing::CARET_BLINK * 10);
+        assert_eq!(draws.get(), settled, "no frames while inactive");
     }
 
     #[test]

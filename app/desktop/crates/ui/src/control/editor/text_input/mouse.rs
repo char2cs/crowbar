@@ -21,7 +21,7 @@ impl SelectionDrag for TextInput {
             return;
         }
         self.buffer.select_to(self.offset_at(position));
-        cx.notify();
+        self.restart_blink(cx);
     }
 }
 
@@ -54,7 +54,7 @@ impl TextInput {
             offset,
             (event.click_count, Pose::from(event.modifiers.shift)),
         );
-        cx.notify();
+        self.restart_blink(cx);
     }
 
     pub(crate) fn on_mouse_up(

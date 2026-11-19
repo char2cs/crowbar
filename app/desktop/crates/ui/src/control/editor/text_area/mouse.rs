@@ -28,7 +28,7 @@ impl SelectionDrag for TextArea {
         if scrolling && self.autoscroll.is_none() {
             self.begin_autoscroll(cx);
         }
-        cx.notify();
+        self.restart_blink(cx);
     }
 }
 
@@ -59,7 +59,7 @@ impl TextArea {
             offset,
             (event.click_count, Pose::from(event.modifiers.shift)),
         );
-        cx.notify();
+        self.restart_blink(cx);
     }
 
     fn outside(
@@ -91,7 +91,7 @@ impl TextArea {
         if !wanted {
             self.autoscroll = None;
         }
-        cx.notify();
+        self.restart_blink(cx);
         wanted
     }
 

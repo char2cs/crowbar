@@ -24,6 +24,7 @@ use gpui::{
 };
 
 use crate::control::editor::buffer::Buffer;
+use crate::control::editor::field::Blink;
 use crate::control::editor::text_input_event::TextInputEvent;
 use crate::control::editor::text_input_style::TextInputStyle;
 use crate::foundation::IconName;
@@ -41,6 +42,7 @@ pub struct TextInput {
     pub(crate) surface: Surface,
     pub(crate) style: TextInputStyle,
     pub(crate) leading: Option<IconName>,
+    pub(crate) blink: Blink,
 }
 
 impl EventEmitter<TextInputEvent> for TextInput {}
@@ -70,6 +72,7 @@ impl TextInput {
             surface: Surface::default(),
             style: TextInputStyle::default(),
             leading: None,
+            blink: Blink::default(),
         }
     }
 
@@ -128,7 +131,7 @@ impl TextInput {
         cx: &mut Context<'_, Self>,
     ) {
         self.buffer.set_text(text);
-        cx.notify();
+        self.restart_blink(cx);
     }
 
     /// Moves keyboard focus to the field.
@@ -144,6 +147,14 @@ impl TextInput {
         cx: &mut Context<'_, Self>,
     ) {
         cx.emit(TextInputEvent::Changed(self.buffer.text().to_owned()));
+        self.restart_blink(cx);
+    }
+
+    pub(crate) fn restart_blink(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.blink.restart();
         cx.notify();
     }
 }

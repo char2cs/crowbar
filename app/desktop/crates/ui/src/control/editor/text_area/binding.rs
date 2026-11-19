@@ -110,7 +110,7 @@ impl TextArea {
             }))
             .on_action(cx.listener(|this, _: &shared::SelectAll, _, cx| {
                 this.buffer.select_all();
-                cx.notify();
+                this.restart_blink(cx);
             }))
     }
 

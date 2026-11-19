@@ -30,7 +30,7 @@ impl TextArea {
     ) {
         if let Some(target) = self.page_target(direction) {
             self.buffer.move_to(target);
-            cx.notify();
+            self.restart_blink(cx);
         }
     }
 
@@ -41,7 +41,7 @@ impl TextArea {
     ) {
         if let Some(target) = self.page_target(direction) {
             self.buffer.select_to(target);
-            cx.notify();
+            self.restart_blink(cx);
         }
     }
 }

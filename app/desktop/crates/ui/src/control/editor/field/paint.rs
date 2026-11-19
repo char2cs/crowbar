@@ -1,12 +1,8 @@
 use std::ops::Range;
-use std::time::Instant;
 
-use gpui::{Hsla, PaintQuad, ShapedLine, TextRun, UnderlineStyle, px};
+use gpui::{PaintQuad, ShapedLine, TextRun, UnderlineStyle, px};
 
 use crate::control::editor::field::frame::Frame;
-use crate::foundation::Keyframes;
-use crate::foundation::Motion;
-use crate::foundation::tokens::timing;
 
 pub(crate) fn caret_frame(
     line: ShapedLine,
@@ -73,23 +69,9 @@ pub(crate) fn runs_for(
     .collect()
 }
 
-pub(crate) fn caret_color(
-    color: Hsla,
-    since: Instant,
-    motion: Motion,
-) -> Hsla {
-    if motion.is_reduced() {
-        return color;
-    }
-    let cycle = timing::CARET.as_secs_f32();
-    let phase = (since.elapsed().as_secs_f32() % cycle) / cycle;
-    color.opacity(Keyframes::CARET_BLINK.sample(phase))
-}
-
 #[cfg(test)]
 mod tests {
     use std::ops::Range;
-    use std::time::Instant;
 
     use gpui::{TextRun, hsla, px};
 
@@ -144,15 +126,5 @@ mod tests {
                 "{name}: thickness"
             );
         }
-    }
-
-    #[test]
-    fn caret_is_solid_when_motion_is_reduced_and_visible_at_the_start_of_a_blink() {
-        let colour = hsla(0.5, 0.5, 0.5, 1.0);
-        assert_eq!(
-            caret_color(colour, Instant::now(), Motion::reduced()),
-            colour
-        );
-        assert!(caret_color(colour, Instant::now(), Motion::default()).a > 0.9);
     }
 }

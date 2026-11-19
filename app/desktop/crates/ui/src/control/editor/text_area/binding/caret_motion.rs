@@ -31,7 +31,7 @@ impl TextArea {
             (false, Direction::Backward) => selection.start,
         };
         self.buffer.move_to(target);
-        cx.notify();
+        self.restart_blink(cx);
     }
 
     pub(crate) fn extend_selection(
@@ -40,7 +40,7 @@ impl TextArea {
         cx: &mut Context<'_, Self>,
     ) {
         self.buffer.select_to(self.boundary(direction));
-        cx.notify();
+        self.restart_blink(cx);
     }
 
     pub(crate) fn move_by_word(
@@ -49,7 +49,7 @@ impl TextArea {
         cx: &mut Context<'_, Self>,
     ) {
         self.buffer.move_to(self.buffer.word_boundary(direction));
-        cx.notify();
+        self.restart_blink(cx);
     }
 
     pub(crate) fn extend_by_word(
@@ -58,7 +58,7 @@ impl TextArea {
         cx: &mut Context<'_, Self>,
     ) {
         self.buffer.select_to(self.buffer.word_boundary(direction));
-        cx.notify();
+        self.restart_blink(cx);
     }
 
     pub(crate) fn goal_x(&self) -> Pixels {
@@ -87,7 +87,7 @@ impl TextArea {
     ) {
         let target = self.vertical_target(direction);
         self.buffer.move_to(target);
-        cx.notify();
+        self.restart_blink(cx);
     }
 
     pub(crate) fn extend_vertically(
@@ -97,7 +97,7 @@ impl TextArea {
     ) {
         let target = self.vertical_target(direction);
         self.buffer.select_to(target);
-        cx.notify();
+        self.restart_blink(cx);
     }
 }
 

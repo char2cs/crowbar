@@ -25,7 +25,7 @@ impl TextArea {
         cx: &mut Context<'_, Self>,
     ) {
         self.buffer.move_to(self.row_edge(direction));
-        cx.notify();
+        self.restart_blink(cx);
     }
 
     pub(crate) fn extend_to_row_edge(
@@ -34,7 +34,7 @@ impl TextArea {
         cx: &mut Context<'_, Self>,
     ) {
         self.buffer.select_to(self.row_edge(direction));
-        cx.notify();
+        self.restart_blink(cx);
     }
 
     pub(crate) fn move_to_document_edge(
@@ -46,7 +46,7 @@ impl TextArea {
             Direction::Backward => self.buffer.move_to(0),
             Direction::Forward => self.buffer.move_to(self.buffer.text().len()),
         }
-        cx.notify();
+        self.restart_blink(cx);
     }
 }
 

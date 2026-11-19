@@ -10,11 +10,11 @@ use gpui::{
 
 use crate::control::editor::field::Frame;
 use crate::control::editor::field::capture_pointer;
-use crate::control::editor::field::{band_frame, caret_color, caret_frame, runs_for};
+use crate::control::editor::field::{band_frame, caret_frame, runs_for, tend};
 use crate::control::editor::text_input::line_surface::LineSurface;
 use crate::foundation::Motion;
 use crate::foundation::Palette;
-use crate::foundation::motion::adapters::clock as system_clock;
+use crate::foundation::Pose;
 
 pub(crate) const PLACEHOLDER_OPACITY: f32 = 0.72;
 pub(crate) const CARET_WIDTH: f32 = 1.0;
@@ -64,7 +64,6 @@ impl<S: LineSurface> LineElement<S> {
         &self,
         (line, bounds): (ShapedLine, Bounds<Pixels>),
         selection: &Range<usize>,
-        motion: Motion,
     ) -> Frame {
         let (from, to) = (
             line.x_for_index(selection.start),
@@ -72,9 +71,8 @@ impl<S: LineSurface> LineElement<S> {
         );
         let origin = point(bounds.left() + from, bounds.top());
         if selection.is_empty() {
-            let blink = caret_color(self.palette.foreground(), system_clock::now(), motion);
             let caret = Bounds::new(origin, size(px(CARET_WIDTH), bounds.size.height));
-            return caret_frame(line, fill(caret, blink));
+            return caret_frame(line, fill(caret, self.palette.foreground()));
         }
         let band = Bounds::new(origin, size(to - from, bounds.size.height));
         band_frame(line, fill(band, self.palette.editor_selection()))
@@ -153,7 +151,7 @@ impl<S: LineSurface> Element for LineElement<S> {
         let line = self.shape(window, cx);
         let bounds = self.aligned(bounds, &line, cx);
         let selection = self.input.read(cx).selected_range();
-        self.frame((line, bounds), &selection, Motion::of(cx))
+        self.frame((line, bounds), &selection)
     }
 
     fn paint(
@@ -181,22 +179,99 @@ impl<S: LineSurface> Element for LineElement<S> {
             .line
             .paint(bounds.origin, window.line_height(), window, cx);
         debug_assert!(painted.is_ok(), "shaped line failed to paint");
-        let focused = focus.is_focused(window);
-        if let Some(caret) = prepaint.caret.take().filter(|_| focused) {
+        let lit = focus.is_focused(window) && window.is_window_active();
+        let caret = prepaint.caret.take().filter(|_| lit);
+        let blinks = Pose::from(caret.is_some() && !Motion::of(cx).is_reduced());
+        let shown = self.input.read(cx).blink().is_shown() || blinks == Pose::Off;
+        if let Some(caret) = caret.filter(|_| shown) {
             window.paint_quad(caret);
-            window.request_animation_frame();
         }
         let line = prepaint.line.clone();
-        self.input
-            .update(cx, |input, _| input.record_layout(line, bounds));
+        self.input.update(cx, |input, cx| {
+            input.record_layout(line, bounds);
+            tend(input, blinks, cx);
+        });
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use gpui::TestAppContext;
+    use std::time::Duration;
 
-    use crate::control::editor::test_support::field::field;
+    use gpui::{Entity, TestAppContext, VisualTestContext};
+
+    use crate::control::editor::field::Blinking as _;
+    use crate::control::editor::test_support::field::{drawn_field, field};
+    use crate::control::editor::text_input::TextInput;
+    use crate::foundation::Motion;
+    use crate::foundation::tokens::timing;
+
+    const JUST_BEFORE: Duration = Duration::from_millis(1);
+    const MANY_BLINKS: u32 = 10;
+
+    fn shown(
+        input: &Entity<TextInput>,
+        cx: &mut VisualTestContext,
+    ) -> bool {
+        input.read_with(cx, |input, _| input.blink().is_shown())
+    }
+
+    #[gpui::test]
+    fn a_focused_field_schedules_only_the_next_blink(cx: &mut TestAppContext) {
+        let (input, draws, cx) = drawn_field(cx);
+        let settled = draws.get();
+        cx.executor()
+            .advance_clock(timing::CARET_BLINK.saturating_sub(JUST_BEFORE));
+        assert_eq!(draws.get(), settled, "no frame before the blink edge");
+        assert!(shown(&input, cx), "the caret starts shown");
+        cx.executor().advance_clock(JUST_BEFORE);
+        assert_eq!(draws.get(), settled + 1, "one frame at the edge");
+        assert!(!shown(&input, cx), "the edge hides the caret");
+        cx.executor().advance_clock(timing::CARET_BLINK);
+        assert_eq!(draws.get(), settled + 2, "one frame at the next edge");
+        assert!(shown(&input, cx), "and the next edge shows it again");
+    }
+
+    #[gpui::test]
+    fn an_inactive_window_requests_no_caret_frames(cx: &mut TestAppContext) {
+        let (input, draws, cx) = drawn_field(cx);
+        cx.deactivate_window();
+        let settled = draws.get();
+        cx.executor()
+            .advance_clock(timing::CARET_BLINK * MANY_BLINKS);
+        assert_eq!(draws.get(), settled, "no frames while inactive");
+        cx.update(|window, _| window.activate_window());
+        cx.run_until_parked();
+        assert!(shown(&input, cx), "the caret is back, shown, on return");
+        let back = draws.get();
+        cx.executor().advance_clock(timing::CARET_BLINK);
+        assert_eq!(draws.get(), back + 1, "and blinks again");
+    }
+
+    #[gpui::test]
+    fn typing_restarts_the_blink_phase(cx: &mut TestAppContext) {
+        let (input, _, cx) = drawn_field(cx);
+        cx.executor().advance_clock(timing::CARET_BLINK / 2);
+        cx.simulate_input("a");
+        cx.executor()
+            .advance_clock(timing::CARET_BLINK.saturating_sub(JUST_BEFORE));
+        assert!(shown(&input, cx), "the old edge passed without hiding it");
+        cx.executor().advance_clock(JUST_BEFORE);
+        assert!(!shown(&input, cx), "a full phase after the keystroke");
+    }
+
+    #[gpui::test]
+    fn under_reduced_motion_the_caret_is_solid_and_requests_no_frames(cx: &mut TestAppContext) {
+        let (input, draws, cx) = drawn_field(cx);
+        cx.update(|_, cx| cx.set_global(Motion::reduced()));
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+        let settled = draws.get();
+        cx.executor()
+            .advance_clock(timing::CARET_BLINK * MANY_BLINKS);
+        assert_eq!(draws.get(), settled, "no blink frames");
+        assert!(shown(&input, cx), "the caret stays shown");
+    }
 
     #[gpui::test]
     fn painting_records_the_shaped_line_for_the_input_handler(cx: &mut TestAppContext) {

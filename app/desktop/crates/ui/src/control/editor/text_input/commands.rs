@@ -48,7 +48,7 @@ impl TextInput {
         let selection = self.buffer.selection();
         let target = self.caret_target(&selection, direction);
         self.buffer.move_to(target);
-        cx.notify();
+        self.restart_blink(cx);
     }
 
     pub(crate) fn extend_selection(
@@ -57,7 +57,7 @@ impl TextInput {
         cx: &mut Context<'_, Self>,
     ) {
         self.buffer.select_to(self.boundary(direction));
-        cx.notify();
+        self.restart_blink(cx);
     }
 
     pub(crate) fn move_by_word(
@@ -66,7 +66,7 @@ impl TextInput {
         cx: &mut Context<'_, Self>,
     ) {
         self.buffer.move_to(self.buffer.word_boundary(direction));
-        cx.notify();
+        self.restart_blink(cx);
     }
 
     pub(crate) fn extend_by_word(
@@ -75,7 +75,7 @@ impl TextInput {
         cx: &mut Context<'_, Self>,
     ) {
         self.buffer.select_to(self.buffer.word_boundary(direction));
-        cx.notify();
+        self.restart_blink(cx);
     }
 
     pub(crate) fn erase_word(

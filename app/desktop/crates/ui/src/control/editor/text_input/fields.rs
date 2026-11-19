@@ -2,6 +2,8 @@ use std::ops::Range;
 
 use gpui::{Bounds, FocusHandle, Pixels, ShapedLine, SharedString};
 
+use crate::control::editor::field::Blink;
+use crate::control::editor::field::Blinking;
 use crate::control::editor::field::Focus;
 use crate::control::editor::field::Selection;
 use crate::control::editor::field::Text;
@@ -34,6 +36,16 @@ impl Selection for TextInput {
 impl Focus for TextInput {
     fn input_focus(&self) -> FocusHandle {
         self.focus_handle.clone()
+    }
+}
+
+impl Blinking for TextInput {
+    fn blink(&self) -> &Blink {
+        &self.blink
+    }
+
+    fn blink_mut(&mut self) -> &mut Blink {
+        &mut self.blink
     }
 }
 
