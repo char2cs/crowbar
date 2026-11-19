@@ -122,6 +122,39 @@ Area prefixes: OOBE, HOST, PRJ, WS, SB, VT, IDE, SPL, PANE, CHAT, TERM, BRW, ED,
 | Upgrade path | UPG | 96 | 7 |
 | **Total** | | **2409** | **862** |
 
+## Capture result (Linux, 2026-11-19)
+
+Every row was driven on the Linux rig. A row with no verdict carries its exact reason in the Difference cell. macOS stays `pending` until the owner opens Mac access.
+
+| Area | Pass | Fail | Blocked: macOS only | Blocked: dev build only | Blocked: rig cannot make the state |
+|---|---|---|---|---|---|
+| OOBE | 6 | 35 | 0 | 0 | 8 |
+| HOST | 11 | 58 | 2 | 0 | 6 |
+| PRJ | 9 | 42 | 0 | 0 | 8 |
+| WS | 15 | 19 | 0 | 0 | 14 |
+| SB | 74 | 156 | 1 | 0 | 14 |
+| VT | 14 | 33 | 1 | 0 | 5 |
+| IDE | 11 | 56 | 0 | 0 | 7 |
+| SPL | 2 | 34 | 0 | 0 | 0 |
+| PANE | 5 | 33 | 1 | 0 | 8 |
+| CHAT | 145 | 209 | 0 | 2 | 30 |
+| TERM | 36 | 56 | 1 | 0 | 4 |
+| BRW | 30 | 27 | 0 | 0 | 5 |
+| ED | 75 | 71 | 0 | 0 | 11 |
+| REV | 5 | 75 | 0 | 0 | 8 |
+| SET | 55 | 68 | 1 | 7 | 1 |
+| DLG | 5 | 36 | 1 | 2 | 7 |
+| MENU | 39 | 70 | 15 | 0 | 1 |
+| TST | 23 | 68 | 3 | 5 | 19 |
+| DND | 41 | 58 | 0 | 0 | 1 |
+| KEY | 14 | 26 | 4 | 0 | 0 |
+| ANIM | 57 | 47 | 0 | 0 | 3 |
+| WIN | 8 | 13 | 13 | 0 | 3 |
+| A11Y | 26 | 61 | 0 | 0 | 0 |
+| IME | 19 | 15 | 0 | 0 | 0 |
+| UPG | 57 | 36 | 0 | 0 | 3 |
+| **Total** | **782** | **1402** | **43** | **16** | **166** |
+
 ## Seed data and rig support the current seed lacks
 
 The current seed is `api/cmd/crowbar-seed` plus `api/cmd/crowbar-seed-chat`. It provides one project, one repo, two workspaces with a clean working tree, two review threads and one finished 30-turn chat. It installs no provider. Some rows need more:
