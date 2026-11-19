@@ -163,3 +163,75 @@ func TestDeleteChat_ATakenRowUnderATakenParentHandsItsChildToTheRoot(t *testing.
 	require.NoError(t, err)
 	assert.Empty(t, chatRow(t, f.chats, "x").ParentID)
 }
+
+// seedOwner appends the chat that owns wsID: the row a workspace is drawn as.
+func seedOwner(chats *mocks.AgentChatPlacements, id string, wsID string) {
+	chats.Rows = append(chats.Rows, domain.Chat{
+		ID: id, Type: domain.ChatTypeChat, WorkspaceID: wsID, OwnsWorkspace: true,
+	})
+}
+
+// Deleting a workspace's owning row deletes the workspace: every chat running
+// in it goes too, behind the same work-at-risk refusal as any reap.
+func TestDeleteChat_AWorkspacesOwningRowTakesEveryChatRunningInIt(t *testing.T) {
+	chats, uc, roster, reaper, _ := newUsecaseOverRoster(t, worktreeIn("ws-fa"))
+	seedOwner(chats, "owner", "ws-fa")
+	seedWorktreeChat(chats, "perf", "ws-fa", "")
+	seedWorktreeChat(chats, "rich", "ws-fa", "")
+	seedWorktreeChat(chats, "bubble", "", "rich")
+	risk := domain.WorkAtRisk{WorkspaceID: "ws-fa", Branch: "feature/a", UnmergedCommits: 3}
+	reaper.Risks = map[string]domain.WorkAtRisk{"ws-fa": risk}
+
+	_, err := uc.DeleteChat(context.Background(), "owner", domain.KeepWorkAtRisk)
+
+	require.ErrorIs(t, err, domain.ErrWorkAtRisk)
+	assert.Empty(t, chats.Purged, "the refusal comes before any chat goes")
+	assert.Len(t, roster.Rows, 1)
+
+	removed, err := uc.DeleteChat(context.Background(), "owner", domain.DiscardWorkAtRisk)
+
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"perf", "rich", "bubble"}, removed.Taken)
+	assert.ElementsMatch(t, []string{"owner", "perf", "rich", "bubble"}, chats.Purged)
+	assert.Equal(t, []string{"ws-fa"}, reaper.Reaped)
+	assert.Empty(t, roster.Rows, "no fresh owner keeps the workspace alive")
+}
+
+// A chat that merely runs in a workspace is not the workspace: deleting it
+// leaves the owner, its neighbours and the worktree.
+func TestDeleteChat_ANonOwningChatInAWorkspaceTakesNoNeighbour(t *testing.T) {
+	chats, uc, roster, reaper, _ := newUsecaseOverRoster(t, worktreeIn("ws-fa"))
+	seedOwner(chats, "owner", "ws-fa")
+	seedWorktreeChat(chats, "perf", "ws-fa", "")
+	seedWorktreeChat(chats, "rich", "ws-fa", "")
+
+	removed, err := uc.DeleteChat(context.Background(), "perf", domain.DiscardWorkAtRisk)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"perf"}, removed.Chats)
+	assert.Empty(t, removed.Taken)
+	assert.Empty(t, reaper.Reaped)
+	assert.Len(t, roster.Rows, 1)
+}
+
+// The repo's main checkout outlives its chats, so its owning row going takes
+// none of the chats working there.
+func TestDeleteChat_TheMainCheckoutsOwningRowTakesNoNeighbour(t *testing.T) {
+	chats := mocks.NewAgentChatPlacements()
+	roster := mocks.NewAgentWorkspaceRoster()
+	roster.Rows = []domain.Workspace{worktreeIn("ws-main")}
+	reaper := mocks.NewAgentWorkspaceReaperOver(roster)
+	status := mocks.NewAgentWorkspaceGitStatus()
+	status.SetRepo("ws-main", repoID)
+	status.SetDefault(repoID, "ws-main")
+	uc := tree.New(chats, chats, newBusyChats(), status, reaper,
+		mocks.NewAgentWorkspaceHolders(chats), mocks.NewFolderStore(), mocks.NewNodePlacements())
+	seedOwner(chats, "main", "ws-main")
+	seedWorktreeChat(chats, "perf", "ws-main", "")
+
+	removed, err := uc.DeleteChat(context.Background(), "main", domain.DiscardWorkAtRisk)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"main"}, removed.Chats)
+	assert.Empty(t, reaper.Reaped)
+}

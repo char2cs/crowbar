@@ -83,6 +83,11 @@ func (u *chatFolderUsecase) planDeletion(
 ) (deletion, error) {
 	chats, folders := snapshot.subtree(rootID)
 	d := deletion{chats: append(chats, rootID), folders: folders}
+	mates, err := u.workspaceMates(ctx, snapshot, rootID, d.chats)
+	if err != nil {
+		return deletion{}, fmt.Errorf("agent chat folder: delete chat %s: %w", rootID, err)
+	}
+	d.taken, d.chats = mates, append(d.chats, mates...)
 	reap, orphaned, err := u.planReap(ctx, snapshot, d.chats)
 	if err != nil {
 		return deletion{}, err
@@ -100,6 +105,36 @@ func (u *chatFolderUsecase) planDeletion(
 		return deletion{}, fmt.Errorf("agent chat folder: delete chat %s: %w", rootID, err)
 	}
 	return d, nil
+}
+
+// workspaceMates answers every chat outside doomed that runs in the worktree
+// rootID owns: an owning row is drawn as its workspace, so deleting it deletes
+// the workspace. A worktree that outlives its chats takes no neighbour.
+func (u *chatFolderUsecase) workspaceMates(
+	ctx context.Context,
+	snapshot *treeSnapshot,
+	rootID string,
+	doomed []string,
+) ([]string, error) {
+	root := snapshot.row(rootID)
+	if root == nil || root.WorkspaceID == "" || !u.ownsWorktree(ctx, snapshot, *root) {
+		return nil, nil
+	}
+	if u.outlivesItsChats(ctx, root.WorkspaceID) {
+		return nil, nil
+	}
+	holders, err := u.holders.ChatsForWorkspace(ctx, root.WorkspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("chats running in worktree %s: %w", root.WorkspaceID, err)
+	}
+	gone := doomedSet(doomed)
+	var mates []string
+	for _, id := range holders {
+		if !gone[id] {
+			mates = append(mates, id)
+		}
+	}
+	return mates, nil
 }
 
 // planCascades asks the workspace layer what each reap would take. A locked
@@ -144,9 +179,9 @@ func (d *deletion) takeRowsOf(
 	for _, row := range snapshot.rows {
 		if cascaded[row.WorkspaceID] && !doomed[row.ID] {
 			d.taken = append(d.taken, row.ID)
+			d.chats = append(d.chats, row.ID)
 		}
 	}
-	d.chats = append(d.chats, d.taken...)
 }
 
 // rehang lifts what each taken row holds outside the delete to its nearest
