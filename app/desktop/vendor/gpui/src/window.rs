@@ -2126,6 +2126,10 @@ impl Window {
         }
         self.overlay_shown = shown;
         self.platform_window.set_overlay_shown(shown);
+        if !shown {
+            // The platform forgets a hidden overlay's shape; the next frame sends it again.
+            self.content_region.clear();
+        }
     }
 
     /// For an overlay window: whether it is shown (see [`Window::set_overlay_shown`]).

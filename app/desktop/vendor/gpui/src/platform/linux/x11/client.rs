@@ -787,6 +787,22 @@ impl X11Client {
     }
 
     /// Whether the pointer leaving `owner` at `root` went into one of its overlays.
+    /// The window that gets a pointer event X delivered to `x_window`, and what to add to the
+    /// event's position: an overlay's catcher stands in for the overlay, whose coordinates are
+    /// offset by the owner's origin inside it.
+    fn pointer_window(&self, x_window: xproto::Window) -> Option<(X11WindowStatePtr, Point<Pixels>)> {
+        if let Some(window) = self.get_window(x_window) {
+            return Some((window, Point::default()));
+        }
+        let state = self.0.borrow();
+        state.windows.values().find_map(|window_ref| {
+            let window_state = window_ref.window.state.borrow();
+            let link = window_state.overlay.as_ref()?;
+            (link.catcher == Some(x_window))
+                .then(|| (window_ref.window.clone(), link.owner_bounds.origin))
+        })
+    }
+
     fn overlay_holds_pointer(&self, owner: xproto::Window, root: Point<i32>) -> bool {
         self.overlays_of(owner).iter().any(|window| {
             let state = window.state.borrow();
@@ -1209,7 +1225,7 @@ impl X11Client {
                 window.handle_input(PlatformInput::KeyUp(crate::KeyUpEvent { keystroke }));
             }
             Event::XinputButtonPress(event) => {
-                let window = self.get_window(event.event)?;
+                let (window, shift) = self.pointer_window(event.event)?;
                 let mut state = self.0.borrow_mut();
 
                 let modifiers = modifiers_from_xinput_info(event.mods);
@@ -1218,7 +1234,7 @@ impl X11Client {
                 let position = point(
                     px(event.event_x as f32 / u16::MAX as f32 / state.scale_factor),
                     px(event.event_y as f32 / u16::MAX as f32 / state.scale_factor),
-                );
+                ) + shift;
 
                 if state.composing && state.ximc.is_some() {
                     drop(state);
@@ -1286,7 +1302,7 @@ impl X11Client {
                 }
             }
             Event::XinputButtonRelease(event) => {
-                let window = self.get_window(event.event)?;
+                let (window, shift) = self.pointer_window(event.event)?;
                 let mut state = self.0.borrow_mut();
                 let modifiers = modifiers_from_xinput_info(event.mods);
                 state.modifiers = modifiers;
@@ -1294,7 +1310,7 @@ impl X11Client {
                 let position = point(
                     px(event.event_x as f32 / u16::MAX as f32 / state.scale_factor),
                     px(event.event_y as f32 / u16::MAX as f32 / state.scale_factor),
-                );
+                ) + shift;
                 match button_or_scroll_from_event_detail(event.detail) {
                     Some(ButtonOrScroll::Button(button)) => {
                         let click_count = state.current_count;
@@ -1311,13 +1327,13 @@ impl X11Client {
                 }
             }
             Event::XinputMotion(event) => {
-                let window = self.get_window(event.event)?;
+                let (window, shift) = self.pointer_window(event.event)?;
                 let mut state = self.0.borrow_mut();
                 let pressed_button = pressed_button_from_mask(event.button_mask[0]);
                 let position = point(
                     px(event.event_x as f32 / u16::MAX as f32 / state.scale_factor),
                     px(event.event_y as f32 / u16::MAX as f32 / state.scale_factor),
-                );
+                ) + shift;
                 let modifiers = modifiers_from_xinput_info(event.mods);
                 state.modifiers = modifiers;
                 drop(state);
@@ -1344,12 +1360,15 @@ impl X11Client {
                 }
             }
             Event::XinputEnter(event) if event.mode == xinput::NotifyMode::NORMAL => {
-                let window = self.get_window(event.event)?;
+                let (window, _) = self.pointer_window(event.event)?;
                 window.set_hovered(true);
                 let mut state = self.0.borrow_mut();
-                state.mouse_focused_window = Some(event.event);
+                state.mouse_focused_window = Some(window.x_window);
             }
             Event::XinputLeave(event) if event.mode == xinput::NotifyMode::NORMAL => {
+                if self.get_window(event.event).is_none() {
+                    return Some(());
+                }
                 let mut state = self.0.borrow_mut();
 
                 // Set last scroll values to `None` so that a large delta isn't created if scrolling is done outside the window (the valuator is global)
@@ -1832,6 +1851,8 @@ impl X11ClientState {
             region: Vec::new(),
             content: Vec::new(),
             composited: self.composited,
+            shown: false,
+            catcher: None,
         };
         Some((link, placement.window))
     }
@@ -1864,8 +1885,10 @@ impl X11ClientState {
         let Some(window_ref) = self.windows.get_mut(&x_window) else {
             return;
         };
+        // An overlay cut down to nothing is fully obscured, yet must draw to grow its shape.
+        let is_overlay = window_ref.window.state.borrow().overlay.is_some();
         let is_visible = window_ref.is_mapped
-            && !matches!(window_ref.last_visibility, Visibility::FULLY_OBSCURED);
+            && (is_overlay || !matches!(window_ref.last_visibility, Visibility::FULLY_OBSCURED));
         match (is_visible, window_ref.refresh_state.take()) {
             (false, refresh_state @ Some(RefreshState::Hidden { .. }))
             | (false, refresh_state @ None)

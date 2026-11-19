@@ -22,6 +22,32 @@ pub(crate) struct OverlayLink {
     pub(crate) content: Vec<xproto::Rectangle>,
     /// Whether a compositor blends the overlay over its owner.
     pub(crate) composited: bool,
+    /// Whether the overlay is mapped.
+    pub(crate) shown: bool,
+    /// The input-only child of the owner that takes the input region where the overlay was cut
+    /// away (see [`needs_catcher`]), once created.
+    pub(crate) catcher: Option<xproto::Window>,
+}
+
+/// Without a compositor the overlay is cut down to its content, and X clips a window's input to
+/// its shape, so an invisible part of the input region, such as a menu's click-away layer, would
+/// let presses through to the owner and its web views. An input-only child of the owner,
+/// stacked above the web views, takes that part instead.
+pub(crate) fn needs_catcher(link: &OverlayLink) -> bool {
+    link.shown && !link.composited
+}
+
+/// `region` (overlay coordinates) in the owner's coordinates, the owner sitting at `offset`
+/// inside the overlay; all in device pixels.
+pub(crate) fn in_owner(region: &[xproto::Rectangle], offset: Point<i32>) -> Vec<xproto::Rectangle> {
+    region
+        .iter()
+        .map(|rect| xproto::Rectangle {
+            x: (i32::from(rect.x) - offset.x) as i16,
+            y: (i32::from(rect.y) - offset.y) as i16,
+            ..*rect
+        })
+        .collect()
 }
 
 /// A rectangle just outside the window, set in place of an empty shape. Reparenting window
@@ -261,6 +287,8 @@ mod tests {
             region: Vec::new(),
             content: Vec::new(),
             composited: true,
+            shown: false,
+            catcher: None,
         }
     }
 
@@ -349,20 +377,24 @@ mod tests {
         xproto::Rectangle { x, y, width, height }
     }
 
+    fn plain(rects: &[xproto::Rectangle]) -> Vec<(i16, i16, u16, u16)> {
+        rects.iter().map(|r| (r.x, r.y, r.width, r.height)).collect()
+    }
+
     #[test]
     fn an_empty_shape_is_a_rectangle_outside_the_window() {
         let menu = rectangle(10, 20, 100, 50);
-        assert_eq!(shape_rects(&[]), vec![NOTHING]);
-        assert_eq!(shape_rects(&[menu]), vec![menu]);
+        assert_eq!(plain(&shape_rects(&[])), plain(&[NOTHING]));
+        assert_eq!(plain(&shape_rects(&[menu])), plain(&[menu]));
         assert!(NOTHING.x < 0 && NOTHING.y < 0, "outside the window");
     }
 
     #[test]
     fn only_an_uncomposited_overlay_is_cut_to_its_content() {
         let menu = rectangle(10, 20, 100, 50);
-        assert_eq!(bounding(&[menu], true), None);
-        assert_eq!(bounding(&[menu], false), Some(vec![menu]));
-        assert_eq!(bounding(&[], false), Some(vec![NOTHING]));
+        assert!(bounding(&[menu], true).is_none());
+        assert_eq!(bounding(&[menu], false).map(|r| plain(&r)), Some(plain(&[menu])));
+        assert_eq!(bounding(&[], false).map(|r| plain(&r)), Some(plain(&[NOTHING])));
     }
 
     #[test]
@@ -374,5 +406,21 @@ mod tests {
     #[test]
     fn the_compositor_selection_is_named_after_the_screen_number() {
         assert_eq!(compositor_selection(0), "_NET_WM_CM_S0");
+    }
+
+    #[test]
+    fn only_a_shown_uncomposited_overlay_needs_a_catcher() {
+        let mut overlay = link(1, false);
+        assert!(!needs_catcher(&overlay), "hidden");
+        overlay.shown = true;
+        assert!(!needs_catcher(&overlay), "composited");
+        overlay.composited = false;
+        assert!(needs_catcher(&overlay));
+    }
+
+    #[test]
+    fn the_catcher_region_is_the_input_region_in_owner_coordinates() {
+        let region = [rectangle(10, 20, 100, 50)];
+        assert_eq!(plain(&in_owner(&region, point(4, 6))), plain(&[rectangle(6, 14, 100, 50)]));
     }
 }

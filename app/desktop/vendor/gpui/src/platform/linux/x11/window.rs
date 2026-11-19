@@ -7,7 +7,7 @@ use crate::{
     Pixels, PlatformAtlas, PlatformDisplay, PlatformInput, PlatformInputHandler, PlatformWindow,
     Point, PromptButton, PromptLevel, RequestFrameOptions, ResizeEdge, ScaledPixels, Scene, Size,
     Tiling, WindowAppearance, WindowBackgroundAppearance, WindowBounds, WindowControlArea,
-    WindowDecorations, WindowKind, WindowParams, X11ClientStatePtr, px, size,
+    WindowDecorations, WindowKind, WindowParams, X11ClientStatePtr, point, px, size,
 };
 
 use blade_graphics as gpu;
@@ -744,6 +744,48 @@ impl X11WindowState {
     }
 }
 
+/// The catcher of an overlay: an input-only child of `owner` as large as X allows (its parent
+/// clips it), selecting the pointer events gpui windows select.
+fn create_catcher(xcb: &Rc<XCBConnection>, owner: xproto::Window) -> anyhow::Result<xproto::Window> {
+    let catcher = xcb.generate_id()?;
+    check_reply(
+        || "X11 creating an overlay's catcher failed.",
+        xcb.create_window(
+            0,
+            catcher,
+            owner,
+            0,
+            0,
+            CATCHER_SIZE,
+            CATCHER_SIZE,
+            0,
+            xproto::WindowClass::INPUT_ONLY,
+            0,
+            &xproto::CreateWindowAux::new(),
+        ),
+    )?;
+    check_reply(
+        || "X11 XiSelectEvents for a catcher failed.",
+        xcb.xinput_xi_select_events(
+            catcher,
+            &[xinput::EventMask {
+                deviceid: XINPUT_ALL_DEVICE_GROUPS,
+                mask: vec![
+                    xinput::XIEventMask::MOTION
+                        | xinput::XIEventMask::BUTTON_PRESS
+                        | xinput::XIEventMask::BUTTON_RELEASE
+                        | xinput::XIEventMask::ENTER
+                        | xinput::XIEventMask::LEAVE,
+                ],
+            }],
+        ),
+    )?;
+    Ok(catcher)
+}
+
+/// The largest side of an X window.
+const CATCHER_SIZE: u16 = i16::MAX as u16;
+
 /// Marks `x_window` as the overlay of `owner` before it is mapped: a transient dialog the
 /// window manager never focuses, lists or decorates, placed exactly at `bounds`, and taking no
 /// pointer input until its first frame reports a region.
@@ -1290,6 +1332,57 @@ impl X11WindowStatePtr {
         link.composited = composited;
         drop(state);
         self.apply_bounding();
+        self.apply_catcher();
+    }
+
+    /// Shows the catcher (see [`overlay::needs_catcher`]) over the overlay's input region, or
+    /// hides it.
+    fn apply_catcher(&self) {
+        let mut state = self.state.borrow_mut();
+        let scale_factor = state.scale_factor;
+        let Some(link) = state.overlay.as_mut() else {
+            return;
+        };
+        if !overlay::needs_catcher(link) {
+            if let Some(catcher) = link.catcher {
+                check_reply(|| "X11 hiding an overlay's catcher failed.", self.xcb.unmap_window(catcher))
+                    .log_err();
+                xcb_flush(&self.xcb);
+            }
+            return;
+        }
+        let catcher = match link.catcher {
+            Some(catcher) => catcher,
+            None => {
+                let Some(catcher) = create_catcher(&self.xcb, link.owner).log_err() else {
+                    return;
+                };
+                link.catcher = Some(catcher);
+                catcher
+            }
+        };
+        let offset = point(
+            (f32::from(link.owner_bounds.origin.x) * scale_factor).round() as i32,
+            (f32::from(link.owner_bounds.origin.y) * scale_factor).round() as i32,
+        );
+        let rects = overlay::shape_rects(&overlay::in_owner(&link.region, offset));
+        let stacked = xproto::ConfigureWindowAux::new().stack_mode(xproto::StackMode::ABOVE);
+        check_reply(
+            || "X11 placing an overlay's catcher failed.",
+            self.xcb.shape_rectangles(
+                shape::SO::SET,
+                shape::SK::INPUT,
+                xproto::ClipOrdering::UNSORTED,
+                catcher,
+                0,
+                0,
+                &rects,
+            ),
+        )
+        .and_then(|_| check_reply(|| "X11 raising a catcher failed.", self.xcb.configure_window(catcher, &stacked)))
+        .and_then(|_| check_reply(|| "X11 mapping a catcher failed.", self.xcb.map_window(catcher)))
+        .log_err();
+        xcb_flush(&self.xcb);
     }
 
     fn pull_keyboard_to(&self, owner: xproto::Window) {
@@ -1932,7 +2025,8 @@ impl PlatformWindow for X11Window {
             ),
         )
         .log_err();
-        xcb_flush(&self.0.xcb);
+        drop(state);
+        self.0.apply_catcher();
     }
 
     fn set_content_region(&self, region: &[Bounds<Pixels>]) {
@@ -1952,17 +2046,19 @@ impl PlatformWindow for X11Window {
             return;
         }
         drop(state);
-        if shown {
-            check_reply(|| "X11 mapping an overlay failed.", self.0.xcb.map_window(self.0.x_window))
-                .log_err();
-            return xcb_flush(&self.0.xcb);
-        }
-        check_reply(|| "X11 unmapping an overlay failed.", self.0.xcb.unmap_window(self.0.x_window))
-            .log_err();
         if let Some(link) = self.0.state.borrow_mut().overlay.as_mut() {
-            link.content.clear();
+            link.shown = shown;
+            if !shown {
+                link.content.clear();
+            }
         }
+        let request = match shown {
+            true => self.0.xcb.map_window(self.0.x_window),
+            false => self.0.xcb.unmap_window(self.0.x_window),
+        };
+        check_reply(|| "X11 mapping or unmapping an overlay failed.", request).log_err();
         self.0.apply_bounding();
+        self.0.apply_catcher();
     }
 
     fn set_takes_keys(&self, takes_keys: bool) {
