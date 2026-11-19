@@ -3,12 +3,13 @@
 use std::rc::Rc;
 
 use gpui::{
-    Animation, AnimationExt, AnyElement, App, Div, ElementId, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, RenderOnce, Stateful, Styled, Window, anchored, div, hsla, point,
-    px,
+    Animation, AnimationExt, AnyElement, App, Div, ElementId, FocusHandle, InteractiveElement,
+    IntoElement, MouseButton, ParentElement, RenderOnce, Stateful, Styled, Window, anchored, div,
+    hsla, point, px,
 };
 
 use crate::floating::dialog::actions::{CONTEXT, CloseDialog, FocusNext, FocusPrevious};
+use crate::floating::dialog::description::description_block;
 use crate::floating::dialog::focus::Focus;
 use crate::floating::dialog::header::Header;
 use crate::foundation::CloseHandler;
@@ -40,6 +41,8 @@ pub struct Dialog {
     size: DialogSize,
     style: DialogStyle,
     extent: Option<DialogExtent>,
+    description: Option<AnyElement>,
+    first: Option<FocusHandle>,
     body: Option<AnyElement>,
     footer: Option<AnyElement>,
     on_close: Option<CloseHandler>,
@@ -47,6 +50,7 @@ pub struct Dialog {
 
 mod actions;
 mod close_button;
+mod description;
 mod dialog_extent;
 mod dialog_size;
 mod dialog_style;
@@ -69,6 +73,8 @@ impl Dialog {
             size: DialogSize::default(),
             style: DialogStyle::default(),
             extent: None,
+            description: None,
+            first: None,
             body: None,
             footer: None,
             on_close: None,
@@ -134,11 +140,10 @@ impl Dialog {
         viewport: gpui::Size<gpui::Pixels>,
     ) -> Stateful<Div> {
         let palette = theme.palette(Surface::Window);
-        let header = (!self.header.is_empty()).then_some(self.header);
-        let footer = self
-            .footer
-            .map(|footer| footer_bar(footer, (palette, self.style)));
+        let (header, style) = ((!self.header.is_empty()).then_some(self.header), self.style);
+        let footer = footer_bar(self.footer, (palette, style));
         let padding = self.extent.map_or(self.style.body_padding(), |_| px(0.0));
+        let description = description_block(self.description, (palette, style));
         let frame = div()
             .id((self.id, "popup"))
             .debug_selector(|| "ui-dialog".into())
@@ -163,6 +168,7 @@ impl Dialog {
             .font_family(theme.ui_family())
             .shadow(shadow::lg(opacity::PERCENT_5))
             .children(header)
+            .children(description)
             .children(
                 self.body
                     .map(|body| div().flex_1().min_h_0().p(padding).child(body)),
@@ -172,11 +178,12 @@ impl Dialog {
 }
 
 fn footer_bar(
-    footer: AnyElement,
+    footer: Option<AnyElement>,
     (palette, style): (&Palette, DialogStyle),
-) -> Div {
+) -> Option<Div> {
+    let footer = footer?;
     let (px_x, px_y) = style.footer_padding();
-    div()
+    let bar = div()
         .flex()
         .flex_none()
         .justify_end()
@@ -186,7 +193,8 @@ fn footer_bar(
         .border_t_1()
         .border_color(palette.border())
         .bg(palette.muted().opacity(style.footer_wash()))
-        .child(footer)
+        .child(footer);
+    Some(bar)
 }
 
 fn spacer(share: f32) -> Div {
@@ -230,8 +238,9 @@ impl RenderOnce for Dialog {
     ) -> impl IntoElement {
         let theme = *Theme::of(cx);
         let viewport = window.viewport_size();
+        let first = self.first.clone();
         let focus = window.use_keyed_state((self.id.clone(), "focus"), cx, |window, cx| {
-            Focus::opening(window, cx)
+            Focus::opening(window, cx, first)
         });
         let focus = focus.read(cx).clone();
         let duration = Motion::of(cx).duration(timing::SLOW);
@@ -415,6 +424,42 @@ mod tests {
         }
     }
 
+    fn alert(
+        log: &Log,
+        first: &FocusHandle,
+    ) -> Dialog {
+        let record = Rc::clone(log);
+        let button = crate::control::Button::new("cancel", "Cancel")
+            .focus_handle(first.clone())
+            .on_click(move |_, _, _| record.borrow_mut().push("cancel"));
+        Dialog::new("d")
+            .style(DialogStyle::Alert)
+            .title("Delete?")
+            .description("Gone for good.")
+            .initial_focus(first.clone())
+            .footer(button)
+    }
+
+    #[gpui::test]
+    fn an_alert_opens_on_its_first_focus_with_no_close_button(cx: &mut TestAppContext) {
+        let log = Log::default();
+        let first = cx.update(|cx| cx.focus_handle());
+        let (shown, held) = (Rc::clone(&log), first.clone());
+        let (_, mut top) = open_floating(cx, move |_, _| {
+            let (shown, held) = (Rc::clone(&shown), held.clone());
+            crate::floating::Portal::window("dialog", move |_, _| alert(&shown, &held))
+        });
+        top.run_until_parked();
+        press(&mut top, "enter");
+        assert_eq!(*log.borrow(), vec!["cancel"], "return answers Cancel");
+        press(&mut top, "tab tab enter");
+        assert_eq!(
+            *log.borrow(),
+            vec!["cancel", "cancel"],
+            "tab wraps onto Cancel: there is no close button"
+        );
+    }
+
     #[gpui::test]
     fn escape_closes_the_dialog(cx: &mut TestAppContext) {
         let (log, mut top) = open_confirm(cx);
@@ -443,7 +488,7 @@ mod tests {
     }
 
     fn counting_dialog(
-        field: &gpui::FocusHandle,
+        field: &FocusHandle,
         typed: &Rc<Cell<usize>>,
     ) -> Dialog {
         let count = Rc::clone(typed);

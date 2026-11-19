@@ -1,4 +1,4 @@
-//! The two dialog looks of the React app.
+//! The dialog looks of the React app.
 
 use gpui::{Pixels, Stateful, Styled, px};
 
@@ -17,6 +17,8 @@ pub enum DialogStyle {
     App,
     /// The plain `Dialog`: 18px corners, hairline border, 20px title, padded header.
     Plain,
+    /// `AlertDialog`: the plain chrome with no close button, the description under the title.
+    Alert,
 }
 
 impl DialogStyle {
@@ -24,7 +26,7 @@ impl DialogStyle {
     pub fn title_size(self) -> Pixels {
         match self {
             Self::App => text_size::SM,
-            Self::Plain => text_size::XL,
+            Self::Plain | Self::Alert => text_size::XL,
         }
     }
 
@@ -32,7 +34,7 @@ impl DialogStyle {
     pub fn title_line(self) -> Pixels {
         match self {
             Self::App => spacing::STEP_3_5,
-            Self::Plain => text_size::XL,
+            Self::Plain | Self::Alert => text_size::XL,
         }
     }
 
@@ -40,7 +42,7 @@ impl DialogStyle {
     pub fn corner(self) -> Pixels {
         match self {
             Self::App => radius::XL,
-            Self::Plain => radius::XXL,
+            Self::Plain | Self::Alert => radius::XXL,
         }
     }
 
@@ -48,7 +50,7 @@ impl DialogStyle {
     pub fn header_padding(self) -> (Pixels, Pixels) {
         match self {
             Self::App => (spacing::STEP_4, spacing::STEP_3),
-            Self::Plain => (spacing::STEP_6, spacing::STEP_6),
+            Self::Plain | Self::Alert => (spacing::STEP_6, spacing::STEP_6),
         }
     }
 
@@ -56,7 +58,7 @@ impl DialogStyle {
     pub fn footer_padding(self) -> (Pixels, Pixels) {
         match self {
             Self::App => (spacing::STEP_4, spacing::STEP_3),
-            Self::Plain => (spacing::STEP_6, spacing::STEP_4),
+            Self::Plain | Self::Alert => (spacing::STEP_6, spacing::STEP_4),
         }
     }
 
@@ -64,7 +66,7 @@ impl DialogStyle {
     pub fn footer_wash(self) -> f32 {
         match self {
             Self::App => 0.5,
-            Self::Plain => opacity::PERCENT_72,
+            Self::Plain | Self::Alert => opacity::PERCENT_72,
         }
     }
 
@@ -77,7 +79,7 @@ impl DialogStyle {
         let frame = frame.rounded(self.corner());
         match self {
             Self::App => frame,
-            Self::Plain => frame.border_1().border_color(palette.border()),
+            Self::Plain | Self::Alert => frame.border_1().border_color(palette.border()),
         }
     }
 
@@ -85,7 +87,7 @@ impl DialogStyle {
     pub fn body_padding(self) -> Pixels {
         match self {
             Self::App => spacing::STEP_4,
-            Self::Plain => px(0.0),
+            Self::Plain | Self::Alert => px(0.0),
         }
     }
 }

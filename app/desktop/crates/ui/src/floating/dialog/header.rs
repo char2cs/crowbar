@@ -3,7 +3,7 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, ElementId, FocusHandle, IntoElement, ParentElement, RenderOnce, SharedString,
-    Styled, Window, div,
+    Styled, Window, div, px,
 };
 
 use crate::floating::dialog::close_button::close_button;
@@ -110,18 +110,8 @@ impl RenderOnce for Header {
         };
         let frame = div().flex().flex_none().px(px_x).py(px_y);
         match style {
-            DialogStyle::Plain => frame
-                .relative()
-                .flex_col()
-                .gap(spacing::STEP_2)
-                .children(title)
-                .child(
-                    div()
-                        .absolute()
-                        .right(spacing::STEP_2)
-                        .top(spacing::STEP_2)
-                        .child(close),
-                ),
+            DialogStyle::Plain => corner_close(frame.children(title), close),
+            DialogStyle::Alert => frame.pb(px(0.0)).children(title),
             DialogStyle::App => frame
                 .items_center()
                 .gap(spacing::STEP_2)
@@ -137,6 +127,19 @@ impl RenderOnce for Header {
                 .child(div().ml_auto().child(close)),
         }
     }
+}
+
+fn corner_close(
+    frame: gpui::Div,
+    close: crate::control::Button,
+) -> gpui::Div {
+    frame.relative().flex_col().gap(spacing::STEP_2).child(
+        div()
+            .absolute()
+            .right(spacing::STEP_2)
+            .top(spacing::STEP_2)
+            .child(close),
+    )
 }
 
 fn title_text(

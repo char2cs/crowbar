@@ -1,11 +1,14 @@
 //! The delete confirmation dialog.
 
-use gpui::{AnyElement, Context, Div, FontWeight, IntoElement, ParentElement, Styled, div};
+use gpui::{
+    AnyElement, Context, Div, FontWeight, HighlightStyle, IntoElement, ParentElement, Styled,
+    StyledText, div,
+};
 use sidebar::{Confirmation, RemovalTarget, WorkAtRisk};
-use ui::{Button, ButtonVariant, Dialog, DialogSize, Palette, Surface, Theme};
+use ui::{Button, ButtonVariant, Dialog, DialogSize, DialogStyle, Palette, Surface, Theme};
 
 use crate::sidebar::Sidebar;
-use crate::sidebar::{SPACE_LG, SPACE_MD, TEXT_LARGE};
+use crate::sidebar::{SPACE_MD, SPACE_XL, SPACE_XS, TEXT_LARGE};
 
 fn risk_row(
     work: &WorkAtRisk,
@@ -22,27 +25,32 @@ fn risk_row(
     div().flex().flex_col().child(branch).child(summary)
 }
 
-fn body(
+fn lead(
+    confirmation: &Confirmation,
+    palette: &Palette,
+) -> StyledText {
+    let (strong, rest) = confirmation.lead();
+    let bold = HighlightStyle {
+        font_weight: Some(FontWeight::BOLD),
+        color: Some(palette.foreground()),
+        ..HighlightStyle::default()
+    };
+    StyledText::new(format!("{strong} {rest}")).with_highlights([(0..strong.len(), bold)])
+}
+
+fn work_list(
     confirmation: &Confirmation,
     mono: &'static str,
     palette: &Palette,
 ) -> Div {
-    let (strong, rest) = confirmation.lead();
-    let lead = div()
-        .child(
-            div()
-                .text_color(palette.foreground())
-                .font_weight(FontWeight::BOLD)
-                .child(strong),
-        )
-        .child(rest);
     div()
         .flex()
         .flex_col()
-        .gap(SPACE_LG)
+        .gap(SPACE_XS)
+        .px(SPACE_XL)
+        .pb(SPACE_XL)
         .text_size(TEXT_LARGE)
-        .text_color(palette.muted_foreground())
-        .child(lead)
+        .line_height(ui::text_size::LINE_HEIGHT)
         .children(
             confirmation
                 .at_risk
@@ -61,16 +69,26 @@ impl Sidebar {
         let palette = theme.palette(Surface::Window);
         let cancel = Button::new("confirm-cancel", "Cancel")
             .variant(ButtonVariant::Ghost)
+            .focus_handle(self.confirm_focus.clone())
             .on_click(cx.listener(|this, _, _, cx| this.cancel_confirmation(cx)));
         let delete = Button::new("confirm-delete", confirmation.confirm_label())
             .variant(ButtonVariant::Destructive)
             .on_click(cx.listener(|this, _, _, cx| this.accept_confirmation(cx)));
         let sidebar = cx.entity();
+        let list = (!confirmation.at_risk.is_empty())
+            .then(|| work_list(confirmation, theme.mono_family(), palette));
+        let dialog = Dialog::new("sidebar-confirm")
+            .style(DialogStyle::Alert)
+            .title(confirmation.title())
+            .description(lead(confirmation, palette))
+            .initial_focus(self.confirm_focus.clone())
+            .size(DialogSize::Md);
+        let dialog = match list {
+            Some(list) => dialog.body(list),
+            None => dialog,
+        };
         Some(
-            Dialog::new("sidebar-confirm")
-                .title(confirmation.title())
-                .size(DialogSize::Md)
-                .body(body(confirmation, theme.mono_family(), palette))
+            dialog
                 .footer(div().flex().gap(SPACE_MD).child(cancel).child(delete))
                 .on_close(move |_, cx| sidebar.update(cx, Self::cancel_confirmation))
                 .into_any_element(),

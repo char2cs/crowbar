@@ -12,10 +12,12 @@ impl Focus {
     pub(crate) fn opening(
         window: &mut Window,
         cx: &mut App,
+        first: Option<FocusHandle>,
     ) -> Self {
+        let close = first.unwrap_or_else(|| cx.focus_handle()).tab_stop(true);
         let focus = Self {
             root: cx.focus_handle(),
-            close: cx.focus_handle().tab_stop(true),
+            close,
         };
         let first = focus.clone();
         window.defer(cx, move |window, cx| first.focus_first(window, cx));
@@ -74,7 +76,7 @@ mod tests {
         let window = open(cx, move |window, cx| {
             let focus = keep
                 .borrow_mut()
-                .get_or_insert_with(|| Focus::opening(window, cx))
+                .get_or_insert_with(|| Focus::opening(window, cx, None))
                 .clone();
             let dialog = div()
                 .track_focus(&focus.root)
