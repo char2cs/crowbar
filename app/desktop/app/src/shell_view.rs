@@ -222,23 +222,25 @@ impl ShellView {
         cx: &Context<'_, Self>,
     ) -> (ChromeContext, SidebarState) {
         let preferences = self.sidebar.read(cx).preferences();
-        crate::chrome::of(&preferences)
+        let (mut chrome, state) = crate::chrome::of(&preferences);
+        chrome.tab_strip = self.tabs.read(cx).has_tabs();
+        (chrome, state)
     }
 
     fn refresh(
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
-        let (chrome, sidebar_state) = self.chrome(cx);
         let titles = self.state.titles();
         let layout = self.state.layout();
         self.source.native().follow(layout, &titles);
         let tab = layout.active_tab().cloned();
         self.data.focus_chat(focused_chat(layout).as_deref());
         self.follow_focus(cx);
+        self.push_tabs(cx);
+        let (chrome, sidebar_state) = self.chrome(cx);
         self.tabs
             .update(cx, |bar, cx| bar.set_sidebar(sidebar_state, cx));
-        self.push_tabs(cx);
         self.layout.update(cx, |view, cx| {
             view.set_chrome(chrome, cx);
             view.set_tab(tab, cx);

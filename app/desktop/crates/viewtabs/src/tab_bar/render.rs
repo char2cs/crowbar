@@ -21,6 +21,7 @@ use crate::tab_bar::TabBar;
 use crate::tab_bar::pointer::follow_pointer;
 use crate::tab_bar::sidebar_glyph::SidebarGlyph;
 use crate::tab_bar::sidebar_state::SidebarState;
+use crate::tab_bar::window_grip::{row_height, window_grip};
 
 const DROP_LINE_INSET: f32 = 4.0;
 
@@ -41,7 +42,8 @@ impl Render for TabBar {
             .id("tab-bar")
             .relative()
             .w_full()
-            .h(px(ROW_HEIGHT))
+            .h(px(row_height(&self.tabs)))
+            .overflow_hidden()
             .child(
                 canvas(
                     move |bounds, _, cx: &mut App| view.update(cx, |this, _| this.row = bounds),
@@ -130,6 +132,7 @@ impl TabBar {
             .overflow_x_scroll()
             .track_scroll(&self.scroll)
             .children(slots)
+            .child(window_grip())
     }
 
     fn shift(

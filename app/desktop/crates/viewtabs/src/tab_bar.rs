@@ -6,6 +6,7 @@ mod pointer;
 mod render;
 mod sidebar_glyph;
 mod sidebar_state;
+mod window_grip;
 
 pub use clock::Clock;
 pub use sidebar_state::SidebarState;
@@ -60,6 +61,12 @@ impl std::fmt::Debug for TabBar {
 impl EventEmitter<Event> for TabBar {}
 
 impl TabBar {
+    /// Whether the strip is drawn: it takes no room until a view exists.
+    #[must_use]
+    pub fn has_tabs(&self) -> bool {
+        !self.tabs.is_empty()
+    }
+
     /// An empty strip; `first_free_tab` is the first tab id the strip may hand out for tabs a
     /// drop creates, and it counts up from there.
     pub fn new(first_free_tab: TabId) -> Self {

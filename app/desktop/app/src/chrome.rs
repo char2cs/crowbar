@@ -41,7 +41,10 @@ mod tests {
             (SidebarEdge::Right, SidebarState::Open),
             "right"
         );
-        assert!(chrome.tab_strip, "the strip is always drawn");
+        assert!(
+            chrome.tab_strip,
+            "the strip is drawn until the shell says it holds no view"
+        );
     }
 
     #[test]
