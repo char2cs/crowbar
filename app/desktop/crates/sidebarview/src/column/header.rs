@@ -9,8 +9,8 @@ pub(crate) use tile_shape::TileShape;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Styled, WindowControlArea,
-    div, px,
+    AnyElement, App, Context, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
+    ParentElement, Styled, Window, WindowControlArea, div, px,
 };
 use sidebar::{Command, DockSide, Host, Intent, Visibility};
 use ui::{IconName, Surface, Theme};
@@ -36,11 +36,12 @@ impl Sidebar {
             .w_full()
             .overflow_hidden()
             .window_control_area(WindowControlArea::Drag)
+            .on_mouse_down(MouseButton::Left, drag_window)
             .when(side == DockSide::Left, |d| d.pl(SPACE_LG).pr(SPACE_MD))
             .when(side == DockSide::Right, |d| {
                 d.flex_row_reverse().pr(SPACE_LG).pl(SPACE_MD)
             })
-            .child(div().flex_none().w(px(traffic_light_reserve(side))))
+            .children(traffic_light_spacer(side))
             .child(Self::settings_button(cx))
             .child(div().flex().flex_1().justify_center().children(picker))
             .child(self.toggle_button(cx))
@@ -83,12 +84,11 @@ impl Sidebar {
             return None;
         }
         let palette = Theme::of(cx).palette(Surface::Chrome);
-        Some(host_picker(
-            &hosts,
-            &current,
-            palette,
-            &Self::row_handler(cx),
-        ))
+        let picker = host_picker(&hosts, &current, palette, &Self::row_handler(cx));
+        let held = div()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(picker);
+        Some(held.into_any_element())
     }
 
     fn current_host(
@@ -105,6 +105,24 @@ impl Sidebar {
     }
 }
 
+// PLATFORM: X11 has no hit-test for control areas, so the header moves the window itself.
+fn drag_window(
+    event: &MouseDownEvent,
+    window: &mut Window,
+    _: &mut App,
+) {
+    if event.click_count >= 2 {
+        window.zoom_window();
+        return;
+    }
+    window.start_window_move();
+}
+
+fn traffic_light_spacer(side: DockSide) -> Option<gpui::Div> {
+    let reserve = traffic_light_reserve(side);
+    (reserve > 0.0).then(|| div().flex_none().w(px(reserve)))
+}
+
 fn traffic_light_reserve(side: DockSide) -> f32 {
     if side == DockSide::Right {
         return 0.0;
@@ -114,7 +132,7 @@ fn traffic_light_reserve(side: DockSide) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::traffic_light_reserve;
+    use super::{traffic_light_reserve, traffic_light_spacer};
     use sidebar::{DockSide, Visibility};
 
     use crate::sidebar::Sidebar;
@@ -130,6 +148,13 @@ mod tests {
         for (side, reserve) in cases {
             assert_eq!(traffic_light_reserve(side), reserve, "{side:?}");
         }
+    }
+
+    #[test]
+    fn no_spacer_takes_a_gap_where_there_are_no_traffic_lights() {
+        assert!(traffic_light_spacer(DockSide::Right).is_none(), "right");
+        let left = traffic_light_spacer(DockSide::Left).is_some();
+        assert_eq!(left, TRAFFIC_LIGHT_RESERVE > 0.0, "left");
     }
 
     #[gpui::test]

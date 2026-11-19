@@ -92,7 +92,10 @@ impl RenderOnce for IconButton {
         let id = self.id.clone();
         let button = HoverFill::new(self.id, palette.sidebar_element_hover())
             .apply(base, (window, cx))
-            .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default());
+            .on_mouse_down(MouseButton::Left, |_, window, cx| {
+                window.prevent_default();
+                cx.stop_propagation();
+            });
         let button = match self.on_click {
             Some(handler) => button.on_click(handler),
             None => button,
