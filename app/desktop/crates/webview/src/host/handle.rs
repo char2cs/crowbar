@@ -85,7 +85,7 @@ impl Handle {
         self.platform.set_background(self.id, color)
     }
 
-    /// Gives keyboard focus to the page.
+    /// Gives keyboard focus to the page, wherever the pointer is.
     ///
     /// # Errors
     /// An [`Error`](crate::Error) when the backend has stopped.

@@ -5,9 +5,9 @@ Layer L0 (logic, OS layer). See `docs/plans/2026-11-18-rust-tree.md` section 3.
 ## Owns
 
 Where a link may go (stay in the app, the system browser, or refused); launching the system browser
-and the file manager; the native parent windows that web views are embedded into; and the switch
-that makes the shell an X11 client. It is the one crate of the desktop app that holds `unsafe`
-code, one minimal layer per OS: `src/linux/` and `src/macos/`.
+and the file manager; the native parent windows that web views are embedded into; the X keyboard
+focus of web views; and the switch that makes the shell an X11 client. It is the one crate of the
+desktop app that holds `unsafe` code, one minimal layer per OS: `src/linux/` and `src/macos/`.
 
 ## Public interface
 
@@ -19,6 +19,8 @@ code, one minimal layer per OS: `src/linux/` and `src/macos/`.
 - `Error`: why a launch was refused or could not start.
 - `XlibParent` (Linux): an X11 window id presented as an Xlib window handle.
 - `force_x11()` (Linux): drops `WAYLAND_DISPLAY` and sets `GDK_BACKEND=x11`; `main` calls it first.
+- `InputFocus` (Linux): a connection of its own to the X server that gives the keyboard to a window
+  (`give_to`), so a web view takes keys wherever the pointer is.
 - `AppkitParent` (macOS): an `NSView` of an open window, held by a strong reference, presented as
   an `AppKit` window handle. `AppkitParent::find(address, main_thread)` looks the view up among the
   app's windows, so an address no window shows never becomes a parent.
@@ -26,7 +28,7 @@ code, one minimal layer per OS: `src/linux/` and `src/macos/`.
 ## Depends on
 
 No workspace crate. External: `url` (link parsing), `raw-window-handle` (the handle types web views
-are built with), `thiserror`, `tracing`; on macOS `objc2`, `objc2-app-kit` and `objc2-foundation`
+are built with), `thiserror`, `tracing`; on Linux `x11rb` (the X keyboard focus, safe Rust); on macOS `objc2`, `objc2-app-kit` and `objc2-foundation`
 (the retained `NSView` and the window lookup).
 
 ## Unsafe

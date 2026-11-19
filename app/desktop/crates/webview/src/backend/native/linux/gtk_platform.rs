@@ -2,6 +2,7 @@ use std::sync::mpsc;
 use std::thread;
 
 use gtk::glib;
+use platform::InputFocus;
 
 use crate::backend::host_config::HostConfig;
 use crate::backend::native::linux::gtk_state::GtkState;
@@ -76,7 +77,7 @@ pub(crate) fn log_failure(
 
 fn report_init_failure(
     ready: &mpsc::Sender<Result<()>>,
-    error: &glib::BoolError,
+    error: &dyn std::fmt::Display,
 ) {
     let failure = Error::PlatformThread(error.to_string());
     if ready.send(Err(failure)).is_err() {
@@ -102,8 +103,12 @@ fn run_gtk_thread(
         report_init_failure(ready, &error);
         return;
     }
+    let keyboard = match InputFocus::connect() {
+        Ok(keyboard) => keyboard,
+        Err(error) => return report_init_failure(ready, &error),
+    };
     let inbox = inbox.clone();
-    let mut state = GtkState::new(config);
+    let mut state = GtkState::new(config, keyboard);
     glib::MainContext::default().spawn_local(async move {
         run_jobs(&inbox, &mut state).await;
         gtk::main_quit();

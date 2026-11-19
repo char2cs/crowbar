@@ -31,6 +31,9 @@ pub enum Error {
     /// The engine refused an operation.
     #[error("web view engine error: {0}")]
     Engine(#[from] wry::Error),
+    /// The operating system refused an operation, such as moving the keyboard to a view.
+    #[error("operating system error: {0}")]
+    Os(#[from] platform::Error),
 }
 
 /// Result alias using the crate [`enum@Error`].

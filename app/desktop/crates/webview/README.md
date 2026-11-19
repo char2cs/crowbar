@@ -22,5 +22,6 @@ backends, and an in-memory mock backend for tests.
 
 - `protocol`: ids and frames of the pages a view shows.
 - `platform`: the native parent-window handles (`XlibParent`, `AppkitParent`), the crate's only
-  `unsafe`.
-- External: wry and raw-window-handle; gtk and webkit2gtk on Linux, objc2-foundation on macOS.
+  `unsafe`, and the X keyboard focus (`InputFocus`) that `focus` and `focus_parent` move.
+- External: wry and raw-window-handle; gtk, gdkx11 (a view's X window id) and webkit2gtk on Linux,
+  objc2-foundation on macOS.

@@ -7,4 +7,6 @@ pub(crate) struct LiveView {
     pub(crate) view: WebView,
     pub(crate) kind: Kind,
     pub(crate) place: RememberedPlace,
+    pub(crate) page_window: u32,
+    pub(crate) parent: u32,
 }

@@ -30,4 +30,18 @@ pub enum Error {
         #[source]
         source: std::io::Error,
     },
+    /// No X server answered on `DISPLAY`.
+    #[cfg(target_os = "linux")]
+    #[error("cannot connect to the X server: {0}")]
+    X11Connect(#[from] x11rb::errors::ConnectError),
+    /// The X server did not move the keyboard to a window.
+    #[cfg(target_os = "linux")]
+    #[error("cannot give the keyboard to X window {window:#x}: {source}")]
+    Focus {
+        /// The window that was to take the keyboard.
+        window: u32,
+        /// The failure.
+        #[source]
+        source: x11rb::errors::ReplyError,
+    },
 }

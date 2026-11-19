@@ -13,9 +13,11 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use platform::XlibParent;
+use gtk::glib::Cast as _;
+use gtk::prelude::WidgetExt as _;
+use platform::{InputFocus, XlibParent};
 use protocol::ExtensionId;
-use wry::{WebContext, WebViewBuilder, WebViewBuilderExtUnix, WebViewExtUnix};
+use wry::{WebContext, WebView, WebViewBuilder, WebViewBuilderExtUnix, WebViewExtUnix};
 
 use crate::backend::host_config::HostConfig;
 use crate::backend::native::linux::gtk_state::adapters::browser_data_dir;
@@ -30,6 +32,16 @@ use crate::view::Kind;
 use crate::view::ParentWindow;
 
 const BROWSER_DIR: &str = "browser";
+const NO_PAGE_WINDOW: &str = "the web view got no X11 window of its own";
+
+fn page_window_of(view: &WebView) -> Result<u32> {
+    let page_window = view
+        .webview()
+        .window()
+        .and_then(|window| window.downcast::<gdkx11::X11Window>().ok())
+        .and_then(|window| u32::try_from(window.xid()).ok());
+    page_window.ok_or(Error::UnsupportedParent(NO_PAGE_WINDOW))
+}
 
 pub(crate) struct GtkState {
     scheme: String,
@@ -38,11 +50,15 @@ pub(crate) struct GtkState {
     core_context: WebContext,
     browser_context: WebContext,
     extension_contexts: HashMap<ExtensionId, WebContext>,
+    keyboard: InputFocus,
     pub(crate) views: HashMap<Id, LiveView>,
 }
 
 impl GtkState {
-    pub(crate) fn new(config: HostConfig) -> Self {
+    pub(crate) fn new(
+        config: HostConfig,
+        keyboard: InputFocus,
+    ) -> Self {
         let core_dir = config.data_dir.as_ref().map(|dir| dir.join("core"));
         let browser_dir = config.data_dir.as_ref().map(|dir| dir.join(BROWSER_DIR));
         Self {
@@ -52,6 +68,7 @@ impl GtkState {
             browser_context: WebContext::new(browser_dir),
             data_dir: config.data_dir,
             extension_contexts: HashMap::new(),
+            keyboard,
             views: HashMap::new(),
         }
     }
@@ -71,12 +88,15 @@ impl GtkState {
         let view = common_attributes(builder, &id_text, config)
             .build_as_child(&XlibParent::new(window))?;
         let wanted = to_rect(config.bounds);
+        let page_window = page_window_of(&view)?;
         self.views.insert(
             id,
             LiveView {
                 view,
                 kind,
                 place: RememberedPlace::new(wanted),
+                page_window,
+                parent: window,
             },
         );
         Ok(())
@@ -154,7 +174,7 @@ mod tests {
     use std::sync::mpsc;
     use std::time::{Duration, Instant};
 
-    use gtk::prelude::{ContainerExt as _, WidgetExt as _};
+    use gtk::prelude::ContainerExt as _;
 
     use super::*;
     use crate::scheme::ProtocolRequest;
@@ -211,11 +231,12 @@ mod tests {
     }
 
     fn state_serving(protocol: Arc<dyn ProtocolHandler>) -> GtkState {
-        GtkState::new(HostConfig {
+        let config = HostConfig {
             scheme: "crowbar".into(),
             protocol,
             data_dir: None,
-        })
+        };
+        GtkState::new(config, InputFocus::connect().unwrap())
     }
 
     fn config_at(

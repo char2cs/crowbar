@@ -22,6 +22,7 @@ wry.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 async-channel.workspace = true
+gdkx11.workspace = true
 gtk.workspace = true
 webkit2gtk.workspace = true
 
@@ -30,6 +31,9 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 
 [dev-dependencies]
 webview = { path = ".", features = ["mock"] }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+x11rb = { workspace = true, features = ["xtest"] }
 
 [lints]
 workspace = true

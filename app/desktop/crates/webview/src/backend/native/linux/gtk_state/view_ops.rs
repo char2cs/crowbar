@@ -1,5 +1,6 @@
 use std::sync::mpsc;
 
+use gtk::gdk;
 use webkit2gtk::{SnapshotOptions, SnapshotRegion, WebViewExt as _};
 use wry::WebViewExtUnix;
 
@@ -72,14 +73,18 @@ impl GtkState {
         &self,
         id: Id,
     ) -> Result<()> {
-        Ok(self.live(id)?.view.focus()?)
+        let live = self.live(id)?;
+        live.view.focus()?;
+        // PLATFORM: linux X serves each client connection on its own, so GDK's queued map of the page window must reach the server before the focus request on ours.
+        gdk::Display::default().iter().for_each(gdk::Display::sync);
+        Ok(self.keyboard.give_to(live.page_window)?)
     }
 
     pub(crate) fn focus_parent(
         &self,
         id: Id,
     ) -> Result<()> {
-        Ok(self.live(id)?.view.focus_parent()?)
+        Ok(self.keyboard.give_to(self.live(id)?.parent)?)
     }
 
     pub(crate) fn snapshot(

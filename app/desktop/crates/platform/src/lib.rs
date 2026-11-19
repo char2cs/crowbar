@@ -6,8 +6,9 @@
 //! a desktop; only starting the launcher touches the system.
 //!
 //! The OS layer sits in `linux/` and `macos/`: the native parent windows web views are embedded
-//! into (`XlibParent`, `AppkitParent`) and the X11 session switch (`force_x11`). Every `unsafe`
-//! block of the desktop app lives there, behind a safe type or function (see the README).
+//! into (`XlibParent`, `AppkitParent`), the X keyboard focus (`InputFocus`) and the X11 session
+//! switch (`force_x11`). Every `unsafe` block of the desktop app lives there, behind a safe type
+//! or function (see the README).
 
 mod desktop;
 mod error;
@@ -21,7 +22,7 @@ mod platform;
 
 pub use error::Error;
 #[cfg(target_os = "linux")]
-pub use linux::{XlibParent, force_x11};
+pub use linux::{InputFocus, XlibParent, force_x11};
 #[cfg(target_os = "macos")]
 pub use macos::AppkitParent;
 pub use platform::{follow_link, open_external, open_path, reveal_in_file_manager};
