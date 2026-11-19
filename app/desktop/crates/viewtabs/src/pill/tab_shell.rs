@@ -25,7 +25,7 @@ const DIVIDER_HEIGHT: f32 = 16.0;
 const DIVIDER_ALPHA: f32 = 0.15;
 const IDLE_SHADOW: f32 = 0.10;
 const LIFTED_SHADOW: f32 = 0.15;
-const HOVER_FILL: f32 = 0.08;
+const OUTLINE: f32 = 1.0;
 
 pub(crate) type CloseAction = Rc<dyn Fn(&mut Window, &mut App)>;
 
@@ -87,9 +87,14 @@ fn shell(
                 .shadow(shadow::xs(IDLE_SHADOW))
         }),
         ShellLook::Active => base
+            .m(px(-OUTLINE))
+            .w(px(width + 2.0 * OUTLINE))
+            .h(px(TAB_HEIGHT + 2.0 * OUTLINE))
+            .border_2()
             .bg(palette.control_surface())
             .border_color(palette.control_surface())
-            .shadow(shadow::xs(IDLE_SHADOW)),
+            .shadow(shadow::xs(IDLE_SHADOW))
+            .child(highlight(palette)),
         ShellLook::Lifted => base
             .bg(palette.control_surface())
             .border_color(palette.border())
@@ -98,6 +103,15 @@ fn shell(
             .bg(palette.sidebar_drop_nest())
             .border_color(palette.sidebar_drop_nest_edge()),
     }
+}
+
+fn highlight(palette: &Palette) -> gpui::Div {
+    div()
+        .absolute()
+        .inset_0()
+        .rounded(radius::FULL)
+        .border_t_1()
+        .border_color(palette.control_highlight())
 }
 
 fn ink(
@@ -215,11 +229,8 @@ fn close_button(
     palette: &Palette,
     close: CloseAction,
 ) -> impl IntoElement {
-    let (strong, muted) = ink(look, palette);
-    let hover_fill = match look {
-        ShellLook::Active | ShellLook::Lifted => strong.opacity(HOVER_FILL),
-        ShellLook::Idle | ShellLook::MergeTarget => palette.sidebar_element_hover(),
-    };
+    let (_, muted) = ink(look, palette);
+    let hover_fill = palette.sidebar_element_hover();
     div()
         .id(ElementId::from((id.clone(), "close")))
         .absolute()
@@ -247,6 +258,7 @@ mod tests {
 
     struct Pill {
         labels: &'static [&'static str],
+        look: ShellLook,
     }
 
     impl Render for Pill {
@@ -269,26 +281,48 @@ mod tests {
             div().flex().child(TabShell {
                 id: ElementId::from("pill"),
                 members: members.collect(),
-                look: ShellLook::Idle,
+                look: self.look,
                 width: 236.0,
                 on_close: None,
             })
         }
     }
 
-    fn label_width(
+    fn label_bounds(
         cx: &mut TestAppContext,
-        labels: &'static [&'static str],
-    ) -> f32 {
+        pill: Pill,
+    ) -> gpui::Bounds<gpui::Pixels> {
         cx.update(|cx| {
             ui::init(cx).expect("ui init");
             cx.set_global(Theme::default());
             cx.set_global(Motion::default());
         });
-        let (_, cx) = cx.add_window_view(|_, _| Pill { labels });
+        let (_, cx) = cx.add_window_view(|_, _| pill);
         cx.run_until_parked();
-        let bounds = cx.debug_bounds("tab-label");
-        bounds.map_or(0.0, |bounds| f32::from(bounds.size.width))
+        cx.debug_bounds("tab-label").unwrap_or_default()
+    }
+
+    fn label_width(
+        cx: &mut TestAppContext,
+        labels: &'static [&'static str],
+    ) -> f32 {
+        let pill = Pill {
+            labels,
+            look: ShellLook::Idle,
+        };
+        f32::from(label_bounds(cx, pill).size.width)
+    }
+
+    #[gpui::test]
+    fn the_raised_outline_of_the_active_tab_leaves_its_label_in_place(cx: &mut TestAppContext) {
+        const LABELS: &[&str] = &["New chat"];
+        let pill = |look| Pill {
+            labels: LABELS,
+            look,
+        };
+        let idle = label_bounds(cx, pill(ShellLook::Idle));
+        let active = label_bounds(cx, pill(ShellLook::Active));
+        assert_eq!(active, idle);
     }
 
     #[gpui::test]
