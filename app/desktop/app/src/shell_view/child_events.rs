@@ -36,7 +36,10 @@ impl ShellView {
                 this.on_startup(*event, window, cx);
             }),
             cx.observe_window_activation(window, |this, window, cx| {
-                this.on_window_activation(window, cx);
+                this.return_keyboard(window, cx);
+            }),
+            cx.observe_overlay_keys(window, |this, window, cx| {
+                this.return_keyboard(window, cx);
             }),
         ]
     }
@@ -51,7 +54,7 @@ impl ShellView {
         self.sync(cx);
     }
 
-    fn on_window_activation(
+    fn return_keyboard(
         &self,
         window: &Window,
         cx: &mut App,

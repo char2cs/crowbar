@@ -431,8 +431,7 @@ mod tests {
         });
     }
 
-    #[gpui::test]
-    fn activating_the_window_leaves_the_keyboard_with_an_open_menu(cx: &mut TestAppContext) {
+    fn open_tab_menu(cx: &mut TestAppContext) -> Opened {
         let mut opened = open_shell(cx);
         register_chat(&mut opened);
         opened
@@ -456,6 +455,12 @@ mod tests {
             opened.top.update(|window, _| window.takes_keys()),
             "the menu took the keys"
         );
+        opened
+    }
+
+    #[gpui::test]
+    fn activating_the_window_leaves_the_keyboard_with_an_open_menu(cx: &mut TestAppContext) {
+        let mut opened = open_tab_menu(cx);
         let before = page_focuses(&opened.mock);
         opened.window.deactivate_window();
         opened.window.update(|window, _| window.activate_window());
@@ -464,6 +469,56 @@ mod tests {
             page_focuses(&opened.mock),
             before,
             "no page took the keyboard"
+        );
+    }
+
+    fn own_keyboard_by_page(opened: &mut Opened) {
+        opened.shell.update(&mut opened.window, |shell, cx| {
+            shell.state.apply(Vec::new());
+            shell.sync(cx);
+        });
+        opened.window.update(|window, _| window.activate_window());
+        opened.window.run_until_parked();
+    }
+
+    #[gpui::test]
+    fn a_press_in_the_top_layer_leaves_the_keyboard_with_the_page(cx: &mut TestAppContext) {
+        let mut opened = open_tab_menu(cx);
+        own_keyboard_by_page(&mut opened);
+        let before = page_focuses(&opened.mock);
+        let away = gpui::point(gpui::px(600.0), gpui::px(400.0));
+        let none = gpui::Modifiers::none();
+        opened
+            .top
+            .simulate_mouse_down(away, gpui::MouseButton::Left, none);
+        opened
+            .top
+            .simulate_mouse_up(away, gpui::MouseButton::Left, none);
+        opened.window.run_until_parked();
+        assert!(
+            !opened.top.update(|window, _| window.takes_keys()),
+            "the click away closed the menu"
+        );
+        assert!(
+            page_focuses(&opened.mock) > before,
+            "the shell did not claim the keyboard"
+        );
+    }
+
+    #[gpui::test]
+    fn a_menu_closed_with_escape_gives_the_keyboard_back_to_the_page(cx: &mut TestAppContext) {
+        let mut opened = open_tab_menu(cx);
+        own_keyboard_by_page(&mut opened);
+        let before = page_focuses(&opened.mock);
+        opened.top.simulate_keystrokes("escape");
+        opened.window.run_until_parked();
+        assert!(
+            !opened.top.update(|window, _| window.takes_keys()),
+            "the menu closed"
+        );
+        assert!(
+            page_focuses(&opened.mock) > before,
+            "the page that owns the keyboard has it again"
         );
     }
 }

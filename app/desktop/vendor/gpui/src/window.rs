@@ -868,6 +868,7 @@ pub struct Window {
     pub(crate) last_input_timestamp: Rc<Cell<Instant>>,
     pub(crate) refreshing: bool,
     pub(crate) activation_observers: SubscriberSet<(), AnyObserver>,
+    pub(crate) overlay_keys_observers: SubscriberSet<(), AnyObserver>,
     pub(crate) focus: Option<FocusId>,
     focus_enabled: bool,
     pending_input: Option<PendingInput>,
@@ -1265,6 +1266,7 @@ impl Window {
             last_input_timestamp,
             refreshing: false,
             activation_observers: SubscriberSet::new(),
+            overlay_keys_observers: SubscriberSet::new(),
             focus: None,
             focus_enabled: true,
             pending_input: None,
@@ -2087,6 +2089,16 @@ impl Window {
         if takes_keys != self.takes_keys {
             self.platform_window.set_takes_keys(takes_keys);
             self.takes_keys = takes_keys;
+            cx.defer(move |cx| {
+                owner
+                    .update(cx, |_, window, cx| {
+                        window
+                            .overlay_keys_observers
+                            .clone()
+                            .retain(&(), |callback| callback(window, cx));
+                    })
+                    .log_err();
+            });
         }
     }
 
