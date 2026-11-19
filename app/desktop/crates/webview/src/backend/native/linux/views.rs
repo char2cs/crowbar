@@ -112,7 +112,10 @@ mod tests {
     #[test]
     fn requests_for_unknown_views_are_posted_not_answered_with_errors() {
         let (jobs, _inbox) = async_channel::unbounded();
-        let platform = GtkPlatform { jobs, thread: None };
+        let platform = GtkPlatform {
+            jobs,
+            stopped: None,
+        };
         let id = Id(9);
         assert!(
             platform.set_visibility(id, Visibility::Hidden).is_ok(),

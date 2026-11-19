@@ -58,7 +58,10 @@ mod tests {
     #[test]
     fn following_the_caret_is_posted_to_the_gtk_thread() {
         let (jobs, inbox) = async_channel::unbounded();
-        let platform = GtkPlatform { jobs, thread: None };
+        let platform = GtkPlatform {
+            jobs,
+            stopped: None,
+        };
         assert!(platform.follow_caret(Arc::new(|_| ())).is_ok(), "posted");
         assert_eq!(inbox.len(), 1, "one job waits for the GTK thread");
     }

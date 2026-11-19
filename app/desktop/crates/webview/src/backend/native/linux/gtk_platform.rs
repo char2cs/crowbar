@@ -10,20 +10,22 @@ use crate::backend::platform::Platform;
 use crate::error::{Error, Result};
 
 type Job = Box<dyn FnOnce(&mut GtkState) + Send>;
+type Ready = mpsc::Sender<Result<()>>;
 
 #[derive(Debug)]
 pub(crate) struct GtkPlatform {
     pub(crate) jobs: async_channel::Sender<Job>,
-    pub(crate) thread: Option<thread::JoinHandle<()>>,
+    pub(crate) stopped: Option<mpsc::Receiver<()>>,
 }
 
 impl GtkPlatform {
     pub(crate) fn start(config: HostConfig) -> Result<Self> {
         let (jobs, inbox) = async_channel::unbounded::<Job>();
         let (ready_tx, ready_rx) = mpsc::channel();
-        let thread = thread::Builder::new()
+        let (stopped_tx, stopped) = mpsc::channel();
+        thread::Builder::new()
             .name("crowbar-gtk".into())
-            .spawn(move || run_gtk_thread(config, &inbox, &ready_tx))
+            .spawn(move || run_gtk_thread(config, (&inbox, &ready_tx), &stopped_tx))
             .map_err(|error| Error::PlatformThread(error.to_string()))?;
         ready_rx.recv().map_err(|error| {
             tracing::debug!(%error, "the platform thread stopped before it was ready");
@@ -31,7 +33,7 @@ impl GtkPlatform {
         })??;
         Ok(Self {
             jobs,
-            thread: Some(thread),
+            stopped: Some(stopped),
         })
     }
 
@@ -57,10 +59,10 @@ impl GtkPlatform {
 impl Drop for GtkPlatform {
     fn drop(&mut self) {
         self.jobs.close();
-        let Some(thread) = self.thread.take() else {
+        let Some(stopped) = self.stopped.take() else {
             return;
         };
-        if thread.join().is_err() {
+        if stopped.recv().is_err() {
             tracing::error!("the web view thread panicked while stopping");
         }
     }
@@ -96,16 +98,31 @@ async fn run_jobs(
 
 fn run_gtk_thread(
     config: HostConfig,
+    (inbox, ready): (&async_channel::Receiver<Job>, &Ready),
+    stopped: &mpsc::Sender<()>,
+) {
+    if !serve(config, inbox, ready) {
+        return;
+    }
+    stopped.send(()).unwrap_or_default();
+    outlive_webkit();
+}
+
+fn serve(
+    config: HostConfig,
     inbox: &async_channel::Receiver<Job>,
     ready: &mpsc::Sender<Result<()>>,
-) {
+) -> bool {
     if let Err(error) = gtk::init() {
         report_init_failure(ready, &error);
-        return;
+        return false;
     }
     let keyboard = match InputFocus::connect() {
         Ok(keyboard) => keyboard,
-        Err(error) => return report_init_failure(ready, &error),
+        Err(error) => {
+            report_init_failure(ready, &error);
+            return false;
+        },
     };
     let inbox = inbox.clone();
     let mut state = GtkState::new(config, keyboard);
@@ -114,9 +131,17 @@ fn run_gtk_thread(
         gtk::main_quit();
     });
     if ready.send(Ok(())).is_err() {
-        return;
+        return false;
     }
     gtk::main();
+    true
+}
+
+// PLATFORM: linux WebKit's RunLoop exit hook deadlocks with threads still dispatching to it.
+fn outlive_webkit() -> ! {
+    loop {
+        thread::park();
+    }
 }
 
 impl Platform for GtkPlatform {}
@@ -125,6 +150,35 @@ impl Platform for GtkPlatform {}
 mod tests {
     use super::*;
     use crate::test_support::host_fixtures::silent_host_config;
+
+    const DROP_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+    #[test]
+    fn dropping_the_host_does_not_wait_for_the_gtk_thread_to_end() {
+        let (jobs, inbox) = async_channel::unbounded::<Job>();
+        let (release, exit_hook) = mpsc::channel::<()>();
+        let (stopped_tx, stopped) = mpsc::channel();
+        thread::spawn(move || {
+            drop(inbox.recv_blocking());
+            stopped_tx.send(()).unwrap_or_default();
+            exit_hook.recv().unwrap_or_default();
+        });
+        let platform = GtkPlatform {
+            jobs,
+            stopped: Some(stopped),
+        };
+        let (dropped_tx, dropped) = mpsc::channel();
+        thread::spawn(move || {
+            drop(platform);
+            dropped_tx.send(()).unwrap_or_default();
+        });
+        let outcome = dropped.recv_timeout(DROP_WAIT);
+        release.send(()).unwrap_or_default();
+        assert!(
+            outcome.is_ok(),
+            "the drop waited on the thread's exit hooks"
+        );
+    }
 
     #[test]
     fn starting_without_a_display_is_a_typed_error() {
