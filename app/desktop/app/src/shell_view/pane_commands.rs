@@ -1,4 +1,4 @@
-use gpui::Context;
+use gpui::{Context, Window};
 use layout::Command;
 
 use super::ShellView;
@@ -19,12 +19,18 @@ impl ShellView {
 
     pub(super) fn new_terminal(
         &mut self,
+        window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
         let id = format!("t{}", self.state.serials().next_pane());
         let chat = focused_chat(self.state.layout());
         let spec = terminal_spec(&id, chat.as_deref(), self.data.active_project());
         self.open_spec(spec, cx);
+        let layout = self.state.layout();
+        let opened = layout.active_tab().and_then(layout::Tab::focused).cloned();
+        if let Some(pane) = opened {
+            self.source.native().focus_terminal(&pane, window, cx);
+        }
     }
 
     pub(super) fn new_browser(

@@ -1,4 +1,4 @@
-use layout::{Command, PaneInstance, Tab, TabId};
+use layout::{Command, Layout, PaneInstance, Tab, TabId};
 use protocol::{PaneId, PaneTypeId};
 
 use crate::core_panes::CHAT;
@@ -13,6 +13,27 @@ pub(crate) fn stack_target(tab: &Tab) -> Option<PaneId> {
     focused
         .cloned()
         .or_else(|| tab.pane_ids().into_iter().find(stackable))
+}
+
+pub(crate) fn editor_focused(layout: &Layout) -> bool {
+    let Some(tab) = layout.active_tab() else {
+        return false;
+    };
+    let focused = tab.focused().and_then(|pane| tab.pane(pane));
+    focused.is_some_and(|pane| stacks(&pane.type_id))
+}
+
+pub(crate) fn close_target(tab: &Tab) -> Option<PaneId> {
+    let editor = stack_target(tab).and_then(|pane| tab.group_of(&pane).map(|g| g.active().clone()));
+    if editor.is_some() {
+        return editor;
+    }
+    let chats = tab
+        .pane_ids()
+        .iter()
+        .filter(|pane| tab.pane(pane).is_some_and(|found| !stacks(&found.type_id)))
+        .count();
+    tab.focused().filter(|_| chats > 1).cloned()
 }
 
 pub(crate) fn listed(tab: &Tab) -> Vec<PaneId> {
@@ -62,7 +83,6 @@ fn split(
 
 #[cfg(test)]
 mod tests {
-    use layout::Layout;
     use protocol::{PaneState, Params};
 
     use super::*;
@@ -78,6 +98,8 @@ mod tests {
             state: PaneState::default(),
         }
     }
+
+    type Opened = &'static [(&'static str, &'static str)];
 
     fn layout_of(panes: &[(&str, &str)]) -> Layout {
         let mut layout = Layout::default();
@@ -210,6 +232,43 @@ mod tests {
             ("ext.acme.widget", true),
         ] {
             assert_eq!(stacks(&PaneTypeId::new(kind).unwrap()), expected, "{kind}");
+        }
+    }
+
+    #[test]
+    fn the_editor_area_holds_focus_only_when_a_stacking_pane_is_focused() {
+        const CASES: &[(Opened, bool)] = &[
+            (&[], false),
+            (&[("c1", "core.chat")], false),
+            (&[("c1", "core.chat"), ("e1", "core.editor")], true),
+            (&[("c1", "core.chat"), ("t1", "core.terminal")], true),
+        ];
+        assert!(!editor_focused(&Layout::default()), "no view");
+        for (opened, expected) in CASES {
+            let layout = layout_of(opened);
+            assert_eq!(editor_focused(&layout), *expected, "{opened:?}");
+        }
+    }
+
+    #[test]
+    fn close_takes_the_shown_editor_tab_then_a_split_chat_and_never_a_lone_chat() {
+        const CASES: &[(Opened, Option<&str>)] = &[
+            (&[("c1", "core.chat")], None),
+            (&[("c1", "core.chat"), ("c2", "core.chat")], Some("c2")),
+            (&[("c1", "core.chat"), ("e1", "core.editor")], Some("e1")),
+            (
+                &[
+                    ("c1", "core.chat"),
+                    ("e1", "core.editor"),
+                    ("e2", "core.editor"),
+                ],
+                Some("e2"),
+            ),
+        ];
+        for (opened, expected) in CASES {
+            let layout = layout_of(opened);
+            let target = close_target(layout.active_tab().unwrap());
+            assert_eq!(target.as_ref().map(PaneId::as_str), *expected, "{opened:?}");
         }
     }
 }

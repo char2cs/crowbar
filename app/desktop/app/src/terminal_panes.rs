@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
-use gpui::{AnyView, App, AppContext as _, Entity, Window};
+use gpui::{App, AppContext as _, Entity, Focusable as _, Window};
 use protocol::PaneId;
 use ptysession::{Ends, TerminalSessions};
 use terminal::DaemonFrame;
@@ -58,12 +58,23 @@ impl TerminalPanes {
         self.ids.contains(pane)
     }
 
+    pub(crate) fn focus(
+        &self,
+        pane: &PaneId,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        if let Some(view) = self.view(pane, window, cx) {
+            window.focus(&view.focus_handle(cx));
+        }
+    }
+
     pub(crate) fn view(
         &self,
         pane: &PaneId,
         window: &mut Window,
         cx: &mut App,
-    ) -> Option<AnyView> {
+    ) -> Option<Entity<TerminalView>> {
         self.views
             .borrow_mut()
             .retain(|open, _| self.ids.contains(open));
@@ -72,8 +83,7 @@ impl TerminalPanes {
         }
         let owner = self.ids.owner_of(pane);
         let existing = self.views.borrow().get(pane).cloned();
-        let view = existing.unwrap_or_else(|| self.create((pane, owner.as_ref()), window, cx));
-        Some(view.into())
+        Some(existing.unwrap_or_else(|| self.create((pane, owner.as_ref()), window, cx)))
     }
 
     fn create(
@@ -227,6 +237,20 @@ mod tests {
     }
 
     #[gpui::test]
+    fn a_focused_terminal_pane_takes_the_keyboard(cx: &mut TestAppContext) {
+        cx.update(|cx| ui::init(cx).unwrap());
+        let panes = panes_for(&layout_with_terminal(Some("c1")));
+        let (_root, cx) = cx.add_window_view(|_, _| gpui::Empty);
+        let pane = PaneId::new("t1").unwrap();
+        cx.update(|window, cx| panes.focus(&pane, window, cx));
+        let terminal = cx
+            .update(|window, cx| panes.view(&pane, window, cx))
+            .unwrap();
+        let focused = cx.update(|window, cx| terminal.focus_handle(cx).is_focused(window));
+        assert!(focused, "the terminal holds the keyboard");
+    }
+
+    #[gpui::test]
     fn other_panes_get_no_terminal(cx: &mut TestAppContext) {
         let panes = panes_for(&layout_with_terminal(None));
         let (_root, cx) = cx.add_window_view(|_, _| gpui::Empty);
@@ -237,7 +261,7 @@ mod tests {
         );
     }
 
-    struct Shown(AnyView);
+    struct Shown(gpui::AnyView);
 
     impl gpui::Render for Shown {
         fn render(
@@ -255,7 +279,7 @@ mod tests {
         let panes = panes_for(&layout_with_terminal(Some("c1")));
         let pane = PaneId::new("t1").unwrap();
         let (shown, cx) =
-            cx.add_window_view(|window, cx| Shown(panes.view(&pane, window, cx).unwrap()));
+            cx.add_window_view(|window, cx| Shown(panes.view(&pane, window, cx).unwrap().into()));
         cx.run_until_parked();
         cx.update(|window, cx| window.draw(cx).clear());
         let terminal = cx.read_entity(&shown, |shown, _| {

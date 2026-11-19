@@ -47,9 +47,9 @@ impl ShellView {
             ShellCommand::SidebarChats => self.set_sidebar_mode(Mode::Chats, cx),
             ShellCommand::SidebarFiles => self.set_sidebar_mode(Mode::Files, cx),
             ShellCommand::SidebarGit => self.set_sidebar_mode(Mode::Changes, cx),
-            ShellCommand::CloseTab => self.close_active_tab(cx),
+            ShellCommand::CloseTab => self.close_focused(cx),
             ShellCommand::ReopenClosedTab => self.reopen_closed_tab(cx),
-            ShellCommand::NewTerminal => self.new_terminal(cx),
+            ShellCommand::NewTerminal => self.new_terminal(window, cx),
             ShellCommand::NewBrowser => self.new_browser(cx),
             ShellCommand::NewFile => self.new_file(cx),
             ShellCommand::OpenFile => self.open_file_from_disk(window, cx),
@@ -58,7 +58,7 @@ impl ShellView {
             ShellCommand::OpenLog => self.open_log(),
             ShellCommand::ExportDiagnostics => self.export_diagnostics(),
             ShellCommand::NewTab => self.new_tab(cx),
-            ShellCommand::NewChat => self.start_chat(sidebar::Command::NewThread),
+            ShellCommand::NewChat => self.new_chat(cx),
             ShellCommand::NewChatTerminal => self.new_terminal_chat(),
             ShellCommand::FocusPaneLeft => self.focus_towards(Direction::Left, cx),
             ShellCommand::FocusPaneRight => self.focus_towards(Direction::Right, cx),
@@ -95,6 +95,16 @@ impl ShellView {
         {
             tracing::warn!(%error, "the project switch was refused");
         }
+    }
+
+    fn new_chat(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if crate::stack_policy::editor_focused(self.state.layout()) {
+            return self.new_tab(cx);
+        }
+        self.start_chat(sidebar::Command::NewThread);
     }
 
     fn new_terminal_chat(&self) {
@@ -145,14 +155,18 @@ impl ShellView {
             .update(cx, |sidebar, cx| sidebar.set_mode(mode, cx));
     }
 
-    fn close_active_tab(
+    fn close_focused(
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
-        let Some(tab) = self.state.layout().active_tab().map(layout::Tab::id) else {
-            return;
-        };
-        self.apply_guarded(vec![Command::CloseTab { tab }], cx);
+        let target = self
+            .state
+            .layout()
+            .active_tab()
+            .and_then(crate::stack_policy::close_target);
+        if let Some(pane) = target {
+            self.apply_guarded(vec![Command::ClosePane { pane }], cx);
+        }
     }
 }
 
