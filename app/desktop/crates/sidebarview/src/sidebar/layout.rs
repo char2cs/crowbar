@@ -6,7 +6,7 @@ use gpui::{
     ParentElement, Render, Stateful, Styled, Window, div, px,
 };
 use sidebar::{DockSide, Visibility};
-use ui::{Motion, Portal, Surface, Theme};
+use ui::{HoverFill, Motion, Portal, Surface, Theme};
 
 use crate::sidebar::Sidebar;
 use crate::sidebar::geometry::Geometry;
@@ -15,6 +15,9 @@ use crate::sidebar::scale::{HANDLE_HIT, PEEK_INSET};
 const FRAME_SHADOW: f32 = 0.2;
 
 const SCRIM_ALPHA: f32 = 0.4;
+// PLATFORM: Chrome spreads develop's 1px line over two pixels at half alpha; GPUI snaps quads.
+const HOVER_LINE_ALPHA: f32 = 0.3;
+const LINE_SPAN: f32 = 2.0;
 
 impl Render for Sidebar {
     fn render(
@@ -34,7 +37,7 @@ impl Render for Sidebar {
             .h_full()
             .child(self.content.clone());
         let side_column = div().h_full().flex_none().children(column);
-        let handle = self.handle(&geometry, cx);
+        let handle = self.handle(&geometry, window, cx);
         let row = div()
             .flex()
             .size_full()
@@ -104,16 +107,21 @@ impl Sidebar {
     fn handle(
         &self,
         geometry: &Geometry,
+        window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> Stateful<Div> {
         let palette = Theme::of(cx).palette(Surface::Chrome);
-        let line = div()
-            .h_full()
-            .w(px(1.0))
-            .bg(palette.border())
-            .when(self.resizing.is_some(), |d| d.bg(palette.ring()));
+        let line = || {
+            div()
+                .absolute()
+                .top_0()
+                .h_full()
+                .w(px(LINE_SPAN))
+                .left(px(HANDLE_HIT / 2.0))
+        };
+        let hover = palette.border().opacity(HOVER_LINE_ALPHA);
+        let held = self.resizing.is_some().then(|| line().bg(hover));
         let hit = div()
-            .id("sidebar-separator")
             .track_focus(&self.handle_focus)
             .on_key_down(cx.listener(Self::press_separator))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::press_handle))
@@ -121,20 +129,17 @@ impl Sidebar {
             .top_0()
             .h_full()
             .w(px(HANDLE_HIT))
-            .when(geometry.side == DockSide::Left, |d| {
-                d.left(px(-HANDLE_HIT / 2.0))
-            })
-            .when(geometry.side == DockSide::Right, |d| {
-                d.right(px(-HANDLE_HIT / 2.0))
-            })
-            .when(geometry.is_docked(), Styled::cursor_col_resize);
+            .left(px(-HANDLE_HIT / 2.0))
+            .when(geometry.is_docked(), Styled::cursor_col_resize)
+            .children(held);
+        let hit =
+            HoverFill::new("sidebar-separator", hover).apply_to_part(hit, line(), (window, cx));
         div()
             .id("sidebar-track")
             .relative()
             .flex_none()
             .h_full()
             .w(px(1.0))
-            .child(line)
             .child(hit)
     }
 
