@@ -42,6 +42,14 @@ impl LineSlide {
         *self = Self::resting(at);
     }
 
+    pub(crate) fn target(&self) -> LineBox {
+        LineBox {
+            left: self.left.target(),
+            top: self.top.target(),
+            width: self.width.target(),
+        }
+    }
+
     pub(crate) fn at(
         &self,
         (now, motion): (Instant, Motion),

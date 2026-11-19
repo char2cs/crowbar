@@ -40,6 +40,7 @@ impl Sidebar {
     ) {
         self.drag.lifted = Some(subject);
         self.drag.hint = Some(DropHint { row: target, mode });
+        self.aim_line(cx);
         cx.notify();
     }
 
@@ -54,6 +55,7 @@ impl Sidebar {
         let hint = self.hint_for(point);
         if hint != self.drag.hint {
             self.drag.hint = hint;
+            self.aim_line(cx);
             cx.notify();
         }
     }

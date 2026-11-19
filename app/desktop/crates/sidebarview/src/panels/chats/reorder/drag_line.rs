@@ -13,29 +13,19 @@ use crate::sidebar::Sidebar;
 
 impl Sidebar {
     pub(crate) fn drop_line_layer(
-        &mut self,
+        &self,
         window: &mut Window,
-        cx: &mut Context<'_, Self>,
+        cx: &Context<'_, Self>,
     ) -> Option<AnyElement> {
-        let target = self.line_target();
-        let Some(target) = target else {
-            self.drag.slide = None;
-            return None;
-        };
+        let target = self.line_target()?;
         let clock = (self.clock.now(), Motion::of(cx));
         let scrolling = self.drag.pull != 0.0;
-        let slide = self
-            .drag
-            .slide
-            .get_or_insert_with(|| LineSlide::resting(target));
-        if scrolling {
-            slide.jump_to(target);
-        }
-        slide.slide_to(target, clock);
-        if slide.is_running(clock) {
+        let aimed = |slide: &LineSlide| !scrolling && slide.target() == target;
+        let slide = self.drag.slide.filter(aimed);
+        if slide.is_some_and(|slide| slide.is_running(clock)) {
             window.request_animation_frame();
         }
-        let at = slide.at(clock);
+        let at = slide.map_or(target, |slide| slide.at(clock));
         let color = Theme::of(cx).palette(Surface::Chrome).sidebar_drop_line();
         let line = anchored()
             .position_mode(AnchoredPositionMode::Local)
@@ -46,6 +36,25 @@ impl Sidebar {
                 .with_priority(layer::DROP_LINE)
                 .into_any_element(),
         )
+    }
+
+    pub(crate) fn aim_line(
+        &mut self,
+        cx: &Context<'_, Self>,
+    ) {
+        let Some(target) = self.line_target() else {
+            self.drag.slide = None;
+            return;
+        };
+        let clock = (self.clock.now(), Motion::of(cx));
+        let slide = self
+            .drag
+            .slide
+            .get_or_insert_with(|| LineSlide::resting(target));
+        if self.drag.pull != 0.0 {
+            slide.jump_to(target);
+        }
+        slide.slide_to(target, clock);
     }
 
     pub(crate) fn line_target(&self) -> Option<LineBox> {
@@ -70,5 +79,24 @@ mod tests {
         cx.run_until_parked();
         let line = sidebar.read_with(cx, |this, _| this.line_target());
         assert!(line.is_some_and(|at| at.width > 0.0), "{line:?}");
+    }
+
+    #[gpui::test]
+    fn the_drop_line_aims_at_a_new_target_when_the_drag_moves(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoShell::rich());
+        let subject = RowId::from("working");
+        sidebar.update(cx, |this, cx| {
+            this.preview_drag(
+                (subject.clone(), RowId::from("folder"), DropMode::Before),
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        let aimed = sidebar.update(cx, |this, cx| {
+            this.preview_drag((subject, RowId::from("folder"), DropMode::After), cx);
+            let aim = this.drag.slide.map(|slide| slide.target());
+            (aim, this.line_target())
+        });
+        assert_eq!(aimed.0, aimed.1, "aimed on the move, before any paint");
     }
 }

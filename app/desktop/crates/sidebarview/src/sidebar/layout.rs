@@ -71,13 +71,10 @@ fn floating_layers(
 
 impl Sidebar {
     fn floats(
-        &mut self,
+        &self,
         geometry: &Geometry,
         cx: &Context<'_, Self>,
     ) -> bool {
-        if self.line_target().is_none() {
-            self.drag.slide = None;
-        }
         geometry.is_drawer()
             || self.peek.is_shown(Motion::of(cx))
             || self.tree.removals().confirmation().is_some()
