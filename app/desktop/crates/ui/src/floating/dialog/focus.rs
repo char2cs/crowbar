@@ -9,6 +9,17 @@ pub(crate) struct Focus {
 }
 
 impl Focus {
+    pub(crate) fn kept(
+        (id, first): (gpui::ElementId, Option<FocusHandle>),
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Self {
+        let focus = window.use_keyed_state((id, "focus"), cx, |window, cx| {
+            Self::opening(window, cx, first)
+        });
+        focus.read(cx).clone()
+    }
+
     pub(crate) fn opening(
         window: &mut Window,
         cx: &mut App,

@@ -83,6 +83,11 @@ impl DialogStyle {
         }
     }
 
+    /// Whether a press on the backdrop dismisses the dialog; an alert answers only its buttons.
+    pub fn backdrop_closes(self) -> bool {
+        !matches!(self, Self::Alert)
+    }
+
     /// Padding the dialog puts around its body; plain bodies bring their own.
     pub fn body_padding(self) -> Pixels {
         match self {

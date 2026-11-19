@@ -238,13 +238,13 @@ impl RenderOnce for Dialog {
     ) -> impl IntoElement {
         let theme = *Theme::of(cx);
         let viewport = window.viewport_size();
-        let first = self.first.clone();
-        let focus = window.use_keyed_state((self.id.clone(), "focus"), cx, |window, cx| {
-            Focus::opening(window, cx, first)
-        });
-        let focus = focus.read(cx).clone();
+        let focus = Focus::kept((self.id.clone(), self.first.clone()), window, cx);
         let duration = Motion::of(cx).duration(timing::SLOW);
-        let (id, scrim_close) = (self.id.clone(), self.on_close.clone());
+        let scrim_close = self
+            .on_close
+            .clone()
+            .filter(|_| self.style.backdrop_closes());
+        let id = self.id.clone();
         let keyed = keyboard(
             div().id((id.clone(), "scrim")),
             focus.clone(),
@@ -302,6 +302,25 @@ mod tests {
         });
         cx.simulate_click(point(px(2.0), px(2.0)), gpui::Modifiers::none());
         assert_eq!(closed.get(), 1, "a press on the scrim closes");
+    }
+
+    #[gpui::test]
+    fn a_press_on_an_alert_scrim_does_not_close_it(cx: &mut TestAppContext) {
+        let closed = Rc::new(Cell::new(0));
+        let counter = Rc::clone(&closed);
+        let cx = open(cx, move |_, _| {
+            let counter = Rc::clone(&counter);
+            Dialog::new("d")
+                .style(DialogStyle::Alert)
+                .title("Delete?")
+                .on_close(move |_, _| counter.set(counter.get() + 1))
+        });
+        cx.simulate_click(point(px(2.0), px(2.0)), gpui::Modifiers::none());
+        assert_eq!(
+            closed.get(),
+            0,
+            "develop's AlertDialog ignores the backdrop"
+        );
     }
 
     #[gpui::test]
