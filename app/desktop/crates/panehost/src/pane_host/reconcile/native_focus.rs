@@ -1,6 +1,5 @@
 use crate::error::Result;
 use crate::pane_host::PaneHost;
-use crate::pane_host::lifecycle::stage::Stage;
 use crate::pane_host::overlay::Overlay;
 use crate::pane_host::reconcile::Keyboard;
 use crate::slot::Slot;
@@ -29,7 +28,7 @@ impl PaneHost {
             .focused
             .as_ref()
             .and_then(|pane| self.panes.get(pane))?;
-        if runtime.stage != Stage::Active {
+        if !runtime.is_visible() {
             return None;
         }
         runtime.slot.and_then(|id| self.pool.get(id))
@@ -56,7 +55,8 @@ mod tests {
     use webview::Call;
 
     use super::*;
-    use crate::test_support::{fixture, instance, register};
+    use crate::catalog::PaneLifecycle;
+    use crate::test_support::{fixture, instance, pane_type, register};
 
     #[test]
     fn the_keyboard_goes_back_to_its_owner() {
@@ -95,6 +95,24 @@ mod tests {
                 .collect();
             assert_eq!(focus_calls, Vec::from_iter(wanted), "{name}");
         }
+    }
+
+    #[test]
+    fn a_browser_page_takes_the_keyboard_without_registering() {
+        let mut f = fixture();
+        f.host
+            .registry_mut()
+            .register(pane_type("core.browser", PaneLifecycle::Parkable))
+            .unwrap();
+        let panes = [instance("b1", "core.browser")];
+        f.sync_with(&panes, &["b1"], (Some("b1"), Keyboard::Pane));
+        let before = f.mock.calls().len();
+        f.host.apply_keyboard().unwrap();
+        let focus_calls: Vec<&str> = f.mock.calls()[before..]
+            .iter()
+            .filter_map(focus_call)
+            .collect();
+        assert_eq!(focus_calls, ["focus"]);
     }
 
     fn focus_call(call: &Call) -> Option<&'static str> {
