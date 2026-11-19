@@ -40,7 +40,7 @@ impl Removals {
             return false;
         };
         self.tray
-            .hold(row.id.clone(), (kind, row.label.clone()), now);
+            .hold(row.id.clone(), (kind, removal_label(row)), now);
         if kind.needs_confirmation() {
             self.confirmation = self
                 .tray
@@ -124,6 +124,13 @@ fn removal_kind(row: &Row) -> Option<RemovalKind> {
     }
 }
 
+fn removal_label(row: &Row) -> String {
+    match (&row.kind, &row.workspace) {
+        (RowKind::Branch, Some(workspace)) => workspace.branch.clone(),
+        _ => row.label.clone(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,6 +156,28 @@ mod tests {
             "second question"
         );
         assert!(!removals.tray().is_counting(), "no clock while asking");
+    }
+
+    #[test]
+    fn a_workspace_is_named_by_its_branch() {
+        use crate::shell::Workspace;
+        use crate::shell::WorkspaceStatus;
+        let mut row = Row::new("w", RowKind::Branch, 1, "Dirty chat");
+        row.workspace = Some(Workspace {
+            status: WorkspaceStatus::New,
+            branch: "ws/dirty".into(),
+            added: 0,
+            deleted: 0,
+            held_by_path: None,
+        });
+        let mut removals = Removals::default();
+        removals.request(&row, Instant::now());
+        removals.ask_to_discard(&row.id, Vec::new());
+        assert_eq!(
+            removals.confirmation().map(Confirmation::title),
+            Some("Delete workspace “ws/dirty”?".into()),
+            "the branch, as develop names it"
+        );
     }
 
     #[test]
