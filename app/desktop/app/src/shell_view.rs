@@ -174,7 +174,6 @@ impl ShellView {
         self.watch_pane_settings();
     }
 
-    /// Whether a shell-wide modal covers the window, which then holds the keyboard.
     fn modal_open(&self) -> bool {
         self.startup.is_some()
             || self.settings.is_some()
@@ -187,7 +186,6 @@ impl ShellView {
             || self.unsaved.is_some()
     }
 
-    /// What floats over the panes, painted in the window's top layer while any is shown.
     fn floating(
         &self,
         cx: &mut Context<'_, Self>,

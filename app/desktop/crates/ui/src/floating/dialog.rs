@@ -487,6 +487,9 @@ mod tests {
                 && r.right() <= card.right()
                 && r.bottom() <= card.bottom()
         };
-        assert!(content.iter().all(inside), "nothing past the card: {content:?}");
+        assert!(
+            content.iter().all(inside),
+            "nothing past the card: {content:?}"
+        );
     }
 }

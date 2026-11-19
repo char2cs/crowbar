@@ -1,4 +1,6 @@
 //! The steps of pairing that wait on the host: probing its certificate and redeeming the code.
+//! A redeemed pairing that cannot be remembered is undone, because a host without its client id
+//! could never be revoked.
 
 use crate::live::HostSpec;
 use crate::live::Note;
@@ -60,8 +62,6 @@ impl PairingSession {
         self.update(|held| held.state.pending = PairingPending::Idle);
     }
 
-    /// Remembers the pairing and starts following the host; a pairing that cannot be remembered
-    /// is undone, because a host without its client id could never be revoked.
     async fn keep(
         &self,
         request: &PairingRequest,

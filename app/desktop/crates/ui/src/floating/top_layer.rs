@@ -14,6 +14,7 @@ use crate::foundation::opaque_debug;
 mod layer;
 mod layers;
 mod reach;
+mod redraw;
 mod registry;
 mod slot;
 

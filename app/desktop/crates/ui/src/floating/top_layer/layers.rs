@@ -3,9 +3,10 @@
 use std::cell::{OnceCell, RefCell};
 use std::collections::BTreeMap;
 
-use gpui::{AnyWindowHandle, App, EntityId, FocusHandle, Window};
+use gpui::{AnyWindowHandle, App, EntityId, FocusHandle};
 
 use crate::floating::top_layer::layer::Layer;
+use crate::floating::top_layer::redraw::Redraw;
 
 type Shown = BTreeMap<(usize, EntityId), Layer>;
 
@@ -50,7 +51,6 @@ impl Layers {
         self.redraw(None, cx);
     }
 
-    /// Redraws the top layer once the owner's frame is done, first focusing `focus` in it.
     fn redraw(
         &self,
         focus: Option<FocusHandle>,
@@ -60,7 +60,8 @@ impl Layers {
             return;
         };
         let floating = !self.shown.borrow().is_empty();
-        cx.defer(move |cx| redraw_now(window, (focus.as_ref(), floating), cx));
+        let redraw = Redraw { focus, floating };
+        cx.defer(move |cx| redraw.on(window, cx));
     }
 
     pub(crate) fn take_keys(
@@ -78,27 +79,6 @@ impl Layers {
     pub(crate) fn shown(&self) -> Vec<Layer> {
         self.shown.borrow().values().cloned().collect()
     }
-}
-
-fn redraw_now(
-    window: AnyWindowHandle,
-    shown: (Option<&FocusHandle>, bool),
-    cx: &mut App,
-) {
-    if let Err(error) = window.update(cx, |_, window, _| show(shown, window)) {
-        tracing::debug!(%error, "the top layer closed before it could redraw");
-    }
-}
-
-fn show(
-    (focus, floating): (Option<&FocusHandle>, bool),
-    window: &mut Window,
-) {
-    window.set_overlay_shown(floating);
-    if let Some(focus) = focus {
-        window.focus(focus);
-    }
-    window.refresh();
 }
 
 #[cfg(test)]

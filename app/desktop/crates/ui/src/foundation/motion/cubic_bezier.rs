@@ -64,7 +64,6 @@ impl CubicBezier {
         }
     }
 
-    /// One Newton iteration: `Ok` with the next guess, `Err(Some)` once solved, `Err(None)` when the slope vanishes.
     fn step(
         &self,
         guess: f32,

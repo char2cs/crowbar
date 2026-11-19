@@ -70,8 +70,6 @@ fn floating_layers(
 }
 
 impl Sidebar {
-    /// Whether anything floats over the window: the peek card or drawer, a dialog, the drop
-    /// line or a menu.
     fn floats(
         &mut self,
         geometry: &Geometry,
@@ -89,7 +87,6 @@ impl Sidebar {
             || self.menu.is_some()
     }
 
-    /// What floats over the window, painted in its top layer above the panes.
     fn layers(
         &mut self,
         geometry: &Geometry,

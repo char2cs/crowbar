@@ -187,15 +187,24 @@ mod tests {
             let portal = showing.get().then(|| Portal::here("p", |_, _| floated()));
             div().children(portal)
         });
-        assert!(!top.update(|window, _| window.is_overlay_shown()), "idle: hidden");
+        assert!(
+            !top.update(|window, _| window.is_overlay_shown()),
+            "idle: hidden"
+        );
         shown.set(true);
         owner.update(|window, _| window.refresh());
         settle(&mut owner);
-        assert!(top.update(|window, _| window.is_overlay_shown()), "floating: shown");
+        assert!(
+            top.update(|window, _| window.is_overlay_shown()),
+            "floating: shown"
+        );
         shown.set(false);
         owner.update(|window, _| window.refresh());
         settle(&mut owner);
-        assert!(!top.update(|window, _| window.is_overlay_shown()), "idle again: hidden");
+        assert!(
+            !top.update(|window, _| window.is_overlay_shown()),
+            "idle again: hidden"
+        );
     }
 
     #[gpui::test]

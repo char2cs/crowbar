@@ -47,6 +47,16 @@ function track_trait(code,   d) {
     trait_name = ""
   }
 }
+function track_impl(code) {
+  # An inherent impl block (`impl X {`, not `impl Trait for X {`): its private fns get no docs.
+  if (!impl_active && code ~ /^impl[ \t<]/) {
+    impl_active = 1; impl_open = 0; impl_depth = 0
+    impl_inherent = (code !~ /[ \t]for[ \t]/)
+  } else if (!impl_active) return
+  impl_depth += brace_delta(code)
+  if (code ~ /\{/) impl_open = 1
+  if (impl_open && impl_depth <= 0) impl_active = 0
+}
 function track_real_infra(raw,   reason) {
   # A fn carrying #[ignore = "real-infra: what and why"] (a test, or a helper only such tests call) is exempt in its
   # body, and so is any file under a `real_infra/` directory of test support; the CI job running --include-ignored runs them.
@@ -125,7 +135,8 @@ BEGIN { ri_active = ri_file + 0; pend_doc = 0; cfg_line = 0; in_t = 0; t_depth =
   if (raw ~ /^[ \t]*#\[/ || raw ~ /^[ \t]*$/) { if (raw ~ /^[ \t]*$/) pend_doc = 0; next }
   if (pend_doc) {
     if (raw ~ /^(pub\((crate|super|in [a-z_:]+)\) )?(async |const |unsafe |extern "C" )*(fn|struct|enum|trait|type|const|static|mod|union)[ \t]/ ||
-        raw ~ /^[ \t]+pub\((crate|super)\) /)
+        raw ~ /^[ \t]+pub\((crate|super)\) / ||
+        (impl_active && impl_inherent && impl_depth == 1 && raw ~ /^[ \t]+(async |const |unsafe )*fn[ \t]/))
       report(doc_line, "doc-private", "doc comment on a non-public item")
     pend_doc = 0
   }
@@ -148,6 +159,7 @@ BEGIN { ri_active = ri_file + 0; pend_doc = 0; cfg_line = 0; in_t = 0; t_depth =
   if (code ~ /\.expect\(/ && !allow_unwrap) report(NR, "panic", "expect() outside tests/main")
   if (code ~ /(^|[^a-z_])(panic|todo|unimplemented|unreachable|dbg)!/) report(NR, "panic", "panic!/todo!/unimplemented!/unreachable!/dbg! outside tests")
   track_trait(code)
+  track_impl(code)
   if (code ~ /(^|[^A-Za-z_])(Instant|SystemTime)::now\(\)|(Utc|Local)::now\(\)/ && file !~ /\/adapters\//) report(NR, "direct-time", "direct clock read: inject a Clock (adapters/ directories are exempt)")
   if (code ~ /(^|[^A-Za-z_])(std|tokio)::fs([^A-Za-z_]|$)|(^|[^A-Za-z_:])fs::(read|write|create_dir|remove|copy|rename|metadata|File|OpenOptions)|File::(open|create)|OpenOptions::new/ && file !~ /\/adapters\//) report(NR, "direct-fs", "direct filesystem access: go through an injected port (adapters/ directories are exempt)")
   if (code ~ /Result<[^;{]*,[ \t]*(String|&('static[ \t]+)?str)[ \t]*>/) report(NR, "result-string", "Result with a String/&str error: use a typed error enum")

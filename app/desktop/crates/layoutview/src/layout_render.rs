@@ -198,7 +198,6 @@ impl LayoutView {
             .into_any_element()
     }
 
-    /// The highlight of where a drag in progress would land, above the panes' web views.
     fn drop_layer(
         &self,
         cx: &App,
