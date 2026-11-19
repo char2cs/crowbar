@@ -317,4 +317,25 @@ mod tests {
         assert_eq!(dropped.get(), 1, "the owner holds the drop target");
         assert!(!cx.update(|cx| cx.has_active_drag()), "the drag ended");
     }
+
+    #[gpui::test]
+    fn files_dropped_on_the_top_layer_drop_on_the_owner(cx: &mut TestAppContext) {
+        let dropped = Rc::new(Cell::new(0));
+        let count = Rc::clone(&dropped);
+        let (_owner, mut top) = open_floating(cx, move |_, _| {
+            let count = Rc::clone(&count);
+            div()
+                .id("target")
+                .size(px(300.0))
+                .on_drop(move |_: &gpui::ExternalPaths, _, _| count.set(count.get() + 1))
+                .child(Portal::here("p", |_, _| div().size(px(10.0))))
+        });
+        let position = gpui::point(px(100.0), px(100.0));
+        let paths = gpui::ExternalPaths::from_paths([std::path::PathBuf::from("/a")]);
+        top.simulate_event(gpui::FileDropEvent::Entered { position, paths });
+        top.simulate_event(gpui::FileDropEvent::Pending { position });
+        top.simulate_event(gpui::FileDropEvent::Submit { position });
+        top.run_until_parked();
+        assert_eq!(dropped.get(), 1, "the owner holds the drop target");
+    }
 }

@@ -3865,12 +3865,23 @@ impl Window {
 
     /// A drag that starts in an overlay moves over and drops on its owner, which holds the drop
     /// targets: pointer moves go to the owner, and a release ends the drag there before the
-    /// overlay sees it. Returns whether the event was the owner's alone.
+    /// overlay sees it. Files dragged in from another application go to the owner alone.
+    /// Returns whether the event was the owner's alone.
     fn forward_drag_to_owner(&mut self, event: &PlatformInput, cx: &mut App) -> bool {
-        let Some(owner) = self.overlay_of.filter(|_| cx.has_active_drag()) else {
+        let Some(owner) = self.overlay_of else {
             return false;
         };
         let origin = self.owner_bounds().map_or(Point::default(), |bounds| bounds.origin);
+        if let PlatformInput::FileDrop(drop) = event {
+            let forwarded = PlatformInput::FileDrop(file_drop_at(drop, origin));
+            owner
+                .update(cx, |_, window, cx| window.dispatch_event(forwarded, cx))
+                .log_err();
+            return true;
+        }
+        if !cx.has_active_drag() {
+            return false;
+        }
         let (forwarded, owner_only) = match event {
             PlatformInput::MouseMove(event) => (
                 PlatformInput::MouseMove(MouseMoveEvent {
@@ -5319,5 +5330,22 @@ pub fn outline(
         border_widths: (1.).into(),
         border_color: border_color.into(),
         border_style,
+    }
+}
+
+/// `drop` with its position moved by `-origin`, into the owner's coordinates.
+fn file_drop_at(drop: &FileDropEvent, origin: Point<Pixels>) -> FileDropEvent {
+    match drop {
+        FileDropEvent::Entered { position, paths } => FileDropEvent::Entered {
+            position: *position - origin,
+            paths: paths.clone(),
+        },
+        FileDropEvent::Pending { position } => FileDropEvent::Pending {
+            position: *position - origin,
+        },
+        FileDropEvent::Submit { position } => FileDropEvent::Submit {
+            position: *position - origin,
+        },
+        FileDropEvent::Exited => FileDropEvent::Exited,
     }
 }
