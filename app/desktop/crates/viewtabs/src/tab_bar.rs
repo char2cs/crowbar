@@ -95,6 +95,9 @@ impl TabBar {
         active: Option<TabId>,
         cx: &mut Context<'_, Self>,
     ) {
+        if self.tabs == tabs && self.active == active {
+            return;
+        }
         let changed = self.active != active;
         if let (true, Some(index)) = (changed, active.and_then(|id| position(&tabs, id))) {
             self.scroll.scroll_to_item(index);
@@ -133,6 +136,9 @@ pub(crate) fn position(
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
     use gpui::TestAppContext;
     use layout::TabId;
 
@@ -158,6 +164,23 @@ mod tests {
             (first.id, second.id)
         });
         assert_eq!(ids, (TabId(50), TabId(51)), "50 then 51");
+    }
+
+    #[gpui::test]
+    fn the_same_tabs_again_do_not_redraw_the_strip(cx: &mut TestAppContext) {
+        let harness = open(cx, vec![view(1, &["a"])], 1);
+        let (bar, cx) = (harness.bar, harness.cx);
+        let notified = Rc::new(Cell::new(0));
+        let count = Rc::clone(&notified);
+        let _watch = cx.update(|_, cx| cx.observe(&bar, move |_, _| count.set(count.get() + 1)));
+        bar.update(cx, |bar, cx| {
+            bar.set_tabs(vec![view(1, &["a"])], Some(TabId(1)), cx)
+        });
+        assert_eq!(notified.get(), 0, "identical tabs");
+        bar.update(cx, |bar, cx| {
+            bar.set_tabs(vec![view(1, &["b"])], Some(TabId(1)), cx)
+        });
+        assert_eq!(notified.get(), 1, "a changed member");
     }
 
     #[test]
