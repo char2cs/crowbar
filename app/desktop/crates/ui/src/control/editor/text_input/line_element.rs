@@ -10,9 +10,8 @@ use gpui::{
 
 use crate::control::editor::field::Frame;
 use crate::control::editor::field::capture_pointer;
-use crate::control::editor::field::{band_frame, caret_frame, runs_for, tend};
+use crate::control::editor::field::{band_frame, blinks, caret_frame, runs_for, tend};
 use crate::control::editor::text_input::line_surface::LineSurface;
-use crate::foundation::Motion;
 use crate::foundation::Palette;
 use crate::foundation::Pose;
 
@@ -181,7 +180,7 @@ impl<S: LineSurface> Element for LineElement<S> {
         debug_assert!(painted.is_ok(), "shaped line failed to paint");
         let lit = focus.is_focused(window) && window.is_window_active();
         let caret = prepaint.caret.take().filter(|_| lit);
-        let blinks = Pose::from(caret.is_some() && !Motion::of(cx).is_reduced());
+        let blinks = blinks(Pose::from(caret.is_some()), cx);
         let shown = self.input.read(cx).blink().is_shown() || blinks == Pose::Off;
         if let Some(caret) = caret.filter(|_| shown) {
             window.paint_quad(caret);
@@ -203,8 +202,9 @@ mod tests {
     use crate::control::editor::field::Blinking as _;
     use crate::control::editor::test_support::field::{drawn_field, field};
     use crate::control::editor::text_input::TextInput;
+    use crate::foundation::CaretBlink;
     use crate::foundation::Motion;
-    use crate::foundation::tokens::timing;
+    use crate::foundation::caret_blink::GTK_DEFAULT_PHASE;
 
     const JUST_BEFORE: Duration = Duration::from_millis(1);
     const MANY_BLINKS: u32 = 10;
@@ -221,13 +221,13 @@ mod tests {
         let (input, draws, cx) = drawn_field(cx);
         let settled = draws.get();
         cx.executor()
-            .advance_clock(timing::CARET_BLINK.saturating_sub(JUST_BEFORE));
+            .advance_clock(GTK_DEFAULT_PHASE.saturating_sub(JUST_BEFORE));
         assert_eq!(draws.get(), settled, "no frame before the blink edge");
         assert!(shown(&input, cx), "the caret starts shown");
         cx.executor().advance_clock(JUST_BEFORE);
         assert_eq!(draws.get(), settled + 1, "one frame at the edge");
         assert!(!shown(&input, cx), "the edge hides the caret");
-        cx.executor().advance_clock(timing::CARET_BLINK);
+        cx.executor().advance_clock(GTK_DEFAULT_PHASE);
         assert_eq!(draws.get(), settled + 2, "one frame at the next edge");
         assert!(shown(&input, cx), "and the next edge shows it again");
     }
@@ -237,24 +237,23 @@ mod tests {
         let (input, draws, cx) = drawn_field(cx);
         cx.deactivate_window();
         let settled = draws.get();
-        cx.executor()
-            .advance_clock(timing::CARET_BLINK * MANY_BLINKS);
+        cx.executor().advance_clock(GTK_DEFAULT_PHASE * MANY_BLINKS);
         assert_eq!(draws.get(), settled, "no frames while inactive");
         cx.update(|window, _| window.activate_window());
         cx.run_until_parked();
         assert!(shown(&input, cx), "the caret is back, shown, on return");
         let back = draws.get();
-        cx.executor().advance_clock(timing::CARET_BLINK);
+        cx.executor().advance_clock(GTK_DEFAULT_PHASE);
         assert_eq!(draws.get(), back + 1, "and blinks again");
     }
 
     #[gpui::test]
     fn typing_restarts_the_blink_phase(cx: &mut TestAppContext) {
         let (input, _, cx) = drawn_field(cx);
-        cx.executor().advance_clock(timing::CARET_BLINK / 2);
+        cx.executor().advance_clock(GTK_DEFAULT_PHASE / 2);
         cx.simulate_input("a");
         cx.executor()
-            .advance_clock(timing::CARET_BLINK.saturating_sub(JUST_BEFORE));
+            .advance_clock(GTK_DEFAULT_PHASE.saturating_sub(JUST_BEFORE));
         assert!(shown(&input, cx), "the old edge passed without hiding it");
         cx.executor().advance_clock(JUST_BEFORE);
         assert!(!shown(&input, cx), "a full phase after the keystroke");
@@ -267,8 +266,19 @@ mod tests {
         cx.update(|window, _| window.refresh());
         cx.run_until_parked();
         let settled = draws.get();
-        cx.executor()
-            .advance_clock(timing::CARET_BLINK * MANY_BLINKS);
+        cx.executor().advance_clock(GTK_DEFAULT_PHASE * MANY_BLINKS);
+        assert_eq!(draws.get(), settled, "no blink frames");
+        assert!(shown(&input, cx), "the caret stays shown");
+    }
+
+    #[gpui::test]
+    fn a_steady_caret_setting_keeps_the_caret_shown_without_frames(cx: &mut TestAppContext) {
+        let (input, draws, cx) = drawn_field(cx);
+        cx.update(|_, cx| cx.set_global(CaretBlink::Steady));
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+        let settled = draws.get();
+        cx.executor().advance_clock(GTK_DEFAULT_PHASE * MANY_BLINKS);
         assert_eq!(draws.get(), settled, "no blink frames");
         assert!(shown(&input, cx), "the caret stays shown");
     }

@@ -11,7 +11,7 @@ mod selection;
 mod selection_drag;
 mod text;
 
-pub(crate) use blink::{Blink, tend};
+pub(crate) use blink::{Blink, blinks, tend};
 pub(crate) use blinking::Blinking;
 pub(crate) use chrome::{Chrome, chrome};
 pub(crate) use editable::Editable;

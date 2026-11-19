@@ -1,5 +1,6 @@
 //! What every component builds on: theme, tokens, motion, icons and shared callbacks.
 
+pub(crate) mod caret_blink;
 mod close_handler;
 mod direction;
 mod icon;
@@ -9,6 +10,7 @@ mod opaque_debug;
 mod theme;
 pub(crate) mod tokens;
 
+pub use caret_blink::CaretBlink;
 pub(crate) use close_handler::CloseHandler;
 pub(crate) use direction::Direction;
 pub use icon::{Icon, IconName, IconWeight, Wordmark, assets};

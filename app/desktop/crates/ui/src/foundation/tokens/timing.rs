@@ -20,7 +20,5 @@ pub const AUTOSCROLL: Duration = Duration::from_millis(50);
 pub const TOAST_TIMEOUT: Duration = Duration::from_secs(5);
 /// Skeleton shimmer cycle.
 pub const SKELETON: Duration = Duration::from_secs(2);
-/// How long a blinking caret stays shown, then hidden: a one-second cycle of two steps.
-pub const CARET_BLINK: Duration = Duration::from_millis(500);
 /// Spinner rotation cycle.
 pub const SPIN: Duration = Duration::from_secs(1);

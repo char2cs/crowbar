@@ -21,13 +21,12 @@ use gpui::{
 };
 
 use crate::control::editor::field::capture_pointer;
-use crate::control::editor::field::tend;
+use crate::control::editor::field::{blinks, tend};
 use crate::control::editor::text_area::layout::Layout;
 use crate::control::editor::text_area::wrapped_element::frame::Frame;
 use crate::control::editor::text_area::wrapped_element::scroll::reveal;
 use crate::control::editor::text_area::wrapped_element::shape::Shape;
 use crate::control::editor::text_input::CARET_WIDTH;
-use crate::foundation::Motion;
 use crate::foundation::Palette;
 use crate::foundation::Pose;
 
@@ -199,7 +198,7 @@ impl<S: WrappedSurface> Element for WrappedElement<S> {
             window.handle_input(&focus, handler, cx);
         }
         let lit = editable && focus.is_focused(window) && window.is_window_active();
-        let blinks = Pose::from(lit && frame.caret.is_some() && !Motion::of(cx).is_reduced());
+        let blinks = blinks(Pose::from(lit && frame.caret.is_some()), cx);
         let shown = self.area.read(cx).blink().is_shown() || blinks == Pose::Off;
         let caret = Pose::from(lit && shown);
         window.with_content_mask(Some(ContentMask { bounds }), |window| {
@@ -224,7 +223,7 @@ mod tests {
     use crate::control::editor::field::Blinking as _;
     use crate::control::editor::test_support::area::{area, area_text, area_with, drawn_area};
     use crate::control::editor::text_area::TextArea;
-    use crate::foundation::tokens::timing;
+    use crate::foundation::caret_blink::GTK_DEFAULT_PHASE;
 
     const JUST_BEFORE: Duration = Duration::from_millis(1);
 
@@ -250,7 +249,7 @@ mod tests {
         let (entity, draws, cx) = drawn_area(cx);
         let settled = draws.get();
         cx.executor()
-            .advance_clock(timing::CARET_BLINK.saturating_sub(JUST_BEFORE));
+            .advance_clock(GTK_DEFAULT_PHASE.saturating_sub(JUST_BEFORE));
         assert_eq!(draws.get(), settled, "no frame before the blink edge");
         cx.executor().advance_clock(JUST_BEFORE);
         assert_eq!(draws.get(), settled + 1, "one frame at the edge");
@@ -264,7 +263,7 @@ mod tests {
         let (_, draws, cx) = drawn_area(cx);
         cx.deactivate_window();
         let settled = draws.get();
-        cx.executor().advance_clock(timing::CARET_BLINK * 10);
+        cx.executor().advance_clock(GTK_DEFAULT_PHASE * 10);
         assert_eq!(draws.get(), settled, "no frames while inactive");
     }
 

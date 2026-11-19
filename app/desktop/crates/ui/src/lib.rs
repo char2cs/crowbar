@@ -27,8 +27,9 @@ pub use floating::{
     TooltipSide, click_away, popup_at,
 };
 pub use foundation::{
-    Appearance, CubicBezier, Glide, HoverFill, Icon, IconName, IconWeight, Motion, Palette, Pose,
-    ScaledText, Surface, Theme, ThemeId, ThemeMode, Vibrancy, Wordmark, assets, focus_ring,
+    Appearance, CaretBlink, CubicBezier, Glide, HoverFill, Icon, IconName, IconWeight, Motion,
+    Palette, Pose, ScaledText, Surface, Theme, ThemeId, ThemeMode, Vibrancy, Wordmark, assets,
+    focus_ring,
 };
 pub use foundation::{font, layer, radius, shadow, spacing, text_size, timing};
 pub use ui::init;
