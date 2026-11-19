@@ -142,7 +142,9 @@ mod tests {
             let mut tray = RemovalTray::default();
             tray.hold(RowId::from("x"), (*kind, "x".into()), now);
             let hold = tray.get(&RowId::from("x")).expect("held");
-            assert_eq!(hold.seconds_left(now), *seconds, "{name}");
+            let counting = matches!(hold.deadline, Deadline::At(_));
+            let shown = counting.then(|| hold.seconds_left(now));
+            assert_eq!(shown, *seconds, "{name}");
         }
     }
 

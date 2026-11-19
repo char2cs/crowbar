@@ -22,22 +22,20 @@ pub struct Hold {
 }
 
 impl Hold {
-    /// The whole seconds left on the countdown, rounded up.
-    /// `None` when the hold has no clock: it awaits confirmation or is committed.
+    /// The whole seconds left on the countdown, rounded up; a hold with no clock (awaiting
+    /// confirmation or committed) reads 0, as develop's row does.
     pub fn seconds_left(
         &self,
         now: Instant,
-    ) -> Option<u64> {
+    ) -> u64 {
         let Deadline::At(deadline) = self.deadline else {
-            return None;
+            return 0;
         };
         let left = deadline.saturating_duration_since(now);
-        Some(
-            left.as_millis()
-                .div_ceil(MILLIS_PER_SECOND)
-                .try_into()
-                .unwrap_or(u64::MAX),
-        )
+        left.as_millis()
+            .div_ceil(MILLIS_PER_SECOND)
+            .try_into()
+            .unwrap_or(u64::MAX)
     }
 
     /// The title of the notice saying the daemon refused to remove the row, naming it.
@@ -80,12 +78,12 @@ mod tests {
         }
     }
 
-    type SecondCase = (&'static str, Option<u64>, u64, Option<u64>);
+    type SecondCase = (&'static str, Option<u64>, u64, u64);
 
     const SECOND_CASES: &[SecondCase] = &[
-        ("7.001s shows 8", Some(7_001), 0, Some(8)),
-        ("due shows 0", Some(7_001), 7_001, Some(0)),
-        ("confirm has no clock", None, 0, None),
+        ("7.001s shows 8", Some(7_001), 0, 8),
+        ("due shows 0", Some(7_001), 7_001, 0),
+        ("confirm shows 0", None, 0, 0),
     ];
 
     fn deadline_after(
@@ -98,7 +96,7 @@ mod tests {
     }
 
     #[test]
-    fn seconds_round_up_and_clockless_holds_have_none() {
+    fn seconds_round_up_and_clockless_holds_show_zero() {
         let now = Instant::now();
         for (name, deadline_ms, at_ms, expected) in SECOND_CASES {
             let deadline = deadline_after(now, *deadline_ms);

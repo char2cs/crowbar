@@ -1,11 +1,13 @@
 //! A row counting down to its deletion, with the keep button and the drain bar.
 
+use std::sync::Arc;
 use std::time::Instant;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, Div, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement, RenderOnce,
-    SharedString, Stateful, StatefulInteractiveElement, Styled, Window, div, px, relative,
+    App, Div, ElementId, Font, FontFeatures, FontStyle, FontWeight, InteractiveElement,
+    IntoElement, ParentElement, RenderOnce, SharedString, Stateful, StatefulInteractiveElement,
+    Styled, Window, div, px, relative,
 };
 use sidebar::{Expansion, Hold, Intent, RemovalTray, Row, RowKind, Titling};
 use ui::{Icon, IconName, IconWeight, Palette, Surface, Theme, radius, spacing};
@@ -20,6 +22,7 @@ const BAR_INSET: f32 = 8.0;
 const BAR_BOTTOM: f32 = 3.0;
 const BAR_HEIGHT: f32 = 2.0;
 const FIGURE: f32 = 11.0;
+const TABULAR: &str = "tnum";
 
 #[derive(IntoElement)]
 pub(crate) struct RemovingRow {
@@ -35,16 +38,17 @@ impl RenderOnce for RemovingRow {
         window: &mut Window,
         cx: &mut App,
     ) -> impl IntoElement {
-        let mono = Theme::of(cx).mono_family();
-        let palette = Theme::of(cx).palette(Surface::Chrome);
+        let theme = Theme::of(cx);
+        let (mono, palette) = (theme.mono_family(), theme.palette(Surface::Chrome));
         let drain = self.hold.drain(self.now, RemovalTray::DRAIN);
         if drain > 0.0 {
             window.request_animation_frame();
         }
-        let seconds = self
-            .hold
-            .seconds_left(self.now)
-            .map(|left| figure(left.to_string(), mono, palette));
+        let seconds = figure(
+            self.hold.seconds_left(self.now).to_string(),
+            theme.ui_family(),
+            palette,
+        );
         let keep = RowAction::Intent(Intent::Keep(self.row.id.clone()));
         let id = ElementId::from(SharedString::from(format!(
             "removing-{}",
@@ -54,7 +58,7 @@ impl RenderOnce for RemovingRow {
             .hover(move |style| style.bg(palette.sidebar_element_idle()))
             .child(glyph(&self.row, palette))
             .child(title(&self.row, mono))
-            .children(seconds)
+            .child(seconds)
             .child(keep_button(palette).on_click(report(&self.handler, keep)))
             .child(drain_bar(drain, palette))
     }
@@ -113,13 +117,20 @@ fn glyph(
 
 fn figure(
     text: String,
-    mono: &'static str,
+    family: &'static str,
     palette: &Palette,
-) -> impl IntoElement {
+) -> Div {
+    let tabular = Font {
+        family: family.into(),
+        features: FontFeatures(Arc::new(vec![(TABULAR.into(), 1)])),
+        fallbacks: None,
+        weight: FontWeight::NORMAL,
+        style: FontStyle::Normal,
+    };
     div()
         .flex_none()
         .text_size(px(FIGURE))
-        .font_family(mono)
+        .font(tabular)
         .text_color(palette.muted_foreground())
         .child(text)
 }
