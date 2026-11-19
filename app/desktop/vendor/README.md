@@ -8,7 +8,7 @@ Three crates are patched copies of the crates.io release, wired in through `[pat
 
 Drop the vendored copy when upstream gpui implements the X11 handles in a published release. Tracking: zed-industries/zed, `crates/gpui/src/platform/linux/x11/window.rs`.
 
-`gpui-variable-weight.patch` (`src/platform/linux/text_system.rs`) makes the Linux text backend honour the `wght` axis of variable faces (Cal Sans UI): gpui keeps one `LoadedFont` per requested weight of a variable face, passes that weight to shaping as a `wght` font feature, and rasterizes those glyphs with swash at that `wght` instance. Upstream always draws the default instance. macOS uses CoreText and is untouched.
+`gpui-variable-weight.patch` (`src/platform/linux/text_system.rs`) makes the Linux text backend honour the `wght` axis of variable faces (Cal Sans UI): gpui keeps one `LoadedFont` per requested weight of a variable face, passes that weight to shaping as a `wght` font feature, and rasterizes those glyphs with swash at that `wght` instance. Upstream always draws the default instance. macOS uses CoreText and is untouched. The same patch synthesizes italic: when italic is asked of a family with no italic face (Cal Sans UI has none), gpui keeps a second `LoadedFont` for that face that rasterizes slanted 14 degrees, as WebKit does for the Tauri build's provisional titles. Upstream draws such text upright.
 
 `gpui-svg-image-bgra.patch` (`src/platform.rs`): an SVG decoded through `Image::to_image_data` keeps tiny-skia's RGBA order while every other format is converted to the BGRA the renderer expects, so coloured SVG images drew with red and blue swapped. The shell draws provider icons this way.
 

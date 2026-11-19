@@ -6,9 +6,9 @@ use crate::{
 use anyhow::{Context as _, Ok, Result};
 use collections::HashMap;
 use cosmic_text::{
-    Attrs, AttrsList, CacheKey, CacheKeyFlags, Family, Font as CosmicTextFont,
+    Angle, Attrs, AttrsList, CacheKey, CacheKeyFlags, Family, Font as CosmicTextFont,
     FontFeatures as CosmicFontFeatures, FontSystem, Format, Render, ScaleContext, ShapeBuffer,
-    ShapeLine, Source, StrikeWith, SwashCache, SwashImage, Vector, tag_from_bytes,
+    ShapeLine, Source, StrikeWith, SwashCache, SwashImage, Transform, Vector, tag_from_bytes,
 };
 
 use itertools::Itertools;
@@ -19,6 +19,9 @@ use pathfinder_geometry::{
 };
 use smallvec::SmallVec;
 use std::{borrow::Cow, sync::Arc};
+
+/// Slant of a synthesized italic, in degrees: cosmic-text's own fake italic.
+const FAKE_ITALIC_SLANT: f32 = 14.0;
 
 pub(crate) struct CosmicTextSystem(RwLock<CosmicTextSystemState>);
 
@@ -52,6 +55,8 @@ struct LoadedFont {
     is_known_emoji_font: bool,
     /// Requested `wght` of a variable face; `None` renders the face at its default instance.
     weight: Option<u16>,
+    /// Italic was asked of a family without an italic face: glyphs are slanted when rasterized.
+    fake_italic: bool,
 }
 
 impl CosmicTextSystem {
@@ -122,7 +127,12 @@ impl PlatformTextSystem for CosmicTextSystem {
                 .context("requested font family contains no font matching the other parameters")?;
 
         let base = candidates[ix];
-        Ok(state.with_weight(base, font.weight))
+        let upright = candidate_properties[ix].style == font_kit::properties::Style::Normal;
+        let weighted = state.with_weight(base, font.weight);
+        if !upright || font.style == FontStyle::Normal {
+            return Ok(weighted);
+        }
+        Ok(state.with_fake_italic(weighted))
     }
 
     fn font_metrics(&self, font_id: FontId) -> FontMetrics {
@@ -256,6 +266,7 @@ impl CosmicTextSystemState {
                 features: features.try_into()?,
                 is_known_emoji_font: check_is_known_emoji_font(&postscript_name),
                 weight: None,
+                fake_italic: false,
             });
         }
 
@@ -284,6 +295,11 @@ impl CosmicTextSystemState {
     fn glyph_image(&mut self, params: &RenderGlyphParams) -> Option<SwashImage> {
         let loaded = &self.loaded_fonts[params.font_id.0];
         let (font, weight) = (Arc::clone(&loaded.font), loaded.weight);
+        let flags = if loaded.fake_italic {
+            CacheKeyFlags::FAKE_ITALIC
+        } else {
+            CacheKeyFlags::empty()
+        };
         let subpixel_shift = point(
             params.subpixel_variant.x as f32 / SUBPIXEL_VARIANTS_X as f32 / params.scale_factor,
             params.subpixel_variant.y as f32 / SUBPIXEL_VARIANTS_Y as f32 / params.scale_factor,
@@ -293,7 +309,7 @@ impl CosmicTextSystemState {
             params.glyph_id.0 as u16,
             (params.font_size * params.scale_factor).into(),
             (subpixel_shift.x, subpixel_shift.y.trunc()),
-            CacheKeyFlags::empty(),
+            flags,
         );
         let Some(weight) = weight else {
             return self.swash_cache.get_image(&mut self.font_system, key).clone();
@@ -312,7 +328,33 @@ impl CosmicTextSystemState {
         ])
         .format(Format::Alpha)
         .offset(Vector::new(key.x_bin.as_float(), key.y_bin.as_float()))
+        .transform(flags.contains(CacheKeyFlags::FAKE_ITALIC).then(|| {
+            Transform::skew(Angle::from_degrees(FAKE_ITALIC_SLANT), Angle::from_degrees(0.0))
+        }))
         .render(&mut scaler, key.glyph_id)
+    }
+
+    /// The `FontId` that draws `upright` slanted, for an italic asked of a family that has no
+    /// italic face (as browsers synthesize one). gpui keys glyph caches by `FontId`.
+    fn with_fake_italic(&mut self, upright: FontId) -> FontId {
+        let loaded = self.loaded_font(upright);
+        let (id, weight) = (loaded.font.id(), loaded.weight);
+        if let Some(ix) = self
+            .loaded_fonts
+            .iter()
+            .position(|font| font.font.id() == id && font.weight == weight && font.fake_italic)
+        {
+            return FontId(ix);
+        }
+        let derived = LoadedFont {
+            font: Arc::clone(&loaded.font),
+            features: loaded.features.clone(),
+            is_known_emoji_font: loaded.is_known_emoji_font,
+            weight,
+            fake_italic: true,
+        };
+        self.loaded_fonts.push(derived);
+        FontId(self.loaded_fonts.len() - 1)
     }
 
     /// The `FontId` that draws the face `base` at `weight`: variable faces get one entry per
@@ -328,7 +370,7 @@ impl CosmicTextSystemState {
         if let Some(ix) = self
             .loaded_fonts
             .iter()
-            .position(|font| font.font.id() == id && font.weight == Some(wght))
+            .position(|font| font.font.id() == id && font.weight == Some(wght) && !font.fake_italic)
         {
             return FontId(ix);
         }
@@ -339,6 +381,7 @@ impl CosmicTextSystemState {
             features,
             is_known_emoji_font: loaded.is_known_emoji_font,
             weight: Some(wght),
+            fake_italic: false,
         };
         self.loaded_fonts.push(derived);
         FontId(self.loaded_fonts.len() - 1)
@@ -404,6 +447,7 @@ impl CosmicTextSystemState {
                 features: CosmicFontFeatures::new(),
                 is_known_emoji_font: check_is_known_emoji_font(&face.post_script_name),
                 weight: None,
+                fake_italic: false,
             });
 
             font_id
