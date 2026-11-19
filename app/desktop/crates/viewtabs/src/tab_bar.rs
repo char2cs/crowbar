@@ -174,11 +174,11 @@ mod tests {
         let count = Rc::clone(&notified);
         let _watch = cx.update(|_, cx| cx.observe(&bar, move |_, _| count.set(count.get() + 1)));
         bar.update(cx, |bar, cx| {
-            bar.set_tabs(vec![view(1, &["a"])], Some(TabId(1)), cx)
+            bar.set_tabs(vec![view(1, &["a"])], Some(TabId(1)), cx);
         });
         assert_eq!(notified.get(), 0, "identical tabs");
         bar.update(cx, |bar, cx| {
-            bar.set_tabs(vec![view(1, &["b"])], Some(TabId(1)), cx)
+            bar.set_tabs(vec![view(1, &["b"])], Some(TabId(1)), cx);
         });
         assert_eq!(notified.get(), 1, "a changed member");
     }
