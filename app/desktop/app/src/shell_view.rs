@@ -414,4 +414,58 @@ mod tests {
         assert!(opened.top.debug_bounds("ui-dialog").is_some());
         assert_eq!(hidden_views(&opened.mock), before, "no web view was hidden");
     }
+
+    fn page_focuses(mock: &webview::MockPlatform) -> usize {
+        let focuses = |call: &&webview::Call| matches!(call, webview::Call::Focus { .. });
+        mock.calls().iter().filter(focuses).count()
+    }
+
+    fn register_chat(opened: &mut Opened) {
+        let register = protocol::PaneFrame::Register {
+            type_id: crate::core_panes::chat_type().unwrap_or_else(|error| panic!("{error}")),
+            sdk: protocol::SDK_VERSION,
+        };
+        let text = protocol::encode(&register).unwrap_or_else(|error| panic!("{error}"));
+        let pane = opened.pane.clone();
+        let message = panehost::IpcMessage { pane, text };
+        opened.shell.update(&mut opened.window, |shell, _| {
+            shell.state.handle_ipc(message)
+        });
+    }
+
+    #[gpui::test]
+    fn activating_the_window_leaves_the_keyboard_with_an_open_menu(cx: &mut TestAppContext) {
+        let mut opened = open_shell(cx);
+        register_chat(&mut opened);
+        opened
+            .shell
+            .update(&mut opened.window, |shell, _| shell.startup = None);
+        opened.window.run_until_parked();
+        let tab = opened
+            .window
+            .debug_bounds("tab-label")
+            .unwrap_or_default()
+            .center();
+        let none = gpui::Modifiers::none();
+        opened
+            .window
+            .simulate_mouse_down(tab, gpui::MouseButton::Right, none);
+        opened
+            .window
+            .simulate_mouse_up(tab, gpui::MouseButton::Right, none);
+        opened.window.run_until_parked();
+        assert!(
+            opened.top.update(|window, _| window.takes_keys()),
+            "the menu took the keys"
+        );
+        let before = page_focuses(&opened.mock);
+        opened.window.deactivate_window();
+        opened.window.update(|window, _| window.activate_window());
+        opened.window.run_until_parked();
+        assert_eq!(
+            page_focuses(&opened.mock),
+            before,
+            "no page took the keyboard"
+        );
+    }
 }

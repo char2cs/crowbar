@@ -63,6 +63,15 @@ impl TopLayer {
             .detach();
         Ok(window)
     }
+
+    /// Whether the top layer of `owner` holds the keyboard, because one of its floating
+    /// elements is focused; the owner then leaves the keyboard where it is.
+    pub fn holds_keys(
+        owner: &Window,
+        cx: &mut App,
+    ) -> bool {
+        Registry::of(owner, cx).is_some_and(|layers| layers.take_keys(cx))
+    }
 }
 
 fn options(
@@ -166,6 +175,10 @@ mod tests {
         owner.update(|window, _| window.focus(&focus));
         owner.run_until_parked();
         assert!(top.update(|window, _| window.takes_keys()));
+        assert!(
+            owner.update(|window, cx| TopLayer::holds_keys(window, cx)),
+            "the owner sees it"
+        );
         top.simulate_keystrokes("a");
         assert_eq!(pressed.get(), 1);
     }

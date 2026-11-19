@@ -62,6 +62,18 @@ impl Layers {
         cx.defer(move |cx| redraw_now(window, focus.as_ref(), cx));
     }
 
+    pub(crate) fn take_keys(
+        &self,
+        cx: &mut App,
+    ) -> bool {
+        let Some(window) = self.window.get().copied() else {
+            return false;
+        };
+        window
+            .update(cx, |_, window, _| window.takes_keys())
+            .unwrap_or_default()
+    }
+
     pub(crate) fn shown(&self) -> Vec<Layer> {
         self.shown.borrow().values().cloned().collect()
     }

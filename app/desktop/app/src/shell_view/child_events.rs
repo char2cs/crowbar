@@ -1,4 +1,4 @@
-use gpui::{Context, Entity, MouseDownEvent, Subscription, Window};
+use gpui::{App, Context, Entity, MouseDownEvent, Subscription, Window};
 use layout::Command;
 use layoutview::LayoutEvent;
 use sidebarview::Sidebar;
@@ -35,8 +35,8 @@ impl ShellView {
             cx.subscribe_in(&built.startup, window, |this, _, event, window, cx| {
                 this.on_startup(*event, window, cx);
             }),
-            cx.observe_window_activation(window, |this, window, _| {
-                this.on_window_activation(window);
+            cx.observe_window_activation(window, |this, window, cx| {
+                this.on_window_activation(window, cx);
             }),
         ]
     }
@@ -54,8 +54,11 @@ impl ShellView {
     fn on_window_activation(
         &self,
         window: &Window,
+        cx: &mut App,
     ) {
-        if !window.is_window_active() || self.modal_open() {
+        let something_else_holds_the_keys =
+            self.modal_open() || ui::TopLayer::holds_keys(window, cx);
+        if !window.is_window_active() || something_else_holds_the_keys {
             return;
         }
         self.state.apply_keyboard();
