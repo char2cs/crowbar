@@ -1413,10 +1413,23 @@ impl X11Client {
                 }
             }
             Event::XinputEnter(event) if event.mode == xinput::NotifyMode::NORMAL => {
-                let (window, _) = self.pointer_window(event.event)?;
+                let (window, shift) = self.pointer_window(event.event)?;
                 window.set_hovered(true);
                 let mut state = self.0.borrow_mut();
                 state.mouse_focused_window = Some(window.x_window);
+                let position = point(
+                    px(event.event_x as f32 / u16::MAX as f32 / state.scale_factor),
+                    px(event.event_y as f32 / u16::MAX as f32 / state.scale_factor),
+                ) + shift;
+                let modifiers = modifiers_from_xinput_info(event.mods);
+                drop(state);
+                // The pointer may come back without moving, as when an overlay over it unmaps:
+                // hover then follows where it is, not where it was when it left.
+                window.handle_input(PlatformInput::MouseMove(crate::MouseMoveEvent {
+                    position,
+                    pressed_button: pressed_button_from_mask(event.buttons[0]),
+                    modifiers,
+                }));
             }
             Event::XinputLeave(event) if event.mode == xinput::NotifyMode::NORMAL => {
                 if self.get_window(event.event).is_none() {
