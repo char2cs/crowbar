@@ -4,7 +4,6 @@ use sidebar::{Mark, ProjectId, SpaceIcon};
 
 use crate::live::ProjectRecord;
 use crate::live::State;
-use crate::rows::repo_mark;
 
 pub(crate) fn of(
     state: &State,
@@ -27,10 +26,10 @@ pub(crate) fn mark(
     state: &State,
     record: &ProjectRecord,
 ) -> Mark {
-    match image(state, record) {
-        Some(path) if record.avatar_emoji.is_empty() => Mark::Image(path.into()),
-        _ => repo_mark::of((&record.name, ""), (&record.avatar_emoji, "")),
+    if !record.avatar_emoji.is_empty() {
+        return Mark::Emoji(record.avatar_emoji.clone());
     }
+    image(state, record).map_or(Mark::Fallback, |path| Mark::Image(path.into()))
 }
 
 fn image(
@@ -85,5 +84,9 @@ mod tests {
         assert_eq!(of(&plain, &p), SpaceIcon::Default, "no url, no image");
         let record = image.hosts[0].store.projects.get("p").unwrap().clone();
         assert_eq!(mark(&image, &record), Mark::Image("/c/p-1".into()));
+        let record = plain.hosts[0].store.projects.get("p").unwrap().clone();
+        assert_eq!(mark(&plain, &record), Mark::Fallback, "the books glyph");
+        let record = emoji.hosts[0].store.projects.get("p").unwrap().clone();
+        assert_eq!(mark(&emoji, &record), Mark::Emoji("🦊".into()));
     }
 }
