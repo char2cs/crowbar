@@ -57,7 +57,8 @@ impl Sidebar {
         now: Instant,
         layout: (&RowHandler, f32),
     ) -> AnyElement {
-        let ((row, visible), (handler, width)) = (entry, layout);
+        let ((mut row, visible), (handler, width)) = (entry, layout);
+        row.presence = self.open_chats.presence_of(&row.id);
         let handler = Rc::clone(handler);
         if let Some(hold) = visible.removal {
             return removing_element((row, hold), now, handler);

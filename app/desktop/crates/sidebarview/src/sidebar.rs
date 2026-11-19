@@ -5,6 +5,7 @@ mod clock;
 mod event;
 mod geometry;
 mod layout;
+mod open_chats;
 mod removal;
 mod row_action;
 pub(crate) mod scale;
@@ -37,6 +38,7 @@ use crate::panels::RowBounds;
 use crate::panels::Scrolls;
 use crate::panels::SpaceDraft;
 use crate::sidebar::clock::adapters::system::system_clock;
+use crate::sidebar::open_chats::OpenChats;
 
 const CAROUSEL_SPAN: std::time::Duration = std::time::Duration::from_millis(300);
 
@@ -68,6 +70,7 @@ pub struct Sidebar {
     pub(crate) toasts: Entity<ToastQueue>,
     pub(crate) drag: DragState,
     pub(crate) row_bounds: RowBounds,
+    pub(crate) open_chats: OpenChats,
 }
 
 impl EventEmitter<Event> for Sidebar {}
@@ -110,6 +113,7 @@ impl Sidebar {
             toasts: cx.new(|_| ToastQueue::new(Self::docked_toasts(dock))),
             drag: DragState::default(),
             row_bounds: RowBounds::default(),
+            open_chats: OpenChats::default(),
         }
     }
 
@@ -163,6 +167,19 @@ impl Sidebar {
             queue.set_placement(Self::docked_toasts(side), cx);
         });
         Self::changed(cx);
+    }
+
+    /// Replaces the chats some pane shows: the shell reports them from its layout whenever it
+    /// renders, and the sidebar draws those rows, and the workspace rows they own, on the open
+    /// fill. It holds only the latest report.
+    pub fn set_open_chats(
+        &mut self,
+        chats: impl IntoIterator<Item = RowId>,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if self.open_chats.replace(chats.into_iter().collect()) {
+            cx.notify();
+        }
     }
 
     pub(crate) fn changed(cx: &mut Context<'_, Self>) {

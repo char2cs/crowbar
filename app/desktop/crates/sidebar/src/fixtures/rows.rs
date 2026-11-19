@@ -5,7 +5,6 @@ use crate::shell::AvatarTint;
 use crate::shell::Lock;
 use crate::shell::Mark;
 use crate::shell::Nesting;
-use crate::shell::Presence;
 use crate::shell::Row;
 use crate::shell::RowKind;
 use crate::shell::Titling;
@@ -62,7 +61,6 @@ pub(crate) fn reference_rows() -> Vec<Row> {
     main.lock = Lock::Locked;
     let mut chat = Row::new("chat", RowKind::Branch, 1, "Untitled chat");
     chat.titling = Titling::Provisional;
-    chat.presence = Presence::Open;
     chat.worktree = Worktree::Owned;
     chat.workspace = Some(landed(WorkspaceStatus::New, "inv-rb", 1, 0));
     vec![
