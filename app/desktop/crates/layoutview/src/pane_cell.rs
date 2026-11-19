@@ -63,7 +63,7 @@ impl RenderOnce for PaneCell {
             })
             .on_mouse_down(MouseButton::Left, move |_, window, cx| press(window, cx))
             .child(
-                body(&frame, self.slot, palette)
+                pane_box(&frame, self.slot, palette)
                     .when_some(self.chrome, |frame, (chrome, height)| {
                         frame.child(chrome_strip(chrome, offset, height))
                     })
@@ -99,7 +99,7 @@ fn floated_handle(
         .child(floated)
 }
 
-fn body(
+pub(crate) fn pane_box(
     frame: &PaneFrame,
     slot: Rect,
     palette: &Palette,

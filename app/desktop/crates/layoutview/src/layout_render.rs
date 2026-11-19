@@ -9,9 +9,10 @@ use protocol::PaneId;
 use ui::{DraggedRow, Motion, Portal, Sash, SashDrag, Surface, Theme, Wordmark};
 
 use crate::layout_view::LayoutView;
-use crate::pane_cell::PaneCell;
+use crate::pane_cell::{PaneCell, pane_box};
 use crate::pane_frame::PaneFrame;
 use crate::pane_handle::PaneHandle;
+use crate::pane_strip::STRIP_HEIGHT;
 
 const PREVIEW_BORDER: f32 = 2.0;
 const PREVIEW_FILL: f32 = 0.14;
@@ -48,7 +49,7 @@ impl Render for LayoutView {
                 .absolute()
                 .size_full(),
             )
-            .children(self.logo())
+            .children(self.logo(cx))
             .children(self.pane_cells(window, cx))
             .children(self.sashes(cx))
             .children(self.drop_layer(cx))
@@ -66,20 +67,26 @@ impl LayoutView {
         self.tab.is_none()
     }
 
-    fn logo(&self) -> Option<AnyElement> {
+    fn logo(
+        &self,
+        cx: &App,
+    ) -> Option<AnyElement> {
         if !self.shows_logo() {
             return None;
         }
         let smaller_side = f32::from(self.bounds.size.width.min(self.bounds.size.height));
         let width = (smaller_side * LOGO_SHARE).clamp(LOGO_MIN_WIDTH, LOGO_MAX_WIDTH);
-        let centred = div()
-            .absolute()
-            .size_full()
+        let local = self.local();
+        let frame = PaneFrame::new(local, local, self.chrome);
+        let palette = Theme::of(cx).palette(Surface::Window);
+        let stage = pane_box(&frame, local, palette)
+            .bg(palette.pane_background())
+            .pt(px(STRIP_HEIGHT))
             .flex()
             .items_center()
             .justify_center()
             .child(Wordmark::new(px(width)));
-        Some(centred.into_any_element())
+        Some(stage.into_any_element())
     }
 
     fn pane_cells(
