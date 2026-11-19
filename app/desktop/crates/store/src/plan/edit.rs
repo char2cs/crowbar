@@ -8,6 +8,7 @@ use crate::live::HostSlot;
 use crate::live::PlanError;
 use crate::live::State;
 use crate::plan::Plan;
+use crate::plan::removal::Removal;
 use crate::reads::host_of;
 use crate::rows::pending as pending_rows;
 use crate::target::Kind;
@@ -57,8 +58,9 @@ pub(crate) fn rename(
 
 pub(crate) fn remove(
     state: &State,
-    row: &str,
+    removal: Removal,
 ) -> Result<Plan, PlanError> {
+    let row = removal.row().as_str();
     let (target, host) = locate(state, row)?;
     let (project, repo) = (&target.project, &target.repo);
     let call = match &target.kind {
@@ -72,10 +74,20 @@ pub(crate) fn remove(
             "{}/{}",
             daemonapi::Route::chats(project, repo),
             target.chat()?
-        ))
-        .discarding_work(),
+        )),
     };
-    Ok(Plan::of(&host, vec![call]))
+    let call = if_consented(call, &removal);
+    Ok(Plan::of(&host, vec![call]).removing(removal))
+}
+
+fn if_consented(
+    call: Call,
+    removal: &Removal,
+) -> Call {
+    if !removal.discards_work() {
+        return call;
+    }
+    call.discarding_work()
 }
 
 pub(crate) fn remove_project(
@@ -144,19 +156,28 @@ mod tests {
     use super::*;
     use crate::live::PendingRow;
     use crate::test_support::state;
+    use sidebar::RowId;
 
-    fn a_locked_branch_renames_its_git_branch_and_removal_discards_work_only_for_chats() {
+    fn discards(
+        state: &State,
+        removal: Removal,
+    ) -> bool {
+        let plan = remove(state, removal).unwrap();
+        plan.calls[0]
+            .headers
+            .iter()
+            .any(|(name, _)| name == "crowbar-discard-work")
+    }
+
+    fn a_locked_branch_renames_its_git_branch_and_only_consent_discards_work() {
         let (mut state, _) = state();
         let plan = rename(&state, ("t", "new")).unwrap();
         assert!(plan.calls[0].path.ends_with("/t/rename"));
-        let removal = remove(&state, "t").unwrap();
-        assert!(
-            removal.calls[0]
-                .headers
-                .iter()
-                .any(|(name, _)| name == "crowbar-discard-work")
-        );
-        let folder = remove(&state, "f").unwrap();
+        let first = discards(&state, Removal::KeepWork(RowId::from("t")));
+        assert!(!first, "the first delete keeps work at risk");
+        let consented = discards(&state, Removal::DiscardWork(RowId::from("t")));
+        assert!(consented, "the confirmed delete discards it");
+        let folder = remove(&state, Removal::KeepWork(RowId::from("f"))).unwrap();
         assert_eq!(folder.calls[0].headers.len(), 0);
         state.hosts[0].store.workspaces.put("b", 2, serde_json::from_value(serde_json::json!({"id": "b", "projectId": "p", "repoId": "r", "status": "locked", "branch": "feat", "owningChatId": "bo"})).unwrap());
         let locked = rename(&state, ("bo", "other")).unwrap();
@@ -193,7 +214,7 @@ mod tests {
     }
 
     const CASES: [fn(); 3] = [
-        a_locked_branch_renames_its_git_branch_and_removal_discards_work_only_for_chats,
+        a_locked_branch_renames_its_git_branch_and_only_consent_discards_work,
         dismissing_a_local_row_sends_nothing_and_an_unknown_one_is_an_error,
         verbs_post_to_the_owning_chat,
     ];

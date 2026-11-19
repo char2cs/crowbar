@@ -32,7 +32,7 @@ pub(crate) enum PlanError {
     NothingToDismiss,
     #[error("start a thread from a workspace row, a folder has none to run it in")]
     NoWorkspaceToRunIn,
-    #[error("its chat is still loading, try again in a moment")]
+    #[error("its chat is still loading — try again in a moment")]
     ChatLoading,
     #[error("a folder has no chat")]
     FolderHasNoChat,

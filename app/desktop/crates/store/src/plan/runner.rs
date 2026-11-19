@@ -28,9 +28,10 @@ pub(crate) async fn run(
     if plan.committing {
         hub.edit(|state| state.panels.committing = true);
     }
-    match carry_out(hub, &plan).await {
-        Ok(()) => finish(hub, plan.after, outcome).await,
-        Err(reason) => fail(hub, row_id.as_deref(), outcome, &reason.to_string()),
+    match (carry_out(hub, &plan).await, &plan.removal) {
+        (Ok(()), _) => finish(hub, plan.after, outcome).await,
+        (Err(error), Some(removal)) => outcome(removal.refused(&error)),
+        (Err(reason), None) => fail(hub, row_id.as_deref(), outcome, &reason.to_string()),
     }
     if plan.committing {
         hub.edit(|state| state.panels.committing = false);

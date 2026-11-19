@@ -8,6 +8,7 @@ use crate::live::PlanError;
 use crate::live::State;
 use crate::live::Surface;
 use crate::plan::Plan;
+use crate::plan::removal::Removal;
 use crate::plan::{
     agent as plan_agent, create as plan_create,
     create::{folder as plan_folder, landing},
@@ -97,7 +98,10 @@ fn edit(
     match command {
         Command::DeleteProject(project) => plan_edit::remove_project(state, project),
         Command::Rename { row, name } => plan_edit::rename(state, (row.as_str(), name)),
-        Command::CommitRemoval(row) => plan_edit::remove(state, row.as_str()),
+        Command::CommitRemoval(row) => plan_edit::remove(state, Removal::KeepWork(row.clone())),
+        Command::RemoveDiscardingWork(row) => {
+            plan_edit::remove(state, Removal::DiscardWork(row.clone()))
+        },
         Command::Lock(row) => {
             plan_edit::verb(state, row.as_str(), ("lock", Some(json!({"locked": true}))))
         },

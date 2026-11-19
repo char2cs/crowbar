@@ -1,5 +1,6 @@
 //! The last question before a repository or space is deleted.
 
+use crate::shell::Command;
 use crate::tree::deletion::hold::Hold;
 use crate::tree::deletion::removal_kind::RemovalKind;
 use crate::tree::deletion::removal_target::RemovalTarget;
@@ -62,6 +63,18 @@ impl Confirmation {
         match self.kind {
             RemovalKind::Project => PROJECT_CASCADE,
             _ => REPO_CASCADE,
+        }
+    }
+
+    /// What accepting sends: the delete of the space or the row, the row's sent with consent to
+    /// lose the work at risk when the question named any.
+    pub fn command(&self) -> Command {
+        match &self.target {
+            RemovalTarget::Project(project) => Command::DeleteProject(project.clone()),
+            RemovalTarget::Row(row) if self.at_risk.is_empty() => {
+                Command::CommitRemoval(row.clone())
+            },
+            RemovalTarget::Row(row) => Command::RemoveDiscardingWork(row.clone()),
         }
     }
 
@@ -132,6 +145,19 @@ mod tests {
             ["Delete space “demo”?", "Delete space", "All repositories"],
         ),
     ];
+
+    #[test]
+    fn only_a_question_naming_work_at_risk_consents_to_losing_it() {
+        let row = RowId::from("r");
+        let cases = [
+            (repo(Vec::new()), Command::CommitRemoval(row.clone())),
+            (risky(), Command::RemoveDiscardingWork(row)),
+            (space(), Command::DeleteProject(ProjectId::from("p"))),
+        ];
+        for (confirmation, command) in cases {
+            assert_eq!(confirmation.command(), command, "{}", confirmation.title());
+        }
+    }
 
     #[test]
     fn the_questions_name_the_noun_and_the_risk() {

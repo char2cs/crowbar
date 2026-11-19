@@ -176,11 +176,94 @@ impl Sink for SidebarCommands {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::followed_commands;
-    use sidebar::{HostId, ProjectId};
+    use crate::live::Outcome;
+    use crate::test_support::{FakeDaemon, followed_commands};
+    use sidebar::{HostId, ProjectId, RowId, WorkAtRisk};
+    use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
-    fn commands() -> (SidebarCommands, Arc<crate::test_support::FakeDaemon>) {
+    const OWNER_DELETE: &str = "/v0/projects/p/repos/r/chats/bo";
+    const WORK_AT_RISK: &str = r#"{"success":false,"error":"delete would destroy work that exists nowhere else","code":"work_at_risk","data":{"workAtRisk":[{"workspaceId":"b","branch":"feat","uncommittedFiles":0,"unmergedCommits":1}]}}"#;
+    const FAULT: &str = r#"{"success":false,"error":"rig fault: injected 500"}"#;
+
+    fn commands() -> (SidebarCommands, Arc<FakeDaemon>) {
         followed_commands(Arc::new(|_| {}), &Arc::default())
+    }
+
+    fn heard_commands() -> (SidebarCommands, Arc<FakeDaemon>, UnboundedReceiver<Outcome>) {
+        let (send, heard) = unbounded_channel();
+        let outcome: OutcomeSink = Arc::new(move |outcome| send.send(outcome).unwrap());
+        let (commands, daemon) = followed_commands(outcome, &Arc::default());
+        (commands, daemon, heard)
+    }
+
+    fn consents(daemon: &FakeDaemon) -> Vec<bool> {
+        let consent = |headers: &[(String, String)]| {
+            headers
+                .iter()
+                .any(|(name, _)| name == "crowbar-discard-work")
+        };
+        daemon
+            .seen()
+            .iter()
+            .filter(|call| call.method == "DELETE" && call.path == OWNER_DELETE)
+            .map(|call| consent(&call.headers))
+            .collect()
+    }
+
+    async fn until_deleted(
+        daemon: &FakeDaemon,
+        count: usize,
+    ) {
+        while consents(daemon).len() < count {
+            tokio::task::yield_now().await;
+        }
+    }
+
+    fn unmerged_feat() -> WorkAtRisk {
+        WorkAtRisk {
+            branch: "feat".into(),
+            uncommitted_files: 0,
+            unmerged_commits: 1,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_delete_refused_over_work_at_risk_asks_and_only_the_answer_consents() {
+        let (commands, daemon, mut heard) = heard_commands();
+        daemon.answer(("DELETE", OWNER_DELETE), 409, WORK_AT_RISK);
+        let workspace = RowId::from("b");
+        commands
+            .dispatch(Command::CommitRemoval(workspace.clone()))
+            .unwrap();
+        let asked = Outcome::WorkAtRisk {
+            row: workspace.clone(),
+            at_risk: vec![unmerged_feat()],
+        };
+        assert_eq!(heard.recv().await, Some(asked), "asks naming the work");
+        daemon.ok("DELETE", OWNER_DELETE, "[]");
+        commands
+            .dispatch(Command::RemoveDiscardingWork(workspace))
+            .unwrap();
+        until_deleted(&daemon, 2).await;
+        assert_eq!(
+            consents(&daemon),
+            [false, true],
+            "consent only on the resend"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_delete_names_the_row_to_show_again() {
+        let (commands, daemon, mut heard) = heard_commands();
+        daemon.answer(("DELETE", OWNER_DELETE), 500, FAULT);
+        commands
+            .dispatch(Command::CommitRemoval(RowId::from("b")))
+            .unwrap();
+        let refused = Outcome::RemovalRefused {
+            row: RowId::from("b"),
+            reason: "rig fault: injected 500".into(),
+        };
+        assert_eq!(heard.recv().await, Some(refused));
     }
 
     async fn until_listed(commands: &SidebarCommands) {
@@ -249,9 +332,9 @@ mod tests {
         let cases = [
             Command::OpenSettings,
             Command::OpenHostSettings(HostId::from("local")),
-            Command::OpenRow(sidebar::RowId::from("r")),
+            Command::OpenRow(RowId::from("r")),
             Command::ImportRepo,
-            Command::ImportBranches(sidebar::RowId::from("r")),
+            Command::ImportBranches(RowId::from("r")),
             Command::OpenFile("a".into()),
         ];
         assert_all_refused(&commands, cases);

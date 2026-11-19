@@ -5,6 +5,7 @@ mod clock;
 mod event;
 mod geometry;
 mod layout;
+mod removal;
 mod row_action;
 pub(crate) mod scale;
 mod separator;

@@ -81,6 +81,15 @@ impl ShellView {
                 tracing::warn!(%reason, "a command failed");
                 self.show_notice(NoticeKey::Command, (ToastKind::Error, reason), cx);
             },
+            DataOutcome::WorkAtRisk { row, at_risk } => {
+                self.sidebar
+                    .update(cx, |sidebar, cx| sidebar.ask_to_discard(&row, at_risk, cx));
+            },
+            DataOutcome::RemovalRefused { row, reason } => {
+                tracing::warn!(%reason, "a delete was refused");
+                self.sidebar
+                    .update(cx, |sidebar, cx| sidebar.removal_refused(&row, reason, cx));
+            },
         }
     }
 

@@ -8,6 +8,7 @@ mod icon;
 mod merge;
 pub(crate) mod planner;
 mod relocate;
+pub(crate) mod removal;
 pub(crate) mod runner;
 
 pub(crate) use agent::running;
@@ -17,6 +18,7 @@ use daemonapi::Call;
 use crate::live::PendingRow;
 use crate::live::Surface;
 use crate::plan::after::After;
+use crate::plan::removal::Removal;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Plan {
@@ -28,6 +30,7 @@ pub(crate) struct Plan {
     pub(crate) needs_provider: bool,
     pub(crate) landing: Surface,
     pub(crate) committing: bool,
+    pub(crate) removal: Option<Removal>,
 }
 
 impl Plan {
@@ -44,6 +47,7 @@ impl Plan {
             needs_provider: false,
             landing: Surface::Default,
             committing: false,
+            removal: None,
         }
     }
 
@@ -62,6 +66,15 @@ impl Plan {
         after: After,
     ) -> Self {
         self.after = after;
+        self
+    }
+
+    #[must_use]
+    pub(crate) fn removing(
+        mut self,
+        removal: Removal,
+    ) -> Self {
+        self.removal = Some(removal);
         self
     }
 

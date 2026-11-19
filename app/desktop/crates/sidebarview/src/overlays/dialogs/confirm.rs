@@ -1,7 +1,7 @@
 //! The delete confirmation dialog.
 
 use gpui::{AnyElement, Context, Div, FontWeight, IntoElement, ParentElement, Styled, div};
-use sidebar::{Command, Confirmation, RemovalTarget, WorkAtRisk};
+use sidebar::{Confirmation, RemovalTarget, WorkAtRisk};
 use ui::{Button, ButtonVariant, Dialog, DialogSize, Palette, Surface, Theme};
 
 use crate::sidebar::Sidebar;
@@ -89,14 +89,14 @@ impl Sidebar {
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
-        let Some(Confirmation { target, .. }) = self.tree.accept_removal() else {
+        let Some(confirmation) = self.tree.accept_removal() else {
             return;
         };
-        let command = match target {
-            RemovalTarget::Row(row) => Command::CommitRemoval(row),
-            RemovalTarget::Project(project) => Command::DeleteProject(project),
-        };
-        self.send(command, cx);
+        let command = confirmation.command();
+        match confirmation.target {
+            RemovalTarget::Row(row) => self.send_removal((&row, command), cx),
+            RemovalTarget::Project(_) => self.send(command, cx),
+        }
         cx.notify();
     }
 }
@@ -104,6 +104,8 @@ impl Sidebar {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sidebar::Intent;
+
     use crate::test_support::prelude::*;
 
     fn ask(
@@ -136,6 +138,56 @@ mod tests {
             recorder.sent(),
             vec![Command::DeleteProject(ProjectId::from("inv"))]
         );
+    }
+
+    type Answer = fn(&mut Sidebar, &mut Context<'_, Sidebar>);
+    type Case = (&'static str, Answer, Vec<Command>, bool);
+
+    fn asked_to_discard(
+        sidebar: &gpui::Entity<Sidebar>,
+        cx: &mut gpui::VisualTestContext,
+    ) {
+        let risk = WorkAtRisk {
+            branch: "feature/x".into(),
+            uncommitted_files: 0,
+            unmerged_commits: 1,
+        };
+        sidebar.update_in(cx, |this, window, cx| {
+            this.apply(Intent::RequestRemoval(RowId::from("chat")), window, cx);
+            this.ask_to_discard(&RowId::from("chat"), vec![risk], cx);
+        });
+    }
+
+    fn shown(
+        sidebar: &Sidebar,
+        row: &RowId,
+    ) -> bool {
+        let held = sidebar.tree.removals().tray().get(row).is_some();
+        sidebar.row(row).is_some() && !held
+    }
+
+    #[gpui::test]
+    fn only_accepting_the_second_question_resends_the_removal_with_consent(
+        cx: &mut TestAppContext
+    ) {
+        let chat = RowId::from("chat");
+        let cases: [Case; 2] = [
+            (
+                "accept",
+                Sidebar::accept_confirmation,
+                vec![Command::RemoveDiscardingWork(chat.clone())],
+                false,
+            ),
+            ("cancel", Sidebar::cancel_confirmation, Vec::new(), true),
+        ];
+        for (name, answer, sent, back) in cases {
+            let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
+            asked_to_discard(&sidebar, cx);
+            sidebar.update(cx, answer);
+            assert_eq!(recorder.sent(), sent, "{name}: sent");
+            let shown = sidebar.read_with(cx, |this, _| shown(this, &chat));
+            assert_eq!(shown, back, "{name}: the row is back only when kept");
+        }
     }
 
     #[gpui::test]

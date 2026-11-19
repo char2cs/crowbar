@@ -8,9 +8,16 @@ use sidebar::{
     RowActions, RowId, RunningAgent, ScopeSync, SpaceList,
 };
 
+fn refusal(reason: &str) -> Error {
+    Error::Refused {
+        reason: reason.to_owned(),
+    }
+}
+
 pub(crate) struct Recorder {
     data: DemoShell,
     sent: RefCell<Vec<Command>>,
+    refused: RefCell<Option<(Command, &'static str)>>,
 }
 
 impl Recorder {
@@ -18,11 +25,20 @@ impl Recorder {
         Self {
             data,
             sent: RefCell::new(Vec::new()),
+            refused: RefCell::new(None),
         }
     }
 
     pub(crate) fn sent(&self) -> Vec<Command> {
         self.sent.borrow().clone()
+    }
+
+    pub(crate) fn refuse(
+        &self,
+        command: Command,
+        reason: &'static str,
+    ) {
+        *self.refused.borrow_mut() = Some((command, reason));
     }
 }
 
@@ -32,6 +48,10 @@ impl sidebar::Sink for Recorder {
         command: Command,
     ) -> Result<(), Error> {
         self.sent.borrow_mut().push(command.clone());
+        let refused = self.refused.borrow().clone();
+        if let Some((_, reason)) = refused.filter(|(held, _)| held == &command) {
+            return Err(refusal(reason));
+        }
         self.data.dispatch(command)
     }
 }

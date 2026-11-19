@@ -147,7 +147,9 @@ impl Sink for DemoShell {
         match command {
             Command::SelectProject(project) => *self.active.borrow_mut() = project,
             Command::Rename { row, name } => return self.rename(&row, &name),
-            Command::CommitRemoval(row) => self.rows.borrow_mut().retain(|other| other.id != row),
+            Command::CommitRemoval(row) | Command::RemoveDiscardingWork(row) => {
+                self.rows.borrow_mut().retain(|other| other.id != row);
+            },
             _ => {},
         }
         Ok(())

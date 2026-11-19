@@ -60,8 +60,12 @@ pub enum Command {
         /// The new text.
         name: String,
     },
-    /// Send the delete of a held row.
+    /// Send the delete of a held row; the daemon refuses it when work on the row exists nowhere
+    /// else.
     CommitRemoval(RowId),
+    /// Send the delete of a held row again, destroying the work at risk the user was shown and
+    /// agreed to lose.
+    RemoveDiscardingWork(RowId),
     /// Start a chat in the space's home workspace.
     NewThread(ProjectId),
     /// Start a chat in the space that opens on its terminal.

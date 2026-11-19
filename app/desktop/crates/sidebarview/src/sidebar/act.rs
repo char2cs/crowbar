@@ -211,7 +211,7 @@ impl Sidebar {
         cx: &mut Context<'_, Self>,
     ) {
         for row in self.tree.take_due_removals(self.clock.now()) {
-            self.send(Command::CommitRemoval(row), cx);
+            self.send_removal((&row, Command::CommitRemoval(row.clone())), cx);
         }
         self.schedule_removals(cx);
         cx.notify();

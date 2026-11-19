@@ -44,7 +44,8 @@ impl RemovalTray {
         Deadline::At(now + Self::DRAIN)
     }
 
-    pub(crate) fn get(
+    /// The hold on `row`, if the row is being removed.
+    pub fn get(
         &self,
         row: &RowId,
     ) -> Option<&Hold> {

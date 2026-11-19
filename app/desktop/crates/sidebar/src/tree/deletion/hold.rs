@@ -40,6 +40,11 @@ impl Hold {
         )
     }
 
+    /// The title of the notice saying the daemon refused to remove the row, naming it.
+    pub fn refusal_title(&self) -> String {
+        format!("Couldn't remove {}", self.label)
+    }
+
     pub(crate) fn is_due(
         &self,
         now: Instant,
@@ -112,6 +117,12 @@ mod tests {
             let at = now + Duration::from_secs(*at_secs);
             assert_eq!(hold.is_due(at), *expected, "{name}");
         }
+    }
+
+    #[test]
+    fn a_refusal_is_titled_by_the_row() {
+        let hold = hold_at(Deadline::Committed);
+        assert_eq!(hold.refusal_title(), "Couldn't remove chat");
     }
 
     #[test]

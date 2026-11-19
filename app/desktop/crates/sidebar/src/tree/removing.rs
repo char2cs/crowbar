@@ -79,7 +79,88 @@ impl Tree {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shell::Command;
+    use crate::shell::RowKind;
     use crate::tree::deletion::RemovalTarget;
+    use crate::tree::deletion::RemovalTray;
+
+    fn workspace() -> Row {
+        Row::new("ws", RowKind::Branch, 1, "feature/x")
+    }
+
+    fn sent(
+        tree: &mut Tree,
+        row: &Row,
+    ) {
+        let now = Instant::now();
+        tree.request_removal(row, now);
+        let due = tree.take_due_removals(now + RemovalTray::DRAIN);
+        assert_eq!(due, vec![row.id.clone()], "the countdown sends the delete");
+    }
+
+    fn risk() -> WorkAtRisk {
+        WorkAtRisk {
+            branch: "feature/x".into(),
+            uncommitted_files: 0,
+            unmerged_commits: 1,
+        }
+    }
+
+    #[test]
+    fn a_refusal_over_work_at_risk_asks_again_and_only_that_answer_discards_it() {
+        let (mut tree, row) = (Tree::default(), workspace());
+        sent(&mut tree, &row);
+        tree.ask_to_discard(&row.id, vec![risk()]);
+        let asked = tree.removals().confirmation().cloned();
+        assert_eq!(
+            asked.as_ref().map(Confirmation::title).as_deref(),
+            Some("Delete workspace “feature/x” and lose work?"),
+            "asks again"
+        );
+        assert_eq!(
+            asked.map(|c| c.at_risk),
+            Some(vec![risk()]),
+            "names the work"
+        );
+        let accepted = tree.accept_removal().map(|c| c.command());
+        assert_eq!(
+            accepted,
+            Some(Command::RemoveDiscardingWork(row.id.clone()))
+        );
+        assert!(
+            tree.visible(&[row]).is_empty(),
+            "hidden while it is deleted"
+        );
+    }
+
+    fn cancel_the_question(
+        tree: &mut Tree,
+        row: &RowId,
+    ) {
+        tree.ask_to_discard(row, vec![risk()]);
+        tree.cancel_removal();
+    }
+
+    type Settle = fn(&mut Tree, &RowId);
+
+    const CASES: [(&str, Settle); 2] =
+        [("cancelled", cancel_the_question), ("refused", Tree::keep)];
+
+    #[test]
+    fn a_cancelled_question_or_a_refused_delete_shows_the_row_again() {
+        for (name, settle) in CASES {
+            let (mut tree, row) = (Tree::default(), workspace());
+            sent(&mut tree, &row);
+            settle(&mut tree, &row.id);
+            assert!(
+                tree.removals().confirmation().is_none(),
+                "{name}: no question"
+            );
+            let shown = tree.visible(std::slice::from_ref(&row));
+            assert_eq!(shown.len(), 1, "{name}: the row is back");
+            assert!(shown.iter().all(|entry| entry.removal.is_none()), "{name}");
+        }
+    }
 
     #[test]
     fn a_space_removal_waits_for_its_confirmation_and_cancel_drops_it() {
