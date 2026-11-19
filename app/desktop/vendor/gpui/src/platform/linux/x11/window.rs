@@ -615,6 +615,9 @@ impl X11WindowState {
 
             if let Some(link) = overlay.as_ref() {
                 set_overlay_properties(xcb, x_window, atoms, link, bounds)?;
+                overlay::redirect(xcb, link.owner)
+                    .context("X11 redirecting the owner of an overlay failed.")
+                    .log_err();
             }
 
             get_reply(
@@ -1440,6 +1443,21 @@ impl X11WindowStatePtr {
         }
     }
 
+    /// The owner's content changed: the next capture reads it again, and an overlay that
+    /// captured its owner redraws to take it.
+    pub(crate) fn owner_damaged(&self) {
+        let mut state = self.state.borrow_mut();
+        let Some(link) = state.overlay.as_mut() else {
+            return;
+        };
+        link.owner_version += 1;
+        let redraw = link.watching && link.shown;
+        drop(state);
+        if redraw && let Some(ref mut redraw) = self.callbacks.borrow_mut().moved {
+            redraw();
+        }
+    }
+
     /// Records where the overlay really is after its own configure event.
     pub(crate) fn overlay_configured(&self, event: &xproto::ConfigureNotifyEvent) {
         let mut state = self.state.borrow_mut();
@@ -2078,6 +2096,7 @@ impl PlatformWindow for X11Window {
             link.shown = shown;
             if !shown {
                 link.content.clear();
+                link.watching = false;
             }
         }
         let request = match shown {
@@ -2087,6 +2106,25 @@ impl PlatformWindow for X11Window {
         check_reply(|| "X11 mapping or unmapping an overlay failed.", request).log_err();
         self.0.apply_bounding();
         self.0.apply_catcher();
+    }
+
+    fn capture_owner(&self) -> Option<image::RgbaImage> {
+        let mut state = self.0.state.borrow_mut();
+        let link = state.overlay.as_mut()?;
+        link.watching = true;
+        let (owner, size) = (link.owner, link.owner_area.size);
+        drop(state);
+        overlay::capture(&self.0.xcb, owner, size)
+    }
+
+    fn owner_version(&self) -> u64 {
+        let state = self.0.state.borrow();
+        state.overlay.as_ref().map_or(0, |link| link.owner_version)
+    }
+
+    fn is_composited(&self) -> bool {
+        let state = self.0.state.borrow();
+        state.overlay.as_ref().is_none_or(|link| link.composited)
     }
 
     fn set_takes_keys(&self, takes_keys: bool) {

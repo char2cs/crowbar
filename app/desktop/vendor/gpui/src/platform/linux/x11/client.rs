@@ -1038,6 +1038,13 @@ impl X11Client {
             Event::XfixesSelectionNotify(event) => {
                 self.follow_compositor(event.selection);
             }
+            Event::DamageNotify(event) => {
+                let xcb = self.0.borrow().xcb_connection.clone();
+                overlay::acknowledge_damage(&xcb, event.damage);
+                for overlay in self.overlays_of(event.drawable) {
+                    overlay.owner_damaged();
+                }
+            }
             Event::SelectionNotify(event) => {
                 let window = self.get_window(event.requestor)?;
                 let mut state = self.0.borrow_mut();
@@ -1926,6 +1933,8 @@ impl X11ClientState {
             composited: self.composited,
             shown: false,
             catcher: None,
+            owner_version: 0,
+            watching: false,
         };
         Some((link, placement.window))
     }

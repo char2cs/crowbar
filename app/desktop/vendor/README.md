@@ -31,6 +31,14 @@ Drop it when a published gpui converts SVG images to BGRA. Tracking: zed-industr
 
 Drop it when upstream gpui offers windows above a native child view. Tracking: zed-industries/zed.
 
+`gpui-owner-capture.patch`, applied on top of `gpui-overlay-window.patch`, lets the top layer paint the window beneath a modal scrim: a compositor blends a translucent scrim over the owner but cannot blur through it (develop's dialogs are `backdrop-blur-sm`), and without one only opaque pixels show. Blurring, caching and painting live in `ui::Backdrop`; gpui only reads the pixels.
+
+- `src/platform.rs`, `src/window.rs`: `Window::capture_owner` returns the owner's content area as BGRA at device pixels, `Window::owner_version` changes whenever that content does, and `Window::is_composited` says whether a compositor blends the window.
+- `src/platform/linux/x11/overlay.rs`, `x11/window.rs`, `x11/client.rs`, `Cargo.toml` (x11rb `composite`, `damage`): creating an overlay redirects its owner automatically (Composite), so the server keeps the owner's content, child web views included, off screen, and watches it with a Damage object. `capture_owner` reads it with one `GetImage`, unaffected by what the overlay paints above it; each `DamageNotify` bumps the version and, once the overlay has captured its owner and while it is shown, redraws the overlay so the capture follows the owner.
+- `src/platform/test/window.rs`: an overlay test window captures an all-black owner and reports no compositor.
+
+Drop it with `gpui-overlay-window.patch`.
+
 ## cosmic-text 0.14.2
 
 `cosmic-text-variable-weight.patch`, reached through `gpui` on Linux and wired in through `[patch.crates-io]` in `app/Cargo.toml`:

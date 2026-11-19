@@ -304,6 +304,24 @@ impl PlatformWindow for TestWindow {
         lock.is_overlay
             .then(|| Bounds::new(Point::default(), lock.bounds.size))
     }
+
+    /// An overlay test window captures an owner that is all black.
+    fn capture_owner(&self) -> Option<image::RgbaImage> {
+        let lock = self.0.lock();
+        let size = lock.bounds.size;
+        let scale = self.scale_factor();
+        lock.is_overlay.then(|| {
+            image::RgbaImage::new(
+                (f32::from(size.width) * scale) as u32,
+                (f32::from(size.height) * scale) as u32,
+            )
+        })
+    }
+
+    /// A test window has no compositor, as the stock rig.
+    fn is_composited(&self) -> bool {
+        false
+    }
 }
 
 pub(crate) struct TestAtlasState {

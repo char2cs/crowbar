@@ -2,6 +2,9 @@
 //! owner's keyboard is lent to it. The window manager never focuses an overlay; the owner keeps
 //! X focus and its key events are delivered to the overlay while the overlay takes keys.
 
+use x11rb::protocol::composite::{self, ConnectionExt as _};
+use x11rb::protocol::damage::{self, ConnectionExt as _};
+use x11rb::connection::Connection as _;
 use x11rb::protocol::randr::ConnectionExt as _;
 use x11rb::protocol::xproto::{self, ConnectionExt as _};
 use x11rb::xcb_ffi::XCBConnection;
@@ -31,6 +34,11 @@ pub(crate) struct OverlayLink {
     /// The input-only child of the owner that takes the input region where the overlay was cut
     /// away (see [`needs_catcher`]), once created.
     pub(crate) catcher: Option<xproto::Window>,
+    /// How many times the owner's content changed, as damage reports it.
+    pub(crate) owner_version: u64,
+    /// Whether the overlay captured its owner since it was shown, and so redraws when the owner
+    /// changes.
+    pub(crate) watching: bool,
 }
 
 /// Which windows of an overlay pair a window manager reparented into a frame.
@@ -197,6 +205,49 @@ pub(crate) fn owner_area(
     ))
 }
 
+/// Has the server keep `owner`'s content, its child web views included, off screen (Composite
+/// automatic redirection), so [`capture`] reads it whatever the overlay paints above it, and
+/// report when that content changes (a `DamageNotify` for `owner`).
+pub(crate) fn redirect(xcb: &XCBConnection, owner: xproto::Window) -> anyhow::Result<()> {
+    xcb.composite_query_version(0, 4)?.reply()?;
+    xcb.composite_redirect_window(owner, composite::Redirect::AUTOMATIC)?
+        .check()?;
+    xcb.damage_query_version(1, 1)?.reply()?;
+    let watch = xcb.generate_id()?;
+    xcb.damage_create(watch, owner, damage::ReportLevel::NON_EMPTY)?
+        .check()?;
+    Ok(())
+}
+
+/// Clears what `watch` reported, so the next change of the owner reports again.
+pub(crate) fn acknowledge_damage(xcb: &XCBConnection, watch: damage::Damage) {
+    let _ = xcb.damage_subtract(watch, x11rb::NONE, x11rb::NONE);
+    let _ = xcb.flush();
+}
+
+/// The content of `owner`, `size` device pixels, as opaque BGRA; `None` unless it is a 24- or
+/// 32-bit window.
+pub(crate) fn capture(
+    xcb: &XCBConnection,
+    owner: xproto::Window,
+    size: Size<i32>,
+) -> Option<image::RgbaImage> {
+    let (width, height) = (u16::try_from(size.width).ok()?, u16::try_from(size.height).ok()?);
+    let reply = xcb
+        .get_image(xproto::ImageFormat::Z_PIXMAP, owner, 0, 0, width, height, !0)
+        .ok()?
+        .reply()
+        .ok()?;
+    if reply.depth != 24 && reply.depth != 32 {
+        return None;
+    }
+    let mut bgra = reply.data;
+    for pixel in bgra.chunks_exact_mut(4) {
+        pixel[3] = u8::MAX;
+    }
+    image::RgbaImage::from_raw(width.into(), height.into(), bgra)
+}
+
 /// The active monitors in root coordinates; the whole root window when RandR cannot tell.
 pub(crate) fn monitors(xcb: &XCBConnection, root: xproto::Window) -> Vec<Bounds<i32>> {
     let listed: Vec<Bounds<i32>> = xcb
@@ -350,6 +401,8 @@ mod tests {
             composited: true,
             shown: false,
             catcher: None,
+            owner_version: 0,
+            watching: false,
         }
     }
 

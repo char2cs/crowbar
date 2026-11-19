@@ -2188,6 +2188,26 @@ impl Window {
         &self.content_region
     }
 
+    /// For an overlay window: the owner's content area as it is now, web views included, in
+    /// device pixels with BGRA bytes, whatever the overlay paints above it. From then on the
+    /// overlay redraws whenever the owner's content changes (see [`Window::owner_version`]),
+    /// until it is hidden. `None` for every other window and where the platform cannot read it.
+    pub fn capture_owner(&self) -> Option<image::RgbaImage> {
+        self.platform_window.capture_owner()
+    }
+
+    /// For an overlay window: a number that changes whenever the owner's content does, so a
+    /// capture taken at another number is stale.
+    pub fn owner_version(&self) -> u64 {
+        self.platform_window.owner_version()
+    }
+
+    /// Whether a compositor blends this window over what lies below, so its translucent fills
+    /// show; without one an overlay shows only its [`Window::content_region`].
+    pub fn is_composited(&self) -> bool {
+        self.platform_window.is_composited()
+    }
+
     /// For an overlay window: whether it receives the owner's keyboard input, which it does
     /// while one of its elements is focused.
     pub fn takes_keys(&self) -> bool {

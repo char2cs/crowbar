@@ -3,19 +3,17 @@
 use std::rc::Rc;
 
 use gpui::{
-    Animation, AnimationExt, AnyElement, App, Div, ElementId, FocusHandle, InteractiveElement,
-    IntoElement, MouseButton, ParentElement, RenderOnce, Stateful, Styled, Window, anchored, div,
-    hsla, point, px,
+    AnimationExt, AnyElement, App, Div, ElementId, FocusHandle, InteractiveElement, IntoElement,
+    MouseButton, ParentElement, RenderOnce, Stateful, Styled, Window, anchored, div, point, px,
 };
 
 use crate::floating::dialog::actions::{CONTEXT, CloseDialog, FocusNext, FocusPrevious};
 use crate::floating::dialog::description::description_block;
 use crate::floating::dialog::focus::Focus;
 use crate::floating::dialog::header::Header;
+use crate::floating::dialog::veil::fade;
 use crate::foundation::CloseHandler;
-use crate::foundation::CubicBezier;
 use crate::foundation::IconName;
-use crate::foundation::Motion;
 use crate::foundation::Palette;
 use crate::foundation::Surface;
 use crate::foundation::Theme;
@@ -23,9 +21,7 @@ use crate::foundation::opaque_debug;
 use crate::foundation::tokens::opacity;
 use crate::foundation::tokens::shadow;
 use crate::foundation::tokens::spacing;
-use crate::foundation::tokens::timing;
 
-const SCRIM: f32 = 0.32;
 const VIEWPORT_PADDING: f32 = 16.0;
 const TOP_SHARE: f32 = 1.0;
 const BOTTOM_SHARE: f32 = 3.0;
@@ -57,6 +53,7 @@ mod dialog_style;
 mod focus;
 mod header;
 mod heading;
+mod veil;
 
 pub(crate) use actions::bindings;
 pub use dialog_extent::DialogExtent;
@@ -239,7 +236,6 @@ impl RenderOnce for Dialog {
         let theme = *Theme::of(cx);
         let viewport = window.viewport_size();
         let focus = Focus::kept((self.id.clone(), self.first.clone()), window, cx);
-        let duration = Motion::of(cx).duration(timing::SLOW);
         let scrim_close = self
             .on_close
             .clone()
@@ -250,6 +246,7 @@ impl RenderOnce for Dialog {
             focus.clone(),
             self.on_close.clone(),
         );
+        let (still, veil) = veil::layers((id.clone(), "backdrop"), viewport, window, cx);
         let mut dialog = self;
         dialog.header.close_focus = Some(focus.close);
         let popup = dialog.popup(theme, viewport);
@@ -261,19 +258,17 @@ impl RenderOnce for Dialog {
             .w(viewport.width)
             .h(viewport.height)
             .p(px(VIEWPORT_PADDING))
-            .bg(hsla(0.0, 0.0, 0.0, SCRIM))
             .on_mouse_down(MouseButton::Left, move |_, window, cx| {
                 fire(scrim_close.as_ref(), window, cx);
             })
+            .child(veil)
             .child(spacer(TOP_SHARE))
             .child(popup.on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()))
             .child(spacer(BOTTOM_SHARE))
-            .with_animation(
-                (id, "fade"),
-                Animation::new(duration).with_easing(|t| CubicBezier::DEFAULT.ease(t)),
-                Styled::opacity,
-            );
-        anchored().position(point(px(0.0), px(0.0))).child(layer)
+            .with_animation((id, "fade"), fade(cx), Styled::opacity);
+        anchored()
+            .position(point(px(0.0), px(0.0)))
+            .child(div().children(still).child(layer))
     }
 }
 
@@ -531,29 +526,5 @@ mod tests {
         owner.run_until_parked();
         top.simulate_keystrokes("a");
         assert_eq!(typed.get(), 1);
-    }
-
-    #[gpui::test]
-    fn without_a_compositor_only_the_card_shows_not_the_scrim(cx: &mut TestAppContext) {
-        cx.update(|cx| cx.set_global(Motion::reduced()));
-        let (mut owner, mut top) = open_floating(cx, |_, _| {
-            crate::floating::Portal::window("dialog", |_, _| Dialog::new("d").title("Rename"))
-        });
-        cx.update(|cx| cx.set_global(Motion::reduced()));
-        owner.update(|window, _| window.refresh());
-        owner.run_until_parked();
-        let card = top.debug_bounds("ui-dialog").unwrap_or_default();
-        let content = top.update(|window, _| window.content_region().to_vec());
-        assert!(content.contains(&card), "the card: {content:?}");
-        let inside = |r: &gpui::Bounds<gpui::Pixels>| {
-            r.left() >= card.left()
-                && r.top() >= card.top()
-                && r.right() <= card.right()
-                && r.bottom() <= card.bottom()
-        };
-        assert!(
-            content.iter().all(inside),
-            "nothing past the card: {content:?}"
-        );
     }
 }

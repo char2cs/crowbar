@@ -558,6 +558,15 @@ pub(crate) trait PlatformWindow: HasWindowHandle + HasDisplayHandle {
     fn set_content_region(&self, _region: &[Bounds<Pixels>]) {}
     fn set_overlay_shown(&self, _shown: bool) {}
     fn set_takes_keys(&self, _takes_keys: bool) {}
+    fn capture_owner(&self) -> Option<image::RgbaImage> {
+        None
+    }
+    fn is_composited(&self) -> bool {
+        true
+    }
+    fn owner_version(&self) -> u64 {
+        0
+    }
 
     #[cfg(any(test, feature = "test-support"))]
     fn as_test(&mut self) -> Option<&mut TestWindow> {

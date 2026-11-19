@@ -551,6 +551,8 @@ version = "0.13.1"
 features = [
     "allow-unsafe-code",
     "xkb",
+    "composite",
+    "damage",
     "randr",
     "shape",
     "xfixes",

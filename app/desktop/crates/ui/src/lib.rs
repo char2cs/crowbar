@@ -22,8 +22,8 @@ pub use display::{
 };
 pub use error::Error;
 pub use floating::{
-    ContextMenu, Dialog, DialogExtent, DialogSize, DialogStyle, DragGhost, DropdownMenu, Menu,
-    MenuAction, MenuItem, Placement, Popover, Portal, Select, Tooltip, TooltipSide, TopLayer,
+    Backdrop, ContextMenu, Dialog, DialogExtent, DialogSize, DialogStyle, DragGhost, DropdownMenu,
+    Menu, MenuAction, MenuItem, Placement, Popover, Portal, Select, Tooltip, TooltipSide, TopLayer,
     click_away, popup_at,
 };
 pub use foundation::{
