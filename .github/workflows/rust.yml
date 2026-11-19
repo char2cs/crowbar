@@ -162,9 +162,9 @@ jobs:
       - name: Tests (headless)
         run: cd app && cargo test --locked --workspace --all-features
       # Opt-in real-infrastructure tests (#[ignore = "real-infra: ..."], docs/rust-style.md M41): real sockets, child
-      # processes and files, no display. webview keeps its display tests for the GUI step below.
+      # processes and files, no display. webview and platform keep their display tests for the GUI step below.
       - name: Real-infrastructure tests
-        run: cd app && cargo test --locked --workspace --all-features --exclude webview -- --include-ignored
+        run: cd app && cargo test --locked --workspace --all-features --exclude webview --exclude platform -- --include-ignored
       # Tests that open a real window are `#[ignore = "needs display"]` (docs/rust-style.md M41).
       # Linux: Xvfb + openbox + lavapipe software Vulkan.
       - name: GUI tests (Linux, Xvfb + openbox + lavapipe)

@@ -50,7 +50,6 @@ gdkx11 = "0.18"
 gpui = "=0.2.2"
 gtk = "0.18"
 image = { version = "0.25", default-features = false }
-smallvec = "1"
 webkit2gtk = "2.0.1"
 raw-window-handle = "0.6"
 wry = { version = "0.53", features = ["linux-body"] }
