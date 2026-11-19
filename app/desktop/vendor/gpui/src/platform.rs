@@ -550,6 +550,13 @@ pub(crate) trait PlatformWindow: HasWindowHandle + HasDisplayHandle {
 
     fn update_ime_position(&self, _bounds: Bounds<Pixels>);
 
+    // Overlay windows (`WindowOptions::overlay_of`)
+    fn owner_bounds(&self) -> Option<Bounds<Pixels>> {
+        None
+    }
+    fn set_input_region(&self, _region: &[Bounds<Pixels>]) {}
+    fn set_takes_keys(&self, _takes_keys: bool) {}
+
     #[cfg(any(test, feature = "test-support"))]
     fn as_test(&mut self) -> Option<&mut TestWindow> {
         None
@@ -1132,6 +1139,14 @@ pub struct WindowOptions {
 
     /// Tab group name, allows opening the window as a native tab on macOS 10.12+. Windows with the same tabbing identifier will be grouped together.
     pub tabbing_identifier: Option<String>,
+
+    /// Opens the window as the overlay of `owner`: a borderless, transparent window kept above
+    /// the owner's content area (native child views included), following it as it moves and
+    /// resizes, never focused and never listed by the window manager. Clicks reach the overlay
+    /// only where it has hitboxes; elsewhere they fall through to the owner. While an element
+    /// of the overlay is focused, the owner's keyboard input is delivered to the overlay.
+    /// `window_bounds` is the initial guess; X11 and macOS place the window themselves.
+    pub overlay_of: Option<AnyWindowHandle>,
 }
 
 /// The variables that can be configured when creating a new window
@@ -1181,6 +1196,9 @@ pub(crate) struct WindowParams {
     pub window_min_size: Option<Size<Pixels>>,
     #[cfg(target_os = "macos")]
     pub tabbing_identifier: Option<String>,
+
+    #[cfg_attr(target_os = "windows", allow(dead_code))]
+    pub overlay_of: Option<AnyWindowHandle>,
 }
 
 /// Represents the status of how a window should be opened.
@@ -1239,6 +1257,7 @@ impl Default for WindowOptions {
             window_min_size: None,
             window_decorations: None,
             tabbing_identifier: None,
+            overlay_of: None,
         }
     }
 }

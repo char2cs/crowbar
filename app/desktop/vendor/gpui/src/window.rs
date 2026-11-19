@@ -751,6 +751,8 @@ impl Frame {
         self.deferred_draws.clear();
         self.tab_stops.clear();
         self.focus = None;
+        #[cfg(any(test, feature = "test-support"))]
+        self.debug_bounds.clear();
 
         #[cfg(any(feature = "inspector", debug_assertions))]
         {
@@ -872,6 +874,9 @@ pub struct Window {
     pub(crate) pending_input_observers: SubscriberSet<(), AnyObserver>,
     prompt: Option<RenderablePromptHandle>,
     pub(crate) client_inset: Option<Pixels>,
+    overlay_of: Option<AnyWindowHandle>,
+    input_region: Vec<Bounds<Pixels>>,
+    takes_keys: bool,
     #[cfg(any(feature = "inspector", debug_assertions))]
     inspector: Option<Entity<Inspector>>,
 }
@@ -948,6 +953,7 @@ impl Window {
             window_decorations,
             #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
             tabbing_identifier,
+            overlay_of,
         } = options;
 
         let bounds = window_bounds
@@ -968,6 +974,7 @@ impl Window {
                 window_min_size,
                 #[cfg(target_os = "macos")]
                 tabbing_identifier,
+                overlay_of,
             },
         )?;
 
@@ -993,6 +1000,10 @@ impl Window {
         let next_frame_callbacks: Rc<RefCell<Vec<FrameCallback>>> = Default::default();
         let last_input_timestamp = Rc::new(Cell::new(Instant::now()));
 
+        let window_decorations = match overlay_of {
+            Some(_) => Some(WindowDecorations::Client),
+            None => window_decorations,
+        };
         platform_window
             .request_decorations(window_decorations.unwrap_or(WindowDecorations::Server));
         platform_window.set_background_appearance(window_background);
@@ -1255,6 +1266,9 @@ impl Window {
             pending_input_observers: SubscriberSet::new(),
             prompt: None,
             client_inset: None,
+            overlay_of,
+            input_region: Vec::new(),
+            takes_keys: false,
             image_cache_stack: Vec::new(),
             #[cfg(any(feature = "inspector", debug_assertions))]
             inspector: None,
@@ -1267,6 +1281,30 @@ impl Window {
     ) -> (Subscription, impl FnOnce() + use<>) {
         self.focus_listeners.insert((), value)
     }
+}
+
+/// The hitboxes of a frame as clipped rectangles, without those another one contains.
+fn input_region(hitboxes: &[Hitbox]) -> Vec<Bounds<Pixels>> {
+    let mut clipped: Vec<Bounds<Pixels>> = hitboxes
+        .iter()
+        .map(|hitbox| hitbox.bounds.intersect(&hitbox.content_mask.bounds))
+        .filter(|bounds| !bounds.is_empty())
+        .collect();
+    let area = |bounds: &Bounds<Pixels>| f32::from(bounds.size.width) * f32::from(bounds.size.height);
+    clipped.sort_by(|a, b| area(b).total_cmp(&area(a)));
+    let mut region: Vec<Bounds<Pixels>> = Vec::new();
+    for bounds in clipped {
+        let covered = region.iter().any(|kept| {
+            kept.origin.x <= bounds.origin.x
+                && kept.origin.y <= bounds.origin.y
+                && kept.right() >= bounds.right()
+                && kept.bottom() >= bounds.bottom()
+        });
+        if !covered {
+            region.push(bounds);
+        }
+    }
+    region
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -1941,6 +1979,7 @@ impl Window {
         let previous_window_active = self.rendered_frame.window_active;
         mem::swap(&mut self.rendered_frame, &mut self.next_frame);
         self.next_frame.clear();
+        self.report_overlay_input(cx);
         let current_focus_path = self.rendered_frame.focus_path();
         let current_window_active = self.rendered_frame.window_active;
 
@@ -1978,6 +2017,60 @@ impl Window {
         self.needs_present.set(true);
 
         ArenaClearNeeded
+    }
+
+    fn report_overlay_input(&mut self, cx: &mut App) {
+        let Some(owner) = self.overlay_of else {
+            return;
+        };
+        self.hand_back_focus(owner, cx);
+        let region = input_region(&self.rendered_frame.hitboxes);
+        if region != self.input_region {
+            self.platform_window.set_input_region(&region);
+            self.input_region = region;
+        }
+        let takes_keys = !self.rendered_frame.focus_path().is_empty();
+        if takes_keys != self.takes_keys {
+            self.platform_window.set_takes_keys(takes_keys);
+            self.takes_keys = takes_keys;
+        }
+    }
+
+    /// An overlay that was asked to focus an element it does not render, such as one its owner
+    /// renders, passes the focus on to its owner.
+    fn hand_back_focus(&mut self, owner: AnyWindowHandle, cx: &mut App) {
+        if self.focus.is_none() || !self.rendered_frame.focus_path().is_empty() {
+            return;
+        }
+        let handle = self.focused(cx);
+        self.focus = None;
+        let Some(handle) = handle else {
+            return;
+        };
+        cx.defer(move |cx| {
+            owner
+                .update(cx, |_, window, _| window.focus(&handle))
+                .ok();
+        });
+    }
+
+    /// For an overlay window (`WindowOptions::overlay_of`): the owner's content area in this
+    /// window's coordinates. Its origin is non-zero when the overlay is clipped to a monitor
+    /// the owner extends past. `None` for every other window.
+    pub fn owner_bounds(&self) -> Option<Bounds<Pixels>> {
+        self.platform_window.owner_bounds()
+    }
+
+    /// For an overlay window: the rectangles that take the pointer, the union of the hitboxes
+    /// of the last frame. Clicks anywhere else fall through to the owner.
+    pub fn input_region(&self) -> &[Bounds<Pixels>] {
+        &self.input_region
+    }
+
+    /// For an overlay window: whether it receives the owner's keyboard input, which it does
+    /// while one of its elements is focused.
+    pub fn takes_keys(&self) -> bool {
+        self.takes_keys
     }
 
     fn record_entities_accessed(&mut self, cx: &mut App) {
@@ -3579,6 +3672,9 @@ impl Window {
     /// Dispatch a mouse or keyboard event on the window.
     #[profiling::function]
     pub fn dispatch_event(&mut self, event: PlatformInput, cx: &mut App) -> DispatchEventResult {
+        if self.forward_drag_to_owner(&event, cx) {
+            return DispatchEventResult::default();
+        }
         self.last_input_timestamp.set(Instant::now());
         // Handlers may set this to false by calling `stop_propagation`.
         cx.propagate_event = true;
@@ -3672,6 +3768,37 @@ impl Window {
             propagate: cx.propagate_event,
             default_prevented: self.default_prevented,
         }
+    }
+
+    /// A drag that starts in an overlay moves over and drops on its owner, which holds the drop
+    /// targets: pointer moves go to the owner, and a release ends the drag there before the
+    /// overlay sees it. Returns whether the event was the owner's alone.
+    fn forward_drag_to_owner(&mut self, event: &PlatformInput, cx: &mut App) -> bool {
+        let Some(owner) = self.overlay_of.filter(|_| cx.has_active_drag()) else {
+            return false;
+        };
+        let origin = self.owner_bounds().map_or(Point::default(), |bounds| bounds.origin);
+        let (forwarded, owner_only) = match event {
+            PlatformInput::MouseMove(event) => (
+                PlatformInput::MouseMove(MouseMoveEvent {
+                    position: event.position - origin,
+                    ..event.clone()
+                }),
+                true,
+            ),
+            PlatformInput::MouseUp(event) => (
+                PlatformInput::MouseUp(MouseUpEvent {
+                    position: event.position - origin,
+                    ..event.clone()
+                }),
+                false,
+            ),
+            _ => return false,
+        };
+        owner
+            .update(cx, |_, window, cx| window.dispatch_event(forwarded, cx))
+            .ok();
+        owner_only
     }
 
     fn dispatch_mouse_event(&mut self, event: &dyn Any, cx: &mut App) {
@@ -4787,7 +4914,7 @@ impl<V: 'static> From<WindowHandle<V>> for AnyWindowHandle {
 }
 
 /// A handle to a window with any root view type, which can be downcast to a window with a specific root view type.
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub struct AnyWindowHandle {
     pub(crate) id: WindowId,
     state_type: TypeId,

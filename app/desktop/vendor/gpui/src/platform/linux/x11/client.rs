@@ -45,6 +45,7 @@ use super::{
     XimHandler, button_or_scroll_from_event_detail, check_reply,
     clipboard::{self, Clipboard},
     get_reply, get_valuator_axis_index, handle_connection_error, modifiers_from_state,
+    overlay::{self, OverlayLink},
     pressed_button_from_mask,
 };
 
@@ -687,7 +688,7 @@ impl X11Client {
         let window_id = state.keyboard_focused_window;
         drop(state);
         if let Some(window_id) = window_id {
-            let Some(window) = self.get_window(window_id) else {
+            let Some(window) = self.get_window(self.key_target(window_id)) else {
                 log::error!("Failed to get window for IME positioning");
                 let mut state = self.0.borrow_mut();
                 state.ximc = Some(ximc);
@@ -733,6 +734,96 @@ impl X11Client {
             .get(&win)
             .filter(|window_reference| !window_reference.window.state.borrow().destroyed)
             .map(|window_reference| window_reference.window.clone())
+    }
+
+    /// The window that handles key events X delivers to `window`: its overlay while that
+    /// overlay takes keys.
+    fn key_target(&self, window: xproto::Window) -> xproto::Window {
+        let state = self.0.borrow();
+        let links: Vec<(xproto::Window, OverlayLink)> = state
+            .windows
+            .iter()
+            .filter_map(|(x_window, window_ref)| {
+                let link = window_ref.window.state.borrow().overlay.clone()?;
+                Some((*x_window, link))
+            })
+            .collect();
+        overlay::key_target(window, links.iter().map(|(x_window, link)| (*x_window, link)))
+    }
+
+    fn owner_of(&self, window: xproto::Window) -> Option<xproto::Window> {
+        let state = self.0.borrow();
+        let window_ref = state.windows.get(&window)?;
+        let owner = window_ref.window.state.borrow().overlay.as_ref()?.owner;
+        Some(owner)
+    }
+
+    fn overlays_of(&self, owner: xproto::Window) -> Vec<X11WindowStatePtr> {
+        let state = self.0.borrow();
+        state
+            .windows
+            .values()
+            .filter(|window_ref| {
+                let window_state = window_ref.window.state.borrow();
+                window_state.overlay.as_ref().is_some_and(|link| link.owner == owner)
+            })
+            .map(|window_ref| window_ref.window.clone())
+            .collect()
+    }
+
+    /// Sets `window` active or inactive, and its overlays with it.
+    fn set_pair_active(&self, window: xproto::Window, active: bool) {
+        let owner = self.owner_of(window).unwrap_or(window);
+        self.get_window(owner).into_iter().chain(self.overlays_of(owner)).for_each(|window| window.set_active(active));
+    }
+
+    /// Whether the pointer leaving `owner` at `root` went into one of its overlays.
+    fn overlay_holds_pointer(&self, owner: xproto::Window, root: Point<i32>) -> bool {
+        self.overlays_of(owner).iter().any(|window| {
+            let state = window.state.borrow();
+            let link = state.overlay.as_ref();
+            link.is_some_and(|link| overlay::holds_pointer(link, root))
+        })
+    }
+
+    /// The pointer leaving the overlay `window` past its owner's edge leaves the owner too, whose
+    /// own leave went unreported while the pointer was over the overlay.
+    fn owner_left_with(&self, window: xproto::Window, exit: crate::MouseExitEvent) {
+        let Some(owner_bounds) = self
+            .get_window(window)
+            .and_then(|window| Some(window.state.borrow().overlay.as_ref()?.owner_bounds))
+        else {
+            return;
+        };
+        if owner_bounds.contains(&exit.position) {
+            return;
+        }
+        let Some(owner) = self.owner_of(window).and_then(|owner| self.get_window(owner)) else {
+            return;
+        };
+        owner.handle_input(PlatformInput::MouseExited(crate::MouseExitEvent {
+            position: exit.position - owner_bounds.origin,
+            ..exit
+        }));
+        owner.set_hovered(false);
+    }
+
+    fn follow_owner(&self, owner: xproto::Window) {
+        let overlays = self.overlays_of(owner);
+        if overlays.is_empty() {
+            return;
+        }
+        let state = self.0.borrow();
+        let xcb = state.xcb_connection.clone();
+        let root = xcb.setup().roots[state.x_root_index].root;
+        drop(state);
+        let Some(area) = overlay::owner_area(&xcb, owner, root) else {
+            return;
+        };
+        let placement = overlay::placement(area, &overlay::monitors(&xcb, root));
+        for window in overlays {
+            window.follow_owner(placement, area.size);
+        }
     }
 
     fn handle_event(&self, event: Event) -> Option<()> {
@@ -895,6 +986,7 @@ impl X11Client {
                     .set_bounds(bounds)
                     .context("X11: Failed to set window bounds")
                     .log_err();
+                self.follow_owner(event.window);
             }
             Event::PropertyNotify(event) => {
                 let window = self.get_window(event.window)?;
@@ -904,8 +996,8 @@ impl X11Client {
                     .log_err();
             }
             Event::FocusIn(event) => {
-                let window = self.get_window(event.event)?;
-                window.set_active(true);
+                self.get_window(event.event)?;
+                self.set_pair_active(event.event, true);
                 let mut state = self.0.borrow_mut();
                 state.keyboard_focused_window = Some(event.event);
                 if let Some(handler) = state.xim_handler.as_mut() {
@@ -916,7 +1008,17 @@ impl X11Client {
             }
             Event::FocusOut(event) => {
                 let window = self.get_window(event.event)?;
-                window.set_active(false);
+                let gained = self
+                    .0
+                    .borrow()
+                    .xcb_connection
+                    .get_input_focus()
+                    .ok()
+                    .and_then(|cookie| cookie.reply().ok())
+                    .map_or(x11rb::NONE, |reply| reply.focus);
+                if !overlay::stays_in_pair(event.event, gained, |window| self.owner_of(window)) {
+                    self.set_pair_active(event.event, false);
+                }
                 let mut state = self.0.borrow_mut();
                 state.keyboard_focused_window = None;
                 if let Some(compose_state) = state.compose_state.as_mut() {
@@ -972,7 +1074,7 @@ impl X11Client {
                     state.last_capslock_changed_event = capslock;
                     drop(state);
 
-                    let focused_window = self.get_window(focused_window_id)?;
+                    let focused_window = self.get_window(self.key_target(focused_window_id))?;
                     focused_window.handle_input(PlatformInput::ModifiersChanged(
                         ModifiersChangedEvent {
                             modifiers,
@@ -986,7 +1088,7 @@ impl X11Client {
                 }
             }
             Event::KeyPress(event) => {
-                let window = self.get_window(event.event)?;
+                let window = self.get_window(self.key_target(event.event))?;
                 let mut state = self.0.borrow_mut();
 
                 let modifiers = modifiers_from_state(event.state);
@@ -1050,7 +1152,7 @@ impl X11Client {
                 }));
             }
             Event::KeyRelease(event) => {
-                let window = self.get_window(event.event)?;
+                let window = self.get_window(self.key_target(event.event))?;
                 let mut state = self.0.borrow_mut();
 
                 let modifiers = modifiers_from_state(event.state);
@@ -1229,13 +1331,19 @@ impl X11Client {
                 state.modifiers = modifiers;
                 drop(state);
 
+                let root = point(event.root_x >> 16, event.root_y >> 16);
+                if self.overlay_holds_pointer(event.event, root) {
+                    return Some(());
+                }
                 let window = self.get_window(event.event)?;
-                window.handle_input(PlatformInput::MouseExited(crate::MouseExitEvent {
+                let exit = crate::MouseExitEvent {
                     pressed_button,
                     position,
                     modifiers,
-                }));
+                };
+                window.handle_input(PlatformInput::MouseExited(exit.clone()));
                 window.set_hovered(false);
+                self.owner_left_with(event.event, exit);
             }
             Event::XinputHierarchy(event) => {
                 let mut state = self.0.borrow_mut();
@@ -1311,7 +1419,7 @@ impl X11Client {
     }
 
     fn xim_handle_commit(&self, window: xproto::Window, text: String) -> Option<()> {
-        let Some(window) = self.get_window(window) else {
+        let Some(window) = self.get_window(self.key_target(window)) else {
             log::error!("bug: Failed to get window for XIM commit");
             return None;
         };
@@ -1323,7 +1431,7 @@ impl X11Client {
     }
 
     fn xim_handle_preedit(&self, window: xproto::Window, text: String) -> Option<()> {
-        let Some(window) = self.get_window(window) else {
+        let Some(window) = self.get_window(self.key_target(window)) else {
             log::error!("bug: Failed to get window for XIM preedit");
             return None;
         };
@@ -1456,6 +1564,7 @@ impl LinuxClient for X11Client {
             .xcb_connection
             .generate_id()
             .context("X11: Failed to generate window ID")?;
+        let overlay = params.overlay_of.and_then(|owner| state.overlay_start(owner));
 
         let window = X11Window::new(
             handle,
@@ -1471,6 +1580,7 @@ impl LinuxClient for X11Client {
             state.scale_factor,
             state.common.appearance,
             parent_window,
+            overlay,
         )?;
         check_reply(
             || "Failed to set XdndAware property",
@@ -1671,6 +1781,26 @@ impl LinuxClient for X11Client {
 }
 
 impl X11ClientState {
+    /// The link and the first placement of a new overlay of the window opened as `owner`.
+    fn overlay_start(&self, owner: AnyWindowHandle) -> Option<(OverlayLink, Bounds<i32>)> {
+        let owner = self
+            .windows
+            .iter()
+            .find(|(_, window_ref)| window_ref.handle() == owner)
+            .map(|(x_window, _)| *x_window)?;
+        let root = self.xcb_connection.setup().roots[self.x_root_index].root;
+        let area = overlay::owner_area(&self.xcb_connection, owner, root)?;
+        let placement = overlay::placement(area, &overlay::monitors(&self.xcb_connection, root));
+        let link = OverlayLink {
+            owner,
+            window: placement.window,
+            owner_bounds: placement.owner_bounds(area.size, self.scale_factor),
+            takes_keys: false,
+            region: Vec::new(),
+        };
+        Some((link, placement.window))
+    }
+
     fn has_xim(&self) -> bool {
         self.ximc.is_some() && self.xim_handler.is_some()
     }

@@ -552,6 +552,7 @@ features = [
     "allow-unsafe-code",
     "xkb",
     "randr",
+    "shape",
     "xinput",
     "cursor",
     "resource_manager",

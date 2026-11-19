@@ -29,6 +29,7 @@ pub(crate) struct TestWindowState {
     moved_callback: Option<Box<dyn FnMut()>>,
     input_handler: Option<PlatformInputHandler>,
     is_fullscreen: bool,
+    is_overlay: bool,
 }
 
 #[derive(Clone)]
@@ -38,7 +39,8 @@ impl HasWindowHandle for TestWindow {
     fn window_handle(
         &self,
     ) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> {
-        unimplemented!("Test Windows are not backed by a real platform window")
+        // A test window has no native window; callers see the same error as on a headless platform.
+        Err(raw_window_handle::HandleError::NotSupported)
     }
 }
 
@@ -46,7 +48,8 @@ impl HasDisplayHandle for TestWindow {
     fn display_handle(
         &self,
     ) -> Result<raw_window_handle::DisplayHandle<'_>, raw_window_handle::HandleError> {
-        unimplemented!("Test Windows are not backed by a real platform window")
+        // A test window has no native window; callers see the same error as on a headless platform.
+        Err(raw_window_handle::HandleError::NotSupported)
     }
 }
 
@@ -74,6 +77,7 @@ impl TestWindow {
             moved_callback: None,
             input_handler: None,
             is_fullscreen: false,
+            is_overlay: params.overlay_of.is_some(),
         })))
     }
 
@@ -293,6 +297,12 @@ impl PlatformWindow for TestWindow {
 
     fn gpu_specs(&self) -> Option<GpuSpecs> {
         None
+    }
+
+    fn owner_bounds(&self) -> Option<Bounds<Pixels>> {
+        let lock = self.0.lock();
+        lock.is_overlay
+            .then(|| Bounds::new(Point::default(), lock.bounds.size))
     }
 }
 

@@ -419,6 +419,9 @@ struct MacWindowState {
     select_previous_tab_callback: Option<Box<dyn FnMut()>>,
     toggle_tab_bar_callback: Option<Box<dyn FnMut()>>,
     activated_least_once: bool,
+    // The owner of an overlay window, and the overlay of an owner.
+    owner: Option<id>,
+    overlay: Option<id>,
 }
 
 impl MacWindowState {
@@ -582,6 +585,7 @@ impl MacWindow {
             display_id,
             window_min_size,
             tabbing_identifier,
+            overlay_of,
         }: WindowParams,
         executor: ForegroundExecutor,
         renderer_context: renderer::Context,
@@ -615,6 +619,11 @@ impl MacWindow {
             } else {
                 style_mask = NSWindowStyleMask::NSTitledWindowMask
                     | NSWindowStyleMask::NSFullSizeContentViewWindowMask;
+            }
+
+            let owner = overlay_of.and_then(|owner| native_window_of(owner));
+            if owner.is_some() {
+                style_mask = NSWindowStyleMask::NSBorderlessWindowMask;
             }
 
             let native_window: id = match kind {
@@ -658,6 +667,7 @@ impl MacWindow {
                 ),
                 NSSize::new(bounds.size.width.0 as f64, bounds.size.height.0 as f64),
             );
+            let window_rect = owner.map_or(window_rect, |owner| content_rect(owner));
 
             let native_window = native_window.initWithContentRect_styleMask_backing_defer_screen_(
                 window_rect,
@@ -725,6 +735,8 @@ impl MacWindow {
                 select_previous_tab_callback: None,
                 toggle_tab_bar_callback: None,
                 activated_least_once: false,
+                owner,
+                overlay: None,
             })));
 
             (*native_window).set_ivar(
@@ -844,6 +856,15 @@ impl MacWindow {
                         }
                     }
                 }
+            }
+
+            if let Some(owner) = owner {
+                native_window.setHasShadow_(NO);
+                let _: () = msg_send![native_window, setIgnoresMouseEvents: YES];
+                let _: () = msg_send![owner, addChildWindow: native_window ordered: NSWindowOrderingMode::NSWindowAbove];
+                get_window_state(&*owner).lock().overlay = Some(native_window);
+                pool.drain();
+                return window;
             }
 
             if focus && show {
@@ -1482,6 +1503,41 @@ impl PlatformWindow for MacWindow {
         None
     }
 
+    fn owner_bounds(&self) -> Option<Bounds<Pixels>> {
+        let lock = self.0.lock();
+        lock.owner
+            .map(|_| Bounds::new(Point::default(), lock.content_size()))
+    }
+
+    // PLATFORM: an NSWindow cannot shape its input, so an overlay takes every click while it
+    // has a region and none while it has none.
+    fn set_input_region(&self, region: &[Bounds<Pixels>]) {
+        let lock = self.0.lock();
+        if lock.owner.is_none() {
+            return;
+        }
+        let ignores = region.is_empty().to_objc();
+        unsafe {
+            let _: () = msg_send![lock.native_window, setIgnoresMouseEvents: ignores];
+        }
+    }
+
+    fn set_takes_keys(&self, takes_keys: bool) {
+        let lock = self.0.lock();
+        let Some(owner) = lock.owner else {
+            return;
+        };
+        let native_window = lock.native_window;
+        drop(lock);
+        unsafe {
+            if takes_keys {
+                let _: () = msg_send![native_window, makeKeyWindow];
+            } else if native_window.isKeyWindow() == YES {
+                let _: () = msg_send![owner, makeKeyWindow];
+            }
+        }
+    }
+
     fn update_ime_position(&self, _bounds: Bounds<Pixels>) {
         let executor = self.0.lock().executor.clone();
         executor
@@ -1923,7 +1979,35 @@ extern "C" fn window_did_change_occlusion_state(this: &Object, _: Sel, _: id) {
 
 extern "C" fn window_did_resize(this: &Object, _: Sel, _: id) {
     let window_state = unsafe { get_window_state(this) };
-    window_state.as_ref().lock().move_traffic_light();
+    let lock = window_state.as_ref().lock();
+    lock.move_traffic_light();
+    if let Some(overlay) = lock.overlay {
+        unsafe {
+            let frame = content_rect(lock.native_window);
+            let _: () = msg_send![overlay, setFrame: frame display: YES];
+        }
+    }
+}
+
+/// The content area of `window` in screen coordinates.
+unsafe fn content_rect(window: id) -> NSRect {
+    unsafe {
+        let frame = NSWindow::frame(window);
+        msg_send![window, contentRectForFrameRect: frame]
+    }
+}
+
+/// The native window GPUI opened as `handle`.
+unsafe fn native_window_of(handle: AnyWindowHandle) -> Option<id> {
+    unsafe {
+        let app = NSApplication::sharedApplication(nil);
+        let windows: id = msg_send![app, windows];
+        let count: NSUInteger = msg_send![windows, count];
+        (0..count)
+            .map(|index| -> id { msg_send![windows, objectAtIndex: index] })
+            .filter(|window| msg_send![*window, isKindOfClass: WINDOW_CLASS])
+            .find(|window| get_window_state(&**window).lock().handle == handle)
+    }
 }
 
 extern "C" fn window_will_enter_fullscreen(this: &Object, _: Sel, _: id) {

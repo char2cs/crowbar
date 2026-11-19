@@ -16,6 +16,16 @@ Drop it when a published gpui converts SVG images to BGRA. Tracking: zed-industr
 
 `gpui-external-paths.patch` (`src/interactive.rs`): `ExternalPaths::from_paths` builds the file-drop payload `ExternalPaths` otherwise only gets from a platform, so the sidebar's file-drop test can drive its `on_drop` handler. Drop it when a published gpui exposes a constructor.
 
+`gpui-overlay-window.patch` gives a window an overlay window: the shell's top layer, a transparent window kept over the owner's content area, so floating elements paint above the owner's native web views.
+
+- `src/platform.rs`, `src/window.rs`: `WindowOptions::overlay_of` names the owner; `Window::owner_bounds`, `input_region` and `takes_keys` describe the overlay to the platform. The input region is the union of the hitboxes painted in a frame, the overlay takes the keyboard only while one of its elements is focused, and focus given to an element the owner renders goes back to the owner. Moves and the release of a drag that started in an overlay go to the owner, offset by its bounds, so the owner's drop targets receive it.
+- `src/platform/linux/x11/overlay.rs` (new), `x11/window.rs`, `x11/client.rs`, `Cargo.toml` (x11rb `shape`): an ARGB override-redirect window stacked above its owner and moved with it, its input shape set to the input region. The owner's pointer leave is ignored while the pointer is inside its overlay's input region, and the owner gets the leave when the pointer leaves the overlay outside the owner's bounds.
+- `src/platform/mac/window.rs`: a borderless child `NSWindow` above the owner; it ignores the mouse when its input region is empty.
+- `src/platform/test/window.rs`: the test window answers `HandleError::NotSupported` for its raw handles instead of panicking, so a view that parents web views can be opened in a test, and an overlay test window reports its owner's bounds.
+- `src/window.rs` (`Frame::clear`): test builds clear the frame's debug bounds, so an element that stopped painting is no longer found by `debug_bounds`.
+
+Drop it when upstream gpui offers windows above a native child view. Tracking: zed-industries/zed.
+
 ## cosmic-text 0.14.2
 
 `cosmic-text-variable-weight.patch`, reached through `gpui` on Linux and wired in through `[patch.crates-io]` in `app/Cargo.toml`:

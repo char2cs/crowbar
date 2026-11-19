@@ -19,6 +19,7 @@ use x11rb::{
     errors::ConnectionError,
     properties::WmSizeHints,
     protocol::{
+        shape::{self, ConnectionExt as _},
         sync,
         xinput::{self, ConnectionExt as _},
         xproto::{self, ClientMessageEvent, ConnectionExt, TranslateCoordinatesReply},
@@ -32,6 +33,7 @@ use std::{
     sync::Arc,
 };
 
+use super::overlay::{self, OverlayLink};
 use super::{X11Display, XINPUT_ALL_DEVICE_GROUPS, XINPUT_ALL_DEVICES};
 
 x11rb::atom_manager! {
@@ -66,6 +68,8 @@ x11rb::atom_manager! {
         _NET_WM_STATE_FULLSCREEN,
         _NET_WM_STATE_HIDDEN,
         _NET_WM_STATE_FOCUSED,
+        _NET_WM_STATE_SKIP_TASKBAR,
+        _NET_WM_STATE_SKIP_PAGER,
         _NET_ACTIVE_WINDOW,
         _NET_WM_SYNC_REQUEST,
         _NET_WM_SYNC_REQUEST_COUNTER,
@@ -273,6 +277,7 @@ pub struct X11WindowState {
     edge_constraints: Option<EdgeConstraints>,
     pub handle: AnyWindowHandle,
     last_insets: [u32; 4],
+    pub(crate) overlay: Option<OverlayLink>,
 }
 
 impl X11WindowState {
@@ -407,6 +412,7 @@ impl X11WindowState {
         scale_factor: f32,
         appearance: WindowAppearance,
         parent_window: Option<xproto::Window>,
+        overlay: Option<(OverlayLink, Bounds<i32>)>,
     ) -> anyhow::Result<Self> {
         let x_screen_index = params
             .display_id
@@ -435,9 +441,11 @@ impl X11WindowState {
             id
         };
 
+        let (overlay, overlay_window) = overlay.unzip();
         let win_aux = xproto::CreateWindowAux::new()
             // https://stackoverflow.com/questions/43218127/x11-xlib-xcb-creating-a-window-requires-border-pixel-if-specifying-colormap-wh
             .border_pixel(visual_set.black_pixel)
+            .background_pixel(overlay.as_ref().map(|_| 0))
             .colormap(colormap)
             .event_mask(
                 xproto::EventMask::EXPOSURE
@@ -450,6 +458,10 @@ impl X11WindowState {
             );
 
         let mut bounds = params.bounds.to_device_pixels(scale_factor);
+        if let Some(window) = overlay_window {
+            bounds = window.map(DevicePixels);
+        }
+        let nudge = if overlay.is_some() { 0 } else { 2 };
         if bounds.size.width.0 == 0 || bounds.size.height.0 == 0 {
             log::warn!(
                 "Window bounds contain a zero value. height={}, width={}. Falling back to defaults.",
@@ -467,7 +479,7 @@ impl X11WindowState {
                     visual.depth,
                     x_window,
                     visual_set.root,
-                    bounds.origin.x.0 + 2,
+                    bounds.origin.x.0 + nudge,
                     bounds.origin.y.0,
                     bounds.size.width.0,
                     bounds.size.height.0
@@ -477,7 +489,7 @@ impl X11WindowState {
                 visual.depth,
                 x_window,
                 visual_set.root,
-                (bounds.origin.x.0 + 2) as i16,
+                (bounds.origin.x.0 + nudge) as i16,
                 bounds.origin.y.0 as i16,
                 bounds.size.width.0 as u16,
                 bounds.size.height.0 as u16,
@@ -518,7 +530,7 @@ impl X11WindowState {
             }
 
             let reply = get_reply(|| "X11 GetGeometry failed.", xcb.get_geometry(x_window))?;
-            if reply.x == 0 && reply.y == 0 {
+            if overlay.is_none() && reply.x == 0 && reply.y == 0 {
                 bounds.origin.x.0 += 2;
                 // Work around a bug where our rendered content appears
                 // outside the window bounds when opened at the default position
@@ -600,6 +612,10 @@ impl X11WindowState {
                     &[atoms.WM_DELETE_WINDOW, atoms._NET_WM_SYNC_REQUEST],
                 ),
             )?;
+
+            if let Some(link) = overlay.as_ref() {
+                set_overlay_properties(xcb, x_window, atoms, link.owner, bounds)?;
+            }
 
             get_reply(
                 || "X11 sync protocol initialize failed.",
@@ -704,6 +720,7 @@ impl X11WindowState {
                 edge_constraints: None,
                 counter_id: sync_request_counter,
                 last_sync_counter: None,
+                overlay,
             })
         });
 
@@ -725,6 +742,87 @@ impl X11WindowState {
             height: size.height.into(),
         }
     }
+}
+
+/// Marks `x_window` as the overlay of `owner` before it is mapped: a transient dialog the
+/// window manager never focuses, lists or decorates, placed exactly at `bounds`, and taking no
+/// pointer input until its first frame reports a region.
+fn set_overlay_properties(
+    xcb: &Rc<XCBConnection>,
+    x_window: xproto::Window,
+    atoms: &XcbAtoms,
+    owner: xproto::Window,
+    bounds: Bounds<DevicePixels>,
+) -> anyhow::Result<()> {
+    check_reply(
+        || "X11 setting WM_TRANSIENT_FOR for an overlay failed.",
+        xcb.change_property32(
+            xproto::PropMode::REPLACE,
+            x_window,
+            atoms.WM_TRANSIENT_FOR,
+            xproto::AtomEnum::WINDOW,
+            &[owner],
+        ),
+    )?;
+    check_reply(
+        || "X11 setting the window type of an overlay failed.",
+        xcb.change_property32(
+            xproto::PropMode::REPLACE,
+            x_window,
+            atoms._NET_WM_WINDOW_TYPE,
+            xproto::AtomEnum::ATOM,
+            &[atoms._NET_WM_WINDOW_TYPE_DIALOG],
+        ),
+    )?;
+    check_reply(
+        || "X11 setting the state of an overlay failed.",
+        xcb.change_property32(
+            xproto::PropMode::REPLACE,
+            x_window,
+            atoms._NET_WM_STATE,
+            xproto::AtomEnum::ATOM,
+            &[atoms._NET_WM_STATE_SKIP_TASKBAR, atoms._NET_WM_STATE_SKIP_PAGER],
+        ),
+    )?;
+    let mut hints = x11rb::properties::WmHints::new();
+    hints.input = Some(false);
+    check_reply(|| "X11 setting WM_HINTS for an overlay failed.", hints.set(xcb, x_window))?;
+    let (x, y) = (bounds.origin.x.0, bounds.origin.y.0);
+    let (width, height) = (bounds.size.width.0, bounds.size.height.0);
+    let mut size_hints = WmSizeHints::new();
+    size_hints.position = Some((x11rb::properties::WmSizeHintsSpecification::UserSpecified, x, y));
+    size_hints.size = Some((
+        x11rb::properties::WmSizeHintsSpecification::UserSpecified,
+        width,
+        height,
+    ));
+    check_reply(
+        || "X11 setting WM_NORMAL_HINTS for an overlay failed.",
+        size_hints.set_normal_hints(xcb, x_window),
+    )?;
+    check_reply(
+        || "X11 emptying the input region of an overlay failed.",
+        xcb.shape_rectangles(
+            shape::SO::SET,
+            shape::SK::INPUT,
+            xproto::ClipOrdering::UNSORTED,
+            x_window,
+            0,
+            0,
+            &[],
+        ),
+    )?;
+    check_reply(
+        || "X11 placing an overlay failed.",
+        xcb.configure_window(
+            x_window,
+            &xproto::ConfigureWindowAux::new()
+                .x(x)
+                .y(y)
+                .width(width as u32)
+                .height(height as u32),
+        ),
+    )
 }
 
 pub(crate) struct X11Window(pub X11WindowStatePtr);
@@ -786,6 +884,7 @@ impl X11Window {
         scale_factor: f32,
         appearance: WindowAppearance,
         parent_window: Option<xproto::Window>,
+        overlay: Option<(OverlayLink, Bounds<i32>)>,
     ) -> anyhow::Result<Self> {
         let ptr = X11WindowStatePtr {
             state: Rc::new(RefCell::new(X11WindowState::new(
@@ -802,6 +901,7 @@ impl X11Window {
                 scale_factor,
                 appearance,
                 parent_window,
+                overlay,
             )?)),
             callbacks: Rc::new(RefCell::new(Callbacks::default())),
             xcb: xcb.clone(),
@@ -1130,6 +1230,67 @@ impl X11WindowStatePtr {
         }
 
         Ok(())
+    }
+
+    /// Moves X focus to `owner` when it sits in a child of the owner, such as a web view, so
+    /// the owner's key events reach an overlay that starts taking keys. Focus held by another
+    /// application stays where it is.
+    fn pull_keyboard_to(&self, owner: xproto::Window) {
+        let Some(focus) = self
+            .xcb
+            .get_input_focus()
+            .ok()
+            .and_then(|cookie| cookie.reply().ok())
+        else {
+            return;
+        };
+        if focus.focus == owner || !overlay::is_within(&self.xcb, focus.focus, owner) {
+            return;
+        }
+        check_reply(
+            || "X11 moving focus to the owner of an overlay failed.",
+            self.xcb
+                .set_input_focus(xproto::InputFocus::PARENT, owner, x11rb::CURRENT_TIME),
+        )
+        .log_err();
+        xcb_flush(&self.xcb);
+    }
+
+    /// Follows the owner to `placement`: moves and resizes the overlay, and redraws it when only
+    /// the offset of the owner inside it changed (a moved or resized window redraws on its own
+    /// configure event).
+    pub(crate) fn follow_owner(&self, placement: overlay::Placement, owner: Size<i32>) {
+        let mut state = self.state.borrow_mut();
+        let scale_factor = state.scale_factor;
+        let Some(link) = state.overlay.as_mut() else {
+            return;
+        };
+        let owner_bounds = placement.owner_bounds(owner, scale_factor);
+        let window = placement.window;
+        let moved = link.window != window;
+        let shifted = link.owner_bounds != owner_bounds;
+        link.window = window;
+        link.owner_bounds = owner_bounds;
+        drop(state);
+        if moved {
+            check_reply(
+                || "X11 moving an overlay with its owner failed.",
+                self.xcb.configure_window(
+                    self.x_window,
+                    &xproto::ConfigureWindowAux::new()
+                        .x(window.origin.x)
+                        .y(window.origin.y)
+                        .width(window.size.width as u32)
+                        .height(window.size.height as u32),
+                ),
+            )
+            .log_err();
+            xcb_flush(&self.xcb);
+            return;
+        }
+        if shifted && let Some(ref mut redraw) = self.callbacks.borrow_mut().moved {
+            redraw();
+        }
     }
 
     pub fn set_active(&self, focus: bool) {
@@ -1678,5 +1839,52 @@ impl PlatformWindow for X11Window {
 
     fn gpu_specs(&self) -> Option<GpuSpecs> {
         self.0.state.borrow().renderer.gpu_specs().into()
+    }
+
+    fn owner_bounds(&self) -> Option<Bounds<Pixels>> {
+        let state = self.0.state.borrow();
+        state.overlay.as_ref().map(|link| link.owner_bounds)
+    }
+
+    fn set_input_region(&self, region: &[Bounds<Pixels>]) {
+        let mut state = self.0.state.borrow_mut();
+        let rects = overlay::device_rects(region, state.scale_factor);
+        let Some(link) = state.overlay.as_mut() else {
+            return;
+        };
+        let same = |a: &xproto::Rectangle, b: &xproto::Rectangle| {
+            (a.x, a.y, a.width, a.height) == (b.x, b.y, b.width, b.height)
+        };
+        if link.region.len() == rects.len() && link.region.iter().zip(&rects).all(|(a, b)| same(a, b)) {
+            return;
+        }
+        link.region = rects;
+        check_reply(
+            || "X11 setting the input region of an overlay failed.",
+            self.0.xcb.shape_rectangles(
+                shape::SO::SET,
+                shape::SK::INPUT,
+                xproto::ClipOrdering::UNSORTED,
+                self.0.x_window,
+                0,
+                0,
+                &link.region,
+            ),
+        )
+        .log_err();
+        xcb_flush(&self.0.xcb);
+    }
+
+    fn set_takes_keys(&self, takes_keys: bool) {
+        let mut state = self.0.state.borrow_mut();
+        let Some(link) = state.overlay.as_mut() else {
+            return;
+        };
+        link.takes_keys = takes_keys;
+        let owner = link.owner;
+        drop(state);
+        if takes_keys {
+            self.0.pull_keyboard_to(owner);
+        }
     }
 }
