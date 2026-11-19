@@ -5,7 +5,7 @@ use gpui::{
     RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
 use sidebar::{Command, Intent, OperationPhase, Row};
-use ui::{Icon, IconName, IconWeight, Palette, Spinner, Surface, Theme};
+use ui::{FlickerSpinner, Icon, IconName, IconWeight, Palette, Surface, Theme};
 
 use crate::panels::chats::parts::report;
 use crate::panels::chats::parts::row_shell;
@@ -64,7 +64,7 @@ fn leading(
             .items_center()
             .justify_center()
             .child(
-                Spinner::new(SharedString::from(format!("op-{}", row.id.as_str())))
+                FlickerSpinner::new(SharedString::from(format!("op-{}", row.id.as_str())))
                     .size(ICON_MEDIUM),
             )
             .into_any_element(),

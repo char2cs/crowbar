@@ -9,7 +9,7 @@ use gpui::{
     RenderOnce, SharedString, Stateful, StatefulInteractiveElement, Styled, Window, div, px,
 };
 use sidebar::{Expansion, Presence, Row, RowId, RowKind};
-use ui::{DraggedRow, Icon, Palette, Spinner, Surface};
+use ui::{DraggedRow, FlickerSpinner, Icon, Palette, Surface};
 
 use crate::column::mark_view;
 use crate::panels::chats::parts::ClusterSpec;
@@ -160,7 +160,7 @@ fn glyph_box(
         RowGlyph::Spinner => frame
             .size(px(GLYPH))
             .child(
-                Spinner::new(SharedString::from(format!("spin-{}", row.id.as_str())))
+                FlickerSpinner::new(SharedString::from(format!("spin-{}", row.id.as_str())))
                     .size(px(SPINNER)),
             )
             .into_any_element(),

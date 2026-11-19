@@ -16,9 +16,9 @@ pub use control::{
     TextAreaSize, TextInput, TextInputEvent, TextInputStyle,
 };
 pub use display::{
-    Badge, BadgeSize, BadgeVariant, EmptyState, Kbd, ProgressBar, ScrollArea, Skeleton, Spinner,
-    Toast, ToastContent, ToastId, ToastKind, ToastLifetime, ToastPlacement, ToastQueue,
-    ToastQueueEvent, ToastSide,
+    Badge, BadgeSize, BadgeVariant, EmptyState, FlickerSpinner, Kbd, ProgressBar, ScrollArea,
+    Skeleton, Spinner, Toast, ToastContent, ToastId, ToastKind, ToastLifetime, ToastPlacement,
+    ToastQueue, ToastQueueEvent, ToastSide,
 };
 pub use error::Error;
 pub use floating::{

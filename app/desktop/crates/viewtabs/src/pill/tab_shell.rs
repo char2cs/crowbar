@@ -5,7 +5,9 @@ use gpui::{
     AnyElement, App, CursorStyle, ElementId, FontWeight, Hsla, InteractiveElement, IntoElement,
     MouseButton, ParentElement, RenderOnce, StatefulInteractiveElement, Styled, Window, div, px,
 };
-use ui::{Icon, IconName, IconWeight, Palette, Spinner, Surface, Theme, radius, shadow, text_size};
+use ui::{
+    FlickerSpinner, Icon, IconName, IconWeight, Palette, Surface, Theme, radius, shadow, text_size,
+};
 
 use crate::pill::member_kind::MemberKind;
 use crate::pill::member_view::MemberView;
@@ -125,7 +127,7 @@ fn member_ink(
 }
 
 fn spinner_glyph(spinner_id: ElementId) -> AnyElement {
-    Spinner::new(spinner_id)
+    FlickerSpinner::new(spinner_id)
         .size(px(SPINNER))
         .on(Surface::Chrome)
         .into_any_element()

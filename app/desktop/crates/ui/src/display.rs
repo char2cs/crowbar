@@ -2,6 +2,7 @@
 
 mod badge;
 mod empty_state;
+mod flicker_spinner;
 mod kbd;
 mod progress_bar;
 mod scroll_area;
@@ -11,6 +12,7 @@ mod toast;
 
 pub use badge::{Badge, BadgeSize, BadgeVariant};
 pub use empty_state::EmptyState;
+pub use flicker_spinner::FlickerSpinner;
 pub use kbd::Kbd;
 pub use progress_bar::ProgressBar;
 pub use scroll_area::ScrollArea;

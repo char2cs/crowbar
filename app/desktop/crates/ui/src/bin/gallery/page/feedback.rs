@@ -2,8 +2,8 @@
 
 use gpui::{IntoElement, ParentElement, Pixels, Styled, div, px};
 use ui::{
-    Badge, BadgeSize, BadgeVariant, EmptyState, IconName, Kbd, Skeleton, Spinner, Toast, ToastKind,
-    spacing,
+    Badge, BadgeSize, BadgeVariant, EmptyState, FlickerSpinner, IconName, Kbd, Skeleton, Spinner,
+    Toast, ToastKind, spacing,
 };
 
 use crate::page::section::row;
@@ -45,6 +45,7 @@ fn extras() -> impl IntoElement {
         .child(Badge::new("lg").size(BadgeSize::Lg))
         .child(Kbd::new("Ctrl+B"))
         .child(Spinner::new("spinner"))
+        .child(FlickerSpinner::new("flicker-spinner"))
 }
 
 fn toasts() -> impl IntoElement {
