@@ -260,7 +260,7 @@ pub struct X11WindowState {
     pub(crate) counter_id: sync::Counter,
     pub(crate) last_sync_counter: Option<sync::Int64>,
     bounds: Bounds<Pixels>,
-    scale_factor: f32,
+    pub(crate) scale_factor: f32,
     renderer: BladeRenderer,
     display: Rc<dyn PlatformDisplay>,
     input_handler: Option<PlatformInputHandler>,
@@ -1339,7 +1339,6 @@ impl X11WindowStatePtr {
     /// hides it.
     fn apply_catcher(&self) {
         let mut state = self.state.borrow_mut();
-        let scale_factor = state.scale_factor;
         let Some(link) = state.overlay.as_mut() else {
             return;
         };
@@ -1362,8 +1361,8 @@ impl X11WindowStatePtr {
             }
         };
         let offset = point(
-            (f32::from(link.owner_bounds.origin.x) * scale_factor).round() as i32,
-            (f32::from(link.owner_bounds.origin.y) * scale_factor).round() as i32,
+            link.owner_area.origin.x - link.window.origin.x,
+            link.owner_area.origin.y - link.window.origin.y,
         );
         let rects = overlay::shape_rects(&overlay::in_owner(&link.region, offset));
         let stacked = xproto::ConfigureWindowAux::new().stack_mode(xproto::StackMode::ABOVE);
@@ -1406,21 +1405,20 @@ impl X11WindowStatePtr {
         xcb_flush(&self.xcb);
     }
 
-    /// Follows the owner to `placement`: moves and resizes the overlay, and redraws it when only
-    /// the offset of the owner inside it changed (a moved or resized window redraws on its own
-    /// configure event).
-    pub(crate) fn follow_owner(&self, placement: overlay::Placement, owner: Size<i32>) {
+    /// Follows the owner to its content area `area` (root coordinates): asks the window manager
+    /// to move the overlay when it should cover another rectangle of `monitors`, and redraws
+    /// when only the owner's offset inside the overlay changed.
+    pub(crate) fn follow_owner(&self, area: Bounds<i32>, monitors: &[Bounds<i32>]) {
         let mut state = self.state.borrow_mut();
         let scale_factor = state.scale_factor;
         let Some(link) = state.overlay.as_mut() else {
             return;
         };
-        let owner_bounds = placement.owner_bounds(owner, scale_factor);
-        let window = placement.window;
+        let before = link.owner_bounds(scale_factor);
+        link.owner_area = area;
+        let shifted = link.owner_bounds(scale_factor) != before;
+        let window = overlay::placement(area, monitors).window;
         let moved = link.window != window;
-        let shifted = link.owner_bounds != owner_bounds;
-        link.window = window;
-        link.owner_bounds = owner_bounds;
         drop(state);
         if moved {
             check_reply(
@@ -1436,12 +1434,39 @@ impl X11WindowStatePtr {
             )
             .log_err();
             xcb_flush(&self.xcb);
-            return;
         }
         if shifted && let Some(ref mut redraw) = self.callbacks.borrow_mut().moved {
             redraw();
         }
     }
+
+    /// Records where the overlay really is after its own configure event.
+    pub(crate) fn overlay_configured(&self, event: &xproto::ConfigureNotifyEvent) {
+        let mut state = self.state.borrow_mut();
+        if let Some(link) = state.overlay.as_mut() {
+            link.window = overlay::configured(link.window, event, link.framed.overlay);
+        }
+    }
+
+    /// Records whether a window manager framed the overlay (`overlay`) or its owner.
+    pub(crate) fn set_framed(&self, overlay: bool, framed: bool) {
+        let mut state = self.state.borrow_mut();
+        let Some(link) = state.overlay.as_mut() else {
+            return;
+        };
+        match overlay {
+            true => link.framed.overlay = framed,
+            false => link.framed.owner = framed,
+        }
+    }
+
+    /// The owner's content area after its configure event `event`, as this overlay knows it.
+    pub(crate) fn owner_configured(&self, event: &xproto::ConfigureNotifyEvent) -> Option<Bounds<i32>> {
+        let state = self.state.borrow();
+        let link = state.overlay.as_ref()?;
+        Some(overlay::configured(link.owner_area, event, link.framed.owner))
+    }
+
 
     pub fn set_active(&self, focus: bool) {
         if let Some(ref mut fun) = self.callbacks.borrow_mut().active_status_change {
@@ -1996,7 +2021,10 @@ impl PlatformWindow for X11Window {
 
     fn owner_bounds(&self) -> Option<Bounds<Pixels>> {
         let state = self.0.state.borrow();
-        state.overlay.as_ref().map(|link| link.owner_bounds)
+        state
+            .overlay
+            .as_ref()
+            .map(|link| link.owner_bounds(state.scale_factor))
     }
 
     fn set_input_region(&self, region: &[Bounds<Pixels>]) {

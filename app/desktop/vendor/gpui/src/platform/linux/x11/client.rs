@@ -190,6 +190,11 @@ pub struct X11ClientState {
     /// `_NET_WM_CM_Sn` of the screen, owned by its compositing manager while one runs.
     compositor_selection: xproto::Atom,
     composited: bool,
+    /// The window each held key went to at its press, so its release goes there too although
+    /// an overlay took or gave back the keyboard in between.
+    pressed_keys: HashMap<xproto::Keycode, xproto::Window>,
+    /// The active monitors in root coordinates, refreshed on RandR notify events.
+    monitors: Vec<Bounds<i32>>,
     pub(crate) x_root_index: usize,
     pub(crate) _resource_database: Database,
     pub(crate) atoms: XcbAtoms,
@@ -359,6 +364,7 @@ impl X11Client {
 
         let (compositor_selection, composited) =
             watch_compositor(&xcb_connection, x_root_index)?;
+        let monitors = watch_monitors(&xcb_connection, x_root_index)?;
         let root = xcb_connection.setup().roots[0].root;
         let compositor_present = check_compositor_present(&xcb_connection, root);
         let gtk_frame_extents_supported =
@@ -499,6 +505,8 @@ impl X11Client {
             client_side_decorations_supported,
             compositor_selection,
             composited,
+            monitors,
+            pressed_keys: HashMap::default(),
             x_root_index,
             _resource_database: resource_database,
             atoms,
@@ -760,6 +768,14 @@ impl X11Client {
         overlay::key_target(window, links.iter().map(|(x_window, link)| (*x_window, link)))
     }
 
+    /// `window` with the other windows of its overlay pair: its owner and the owner's overlays.
+    fn pair_of(&self, window: xproto::Window) -> Vec<X11WindowStatePtr> {
+        let owner = self.owner_of(window).unwrap_or(window);
+        let mut pair = self.overlays_of(owner);
+        pair.extend(self.get_window(owner));
+        pair
+    }
+
     fn owner_of(&self, window: xproto::Window) -> Option<xproto::Window> {
         let state = self.0.borrow();
         let window_ref = state.windows.get(&window)?;
@@ -799,7 +815,10 @@ impl X11Client {
             let window_state = window_ref.window.state.borrow();
             let link = window_state.overlay.as_ref()?;
             (link.catcher == Some(x_window))
-                .then(|| (window_ref.window.clone(), link.owner_bounds.origin))
+                .then(|| {
+                    let origin = link.owner_bounds(window_state.scale_factor).origin;
+                    (window_ref.window.clone(), origin)
+                })
         })
     }
 
@@ -816,7 +835,10 @@ impl X11Client {
     fn owner_left_with(&self, window: xproto::Window, exit: crate::MouseExitEvent) {
         let Some(owner_bounds) = self
             .get_window(window)
-            .and_then(|window| Some(window.state.borrow().overlay.as_ref()?.owner_bounds))
+            .and_then(|window| {
+                let state = window.state.borrow();
+                Some(state.overlay.as_ref()?.owner_bounds(state.scale_factor))
+            })
         else {
             return;
         };
@@ -854,22 +876,52 @@ impl X11Client {
         }
     }
 
-    fn follow_owner(&self, owner: xproto::Window) {
-        let overlays = self.overlays_of(owner);
-        if overlays.is_empty() {
-            return;
+    /// Moves the overlays of `owner` with it after its configure event `event`; no round trips.
+    fn follow_owner(&self, event: &xproto::ConfigureNotifyEvent) {
+        let monitors = self.0.borrow().monitors.clone();
+        for window in self.overlays_of(event.window) {
+            if let Some(area) = window.owner_configured(event) {
+                window.follow_owner(area, &monitors);
+            }
         }
-        let state = self.0.borrow();
-        let xcb = state.xcb_connection.clone();
-        let root = xcb.setup().roots[state.x_root_index].root;
-        drop(state);
-        let Some(area) = overlay::owner_area(&xcb, owner, root) else {
-            return;
+    }
+
+    /// Records whether `event.window`, an overlay or the owner of some, sits in a frame now.
+    fn follow_reparent(&self, event: &xproto::ReparentNotifyEvent) {
+        let root = {
+            let state = self.0.borrow();
+            state.xcb_connection.setup().roots[state.x_root_index].root
         };
-        let placement = overlay::placement(area, &overlay::monitors(&xcb, root));
-        for window in overlays {
-            window.follow_owner(placement, area.size);
+        let framed = event.parent != root;
+        if self.owner_of(event.window).is_some() {
+            if let Some(window) = self.get_window(event.window) {
+                window.set_framed(true, framed);
+            }
+            return;
         }
+        for window in self.overlays_of(event.window) {
+            window.set_framed(false, framed);
+        }
+    }
+
+    /// Whether the focus that `left` lost went to the other window of its overlay pair; one
+    /// round trip, taken only for windows that have a pair.
+    fn focus_stays_in_pair(&self, left: xproto::Window) -> bool {
+        let gained = self
+            .0
+            .borrow()
+            .xcb_connection
+            .get_input_focus()
+            .ok()
+            .and_then(|cookie| cookie.reply().ok())
+            .map_or(x11rb::NONE, |reply| reply.focus);
+        overlay::stays_in_pair(left, gained, |window| self.owner_of(window))
+    }
+
+    fn refresh_monitors(&self) {
+        let mut state = self.0.borrow_mut();
+        let root = state.xcb_connection.setup().roots[state.x_root_index].root;
+        state.monitors = overlay::monitors(&state.xcb_connection, root);
     }
 
     fn handle_event(&self, event: Event) -> Option<()> {
@@ -1031,12 +1083,15 @@ impl X11Client {
                     },
                 };
                 let window = self.get_window(event.window)?;
+                window.overlay_configured(&event);
                 window
                     .set_bounds(bounds)
                     .context("X11: Failed to set window bounds")
                     .log_err();
-                self.follow_owner(event.window);
+                self.follow_owner(&event);
             }
+            Event::ReparentNotify(event) => self.follow_reparent(&event),
+            Event::RandrScreenChangeNotify(_) | Event::RandrNotify(_) => self.refresh_monitors(),
             Event::PropertyNotify(event) => {
                 let window = self.get_window(event.window)?;
                 window
@@ -1057,15 +1112,9 @@ impl X11Client {
             }
             Event::FocusOut(event) => {
                 let window = self.get_window(event.event)?;
-                let gained = self
-                    .0
-                    .borrow()
-                    .xcb_connection
-                    .get_input_focus()
-                    .ok()
-                    .and_then(|cookie| cookie.reply().ok())
-                    .map_or(x11rb::NONE, |reply| reply.focus);
-                if !overlay::stays_in_pair(event.event, gained, |window| self.owner_of(window)) {
+                let paired = self.owner_of(event.event).is_some()
+                    || !self.overlays_of(event.event).is_empty();
+                if !(paired && self.focus_stays_in_pair(event.event)) {
                     self.set_pair_active(event.event, false);
                 }
                 let mut state = self.0.borrow_mut();
@@ -1123,13 +1172,13 @@ impl X11Client {
                     state.last_capslock_changed_event = capslock;
                     drop(state);
 
-                    let focused_window = self.get_window(self.key_target(focused_window_id))?;
-                    focused_window.handle_input(PlatformInput::ModifiersChanged(
-                        ModifiersChangedEvent {
-                            modifiers,
-                            capslock,
-                        },
-                    ));
+                    let changed = ModifiersChangedEvent {
+                        modifiers,
+                        capslock,
+                    };
+                    for window in self.pair_of(focused_window_id) {
+                        window.handle_input(PlatformInput::ModifiersChanged(changed.clone()));
+                    }
                 }
 
                 if new_layout != old_layout {
@@ -1137,7 +1186,9 @@ impl X11Client {
                 }
             }
             Event::KeyPress(event) => {
-                let window = self.get_window(self.key_target(event.event))?;
+                let target = self.key_target(event.event);
+                self.0.borrow_mut().pressed_keys.insert(event.detail, target);
+                let window = self.get_window(target)?;
                 let mut state = self.0.borrow_mut();
 
                 let modifiers = modifiers_from_state(event.state);
@@ -1201,7 +1252,9 @@ impl X11Client {
                 }));
             }
             Event::KeyRelease(event) => {
-                let window = self.get_window(self.key_target(event.event))?;
+                let pressed_in = self.0.borrow_mut().pressed_keys.remove(&event.detail);
+                let target = overlay::release_target(pressed_in, self.key_target(event.event));
+                let window = self.get_window(target)?;
                 let mut state = self.0.borrow_mut();
 
                 let modifiers = modifiers_from_state(event.state);
@@ -1842,11 +1895,15 @@ impl X11ClientState {
             .map(|(x_window, _)| *x_window)?;
         let root = self.xcb_connection.setup().roots[self.x_root_index].root;
         let area = overlay::owner_area(&self.xcb_connection, owner, root)?;
-        let placement = overlay::placement(area, &overlay::monitors(&self.xcb_connection, root));
+        let placement = overlay::placement(area, &self.monitors);
         let link = OverlayLink {
             owner,
             window: placement.window,
-            owner_bounds: placement.owner_bounds(area.size, self.scale_factor),
+            owner_area: area,
+            framed: overlay::Framing {
+                overlay: false,
+                owner: overlay::is_framed(&self.xcb_connection, owner, root),
+            },
             takes_keys: false,
             region: Vec::new(),
             content: Vec::new(),
@@ -2093,6 +2150,24 @@ fn fp3232_to_f32(value: xinput::Fp3232) -> f32 {
 
 /// The compositor selection of screen `screen` and whether it is owned now. XFixes reports every
 /// later change of its owner as an `XfixesSelectionNotify` on the root window.
+/// Asks for RandR notify events about monitor changes and returns the monitors now.
+fn watch_monitors(
+    xcb_connection: &XCBConnection,
+    screen: usize,
+) -> anyhow::Result<Vec<Bounds<i32>>> {
+    let root = xcb_connection.setup().roots[screen].root;
+    check_reply(
+        || "RandR SelectInput for monitor changes failed",
+        xcb_connection.randr_select_input(
+            root,
+            randr::NotifyMask::SCREEN_CHANGE
+                | randr::NotifyMask::CRTC_CHANGE
+                | randr::NotifyMask::OUTPUT_CHANGE,
+        ),
+    )?;
+    Ok(overlay::monitors(xcb_connection, root))
+}
+
 fn watch_compositor(
     xcb_connection: &XCBConnection,
     screen: usize,

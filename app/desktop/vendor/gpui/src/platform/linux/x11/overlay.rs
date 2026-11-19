@@ -12,10 +12,14 @@ use crate::{Bounds, Pixels, Point, Size, point, px, size};
 #[derive(Debug, Clone)]
 pub(crate) struct OverlayLink {
     pub(crate) owner: xproto::Window,
-    /// The overlay's rectangle in root coordinates, in device pixels.
+    /// The overlay's rectangle in root coordinates, in device pixels, as its last configure
+    /// event reported it: the window manager may move it elsewhere than asked.
     pub(crate) window: Bounds<i32>,
-    /// The owner's content area in the overlay's coordinates, in logical pixels.
-    pub(crate) owner_bounds: Bounds<Pixels>,
+    /// The owner's content area in root coordinates, in device pixels, from its configure events.
+    pub(crate) owner_area: Bounds<i32>,
+    /// Whether a window manager framed the overlay, and the owner: a framed window's real
+    /// configure events give its position in the frame, so only synthetic ones move it.
+    pub(crate) framed: Framing,
     pub(crate) takes_keys: bool,
     pub(crate) region: Vec<xproto::Rectangle>,
     /// What the last frame painted opaque, in device pixels.
@@ -28,6 +32,44 @@ pub(crate) struct OverlayLink {
     /// away (see [`needs_catcher`]), once created.
     pub(crate) catcher: Option<xproto::Window>,
 }
+
+/// Which windows of an overlay pair a window manager reparented into a frame.
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct Framing {
+    pub(crate) overlay: bool,
+    pub(crate) owner: bool,
+}
+
+impl OverlayLink {
+    /// The owner's content area in the overlay's coordinates, in logical pixels.
+    pub(crate) fn owner_bounds(&self, scale_factor: f32) -> Bounds<Pixels> {
+        let offset = point(
+            self.owner_area.origin.x - self.window.origin.x,
+            self.owner_area.origin.y - self.window.origin.y,
+        );
+        let placed = Placement { window: self.window, offset };
+        placed.owner_bounds(self.owner_area.size, scale_factor)
+    }
+}
+
+/// Where a window is after a configure event `event` about it, last known at `known`, given
+/// whether it sits in a window manager's frame. Root coordinates, device pixels.
+pub(crate) fn configured(
+    known: Bounds<i32>,
+    event: &xproto::ConfigureNotifyEvent,
+    framed: bool,
+) -> Bounds<i32> {
+    let synthetic = event.response_type & SYNTHETIC != 0;
+    let origin = match synthetic || !framed {
+        true => point(event.x.into(), event.y.into()),
+        false => known.origin,
+    };
+    Bounds::new(origin, size(event.width.into(), event.height.into()))
+}
+
+/// The bit X sets in the response type of an event a client sent, such as the root-coordinate
+/// configure events ICCCM 4.1.5 has window managers send.
+const SYNTHETIC: u8 = 0x80;
 
 /// Without a compositor the overlay is cut down to its content, and X clips a window's input to
 /// its shape, so an invisible part of the input region, such as a menu's click-away layer, would
@@ -220,6 +262,15 @@ pub(crate) fn key_target<'a>(
         .map_or(window, |(overlay, _)| overlay)
 }
 
+/// Where a key release goes: to the window its press went to, so a press and its release
+/// never land in different windows; `now` when the press was not seen.
+pub(crate) fn release_target(
+    pressed_in: Option<xproto::Window>,
+    now: xproto::Window,
+) -> xproto::Window {
+    pressed_in.unwrap_or(now)
+}
+
 /// Whether focus leaving `left` for `gained` stays inside one owner/overlay pair, in which case
 /// the owner stays active.
 pub(crate) fn stays_in_pair(
@@ -243,6 +294,15 @@ pub(crate) fn holds_pointer(link: &OverlayLink, root: Point<i32>) -> bool {
             && x < left + i32::from(rect.width)
             && y < top + i32::from(rect.height)
     })
+}
+
+/// Whether a window manager reparented `window` into a frame, rather than leaving it a child of
+/// `root`.
+pub(crate) fn is_framed(xcb: &XCBConnection, window: xproto::Window, root: xproto::Window) -> bool {
+    xcb.query_tree(window)
+        .ok()
+        .and_then(|cookie| cookie.reply().ok())
+        .is_some_and(|tree| tree.parent != root)
 }
 
 /// Whether `window` is `ancestor` or one of its descendants, such as a web view parented into it.
@@ -282,7 +342,8 @@ mod tests {
         OverlayLink {
             owner,
             window: Bounds::default(),
-            owner_bounds: Bounds::default(),
+            owner_area: Bounds::default(),
+            framed: Framing::default(),
             takes_keys,
             region: Vec::new(),
             content: Vec::new(),
@@ -422,5 +483,48 @@ mod tests {
     fn the_catcher_region_is_the_input_region_in_owner_coordinates() {
         let region = [rectangle(10, 20, 100, 50)];
         assert_eq!(plain(&in_owner(&region, point(4, 6))), plain(&[rectangle(6, 14, 100, 50)]));
+    }
+
+    fn configure(synthetic: bool, (x, y): (i16, i16)) -> xproto::ConfigureNotifyEvent {
+        xproto::ConfigureNotifyEvent {
+            response_type: if synthetic { SYNTHETIC | 22 } else { 22 },
+            sequence: 0,
+            event: 1,
+            window: 1,
+            above_sibling: 0,
+            x,
+            y,
+            width: 640,
+            height: 480,
+            border_width: 0,
+            override_redirect: false,
+        }
+    }
+
+    #[test]
+    fn a_framed_window_moves_only_on_the_window_managers_synthetic_configure() {
+        let known = rect(100, 50, 400, 300);
+        let real = configured(known, &configure(false, (0, 0)), true);
+        assert_eq!(real, rect(100, 50, 640, 480), "frame-relative position ignored");
+        let synthetic = configured(known, &configure(true, (300, 200)), true);
+        assert_eq!(synthetic, rect(300, 200, 640, 480));
+        let unframed = configured(known, &configure(false, (7, 9)), false);
+        assert_eq!(unframed, rect(7, 9, 640, 480), "a child of the root reports root coordinates");
+    }
+
+    #[test]
+    fn the_owner_bounds_follow_where_the_overlay_really_is() {
+        let mut overlay = link(1, false);
+        overlay.owner_area = rect(100, 80, 400, 300);
+        overlay.window = rect(100, 80, 400, 300);
+        assert_eq!(overlay.owner_bounds(1.0).origin, point(px(0.0), px(0.0)));
+        overlay.window = rect(90, 80, 400, 300);
+        assert_eq!(overlay.owner_bounds(1.0).origin, point(px(10.0), px(0.0)));
+    }
+
+    #[test]
+    fn a_release_goes_where_its_press_went() {
+        assert_eq!(release_target(Some(7), 9), 7, "the overlay let go in between");
+        assert_eq!(release_target(None, 9), 9, "a press before the window existed");
     }
 }
