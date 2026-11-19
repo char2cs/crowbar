@@ -1,4 +1,4 @@
-//! A row counting down to its deletion, with Keep and the drain bar.
+//! A row counting down to its deletion, with the keep button and the drain bar.
 
 use std::time::Instant;
 
@@ -8,12 +8,12 @@ use gpui::{
     SharedString, Stateful, StatefulInteractiveElement, Styled, Window, div, px, relative,
 };
 use sidebar::{Expansion, Hold, Intent, RemovalTray, Row, RowKind, Titling};
-use ui::{Icon, IconName, IconWeight, Palette, Surface, Theme, radius};
+use ui::{Icon, IconName, IconWeight, Palette, Surface, Theme, radius, spacing};
 
 use crate::panels::chats::parts::RowGlyph;
 use crate::panels::chats::parts::report;
 use crate::panels::chats::parts::row_shell;
-use crate::sidebar::{ICON_LARGE, ICON_SMALL, SPACE_SM, SPACE_XS, TEXT_BODY, TEXT_SMALL};
+use crate::sidebar::{ICON_LARGE, ICON_SMALL, TEXT_BODY};
 use crate::sidebar::{RowAction, RowHandler};
 
 const BAR_INSET: f32 = 8.0;
@@ -130,7 +130,7 @@ fn keep_button(palette: &'static Palette) -> Stateful<Div> {
             .bg(palette.sidebar_element_hover())
             .text_color(palette.foreground())
     };
-    let undo = Icon::new(IconName::ArrowCounterClockwise)
+    let undo = Icon::new(IconName::ArrowUUpLeft)
         .weight(IconWeight::Bold)
         .size(ICON_SMALL);
     div()
@@ -138,16 +138,13 @@ fn keep_button(palette: &'static Palette) -> Stateful<Div> {
         .flex()
         .flex_none()
         .items_center()
-        .gap(SPACE_XS)
-        .px(SPACE_SM)
-        .py(SPACE_XS)
+        .justify_center()
+        .p(spacing::STEP_1_5)
         .rounded(radius::LG)
         .cursor_pointer()
-        .text_size(TEXT_SMALL)
         .text_color(palette.muted_foreground())
         .hover(hovered)
         .child(undo)
-        .child("Keep")
 }
 
 #[cfg(test)]
@@ -161,7 +158,7 @@ mod tests {
     use super::*;
     use sidebar::{Deadline, RemovalKind, RowId};
 
-    use crate::test_support::{chat, measure, recording_handler};
+    use crate::test_support::{chat, measure, mount, recording_handler};
 
     #[gpui::test]
     fn a_held_row_keeps_its_height_while_it_drains(cx: &mut TestAppContext) {
@@ -180,5 +177,21 @@ mod tests {
             handler: Rc::clone(&handler),
         });
         assert_eq!(f32::from(bounds.size.height), 38.0);
+    }
+
+    #[gpui::test]
+    fn keep_is_a_square_icon_button_with_no_label(cx: &mut TestAppContext) {
+        let palette = Theme::default().palette(Surface::Chrome);
+        let cx = mount(cx, move |_, _| {
+            div()
+                .flex()
+                .child(keep_button(palette).debug_selector(|| "keep".into()))
+        });
+        let bounds = cx.debug_bounds("keep").unwrap_or_default();
+        assert_eq!(
+            f32::from(bounds.size.width),
+            24.0,
+            "12px glyph, 6px padding"
+        );
     }
 }

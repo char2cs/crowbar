@@ -61,6 +61,7 @@ icon_names! {
     Copy => "copy",
     PencilSimpleLine => "pencil-simple-line",
     ArrowCounterClockwise => "arrow-counter-clockwise",
+    ArrowUUpLeft => "arrow-u-up-left",
     TerminalWindow => "terminal-window",
     Terminal => "terminal",
     Globe => "globe",

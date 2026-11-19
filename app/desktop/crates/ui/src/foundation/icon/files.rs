@@ -76,11 +76,8 @@ pub(crate) const FILES: &[File] = files![
     (SquareSplitHorizontal, "square-split-horizontal", [Regular]),
     (Copy, "copy", [Regular]),
     (PencilSimpleLine, "pencil-simple-line", [Regular]),
-    (
-        ArrowCounterClockwise,
-        "arrow-counter-clockwise",
-        [Regular, Bold]
-    ),
+    (ArrowCounterClockwise, "arrow-counter-clockwise", [Regular]),
+    (ArrowUUpLeft, "arrow-u-up-left", [Bold]),
     (TerminalWindow, "terminal-window", [Regular, Duotone]),
     (Terminal, "terminal", [Regular]),
     (Globe, "globe", [Regular, Duotone]),
