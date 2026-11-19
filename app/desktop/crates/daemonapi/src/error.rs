@@ -24,6 +24,8 @@ pub enum Error {
         code: Option<String>,
         /// The daemon's explanation, fit to show.
         message: String,
+        /// The refusal's `data`, such as the work a delete was refused over; `null` when absent.
+        data: Box<serde_json::Value>,
     },
     /// The answer was not the envelope or shape the route promises.
     #[error("daemon api: {path} answered a body that does not parse: {source}")]

@@ -64,6 +64,7 @@ mod tests {
             status: 409,
             code: None,
             message: "name taken".into(),
+            data: Box::default(),
         });
         let stream = Error::Stream("closed".into());
         assert_eq!(refused.reason(), "name taken");

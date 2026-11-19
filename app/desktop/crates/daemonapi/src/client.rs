@@ -140,6 +140,7 @@ fn refused_with(
         status,
         code: None,
         message: format!("the daemon answered {status}"),
+        data: Box::default(),
     }
 }
 

@@ -66,6 +66,7 @@ fn unparsed_refusal(
         status,
         code: None,
         message: format!("the daemon answered {status}"),
+        data: Box::default(),
     }
 }
 
@@ -81,6 +82,7 @@ fn refused(
         message: envelope
             .error
             .unwrap_or_else(|| format!("the daemon answered {status}")),
+        data: Box::new(envelope.data),
     }
 }
 
@@ -102,14 +104,18 @@ mod tests {
                 status,
                 code,
                 message,
+                data,
                 ..
-            }) => format!("refused {status} {} {message}", code.unwrap_or_default()),
+            }) => format!(
+                "refused {status} {} {message} {data}",
+                code.unwrap_or_default()
+            ),
             Err(Error::Body { .. }) => "body".to_owned(),
             Err(other) => other.to_string(),
         }
     }
 
-    const CASES: [(u16, &str, &str); 5] = [
+    const CASES: [(u16, &str, &str); 6] = [
         (
             200,
             r#"{"success":true,"data":{"id":"a"}}"#,
@@ -119,9 +125,14 @@ mod tests {
         (
             409,
             r#"{"success":false,"error":"name taken","code":"conflict"}"#,
-            "refused 409 conflict name taken",
+            "refused 409 conflict name taken null",
         ),
-        (502, "<html>", "refused 502  the daemon answered 502"),
+        (
+            409,
+            r#"{"success":false,"error":"lose work","code":"work_at_risk","data":{"workAtRisk":[]}}"#,
+            r#"refused 409 work_at_risk lose work {"workAtRisk":[]}"#,
+        ),
+        (502, "<html>", "refused 502  the daemon answered 502 null"),
         (200, "nope", "body"),
     ];
 

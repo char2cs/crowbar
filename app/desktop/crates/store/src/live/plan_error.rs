@@ -69,6 +69,7 @@ mod tests {
             status: 409,
             code: None,
             message: "name taken".into(),
+            data: Box::default(),
         });
         let cases = [
             (PlanError::SpaceNotLoaded, "this space is not loaded yet"),

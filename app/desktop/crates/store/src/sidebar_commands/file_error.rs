@@ -42,6 +42,7 @@ mod tests {
             status: 409,
             code: None,
             message: "name taken".into(),
+            data: Box::default(),
         }));
         let missing = FileError::Local {
             path: "/a/b".into(),
