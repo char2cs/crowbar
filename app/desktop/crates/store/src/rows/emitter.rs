@@ -2,13 +2,15 @@
 
 use std::collections::HashMap;
 
-use sidebar::{Operation, OperationPhase, Row, RowKind, Titling, Worktree};
+use sidebar::{Operation, OperationPhase, Row, RowKind, Worktree};
 
 use crate::live::Entities;
 use crate::live::PendingRow;
 use crate::rows::forest::ItemKind;
 use crate::rows::forest::Tree;
-use crate::rows::look::{activity_of, lock_of, nesting_of, title_of, titling_of};
+use crate::rows::look::{
+    activity_of, branch_titling_of, lock_of, nesting_of, title_of, titling_of,
+};
 use crate::rows::workspace_view;
 
 pub(crate) struct Emitter<'a> {
@@ -100,7 +102,7 @@ impl Emitter<'_> {
         let locked = workspace_view::is_locked(ws);
         let (label, titling) = match chat {
             Some(chat) if !locked => (title_of(&chat.title), titling_of(&chat.title)),
-            _ => (ws.branch.as_str(), Titling::Final),
+            _ => (ws.branch.as_str(), branch_titling_of(&ws.branch)),
         };
         let id = owner.map_or(ws.id.as_str(), String::as_str);
         let mut row = Row::new(id, RowKind::Branch, depth, label);
@@ -138,7 +140,7 @@ mod tests {
 
     use serde_json::json;
 
-    use sidebar::{Activity, Nesting};
+    use sidebar::{Activity, Nesting, Titling};
 
     use super::*;
     use daemonapi::Frame;

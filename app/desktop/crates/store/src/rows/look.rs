@@ -8,6 +8,8 @@ use crate::rows::forest::Tree;
 use crate::rows::workspace_view;
 
 pub(crate) const UNTITLED_CHAT: &str = "Untitled chat";
+const GENERATED_BRANCH_PREFIX: &str = "chat-";
+const GENERATED_BRANCH_DIGITS: usize = 8;
 
 pub(crate) fn nesting_of(children: &[Tree]) -> Nesting {
     nesting_for(children.len())
@@ -41,6 +43,21 @@ pub(crate) fn titling_of(title: &str) -> Titling {
     Titling::Final
 }
 
+pub(crate) fn branch_titling_of(branch: &str) -> Titling {
+    let generated = branch
+        .strip_prefix(GENERATED_BRANCH_PREFIX)
+        .is_some_and(|tail| {
+            tail.len() == GENERATED_BRANCH_DIGITS
+                && tail
+                    .bytes()
+                    .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+        });
+    if generated {
+        return Titling::Provisional;
+    }
+    Titling::Final
+}
+
 pub(crate) fn activity_of(working: Switch) -> Activity {
     if working.is_on() {
         return Activity::Working;
@@ -63,5 +80,18 @@ mod tests {
         assert_eq!(nesting_for(0), Nesting::Leaf);
         assert_eq!(nesting_for(2), Nesting::Parent);
         assert_eq!(lock_of(&WorkspaceRecord::default()), Lock::Unlocked);
+    }
+
+    #[test]
+    fn only_a_branch_the_daemon_named_reads_provisional() {
+        let cases = [
+            ("chat-0a1b2c3d", Titling::Provisional),
+            ("chat-0a1b2c3", Titling::Final),
+            ("chat-0A1B2C3D", Titling::Final),
+            ("feature/pricing-rounding", Titling::Final),
+        ];
+        for (branch, titling) in cases {
+            assert_eq!(branch_titling_of(branch), titling, "{branch}");
+        }
     }
 }
