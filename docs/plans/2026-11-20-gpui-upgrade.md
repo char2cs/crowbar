@@ -66,7 +66,9 @@ pinned by a `#[ignore = "needs display"]` test that CI's Xvfb step runs.
 ### A2: the atomic switch (one commit on `lane-gpui`)
 1. `upstream.txt` pins `gpui-pre`, `gpui-pre-linux`, `gpui-pre-wgpu` and `gpui-pre-macos`
    0.3.12; `[patch.crates-io]` points each at its vendored copy; the workspace dependency
-   becomes `gpui = { package = "gpui-pre", version = "=0.3.12" }` plus `gpui_platform`.
+   becomes `gpui = { package = "gpui-pre", version = "=0.3.12" }` plus `gpui_platform` with
+   the `font-kit`, `x11` and `wayland` features: without `font-kit` macOS gets
+   `NoopTextSystem` and draws no text.
 2. Series: drop the five upstreamed patches; re-port svg-inherit-color, variable-weight
    (with italic), overlay-window and owner-capture, one patch per crate per concern.
 3. API fallout, crate by crate: `Application::new()` becomes `gpui_platform::application()`;
