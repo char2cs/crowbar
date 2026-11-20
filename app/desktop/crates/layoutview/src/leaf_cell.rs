@@ -4,7 +4,7 @@ use gpui::{
 };
 use layout::{DEFAULT_CHAT_SHARE, PaneGroup, Presentation, Rect};
 use protocol::PaneId;
-use ui::Motion;
+use ui::{Motion, Surface, Theme};
 
 use ideshell::PaneStrip;
 
@@ -78,12 +78,21 @@ impl LayoutView {
             .tab_bar
             .zip(strip)
             .map(|(at, strip)| placed(at, "tab-bar", strip.into_any_element()));
+        let seam_ink = Theme::of(cx).palette(Surface::Window).border();
+        let seam = shown.seam.map(|at| {
+            placed(
+                at,
+                "seam",
+                div().size_full().bg(seam_ink).into_any_element(),
+            )
+        });
         div()
             .relative()
             .size_full()
             .children(chat)
             .children(editor)
             .children(bar)
+            .children(seam)
             .into_any_element()
     }
 
@@ -203,6 +212,23 @@ mod tests {
             empty.left() > chat.right(),
             "the empty editor beside the chat"
         );
+    }
+
+    #[gpui::test]
+    fn the_editor_beside_the_chat_draws_a_seam_on_the_edge_facing_it(cx: &mut TestAppContext) {
+        let mut layout = layout_of("a", &[]);
+        let open_editor = Command::SetEditorView {
+            pane: pane_id("a"),
+            view: EditorView::Open,
+        };
+        layout.apply(open_editor).expect("open the editor");
+        let harness = open(cx, &layout);
+        let cx = harness.cx;
+        cx.run_until_parked();
+        let seam = cx.debug_bounds("pane-part-seam").unwrap_or_default();
+        let bar = cx.debug_bounds("pane-part-tab-bar").expect("the row");
+        assert_eq!(seam.size.width, gpui::px(1.0), "{seam:?}");
+        assert_eq!(seam.right(), bar.left(), "the seam leads the editor side");
     }
 
     #[gpui::test]

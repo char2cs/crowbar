@@ -15,6 +15,8 @@ pub const DEFAULT_CHAT_SHARE: f32 = 0.45;
 /// Below this many pixels on its longer side a group shows chat and editor one at a time.
 pub const SIDE_BY_SIDE_MIN: f32 = 780.0;
 
+const SEAM: f32 = 1.0;
+
 /// Where a group's parts sit inside its area, as develop's `usePanePresentation`. A part that is
 /// hidden is `None`; the chat and the editor stay open while hidden.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -33,6 +35,8 @@ pub struct Presentation {
     pub sash: Option<Rect>,
     /// The editor view, below its tab bar.
     pub editor: Option<Rect>,
+    /// The 1 px line on the editor's edge facing the chat when both show together.
+    pub seam: Option<Rect>,
 }
 
 impl Presentation {
@@ -71,6 +75,7 @@ impl Presentation {
             chat: None,
             sash: None,
             editor: Some(rest),
+            seam: None,
         }
     }
 
@@ -87,6 +92,7 @@ impl Presentation {
             chat: Some(area),
             sash: None,
             editor: None,
+            seam: None,
         }
     }
 
@@ -104,6 +110,7 @@ impl Presentation {
             chat: chat_shows.then_some(rest),
             sash: None,
             editor: (!chat_shows).then_some(rest),
+            seam: None,
         }
     }
 
@@ -131,6 +138,7 @@ impl Presentation {
         sash: Rect,
         editor_box: Rect,
     ) -> Self {
+        let (seam, editor_box) = cut_seam(editor_box, chat);
         let (row, editor) = cut_top(editor_box, TOP_ROW_HEIGHT);
         Self {
             mode,
@@ -140,6 +148,7 @@ impl Presentation {
             chat: Some(chat),
             sash: Some(sash),
             editor: Some(editor),
+            seam: Some(seam),
         }
     }
 }
@@ -155,6 +164,50 @@ fn mode_of(
         return ViewMode::SideBySide;
     }
     ViewMode::Stacked
+}
+
+fn cut_seam(
+    editor_box: Rect,
+    chat: Rect,
+) -> (Rect, Rect) {
+    if chat.y < editor_box.y {
+        return cut_top(editor_box, SEAM);
+    }
+    if chat.x > editor_box.x {
+        return cut_right(editor_box, SEAM);
+    }
+    cut_left(editor_box, SEAM)
+}
+
+fn cut_left(
+    area: Rect,
+    width: f32,
+) -> (Rect, Rect) {
+    let width = width.min(area.width);
+    let strip = Rect { width, ..area };
+    let rest = Rect {
+        x: area.x + width,
+        width: area.width - width,
+        ..area
+    };
+    (strip, rest)
+}
+
+fn cut_right(
+    area: Rect,
+    width: f32,
+) -> (Rect, Rect) {
+    let width = width.min(area.width);
+    let rest = Rect {
+        width: area.width - width,
+        ..area
+    };
+    let strip = Rect {
+        x: area.x + rest.width,
+        width,
+        ..area
+    };
+    (strip, rest)
 }
 
 fn cut_top(
@@ -239,6 +292,7 @@ mod tests {
         chat: None,
         sash: None,
         editor: None,
+        seam: None,
     };
 
     const CASES: &[Case] = &[
@@ -262,8 +316,9 @@ mod tests {
                 mode: ViewMode::SideBySide,
                 chat: Some(at((0.0, 0.0), (600.0, 800.0))),
                 sash: Some(at((600.0, 0.0), (6.0, 800.0))),
-                tab_bar: Some(at((606.0, 0.0), (600.0, TOP_ROW_HEIGHT))),
-                editor: Some(at((606.0, 42.0), (600.0, 758.0))),
+                seam: Some(at((606.0, 0.0), (1.0, 800.0))),
+                tab_bar: Some(at((607.0, 0.0), (599.0, TOP_ROW_HEIGHT))),
+                editor: Some(at((607.0, 42.0), (599.0, 758.0))),
                 ..NOTHING
             },
         },
@@ -274,8 +329,9 @@ mod tests {
             side: SidebarSide::Right,
             expected: Presentation {
                 mode: ViewMode::SideBySide,
-                tab_bar: Some(at((0.0, 0.0), (600.0, TOP_ROW_HEIGHT))),
-                editor: Some(at((0.0, 42.0), (600.0, 758.0))),
+                tab_bar: Some(at((0.0, 0.0), (599.0, TOP_ROW_HEIGHT))),
+                editor: Some(at((0.0, 42.0), (599.0, 758.0))),
+                seam: Some(at((599.0, 0.0), (1.0, 800.0))),
                 sash: Some(at((600.0, 0.0), (6.0, 800.0))),
                 chat: Some(at((606.0, 0.0), (600.0, 800.0))),
                 ..NOTHING
@@ -290,8 +346,9 @@ mod tests {
                 mode: ViewMode::Stacked,
                 chat: Some(at((0.0, 0.0), (800.0, 600.0))),
                 sash: Some(at((0.0, 600.0), (800.0, 6.0))),
-                tab_bar: Some(at((0.0, 606.0), (800.0, TOP_ROW_HEIGHT))),
-                editor: Some(at((0.0, 648.0), (800.0, 558.0))),
+                seam: Some(at((0.0, 606.0), (800.0, 1.0))),
+                tab_bar: Some(at((0.0, 607.0), (800.0, TOP_ROW_HEIGHT))),
+                editor: Some(at((0.0, 649.0), (800.0, 557.0))),
                 ..NOTHING
             },
         },
