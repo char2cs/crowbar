@@ -24,6 +24,8 @@ const GAP: f32 = 6.0;
 const MORE_SIZE: f32 = 24.0;
 const MORE_GLYPH: f32 = 14.0;
 
+type Shown = (PaneId, usize);
+
 /// The tab bar of one pane group: its editor tabs, the "+" and the overflow menu.
 #[derive(IntoElement)]
 pub struct PaneStrip {
@@ -56,7 +58,7 @@ impl RenderOnce for PaneStrip {
         let palette = Theme::of(cx).palette(Surface::Window);
         let name = self.key.as_str();
         let state = window.use_keyed_state(id_of(name, "state"), cx, |_, cx| StripState::new(cx));
-        follow_shown(&state, (&self.tabs, self.shown), cx);
+        let shown = shown_of(&self);
         let (focus, scroll, overflowing) = {
             let held = state.read(cx);
             (held.focus.clone(), held.scroll.clone(), held.overflowing)
@@ -88,7 +90,7 @@ impl RenderOnce for PaneStrip {
             .on_drop::<layout::DragSubject>(move |subject, window, cx| at_end(subject, window, cx))
             .child(self.toggle)
             .children(tabs)
-            .child(probe(&scroll, measuring))
+            .child(probe(&scroll, (measuring, shown)))
             .children(more)
     }
 }
@@ -107,7 +109,11 @@ fn row(
         .w_full()
         .h(px(STRIP_HEIGHT))
         .overflow_hidden()
-        .bg(palette.pane_chrome_bg())
+        .bg(row_fill(palette))
+}
+
+fn row_fill(palette: &Palette) -> gpui::Hsla {
+    palette.pane_background()
 }
 
 fn ringing(
@@ -136,15 +142,10 @@ fn scroller(
         .overflow_x_scroll()
         .track_scroll(scroll)
 }
-fn follow_shown(
-    state: &Entity<StripState>,
-    (tabs, shown): (&[StripTab], usize),
-    cx: &mut App,
-) {
-    let Some(pane) = tabs.get(shown).map(|tab| tab.pane.clone()) else {
-        return;
-    };
-    state.update(cx, |state, _| state.follow(&pane, shown));
+fn shown_of(strip: &PaneStrip) -> Option<Shown> {
+    let tab = strip.tabs.get(strip.shown)?;
+    let item = strip.shown + usize::from(strip.chat_tab.is_some());
+    Some((tab.pane.clone(), item))
 }
 
 fn id_of(
@@ -155,11 +156,11 @@ fn id_of(
 }
 fn probe(
     scroll: &gpui::ScrollHandle,
-    state: Entity<StripState>,
+    (state, shown): (Entity<StripState>, Option<Shown>),
 ) -> impl IntoElement {
     let scroll = scroll.clone();
     canvas(
-        move |_, _, cx: &mut App| remeasure(&state, scroll.max_offset().width, cx),
+        move |_, _, cx: &mut App| remeasure(&state, (&scroll, shown.as_ref()), cx),
         |_, (), _, _| {},
     )
     .absolute()
@@ -168,13 +169,20 @@ fn probe(
 
 fn remeasure(
     state: &Entity<StripState>,
-    spill: gpui::Pixels,
+    (scroll, shown): (&gpui::ScrollHandle, Option<&Shown>),
     cx: &mut App,
 ) {
-    let changed = state.update(cx, |state, _| state.measure(spill));
-    if changed {
-        state.update(cx, |_, cx| cx.notify());
+    let (spill, width) = (scroll.max_offset().width, scroll.bounds().size.width);
+    let changed = state.update(cx, |state, _| {
+        let resized = state.measure(spill);
+        let followed = shown.is_some_and(|(pane, item)| state.follow(pane, *item, width));
+        resized | followed
+    });
+    if !changed {
+        return;
     }
+    let state = state.clone();
+    cx.defer(move |cx| state.update(cx, |_, cx| cx.notify()));
 }
 
 fn add_button(
@@ -284,7 +292,10 @@ mod tests {
         }
     }
 
-    fn strip_of(tabs: usize) -> PaneStrip {
+    fn strip_of(
+        tabs: usize,
+        shown: usize,
+    ) -> PaneStrip {
         let nothing: TabAction = Rc::new(|_, _| {});
         let drop: TabDrop = Rc::new(|_, _, _| {});
         let names: Vec<String> = (0..tabs).map(|index| format!("t{index}")).collect();
@@ -298,7 +309,7 @@ mod tests {
             toggle,
             chat_tab: (tabs > 0).then(|| chat_tab(&nothing)),
             tabs: names.iter().map(|name| loose_tab(name)).collect(),
-            shown: 0,
+            shown,
             at_end_drop: drop,
             add: nothing,
             keys: Rc::new(|_, _, _| {}),
@@ -308,6 +319,7 @@ mod tests {
 
     struct Narrow {
         tabs: usize,
+        shown: usize,
         width: f32,
     }
 
@@ -317,7 +329,9 @@ mod tests {
             _: &mut Window,
             _: &mut Context<'_, Self>,
         ) -> impl IntoElement {
-            div().w(px(self.width)).child(strip_of(self.tabs))
+            div()
+                .w(px(self.width))
+                .child(strip_of(self.tabs, self.shown))
         }
     }
 
@@ -325,13 +339,19 @@ mod tests {
         cx: &mut TestAppContext,
         (tabs, width): (usize, f32),
     ) -> &mut gpui::VisualTestContext {
+        opened_showing(cx, (tabs, 0, width))
+    }
+
+    fn opened_showing(
+        cx: &mut TestAppContext,
+        (tabs, shown, width): (usize, usize, f32),
+    ) -> &mut gpui::VisualTestContext {
         cx.update(|cx| {
             ui::init(cx).expect("ui init");
             cx.set_global(Theme::default());
             cx.set_global(Motion::default());
         });
-        let (_, cx) = cx.add_window_view(move |_, _| Narrow { tabs, width });
-        cx.run_until_parked();
+        let (_, cx) = cx.add_window_view(move |_, _| Narrow { tabs, shown, width });
         cx.run_until_parked();
         cx
     }
@@ -358,6 +378,27 @@ mod tests {
         assert!(
             (menu.right() - caret.right()).abs() < px(0.5),
             "{menu:?} ends with {caret:?}"
+        );
+    }
+
+    #[test]
+    fn the_bar_sits_on_the_pane_s_own_ground_like_the_editor_below_it() {
+        for mode in [ui::ThemeMode::Dark, ui::ThemeMode::Light] {
+            let palette = Theme::default().with_mode(mode).palette(Surface::Window);
+            assert_eq!(row_fill(palette), palette.pane_background(), "{mode:?}");
+        }
+    }
+
+    #[gpui::test]
+    fn the_shown_tab_is_scrolled_fully_into_view_past_the_chat_tab(cx: &mut TestAppContext) {
+        let width = 400.0;
+        let cx = opened_showing(cx, (4, 3, width));
+        let shown = cx.debug_bounds("strip-tab-frame-t3").unwrap_or_default();
+        let caret = cx.debug_bounds("strip-more").unwrap_or_default();
+        assert!(shown.left() >= px(0.0), "{shown:?} starts in the row");
+        assert!(
+            shown.right() < caret.left(),
+            "{shown:?} ends before {caret:?}"
         );
     }
 

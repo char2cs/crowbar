@@ -8,7 +8,7 @@ pub(crate) struct StripState {
     pub(crate) scroll: ScrollHandle,
     pub(crate) focus: FocusHandle,
     pub(crate) overflowing: bool,
-    pub(crate) shown: Option<PaneId>,
+    pub(crate) followed: Option<(PaneId, Pixels)>,
     pub(crate) mode: InputMode,
 }
 
@@ -49,7 +49,7 @@ impl StripState {
             scroll: ScrollHandle::new(),
             focus: cx.focus_handle(),
             overflowing: false,
-            shown: None,
+            followed: None,
             mode: InputMode::default(),
         }
     }
@@ -57,12 +57,15 @@ impl StripState {
         &mut self,
         pane: &PaneId,
         index: usize,
-    ) {
-        if self.shown.as_ref() == Some(pane) {
-            return;
+        width: Pixels,
+    ) -> bool {
+        let seen = Some((pane.clone(), width));
+        if self.followed == seen {
+            return false;
         }
         self.scroll.scroll_to_item(index);
-        self.shown = Some(pane.clone());
+        self.followed = seen;
+        true
     }
     pub(crate) fn measure(
         &mut self,
@@ -71,9 +74,6 @@ impl StripState {
         let overflowing = spill > px(OVERFLOW_SLACK);
         let changed = self.overflowing != overflowing;
         self.overflowing = overflowing;
-        if changed {
-            self.shown = None;
-        }
         changed
     }
 }
@@ -85,20 +85,24 @@ mod tests {
     use super::*;
 
     #[gpui::test]
-    fn the_shown_tab_is_followed_once_and_a_measure_reports_only_a_change(cx: &mut TestAppContext) {
+    fn the_shown_tab_is_followed_again_only_when_it_or_the_bar_s_width_changes(
+        cx: &mut TestAppContext
+    ) {
         let state = cx.update(|cx| cx.new(StripState::new));
         let (first, second) = (PaneId::new("a").unwrap(), PaneId::new("b").unwrap());
         state.update(cx, |state, _| {
-            state.follow(&first, 0);
-            state.follow(&first, 3);
-            assert_eq!(state.shown.as_ref(), Some(&first), "first remembered");
-            state.follow(&second, 1);
-            assert_eq!(state.shown.as_ref(), Some(&second), "then the second");
-            assert!(state.measure(px(40.0)), "now overflowing");
+            let follows = [
+                state.follow(&first, 0, px(300.0)),
+                state.follow(&first, 3, px(300.0)),
+                state.follow(&second, 1, px(300.0)),
+                state.follow(&second, 1, px(270.0)),
+            ];
             assert_eq!(
-                state.shown, None,
-                "the strip narrowed, so the tab is brought into view again"
+                follows,
+                [true, false, true, true],
+                "new tab, same, new tab, narrower"
             );
+            assert!(state.measure(px(40.0)), "now overflowing");
             assert!(!state.measure(px(40.0)), "still overflowing");
             assert!(
                 state.measure(px(0.5)),
