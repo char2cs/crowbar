@@ -57,6 +57,17 @@ impl NativePanes {
         self.terminals.is_terminal(pane) || self.new_tabs.contains(pane)
     }
 
+    pub(crate) fn empty_editor(
+        &self,
+        chat: &PaneId,
+        cx: &mut App,
+    ) -> AnyElement {
+        match self.new_tabs.empty_editor(chat, cx) {
+            Some(page) => page.into_any_element(),
+            None => div().into_any_element(),
+        }
+    }
+
     pub(crate) fn content(
         &self,
         pane: &PaneId,

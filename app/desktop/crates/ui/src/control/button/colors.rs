@@ -59,6 +59,10 @@ impl Colors {
                 foreground: palette.foreground(),
                 shadow: Vec::new(),
             },
+            ButtonVariant::Row => Self {
+                foreground: palette.muted_foreground(),
+                ..Self::resolve(ButtonVariant::Ghost, palette, appearance)
+            },
         }
     }
 
@@ -177,10 +181,17 @@ mod tests {
     }
 
     #[test]
-    fn ghost_is_transparent_until_hover() {
+    fn ghost_and_row_are_transparent_until_hover_and_a_row_inks_muted() {
         let (palette, appearance) = palette(ThemeMode::Dark);
-        let colors = Colors::resolve(ButtonVariant::Ghost, palette, appearance);
-        assert_eq!(colors.background.a, 0.0);
-        assert_eq!(colors.hover_background, palette.accent());
+        let cases = [
+            (ButtonVariant::Ghost, palette.foreground()),
+            (ButtonVariant::Row, palette.muted_foreground()),
+        ];
+        for (variant, ink) in cases {
+            let colors = Colors::resolve(variant, palette, appearance);
+            assert_eq!(colors.background.a, 0.0, "{variant:?}");
+            assert_eq!(colors.hover_background, palette.accent(), "{variant:?}");
+            assert_eq!(colors.foreground, ink, "{variant:?}");
+        }
     }
 }

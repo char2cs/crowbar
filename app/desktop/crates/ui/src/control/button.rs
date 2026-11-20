@@ -141,6 +141,9 @@ impl Button {
             .line_height(text_size::LINE_HEIGHT)
             .whitespace_nowrap()
             .shadow(colors.shadow.clone());
+        let frame = frame.when(self.variant == ButtonVariant::Row, |row| {
+            row.justify_start()
+        });
         match &self.label {
             None => frame.w(size.height()),
             Some(_) => frame.px(size.padding_x()),

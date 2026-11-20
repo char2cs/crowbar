@@ -23,7 +23,7 @@ impl Render for NewTabView {
         let rows = self.actions.map(|action| {
             Button::new(action.label(), action.label())
                 .icon(action.icon())
-                .variant(ButtonVariant::Ghost)
+                .variant(ButtonVariant::Row)
                 .size(ButtonSize::Sm)
                 .on_click(cx.listener(move |_, _, _, cx| cx.emit(action)))
         });

@@ -15,4 +15,7 @@ pub enum ButtonVariant {
     Secondary,
     /// Transparent until hovered.
     Ghost,
+    /// A ghost in muted ink that fills its column's width with its content at the start, as the
+    /// actions listed on a blank page sit.
+    Row,
 }

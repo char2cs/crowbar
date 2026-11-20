@@ -65,10 +65,9 @@ impl LayoutView {
             let content = self.source.content(pane, window, cx);
             placed(at, pane.as_str(), content)
         });
-        let editor = group.active_tab().zip(shown.editor).map(|(pane, at)| {
-            let content = self.editor_view(pane, window, cx);
-            placed(at, pane.as_str(), content)
-        });
+        let editor = shown
+            .editor
+            .map(|at| self.editor_part((group, at), window, cx));
         let strip = group.tabs().first().and_then(|tab| self.strip_of(tab, cx));
         let bar = shown
             .tab_bar
@@ -81,6 +80,24 @@ impl LayoutView {
             .children(editor)
             .children(bar)
             .into_any_element()
+    }
+
+    fn editor_part(
+        &self,
+        (group, at): (&PaneGroup, Rect),
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> AnyElement {
+        if let Some(pane) = group.active_tab() {
+            let content = self.editor_view(pane, window, cx);
+            return placed(at, pane.as_str(), content);
+        }
+        let chat = group.chat().map_or("", PaneId::as_str);
+        let content = group.chat().map_or_else(
+            || gpui::Empty.into_any_element(),
+            |chat| self.source.empty_editor(chat, window, cx),
+        );
+        placed(at, &format!("empty-{chat}"), content)
     }
 
     fn editor_view(
@@ -142,8 +159,9 @@ fn placed(
 
 #[cfg(test)]
 mod tests {
-    use crate::test_support::{layout_of, open, open_tab};
+    use crate::test_support::{layout_of, open, open_tab, pane_id};
     use gpui::TestAppContext;
+    use layout::{Command, EditorView};
 
     #[gpui::test]
     fn a_chat_and_its_active_editor_tab_render_side_by_side_under_one_tab_bar(
@@ -159,5 +177,26 @@ mod tests {
         let bar = cx.debug_bounds("pane-part-tab-bar").expect("tab bar drawn");
         assert!(editor.left() > chat.right(), "the editor beside the chat");
         assert_eq!(bar.left(), editor.left(), "the tab bar tops the editor");
+    }
+
+    #[gpui::test]
+    fn an_open_editor_with_no_tab_draws_the_empty_editor_beside_the_chat(cx: &mut TestAppContext) {
+        let mut layout = layout_of("a", &[]);
+        let open_editor = Command::SetEditorView {
+            pane: pane_id("a"),
+            view: EditorView::Open,
+        };
+        layout.apply(open_editor).expect("open the editor");
+        let harness = open(cx, &layout);
+        let cx = harness.cx;
+        cx.run_until_parked();
+        let chat = cx.debug_bounds("pane-part-a").expect("chat drawn");
+        let empty = cx
+            .debug_bounds("pane-part-empty-a")
+            .expect("empty editor drawn");
+        assert!(
+            empty.left() > chat.right(),
+            "the empty editor beside the chat"
+        );
     }
 }

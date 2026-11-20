@@ -1,6 +1,6 @@
 //! What fills a pane's content rectangle.
 
-use gpui::{AnyElement, App, Window};
+use gpui::{AnyElement, App, IntoElement as _, Window};
 use protocol::PaneId;
 
 /// What fills a pane's content rectangle.
@@ -22,11 +22,22 @@ pub trait PaneContent {
     ) -> bool {
         false
     }
+
+    /// What fills the editor view of `chat`'s group while it is open with no tab: the New Tab
+    /// page. Nothing by default.
+    fn empty_editor(
+        &self,
+        _chat: &PaneId,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> AnyElement {
+        gpui::Empty.into_any_element()
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use gpui::{IntoElement as _, div};
+    use gpui::div;
 
     use super::*;
     use crate::test_support::pane_id;

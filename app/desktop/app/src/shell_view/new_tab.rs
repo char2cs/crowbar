@@ -49,9 +49,11 @@ impl ShellView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
+        self.state
+            .apply(vec![Command::FocusPane { pane: page.clone() }]);
         let before = self.state.layout().pane_count();
         self.run_shell_command(action.command(), window, cx);
-        if opened_pane(before, self.state.layout().pane_count()) {
+        if replaces(self.state.layout(), page, before) {
             self.state
                 .apply(vec![Command::ClosePane { pane: page.clone() }]);
             self.refresh(cx);
@@ -86,11 +88,15 @@ fn page_name(serial: &str) -> String {
     format!("n{serial}")
 }
 
-const fn opened_pane(
+fn replaces(
+    layout: &Layout,
+    page: &PaneId,
     before: usize,
-    after: usize,
 ) -> bool {
-    after > before
+    let is_page = layout
+        .pane(page)
+        .is_some_and(|found| found.type_id.as_str() == NEW_TAB);
+    is_page && layout.pane_count() > before
 }
 
 #[cfg(test)]
@@ -158,11 +164,24 @@ mod tests {
     }
 
     #[test]
-    fn a_choice_replaces_its_page_only_when_a_pane_opened() {
-        const CASES: &[(usize, usize, bool)] =
-            &[(1, 2, true), (3, 3, false), (3, 2, false), (0, 1, true)];
-        for (before, after, opened) in CASES {
-            assert_eq!(opened_pane(*before, *after), *opened, "{before} -> {after}");
+    fn a_choice_replaces_a_page_once_a_pane_opened_and_never_an_empty_editors_chat() {
+        let mut layout = Layout::default();
+        layout
+            .apply(stage_view(&layout, TabId(1)).remove(0))
+            .unwrap();
+        for (name, kind) in [("c1", "core.chat"), ("n1", NEW_TAB)] {
+            let open =
+                crate::pane_opener::open_in_tab(layout.active_tab().unwrap(), instance(name, kind));
+            layout.apply(open).unwrap();
+        }
+        let cases = [("n1", 1, true), ("n1", 2, false), ("c1", 1, false)];
+        for (pane, before, replaced) in cases {
+            let pane = PaneId::new(pane).unwrap();
+            assert_eq!(
+                replaces(&layout, &pane, before),
+                replaced,
+                "{pane:?} after {before}"
+            );
         }
     }
 }
