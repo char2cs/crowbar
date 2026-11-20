@@ -6,6 +6,7 @@ import { ensureStartupAppearanceApplied } from '@/features/settings/lib/appearan
 import { initializeIconThemes } from '@/extensions/icon-themes/icon-theme-initializer'
 import { installGlobalReporting } from '@/lib/errors/report'
 import { startStream } from '@/core/stream/stream'
+import { followWorkspaceScopes } from '@/lib/follow-workspace-scopes'
 import { shellChannel } from '@/sdk/shell-channel'
 import { PaneClient } from '@/sdk/pane-client'
 import { followTheme } from '@/sdk/theme'
@@ -14,7 +15,7 @@ import { followShellAppearance } from './follow-shell-appearance'
 import { followShellSettings } from './follow-shell-settings'
 import { paintPaneSurface } from './paint-pane-surface'
 
-/** Starts the runtime every pane page shares (appearance, reporting, the daemon stream and events, the shell's settings) and connects it to the shell as the `typeId` pane. The caller mounts its UI on `container` and then calls `client.register()`. */
+/** Starts the runtime every pane page shares (appearance, reporting, workspace scopes, the daemon stream and events, the shell's settings) and connects it to the shell as the `typeId` pane. The caller mounts its UI on `container` and then calls `client.register()`. */
 export function bootPane(typeId: string): BootedPane {
   const channel = shellChannel()
   const container = document.getElementById('root')
@@ -24,6 +25,7 @@ export function bootPane(typeId: string): BootedPane {
   paintPaneSurface(document.body)
   enableMapSet()
   installGlobalReporting()
+  followWorkspaceScopes()
   startStream()
   connectDaemonEvents()
   initializeIconThemes()

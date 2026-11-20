@@ -18,6 +18,7 @@ import { startHostStatus } from '@/features/hosts/lib/host-status'
 import { installGlobalReporting, report } from '@/lib/errors/report'
 import { startStream } from '@/core/stream/stream'
 import { followChatLifecycle } from '@/features/agent/stores/chat-lifecycle'
+import { followWorkspaceScopes } from '@/lib/follow-workspace-scopes'
 import '@/core/entities/entity-store'
 
 // First in boot: perf marks are no-ops until the observer exists, and it self-gates via
@@ -31,9 +32,11 @@ import.meta.hot?.dispose(uninstallGlobalReporting)
 // The one stream, holding the projects scope every route and the sidebar read.
 const stopStream = startStream()
 const stopFollowingChats = followChatLifecycle()
+const stopFollowingScopes = followWorkspaceScopes()
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     stopFollowingChats()
+    stopFollowingScopes()
     stopStream()
   })
 }

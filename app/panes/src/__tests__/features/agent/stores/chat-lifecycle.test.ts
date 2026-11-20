@@ -6,15 +6,8 @@ import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { viewChatIds } from '@/features/panes/lib/view-state'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
-import { getWorkspaceScope } from '@/lib/workspace-scope'
 import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
-import {
-  markProjectsSynced,
-  putEntities,
-  resetEntities,
-  workspaceDTO,
-} from '@/__tests__/__fixtures__/sidebar-entities'
-import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
+import { markProjectsSynced, resetEntities } from '@/__tests__/__fixtures__/sidebar-entities'
 
 const panes = () => windowPaneStore.getState().panes
 const actions = () => windowPaneStore.getState().paneActions
@@ -25,7 +18,6 @@ beforeEach(() => {
   resetEntities()
   resetChatStore()
   resetWindowPaneStoreForTests()
-  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
   stop = followChatLifecycle()
 })
 
@@ -77,21 +69,5 @@ describe('a chat that starts working with no pane on it', () => {
   it('is history, not a live change, while the first snapshot is still landing', () => {
     writeChat({ id: 'c1', projectId: 'p1', working: true })
     expect(chatPaneIndex(panes()).has('c1')).toBe(false)
-  })
-})
-
-describe('a workspace entity', () => {
-  it('records the scope its chat routes are built from, and forgets it when gone', () => {
-    putEntities('workspace', [
-      workspaceDTO({ id: 'ws-home', projectId: 'p2', repoId: '', owningChatId: 'c-home' }),
-    ])
-    expect(getWorkspaceScope('ws-home')).toMatchObject({
-      projectId: 'p2',
-      repoId: '',
-      owningChatId: 'c-home',
-    })
-
-    forgetEntities('workspace', ['ws-home'])
-    expect(getWorkspaceScope('ws-home')).toBeNull()
   })
 })

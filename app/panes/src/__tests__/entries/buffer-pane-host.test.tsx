@@ -1,10 +1,12 @@
-import { act, cleanup, render } from '@testing-library/react'
+import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { makePane } from '@/features/panes/lib/view-state'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { bufferSession } from '@/entries/buffer-session'
+import { holding } from '@/core/stream/stream'
+import { setWorkspaceScope } from '@/lib/workspace-scope'
 
 vi.mock('@/features/agent/hooks/use-chat-entity', () => ({
   useChatField: (_chatId: string, pick: (chat: unknown) => unknown) => pick({ workspaceId: 'ws1' }),
@@ -91,6 +93,18 @@ describe('BufferPaneHost', () => {
     await renderHost(shell, open)
     act?.()
     expectation(shell, open)
+  })
+})
+
+describe('BufferPaneHost feeds', () => {
+  it('holds the workspace ws: scope, which streams the review threads in', async () => {
+    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws1', owningChatId: 'c1' })
+    bufferSession.setState({ chatId: 'c1', saved: null, active: true })
+    await renderHost(
+      client(),
+      vi.fn(() => Promise.resolve('b1')),
+    )
+    await waitFor(() => expect(holding('local', 'ws:ws1')).toBe(true))
   })
 })
 

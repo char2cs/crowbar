@@ -5,10 +5,8 @@ import { clearExcalidrawEditRequest } from '@/features/agent/composer/lib/excali
 import { clearScrollPosition } from '@/features/agent/hooks/lib/transcript-scroll-positions'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { forgetWorkspaceScope, recordWorkspaceScope } from '@/lib/workspace-scope'
 
 type Chats = EntityState['byKind']['chat']
-type Workspaces = EntityState['byKind']['workspace']
 
 const forgetters = new Set<(chatId: string) => void>()
 
@@ -54,31 +52,13 @@ function followChats(next: Chats, prev: Chats, live: boolean) {
   }
 }
 
-function followWorkspaces(next: Workspaces, prev: Workspaces) {
-  for (const key of Object.keys(prev)) {
-    if (!(key in next)) forgetWorkspaceScope(splitHostKey(key).id)
-  }
-  for (const [key, { data: ws }] of Object.entries(next)) {
-    if (prev[key]?.data === ws || !ws.projectId) continue
-    recordWorkspaceScope({
-      projectId: ws.projectId,
-      repoId: ws.repoId,
-      wsId: ws.id,
-      owningChatId: ws.owningChatId || undefined,
-    })
-  }
-}
-
-/** What follows a chat or workspace record changing: a deletion forgets its client state,
+/** What follows a chat record changing: a deletion forgets its client state,
  *  a runner leaving frees its panes, and a chat starting work after the first snapshot
  *  (a live change, not history) is adopted. Returns the stop. */
 export function followChatLifecycle(): () => void {
   return entityStore.subscribe((s, prev) => {
     if (s.byKind.chat !== prev.byKind.chat) {
       followChats(s.byKind.chat, prev.byKind.chat, !!prev.loaded.projects)
-    }
-    if (s.byKind.workspace !== prev.byKind.workspace) {
-      followWorkspaces(s.byKind.workspace, prev.byKind.workspace)
     }
   })
 }
