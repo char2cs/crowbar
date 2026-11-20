@@ -48,8 +48,9 @@ func (rs *Runners) endRunner(
 		}
 		v, ok := rs.live.view(chatID)
 		if !ok {
+			err := rs.settleStaleWork(ctx, chatID)
 			unlock()
-			return nil // already dormant: there is no live CLI to stop
+			return err
 		}
 		if v.exiting {
 			unlock()
@@ -100,6 +101,25 @@ func (rs *Runners) stopRunner(ctx context.Context, chatID string, live agents.Ru
 	}
 	_, retiring := rs.markEnding(live, domain.AgentExitStopped)
 	return retiring, nil
+}
+
+// settleStaleWork stops what the ledger folds as working on a chat with no CLI:
+// nothing will ever end that turn, and it would refuse every resume. The caller
+// holds the chat's lock, or runs at boot before any runner exists.
+func (rs *Runners) settleStaleWork(ctx context.Context, chatID string) error {
+	if _, live := rs.live.byChat(chatID); live {
+		return nil
+	}
+	_, _, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
+		if !st.Busy() {
+			return nil, nil
+		}
+		return ledger.Stop(st, "")
+	})
+	if err != nil {
+		return fmt.Errorf("agent: settle stale work: %w", err)
+	}
+	return nil
 }
 
 // interruptEvent is the outbound event a provider declares when Crowbar can cancel

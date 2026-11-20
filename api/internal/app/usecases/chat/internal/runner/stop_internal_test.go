@@ -326,3 +326,38 @@ func TestRegression_StopChatRecordsOnlyTheStoppedReason(t *testing.T) {
 	}
 	assert.Equal(t, []string{domain.AgentExitStopped}, reasons)
 }
+
+// A chat the ledger folds working whose runner is gone (daemon restart, OOM kill)
+// has no CLI to stop; Stop must still end the turn or the spinner never clears.
+func TestStopChat_ClearsAWorkingChatWhoseRunnerIsGone(t *testing.T) {
+	rs := retiring(t, &Runners{chatLock: newTestLock(), parks: newParks(), turns: noopTurns{}})
+	rs.live = liveWith(t)
+	runnerStarted(t, rs, true)
+	require.True(t, chatState(t, rs.ledger).Busy())
+
+	require.NoError(t, rs.StopChat(t.Context(), "chat-1"))
+
+	assert.False(t, chatState(t, rs.ledger).Busy())
+}
+
+// Resume and switch refuse a working chat; one with no runner is not working.
+func TestSettleStaleWork_LetsAResumeThroughAChatWhoseRunnerIsGone(t *testing.T) {
+	rs := retiring(t, &Runners{chatLock: newTestLock(), parks: newParks(), turns: noopTurns{}})
+	rs.live = liveWith(t)
+	runnerStarted(t, rs, true)
+	require.ErrorIs(t, rs.requireNotBusy(t.Context(), "chat-1"), ErrPromptBusy)
+
+	require.NoError(t, rs.settleStaleWork(t.Context(), "chat-1"))
+
+	require.NoError(t, rs.requireNotBusy(t.Context(), "chat-1"))
+}
+
+// A live runner's turn is its own to end: settleStaleWork leaves it running.
+func TestSettleStaleWork_LeavesALiveRunnersTurnRunning(t *testing.T) {
+	rs := retiring(t, &Runners{chatLock: newTestLock(), parks: newParks(), turns: noopTurns{}})
+	runnerStarted(t, rs, true)
+
+	require.NoError(t, rs.settleStaleWork(t.Context(), "chat-1"))
+
+	assert.True(t, chatState(t, rs.ledger).Busy())
+}

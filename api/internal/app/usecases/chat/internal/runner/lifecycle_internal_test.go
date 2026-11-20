@@ -253,7 +253,7 @@ func TestReconcileRunnersOnBoot_OneChatsFailureLeavesTheOthersReconciled(t *test
 		WHEN NEW.kind = 'runner_exited' AND NEW.chat_id = 'chat-a' BEGIN SELECT RAISE(ABORT, 'boom'); END`).Error)
 	home := t.TempDir()
 	rs := &Runners{
-		ledger: l, chats: stubChatsForSpawn{chat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"}}, turns: noopTurns{},
+		ledger: l, live: liveWith(t), chats: stubChatsForSpawn{chat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"}}, turns: noopTurns{},
 		ws: stubWorkspaceForSpawn{home: home, worktree: home, chatsDir: home},
 	}
 	for _, chatID := range []string{"chat-a", "chat-b", "chat-c"} {
@@ -337,3 +337,19 @@ func countKind(rows []ledger.Row, kind ledger.Kind) int {
 type noLedger struct{}
 
 func (noLedger) ResolveAsk(context.Context, string, string, string) error { return nil }
+
+// A turn left running with no runner on the ledger (its runner never recorded
+// as live) is closed by the boot pass, or the chat shows working forever.
+func TestReconcileRunnersOnBoot_ClosesARunningTurnWithNoLiveRunner(t *testing.T) {
+	rs := retiring(t, &Runners{turns: noopTurns{}})
+	rs.live = liveWith(t)
+	row, err := ledger.NewRow(ledger.KindTurnStarted, "T-1", "", ledger.TurnStarted{RunnerID: "runner-1"})
+	require.NoError(t, err)
+	_, _, err = rs.ledger.Append(t.Context(), "chat-1", row)
+	require.NoError(t, err)
+	require.True(t, chatState(t, rs.ledger).Busy())
+
+	require.NoError(t, rs.ReconcileRunnersOnBoot(t.Context()))
+
+	assert.False(t, chatState(t, rs.ledger).Busy())
+}
