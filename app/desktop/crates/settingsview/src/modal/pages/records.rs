@@ -4,24 +4,25 @@ mod drag_record;
 mod listed_record;
 mod marks;
 mod note_text;
+
+pub(crate) use note_text::note_text;
 mod tone_color;
 mod view;
 
-use gpui::{AnyElement, App, IntoElement, ParentElement, Styled, Window, div, px};
+use gpui::prelude::FluentBuilder as _;
+use gpui::{
+    AnyElement, App, FontWeight, InteractiveElement as _, IntoElement, ParentElement, Styled,
+    Window, div, px,
+};
 use settings::{ListBlock, Records};
-use ui::{Button, ButtonSize, ButtonVariant, IconName, Skeleton};
+use ui::{Button, ButtonSize, ButtonVariant, ScaledText, Surface, Theme};
 
 use crate::frame::Frame;
 use crate::frame::spacing;
 use crate::intent::Intent;
 use crate::modal::pages::records::listed_record::ListedRecord;
 use crate::modal::pages::records::marks::FLAG_COLUMN;
-use crate::modal::pages::records::note_text::note_text;
 use crate::modal::pages::records::view::record_view;
-use crate::modal::pages::title_block::title_block;
-
-const SKELETON_WIDTH: f32 = 320.0;
-const SKELETON_HEIGHT: f32 = 56.0;
 
 pub(crate) fn list_view(
     frame: &Frame<'_>,
@@ -30,9 +31,32 @@ pub(crate) fn list_view(
 ) -> impl IntoElement {
     let header = list
         .title()
-        .map(|title| title_block(title, list.intro_text(), cx));
+        .map(|title| list_title(list.source(), title, cx));
     let body = list_body(frame, list, (window, cx));
-    div().px(spacing::TIGHT).children(header).child(body)
+    div()
+        .px(spacing::TIGHT)
+        .flex()
+        .flex_col()
+        .gap(spacing::COMFORTABLE)
+        .when(header.is_some(), |list| list.pt(spacing::ROOMY))
+        .children(header)
+        .child(body)
+}
+
+fn list_title(
+    source: &str,
+    title: &str,
+    cx: &App,
+) -> gpui::Div {
+    let theme = Theme::of(cx);
+    let selector = format!("list-title-{source}");
+    div()
+        .debug_selector(move || selector)
+        .font_family(theme.ui_family())
+        .text_size(ScaledText::Sm.size(theme))
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(theme.palette(Surface::Window).foreground())
+        .child(title.to_owned())
 }
 
 fn list_body(
@@ -41,17 +65,7 @@ fn list_body(
     (window, cx): (&mut Window, &mut App),
 ) -> AnyElement {
     match frame.records.records(list.source()) {
-        Records::Loading => div()
-            .flex()
-            .flex_col()
-            .gap(spacing::COMFORTABLE)
-            .child(note_text(list.loading(), cx))
-            .child(Skeleton::new(
-                "list-skeleton",
-                px(SKELETON_WIDTH),
-                px(SKELETON_HEIGHT),
-            ))
-            .into_any_element(),
+        Records::Loading => note_text(list.loading(), cx).into_any_element(),
         Records::Failed => failed(frame, list, cx).into_any_element(),
         Records::Ready(records) if records.is_empty() => {
             note_text(list.empty(), cx).into_any_element()
@@ -67,15 +81,13 @@ fn failed(
 ) -> impl IntoElement {
     div()
         .flex()
-        .flex_col()
-        .items_start()
+        .items_center()
         .gap(spacing::COMFORTABLE)
         .child(note_text(list.failed(), cx))
         .child(
             Button::new("list-retry", "Retry")
                 .variant(ButtonVariant::Outline)
-                .size(ButtonSize::Sm)
-                .icon(IconName::ArrowCounterClockwise)
+                .size(ButtonSize::Xs)
                 .on_click(frame.sink.send(Intent::Retry(list.source().to_owned()))),
         )
 }
@@ -95,17 +107,28 @@ fn table(
         );
         rows.push(row.into_any_element());
     }
+    let intro = list.intro_text().map(|text| {
+        let selector = format!("list-intro-{}", list.source());
+        div()
+            .debug_selector(move || selector)
+            .pb(spacing::TIGHT)
+            .child(note_text(text, cx))
+    });
     div()
         .flex()
         .flex_col()
-        .child(flag_header(records, cx))
+        .children(intro)
+        .child(flag_header(records, cx).debug_selector({
+            let selector = format!("list-columns-{}", list.source());
+            move || selector
+        }))
         .children(rows)
 }
 
 fn flag_header(
     records: &[settings::Record],
     cx: &App,
-) -> impl IntoElement {
+) -> gpui::Div {
     let labels = records.first().map(|record| {
         record
             .flags()
@@ -152,6 +175,25 @@ mod tests {
                 String::new(),
                 RecordCommand::Refresh
             )]
+        );
+    }
+
+    #[gpui::test]
+    fn the_agents_list_opens_with_its_hint_and_descriptor_checks_has_a_small_label(
+        cx: &mut TestAppContext
+    ) {
+        const LABEL_MAX_HEIGHT: f32 = 24.0;
+        let (_harness, cx) = open(cx, "providers");
+        let hint = cx.debug_bounds("list-intro-agents");
+        let header = cx.debug_bounds("list-columns-agents").unwrap();
+        assert!(
+            hint.is_some_and(|hint| hint.bottom() <= header.top()),
+            "hint {hint:?} over the columns {header:?}"
+        );
+        let label = cx.debug_bounds("list-title-descriptors");
+        assert!(
+            label.is_some_and(|label| label.size.height < gpui::px(LABEL_MAX_HEIGHT)),
+            "{label:?}"
         );
     }
 

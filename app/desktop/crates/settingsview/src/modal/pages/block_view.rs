@@ -22,7 +22,7 @@ pub(crate) fn block_view(
         Block::Shortcuts(group) => Some(shortcuts_view(frame, group, (window, cx))),
         Block::Heading(heading) => Some(heading_view(heading, cx).into_any_element()),
         Block::List(list) => Some(list_view(frame, list, (window, cx)).into_any_element()),
-        Block::Button(spec) => button_block(frame, spec).map(IntoElement::into_any_element),
+        Block::Button(spec) => button_block(frame, spec, cx).map(IntoElement::into_any_element),
     }
 }
 
@@ -49,7 +49,7 @@ mod tests {
             run(&harness, typed, cx);
             inspect(&harness, cx, visible_blocks)
         };
-        assert_eq!(shown("permission"), 3, "heading and both lists");
+        assert_eq!(shown("permission"), 4, "heading, upload and both lists");
         assert_eq!(shown("chat by default"), 0);
     }
 }

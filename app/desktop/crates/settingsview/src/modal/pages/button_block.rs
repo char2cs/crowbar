@@ -1,9 +1,9 @@
 //! A button between blocks, such as Add host.
 
 use gpui::prelude::FluentBuilder as _;
-use gpui::{IntoElement, ParentElement, Styled, div};
+use gpui::{App, InteractiveElement as _, IntoElement, ParentElement, Styled, div};
 use settings::{Action, ButtonSpec};
-use ui::{Button, ButtonSize, ButtonVariant};
+use ui::{Button, ButtonSize, ButtonVariant, ScaledText, Surface, Theme};
 
 use crate::frame::Frame;
 use crate::frame::element_id;
@@ -14,6 +14,7 @@ use crate::intent::Intent;
 pub(crate) fn button_block(
     frame: &Frame<'_>,
     spec: &ButtonSpec,
+    cx: &App,
 ) -> Option<impl IntoElement> {
     if matches!(spec.action(), Action::ResetOverrides(_)) && !frame.state.has_custom_chords() {
         return None;
@@ -27,7 +28,37 @@ pub(crate) fn button_block(
         None => button,
     };
     let button = button.when(!frame.state.button_enabled(spec), Button::disabled);
-    Some(div().px(spacing::TIGHT).flex().child(button))
+    let label = spec.label().to_owned();
+    let note = spec.note().map(|text| help_line(text, &label, cx));
+    Some(
+        div()
+            .px(spacing::TIGHT)
+            .flex()
+            .flex_col()
+            .items_start()
+            .gap(spacing::COMFORTABLE)
+            .child(
+                div()
+                    .debug_selector(move || format!("button-{label}"))
+                    .child(button),
+            )
+            .children(note),
+    )
+}
+
+fn help_line(
+    text: &str,
+    label: &str,
+    cx: &App,
+) -> gpui::Div {
+    let theme = Theme::of(cx);
+    let selector = format!("button-note-{label}");
+    div()
+        .debug_selector(move || selector)
+        .font_family(theme.ui_family())
+        .text_size(ScaledText::Xs.size(theme))
+        .text_color(theme.palette(Surface::Window).muted_foreground())
+        .child(text.to_owned())
 }
 
 #[cfg(test)]
@@ -53,6 +84,19 @@ mod tests {
             .unwrap();
         run(&harness, Intent::Button(spec), cx);
         assert_eq!(harness.backend.invoked(), ["hosts.add"]);
+    }
+
+    #[gpui::test]
+    fn the_upload_button_stands_alone_with_its_help_under_it(cx: &mut TestAppContext) {
+        let (_harness, cx) = open(cx, "providers");
+        let button = cx.debug_bounds("button-Upload agent descriptor");
+        let help = cx.debug_bounds("button-note-Upload agent descriptor");
+        assert!(
+            button
+                .zip(help)
+                .is_some_and(|(button, help)| help.top() >= button.bottom()),
+            "button {button:?} help {help:?}"
+        );
     }
 
     #[gpui::test]

@@ -1,10 +1,13 @@
 //! A titled group of rows.
 
-use gpui::{AnyElement, App, IntoElement, ParentElement, Styled, Window, div};
+use gpui::{
+    AnyElement, App, InteractiveElement as _, IntoElement, ParentElement, Styled, Window, div,
+};
 use settings::{Row, Section};
 
 use crate::frame::Frame;
 use crate::frame::spacing;
+use crate::modal::pages::records::note_text;
 use crate::modal::pages::rows::row_view;
 use crate::modal::pages::title_block::title_block;
 
@@ -28,6 +31,7 @@ pub(crate) fn section_view(
     for row in rows {
         body.push(row_view(frame, row, (&mut *window, &mut *cx)).into_any_element());
     }
+    let note = section.note().map(|text| note_view(text, cx));
     let section = div()
         .px(spacing::TIGHT)
         .py(spacing::HAIRLINE)
@@ -37,9 +41,21 @@ pub(crate) fn section_view(
                 .flex()
                 .flex_col()
                 .gap(spacing::COMFORTABLE)
-                .children(body),
+                .children(body)
+                .children(note),
         );
     Some(section.into_any_element())
+}
+
+fn note_view(
+    text: &str,
+    cx: &App,
+) -> AnyElement {
+    div()
+        .debug_selector(|| "section-note".to_owned())
+        .px(spacing::TIGHT)
+        .child(note_text(text, cx))
+        .into_any_element()
 }
 
 #[cfg(test)]
@@ -66,5 +82,16 @@ mod tests {
         };
         assert!(shown("uiFontSize", &harness, cx));
         assert!(!shown("themeMode", &harness, cx));
+    }
+
+    #[gpui::test]
+    fn the_preset_note_runs_under_the_preset_row(cx: &mut TestAppContext) {
+        let (_harness, cx) = open(cx, "keybindings");
+        let label = cx.debug_bounds("row-text-keybindingPreset").unwrap();
+        let note = cx.debug_bounds("section-note");
+        assert!(
+            note.is_some_and(|note| note.top() >= label.bottom()),
+            "note {note:?} under label {label:?}"
+        );
     }
 }

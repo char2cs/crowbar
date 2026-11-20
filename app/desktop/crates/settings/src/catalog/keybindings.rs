@@ -2,7 +2,6 @@
 
 use std::collections::BTreeMap;
 
-use super::rows::row;
 use crate::keys::Shortcut;
 use crate::keys::ShortcutGroup;
 use crate::schema::Action;
@@ -10,6 +9,7 @@ use crate::schema::ButtonSpec;
 use crate::schema::Control;
 use crate::schema::ControlWidth;
 use crate::schema::Page;
+use crate::schema::Row;
 use crate::schema::Section;
 
 pub(super) const OVERRIDES: &str = "keybindingUserOverrides";
@@ -99,18 +99,22 @@ fn preset() -> Section {
     Section::new("Preset")
         .headerless()
         .describe("Choose a base keybinding set. Individual shortcuts below override it.")
-        .row(row(
-            (PRESET, "Active preset"),
-            PRESET_NOTE,
-            Control::select(
-                &[
-                    (DEFAULT_PRESET, "Default"),
-                    (COMPACT_PRESET, "Compact (alternate)"),
-                ],
-                ControlWidth::Default,
-            ),
-            DEFAULT_PRESET,
-        ))
+        .row(
+            Row::new(
+                PRESET,
+                "Active preset",
+                Control::select(
+                    &[
+                        (DEFAULT_PRESET, "Default"),
+                        (COMPACT_PRESET, "Compact (alternate)"),
+                    ],
+                    ControlWidth::ExtraWide,
+                ),
+            )
+            .default_value(DEFAULT_PRESET)
+            .without_reset(),
+        )
+        .noted(PRESET_NOTE)
 }
 
 fn group(
@@ -166,6 +170,19 @@ mod tests {
         let first = page.rows().next().map(|row| row.key().as_str().to_owned());
         assert_eq!(first.as_deref(), Some("keybindingPreset"));
         assert!(page.shortcut_groups().all(|group| group.preset.is_some()));
+    }
+
+    #[test]
+    fn a_chosen_preset_offers_no_reset() {
+        let mut state = crate::State::new(
+            crate::default_schema().unwrap(),
+            crate::Snapshot::default(),
+            None,
+            chord::Primary::Control,
+        );
+        let preset = page().rows().next().cloned().unwrap();
+        drop(state.choose(&preset, 1));
+        assert!(!state.resettable(&preset));
     }
 
     #[test]

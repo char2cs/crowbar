@@ -6,7 +6,7 @@ mod condition;
 mod control;
 mod page;
 mod page_id;
-mod row;
+pub(crate) mod row;
 mod scope;
 mod search_entry;
 

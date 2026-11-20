@@ -9,6 +9,7 @@ pub struct Section {
     pub(crate) description: Option<String>,
     pub(crate) show_header: bool,
     pub(crate) rows: Vec<Row>,
+    pub(crate) note: Option<String>,
 }
 
 impl Section {
@@ -36,6 +37,12 @@ impl Section {
         self.description.as_deref()
     }
 
+    /// The paragraph under the rows, if any.
+    #[must_use]
+    pub fn note(&self) -> Option<&str> {
+        self.note.as_deref()
+    }
+
     /// A section titled `title` with a visible heading.
     pub fn new(title: impl Into<String>) -> Self {
         Self {
@@ -43,6 +50,7 @@ impl Section {
             description: None,
             show_header: true,
             rows: Vec::new(),
+            note: None,
         }
     }
 
@@ -60,6 +68,16 @@ impl Section {
         text: impl Into<String>,
     ) -> Self {
         self.description = Some(text.into());
+        self
+    }
+
+    /// The paragraph under the rows.
+    #[must_use]
+    pub fn noted(
+        mut self,
+        text: impl Into<String>,
+    ) -> Self {
+        self.note = Some(text.into());
         self
     }
 
@@ -84,11 +102,13 @@ mod tests {
         let section = Section::new("Theme")
             .headerless()
             .describe("Colours")
+            .noted("Later")
             .row(Row::new("a", "A", Control::switch()))
             .row(Row::new("b", "B", Control::switch()));
         assert!(!section.show_header);
         assert_eq!(section.title, "Theme");
         assert_eq!(section.description.as_deref(), Some("Colours"));
+        assert_eq!(section.note(), Some("Later"));
         let keys: Vec<&str> = section.rows.iter().map(|row| row.key().as_str()).collect();
         assert_eq!(keys, ["a", "b"]);
     }

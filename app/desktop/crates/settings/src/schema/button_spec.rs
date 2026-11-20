@@ -17,6 +17,7 @@ pub struct ButtonSpec {
     pub(crate) confirm: Option<Confirm>,
     pub(crate) enabled: Option<Condition>,
     pub(crate) disabled_note: Option<String>,
+    pub(crate) note: Option<String>,
 }
 
 impl ButtonSpec {
@@ -50,6 +51,7 @@ impl ButtonSpec {
             confirm: None,
             enabled: None,
             disabled_note: None,
+            note: None,
         }
     }
 
@@ -83,6 +85,22 @@ impl ButtonSpec {
         self
     }
 
+    /// The help line drawn under a button that stands between blocks.
+    #[must_use]
+    pub fn note(&self) -> Option<&str> {
+        self.note.as_deref()
+    }
+
+    /// Sets the help line under a button that stands between blocks.
+    #[must_use]
+    pub fn noted(
+        mut self,
+        text: impl Into<String>,
+    ) -> Self {
+        self.note = Some(text.into());
+        self
+    }
+
     /// Explains in the row description why the button is disabled.
     #[must_use]
     pub fn disabled_note(
@@ -104,9 +122,11 @@ mod tests {
             .icon("trash")
             .confirm(Confirm::new("Clear?", "Sure?", "Clear data"))
             .enabled_when(Condition::capability("browser.clearData"))
-            .disabled_note("Not available");
+            .disabled_note("Not available")
+            .noted("Help");
         assert_eq!(spec.icon.as_deref(), Some("trash"));
         assert!(spec.confirm.is_some() && spec.enabled.is_some());
         assert_eq!(spec.disabled_note.as_deref(), Some("Not available"));
+        assert_eq!(spec.note(), Some("Help"));
     }
 }

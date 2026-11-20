@@ -1,5 +1,9 @@
 //! One setting in a section.
 
+mod reset_offer;
+
+pub(crate) use reset_offer::ResetOffer;
+
 use crate::schema::condition::Condition;
 use crate::schema::control::Control;
 use crate::values::Key;
@@ -15,6 +19,7 @@ pub struct Row {
     pub(crate) control: Control,
     pub(crate) default: Option<Value>,
     pub(crate) when: Option<Condition>,
+    pub(crate) reset: ResetOffer,
 }
 
 impl Row {
@@ -38,6 +43,7 @@ impl Row {
             control,
             default: None,
             when: None,
+            reset: ResetOffer::Offered,
         }
     }
 
@@ -68,6 +74,13 @@ impl Row {
         value: impl Into<Value>,
     ) -> Self {
         self.default = Some(value.into());
+        self
+    }
+
+    /// Keeps the default as the value's fallback but draws no reset icon.
+    #[must_use]
+    pub fn without_reset(mut self) -> Self {
+        self.reset = ResetOffer::Withheld;
         self
     }
 

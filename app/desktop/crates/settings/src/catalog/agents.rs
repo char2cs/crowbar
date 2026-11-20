@@ -2,6 +2,7 @@
 
 use super::rows::row;
 use crate::schema::Action;
+use crate::schema::ButtonSpec;
 use crate::schema::Control;
 use crate::schema::ControlWidth;
 use crate::schema::Heading;
@@ -22,7 +23,8 @@ pub(super) fn page() -> Page {
     Page::new("providers", TITLE, "robot")
         .indexed(super::search_index::entries(super::search_index::AGENTS))
         .block(Heading::new(TITLE, INTRO))
-        .block(Section::new(TITLE).headerless().row(permission()).row(upload()))
+        .block(Section::new(TITLE).headerless().row(permission()))
+        .block(upload())
         .block(
             ListBlock::new(AGENTS, "No agents available.")
                 .intro(REORDER_HINT)
@@ -55,18 +57,12 @@ fn permission() -> Row {
         .describe("How much of a new chat's tool-call approval is answered automatically.")
 }
 
-fn upload() -> Row {
-    let button = crate::schema::ButtonSpec::new(
+fn upload() -> ButtonSpec {
+    ButtonSpec::new(
         "Upload agent descriptor",
         Action::backend("agents.uploadDescriptor"),
     )
-    .icon("upload");
-    Row::new(
-        "agentDescriptorUpload",
-        "Agent descriptor",
-        Control::Button(button),
-    )
-    .describe(
+    .noted(
         "Upload a YAML descriptor with a unique provider ID. Its CLI must be installed separately.",
     )
 }

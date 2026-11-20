@@ -3,6 +3,7 @@
 use crate::schema::Control;
 use crate::schema::Issue;
 use crate::schema::Row;
+use crate::schema::row::ResetOffer;
 use crate::state::State;
 use crate::values::Value;
 
@@ -56,7 +57,7 @@ impl State {
         &self,
         row: &Row,
     ) -> bool {
-        row.default.is_some() && !self.document.is_default(row)
+        row.reset == ResetOffer::Offered && row.default.is_some() && !self.document.is_default(row)
     }
 }
 
