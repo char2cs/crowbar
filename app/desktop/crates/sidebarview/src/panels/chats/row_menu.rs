@@ -73,9 +73,6 @@ fn creation_entries(
     row: &Row,
     context: &MenuContext,
 ) -> Vec<MenuEntry> {
-    if row.kind == RowKind::RepoHeader {
-        return Vec::new();
-    }
     let folder = Command::CreateFolder(Some(row.id.clone()));
     let mut entries = vec![MenuEntry::action(
         "New folder",
@@ -191,7 +188,11 @@ mod tests {
 
     fn repo() -> (Row, MenuContext) {
         let row = Row::new("r", RowKind::RepoHeader, 0, "demo");
-        (row, MenuContext::default())
+        let context = MenuContext {
+            terminal: TerminalThreads::Available,
+            ..MenuContext::default()
+        };
+        (row, context)
     }
 
     fn locked_branch() -> (Row, MenuContext) {
@@ -244,9 +245,16 @@ mod tests {
 
     const CASES: &[Case] = &[
         (
-            "a repo header gets import and a destructive tail",
+            "a repo header gets import, the creation entries and a destructive tail",
             repo,
-            &["Rename", "Import branches", "---", "Delete Repo"],
+            &[
+                "Rename",
+                "Import branches",
+                "New folder",
+                "New thread in Terminal",
+                "---",
+                "Delete Repo",
+            ],
         ),
         (
             "a locked branch cannot be renamed but can be unlocked",

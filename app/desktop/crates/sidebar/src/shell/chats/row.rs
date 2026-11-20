@@ -82,6 +82,16 @@ impl Row {
                 .as_ref()
                 .is_some_and(|workspace| workspace.branch != self.label)
     }
+
+    /// Whether opening the row folds it instead of opening a chat: a folder, the repo home and a
+    /// locked branch are containers, never checked out into.
+    pub fn is_container(&self) -> bool {
+        match self.kind {
+            RowKind::Folder | RowKind::RepoHeader => true,
+            RowKind::Branch => self.lock == Lock::Locked,
+            RowKind::Chat => false,
+        }
+    }
 }
 
 #[cfg(test)]

@@ -99,8 +99,8 @@ fn is_removable(row: &Row) -> bool {
 fn fork_and_branch(row: &Row) -> Vec<RowVerb> {
     let forks = match row.kind {
         RowKind::Folder => row.worktree == Worktree::Owned,
-        RowKind::Branch => true,
-        RowKind::Chat | RowKind::RepoHeader => false,
+        RowKind::Branch | RowKind::RepoHeader => true,
+        RowKind::Chat => false,
     };
     let can_branch =
         row.kind == RowKind::Chat && row.worktree == Worktree::Shared && row.pending_move.is_none();
@@ -186,9 +186,9 @@ mod tests {
             &[RowVerb::Remove, RowVerb::Thread],
         ),
         (
-            "the repo header has only the menu and thread",
+            "the repo header is its home checkout's branch: menu, thread and fork",
             repo_header,
-            &[RowVerb::RepoMenu, RowVerb::Thread],
+            &[RowVerb::RepoMenu, RowVerb::Thread, RowVerb::Fork],
         ),
         (
             "a locked branch cannot be removed",

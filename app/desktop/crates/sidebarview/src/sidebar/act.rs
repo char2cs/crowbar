@@ -20,7 +20,7 @@ impl Sidebar {
         cx: &mut Context<'_, Self>,
     ) {
         match action {
-            RowAction::Open(row) => self.send(Command::OpenRow(row), cx),
+            RowAction::Open(row) => self.open_row(row, cx),
             RowAction::Rename(row) => self.apply(Intent::StartRename(row), window, cx),
             RowAction::Menu { row, at } | RowAction::RepoMenu { row, at } => {
                 self.open_row_menu((&row, at), window, cx);
@@ -222,15 +222,6 @@ impl Sidebar {
 mod tests {
     use super::*;
     use crate::test_support::prelude::*;
-
-    #[gpui::test]
-    fn opening_a_row_sends_the_open_command(cx: &mut TestAppContext) {
-        let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
-        sidebar.update_in(cx, |this, window, cx| {
-            this.act(RowAction::Open(RowId::from("chat")), window, cx);
-        });
-        assert_eq!(recorder.sent(), vec![Command::OpenRow(RowId::from("chat"))]);
-    }
 
     #[gpui::test]
     fn the_row_menu_opens_at_the_pointer(cx: &mut TestAppContext) {

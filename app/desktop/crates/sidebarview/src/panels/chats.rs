@@ -161,9 +161,9 @@ mod tests {
     fn the_row_handler_forwards_actions_to_the_sidebar(cx: &mut TestAppContext) {
         let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
         let handler = sidebar.update(cx, |_, cx| Sidebar::row_handler(cx));
-        cx.update(|window, cx| handler(RowAction::Open(RowId::from("main")), window, cx));
+        cx.update(|window, cx| handler(RowAction::Open(RowId::from("chat")), window, cx));
         cx.run_until_parked();
-        assert_eq!(recorder.sent(), vec![Command::OpenRow(RowId::from("main"))]);
+        assert_eq!(recorder.sent(), vec![Command::OpenRow(RowId::from("chat"))]);
     }
 
     #[gpui::test]
