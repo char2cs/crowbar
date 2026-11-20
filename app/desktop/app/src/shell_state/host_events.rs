@@ -50,7 +50,7 @@ impl ShellState {
         &mut self,
         events: Vec<HostEvent>,
     ) -> Outcome {
-        self.apply(commands_for(&events));
+        self.run(commands_for(&events));
         let mut outcome = Outcome::default();
         for event in events {
             self.note(event, &mut outcome);

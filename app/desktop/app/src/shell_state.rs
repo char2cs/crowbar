@@ -134,6 +134,9 @@ impl ShellState {
         &mut self,
         commands: Vec<Command>,
     ) {
+        if commands.is_empty() {
+            return;
+        }
         self.keyboard = Keyboard::Pane;
         self.run(commands);
     }
@@ -279,6 +282,7 @@ mod tests {
     enum Via {
         Strip,
         ShellPress,
+        ShellPressThenNothing,
         Elsewhere,
     }
 
@@ -287,6 +291,11 @@ mod tests {
         (
             "a press on the shell's own surface keeps them too",
             Via::ShellPress,
+            1,
+        ),
+        (
+            "an empty batch after a shell press leaves them in the shell",
+            Via::ShellPressThenNothing,
             1,
         ),
         (
@@ -307,6 +316,11 @@ mod tests {
             Via::ShellPress => {
                 shell.apply(focus);
                 shell.keep_keyboard_in_shell();
+            },
+            Via::ShellPressThenNothing => {
+                shell.apply(focus);
+                shell.keep_keyboard_in_shell();
+                shell.apply(Vec::new());
             },
             Via::Elsewhere => shell.apply(focus),
         }
