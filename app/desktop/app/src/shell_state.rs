@@ -31,6 +31,7 @@ mod navigation_target;
 mod opening;
 mod page_step;
 mod renaming;
+mod review_reveal;
 
 pub(crate) struct ShellState {
     history: LayoutHistory,

@@ -84,10 +84,7 @@ impl ShellView {
             return;
         };
         self.open_spec(PaneSpec::review(&chat, None), cx);
-        let reveal = ShellFrame::ReviewReveal {
-            path: path.to_owned(),
-        };
-        self.send_review_frame(&pane, &reveal);
+        self.state.reveal_in_review(&pane, path);
     }
 
     fn send_review_frame(
