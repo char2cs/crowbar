@@ -26,17 +26,15 @@
     parts.push(digit ? digit[1] : event.key.toLowerCase());
     return parts.join('+');
   };
-  window.addEventListener(
-    'keydown',
-    (event) => {
-      const pressed = chord(event);
-      const hit = bindings.find((binding) => binding.keys === pressed);
-      if (!hit) return;
-      event.preventDefault();
-      crowbar.post(JSON.stringify({ sdk: 1, kind: 'command.run', command: hit.command }));
-    },
-    true,
-  );
+  // Bubble phase, as develop's own shortcuts: a page control that handles the chord (bold in the
+  // composer) stops it before the shell sees it.
+  window.addEventListener('keydown', (event) => {
+    const pressed = chord(event);
+    const hit = bindings.find((binding) => binding.keys === pressed);
+    if (!hit) return;
+    event.preventDefault();
+    crowbar.post(JSON.stringify({ sdk: 1, kind: 'command.run', command: hit.command }));
+  });
   let hovered = false;
   const hover = (value) => {
     if (hovered === value) return;

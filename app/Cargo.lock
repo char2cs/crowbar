@@ -4820,6 +4820,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tracing",
  "webview",
+ "x11rb",
 ]
 
 [[package]]
