@@ -6,6 +6,7 @@ mod mark_view;
 mod mode_bar;
 pub(crate) mod switcher;
 
+pub(crate) use header::host_icon;
 pub(crate) use mark_view::mark_view;
 pub(crate) use switcher::IconEditor;
 

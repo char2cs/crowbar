@@ -5,6 +5,8 @@ use ui::{Icon, IconName, Palette, radius};
 use crate::sidebar::{ICON_LARGE, SPACE_LG, SPACE_MD, SPACE_XS, TEXT_LARGE};
 
 const TITLE_SIZE: f32 = 16.0;
+const TITLE_LINE: f32 = 24.0;
+const SUBTITLE_LINE: f32 = 20.0;
 const TILE: f32 = 36.0;
 const ROW_PADDING: f32 = 10.0;
 const TITLE: &str = "Create a Space";
@@ -49,12 +51,14 @@ pub(crate) fn heading(palette: &Palette) -> Div {
         .child(
             div()
                 .text_size(px(TITLE_SIZE))
+                .line_height(px(TITLE_LINE))
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(TITLE),
         )
         .child(
             div()
                 .text_size(TEXT_LARGE)
+                .line_height(px(SUBTITLE_LINE))
                 .text_color(palette.muted_foreground())
                 .child(SUBTITLE),
         )

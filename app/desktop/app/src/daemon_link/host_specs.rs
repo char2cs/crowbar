@@ -3,7 +3,7 @@ use store::HostSpec;
 use super::DaemonLink;
 use super::LOCAL_HOST;
 
-const LOCAL_NAME: &str = "This computer";
+const LOCAL_NAME: &str = "Local";
 
 pub(super) fn host_specs(
     paired: Vec<(String, String)>,
@@ -60,7 +60,7 @@ mod tests {
         assert_eq!(
             rows,
             [
-                ("local", "This computer", None),
+                ("local", "Local", None),
                 ("h1", "name of h1", Some("wss://one"))
             ]
         );

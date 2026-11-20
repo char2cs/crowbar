@@ -1,5 +1,6 @@
 //! The create-space panel that replaces the panels while a space is being made.
 
+mod daemon_picker;
 mod space_draft;
 mod space_panel_parts;
 
@@ -10,24 +11,26 @@ use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    AnyElement, AppContext as _, Context, Div, IntoElement, ParentElement, PathPromptOptions,
-    Styled, Window, div, px,
+    AnyElement, AppContext as _, Context, Div, InteractiveElement, IntoElement, ParentElement,
+    PathPromptOptions, StatefulInteractiveElement, Styled, Window, div, px,
 };
-use sidebar::{Command, HostKind, Mode, SpaceFacts, SpaceIcon};
+use sidebar::{Command, HostKind, Mode, PathText, SpaceFacts, SpaceIcon};
 use ui::{
-    Button, ButtonVariant, IconName, Palette, Placement, Popover, Select, Surface, TextInput,
+    Button, ButtonVariant, IconName, Palette, Placement, Popover, Surface, TextInput,
     TextInputEvent, Theme,
 };
 
 use crate::column::IconEditor;
+use crate::panels::create_space::daemon_picker::daemon_picker;
 use crate::panels::create_space::space_draft::create_command;
 use crate::panels::create_space::space_panel_parts::{field_row, heading, icon_tile};
 use crate::sidebar::Sidebar;
 use crate::sidebar::{SPACE_LG, SPACE_MD, SPACE_XL, TEXT_SMALL};
 
 const HEAD_GAP: f32 = 10.0;
-const SELECT_WIDTH: f32 = 150.0;
-const CHOOSE_FOLDER: &str = "Choose folder";
+const PANEL_GAP: f32 = 20.0;
+const PANEL_TOP: f32 = 16.0;
+const CHOOSE_FOLDER: &str = "Choose…";
 
 impl Sidebar {
     pub(crate) fn start_create_space(
@@ -185,15 +188,7 @@ impl Sidebar {
         let hosts = self.data.hosts();
         let host = hosts.get(draft.host)?;
         let facts = SpaceFacts::of(host, &draft.folder);
-        let names = hosts.iter().map(|host| host.name.clone().into()).collect();
-        let sidebar = cx.entity();
-        let select = Select::new("space-host", names, Some(draft.host))
-            .on(Surface::Chrome)
-            .compact()
-            .width(px(SELECT_WIDTH))
-            .on_change(move |index, _, cx| {
-                sidebar.update(cx, |this, cx| this.select_space_host(index, cx));
-            });
+        let picker = daemon_picker((&hosts, draft.host), palette, cx);
         let head = space_head(draft, palette);
         let footer = space_footer(&facts, palette, cx);
         Some(
@@ -201,16 +196,13 @@ impl Sidebar {
                 .flex()
                 .flex_col()
                 .size_full()
-                .gap(SPACE_XL)
+                .gap(px(PANEL_GAP))
                 .px(SPACE_LG)
-                .pt(SPACE_XL)
+                .pt(px(PANEL_TOP))
                 .child(heading(palette))
                 .child(head)
-                .child(field_row(IconName::HardDrives, "Daemon", palette).child(select))
-                .child(
-                    field_row(IconName::FolderOpen, "Folder", palette)
-                        .child(folder_button(&draft.folder, cx)),
-                )
+                .child(field_row(IconName::HardDrives, "Daemon", palette).children(picker))
+                .child(folder_row(&draft.folder, palette, cx))
                 .child(div().flex_1())
                 .child(footer)
                 .into_any_element(),
@@ -218,17 +210,28 @@ impl Sidebar {
     }
 }
 
-fn folder_button(
+fn folder_row(
     folder: &str,
+    palette: &Palette,
     cx: &mut Context<'_, Sidebar>,
-) -> Button {
-    let label = Some(folder)
-        .filter(|folder| !folder.is_empty())
-        .unwrap_or(CHOOSE_FOLDER);
-    Button::new("space-folder", label.to_owned())
-        .variant(ButtonVariant::Ghost)
-        .on(Surface::Chrome)
+) -> impl IntoElement {
+    let base = PathText::new(folder).base().to_owned();
+    let label = Some(base)
+        .filter(|base| !base.is_empty())
+        .unwrap_or_else(|| CHOOSE_FOLDER.to_owned());
+    let hover = palette.sidebar_element_hover();
+    field_row(IconName::FolderOpen, "Folder", palette)
+        .id("space-folder")
+        .cursor_pointer()
+        .hover(move |style| style.bg(hover))
         .on_click(cx.listener(|this, _, _, cx| this.choose_space_folder(cx)))
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .text_color(palette.muted_foreground())
+                .child(label),
+        )
 }
 
 fn space_head(

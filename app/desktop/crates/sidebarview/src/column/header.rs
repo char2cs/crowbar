@@ -4,6 +4,7 @@ mod host_picker;
 mod icon_button;
 mod tile_shape;
 
+pub(crate) use host_picker::host_icon;
 pub(crate) use icon_button::IconButton;
 pub(crate) use tile_shape::TileShape;
 

@@ -3,7 +3,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, Div, InteractiveElement, IntoElement, ParentElement, Pixels, Styled, div, px,
+    AnyElement, App, Div, Hsla, InteractiveElement, IntoElement, ParentElement, Pixels, Styled,
+    div, px,
 };
 use sidebar::{Command, Host, HostKind, HostTone, Intent};
 use ui::{DropdownMenu, Icon, IconName, IconWeight, MenuAction, MenuItem, Palette, radius};
@@ -46,7 +47,7 @@ fn dot(
 
 pub(crate) fn host_icon(
     host: &Host,
-    palette: &Palette,
+    (palette, backdrop): (&Palette, Hsla),
 ) -> Div {
     let name = match host.kind {
         HostKind::Local => IconName::Desktop,
@@ -57,7 +58,7 @@ pub(crate) fn host_icon(
         .flex_none()
         .size(ICON_LARGE)
         .child(Icon::new(name).weight(IconWeight::Regular).size(ICON_LARGE))
-        .child(cutout(palette))
+        .child(cutout(palette, backdrop))
         .child(dot(host, palette))
 }
 
@@ -65,15 +66,18 @@ fn cutout_offset() -> f32 {
     DOT_OFFSET - (CUTOUT - DOT) / 2.0
 }
 
-fn cutout(palette: &Palette) -> Div {
-    let hovered = palette.chrome_bg().blend(palette.sidebar_element_hover());
+fn cutout(
+    palette: &Palette,
+    backdrop: Hsla,
+) -> Div {
+    let hovered = backdrop.blend(palette.sidebar_element_hover());
     div()
         .absolute()
         .right(px(cutout_offset()))
         .bottom(px(cutout_offset()))
         .size(px(CUTOUT))
         .rounded(radius::FULL)
-        .bg(palette.chrome_bg())
+        .bg(backdrop)
         .group_hover(TRIGGER_GROUP, move |style| style.bg(hovered))
 }
 
@@ -119,7 +123,7 @@ pub(crate) fn host_picker(
         .text_size(TEXT_SMALL)
         .text_color(palette.muted_foreground())
         .hover(hovered)
-        .child(host_icon(current, palette))
+        .child(host_icon(current, (palette, palette.chrome_bg())))
         .child(
             div()
                 .max_w(NAME_MAX_WIDTH)
@@ -160,7 +164,7 @@ mod tests {
     fn the_host_icon_is_sixteen_pixels_tall(cx: &mut TestAppContext) {
         let bounds = measure(cx, |_, cx| {
             let palette = ui::Theme::of(cx).palette(ui::Surface::Chrome);
-            host_icon(&host(HostKind::Remote), palette)
+            host_icon(&host(HostKind::Remote), (palette, palette.chrome_bg()))
         });
         assert_eq!(f32::from(bounds.size.height), 16.0);
     }
