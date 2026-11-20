@@ -1365,9 +1365,12 @@ fn uncovered(mut clipped: Vec<Bounds<Pixels>>) -> Vec<Bounds<Pixels>> {
     region
 }
 
+/// What became of an input event dispatched to a window.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct DispatchEventResult {
+pub struct DispatchEventResult {
+    /// Whether the event went on to the platform after the window's handlers.
     pub propagate: bool,
+    /// Whether a handler prevented the default behaviour.
     pub default_prevented: bool,
 }
 

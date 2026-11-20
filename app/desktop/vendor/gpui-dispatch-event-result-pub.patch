@@ -1,0 +1,14 @@
+--- a/src/window.rs
++++ b/src/window.rs
+@@ -1366,7 +1366,10 @@
+ }
+ 
++/// What became of an input event dispatched to a window.
+ #[derive(Clone, Debug, Default, PartialEq, Eq)]
+-pub(crate) struct DispatchEventResult {
++pub struct DispatchEventResult {
++    /// Whether the event went on to the platform after the window's handlers.
+     pub propagate: bool,
++    /// Whether a handler prevented the default behaviour.
+     pub default_prevented: bool,
+ }

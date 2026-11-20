@@ -1,6 +1,6 @@
 use protocol::{CommandId, PaneId};
 
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq)]
 pub(crate) struct Outcome {
     pub(crate) titles_changed: bool,
     pub(crate) dirty_changed: bool,
@@ -12,4 +12,5 @@ pub(crate) struct Outcome {
     pub(crate) loaded: Vec<PaneId>,
     pub(crate) picks: Vec<(PaneId, browser::PageUpdate)>,
     pub(crate) settings: Vec<(protocol::SettingKey, serde_json::Value)>,
+    pub(crate) pointer: Option<(PaneId, f64, f64)>,
 }

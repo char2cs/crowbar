@@ -25,13 +25,12 @@ impl ShellView {
             loaded,
             picks,
             settings,
+            pointer: _,
         } = outcome;
         self.store_pane_settings(settings);
         self.open_dropped(&dropped, cx);
         self.finish_picks(picks, cx);
-        for (pane, address) in pages {
-            self.source.bars().show_address(&pane, &address, cx);
-        }
+        self.show_addresses(pages, cx);
         for (pane, hovered) in hover {
             let entered = hovered.then(|| self.hover.entered(pane.clone()));
             let current = entered.unwrap_or_else(|| self.hover.left(&pane));
@@ -51,6 +50,16 @@ impl ShellView {
         self.state.publish_tabs();
         for pane in &loaded {
             self.run_deferred_agent(pane, cx);
+        }
+    }
+
+    fn show_addresses(
+        &self,
+        pages: Vec<(protocol::PaneId, String)>,
+        cx: &mut Context<'_, Self>,
+    ) {
+        for (pane, address) in pages {
+            self.source.bars().show_address(&pane, &address, cx);
         }
     }
 

@@ -97,9 +97,9 @@ impl ShellState {
             },
             HostEvent::StateChanged { .. }
             | HostEvent::StateDiscarded { .. }
-            | HostEvent::PointerMoved { .. }
             | HostEvent::FilesDropped { .. } => {},
             HostEvent::BrowserPage { pane, update } => self.note_page(pane, update, outcome),
+            HostEvent::PointerMoved { pane, x, y } => outcome.pointer = Some((pane, x, y)),
         }
     }
 
@@ -209,6 +209,18 @@ mod tests {
             .iter()
             .any(|call| matches!(call, Call::Focus { .. }));
         assert!(focused, "{calls:?}");
+    }
+
+    #[test]
+    fn a_pointer_move_over_a_page_is_reported_with_the_pane_and_point() {
+        let mut rig = shell_rig();
+        let pane = synced_chat(&mut rig);
+        let text = r#"{"sdk":1,"kind":"shell.pointer","x":3.5,"y":120.0}"#.to_owned();
+        let outcome = rig.shell.handle_ipc(IpcMessage {
+            pane: pane.clone(),
+            text,
+        });
+        assert_eq!(outcome.pointer, Some((pane, 3.5, 120.0)), "the latest move");
     }
 
     #[test]

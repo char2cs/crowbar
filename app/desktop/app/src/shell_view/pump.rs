@@ -1,8 +1,11 @@
-use gpui::{Context, Window};
+use gpui::{Context, MouseMoveEvent, PlatformInput, Window, point, px};
 use panehost::IpcMessage;
+use protocol::PaneId;
 
 use super::ShellView;
+use crate::holes::visible_panes;
 use crate::shell_request::ShellRequest;
+use crate::single_precision::single_precision;
 
 impl ShellView {
     pub(super) fn spawn_tasks(
@@ -32,20 +35,55 @@ impl ShellView {
         .detach();
     }
 
-    fn on_ipc(
+    pub(super) fn on_ipc(
         &mut self,
         message: IpcMessage,
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        let outcome = self.state.handle_ipc(message);
+        let mut outcome = self.state.handle_ipc(message);
         let page_took_focus = !outcome.focused.is_empty();
+        let pointer = outcome.pointer.take();
         self.apply_outcome(outcome, cx);
+        self.replay_pointer(pointer, window, cx);
         if !page_took_focus {
             return;
         }
         window.focus(&self.focus);
         self.state.apply_keyboard();
+    }
+
+    fn replay_pointer(
+        &self,
+        pointer: Option<(PaneId, f64, f64)>,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let Some((pane, x, y)) = pointer else {
+            return;
+        };
+        let Some((_, area)) = self.placement else {
+            return;
+        };
+        let (chrome, _) = self.chrome(cx);
+        let visible = visible_panes(
+            self.state.layout().active_tab(),
+            area,
+            (chrome, self.source.as_ref()),
+        );
+        let Some(origin) = visible.iter().find(|shown| shown.pane == pane) else {
+            return;
+        };
+        let position = point(
+            px(single_precision(origin.bounds.x + x)),
+            px(single_precision(origin.bounds.y + y)),
+        );
+        let moved = MouseMoveEvent {
+            position,
+            pressed_button: None,
+            modifiers: window.modifiers(),
+        };
+        window.dispatch_event(PlatformInput::MouseMove(moved), cx);
     }
 
     fn feed_startup(

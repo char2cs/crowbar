@@ -425,6 +425,35 @@ mod tests {
         mock.calls().iter().filter(focuses).count()
     }
 
+    const PLACED: webview::Bounds = webview::Bounds {
+        x: 300.0,
+        y: 40.0,
+        width: 900.0,
+        height: 700.0,
+    };
+
+    #[gpui::test]
+    fn a_pointer_move_over_a_page_moves_the_window_pointer_over_the_same_spot(
+        cx: &mut TestAppContext
+    ) {
+        let mut opened = open_shell(cx);
+        opened.window.run_until_parked();
+        let pane = opened.pane.clone();
+        let text = r#"{"sdk":1,"kind":"shell.pointer","x":3.5,"y":120.0}"#.to_owned();
+        let message = panehost::IpcMessage { pane, text };
+        opened
+            .shell
+            .update_in(&mut opened.window, |shell, window, cx| {
+                shell.placement = Some((webview::ParentWindow::X11(9), PLACED));
+                shell.on_ipc(message, window, cx);
+            });
+        let position = opened.window.update(|window, _| window.mouse_position());
+        assert!(
+            position.x > gpui::px(303.5) && position.y > gpui::px(160.0),
+            "page point plus the page's origin: {position:?}"
+        );
+    }
+
     fn register_chat(opened: &mut Opened) {
         let register = protocol::PaneFrame::Register {
             type_id: crate::core_panes::chat_type().unwrap_or_else(|error| panic!("{error}")),
