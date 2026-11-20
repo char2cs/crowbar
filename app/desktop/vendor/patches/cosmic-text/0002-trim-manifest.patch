@@ -1,0 +1,44 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -69,27 +69,6 @@
+ name = "cosmic_text"
+ path = "src/lib.rs"
+ 
+-[[test]]
+-name = "editor_modified_state"
+-path = "tests/editor_modified_state.rs"
+-
+-[[test]]
+-name = "shaping_and_rendering"
+-path = "tests/shaping_and_rendering.rs"
+-
+-[[test]]
+-name = "wrap_stability"
+-path = "tests/wrap_stability.rs"
+-
+-[[test]]
+-name = "wrap_word_fallback"
+-path = "tests/wrap_word_fallback.rs"
+-
+-[[bench]]
+-name = "layout"
+-path = "benches/layout.rs"
+-harness = false
+-
+ [dependencies.bitflags]
+ version = "2.4.1"
+ 
+@@ -175,13 +154,5 @@
+ [dependencies.unicode-segmentation]
+ version = "1.10.1"
+ 
+-[dev-dependencies.criterion]
+-version = "0.5.1"
+-features = ["cargo_bench_support"]
+-default-features = false
+-
+-[dev-dependencies.tiny-skia]
+-version = "0.11.2"
+-
+ [profile.test]
+ opt-level = 1

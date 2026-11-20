@@ -1,0 +1,4 @@
+# Vendored crates: <directory> <crates.io name> <version> <sha256 of the .crate>
+cosmic-text cosmic-text 0.14.2 da46a9d5a8905cc538a4a5bceb6a4510de7a51049c5588c0114efce102bcbbe8
+gpui gpui 0.2.2 979b45cfa6ec723b6f42330915a1b3769b930d02b2d505f9697f8ca602bee707
+xattr xattr 0.2.3 6d1526bbe5aaeb5eb06885f4d987bcdfa5e23187055de9b83fe00156a821fabc
