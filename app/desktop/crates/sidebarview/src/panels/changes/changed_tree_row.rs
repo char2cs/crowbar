@@ -8,7 +8,9 @@ use sidebar::{ChangedRow, Command, FileKind, GitStatus, Intent};
 use ui::{Badge, BadgeSize, BadgeVariant, Palette, Surface, Theme, Tooltip};
 
 use crate::panels::changes::viewed_box::viewed_box;
-use crate::panels::explorer::badges::{count_gap, counts_view, letter_badge, status_color};
+use crate::panels::explorer::badges::{
+    count_gap, counts_view, labelled, letter_badge, status_color,
+};
 use crate::panels::explorer::{FileTreeEntry, TreeLook, frame, glyph};
 use crate::sidebar::{RowAction, RowHandler, SPACE_SM};
 
@@ -116,7 +118,6 @@ impl ChangedTreeRow {
             .counts
             .map(|counts| counts_view(counts, (mono, count_gap(&self.look)), palette));
         div()
-            .ml_auto()
             .flex()
             .flex_none()
             .items_center()
@@ -131,7 +132,9 @@ impl ChangedTreeRow {
         entry: &FileTreeEntry,
         palette: &Palette,
     ) -> Div {
+        let selector = format!("changed-name-{}", entry.path);
         div()
+            .debug_selector(|| selector)
             .min_w_0()
             .truncate()
             .text_color(name_color(&self.row, palette))
@@ -155,8 +158,7 @@ impl RenderOnce for ChangedTreeRow {
             .debug_selector(|| selector)
             .child(viewed_box(&self.row, &self.handler))
             .child(glyph(&entry, &self.look))
-            .child(self.name(&entry, palette))
-            .children(letter)
+            .child(labelled(self.name(&entry, palette), letter))
             .child(self.trailing(&entry, (mono, palette)))
             .on_click(on_click(&self.handler, intent(&self.row)));
         let ChangedRow::File { file, .. } = self.row else {
@@ -191,6 +193,20 @@ mod tests {
             threads: 2,
             viewed: false,
         }
+    }
+
+    #[gpui::test]
+    fn the_name_and_its_letter_keep_their_gap_beside_the_trailing_counts(
+        cx: &mut gpui::TestAppContext
+    ) {
+        let cx = crate::test_support::mount(cx, |_, _| ChangedTreeRow {
+            row: file(3, 1),
+            look: TreeLook::default(),
+            handler: std::rc::Rc::new(|_, _, _| {}),
+        });
+        let name = cx.debug_bounds("changed-name-src/a.rs").unwrap_or_default();
+        let letter = cx.debug_bounds("status-letter").unwrap_or_default();
+        assert_eq!(letter.left() - name.right(), SPACE_SM);
     }
 
     #[test]

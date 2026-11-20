@@ -38,6 +38,20 @@ pub(crate) fn letter_badge(
         .child(letter.to_string())
 }
 
+pub(crate) fn labelled(
+    name: Div,
+    letter: Option<Div>,
+) -> Div {
+    div()
+        .flex()
+        .flex_1()
+        .min_w_0()
+        .items_center()
+        .gap(SPACE_SM)
+        .child(name)
+        .children(letter)
+}
+
 pub(crate) fn count_gap(look: &TreeLook) -> Pixels {
     if look.compact_badges {
         return px(TIGHT_COUNT_GAP);
@@ -53,8 +67,6 @@ pub(crate) fn counts_view(
     let ((added, deleted), (mono, gap)) = (counts, spacing);
     div()
         .debug_selector(|| "row-counts".into())
-        .ml_auto()
-        .pl(SPACE_SM)
         .flex()
         .flex_none()
         .gap(gap)

@@ -22,7 +22,7 @@ use crate::panels::explorer::file_drop;
 use crate::panels::explorer::file_menu::file_menu;
 use crate::panels::explorer::file_tree_entry::FileTreeEntry;
 use crate::panels::explorer::file_tree_row::badges::{
-    count_gap, counts_view, letter_badge, status_color,
+    count_gap, counts_view, labelled, letter_badge, status_color,
 };
 use crate::panels::explorer::file_tree_row::glyph::{folder_tint, theme_glyph};
 use crate::panels::explorer::search::highlight;
@@ -72,8 +72,7 @@ impl RenderOnce for FileTreeRow {
         let row = ringed(tinted, &focus, palette)
             .child(chevron(&entry, palette))
             .child(glyph(&entry, &self.look))
-            .child(name)
-            .children(letter)
+            .child(labelled(name, letter))
             .children(trailing_counts(&entry, (mono, &self.look), palette))
             .on_drop(file_drop::on_drop(
                 &self.handler,
@@ -132,7 +131,11 @@ fn name_cell(
 ) -> Div {
     match input {
         Some(input) => div().flex_1().min_w_0().child(input_view(input, look)),
-        None => div().min_w_0().truncate().child(entry.name.clone()),
+        None => div()
+            .debug_selector(|| "file-name".into())
+            .min_w_0()
+            .truncate()
+            .child(entry.name.clone()),
     }
 }
 
@@ -285,10 +288,8 @@ mod tests {
         });
         let letter = cx.debug_bounds("status-letter").unwrap_or_default();
         let counts = cx.debug_bounds("row-counts").unwrap_or_default();
-        assert!(
-            f32::from(letter.left()) < 80.0,
-            "the letter sits after a short name: {letter:?}"
-        );
+        let name = cx.debug_bounds("file-name").unwrap_or_default();
+        assert_eq!(letter.left() - name.right(), SPACE_SM);
         assert!(
             f32::from(counts.left() - letter.right()) > 100.0,
             "the counts sit at the row end: {counts:?}"
