@@ -1,7 +1,7 @@
 //! Applies an [`Intent`] to the state and performs the resulting effect.
 
 use gpui::{Context, Window};
-use settings::{Effect, Key, RecordCommand, Value};
+use settings::{Control, Effect, Key, RecordCommand, Value};
 use ui::TextInputEvent;
 
 use crate::intent::Intent;
@@ -77,6 +77,7 @@ impl SettingsModal {
     ) -> Option<Effect> {
         match intent {
             Intent::Toggle(row) => self.state.toggle(&row),
+            Intent::Activate(row) => self.activate(&row, window, cx),
             Intent::Choose(row, index) => self.state.choose(&row, index),
             Intent::Edit(row, event) => self.edit(&row, &event),
             Intent::Commit(row) => self.state.commit(&row),
@@ -109,6 +110,35 @@ impl SettingsModal {
         }
     }
 
+    fn activate(
+        &mut self,
+        row: &settings::Row,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> Option<Effect> {
+        match row.control() {
+            Control::Switch { .. } => self.state.toggle(row),
+            Control::Button(spec) => self.state.press_button(spec),
+            _ => {
+                self.focus_field(row, window, cx);
+                None
+            },
+        }
+    }
+
+    fn focus_field(
+        &self,
+        row: &settings::Row,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let Some(input) = self.fields.get(row.key()).cloned() else {
+            return;
+        };
+        input.read(cx).focus(window);
+        input.update(cx, ui::TextInput::select_all);
+    }
+
     fn edit(
         &mut self,
         row: &settings::Row,
@@ -136,11 +166,7 @@ impl SettingsModal {
     ) -> Option<Effect> {
         match event {
             TextInputEvent::Changed(text) => self.state.set_query(text),
-            TextInputEvent::Cancelled => {
-                self.search.update(cx, |input, cx| input.set_text("", cx));
-                self.state.set_query("");
-                self.focus.focus(window);
-            },
+            TextInputEvent::Cancelled => return self.close(window, cx),
             TextInputEvent::Submitted => self.focus.focus(window),
             _ => {},
         }
@@ -199,18 +225,18 @@ mod tests {
     use ui::TextInputEvent;
 
     #[gpui::test]
-    fn a_cancelled_search_clears_the_query(cx: &mut TestAppContext) {
+    fn escape_in_a_typed_search_closes_the_dialog_at_once(cx: &mut TestAppContext) {
         let (harness, cx) = open(cx, "appearance");
-        run(
-            &harness,
-            Intent::Search(TextInputEvent::Changed("git".to_owned())),
-            cx,
-        );
-        run(&harness, Intent::Search(TextInputEvent::Cancelled), cx);
+        harness.modal.update_in(cx, |modal, window, cx| {
+            modal.search.read(cx).focus(window);
+        });
+        cx.simulate_input("git");
         assert_eq!(
             inspect(&harness, cx, |modal| modal.state.query().to_owned()),
-            ""
+            "git"
         );
+        cx.simulate_keystrokes("escape");
+        assert_eq!(harness.closed.get(), 1);
     }
 
     #[gpui::test]

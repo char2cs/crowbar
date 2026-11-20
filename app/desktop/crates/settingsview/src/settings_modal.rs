@@ -11,7 +11,7 @@ use std::rc::Rc;
 
 use chord::Primary;
 use gpui::{
-    AppContext as _, AsyncApp, Context, Entity, FocusHandle, IntoElement, ParentElement, Render,
+    App, AppContext as _, AsyncApp, Context, Entity, FocusHandle, IntoElement, ParentElement, Render,
     ScrollHandle, WeakEntity, Window, div,
 };
 use settings::{Change, RecordBackend, Subscription};
@@ -89,12 +89,13 @@ impl SettingsModal {
         }
     }
 
-    /// Moves keyboard focus into the modal so that Escape and the arrow keys reach it.
+    /// Moves keyboard focus into the modal's search field, its first control, as develop's dialog does.
     pub fn focus(
         &self,
         window: &mut Window,
+        cx: &App,
     ) {
-        self.focus.focus(window);
+        self.search.read(cx).focus(window);
     }
 
     /// Starts with `query` typed into the search field.
@@ -319,6 +320,19 @@ mod tests {
         assert_eq!(
             modal.read_with(cx, |modal, _| modal.state.query().to_owned()),
             "font"
+        );
+    }
+
+    #[gpui::test]
+    fn typing_right_after_opening_goes_into_the_search(cx: &mut TestAppContext) {
+        let (harness, cx) = open(cx, "appearance");
+        harness
+            .modal
+            .update_in(cx, |modal, window, cx| modal.focus(window, cx));
+        cx.simulate_input("git");
+        assert_eq!(
+            inspect(&harness, cx, |modal| modal.state.query().to_owned()),
+            "git"
         );
     }
 }

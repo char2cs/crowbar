@@ -110,4 +110,23 @@ mod tests {
             Some(Value::Text("https://y.test".to_owned()))
         );
     }
+
+    #[gpui::test]
+    fn tab_leaves_a_number_field_and_clamps_what_was_typed(cx: &mut TestAppContext) {
+        let (harness, cx) = open(cx, "appearance");
+        cx.update(|window, _| window.activate_window());
+        let input = inspect(&harness, cx, |modal| {
+            modal.fields.get(&Key::new("uiFontSize")).cloned()
+        })
+        .unwrap();
+        cx.update(|window, cx| input.read(cx).focus(window));
+        cx.simulate_keystrokes("secondary-a");
+        cx.simulate_input("40");
+        cx.simulate_keystrokes("tab");
+        cx.run_until_parked();
+        assert_eq!(
+            harness.backend.get(&Key::new("uiFontSize")),
+            Some(Value::Number(24.0))
+        );
+    }
 }

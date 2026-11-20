@@ -13,6 +13,7 @@ use settings::{ButtonSpec, Nudge, PageId, Pressed, RailMove, RecordAction, Row};
 #[derive(Debug, Clone)]
 pub(crate) enum Intent {
     Toggle(Row),
+    Activate(Row),
     Choose(Row, usize),
     Edit(Row, TextInputEvent),
     Commit(Row),

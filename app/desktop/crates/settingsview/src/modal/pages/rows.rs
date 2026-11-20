@@ -3,13 +3,17 @@
 mod controls;
 mod reset_button;
 
-use gpui::{App, IntoElement, ParentElement, Styled, Window, div, px};
+use gpui::{
+    App, InteractiveElement as _, IntoElement, ParentElement, StatefulInteractiveElement as _,
+    Styled, Window, div, px,
+};
 use settings::Row;
 use ui::{HoverFill, ScaledText, Surface, Theme, radius};
 
 use crate::frame::Frame;
 use crate::frame::element_id;
 use crate::frame::spacing;
+use crate::intent::Intent;
 use crate::modal::pages::rows::controls::control_view;
 use crate::modal::pages::rows::reset_button::reset_button;
 
@@ -25,13 +29,6 @@ pub(crate) fn row_view(
     let theme = *Theme::of(cx);
     let palette = theme.palette(Surface::Window);
     let text_size = ScaledText::Sm.size(&theme);
-    let description = frame.state.description(row).map(|text| {
-        div()
-            .line_height(px(TEXT_LINE))
-            .text_color(palette.muted_foreground())
-            .child(text.to_owned())
-    });
-    let label = label_line(frame, row, cx);
     let base = div()
         .flex()
         .items_center()
@@ -47,12 +44,36 @@ pub(crate) fn row_view(
         palette.muted().opacity(WASH),
     )
     .apply(base, (&mut *window, &mut *cx))
-    .child(div().flex_1().min_w_0().child(label).children(description))
+    .on_click(frame.sink.send(Intent::Activate(row.clone())))
+    .child(text_column(frame, row, cx))
     .child(
         div()
+            .id(element_id("control", row.key().as_str()))
             .flex_none()
+            .on_click(|_, _, cx| cx.stop_propagation())
             .child(control_view(frame, row, (window, cx))),
     )
+}
+
+fn text_column(
+    frame: &Frame<'_>,
+    row: &Row,
+    cx: &App,
+) -> impl IntoElement {
+    let palette = Theme::of(cx).palette(Surface::Window);
+    let description = frame.state.description(row).map(|text| {
+        div()
+            .line_height(px(TEXT_LINE))
+            .text_color(palette.muted_foreground())
+            .child(text.to_owned())
+    });
+    let key = row.key().as_str().to_owned();
+    div()
+        .flex_1()
+        .min_w_0()
+        .debug_selector(move || format!("row-text-{key}"))
+        .child(label_line(frame, row, cx))
+        .children(description)
 }
 
 fn label_line(
@@ -79,6 +100,9 @@ fn label_line(
 mod tests {
     use gpui::TestAppContext;
 
+    use gpui::Focusable as _;
+    use settings::Read as _;
+
     use crate::intent::Intent;
     use crate::test_support::{inspect, open, row, run};
 
@@ -95,5 +119,35 @@ mod tests {
             modal.state.description(&target).map(str::to_owned)
         });
         assert_ne!(normal, invalid);
+    }
+
+    fn click_description(
+        cx: &mut gpui::VisualTestContext,
+        selector: &'static str,
+    ) {
+        let text = cx.debug_bounds(selector).unwrap();
+        cx.simulate_click(text.center(), gpui::Modifiers::none());
+        cx.run_until_parked();
+    }
+
+    #[gpui::test]
+    fn a_click_on_the_row_text_toggles_its_switch(cx: &mut TestAppContext) {
+        let (harness, cx) = open(cx, "editor");
+        click_description(cx, "row-text-wordWrap");
+        assert_eq!(
+            harness.backend.get(&settings::Key::new("wordWrap")),
+            Some(settings::Value::Bool(true))
+        );
+    }
+
+    #[gpui::test]
+    fn a_click_on_a_number_row_focuses_its_field(cx: &mut TestAppContext) {
+        let (harness, cx) = open(cx, "editor");
+        click_description(cx, "row-text-fontSize");
+        let focused = harness.modal.update_in(cx, |modal, window, cx| {
+            let input = modal.fields.get(&settings::Key::new("fontSize")).cloned();
+            input.is_some_and(|input| input.focus_handle(cx).is_focused(window))
+        });
+        assert!(focused);
     }
 }
