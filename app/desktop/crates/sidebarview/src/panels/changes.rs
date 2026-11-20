@@ -7,7 +7,7 @@ mod merge_lines;
 pub(crate) use merge_draft::MergeDraft;
 
 use gpui::{AnyElement, Context, Div, IntoElement, ParentElement, Pixels, Styled, div, px};
-use sidebar::{ChangedFile, Changes, FileKind, GitStatus, MenuScope};
+use sidebar::{ChangedFile, Changes, FileKind, Focus, GitStatus, MenuScope};
 use ui::{Icon, IconName, Palette, ScrollArea, Surface, Theme, radius, shadow};
 
 use crate::panels::explorer::FileTreeEntry;
@@ -118,7 +118,7 @@ impl Sidebar {
     ) -> AnyElement {
         let palette = Theme::of(cx).palette(Surface::Chrome);
         let changes = self.data.changes();
-        if changes.branch.is_empty() {
+        if self.data.focus() != Focus::Repository {
             return panel_message("No repository open", cx);
         }
         let handler = Self::row_handler(cx);
@@ -127,7 +127,10 @@ impl Sidebar {
         let list = div()
             .flex()
             .flex_col()
-            .child(branch_pill(&changes, Theme::of(cx).mono_family(), palette))
+            .children(
+                (!changes.branch.is_empty())
+                    .then(|| branch_pill(&changes, Theme::of(cx).mono_family(), palette)),
+            )
             .children(self.merge_card(cx))
             .child(count_line(changes.files.len(), palette))
             .children(rows(changes.files, (&handler, &scope, &look)));

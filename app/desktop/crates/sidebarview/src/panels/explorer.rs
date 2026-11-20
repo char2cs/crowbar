@@ -17,10 +17,11 @@ pub(crate) use search::FileSearch;
 use std::rc::Rc;
 
 use gpui::{AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Styled, div, px};
-use sidebar::{Expansion, FileKind, GitStatus, Lock, MenuScope, ShellAnswers};
+use sidebar::{Expansion, FileKind, FolderPhase, GitStatus, Lock, MenuScope, ShellAnswers};
 use ui::{ContextMenu, ScrollArea};
 
 use crate::panels::chats::RowInput;
+use crate::panels::chats::Trailing;
 use crate::panels::explorer::file_menu::file_menu;
 use crate::panels::explorer::files_context::FilesContext;
 use crate::panels::message::panel_message;
@@ -29,6 +30,14 @@ use crate::sidebar::Sidebar;
 
 const ROOT_STRIP: f32 = 48.0;
 const NO_MATCH: &str = "No matching files";
+
+fn empty_message(phase: FolderPhase) -> &'static str {
+    match phase {
+        FolderPhase::NoFolder => "No folder open",
+        FolderPhase::Loading => "Loading files…",
+        FolderPhase::Listed => "Folder is empty",
+    }
+}
 
 fn root_entry() -> FileTreeEntry {
     FileTreeEntry {
@@ -61,6 +70,7 @@ impl Sidebar {
         Some(RowInput {
             field: edit.input.clone(),
             error: edit.error.clone(),
+            trailing: Trailing::Hidden,
         })
     }
 
@@ -68,8 +78,9 @@ impl Sidebar {
         &mut self,
         cx: &mut Context<'_, Self>,
     ) -> AnyElement {
-        if self.data.files().is_empty() {
-            return panel_message("No folder open", cx);
+        let phase = self.data.folder_phase();
+        if phase == FolderPhase::NoFolder || self.data.files().is_empty() {
+            return panel_message(empty_message(phase), cx);
         }
         let files = self.visible_files();
         if files.is_empty() {
@@ -121,6 +132,8 @@ impl Sidebar {
 
 #[cfg(test)]
 mod tests {
+    use sidebar::FolderPhase;
+
     use crate::sidebar::Sidebar;
     use crate::test_support::prelude::*;
 
@@ -130,6 +143,20 @@ mod tests {
         sidebar.update(cx, |this, cx| this.set_mode(Mode::Files, cx));
         cx.run_until_parked();
         assert!(!sidebar.read_with(cx, |this, _| this.data.files().is_empty()));
+    }
+
+    #[test]
+    fn an_empty_panel_says_whether_a_folder_is_open_loading_or_empty() {
+        let said = [
+            FolderPhase::NoFolder,
+            FolderPhase::Loading,
+            FolderPhase::Listed,
+        ]
+        .map(super::empty_message);
+        assert_eq!(
+            said,
+            ["No folder open", "Loading files…", "Folder is empty"]
+        );
     }
 
     fn started(

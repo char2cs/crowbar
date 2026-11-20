@@ -1,5 +1,6 @@
 //! What the Files and Changes panels were last told about the focused workspace.
 
+mod asking;
 mod file_entry;
 mod ignore_rules;
 mod rule_set;
@@ -8,13 +9,15 @@ pub(crate) use file_entry::FileEntry;
 
 use std::collections::{HashMap, HashSet};
 
-use sidebar::{Changes, GitStatus};
+use sidebar::{ChangedFile, Changes, GitStatus};
 
+use crate::live::held::panel_state::asking::Asking;
 use crate::live::held::panel_state::ignore_rules::IgnoreRules;
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct PanelState {
     pub(crate) chat: Option<String>,
+    pub(crate) asking: Asking,
     pub(crate) listings: HashMap<String, Vec<FileEntry>>,
     pub(crate) expanded: HashSet<String>,
     pub(crate) statuses: HashMap<String, GitStatus>,
@@ -37,6 +40,19 @@ impl PanelState {
             chat,
             ..Self::default()
         };
+    }
+
+    pub(crate) fn ask(&mut self) -> Option<String> {
+        if self.asking == Asking::Sent {
+            return None;
+        }
+        let chat = self.chat.clone()?;
+        self.asking = Asking::Sent;
+        Some(chat)
+    }
+
+    pub(crate) fn listing_root(&self) -> bool {
+        self.asking == Asking::Sent && !self.listings.contains_key("")
     }
 
     pub(crate) fn list(
@@ -64,17 +80,20 @@ impl PanelState {
     pub(crate) fn change(
         &mut self,
         chat: &str,
-        changes: Changes,
+        (working, listed): (Changes, Vec<ChangedFile>),
     ) {
         if self.chat.as_deref() != Some(chat) {
             return;
         }
-        self.statuses = changes
+        self.statuses = working
             .files
             .iter()
             .map(|file| (file.path.clone(), file.status))
             .collect();
-        self.changes = changes;
+        self.changes = Changes {
+            files: listed,
+            ..working
+        };
     }
 
     pub(crate) fn staged_and_threads(

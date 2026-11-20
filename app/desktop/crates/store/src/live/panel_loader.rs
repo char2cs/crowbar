@@ -3,12 +3,14 @@
 pub(crate) mod changes_reload;
 mod document_body;
 pub(crate) mod file_target;
+pub(crate) mod followed_ask;
 mod git_diff_body;
 mod git_status_body;
 mod ignore_files;
 mod line_counts;
 mod listed_directory;
 mod reload_target;
+mod review_files_body;
 mod thread_body;
 
 pub(crate) use document_body::DocumentBody;
@@ -20,6 +22,7 @@ use crate::live::panel_loader::git_diff_body::GitDiffBody;
 use crate::live::panel_loader::git_status_body::GitStatusBody;
 use crate::live::panel_loader::line_counts::LineCounts;
 use crate::live::panel_loader::listed_directory::ListedDirectory;
+use crate::live::panel_loader::review_files_body::ReviewFilesBody;
 use crate::live::panel_loader::thread_body::ThreadBody;
 use crate::live::state::Hub;
 
@@ -73,12 +76,28 @@ pub(crate) async fn load_changes(
     };
     let counts = load_counts(client, chat).await;
     let open = load_open_threads(hub, client, chat).await;
+    let working = body.changes(&counts);
+    let listed = load_summary(client, chat)
+        .await
+        .unwrap_or_else(|| working.files.clone());
     hub.edit(|state| {
-        state.panels.change(chat, body.changes(&counts));
+        state.panels.change(chat, (working, listed));
         state
             .panels
             .staged_and_threads(chat, (body.staged_paths(), open));
     });
+}
+
+async fn load_summary(
+    client: &daemonapi::Client,
+    chat: &str,
+) -> Option<Vec<sidebar::ChangedFile>> {
+    client
+        .read::<ReviewFilesBody>(format!("/v0/chats/{chat}/review/files"))
+        .await
+        .inspect_err(|error| tracing::warn!(chat, %error, "the branch's files could not be read"))
+        .ok()
+        .map(ReviewFilesBody::files)
 }
 
 async fn load_open_threads(
@@ -181,6 +200,41 @@ mod tests {
         assert_eq!(
             (listed, branch.as_str(), status, lines),
             (1, "main", Some(GitStatus::Untracked), Some((3, 1)))
+        );
+    }
+
+    fn changed_files(state: &crate::live::state::State) -> Vec<(String, GitStatus, u32, u32)> {
+        let files = state.panels.changes.files.iter();
+        files
+            .map(|file| (file.path.clone(), file.status, file.added, file.deleted))
+            .collect()
+    }
+
+    const SUMMARY: &str = r#"{"files":[{"path":"src/pricing.ts","status":"modified","additions":16,"deletions":2},{"path":"src/pricing.test.ts","status":"added","additions":18}]}"#;
+
+    #[tokio::test]
+    async fn the_changed_list_is_the_branch_summary_and_the_tree_colours_stay_the_working_trees() {
+        let (hub, client, daemon) = rig();
+        daemon.ok("GET", "/v0/chats/hc/git/status", STATUS);
+        daemon.ok("GET", "/v0/chats/hc/git/diff?staged=false", DIFF);
+        daemon.ok("GET", "/v0/chats/hc/git/diff?staged=true", "[]");
+        daemon.ok("GET", "/v0/chats/hc/review/files", SUMMARY);
+        load_changes(&hub, &client, "hc").await;
+        let listed = hub.read(changed_files);
+        assert_eq!(
+            listed,
+            [
+                ("src/pricing.ts".to_owned(), GitStatus::Modified, 16, 2),
+                ("src/pricing.test.ts".to_owned(), GitStatus::Added, 18, 0),
+            ]
+        );
+        let colour = hub.read(|state| state.panels.statuses.get("a.txt").copied());
+        assert_eq!(colour, Some(GitStatus::Untracked));
+        let commit = hub.read(|state| crate::reads::merge_box(state).map(|card| card.uncommitted));
+        assert_eq!(
+            commit,
+            Some(vec!["a.txt".to_owned()]),
+            "the commit form lists the working tree"
         );
     }
 }

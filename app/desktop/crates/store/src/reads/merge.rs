@@ -69,13 +69,8 @@ fn work_of(
 pub(crate) fn merge_box(state: &State) -> Option<MergeBox> {
     let workspace = followed_workspace(state)?;
     let parent = parent_branch(state, workspace);
-    let uncommitted: Vec<String> = state
-        .panels
-        .changes
-        .files
-        .iter()
-        .map(|file| file.path.clone())
-        .collect();
+    let mut uncommitted: Vec<String> = state.panels.statuses.keys().cloned().collect();
+    uncommitted.sort();
     let inputs = MergeInputs {
         parent: parent.as_deref(),
         uncommitted: uncommitted.len(),

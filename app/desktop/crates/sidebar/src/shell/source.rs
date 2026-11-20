@@ -4,6 +4,7 @@ use crate::shell::command::RowActions;
 use crate::shell::git::ChangesSource;
 use crate::shell::listing::FileAccess;
 use crate::shell::listing::FilesSource;
+use crate::shell::listing::FolderSource;
 use crate::shell::switcher::ActiveSpace;
 use crate::shell::switcher::PaneFocus;
 use crate::shell::switcher::SpaceList;
@@ -11,12 +12,26 @@ use crate::shell::switcher::SpaceList;
 /// The read side of the sidebar, implemented by the shell over the daemon's entity streams: every
 /// small source below. The view calls it on every render and never keeps a copy of what it returns.
 pub trait Source:
-    SpaceList + ActiveSpace + PaneFocus + RowActions + FilesSource + FileAccess + ChangesSource
+    SpaceList
+    + ActiveSpace
+    + PaneFocus
+    + RowActions
+    + FilesSource
+    + FolderSource
+    + FileAccess
+    + ChangesSource
 {
 }
 
 impl<T> Source for T where
-    T: SpaceList + ActiveSpace + PaneFocus + RowActions + FilesSource + FileAccess + ChangesSource
+    T: SpaceList
+        + ActiveSpace
+        + PaneFocus
+        + RowActions
+        + FilesSource
+        + FolderSource
+        + FileAccess
+        + ChangesSource
 {
 }
 

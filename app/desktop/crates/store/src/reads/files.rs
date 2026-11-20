@@ -1,6 +1,6 @@
 //! What the Files panel menu asks of the followed workspace.
 
-use sidebar::Command;
+use sidebar::{Command, FolderPhase};
 
 use crate::live::HostSlot;
 use crate::live::State;
@@ -24,6 +24,16 @@ pub(crate) fn followed_workspace(state: &State) -> Option<&WorkspaceRecord> {
 
 pub(crate) fn root(state: &State) -> Option<String> {
     crate::live::workspace_root::of(state).map(|path| path.to_string_lossy().into_owned())
+}
+
+pub(crate) fn phase(state: &State) -> FolderPhase {
+    if followed_workspace(state).is_none() {
+        return FolderPhase::NoFolder;
+    }
+    if state.panels.listing_root() {
+        return FolderPhase::Loading;
+    }
+    FolderPhase::Listed
 }
 
 pub(crate) fn locked(state: &State) -> bool {

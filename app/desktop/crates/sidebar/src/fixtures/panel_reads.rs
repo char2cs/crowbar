@@ -10,6 +10,8 @@ use crate::shell::FileAccess;
 use crate::shell::FileKind;
 use crate::shell::FileRow;
 use crate::shell::FilesSource;
+use crate::shell::FolderPhase;
+use crate::shell::FolderSource;
 use crate::shell::GitStatus;
 use crate::shell::MergeBox;
 
@@ -74,6 +76,12 @@ impl ChangesSource for DemoShell {
 }
 
 impl FileAccess for DemoShell {}
+
+impl FolderSource for DemoShell {
+    fn folder_phase(&self) -> FolderPhase {
+        FolderPhase::Listed
+    }
+}
 
 #[cfg(test)]
 mod tests {

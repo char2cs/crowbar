@@ -169,20 +169,9 @@ impl Store {
         &self,
         chat: Option<&str>,
     ) {
-        let client = self.hub.edit(|state| {
-            let followed = state.panels.chat.as_deref() == chat;
-            state.panels.follow(chat.map(str::to_owned));
-            chat.filter(|_| !followed)
-                .and_then(|chat| state.client_of_chat(chat))
-        });
-        let (Some(chat), Some(client)) = (chat.map(str::to_owned), client) else {
-            return;
-        };
-        let hub = Arc::clone(&self.hub);
-        self.commands.handle.spawn(async move {
-            panel_loader::load_directory(&hub, &client, (&chat, "")).await;
-            panel_loader::load_changes(&hub, &client, &chat).await;
-        });
+        self.hub
+            .edit(|state| state.panels.follow(chat.map(str::to_owned)));
+        panel_loader::followed_ask::ask(&self.hub, &self.commands.handle);
     }
 }
 

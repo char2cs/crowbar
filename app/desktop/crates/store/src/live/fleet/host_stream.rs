@@ -20,7 +20,7 @@ use crate::live::fleet::host_stream::terminal_offer::read_terminal_support;
 use crate::live::fleet::stream_control::StreamControl;
 use crate::live::held::LinkState;
 use crate::live::held::PROJECTS_SCOPE;
-use crate::live::panel_loader::changes_reload;
+use crate::live::panel_loader::{changes_reload, followed_ask};
 use crate::live::state::Hub;
 
 const RESYNC: &str = "resync";
@@ -179,6 +179,7 @@ impl HostStream {
         if operation {
             changes_reload::follow(&self.hub);
         }
+        followed_ask::ask(&self.hub, &tokio::runtime::Handle::current());
         icon_fetch::follow(&self.hub, &self.host, &self.client);
     }
 
@@ -250,9 +251,16 @@ mod tests {
     }
 
     fn start(connections: Vec<Connection>) -> Rig {
+        start_on(connections, FakeDaemon::shared())
+    }
+
+    fn start_on(
+        connections: Vec<Connection>,
+        daemon: Arc<FakeDaemon>,
+    ) -> Rig {
         let changed = Arc::new(Notify::new());
         let wake = Arc::clone(&changed);
-        let client = daemonapi::Client::new(FakeDaemon::shared(), local());
+        let client = daemonapi::Client::new(daemon, local());
         let spec = HostSpec {
             id: "local".into(),
             name: "L".into(),
@@ -343,6 +351,26 @@ mod tests {
         two.frames.send(project("new")).await.unwrap();
         two.frames.send(SYNCED.into()).await.unwrap();
         rig.until(old_replaced_by_new).await;
+    }
+
+    const LISTING_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
+    const CHAT: &str = r#"{"t":"entity","scope":"projects","kind":"chat","id":"c","v":1,"data":{"id":"c","projectId":"p","workspaceId":"w"}}"#;
+
+    #[tokio::test(start_paused = true)]
+    async fn a_chat_followed_before_its_host_knew_it_is_listed_once_it_arrives() {
+        let daemon = FakeDaemon::shared();
+        daemon.ok("GET", "/v0/chats/c/files/tree?path=.", "[]");
+        let (connection, mut peer) = pair();
+        let rig = start_on(vec![connection], daemon);
+        rig.hub.edit(|state| state.panels.follow(Some("c".into())));
+        peer.frames.send(READY.into()).await.unwrap();
+        peer.requests.recv().await.unwrap();
+        peer.frames.send(CHAT.into()).await.unwrap();
+        peer.frames.send(SYNCED.into()).await.unwrap();
+        let listed = rig.until(|state| state.panels.listings.contains_key(""));
+        tokio::time::timeout(LISTING_DEADLINE, listed)
+            .await
+            .expect("the root is listed");
     }
 
     #[derive(Clone, Copy, Debug)]

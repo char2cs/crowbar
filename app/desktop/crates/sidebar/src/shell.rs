@@ -19,8 +19,8 @@ pub use git::{
     AfterMerge, ChangedFile, Changes, ChangesSource, MergeBox, MergeFacts, MergeStrategy, MergeWork,
 };
 pub use listing::{
-    FileAccess, FileDensity, FileKind, FileRow, FileTreeFlag, FileTreeView, FilesSource, GitStatus,
-    IconTheme, PathText,
+    FileAccess, FileDensity, FileKind, FileRow, FileTreeFlag, FileTreeView, FilesSource,
+    FolderPhase, FolderSource, GitStatus, IconTheme, PathText,
 };
 pub use source::Source;
 pub use switcher::{

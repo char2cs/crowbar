@@ -159,8 +159,12 @@ pub(crate) fn files(state: &State) -> Vec<FileRow> {
 
 pub(crate) fn changes(state: &State) -> Changes {
     let mut changes = state.panels.changes.clone();
-    changes.parent =
-        followed_workspace(state).and_then(|workspace| merge::parent_branch(state, workspace));
+    let workspace = followed_workspace(state);
+    changes.parent = workspace.and_then(|workspace| merge::parent_branch(state, workspace));
+    let named = workspace.map(|workspace| workspace.branch.clone());
+    changes.branch = named
+        .filter(|branch| !branch.is_empty())
+        .unwrap_or(changes.branch);
     changes
 }
 
@@ -208,12 +212,18 @@ mod tests {
         assert_eq!(projects(state).len(), 0);
     }
 
-    const CASES: [Check; 5] = [
+    fn the_pill_names_the_workspace_branch_before_git_answers(state: &mut State) {
+        state.panels.follow(Some("rdo".into()));
+        assert_eq!(changes(state).branch, "main");
+    }
+
+    const CASES: [Check; 6] = [
         synced_host_lists_spaces,
         tree_reach_follows_the_stream,
         a_chat_decides_focus,
         move_targets_are_the_other_rows,
         an_unsynced_store_is_pending,
+        the_pill_names_the_workspace_branch_before_git_answers,
     ];
 
     #[test]

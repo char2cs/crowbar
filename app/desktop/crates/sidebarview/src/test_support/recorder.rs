@@ -4,8 +4,8 @@ use std::cell::RefCell;
 
 use sidebar::{
     ActiveSpace, Changes, ChangesSource, Command, DemoShell, Error, FileAccess, FileRow,
-    FilesSource, Focus, Host, MergeBox, MoveTarget, PaneFocus, Project, ProjectId, ProjectTree,
-    RowActions, RowId, RunningAgent, ScopeSync, SpaceList,
+    FilesSource, Focus, FolderPhase, FolderSource, Host, MergeBox, MoveTarget, PaneFocus, Project,
+    ProjectId, ProjectTree, RowActions, RowId, RunningAgent, ScopeSync, SpaceList,
 };
 
 fn refusal(reason: &str) -> Error {
@@ -141,3 +141,9 @@ impl ChangesSource for Recorder {
 }
 
 impl FileAccess for Recorder {}
+
+impl FolderSource for Recorder {
+    fn folder_phase(&self) -> FolderPhase {
+        self.data.folder_phase()
+    }
+}
