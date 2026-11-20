@@ -56,7 +56,7 @@ func (rs *Runners) reconcileBootRunner(ctx context.Context, chatID string) error
 	}
 	dead, ok := st.LiveRunner()
 	if !ok {
-		return nil
+		return rs.settleStaleWork(ctx, chatID)
 	}
 	runner := agents.Runner{ID: dead.RunnerID, ProviderID: dead.Provider, CurrentChatID: chatID}
 	rs.reapCrashOrphanRunnerTmp(ctx, runner)
@@ -70,7 +70,7 @@ func (rs *Runners) reconcileBootRunner(ctx context.Context, chatID string) error
 	if err != nil {
 		return fmt.Errorf("agent: boot reconcile: chat %s: %w", chatID, err)
 	}
-	return nil
+	return rs.settleStaleWork(ctx, chatID)
 }
 
 // Shutdown notes daemon_restart as how every live runner ends, then kills

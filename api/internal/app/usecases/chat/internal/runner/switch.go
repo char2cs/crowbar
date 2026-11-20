@@ -53,6 +53,9 @@ func (rs *Runners) switchProviderLocked(
 		if err != nil {
 			return "", fmt.Errorf("agent: switch provider: chat: %w", err)
 		}
+		if err := rs.settleStaleWork(ctx, chatID); err != nil {
+			return "", err
+		}
 		// A running turn refuses the switch: quitting the CLI would cost its answer.
 		if err := rs.requireNotBusy(ctx, chatID); err != nil {
 			return "", err
