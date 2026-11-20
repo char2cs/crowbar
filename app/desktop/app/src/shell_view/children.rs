@@ -65,7 +65,8 @@ pub(super) fn build_panes<V: 'static>(
     let new_tab = crate::new_tab_panes::NewTabPanes::new((*requests).clone());
     let panes = NativePanes::new(terminals, new_tab);
     let source = ShellPaneSource::new(state.titles(), state.serials(), bars, panes);
-    let source = Rc::new(source.marking(state.dirty()));
+    let source = source.marking(state.dirty()).drawing(glyphs_of(data));
+    let source = Rc::new(source);
     let view_source = Rc::clone(&source);
     let layout = cx.new(|_| LayoutView::new(view_source));
     let first_tab = state.serials().next_tab();
@@ -77,6 +78,11 @@ pub(super) fn build_panes<V: 'static>(
         workspace,
         source,
     }
+}
+
+fn glyphs_of(data: &Rc<store::Store>) -> crate::shell_pane_source::ChatGlyphs {
+    let data = Rc::clone(data);
+    Rc::new(move |chat| data.chat_glyph(chat))
 }
 
 pub(super) fn build_sidebar<V: 'static>(

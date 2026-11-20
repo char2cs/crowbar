@@ -12,6 +12,7 @@ pub(crate) struct ChatRecord {
     pub(crate) workspace_id: String,
     pub(crate) title: String,
     pub(crate) live_runner_id: String,
+    pub(crate) active_provider_id: String,
     pub(crate) surface: String,
     pub(crate) terminal_session_id: String,
     pub(crate) phase: String,

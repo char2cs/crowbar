@@ -3,13 +3,16 @@
 mod assets;
 mod file;
 mod files;
+mod glyph_images;
 mod icon_name;
 mod icon_weight;
+mod provider_glyph;
 mod wordmark;
 
 pub use assets::assets;
 pub use icon_name::IconName;
 pub use icon_weight::IconWeight;
+pub use provider_glyph::ProviderGlyph;
 pub use wordmark::Wordmark;
 
 use gpui::prelude::FluentBuilder as _;

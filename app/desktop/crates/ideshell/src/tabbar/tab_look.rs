@@ -8,6 +8,8 @@ pub struct TabLook {
     pub label: SharedString,
     /// The tab's glyph.
     pub icon: IconName,
+    /// A chat provider's SVG artwork drawn in place of `icon`, once it is known.
+    pub artwork: Option<SharedString>,
     /// The file the tab shows, relative to its workspace; the tab menu offers path actions
     /// only for a tab that has one.
     pub path: Option<String>,
@@ -23,6 +25,7 @@ impl TabLook {
         Self {
             label: label.into(),
             icon: IconName::FileText,
+            artwork: None,
             path: None,
             dirty: false,
             renamable: false,
@@ -36,6 +39,16 @@ impl TabLook {
         path: impl Into<String>,
     ) -> Self {
         self.path = Some(path.into());
+        self
+    }
+
+    /// The same tab drawing the SVG `artwork` in place of its glyph.
+    #[must_use]
+    pub fn drawn(
+        mut self,
+        artwork: impl Into<SharedString>,
+    ) -> Self {
+        self.artwork = Some(artwork.into());
         self
     }
 

@@ -6,6 +6,7 @@ use crate::chat_label::NEW_CHAT;
 use crate::core_panes::{BROWSER, CHAT, CONSOLE, EDITOR, NEW_TAB, REVIEW, TERMINAL};
 
 const UNTITLED: &str = "Untitled";
+const THREAD_ID: &str = "threadId";
 
 pub(crate) fn tab_look(
     instance: &PaneInstance,
@@ -16,6 +17,7 @@ pub(crate) fn tab_look(
     let look = TabLook {
         label: label.to_owned().into(),
         icon,
+        artwork: None,
         path: None,
         dirty: false,
         renamable: instance.type_id.as_str() == TERMINAL,
@@ -24,6 +26,13 @@ pub(crate) fn tab_look(
         Some(path) => look.at_path(path),
         None => look,
     }
+}
+
+pub(crate) fn chat_of(instance: &PaneInstance) -> Option<&str> {
+    if instance.type_id.as_str() != CHAT {
+        return None;
+    }
+    instance.params.get(THREAD_ID)
 }
 
 fn file_path(instance: &PaneInstance) -> Option<String> {

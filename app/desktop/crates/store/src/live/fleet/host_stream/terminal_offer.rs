@@ -17,7 +17,14 @@ pub(crate) async fn read_terminal_support(
         },
     };
     let terminal = all.iter().any(Provider::offers_terminal);
-    hub.edit(|state| state.set_terminal_threads(host, Some(terminal).into()));
+    let icons = all
+        .into_iter()
+        .map(|provider| (provider.id, provider.icon))
+        .collect();
+    hub.edit(|state| {
+        state.set_terminal_threads(host, Some(terminal).into());
+        state.set_provider_icons(host, icons);
+    });
 }
 
 #[cfg(test)]

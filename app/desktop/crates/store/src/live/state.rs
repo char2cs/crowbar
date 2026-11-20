@@ -121,6 +121,16 @@ impl State {
         }
     }
 
+    pub(crate) fn set_provider_icons(
+        &mut self,
+        host: &str,
+        icons: BTreeMap<String, String>,
+    ) {
+        if let Some(slot) = self.host_mut(host) {
+            slot.provider_icons = icons;
+        }
+    }
+
     pub(crate) fn begin_snapshot(
         &mut self,
         host: &str,

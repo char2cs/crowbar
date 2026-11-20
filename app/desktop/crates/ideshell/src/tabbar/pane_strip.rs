@@ -287,6 +287,7 @@ mod tests {
             pane: PaneId::new("c").expect("valid"),
             label: "Chat".into(),
             icon: IconName::ChatsCircle,
+            artwork: None,
             state: TabState::Idle,
             select: Rc::clone(select),
         }

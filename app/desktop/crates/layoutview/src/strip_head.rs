@@ -40,6 +40,7 @@ impl LayoutView {
             pane: chat.clone(),
             label: look.label,
             icon: look.icon,
+            artwork: look.artwork,
             state: chat_state(group),
             select: Self::select_action(chat, cx),
         })

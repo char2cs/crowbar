@@ -1,5 +1,6 @@
 //! What the sidebar reads, derived from the shared state.
 
+pub(crate) mod chat_glyph;
 mod file_rows;
 pub(crate) mod files;
 mod merge;

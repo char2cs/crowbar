@@ -12,6 +12,16 @@ impl Store {
         self.hub.read(|state| ChatTerminal::of(state, chat))
     }
 
+    /// The SVG artwork of the provider `chat` runs on, to draw in the host's ink; `None` until
+    /// the chat and its host's providers are known.
+    pub fn chat_glyph(
+        &self,
+        chat: &str,
+    ) -> Option<String> {
+        self.hub
+            .read(|state| crate::reads::chat_glyph::of(state, chat))
+    }
+
     /// The project `chat` belongs to; `None` when it is not loaded or has none.
     pub fn chat_project(
         &self,

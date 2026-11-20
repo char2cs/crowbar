@@ -9,12 +9,15 @@ use crate::titles::Titles;
 
 mod pane_detach;
 
+pub(crate) type ChatGlyphs = std::rc::Rc<dyn Fn(&str) -> Option<String>>;
+
 pub(crate) struct ShellPaneSource {
     titles: Titles,
     serials: Serials,
     bars: BrowserBars,
     native: NativePanes,
     dirty: DirtyPanes,
+    glyphs: ChatGlyphs,
 }
 
 impl ShellPaneSource {
@@ -30,7 +33,16 @@ impl ShellPaneSource {
             bars,
             native,
             dirty: DirtyPanes::default(),
+            glyphs: std::rc::Rc::new(|_| None),
         }
+    }
+
+    pub(crate) fn drawing(
+        mut self,
+        glyphs: ChatGlyphs,
+    ) -> Self {
+        self.glyphs = glyphs;
+        self
     }
 
     pub(crate) fn marking(
@@ -108,7 +120,12 @@ impl ideshell::TabLooks for ShellPaneSource {
             .titles
             .get(&instance.pane_id)
             .map(|title| title.to_string());
-        let look = crate::tab_looks::tab_look(instance, title.as_deref());
+        let mut look = crate::tab_looks::tab_look(instance, title.as_deref());
+        if let Some(artwork) =
+            crate::tab_looks::chat_of(instance).and_then(|chat| (self.glyphs)(chat))
+        {
+            look = look.drawn(artwork);
+        }
         if self.dirty.contains(&instance.pane_id) {
             return look.unsaved();
         }
@@ -171,6 +188,42 @@ mod tests {
             marked: false,
         },
     ];
+
+    #[test]
+    fn a_chat_tab_draws_its_provider_s_artwork_once_it_is_known_and_other_tabs_never_do() {
+        use ideshell::TabLooks as _;
+        const MARK: &str = "<svg/>";
+        let source = ShellPaneSource::new(
+            Titles::default(),
+            Serials::above(&layout::Layout::default()),
+            no_bars(),
+            NativePanes::new(
+                idle_terminals(TerminalIds::default()),
+                NewTabPanes::new(async_channel::unbounded().0),
+            ),
+        )
+        .drawing(std::rc::Rc::new(|chat| {
+            (chat == "c1").then(|| MARK.to_owned())
+        }));
+        let pane = |kind: &str, thread: &str| layout::PaneInstance {
+            pane_id: PaneId::new("p1").unwrap(),
+            type_id: protocol::PaneTypeId::new(kind).unwrap(),
+            params: protocol::Params::default()
+                .with("threadId", thread)
+                .unwrap(),
+            state: protocol::PaneState::default(),
+        };
+        let cases = [
+            ("core.chat", "c1", Some(MARK)),
+            ("core.chat", "c2", None),
+            ("core.terminal", "c1", None),
+        ];
+        for (kind, thread, artwork) in cases {
+            let look = source.tab_look(&pane(kind, thread));
+            let drawn = look.artwork.map(|svg| svg.to_string());
+            assert_eq!(drawn.as_deref(), artwork, "{kind} {thread}");
+        }
+    }
 
     #[test]
     fn a_tab_is_marked_exactly_while_its_pane_has_unsaved_work() {

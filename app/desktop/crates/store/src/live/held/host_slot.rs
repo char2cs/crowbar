@@ -1,5 +1,7 @@
 //! Everything the shell holds of one host.
 
+use std::collections::BTreeMap;
+
 use crate::live::held::entities::Entities;
 use crate::live::held::host_spec::HostSpec;
 use crate::live::held::link_state::LinkState;
@@ -11,6 +13,7 @@ pub(crate) struct HostSlot {
     pub(crate) store: Entities,
     pub(crate) link: LinkState,
     pub(crate) terminal_threads: bool,
+    pub(crate) provider_icons: BTreeMap<String, String>,
 }
 
 impl HostSlot {
@@ -24,6 +27,7 @@ impl HostSlot {
             store: Entities::default(),
             link: LinkState::default(),
             terminal_threads: false,
+            provider_icons: BTreeMap::new(),
         }
     }
 }

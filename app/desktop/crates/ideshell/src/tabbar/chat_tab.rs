@@ -3,7 +3,7 @@ use gpui::{
     ParentElement, RenderOnce, SharedString, Styled, Window, div, px,
 };
 use protocol::PaneId;
-use ui::{Icon, IconName, Surface, Theme};
+use ui::{Icon, IconName, ProviderGlyph, Surface, Theme};
 
 use crate::tabbar::tab_actions::TabAction;
 use crate::tabbar::tab_frame::HEIGHT;
@@ -25,6 +25,8 @@ pub struct ChatTab {
     pub label: SharedString,
     /// The chat's glyph.
     pub icon: IconName,
+    /// The chat provider's SVG artwork, drawn in place of `icon` once it is known.
+    pub artwork: Option<SharedString>,
     /// Whether the chat is the view shown.
     pub state: TabState,
     /// What a press does: show the chat.
@@ -67,13 +69,25 @@ impl RenderOnce for ChatTab {
                 cx.stop_propagation();
                 select(window, cx);
             })
-            .child(
-                Icon::new(self.icon)
-                    .size(px(GLYPH))
-                    .color(self.state.ink(palette)),
-            )
+            .child(glyph(self.icon, self.artwork, self.state.ink(palette)))
             .child(title)
     }
+}
+
+fn glyph(
+    icon: IconName,
+    artwork: Option<SharedString>,
+    ink: gpui::Hsla,
+) -> gpui::AnyElement {
+    let Some(artwork) = artwork else {
+        return Icon::new(icon)
+            .size(px(GLYPH))
+            .color(ink)
+            .into_any_element();
+    };
+    ProviderGlyph::new(artwork, ink)
+        .size(px(GLYPH))
+        .into_any_element()
 }
 
 fn title_of(label: SharedString) -> gpui::Div {
@@ -110,6 +124,7 @@ mod tests {
                 pane: PaneId::new("c1").expect("valid"),
                 label: "Fix the build".into(),
                 icon: IconName::ChatsCircle,
+                artwork: None,
                 state: TabState::Idle,
                 select: Rc::new(move |_, _| presses.set(presses.get() + 1)),
             })

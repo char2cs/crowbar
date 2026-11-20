@@ -14,7 +14,7 @@ pub(crate) use crate::opaque_debug;
 pub use caret_blink::CaretBlink;
 pub(crate) use close_handler::CloseHandler;
 pub(crate) use direction::Direction;
-pub use icon::{Icon, IconName, IconWeight, Wordmark, assets};
+pub use icon::{Icon, IconName, IconWeight, ProviderGlyph, Wordmark, assets};
 pub(crate) use index_handler::IndexHandler;
 pub(crate) use motion::Keyframes;
 pub use motion::{CubicBezier, Glide, HoverFill, Motion, Pose};
