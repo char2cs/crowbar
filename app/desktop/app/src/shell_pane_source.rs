@@ -99,7 +99,7 @@ impl layoutview::PaneTabs for ShellPaneSource {
     fn tab_look(
         &self,
         instance: &layout::PaneInstance,
-    ) -> layoutview::TabLook {
+    ) -> ideshell::TabLook {
         let title = self
             .titles
             .get(&instance.pane_id)

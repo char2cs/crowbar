@@ -7,8 +7,8 @@ use protocol::PaneId;
 use crate::layout_event::LayoutEvent;
 use crate::layout_view::LayoutView;
 use crate::strip_index::insertion_index;
-use crate::tab_actions::TabDrop;
 use crate::tab_seat::TabSeat;
+use ideshell::TabDrop;
 
 impl LayoutView {
     pub(crate) fn drop_action(
@@ -70,7 +70,7 @@ mod tests {
     use gpui::TestAppContext;
 
     use super::*;
-    use crate::test_support::{FakeSource, open_with, pane_id, stacked_layout};
+    use crate::test_support::{FakeSource, open_with, pane_id, stacked_layout, strip_of};
 
     fn stacking() -> FakeSource {
         FakeSource::starting_at_first_tab()
@@ -87,7 +87,7 @@ mod tests {
         let drop = view.update(cx, |view, cx| {
             let centre = view.bounds.center();
             view.hover(&subject, centre, cx);
-            let strip = view.strip_of(&pane_id("b"), cx).expect("strip");
+            let strip = strip_of(view, &pane_id("b"), cx).expect("strip");
             Rc::clone(&strip.tabs[0].actions.drop)
         });
         let hovering = view.read_with(cx, |view, _| view.drop.is_dragging());

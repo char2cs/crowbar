@@ -1,7 +1,7 @@
 use gpui::{Hsla, SharedString};
 use layout::DragSubject;
 
-use crate::tab_actions::TabDrop;
+use crate::tabbar::tab_actions::TabDrop;
 
 pub(crate) struct TabDragging {
     pub(crate) subject: DragSubject,

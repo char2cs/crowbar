@@ -6,33 +6,21 @@ use protocol::PaneId;
 
 use crate::layout_event::LayoutEvent;
 use crate::layout_view::LayoutView;
-use crate::pane_strip::PaneStrip;
-use crate::strip_tab::StripTab;
-use crate::tab_actions::{TabAction, TabActions};
-use crate::tab_end::TabEnd;
-use crate::tab_look::TabLook;
 use crate::tab_seat::TabSeat;
-use crate::tab_state::TabState;
+use ideshell::PaneStrip;
+use ideshell::StripTab;
+use ideshell::TabEnd;
+use ideshell::TabLook;
+use ideshell::TabState;
+use ideshell::{TabAction, TabActions};
 
 impl LayoutView {
-    pub(crate) fn strip_of(
-        &self,
-        pane: &PaneId,
-        cx: &mut Context<'_, Self>,
-    ) -> Option<PaneStrip> {
-        let group = self.tab.as_ref()?.group_of(pane)?;
-        self.strip_for(group, cx)
-    }
-
-    fn strip_for(
+    pub(crate) fn strip_for(
         &self,
         group: &PaneGroup,
         cx: &mut Context<'_, Self>,
     ) -> Option<PaneStrip> {
-        if group.tabs().is_empty() {
-            return None;
-        }
-        let active = group.active_tab()?;
+        let anchor = group.active_tab().or_else(|| group.chat())?;
         let tabs = group
             .tabs()
             .iter()
@@ -41,11 +29,17 @@ impl LayoutView {
             .collect();
         let end = group.tabs().len();
         Some(PaneStrip {
-            key: group.tabs().first()?.clone(),
+            key: group.chat().or_else(|| group.tabs().first())?.clone(),
+            toggle: Self::toggle_of(group, anchor, cx),
+            chat_tab: None,
             tabs,
-            shown: group.tabs().iter().position(|pane| pane == active)?,
-            at_end_drop: Self::drop_action(active, end, cx),
-            add: Self::add_action(active, cx),
+            shown: group
+                .tabs()
+                .iter()
+                .position(|pane| pane == anchor)
+                .unwrap_or(0),
+            at_end_drop: Self::drop_action(anchor, end, cx),
+            add: Self::add_action(anchor, cx),
             keys: self.keys_action(group, cx),
             overflow: self.overflow_of(group, cx),
         })
@@ -175,7 +169,7 @@ mod tests {
     use layout::{Command, DragSubject};
 
     use super::*;
-    use crate::test_support::{FakeSource, open_with, pane_id, stacked_layout};
+    use crate::test_support::{FakeSource, open_with, pane_id, stacked_layout, strip_of};
 
     fn stacking() -> FakeSource {
         FakeSource::starting_at_first_tab()
@@ -193,13 +187,13 @@ mod tests {
     }
 
     #[gpui::test]
-    fn only_a_group_of_two_or_more_has_a_strip_with_a_tab_per_member(cx: &mut TestAppContext) {
+    fn every_group_has_a_strip_with_a_tab_per_editor_tab(cx: &mut TestAppContext) {
         let harness = open_with(cx, &stacked_layout(), stacking());
         let (view, cx) = (harness.view, harness.cx);
         let counts = view.update(cx, |view, cx| {
-            ["a", "b", "c"].map(|pane| view.strip_of(&pane_id(pane), cx).map(|s| s.tabs.len()))
+            ["a", "b", "c"].map(|pane| strip_of(view, &pane_id(pane), cx).map(|s| s.tabs.len()))
         });
-        assert_eq!(counts, [None, Some(2), Some(2)], "strips of a, b, c");
+        assert_eq!(counts, [Some(0), Some(2), Some(2)], "strips of a, b, c");
     }
 
     #[gpui::test]
@@ -208,7 +202,7 @@ mod tests {
         let (view, cx, commands) = (harness.view, harness.cx, harness.commands);
         let opened = harness.opened;
         let strip = view
-            .update(cx, |view, cx| view.strip_of(&pane_id("b"), cx))
+            .update(cx, |view, cx| strip_of(view, &pane_id("b"), cx))
             .expect("strip");
         let first = &strip.tabs[0].actions;
         cx.update(|window, cx| {
@@ -239,7 +233,7 @@ mod tests {
         let harness = open_with(cx, &stacked_layout(), stacking());
         let (view, cx) = (harness.view, harness.cx);
         let size = view.read_with(cx, |view, _| view.bounds.size);
-        let tab = point(size.width * 0.5 + px(40.0), px(20.0));
+        let tab = point(size.width * 0.5 + px(74.0), px(20.0));
         let none = Modifiers::none();
         cx.simulate_mouse_down(tab, MouseButton::Left, none);
         cx.simulate_mouse_move(tab + point(px(20.0), px(2.0)), MouseButton::Left, none);
@@ -277,7 +271,7 @@ mod tests {
         let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
         let commands = harness.commands;
         let size = view.read_with(cx, |view, _| view.bounds.size);
-        let tab = point(size.width * 0.5 + px(40.0), px(20.0));
+        let tab = point(size.width * 0.5 + px(74.0), px(20.0));
         cx.simulate_mouse_down(tab, MouseButton::Left, Modifiers::none());
         assert_eq!(
             opened.borrow().as_slice(),

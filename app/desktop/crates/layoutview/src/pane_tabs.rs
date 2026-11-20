@@ -2,7 +2,7 @@
 
 use layout::PaneInstance;
 
-use crate::tab_look::TabLook;
+use ideshell::TabLook;
 
 /// How a pane takes part in a tab strip.
 pub trait PaneTabs {

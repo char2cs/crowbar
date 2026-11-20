@@ -7,8 +7,8 @@ use ui::{IconName, MenuAction, MenuItem};
 
 use crate::layout_event::LayoutEvent;
 use crate::layout_view::LayoutView;
-use crate::path_action::PathAction;
-use crate::tab_look::TabLook;
+use ideshell::PathAction;
+use ideshell::TabLook;
 
 #[cfg(target_os = "macos")]
 const CLOSE_HINT: &str = "\u{2318}W";
@@ -181,9 +181,9 @@ mod tests {
     use layout::{Command, Layout};
 
     use crate::layout_event::LayoutEvent;
-    use crate::path_action::PathAction;
-    use crate::tab_look::TabLook;
     use crate::test_support::{FakeSource, open_with, pane_id, stacked_layout};
+    use ideshell::PathAction;
+    use ideshell::TabLook;
 
     fn stacking() -> FakeSource {
         FakeSource::starting_at_first_tab()
@@ -199,7 +199,7 @@ mod tests {
         let harness = open_with(cx, layout, stacking());
         let (view, cx, commands) = (harness.view, harness.cx, harness.commands);
         let size = view.read_with(cx, |view, _| view.bounds.size);
-        let tab = point(size.width * 0.5 + px(40.0), px(20.0));
+        let tab = point(size.width * 0.5 + px(74.0), px(20.0));
         cx.simulate_mouse_down(tab, MouseButton::Right, Modifiers::none());
         cx.run_until_parked();
         cx.simulate_keystrokes(keys);
@@ -263,7 +263,7 @@ mod tests {
         let harness = open_with(cx, &stacked_layout(), file_source());
         let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
         let size = view.read_with(cx, |view, _| view.bounds.size);
-        let tab = point(size.width * 0.5 + px(40.0), px(20.0));
+        let tab = point(size.width * 0.5 + px(74.0), px(20.0));
         cx.simulate_mouse_down(tab, MouseButton::Right, Modifiers::none());
         cx.run_until_parked();
         cx.simulate_keystrokes(keys);
@@ -286,7 +286,7 @@ mod tests {
         let harness = open_with(cx, &stacked_layout(), source);
         let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
         let size = view.read_with(cx, |view, _| view.bounds.size);
-        let tab = point(size.width * 0.5 + px(40.0), px(20.0));
+        let tab = point(size.width * 0.5 + px(74.0), px(20.0));
         cx.simulate_mouse_down(tab, MouseButton::Right, Modifiers::none());
         cx.run_until_parked();
         cx.simulate_keystrokes("down down enter");
@@ -323,7 +323,7 @@ mod tests {
     fn the_menu_opens_four_pixels_under_the_tab_centre_whatever_part_was_pressed(
         cx: &mut TestAppContext
     ) {
-        let (near, far) = (opened_at(cx, 40.0), opened_at(cx, 55.0));
+        let (near, far) = (opened_at(cx, 74.0), opened_at(cx, 89.0));
         assert_eq!(near.menu, far.menu, "the pointer does not place the menu");
         let centre = near.tab.origin.x + near.tab.size.width * 0.5;
         let expected = point(centre, near.tab.bottom() + px(4.0));

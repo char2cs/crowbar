@@ -40,16 +40,21 @@ Tree plan section 7 step 6, approved. Spec: develop `web/src/features/panes` (`t
 - The chat/editor ratio is view-local in `ideshell`, as develop keeps it in component state. It is
   not persisted and is not a second copy of anything.
 
-## Views (`ideshell`, new L3 crate: layout, ui, gpui)
-- `toprow/`: chat-only header with the `</>` open-editor button, split toggle, review shortcut.
+## Views (`ideshell`, new L2 gpui crate below `layoutview`: layout, protocol, ui, gpui)
+- `toprow/`: the split toggle and the row's square buttons. The chat-only header with the `</>`
+  open-editor button is the chat page's own (develop's order), shown while the shell's `group`
+  frame says the chat fills its group; it runs `panes.toggleEditor`.
 - `tabbar/`: chat tab, editor tab items (glyph, label, close, dirty), "+", overflow, context menu.
   `tab_look` and `path_action` move here from `layoutview`.
-- `layoutview` draws pane boxes and the split tree only. A pane's chrome is the `ideshell` element,
-  which the app supplies through the existing chrome port.
+- The empty editor draws the app's one native New Tab view, keyed by the group's chat.
+- `ideshell` holds the pure elements (top row, tab bar, chat tab), each built
+  from data and action callbacks; it never imports `layoutview`. `layoutview` depends on
+  `ideshell` and draws them in each pane, wiring the callbacks to its own commands (decided
+  2026-11-20 over a chrome port: the actions are `LayoutView`'s, so a port would only relay them).
 
 ## Steps (each builds, passes the gates and keeps the app running)
 1. `layout`: `ide::PaneGroup` replaces the strip `Group`, with the open, close, activate, reorder,
-   pin, `SetEditorOpen` and `SelectChat` commands and the v3 migration. Delete the ten strip model
+   pin, `SetEditorView` and `SelectChat` commands and the v3 migration. Delete the ten strip model
    files. The app's opening moves from `stack_policy` to the model.
 2. `layout::ide::presentation` and the app's holes switch to it.
 3. The `ideshell` crate: top row and tab bar, wired as pane chrome; terminals open as editor tabs

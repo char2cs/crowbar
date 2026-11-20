@@ -1,8 +1,9 @@
+use ideshell::TabLook;
 use layout::PaneInstance;
-use layoutview::TabLook;
 use ui::IconName;
 
-use crate::core_panes::{BROWSER, CONSOLE, EDITOR, NEW_TAB, REVIEW, TERMINAL};
+use crate::chat_label::NEW_CHAT;
+use crate::core_panes::{BROWSER, CHAT, CONSOLE, EDITOR, NEW_TAB, REVIEW, TERMINAL};
 
 const UNTITLED: &str = "Untitled";
 
@@ -36,6 +37,7 @@ fn file_path(instance: &PaneInstance) -> Option<String> {
 
 fn by_type(instance: &PaneInstance) -> (String, IconName) {
     match instance.type_id.as_str() {
+        CHAT => (NEW_CHAT.into(), IconName::ChatsCircle),
         TERMINAL => ("Terminal".into(), IconName::TerminalWindow),
         BROWSER => ("Browser".into(), IconName::Globe),
         REVIEW => ("Branch Review".into(), IconName::GitPullRequest),
@@ -83,7 +85,23 @@ mod tests {
 
     const FILE_ICON: IconName = IconName::FileText;
 
-    const CASES: [Case; 6] = [
+    const CASES: [Case; 8] = [
+        Case {
+            name: "an untitled chat",
+            kind: CHAT,
+            state: "null",
+            title: None,
+            label: NEW_CHAT,
+            icon: IconName::ChatsCircle,
+        },
+        Case {
+            name: "a titled chat",
+            kind: CHAT,
+            state: "null",
+            title: Some("Fix the build"),
+            label: "Fix the build",
+            icon: IconName::ChatsCircle,
+        },
         Case {
             name: "a terminal without a title",
             kind: TERMINAL,

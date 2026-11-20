@@ -1,7 +1,7 @@
 use gpui::{App, Context, Entity, FocusHandle, Pixels, ScrollHandle, Window, px};
 use protocol::PaneId;
 
-use crate::input_mode::InputMode;
+use crate::tabbar::input_mode::InputMode;
 
 const OVERFLOW_SLACK: f32 = 1.0;
 pub(crate) struct StripState {

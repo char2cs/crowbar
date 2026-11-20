@@ -13,14 +13,17 @@ pub enum PathAction {
 }
 
 impl PathAction {
-    pub(crate) const ALL: [Self; 4] = [
+    /// Every action, in menu order.
+    pub const ALL: [Self; 4] = [
         Self::CopyPath,
         Self::CopyRelativePath,
         Self::Reveal,
         Self::OpenInTerminal,
     ];
 
-    pub(crate) fn label(self) -> &'static str {
+    /// The menu row's text.
+    #[must_use]
+    pub fn label(self) -> &'static str {
         match self {
             Self::CopyPath => "Copy Path",
             Self::CopyRelativePath => "Copy Relative Path",
@@ -30,7 +33,9 @@ impl PathAction {
         }
     }
 
-    pub(crate) fn icon(self) -> ui::IconName {
+    /// The menu row's glyph.
+    #[must_use]
+    pub fn icon(self) -> ui::IconName {
         match self {
             Self::CopyPath | Self::CopyRelativePath => ui::IconName::Copy,
             Self::Reveal => ui::IconName::FolderOpen,

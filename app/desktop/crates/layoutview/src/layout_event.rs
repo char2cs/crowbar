@@ -1,7 +1,7 @@
 use layout::{Command, Placement, TabId};
 use protocol::PaneId;
 
-use crate::path_action::PathAction;
+use ideshell::PathAction;
 
 /// What a [`LayoutView`](crate::LayoutView) asks its owner to do.
 #[derive(Debug, Clone, PartialEq)]

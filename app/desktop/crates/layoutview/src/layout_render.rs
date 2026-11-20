@@ -12,7 +12,7 @@ use crate::layout_view::LayoutView;
 use crate::pane_cell::pane_box;
 use crate::pane_frame::PaneFrame;
 use crate::pane_handle::PaneHandle;
-use crate::pane_strip::STRIP_HEIGHT;
+use ideshell::STRIP_HEIGHT;
 
 const PREVIEW_BORDER: f32 = 2.0;
 const PREVIEW_FILL: f32 = 0.14;

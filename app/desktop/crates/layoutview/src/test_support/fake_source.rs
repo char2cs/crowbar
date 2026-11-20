@@ -8,7 +8,7 @@ use crate::pane_chrome::PaneChrome;
 use crate::pane_content::PaneContent;
 use crate::pane_detach::PaneDetach;
 use crate::pane_tabs::PaneTabs;
-use crate::tab_look::TabLook;
+use ideshell::TabLook;
 
 pub(crate) struct FakeSource {
     next: Cell<u64>,

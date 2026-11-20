@@ -1506,6 +1506,7 @@ dependencies = [
  "diagnostics",
  "folderpicker",
  "gpui",
+ "ideshell",
  "image",
  "keymap",
  "layout",
@@ -3440,6 +3441,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ideshell"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "layout",
+ "protocol",
+ "ui",
+]
+
+[[package]]
 name = "idna"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3804,6 +3815,7 @@ name = "layoutview"
 version = "0.1.0"
 dependencies = [
  "gpui",
+ "ideshell",
  "layout",
  "protocol",
  "ui",

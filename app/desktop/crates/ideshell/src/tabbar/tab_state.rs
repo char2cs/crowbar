@@ -3,9 +3,12 @@ use ui::Palette;
 
 const CLOSE_OPACITY: f32 = 0.6;
 
+/// Whether a tab is the one its bar shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TabState {
+pub enum TabState {
+    /// The shown tab.
     Active,
+    /// Any other tab.
     Idle,
 }
 

@@ -6,6 +6,8 @@ use layout::{DEFAULT_CHAT_SHARE, PaneGroup, Presentation, Rect};
 use protocol::PaneId;
 use ui::Motion;
 
+use ideshell::PaneStrip;
+
 use crate::layout_view::LayoutView;
 use crate::pane_cell::PaneCell;
 use crate::pane_frame::PaneFrame;
@@ -68,7 +70,10 @@ impl LayoutView {
         let editor = shown
             .editor
             .map(|at| self.editor_part((group, at), window, cx));
-        let strip = group.tabs().first().and_then(|tab| self.strip_of(tab, cx));
+        let strip = self.strip_for(group, cx).map(|strip| PaneStrip {
+            chat_tab: self.chat_tab_of((group, shown), cx),
+            ..strip
+        });
         let bar = shown
             .tab_bar
             .zip(strip)
@@ -197,6 +202,30 @@ mod tests {
         assert!(
             empty.left() > chat.right(),
             "the empty editor beside the chat"
+        );
+    }
+
+    #[gpui::test]
+    fn an_open_editor_with_no_tab_has_a_top_row_with_only_the_split_toggle(
+        cx: &mut TestAppContext
+    ) {
+        let mut layout = layout_of("a", &[]);
+        let open_editor = Command::SetEditorView {
+            pane: pane_id("a"),
+            view: EditorView::Open,
+        };
+        layout.apply(open_editor).expect("open the editor");
+        let harness = open(cx, &layout);
+        let cx = harness.cx;
+        cx.run_until_parked();
+        let bar = cx
+            .debug_bounds("pane-part-tab-bar")
+            .expect("the row is drawn");
+        let toggle = cx.debug_bounds("row-button-split-a").expect("the toggle");
+        assert!(bar.contains(&toggle.center()), "the toggle sits in the row");
+        assert!(
+            cx.debug_bounds("row-button-add-a").is_none(),
+            "no + without tabs"
         );
     }
 }

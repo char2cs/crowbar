@@ -1,6 +1,7 @@
 //! `Debug` for types that hold closures or elements and so cannot derive it.
 
-/// Implements `Debug` printing only the type name.
+/// Implements `Debug` printing only the type name, for types that hold closures or elements.
+#[macro_export]
 macro_rules! opaque_debug {
     ($($ty:ident),+ $(,)?) => {$(
         impl ::std::fmt::Debug for $ty {
@@ -10,8 +11,6 @@ macro_rules! opaque_debug {
         }
     )+};
 }
-
-pub(crate) use opaque_debug;
 
 #[cfg(test)]
 mod tests {

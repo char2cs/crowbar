@@ -4,10 +4,10 @@ use gpui::{
 };
 use ui::{Icon, Surface, Theme};
 
-use crate::tab_actions::TabAction;
-use crate::tab_end::TabEnd;
-use crate::tab_frame::{HEIGHT, group_of};
-use crate::tab_state::TabState;
+use crate::tabbar::tab_actions::TabAction;
+use crate::tabbar::tab_end::TabEnd;
+use crate::tabbar::tab_frame::{HEIGHT, group_of};
+use crate::tabbar::tab_state::TabState;
 
 const CLOSE: f32 = 20.0;
 const CLOSE_INSET: f32 = 6.0;

@@ -6,10 +6,10 @@ use protocol::PaneId;
 
 use crate::layout_event::LayoutEvent;
 use crate::layout_view::LayoutView;
-use crate::overflow_entry::OverflowEntry;
 use crate::strip_input::state_in;
 use crate::strip_keyboard::StripKeyboard;
-use crate::tab_actions::{StripKeys, TabAction};
+use ideshell::OverflowEntry;
+use ideshell::{StripKeys, TabAction};
 
 impl LayoutView {
     pub(crate) fn unpin_action(
@@ -77,9 +77,9 @@ mod tests {
     use layout::Command;
 
     use super::*;
-    use crate::tab_end::TabEnd;
-    use crate::tab_state::TabState;
-    use crate::test_support::{FakeSource, open_with, pane_id, stacked_layout};
+    use crate::test_support::{FakeSource, open_with, pane_id, stacked_layout, strip_of};
+    use ideshell::TabEnd;
+    use ideshell::TabState;
 
     fn stacking() -> FakeSource {
         FakeSource::starting_at_first_tab()
@@ -93,7 +93,7 @@ mod tests {
         let harness = open_with(cx, &stacked_layout(), stacking());
         let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
         let strip = view
-            .update(cx, |view, cx| view.strip_of(&pane_id("b"), cx))
+            .update(cx, |view, cx| strip_of(view, &pane_id("b"), cx))
             .expect("strip");
         cx.update(|window, cx| (strip.add)(window, cx));
         assert_eq!(
@@ -108,7 +108,7 @@ mod tests {
         let harness = open_with(cx, &stacked_layout(), stacking());
         let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
         let strip = view
-            .update(cx, |view, cx| view.strip_of(&pane_id("b"), cx))
+            .update(cx, |view, cx| strip_of(view, &pane_id("b"), cx))
             .expect("strip");
         cx.update(|window, cx| {
             (strip.keys)("right", window, cx);
@@ -130,7 +130,7 @@ mod tests {
         let (view, cx) = (harness.view, harness.cx);
         let (commands, opened) = (harness.commands, harness.opened);
         let strip = view
-            .update(cx, |view, cx| view.strip_of(&pane_id("b"), cx))
+            .update(cx, |view, cx| strip_of(view, &pane_id("b"), cx))
             .expect("strip");
         cx.update(|window, cx| (strip.keys)("delete", window, cx));
         (commands.take(), opened.take())
@@ -173,7 +173,7 @@ mod tests {
         let harness = open_with(cx, &stacked_layout(), stacking());
         let (view, cx) = (harness.view, harness.cx);
         let entries = view.update(cx, |view, cx| {
-            let strip = view.strip_of(&pane_id("b"), cx).expect("strip");
+            let strip = strip_of(view, &pane_id("b"), cx).expect("strip");
             strip.overflow
         });
         let states: Vec<_> = entries.iter().map(|entry| entry.state).collect();
@@ -193,7 +193,7 @@ mod tests {
         let harness = open_with(cx, &layout, stacking());
         let (view, cx, commands) = (harness.view, harness.cx, harness.commands);
         let strip = view
-            .update(cx, |view, cx| view.strip_of(&pane_id("b"), cx))
+            .update(cx, |view, cx| strip_of(view, &pane_id("b"), cx))
             .expect("strip");
         let ends: Vec<_> = strip.tabs.iter().map(|tab| tab.end).collect();
         cx.update(|window, cx| (strip.tabs[0].actions.close)(window, cx));

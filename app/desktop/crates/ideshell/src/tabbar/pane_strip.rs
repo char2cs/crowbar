@@ -3,33 +3,48 @@ use gpui::{
     StatefulInteractiveElement, Styled, Window, canvas, div, px,
 };
 use protocol::PaneId;
-use ui::{
-    Button, ButtonSize, IconName, MenuAction, MenuItem, Palette, Placement, Surface, Theme, Tooltip,
-};
+use ui::{IconName, MenuAction, MenuItem, Palette, Placement, Surface, Theme};
 
-use crate::input_mode::InputMode;
-use crate::overflow_entry::OverflowEntry;
-use crate::strip_state::StripState;
-use crate::strip_tab::StripTab;
-use crate::tab_actions::{StripKeys, TabAction, TabDrop};
-use crate::tab_state::TabState;
+use crate::tabbar::chat_tab::ChatTab;
+use crate::tabbar::input_mode::InputMode;
+use crate::tabbar::overflow_entry::OverflowEntry;
+use crate::tabbar::strip_state::StripState;
+use crate::tabbar::strip_tab::StripTab;
+use crate::tabbar::tab_actions::{StripKeys, TabAction, TabDrop};
+use crate::tabbar::tab_state::TabState;
+use crate::toprow::row_button::RowButton;
+use crate::toprow::row_ink::RowInk;
+use crate::toprow::split_toggle::SplitToggle;
 
-pub(crate) const STRIP_HEIGHT: f32 = 42.0;
+/// The height of the tab bar row.
+pub const STRIP_HEIGHT: f32 = 42.0;
 const PAD_X: f32 = 8.0;
 const PAD_Y: f32 = 4.0;
 const GAP: f32 = 6.0;
 const MORE_SIZE: f32 = 24.0;
 const MORE_GLYPH: f32 = 14.0;
 
+/// The tab bar of one pane group: its editor tabs, the "+" and the overflow menu.
 #[derive(IntoElement)]
-pub(crate) struct PaneStrip {
-    pub(crate) key: PaneId,
-    pub(crate) tabs: Vec<StripTab>,
-    pub(crate) shown: usize,
-    pub(crate) at_end_drop: TabDrop,
-    pub(crate) add: TabAction,
-    pub(crate) keys: StripKeys,
-    pub(crate) overflow: Vec<OverflowEntry>,
+pub struct PaneStrip {
+    /// The pane the bar's kept state is keyed by.
+    pub key: PaneId,
+    /// The split toggle leading the row.
+    pub toggle: SplitToggle,
+    /// The chat's entry before the editor tabs, when the group shows one view at a time.
+    pub chat_tab: Option<ChatTab>,
+    /// The editor tabs, in order; with none, the row holds only the toggle.
+    pub tabs: Vec<StripTab>,
+    /// The index of the shown tab.
+    pub shown: usize,
+    /// What a drop on the bar past the last tab does.
+    pub at_end_drop: TabDrop,
+    /// What the "+" does.
+    pub add: TabAction,
+    /// What a key pressed on the focused bar does.
+    pub keys: StripKeys,
+    /// The rows of the overflow menu.
+    pub overflow: Vec<OverflowEntry>,
 }
 
 impl RenderOnce for PaneStrip {
@@ -49,13 +64,16 @@ impl RenderOnce for PaneStrip {
         let mode = StripState::shown_mode(&state, &focus, (window, cx));
         let (keys, at_end) = (self.keys, self.at_end_drop);
         let (measuring, typing, pressing) = (state.clone(), state.clone(), state.clone());
-        let tabs = scroller(name, &scroll)
-            .children(
-                ringing(self.tabs, mode)
-                    .into_iter()
-                    .map(|tab| div().flex_none().child(tab)),
-            )
-            .child(add_button(name, self.add));
+        let tabs = (!self.tabs.is_empty()).then(|| {
+            scroller(name, &scroll)
+                .children(self.chat_tab)
+                .children(
+                    ringing(self.tabs, mode)
+                        .into_iter()
+                        .map(|tab| div().flex_none().child(tab)),
+                )
+                .child(add_button(name, self.add))
+        });
         let more = overflowing.then(|| more_tabs(name, self.overflow, palette));
         row(name, palette)
             .track_focus(&focus)
@@ -68,7 +86,8 @@ impl RenderOnce for PaneStrip {
                 window.focus(&focus);
             })
             .on_drop::<layout::DragSubject>(move |subject, window, cx| at_end(subject, window, cx))
-            .child(tabs)
+            .child(self.toggle)
+            .children(tabs)
             .child(probe(&scroll, measuring))
             .children(more)
     }
@@ -161,14 +180,14 @@ fn remeasure(
 fn add_button(
     name: &str,
     on_add: TabAction,
-) -> impl IntoElement {
-    let button = Button::icon_only(id_of(name, "add"), IconName::Plus)
-        .size(ButtonSize::Sm)
-        .on(Surface::Window)
-        .on_click(move |_, window, cx| on_add(window, cx));
-    div()
-        .flex_none()
-        .child(Tooltip::new(id_of(name, "add-tip"), "New tab", button))
+) -> RowButton {
+    RowButton {
+        id: format!("add-{name}").into(),
+        icon: IconName::Plus,
+        tip: "New tab".into(),
+        ink: RowInk::Muted,
+        on_click: on_add,
+    }
 }
 
 fn more_tabs(
@@ -201,6 +220,8 @@ fn row_of(entry: OverflowEntry) -> MenuItem {
     })
 }
 
+ui::opaque_debug!(PaneStrip);
+
 #[cfg(test)]
 mod tests {
     use std::rc::Rc;
@@ -212,10 +233,10 @@ mod tests {
     use ui::{Motion, Theme};
 
     use super::*;
-    use crate::tab_actions::{TabActions, TabDrop};
-    use crate::tab_end::TabEnd;
-    use crate::tab_frame::HEIGHT as TAB_HEIGHT;
-    use crate::tab_look::TabLook;
+    use crate::tabbar::tab_actions::{TabActions, TabDrop};
+    use crate::tabbar::tab_end::TabEnd;
+    use crate::tabbar::tab_frame::HEIGHT as TAB_HEIGHT;
+    use crate::tabbar::tab_look::TabLook;
 
     #[test]
     fn the_strip_row_holds_a_tab_with_its_padding() {
@@ -253,12 +274,29 @@ mod tests {
         }
     }
 
+    fn chat_tab(select: &TabAction) -> ChatTab {
+        ChatTab {
+            pane: PaneId::new("c").expect("valid"),
+            label: "Chat".into(),
+            icon: IconName::ChatsCircle,
+            state: TabState::Idle,
+            select: Rc::clone(select),
+        }
+    }
+
     fn strip_of(tabs: usize) -> PaneStrip {
         let nothing: TabAction = Rc::new(|_, _| {});
         let drop: TabDrop = Rc::new(|_, _, _| {});
         let names: Vec<String> = (0..tabs).map(|index| format!("t{index}")).collect();
+        let toggle = SplitToggle {
+            key: "t0".into(),
+            view: layout::EditorView::Open,
+            on_toggle: Rc::clone(&nothing),
+        };
         PaneStrip {
             key: PaneId::new("t0").expect("valid"),
+            toggle,
+            chat_tab: (tabs > 0).then(|| chat_tab(&nothing)),
             tabs: names.iter().map(|name| loose_tab(name)).collect(),
             shown: 0,
             at_end_drop: drop,
@@ -321,5 +359,30 @@ mod tests {
             (menu.right() - caret.right()).abs() < px(0.5),
             "{menu:?} ends with {caret:?}"
         );
+    }
+
+    #[gpui::test]
+    fn a_bar_with_no_tab_holds_only_the_split_toggle(cx: &mut TestAppContext) {
+        let cx = opened(cx, (0, 800.0));
+        assert!(
+            cx.debug_bounds("row-button-split-t0").is_some(),
+            "the toggle"
+        );
+        assert!(cx.debug_bounds("row-button-add-t0").is_none(), "no +");
+        assert!(cx.debug_bounds("chat-tab-c").is_none(), "no chat tab");
+    }
+
+    #[gpui::test]
+    fn the_toggle_leads_then_the_chat_tab_then_the_tabs_then_the_plus(cx: &mut TestAppContext) {
+        let cx = opened(cx, (2, 800.0));
+        let parts = [
+            "row-button-split-t0",
+            "chat-tab-c",
+            "strip-tab-frame-t0",
+            "row-button-add-t0",
+        ];
+        let order = parts.map(|part| cx.debug_bounds(part).map(|bounds| bounds.left()));
+        assert!(order.iter().all(Option::is_some), "{order:?}");
+        assert!(order.is_sorted(), "{order:?}");
     }
 }

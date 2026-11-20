@@ -25,6 +25,7 @@ ui = { path = "desktop/crates/ui" }
 sidebar = { path = "desktop/crates/sidebar" }
 sidebarview = { path = "desktop/crates/sidebarview" }
 layoutview = { path = "desktop/crates/layoutview" }
+ideshell = { path = "desktop/crates/ideshell" }
 viewtabs = { path = "desktop/crates/viewtabs" }
 transport = { path = "crates/transport" }
 supervisor = { path = "desktop/crates/supervisor" }

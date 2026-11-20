@@ -12,6 +12,8 @@ use ui::{DragGhost, DraggedRow, Motion, Theme};
 use crate::layout_event::LayoutEvent;
 use crate::layout_view::LayoutView;
 use crate::test_support::fake_source::FakeSource;
+use ideshell::PaneStrip;
+use protocol::PaneId;
 
 pub(crate) struct Harness<'a> {
     pub(crate) view: Entity<LayoutView>,
@@ -174,4 +176,13 @@ pub(crate) fn open_floating(
         top: VisualTestContext::from_window(top, cx),
         clock,
     }
+}
+
+pub(crate) fn strip_of(
+    view: &LayoutView,
+    pane: &PaneId,
+    cx: &mut Context<'_, LayoutView>,
+) -> Option<PaneStrip> {
+    let group = view.tab.as_ref()?.group_of(pane)?;
+    view.strip_for(group, cx)
 }

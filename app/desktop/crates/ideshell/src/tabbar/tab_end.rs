@@ -1,14 +1,18 @@
 use gpui::Hsla;
 use ui::{IconName, IconWeight, Palette};
 
-use crate::tab_state::TabState;
+use crate::tabbar::tab_state::TabState;
 
 const CLOSE_GLYPH: f32 = 12.0;
 const PIN_GLYPH: f32 = 14.0;
 const PIN_OPACITY: f32 = 0.6;
+
+/// What the button at the end of a tab does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TabEnd {
+pub enum TabEnd {
+    /// Closes the tab.
     Close,
+    /// Unpins a pinned tab.
     Unpin,
 }
 

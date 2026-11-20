@@ -13,14 +13,14 @@ use ui::{
     TooltipSide,
 };
 
-use crate::close_button::CloseButton;
-use crate::marks::Marks;
-use crate::tab_actions::{TabAction, TabActions, TabDrop};
-use crate::tab_dragging::TabDragging;
-use crate::tab_end::TabEnd;
-use crate::tab_frame::{HEIGHT, group_of};
-use crate::tab_look::TabLook;
-use crate::tab_state::TabState;
+use crate::tabbar::close_button::CloseButton;
+use crate::tabbar::marks::Marks;
+use crate::tabbar::tab_actions::{TabAction, TabActions, TabDrop};
+use crate::tabbar::tab_dragging::TabDragging;
+use crate::tabbar::tab_end::TabEnd;
+use crate::tabbar::tab_frame::{HEIGHT, group_of};
+use crate::tabbar::tab_look::TabLook;
+use crate::tabbar::tab_state::TabState;
 
 const MAX_WIDTH: f32 = 200.0;
 const PAD_LEFT: f32 = 10.0;
@@ -32,15 +32,23 @@ const GHOST_WIDTH: f32 = 160.0;
 const DROP_LINE: f32 = 2.0;
 const DOT: f32 = 8.0;
 
+/// One editor tab of the tab bar.
 #[derive(IntoElement)]
-pub(crate) struct StripTab {
-    pub(crate) pane: PaneId,
-    pub(crate) look: TabLook,
-    pub(crate) state: TabState,
-    pub(crate) end: TabEnd,
-    pub(crate) menu: Rc<[MenuItem]>,
-    pub(crate) actions: TabActions,
-    pub(crate) ringed: bool,
+pub struct StripTab {
+    /// The pane the tab shows.
+    pub pane: PaneId,
+    /// Its label, glyph and marks.
+    pub look: TabLook,
+    /// Whether it is the shown tab.
+    pub state: TabState,
+    /// What its end button does.
+    pub end: TabEnd,
+    /// Its context menu.
+    pub menu: Rc<[MenuItem]>,
+    /// What pressing, closing and dropping on it do.
+    pub actions: TabActions,
+    /// Whether the keyboard focus ring is drawn on it; the bar sets it.
+    pub ringed: bool,
 }
 
 impl RenderOnce for StripTab {
@@ -210,6 +218,8 @@ fn frame(
         .cursor(CursorStyle::PointingHand)
         .hover(move |tab| tab.bg(hover_fill).text_color(hover_ink))
 }
+
+ui::opaque_debug!(StripTab);
 
 #[cfg(test)]
 mod tests {
