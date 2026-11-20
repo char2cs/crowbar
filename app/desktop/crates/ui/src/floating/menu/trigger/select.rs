@@ -109,6 +109,7 @@ impl Select {
             .gap(spacing::STEP_2)
             .when(self.fills, Styled::w_full)
             .when(!self.fills, |trigger| trigger.w(self.width))
+            .min_w(px(DEFAULT_WIDTH))
             .min_h(self.height)
             .px(spacing::STEP_2_5)
             .rounded(radius::LG)
@@ -213,6 +214,16 @@ mod tests {
     fn default_width_is_one_hundred_forty_four(cx: &mut TestAppContext) {
         let bounds = measure(cx, |_, _| {
             Select::new("s", options(), None).placeholder("Choose")
+        });
+        assert_eq!(f32::from(bounds.size.width), 144.0);
+    }
+
+    #[gpui::test]
+    fn a_narrower_width_still_keeps_the_trigger_one_hundred_forty_four_wide(
+        cx: &mut TestAppContext
+    ) {
+        let bounds = measure(cx, |_, _| {
+            Select::new("s", options(), Some(0)).width(px(112.0))
         });
         assert_eq!(f32::from(bounds.size.width), 144.0);
     }
