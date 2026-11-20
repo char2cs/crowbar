@@ -124,8 +124,18 @@ pub enum Command {
     },
     /// Open a file of the Files panel.
     OpenFile(String),
-    /// Open the branch review of the focused workspace, as a click on a Changes file does.
-    OpenReview,
+    /// Open the branch review of the focused workspace on this file, as a click on a Changes
+    /// file does; an open review is focused and shows it.
+    OpenReview {
+        /// Path relative to the repository.
+        path: String,
+    },
+    /// Mark files viewed in the focused workspace's review with their signatures, or clear the
+    /// mark of a file given no signature.
+    SetFilesViewed {
+        /// Path, and the signature to mark it with or `None` to clear it.
+        files: Vec<(String, Option<String>)>,
+    },
     /// Show the file or directory in the system file manager; the path is workspace-relative.
     RevealFile {
         /// The path relative to the workspace root.

@@ -30,6 +30,7 @@ const DISABLED_OPACITY: f32 = 0.64;
 pub struct Checkbox {
     id: ElementId,
     checked: bool,
+    mixed: Pose,
     disabled: bool,
     surface: Surface,
     on_change: Option<Handler>,
@@ -44,10 +45,18 @@ impl Checkbox {
         Self {
             id: id.into(),
             checked: bool::from(checked.into()),
+            mixed: Pose::Off,
             disabled: false,
             surface: Surface::default(),
             on_change: None,
         }
+    }
+
+    /// Shows a dash for a group only partly checked; a click then asks for checked.
+    #[must_use]
+    pub fn indeterminate(mut self) -> Self {
+        self.mixed = Pose::from(!self.checked);
+        self
     }
 
     /// Disables the checkbox.
@@ -106,6 +115,12 @@ fn mark(palette: &Palette) -> Icon {
         .color(palette.primary_foreground())
 }
 
+fn dash(palette: &Palette) -> Icon {
+    Icon::new(IconName::Minus)
+        .size(px(MARK))
+        .color(palette.foreground())
+}
+
 impl RenderOnce for Checkbox {
     fn render(
         self,
@@ -135,6 +150,7 @@ impl RenderOnce for Checkbox {
             .focus(move |s| s.shadow(focus_ring(palette)))
             .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
             .when(checked, |d| d.child(mark(palette)))
+            .when(self.mixed == Pose::On, |d| d.child(dash(palette)))
             .when_some(self.on_change.filter(|_| enabled), move |d, handler| {
                 d.on_click(move |_, window, cx| handler(Pose::from(!checked), window, cx))
             })
@@ -162,16 +178,30 @@ mod tests {
         );
     }
 
-    #[gpui::test]
-    fn click_requests_the_opposite_value(cx: &mut TestAppContext) {
+    fn clicked(
+        cx: &mut TestAppContext,
+        checkbox: fn() -> Checkbox,
+    ) -> Option<bool> {
         let seen = Rc::new(Cell::new(None));
         let sink = Rc::clone(&seen);
         let cx = open(cx, move |_, _| {
             let sink = Rc::clone(&sink);
-            Checkbox::new("c", false)
-                .on_change(move |value, _, _| sink.set(Some(bool::from(value))))
+            checkbox().on_change(move |value, _, _| sink.set(Some(bool::from(value))))
         });
         cx.simulate_click(point(px(8.0), px(8.0)), gpui::Modifiers::none());
-        assert_eq!(seen.get(), Some(true));
+        seen.get()
+    }
+
+    #[gpui::test]
+    fn click_requests_the_opposite_value(cx: &mut TestAppContext) {
+        assert_eq!(clicked(cx, || Checkbox::new("c", false)), Some(true));
+    }
+
+    #[gpui::test]
+    fn a_partly_checked_box_asks_for_checked(cx: &mut TestAppContext) {
+        assert_eq!(
+            clicked(cx, || Checkbox::new("c", false).indeterminate()),
+            Some(true)
+        );
     }
 }

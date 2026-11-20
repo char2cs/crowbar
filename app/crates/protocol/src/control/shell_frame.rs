@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -89,4 +91,36 @@ pub enum ShellFrame {
         /// The values.
         values: SettingValues,
     },
+    /// `review.viewed`: a workspace's viewed marks, path to signature; sent to its review panes
+    /// on mount and whenever a mark changes. It is the whole map each time.
+    #[serde(rename = "review.viewed")]
+    ReviewViewed {
+        /// The workspace.
+        workspace: String,
+        /// Path to the signature the file had when it was marked.
+        viewed: BTreeMap<String, String>,
+    },
+    /// `review.reveal`: show this changed file on the review's Files view.
+    #[serde(rename = "review.reveal")]
+    ReviewReveal {
+        /// Path relative to the repository.
+        path: String,
+    },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_review_frames_have_the_shape_the_pane_sdk_reads() {
+        let cases = [
+            r#"{"kind":"review.viewed","workspace":"w1","viewed":{"src/a.ts":"M||1|0"}}"#,
+            r#"{"kind":"review.reveal","path":"src/a.ts"}"#,
+        ];
+        for text in cases {
+            let frame: ShellFrame = serde_json::from_str(text).unwrap();
+            assert_eq!(serde_json::to_string(&frame).unwrap(), text);
+        }
+    }
 }

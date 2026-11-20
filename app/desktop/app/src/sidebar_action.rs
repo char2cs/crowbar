@@ -9,7 +9,7 @@ pub(crate) enum SidebarAction {
     OpenSettings,
     OpenHosts,
     OpenFile(String),
-    OpenReview,
+    OpenReview(String),
     ImportRepo,
     ChooseSpaceFolder(String),
     ImportBranches(String),
@@ -27,7 +27,7 @@ pub(crate) fn action_for(command: &sidebar::Command) -> Result<SidebarAction> {
         sidebar::Command::OpenSettings => Ok(SidebarAction::OpenSettings),
         sidebar::Command::OpenHostSettings(_) => Ok(SidebarAction::OpenHosts),
         sidebar::Command::OpenFile(path) => Ok(SidebarAction::OpenFile(path.clone())),
-        sidebar::Command::OpenReview => Ok(SidebarAction::OpenReview),
+        sidebar::Command::OpenReview { path } => Ok(SidebarAction::OpenReview(path.clone())),
         sidebar::Command::ImportRepo => Ok(SidebarAction::ImportRepo),
         sidebar::Command::ChooseSpaceFolder(host) => {
             Ok(SidebarAction::ChooseSpaceFolder(host.as_str().to_owned()))
@@ -50,6 +50,12 @@ mod tests {
 
     use super::*;
 
+    fn review_case() -> (Command, SidebarAction) {
+        let path = String::from("src/a.rs");
+        let action = SidebarAction::OpenReview(path.clone());
+        (Command::OpenReview { path }, action)
+    }
+
     fn cases() -> Vec<(Command, SidebarAction)> {
         vec![
             (
@@ -57,7 +63,7 @@ mod tests {
                 SidebarAction::Open(chat_type().unwrap(), chat_params("t1").unwrap()),
             ),
             (Command::OpenSettings, SidebarAction::OpenSettings),
-            (Command::OpenReview, SidebarAction::OpenReview),
+            review_case(),
             (
                 Command::OpenHostSettings(sidebar::HostId::from("box")),
                 SidebarAction::OpenHosts,

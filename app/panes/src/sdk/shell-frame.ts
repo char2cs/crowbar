@@ -1,4 +1,5 @@
 import type { LifecycleMessage } from './lifecycle-message'
+import type { ReviewViewedFrame } from './review-viewed-frame'
 import type { RpcFailure } from './rpc-failure'
 import type { SettingValues } from './setting-values'
 import type { ThemeTokens } from './theme-tokens'
@@ -19,3 +20,5 @@ export type ShellFrame =
   | { kind: 'theme'; tokens: ThemeTokens }
   | { kind: 'group'; chatFills: boolean }
   | { kind: 'settings'; version: number; values: SettingValues }
+  | ({ kind: 'review.viewed' } & ReviewViewedFrame)
+  | { kind: 'review.reveal'; path: string }

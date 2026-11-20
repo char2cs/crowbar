@@ -1,13 +1,14 @@
 //! A row of the Changes tree: a folder that folds, or a changed file that opens the review.
 
 use gpui::{
-    App, ClickEvent, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce,
-    SharedString, StatefulInteractiveElement, Styled, Window, div,
+    App, ClickEvent, Div, ElementId, Hsla, InteractiveElement, IntoElement, ParentElement,
+    RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window, div,
 };
 use sidebar::{ChangedRow, Command, FileKind, GitStatus, Intent};
-use ui::{Badge, BadgeSize, BadgeVariant, Surface, Theme, Tooltip};
+use ui::{Badge, BadgeSize, BadgeVariant, Palette, Surface, Theme, Tooltip};
 
-use crate::panels::explorer::badges::{count_gap, counts_view, letter_badge};
+use crate::panels::changes::viewed_box::viewed_box;
+use crate::panels::explorer::badges::{count_gap, counts_view, letter_badge, status_color};
 use crate::panels::explorer::{FileTreeEntry, TreeLook, frame, glyph};
 use crate::sidebar::{RowAction, RowHandler, SPACE_SM};
 
@@ -25,6 +26,7 @@ fn entry(row: &ChangedRow) -> FileTreeEntry {
             label,
             depth,
             expansion,
+            ..
         } => FileTreeEntry {
             path: path.clone(),
             name: label.clone(),
@@ -49,8 +51,32 @@ fn entry(row: &ChangedRow) -> FileTreeEntry {
 fn intent(row: &ChangedRow) -> Intent {
     match row {
         ChangedRow::Folder { path, .. } => Intent::ToggleChangedFold(path.clone()),
-        ChangedRow::File { .. } => Intent::Send(Command::OpenReview),
+        ChangedRow::File { file, .. } => Intent::Send(Command::OpenReview {
+            path: file.path.clone(),
+        }),
     }
+}
+
+fn name_color(
+    row: &ChangedRow,
+    palette: &Palette,
+) -> Hsla {
+    match row {
+        ChangedRow::File { viewed: true, .. } => palette.muted_foreground(),
+        ChangedRow::File { file, .. } => status_color(file.status, palette),
+        ChangedRow::Folder { .. } => palette.foreground(),
+    }
+}
+
+fn tally(
+    row: &ChangedRow,
+    palette: &Palette,
+) -> Option<Div> {
+    let ChangedRow::Folder { files, viewed, .. } = row else {
+        return None;
+    };
+    let text = format!("{viewed}/{}", files.len());
+    Some(div().text_color(palette.muted_foreground()).child(text))
 }
 
 fn threads(row: &ChangedRow) -> u32 {
@@ -80,6 +106,39 @@ fn thread_badge(open: u32) -> Option<Badge> {
     })
 }
 
+impl ChangedTreeRow {
+    fn trailing(
+        &self,
+        entry: &FileTreeEntry,
+        (mono, palette): (&'static str, &Palette),
+    ) -> Div {
+        let counts = entry
+            .counts
+            .map(|counts| counts_view(counts, (mono, count_gap(&self.look)), palette));
+        div()
+            .ml_auto()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(SPACE_SM)
+            .children(tally(&self.row, palette))
+            .children(counts)
+            .children(thread_badge(threads(&self.row)))
+    }
+
+    fn name(
+        &self,
+        entry: &FileTreeEntry,
+        palette: &Palette,
+    ) -> Div {
+        div()
+            .min_w_0()
+            .truncate()
+            .text_color(name_color(&self.row, palette))
+            .child(entry.name.clone())
+    }
+}
+
 impl RenderOnce for ChangedTreeRow {
     fn render(
         self,
@@ -90,39 +149,21 @@ impl RenderOnce for ChangedTreeRow {
         let palette = Theme::of(cx).palette(Surface::Chrome);
         let entry = entry(&self.row);
         let id = ElementId::from(SharedString::from(format!("changed-{}", entry.path)));
-        let letter = entry
-            .status
-            .letter()
-            .map(|letter| letter_badge(letter, mono));
-        let counts = entry
-            .counts
-            .map(|counts| counts_view(counts, (mono, count_gap(&self.look)), palette));
-        let badge = thread_badge(threads(&self.row));
-        let trailing = div()
-            .ml_auto()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(SPACE_SM)
-            .children(counts)
-            .children(badge);
+        let letter = entry.status.letter().map(|l| letter_badge(l, mono));
         let selector = format!("changed-row-{}", entry.path);
         let row = frame(id, &entry, (&self.look, palette))
             .debug_selector(|| selector)
+            .child(viewed_box(&self.row, &self.handler))
             .child(glyph(&entry, &self.look))
-            .child(div().min_w_0().truncate().child(entry.name.clone()))
+            .child(self.name(&entry, palette))
             .children(letter)
-            .child(trailing)
+            .child(self.trailing(&entry, (mono, palette)))
             .on_click(on_click(&self.handler, intent(&self.row)));
-        match self.row {
-            ChangedRow::File { file, .. } => Tooltip::new(
-                SharedString::from(format!("changed-tip-{}", file.path)),
-                file.path,
-                row,
-            )
-            .into_any_element(),
-            ChangedRow::Folder { .. } => row.into_any_element(),
-        }
+        let ChangedRow::File { file, .. } = self.row else {
+            return row.into_any_element();
+        };
+        let tip = SharedString::from(format!("changed-tip-{}", file.path));
+        Tooltip::new(tip, file.path, row).into_any_element()
     }
 }
 
@@ -141,12 +182,14 @@ mod tests {
             status: GitStatus::Added,
             added,
             deleted,
+            ..ChangedFile::default()
         };
         ChangedRow::File {
             file,
             name: "a.rs".into(),
             depth: 1,
             threads: 2,
+            viewed: false,
         }
     }
 
@@ -154,12 +197,17 @@ mod tests {
     fn a_file_carries_its_line_counts_and_opens_the_review_and_a_folder_folds() {
         assert_eq!(entry(&file(3, 1)).counts, Some((3, 1)));
         assert_eq!(entry(&file(0, 0)).counts, None);
-        assert_eq!(intent(&file(3, 1)), Intent::Send(Command::OpenReview));
+        let open = Command::OpenReview {
+            path: "src/a.rs".into(),
+        };
+        assert_eq!(intent(&file(3, 1)), Intent::Send(open));
         let folder = ChangedRow::Folder {
             path: "src".into(),
             label: "src".into(),
             depth: 0,
             expansion: Expansion::Expanded,
+            files: Vec::new(),
+            viewed: 0,
         };
         assert_eq!(intent(&folder), Intent::ToggleChangedFold("src".into()));
         assert_eq!((threads(&file(1, 0)), threads(&folder)), (2, 0));

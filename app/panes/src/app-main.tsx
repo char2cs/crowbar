@@ -20,6 +20,11 @@ import { startStream } from '@/core/stream/stream'
 import { followChatLifecycle } from '@/features/agent/stores/chat-lifecycle'
 import { followWorkspaceScopes } from '@/lib/follow-workspace-scopes'
 import '@/core/entities/entity-store'
+import { IdbViewedOwner } from '@/features/git/lib/idb-viewed-owner'
+import { installViewedOwner } from '@/features/git/lib/viewed-owner'
+
+// No native shell here (mobile, web): the page owns the viewed maps itself.
+installViewedOwner(new IdbViewedOwner())
 
 // First in boot: perf marks are no-ops until the observer exists, and it self-gates via
 // perfEnabled(), so it is safe in every build.

@@ -61,7 +61,7 @@ impl ShellView {
         let Some(chat) = self.chat_for("a review") else {
             return;
         };
-        self.open_spec(PaneSpec::review(&chat), cx);
+        self.open_spec(PaneSpec::review(&chat, None), cx);
     }
 
     pub(super) fn toggle_editor(
@@ -95,7 +95,7 @@ impl ShellView {
         self.refresh(cx);
     }
 
-    fn chat_for(
+    pub(super) fn chat_for(
         &self,
         what: &str,
     ) -> Option<String> {

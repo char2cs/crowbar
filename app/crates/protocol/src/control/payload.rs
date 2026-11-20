@@ -9,6 +9,7 @@ mod pane_state;
 mod pane_title;
 mod params;
 mod status_kind;
+mod viewed_file;
 
 pub use display_text::{DisplayText, MAX_DISPLAY_TEXT_BYTES};
 pub use extension_status::ExtensionStatus;
@@ -18,3 +19,4 @@ pub use pane_state::{MAX_STATE_BYTES, PaneState};
 pub use pane_title::{MAX_TITLE_BYTES, PaneTitle};
 pub use params::{MAX_PARAMS, Params};
 pub use status_kind::StatusKind;
+pub use viewed_file::ViewedFile;

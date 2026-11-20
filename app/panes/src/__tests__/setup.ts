@@ -1,7 +1,9 @@
 import '@testing-library/jest-dom'
 import 'fake-indexeddb/auto'
 import { enableMapSet } from 'immer'
-import { afterEach, vi } from 'vitest'
+import { afterEach, beforeEach, vi } from 'vitest'
+import { IdbViewedOwner } from '@/features/git/lib/idb-viewed-owner'
+import { installViewedOwner } from '@/features/git/lib/viewed-owner'
 
 // main.tsx calls this once at real app boot — stores that keep a Set/Map in
 // Immer state (e.g. file-explorer-tree-store's expandedPathsByWorkspace)
@@ -9,6 +11,9 @@ import { afterEach, vi } from 'vitest'
 // test that renders through main.tsx's own module graph never notices; one
 // that imports a store directly (unit-testing it in isolation) does.
 enableMapSet()
+
+// app-main installs the IndexedDB owner; a test that needs the shell's installs that one.
+beforeEach(() => installViewedOwner(new IdbViewedOwner()))
 
 // Node 25 exposes a native localStorage that lacks .clear()/.removeItem() etc.
 // Replace it with a proper in-memory implementation so tests can use the full Web Storage API.

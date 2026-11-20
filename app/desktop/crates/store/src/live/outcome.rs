@@ -1,5 +1,6 @@
 //! What the shell is told when a command it handed over has finished.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use sidebar::{RowId, WorkAtRisk};
@@ -33,6 +34,13 @@ pub enum Outcome {
         row: RowId,
         /// The work the delete would lose.
         at_risk: Vec<WorkAtRisk>,
+    },
+    /// A workspace's viewed marks changed: the shell sends them to that workspace's review panes.
+    ReviewViewed {
+        /// The workspace.
+        workspace: String,
+        /// Path to the signature each file had when it was marked.
+        viewed: BTreeMap<String, String>,
     },
     /// The delete of `row` was refused or failed: the row shows again and `reason`, fit to show,
     /// says why.

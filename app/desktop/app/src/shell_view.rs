@@ -42,6 +42,7 @@ mod pump;
 mod readout;
 mod remote_folder;
 mod renaming;
+mod review_viewed;
 mod shell_commands;
 mod sidebar_position;
 mod sidebar_wiring;

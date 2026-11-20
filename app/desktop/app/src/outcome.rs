@@ -13,4 +13,6 @@ pub(crate) struct Outcome {
     pub(crate) picks: Vec<(PaneId, browser::PageUpdate)>,
     pub(crate) settings: Vec<(protocol::SettingKey, serde_json::Value)>,
     pub(crate) pointer: Option<(PaneId, f64, f64)>,
+    pub(crate) mounted: Vec<PaneId>,
+    pub(crate) viewed: Vec<(PaneId, crate::review_panes::ViewedChanges)>,
 }

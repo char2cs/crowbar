@@ -11,10 +11,12 @@ mod file_listing;
 mod file_session;
 mod file_upload;
 mod new_entry;
+mod viewed_commands;
 
 pub use env_template_file::{Overwrite, TemplateOutcome};
 pub use file_done::FileDone;
 pub use file_error::FileError;
+pub use viewed_commands::ViewedMarks;
 
 use std::sync::Arc;
 
@@ -163,6 +165,7 @@ impl Sink for SidebarCommands {
             },
             Command::RetryChats(project) => self.retry(project.as_str()),
             Command::ToggleDirectory(path) => self.toggle(path),
+            Command::SetFilesViewed { files } => self.set_followed_viewed(files),
             other => {
                 return self
                     .file_command(other)

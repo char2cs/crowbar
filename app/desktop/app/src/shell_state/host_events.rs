@@ -83,13 +83,10 @@ impl ShellState {
             HostEvent::HoverChanged { pane, hovered } => outcome.hover.push((pane, hovered)),
             HostEvent::PageFocused { pane } => outcome.focused.push(pane),
             HostEvent::SettingRequested { key, value, .. } => outcome.settings.push((key, value)),
-            HostEvent::OpenExternal { url } => {
-                log_failure(platform::open_external(url.as_str()).map_err(|e| e.to_string()));
+            HostEvent::OpenExternal { url } => log_failure(platform::open_external(url.as_str())),
+            HostEvent::Reveal { path } => {
+                log_failure(platform::reveal_in_file_manager(Path::new(path.as_str())));
             },
-            HostEvent::Reveal { path } => log_failure(
-                platform::reveal_in_file_manager(Path::new(path.as_str()))
-                    .map_err(|e| e.to_string()),
-            ),
             HostEvent::FilesDropped { pane, paths }
                 if dropped_files::opens_files(self.history.layout(), &pane) =>
             {
@@ -98,6 +95,9 @@ impl ShellState {
             HostEvent::StateChanged { .. }
             | HostEvent::StateDiscarded { .. }
             | HostEvent::FilesDropped { .. } => {},
+            event @ (HostEvent::Mounted { .. } | HostEvent::ReviewViewedSet { .. }) => {
+                note_review(event, outcome);
+            },
             HostEvent::BrowserPage { pane, update } => self.note_page(pane, update, outcome),
             HostEvent::PointerMoved { pane, x, y } => outcome.pointer = Some((pane, x, y)),
         }
@@ -174,6 +174,28 @@ impl ShellState {
             self.apply(vec![Command::SetPaneState { pane, state }]);
         }
     }
+}
+
+fn note_review(
+    event: HostEvent,
+    outcome: &mut Outcome,
+) {
+    if let HostEvent::Mounted { pane } = event {
+        outcome.mounted.push(pane);
+        return;
+    }
+    let HostEvent::ReviewViewedSet {
+        pane,
+        files,
+        viewed,
+    } = event
+    else {
+        return;
+    };
+    let marks = files
+        .into_iter()
+        .map(|f| (f.path, viewed.then_some(f.signature)));
+    outcome.viewed.push((pane, marks.collect()));
 }
 
 fn log_failure<E: std::fmt::Display>(served: Result<(), E>) {
@@ -284,5 +306,28 @@ mod tests {
         rig.shell
             .apply(vec![Command::ClosePane { pane: pane.clone() }]);
         assert!(rig.shell.titles().get(&pane).is_none(), "forgotten");
+    }
+
+    #[test]
+    fn a_mounted_page_and_a_viewed_mark_reach_the_outcome_with_their_pane() {
+        let mut rig = shell_rig();
+        let pane = synced_chat(&mut rig);
+        let register = PaneFrame::Register {
+            type_id: chat_type().unwrap(),
+            sdk: protocol::SDK_VERSION,
+        };
+        let text = encode(&register).unwrap();
+        let mounted = rig.shell.handle_ipc(IpcMessage {
+            pane: pane.clone(),
+            text,
+        });
+        let text = r#"{"sdk":1,"kind":"review.setViewed","files":[{"path":"a.ts","signature":"M||1|0"},{"path":"b.ts","signature":"A||2|0"}],"viewed":false}"#;
+        let marked = rig.shell.handle_ipc(IpcMessage {
+            pane: pane.clone(),
+            text: text.to_owned(),
+        });
+        assert_eq!(mounted.mounted, std::slice::from_ref(&pane));
+        let cleared = vec![("a.ts".to_owned(), None), ("b.ts".to_owned(), None)];
+        assert_eq!(marked.viewed, [(pane, cleared)]);
     }
 }

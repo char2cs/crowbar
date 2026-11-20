@@ -30,6 +30,7 @@ use crate::live::Hub;
 use crate::live::IconCache;
 use crate::live::SettingsSlot;
 use crate::live::State;
+use crate::live::ViewedFiles;
 use crate::live::panel_loader;
 use crate::live::{Dialled, relay_for, slot_for};
 use crate::sidebar_commands::SidebarCommands;
@@ -96,6 +97,7 @@ impl Store {
         let settings = SettingsSlot::default();
         state.settings = settings.clone();
         state.icons = IconCache::in_dir(desk.notes.directory().join("space-icons"));
+        state.viewed = ViewedFiles::in_dir(&desk.notes.directory());
         let hub = Hub::new(state, signal);
         let fleet = Fleet::new(handle, &hub, transport);
         followed
@@ -151,7 +153,7 @@ impl Store {
                 | Command::ChooseSpaceFolder(_)
                 | Command::ImportBranches(_)
                 | Command::OpenFile(_)
-                | Command::OpenReview
+                | Command::OpenReview { .. }
                 | Command::RevealFile { .. }
                 | Command::OpenAllFiles { .. }
                 | Command::OpenTerminalAt { .. }

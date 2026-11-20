@@ -34,7 +34,7 @@ pub use control::{
     MAX_THEME_TOKENS, MAX_TITLE_BYTES, MethodName, PANE_SETTING_KEYS, PaneFrame, PaneState,
     PaneTitle, Params, RequestId, RpcError, RpcOutcome, RpcResponse, SDK_VERSION,
     SETTINGS_FRAME_VERSION, SdkVersion, SettingKey, SettingValues, ShellFrame, StatusKind,
-    ThemeTokens,
+    ThemeTokens, ViewedFile,
 };
 pub use error::{Error, Result};
 pub use identity::{

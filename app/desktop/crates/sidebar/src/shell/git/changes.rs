@@ -15,4 +15,6 @@ pub struct Changes {
     pub files: Vec<ChangedFile>,
     /// Unresolved review threads per file path.
     pub threads: BTreeMap<String, u32>,
+    /// The workspace's viewed marks: path to the signature the file had when it was marked.
+    pub viewed: BTreeMap<String, String>,
 }

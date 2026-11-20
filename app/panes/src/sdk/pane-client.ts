@@ -3,6 +3,8 @@ import type { LifecycleMessage } from './lifecycle-message'
 import type { PaneChannel } from './pane-channel'
 import type { PaneFrame } from './pane-frame'
 import type { PaneParams } from './pane-params'
+import type { ReviewViewedFrame } from './review-viewed-frame'
+import type { ViewedChange } from './viewed-change'
 import type { SettingValues } from './setting-values'
 import type { ShellFrame } from './shell-frame'
 import type { ThemeTokens } from './theme-tokens'
@@ -56,6 +58,8 @@ export class PaneClient {
   private readonly groups = new Set<Listener<boolean>>()
   private readonly shellSettings = new Set<Listener<SettingValues>>()
   private readonly events = new Map<string, EventSubscription>()
+  private readonly reviewViewed = new Set<Listener<ReviewViewedFrame>>()
+  private readonly reviewReveals = new Set<Listener<string>>()
 
   constructor(
     private readonly channel: PaneChannel,
@@ -92,6 +96,21 @@ export class PaneClient {
   /** Hears the shell's request to save before it closes the pane; returns the stop. */
   onSave(listener: () => void): () => void {
     return this.listen(this.saves, listener)
+  }
+
+  /** Hears the shell's viewed map of a workspace, on mount and whenever it changes; returns the stop. */
+  onReviewViewed(listener: Listener<ReviewViewedFrame>): () => void {
+    return this.listen(this.reviewViewed, listener)
+  }
+
+  /** Hears the changed file the shell asks the review to show; returns the stop. */
+  onReviewReveal(listener: Listener<string>): () => void {
+    return this.listen(this.reviewReveals, listener)
+  }
+
+  /** Asks the shell, which owns the viewed map, to mark or unmark files of this pane's workspace. */
+  setReviewViewed(change: ViewedChange): void {
+    this.send({ kind: 'review.setViewed', files: [...change.files], viewed: change.viewed })
   }
 
   /** Tells the shell the pane holds work that closing would lose. */
@@ -205,6 +224,12 @@ export class PaneClient {
     if (frame.kind === 'pane.save') this.saves.forEach((listener) => listener())
     if (frame.kind === 'theme') this.themes.forEach((listener) => listener(frame.tokens))
     if (frame.kind === 'group') this.groups.forEach((listener) => listener(frame.chatFills))
+    if (frame.kind === 'review.viewed') {
+      const { workspace, viewed } = frame
+      this.reviewViewed.forEach((listener) => listener({ workspace, viewed }))
+    }
+    if (frame.kind === 'review.reveal')
+      this.reviewReveals.forEach((listener) => listener(frame.path))
     if (frame.kind === 'settings' && frame.version === SETTINGS_FRAME_VERSION) {
       this.shellSettings.forEach((listener) => listener(frame.values))
     }

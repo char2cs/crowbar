@@ -1,5 +1,6 @@
-import { act, renderHook } from '@testing-library/react'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
+import { expect } from 'vitest'
 import { useReviewViewed } from '@/features/git/lib/review-viewed'
 import type { GitDiff } from '@/features/git/types/git-types'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
@@ -16,6 +17,12 @@ export async function markViewed(store: WorkspaceStore, files: readonly GitDiff[
     await store.getState().loadBranchReviewViewed()
     result.current.setFilesViewed(files, true)
   })
+  // The owner answers asynchronously; the mark is done once the store holds it.
+  await waitFor(() =>
+    expect(Object.keys(store.getState().viewedFiles)).toEqual(
+      expect.arrayContaining(files.map((file) => file.file_path)),
+    ),
+  )
   unmount()
 }
 

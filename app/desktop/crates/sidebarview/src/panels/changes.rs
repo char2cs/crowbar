@@ -4,6 +4,7 @@ mod changed_tree_row;
 mod merge_card;
 mod merge_draft;
 mod merge_lines;
+mod viewed_box;
 
 pub(crate) use merge_draft::MergeDraft;
 

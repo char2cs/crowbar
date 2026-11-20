@@ -10,6 +10,7 @@ use crate::control::payload::FsPath;
 use crate::control::payload::PaneState;
 use crate::control::payload::PaneTitle;
 use crate::control::payload::Params;
+use crate::control::payload::ViewedFile;
 use crate::control::sdk_version::SdkVersion;
 use crate::identity::CommandId;
 use crate::identity::PaneTypeId;
@@ -111,6 +112,16 @@ pub enum PaneFrame {
         /// The link.
         url: ExternalUrl,
     },
+    /// `review.setViewed`: asks the shell, which owns the review's viewed marks, to mark or unmark
+    /// files of the pane's own workspace. Nothing is answered; the pane sees the result in the
+    /// next [`ShellFrame::ReviewViewed`](crate::ShellFrame::ReviewViewed).
+    #[serde(rename = "review.setViewed")]
+    ReviewSetViewed {
+        /// The files and their current signatures.
+        files: Vec<ViewedFile>,
+        /// Mark them viewed, or clear their marks.
+        viewed: bool,
+    },
     /// `shell.reveal`: shows a file or directory in the system file manager. Nothing is
     /// answered; a path that does not exist is only logged.
     #[serde(rename = "shell.reveal")]
@@ -129,6 +140,7 @@ mod tests {
         let cases = [
             r#"{"kind":"shell.openExternal","url":"https://example.com/"}"#,
             r#"{"kind":"shell.reveal","path":"/tmp/a b"}"#,
+            r#"{"kind":"review.setViewed","files":[{"path":"src/a.ts","signature":"M||1|0"}],"viewed":true}"#,
         ];
         for text in cases {
             let frame: PaneFrame = serde_json::from_str(text).unwrap();

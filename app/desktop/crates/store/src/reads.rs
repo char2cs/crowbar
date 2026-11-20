@@ -162,6 +162,9 @@ pub(crate) fn changes(state: &State) -> Changes {
     let mut changes = state.panels.changes.clone();
     changes.threads = state.panels.open_threads.by_file();
     let workspace = followed_workspace(state);
+    let chat = state.panels.chat.as_deref();
+    let viewed_in = chat.and_then(|chat| files::workspace_of_chat(state, chat));
+    changes.viewed = viewed_in.map_or_default(|workspace| state.viewed.of(&workspace));
     changes.parent = workspace.and_then(|workspace| merge::parent_branch(state, workspace));
     let named = workspace.map(|workspace| workspace.branch.clone());
     changes.branch = named
@@ -226,6 +229,7 @@ mod tests {
             status: sidebar::GitStatus::Modified,
             added: 16,
             deleted: 2,
+            ..sidebar::ChangedFile::default()
         }];
         let reason = merge_box(state).and_then(|card| card.blocked);
         assert_eq!(

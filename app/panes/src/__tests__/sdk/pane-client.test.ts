@@ -57,6 +57,19 @@ describe('PaneClient', () => {
       { kind: 'settings.set', version: 1, key: 'showMinimap', value: true },
     ],
     [
+      'marks review files viewed',
+      (client: PaneClient) =>
+        client.setReviewViewed({
+          files: [{ path: 'src/a.ts', signature: 'M||1|0' }],
+          viewed: true,
+        }),
+      {
+        kind: 'review.setViewed',
+        files: [{ path: 'src/a.ts', signature: 'M||1|0' }],
+        viewed: true,
+      },
+    ],
+    [
       'runs a command',
       (client: PaneClient) => client.runCommand('workbench.settings'),
       { kind: 'command.run', command: 'workbench.settings' },
@@ -183,6 +196,18 @@ describe('PaneClient', () => {
     pane.deliver({ sdk: 1, kind: 'group', chatFills: true })
     pane.deliver({ sdk: 1, kind: 'group', chatFills: false })
     expect(heard.mock.calls).toEqual([[true], [false]])
+  })
+
+  it('hears the viewed map and the files to reveal the shell sends', () => {
+    const client = new PaneClient(pane.channel, 'core.review')
+    const viewed = vi.fn()
+    const reveal = vi.fn()
+    client.onReviewViewed(viewed)
+    client.onReviewReveal(reveal)
+    pane.deliver({ sdk: 1, kind: 'review.viewed', workspace: 'w1', viewed: { 'a.ts': 's' } })
+    pane.deliver({ sdk: 1, kind: 'review.reveal', path: 'src/a.ts' })
+    expect(viewed.mock.calls).toEqual([[{ workspace: 'w1', viewed: { 'a.ts': 's' } }]])
+    expect(reveal.mock.calls).toEqual([['src/a.ts']])
   })
 
   it('ignores text that is not a frame', () => {

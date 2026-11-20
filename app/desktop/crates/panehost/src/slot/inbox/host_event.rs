@@ -1,6 +1,7 @@
 use browser::PageUpdate;
 use protocol::{
     CommandId, ExternalUrl, FsPath, PaneId, PaneState, PaneTitle, PaneTypeId, Params, SettingKey,
+    ViewedFile,
 };
 use serde_json::Value;
 
@@ -59,6 +60,20 @@ pub enum HostEvent {
     Reveal {
         /// The absolute path.
         path: FsPath,
+    },
+    /// A page registered and was sent its `mount`; the shell can now send it frames of its own.
+    Mounted {
+        /// The pane.
+        pane: PaneId,
+    },
+    /// A review pane asked the shell to mark or unmark files of its workspace viewed.
+    ReviewViewedSet {
+        /// The pane; its chat names the workspace.
+        pane: PaneId,
+        /// The files and their current signatures.
+        files: Vec<ViewedFile>,
+        /// Mark them viewed, or clear their marks.
+        viewed: bool,
     },
     /// A pane asked the shell to store a setting; the shell writes it and pushes the set back.
     SettingRequested {

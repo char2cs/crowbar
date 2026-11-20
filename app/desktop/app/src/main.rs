@@ -92,6 +92,7 @@ mod rename_event;
 mod rename_prompt;
 mod request_queue;
 mod reveal_target;
+mod review_panes;
 mod save_health;
 mod save_report;
 mod search_engine_setting;

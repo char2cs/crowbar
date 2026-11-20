@@ -27,17 +27,22 @@ fn line_count(raw: i64) -> u32 {
     u32::try_from(raw).unwrap_or_default()
 }
 
+fn changed_file(file: SummaryFile) -> ChangedFile {
+    let status = status_of(&file.status);
+    let old_path = file.old_path.as_deref().unwrap_or_default();
+    let counts = (file.additions, file.deletions);
+    ChangedFile {
+        signature: ChangedFile::signature_of(status, old_path, counts),
+        status,
+        path: file.path,
+        added: line_count(file.additions),
+        deleted: line_count(file.deletions),
+    }
+}
+
 impl ReviewFilesBody {
     pub(crate) fn files(self) -> Vec<ChangedFile> {
-        self.files
-            .into_iter()
-            .map(|file| ChangedFile {
-                status: status_of(&file.status),
-                path: file.path,
-                added: line_count(file.additions),
-                deleted: line_count(file.deletions),
-            })
-            .collect()
+        self.files.into_iter().map(changed_file).collect()
     }
 }
 
@@ -53,16 +58,21 @@ mod tests {
     ];
 
     #[test]
-    fn a_binary_file_without_line_counts_still_lists() {
+    fn a_binary_file_still_lists_and_each_file_carries_the_reviews_signature() {
         let body: Result<ReviewFilesBody, _> = serde_json::from_str(
-            r#"{"files":[{"path":"logo.png","status":"modified","additions":-1,"deletions":-1}]}"#,
+            r#"{"files":[{"path":"logo.png","status":"modified","additions":-1,"deletions":-1},{"path":"b.ts","old_path":"a.ts","status":"renamed","additions":2,"deletions":1}]}"#,
         );
         let files = body.map_or_else(|_| Vec::new(), ReviewFilesBody::files);
-        let listed: Vec<(&str, u32, u32)> = files
+        let listed: Vec<String> = files
             .iter()
-            .map(|file| (file.path.as_str(), file.added, file.deleted))
+            .map(|file| {
+                format!(
+                    "{} +{} -{} {}",
+                    file.path, file.added, file.deleted, file.signature
+                )
+            })
             .collect();
-        assert_eq!(listed, [("logo.png", 0, 0)]);
+        assert_eq!(listed, ["logo.png +0 -0 M||-1|-1", "b.ts +2 -1 R|a.ts|2|1"]);
     }
 
     #[test]

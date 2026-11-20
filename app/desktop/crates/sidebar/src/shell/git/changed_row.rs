@@ -17,6 +17,10 @@ pub enum ChangedRow {
         depth: u8,
         /// Whether its contents show.
         expansion: Expansion,
+        /// Every changed file under it, path and signature, for ticking them all at once.
+        files: Vec<(String, String)>,
+        /// How many of `files` are viewed.
+        viewed: usize,
     },
     /// A changed file.
     File {
@@ -28,5 +32,7 @@ pub enum ChangedRow {
         depth: u8,
         /// Unresolved review threads anchored on it.
         threads: u32,
+        /// Marked viewed, and unchanged since.
+        viewed: bool,
     },
 }

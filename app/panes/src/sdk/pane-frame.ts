@@ -1,4 +1,5 @@
 import type { PaneParams } from './pane-params'
+import type { ViewedFile } from './viewed-file'
 
 /** The frames a pane sends; each is wrapped as `{ sdk: 1, ...frame }`. */
 export type PaneFrame =
@@ -14,3 +15,4 @@ export type PaneFrame =
   | { kind: 'shell.openExternal'; url: string }
   | { kind: 'shell.reveal'; path: string }
   | { kind: 'settings.set'; version: number; key: string; value: unknown }
+  | { kind: 'review.setViewed'; files: ViewedFile[]; viewed: boolean }

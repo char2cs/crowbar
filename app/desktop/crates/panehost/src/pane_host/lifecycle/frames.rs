@@ -75,9 +75,12 @@ impl PaneHost {
     ) -> Result<Vec<HostEvent>> {
         let event = match frame {
             PaneFrame::Register { type_id, .. } => {
-                return self
-                    .on_register(&pane, &type_id, layout)
-                    .map(|()| Vec::new());
+                self.on_register(&pane, &type_id, layout)?;
+                let mounted = self.panes.get(&pane).is_some_and(PaneRuntime::is_mounted);
+                return Ok(mounted
+                    .then_some(HostEvent::Mounted { pane })
+                    .into_iter()
+                    .collect());
             },
             PaneFrame::SetTitle { title } => HostEvent::TitleChanged { pane, title },
             PaneFrame::SetState { state } => HostEvent::StateChanged { pane, state },
@@ -98,6 +101,11 @@ impl PaneHost {
             PaneFrame::RunCommand { command } => HostEvent::CommandRequested { pane, command },
             PaneFrame::OpenExternal { url } => HostEvent::OpenExternal { url },
             PaneFrame::Reveal { path } => HostEvent::Reveal { path },
+            PaneFrame::ReviewSetViewed { files, viewed } => HostEvent::ReviewViewedSet {
+                pane,
+                files,
+                viewed,
+            },
         };
         Ok(vec![event])
     }
@@ -306,10 +314,47 @@ mod tests {
                 PaneFrame::RunCommand {
                     command: command.clone(),
                 },
-                HostEvent::CommandRequested { pane, command },
+                HostEvent::CommandRequested {
+                    pane: pane.clone(),
+                    command,
+                },
+            ),
+            (
+                "a viewed mark",
+                PaneFrame::ReviewSetViewed {
+                    files: vec![viewed_file()],
+                    viewed: true,
+                },
+                HostEvent::ReviewViewedSet {
+                    pane,
+                    files: vec![viewed_file()],
+                    viewed: true,
+                },
             ),
         ];
         assert_events(cases);
+    }
+
+    fn viewed_file() -> protocol::ViewedFile {
+        protocol::ViewedFile {
+            path: "src/a.ts".into(),
+            signature: "M||1|0".into(),
+        }
+    }
+
+    #[test]
+    fn a_page_that_registers_is_reported_mounted_and_one_of_the_wrong_type_is_not() {
+        let mut f = fixture();
+        f.sync(&[instance("p1", "core.chat")], &["p1"], Some("p1"));
+        let wrong = register(&mut f, "p1", "core.term");
+        assert!(wrong.is_empty(), "{wrong:?}");
+        let mut f = fixture();
+        f.sync(&[instance("p1", "core.chat")], &["p1"], Some("p1"));
+        let pane = PaneId::new("p1").unwrap();
+        assert_eq!(
+            register(&mut f, "p1", "core.chat"),
+            [HostEvent::Mounted { pane }]
+        );
     }
 
     #[test]

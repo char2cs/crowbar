@@ -14,7 +14,7 @@ pub(crate) use fleet::{Dialled, Fleet, Provider, Roster, Surface, relay_for, slo
 pub use held::HostSpec;
 pub(crate) use held::{
     ChatRecord, Entities, FileEntry, FolderRecord, HostSlot, IconCache, Item, LinkState,
-    OperationRecord, PanelState, PendingRow, ProjectRecord, RepoRecord, SettingsSlot,
+    OperationRecord, PanelState, PendingRow, ProjectRecord, RepoRecord, SettingsSlot, ViewedFiles,
     WorkspaceRecord,
 };
 pub use outcome::{Outcome, OutcomeSink};

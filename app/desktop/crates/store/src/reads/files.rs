@@ -22,6 +22,17 @@ pub(crate) fn followed_workspace(state: &State) -> Option<&WorkspaceRecord> {
     slot.store.workspaces.get(&chat.workspace_id)
 }
 
+pub(crate) fn workspace_of_chat(
+    state: &State,
+    chat: &str,
+) -> Option<String> {
+    state
+        .hosts
+        .iter()
+        .find_map(|slot| slot.store.chats.get(chat))
+        .map(|record| record.workspace_id.clone())
+}
+
 pub(crate) fn root(state: &State) -> Option<String> {
     crate::live::workspace_root::of(state).map(|path| path.to_string_lossy().into_owned())
 }

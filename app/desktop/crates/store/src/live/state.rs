@@ -20,6 +20,7 @@ use crate::live::held::LinkState;
 use crate::live::held::PanelState;
 use crate::live::held::PendingRow;
 use crate::live::held::SettingsSlot;
+use crate::live::held::ViewedFiles;
 
 #[derive(Debug)]
 pub(crate) struct State {
@@ -31,6 +32,7 @@ pub(crate) struct State {
     pub(crate) unrevoked: BTreeMap<String, String>,
     pub(crate) icons: IconCache,
     pub(crate) settings: SettingsSlot,
+    pub(crate) viewed: ViewedFiles,
 }
 
 impl State {
@@ -44,6 +46,7 @@ impl State {
             unrevoked: BTreeMap::new(),
             icons: IconCache::default(),
             settings: SettingsSlot::default(),
+            viewed: ViewedFiles::default(),
         }
     }
 

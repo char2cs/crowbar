@@ -86,6 +86,9 @@ impl ShellView {
                 self.sidebar
                     .update(cx, |sidebar, cx| sidebar.ask_to_discard(&row, at_risk, cx));
             },
+            DataOutcome::ReviewViewed { workspace, viewed } => {
+                self.push_review_viewed(&workspace, &viewed);
+            },
             DataOutcome::RemovalRefused { row, reason } => {
                 tracing::warn!(%reason, "a delete was refused");
                 self.sidebar

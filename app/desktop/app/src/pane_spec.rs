@@ -63,9 +63,13 @@ impl PaneSpec {
         }
     }
 
-    pub(crate) fn review(chat: &str) -> Result<Self> {
+    pub(crate) fn review(
+        chat: &str,
+        reveal: Option<&str>,
+    ) -> Result<Self> {
         let params = Params::default().with(THREAD_ID, chat)?;
-        Self::new(REVIEW, params, PaneState::default())
+        let state = reveal.map(|path| PaneState::new(json!({ "reveal": path })));
+        Self::new(REVIEW, params, state.transpose()?.unwrap_or_default())
     }
 
     pub(crate) fn console() -> Result<Self> {
@@ -210,7 +214,7 @@ mod tests {
         ("console", PaneSpec::console, ("threadId", None)),
         (
             "review",
-            || PaneSpec::review("c1"),
+            || PaneSpec::review("c1", None),
             ("threadId", Some("c1")),
         ),
         (

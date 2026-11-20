@@ -46,11 +46,14 @@ fn changed_file(
     counts: &LineCounts,
 ) -> ChangedFile {
     let (added, deleted) = counts.get(&file.path).copied().unwrap_or_default();
+    let status = file.git_status();
+    let signature = ChangedFile::signature_of(status, "", (added.into(), deleted.into()));
     ChangedFile {
         path: file.path.clone(),
-        status: file.git_status(),
+        status,
         added,
         deleted,
+        signature,
     }
 }
 

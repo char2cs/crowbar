@@ -66,6 +66,7 @@ impl ChangesSource for DemoShell {
             status: GitStatus::Added,
             added: 1,
             deleted: 0,
+            ..ChangedFile::default()
         };
         Changes {
             branch: "inv-rb".into(),

@@ -1,15 +1,7 @@
 import type { StateCreator } from 'zustand'
-import {
-  loadBranchReviewViewed,
-  saveBranchReviewViewed,
-} from '@/lib/persistence/branch-review-viewed'
+import { viewedOwner } from '@/features/git/lib/viewed-owner'
+import type { ViewedFile } from '@/sdk/viewed-file'
 import type { WorkspaceState } from '../workspace-store.types'
-
-/** One file to mark: its path and the signature it has right now. */
-interface ViewedEntry {
-  path: string
-  signature: string
-}
 
 export type MergeStrategy = 'merge' | 'squash' | 'rebase'
 
@@ -66,11 +58,11 @@ export interface BranchReviewSlice {
    *  Empty until `viewedLoaded`. */
   viewedFiles: Record<string, string>
   viewedLoaded: boolean
-  /** Read the persisted viewed map once; a no-op after the first call. Run it
-   *  only where the review is shown, never from an always-mounted path. */
+  /** Follow the page's viewed owner; resolves once its map is known, and a no-op after the
+   *  first call. Run it only where the review is shown, never from an always-mounted path. */
   loadBranchReviewViewed: () => Promise<void>
-  /** Mark or unmark a batch in one state update and one IDB write. */
-  setFilesViewed: (entries: readonly ViewedEntry[], viewed: boolean) => Promise<void>
+  /** Ask the viewed owner to mark or unmark a batch; the map changes when the owner answers. */
+  setFilesViewed: (entries: readonly ViewedFile[], viewed: boolean) => Promise<void>
   setBranchReviewDescription: (description: string) => void
   setBranchReviewMergeStrategy: (strategy: MergeStrategy) => void
   setBranchReviewDiffStatus: (status: BranchReviewState['diffStatus']) => void
@@ -94,66 +86,61 @@ export const createBranchReviewSlice: StateCreator<
   [['zustand/immer', never]],
   [],
   BranchReviewSlice
-> = (set, get) => ({
-  branchReview: { ...INITIAL_BRANCH_REVIEW_STATE },
-  viewedFiles: {},
-  viewedLoaded: false,
+> = (set, get) => {
+  // One follow per store: the owner keeps it current for the store's lifetime.
+  let following: Promise<void> | null = null
+  return {
+    branchReview: { ...INITIAL_BRANCH_REVIEW_STATE },
+    viewedFiles: {},
+    viewedLoaded: false,
 
-  loadBranchReviewViewed: async () => {
-    if (get().viewedLoaded) return
-    const persisted = await loadBranchReviewViewed(get().workspaceId)
-    // Two concurrent loads must not let the slower one overwrite a toggle
-    // applied after the faster one.
-    set((s) => {
-      if (s.viewedLoaded) return
-      s.viewedFiles = persisted ?? {}
-      s.viewedLoaded = true
-    })
-  },
+    loadBranchReviewViewed: () => {
+      following ??= new Promise((resolve) => {
+        viewedOwner().follow(get().workspaceId, (viewed) => {
+          set((s) => {
+            s.viewedFiles = viewed
+            s.viewedLoaded = true
+          })
+          resolve()
+        })
+      })
+      return following
+    },
 
-  setFilesViewed: async (entries, viewed) => {
-    // Applying before the persisted map is read would write it back without
-    // everything not yet loaded.
-    await get().loadBranchReviewViewed()
-    set((s) => {
-      const next = { ...s.viewedFiles }
-      for (const { path, signature } of entries) {
-        if (viewed) next[path] = signature
-        else delete next[path]
-      }
-      s.viewedFiles = next
-    })
-    await saveBranchReviewViewed(get().workspaceId, get().viewedFiles)
-  },
+    setFilesViewed: async (entries, viewed) => {
+      await get().loadBranchReviewViewed()
+      await viewedOwner().set(get().workspaceId, { files: entries, viewed })
+    },
 
-  setBranchReviewDescription: (description) =>
-    set((s) => {
-      s.branchReview.description = description
-    }),
+    setBranchReviewDescription: (description) =>
+      set((s) => {
+        s.branchReview.description = description
+      }),
 
-  setBranchReviewMergeStrategy: (strategy) =>
-    set((s) => {
-      s.branchReview.mergeStrategy = strategy
-    }),
+    setBranchReviewMergeStrategy: (strategy) =>
+      set((s) => {
+        s.branchReview.mergeStrategy = strategy
+      }),
 
-  setBranchReviewDiffStatus: (status) =>
-    set((s) => {
-      s.branchReview.diffStatus = status
-    }),
+    setBranchReviewDiffStatus: (status) =>
+      set((s) => {
+        s.branchReview.diffStatus = status
+      }),
 
-  revealBranchReviewFile: (path) =>
-    set((s) => {
-      s.branchReview.revealFilePath = path
-      s.branchReview.revealFileNonce += 1
-    }),
+    revealBranchReviewFile: (path) =>
+      set((s) => {
+        s.branchReview.revealFilePath = path
+        s.branchReview.revealFileNonce += 1
+      }),
 
-  setBranchReviewConversations: (conversations) =>
-    set((s) => {
-      s.branchReview.conversations = conversations
-    }),
+    setBranchReviewConversations: (conversations) =>
+      set((s) => {
+        s.branchReview.conversations = conversations
+      }),
 
-  addReviewConversation: (conversation) =>
-    set((s) => {
-      s.branchReview.conversations.unshift(conversation)
-    }),
-})
+    addReviewConversation: (conversation) =>
+      set((s) => {
+        s.branchReview.conversations.unshift(conversation)
+      }),
+  }
+}

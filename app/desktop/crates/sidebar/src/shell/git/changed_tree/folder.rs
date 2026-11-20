@@ -81,6 +81,15 @@ impl<'a> Folder<'a> {
         (names.join("/"), node)
     }
 
+    pub(super) fn all_files(&self) -> Vec<&'a ChangedFile> {
+        let below = self.folders.values().flat_map(Folder::all_files);
+        self.files
+            .iter()
+            .map(|(_, file)| *file)
+            .chain(below)
+            .collect()
+    }
+
     pub(super) fn sorted_folders(&self) -> Vec<&Self> {
         let mut folders: Vec<&Self> = self.folders.values().collect();
         folders.sort_by_key(|folder| folder.name.to_lowercase());
@@ -117,6 +126,7 @@ mod tests {
             status: GitStatus::Modified,
             added: 0,
             deleted: 0,
+            ..ChangedFile::default()
         }
     }
 

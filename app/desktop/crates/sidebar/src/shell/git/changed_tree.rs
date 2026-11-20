@@ -1,6 +1,6 @@
 //! The Changes panel's tree: changed files grouped under their folders.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use crate::shell::Expansion;
 use crate::shell::git::changed_file::ChangedFile;
@@ -11,7 +11,9 @@ mod folder;
 
 use folder::Folder;
 
-type Marks<'m> = (&'m BTreeSet<String>, &'m BTreeMap<String, u32>);
+type FileMark = (String, String);
+
+type Marks<'m> = (&'m BTreeSet<String>, &'m Changes);
 
 fn expansion(
     folded: &BTreeSet<String>,
@@ -23,17 +25,38 @@ fn expansion(
     Expansion::Expanded
 }
 
+fn is_viewed(
+    changes: &Changes,
+    file: &ChangedFile,
+) -> bool {
+    changes.viewed.get(&file.path) == Some(&file.signature)
+}
+
 fn file_row(
     (name, file): (&str, &ChangedFile),
     depth: u8,
-    threads: &BTreeMap<String, u32>,
+    changes: &Changes,
 ) -> ChangedRow {
     ChangedRow::File {
         file: file.clone(),
         name: name.to_owned(),
         depth,
-        threads: threads.get(&file.path).copied().unwrap_or_default(),
+        threads: changes.threads.get(&file.path).copied().unwrap_or_default(),
+        viewed: is_viewed(changes, file),
     }
+}
+
+fn marks_under(
+    node: &Folder<'_>,
+    changes: &Changes,
+) -> (Vec<FileMark>, usize) {
+    let files = node.all_files();
+    let viewed = files.iter().filter(|file| is_viewed(changes, file)).count();
+    let marks = files
+        .into_iter()
+        .map(|file| (file.path.clone(), file.signature.clone()))
+        .collect();
+    (marks, viewed)
 }
 
 fn level(
@@ -59,11 +82,14 @@ fn folder_rows(
 ) -> Vec<ChangedRow> {
     let (label, node) = start.chain();
     let expansion = expansion(marks.0, &node.path);
+    let (files, viewed) = marks_under(node, marks.1);
     let row = ChangedRow::Folder {
         path: node.path.clone(),
         label,
         depth,
         expansion,
+        files,
+        viewed,
     };
     let inside = match expansion {
         Expansion::Expanded => level(node, depth.saturating_add(1), marks),
@@ -80,12 +106,14 @@ impl Changes {
         &self,
         folded: &BTreeSet<String>,
     ) -> Vec<ChangedRow> {
-        level(&Folder::of(&self.files), 0, (folded, &self.threads))
+        level(&Folder::of(&self.files), 0, (folded, self))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
     use crate::shell::listing::GitStatus;
 
@@ -98,7 +126,7 @@ mod tests {
 
     const CASES: &[Case] = &[
         Case {
-            name: "folders come before files, each level sorted",
+            name: "folders come first; a folder counts the viewed files under it",
             paths: &[
                 "README.md",
                 "src/pricing.ts",
@@ -107,11 +135,11 @@ mod tests {
             ],
             folded: &[],
             outline: &[
-                "0 src/",
-                "1 stock/",
+                "0 src/ 1/3",
+                "1 stock/ 0/1",
                 "2 a.ts",
                 "1 pricing.test.ts",
-                "1 pricing.ts (2)",
+                "1 pricing.ts (2) ✓",
                 "0 README.md",
             ],
         },
@@ -119,13 +147,13 @@ mod tests {
             name: "a chain of lone folders is one row",
             paths: &["chain/only/x.ts", "chain/only/y.ts"],
             folded: &[],
-            outline: &["0 chain/only/", "1 x.ts", "1 y.ts"],
+            outline: &["0 chain/only/ 0/2", "1 x.ts", "1 y.ts"],
         },
         Case {
             name: "folding a chain hides its files",
             paths: &["chain/only/x.ts", "chain/only/y.ts"],
             folded: &["chain/only"],
-            outline: &["0 chain/only/ folded"],
+            outline: &["0 chain/only/ 0/2 folded"],
         },
         Case {
             name: "a trailing slash names the entry",
@@ -141,6 +169,7 @@ mod tests {
             status: GitStatus::Modified,
             added: 1,
             deleted: 0,
+            signature: "s".into(),
         }
     }
 
@@ -148,39 +177,52 @@ mod tests {
         Changes {
             files: paths.iter().map(|path| file(path)).collect(),
             threads: BTreeMap::from([("src/pricing.ts".to_owned(), 2)]),
+            viewed: BTreeMap::from([
+                ("src/pricing.ts".to_owned(), "s".to_owned()),
+                ("src/stock/a.ts".to_owned(), "changed since".to_owned()),
+            ]),
             ..Changes::default()
         }
     }
 
-    fn suffix(
-        expansion: Expansion,
-        threads: u32,
-    ) -> String {
-        if expansion == Expansion::Collapsed {
-            return " folded".into();
-        }
-        if threads == 0 {
-            return String::new();
-        }
-        format!(" ({threads})")
+    fn folder_line(row: &ChangedRow) -> Option<String> {
+        let ChangedRow::Folder {
+            label,
+            depth,
+            expansion,
+            files,
+            viewed,
+            ..
+        } = row
+        else {
+            return None;
+        };
+        let folded = (*expansion == Expansion::Collapsed).then_some(" folded");
+        let folded = folded.unwrap_or_default();
+        Some(format!("{depth} {label}/ {viewed}/{}{folded}", files.len()))
+    }
+
+    fn file_line(row: &ChangedRow) -> Option<String> {
+        let ChangedRow::File {
+            name,
+            depth,
+            threads,
+            viewed,
+            ..
+        } = row
+        else {
+            return None;
+        };
+        let threads = (*threads > 0).then(|| format!(" ({threads})"));
+        let threads = threads.unwrap_or_default();
+        let tick = viewed.then_some(" ✓").unwrap_or_default();
+        Some(format!("{depth} {name}{threads}{tick}"))
     }
 
     fn line(row: &ChangedRow) -> String {
-        let (label, depth, end) = match row {
-            ChangedRow::Folder {
-                label,
-                depth,
-                expansion,
-                ..
-            } => (format!("{label}/"), depth, suffix(*expansion, 0)),
-            ChangedRow::File {
-                name,
-                depth,
-                threads,
-                ..
-            } => (name.clone(), depth, suffix(Expansion::Expanded, *threads)),
-        };
-        format!("{depth} {label}{end}")
+        folder_line(row)
+            .or_else(|| file_line(row))
+            .unwrap_or_default()
     }
 
     #[test]
