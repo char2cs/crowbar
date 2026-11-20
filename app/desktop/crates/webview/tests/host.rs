@@ -15,8 +15,9 @@ use webview::{
 use x11rb::connection::Connection as _;
 use x11rb::protocol::Event;
 use x11rb::protocol::xproto::{
-    BUTTON_PRESS_EVENT, BUTTON_RELEASE_EVENT, ClientMessageEvent, ConnectionExt as _,
-    CreateWindowAux, EventMask, KEY_PRESS_EVENT, KEY_RELEASE_EVENT, PropMode, Screen, WindowClass,
+    BUTTON_PRESS_EVENT, BUTTON_RELEASE_EVENT, ChangeWindowAttributesAux, ClientMessageEvent,
+    ConnectionExt as _, CreateWindowAux, EventMask, KEY_PRESS_EVENT, KEY_RELEASE_EVENT, PropMode,
+    Screen, WindowClass,
 };
 use x11rb::protocol::xtest::ConnectionExt as _;
 use x11rb::rust_connection::RustConnection;
@@ -215,6 +216,53 @@ fn a_press_on_the_page_is_reported(
     Ok(())
 }
 
+fn keys_reaching(
+    connection: &RustConnection,
+    window: u32,
+) -> TestResult<usize> {
+    let mut heard = 0;
+    while let Some(event) = connection.poll_for_event()? {
+        heard += usize::from(matches!(event, Event::KeyPress(key) if key.event == window));
+    }
+    Ok(heard)
+}
+
+fn the_parent_takes_keys_over_a_page_once_it_holds_the_keyboard(
+    connection: &RustConnection,
+    screen: &Screen,
+    host: &Host,
+    parent: u32,
+) -> TestResult {
+    let (view, messages) = page_in(host, parent)?;
+    let listening = EventMask::STRUCTURE_NOTIFY | EventMask::KEY_PRESS;
+    connection.change_window_attributes(
+        parent,
+        &ChangeWindowAttributesAux::new().event_mask(listening),
+    )?;
+    connection.warp_pointer(NONE, parent, 0, 0, 0, 0, INSIDE, INSIDE)?;
+    view.focus()?;
+    view.focus_parent()?;
+    view.eval("window.ipc.postMessage('handed back')")?;
+    wait_for(&messages, "handed back", PAGE_WAIT)?;
+    keys_reaching(connection, parent)?;
+    type_a(connection, screen)?;
+    assert_eq!(
+        keys_reaching(connection, parent)?,
+        1,
+        "the page under the pointer took the key"
+    );
+    view.focus()?;
+    view.eval("window.ipc.postMessage('taken')")?;
+    wait_for(&messages, "taken", PAGE_WAIT)?;
+    type_a(connection, screen)?;
+    assert_eq!(
+        wait_for(&messages, "key a", KEY_WAIT),
+        Ok(()),
+        "the page did not get its keys back"
+    );
+    Ok(())
+}
+
 struct Manager {
     connection: RustConnection,
     window: u32,
@@ -388,5 +436,11 @@ fn native_views_on_x11() -> TestResult {
     })?;
     a_focused_view_takes_keys_while_the_pointer_is_elsewhere(&connection, &screen, &host, parent)?;
     a_press_on_the_page_is_reported(&connection, &screen, &host, parent)?;
+    the_parent_takes_keys_over_a_page_once_it_holds_the_keyboard(
+        &connection,
+        &screen,
+        &host,
+        parent,
+    )?;
     the_caret_follows_the_desktop_settings_manager(&host)
 }

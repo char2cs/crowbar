@@ -110,16 +110,15 @@ impl GtkState {
         let wanted = to_rect(config.bounds);
         let page_window = page_window_of(&view)?;
         report_pointer(&view, config.on_page.clone());
-        self.views.insert(
-            id,
-            LiveView {
-                view,
-                kind,
-                place: RememberedPlace::new(wanted),
-                page_window,
-                parent: window,
-            },
-        );
+        let live = LiveView {
+            view,
+            kind,
+            place: RememberedPlace::new(wanted),
+            page_window,
+            parent: window,
+        };
+        view_ops::ignore_keys(&live);
+        self.views.insert(id, live);
         Ok(())
     }
 

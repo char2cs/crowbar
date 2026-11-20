@@ -1,11 +1,14 @@
 use std::sync::mpsc;
 
 use gtk::gdk;
+use gtk::gdk::EventMask;
+use gtk::prelude::WidgetExt as _;
 use webkit2gtk::{SnapshotOptions, SnapshotRegion, WebViewExt as _};
 use wry::WebViewExtUnix;
 
 use crate::backend::native::linux::capture::snapshot_of;
 use crate::backend::native::linux::gtk_state::GtkState;
+use crate::backend::native::linux::gtk_state::live_view::LiveView;
 use crate::backend::native::wry_builder::to_rect;
 use crate::error::Result;
 use crate::view::Bounds;
@@ -13,6 +16,27 @@ use crate::view::Color;
 use crate::view::Id;
 use crate::view::Snapshot;
 use crate::view::Visibility;
+
+const KEYS: EventMask = EventMask::KEY_PRESS_MASK.union(EventMask::KEY_RELEASE_MASK);
+
+// PLATFORM: linux X hands a key to the deepest window under the pointer that selects keys while the pointer lies inside the focus window, so only the page holding the keyboard selects them.
+fn change_key_events(
+    live: &LiveView,
+    change: impl FnOnce(EventMask) -> EventMask,
+) {
+    let Some(window) = live.view.webview().window() else {
+        return;
+    };
+    window.set_events(change(window.events()));
+}
+
+fn hear_keys(live: &LiveView) {
+    change_key_events(live, |events| events | KEYS);
+}
+
+pub(crate) fn ignore_keys(live: &LiveView) {
+    change_key_events(live, |events| events - KEYS);
+}
 
 fn answer(
     reply: &mpsc::Sender<Result<Option<Snapshot>>>,
@@ -74,6 +98,11 @@ impl GtkState {
         id: Id,
     ) -> Result<()> {
         let live = self.live(id)?;
+        self.views
+            .iter()
+            .filter(|(other, _)| **other != id)
+            .for_each(|(_, other)| ignore_keys(other));
+        hear_keys(live);
         live.view.focus()?;
         // PLATFORM: linux X serves each client connection on its own, so GDK's queued map of the page window must reach the server before the focus request on ours.
         gdk::Display::default().iter().for_each(gdk::Display::sync);
@@ -84,7 +113,9 @@ impl GtkState {
         &self,
         id: Id,
     ) -> Result<()> {
-        Ok(self.keyboard.give_to(self.live(id)?.parent)?)
+        let parent = self.live(id)?.parent;
+        self.views.values().for_each(ignore_keys);
+        Ok(self.keyboard.give_to(parent)?)
     }
 
     pub(crate) fn snapshot(
