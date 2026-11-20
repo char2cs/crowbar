@@ -1,9 +1,14 @@
-use gpui::{Context, EventEmitter, IntoElement, ParentElement, Render, Styled, Window, div, px};
+use gpui::{
+    Context, EventEmitter, IntoElement, ParentElement, Pixels, Render, Size, Styled, Window, div,
+    px,
+};
 use ui::{Button, ButtonSize, ButtonVariant, Surface, Theme, Wordmark};
 
 use crate::new_tab_action::NewTabAction;
 
-const WORDMARK_WIDTH: f32 = 128.0;
+const WORDMARK_MIN: f32 = 96.0;
+const WORDMARK_MAX: f32 = 148.0;
+const WORDMARK_SHARE: f32 = 0.14;
 const PAGE_GAP: f32 = 24.0;
 const ROW_GAP: f32 = 2.0;
 
@@ -16,9 +21,10 @@ impl EventEmitter<NewTabAction> for NewTabView {}
 impl Render for NewTabView {
     fn render(
         &mut self,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
+        let wordmark = wordmark_width(window.viewport_size());
         let palette = Theme::of(cx).palette(Surface::Window);
         let rows = self.actions.map(|action| {
             Button::new(action.label(), action.label())
@@ -35,9 +41,14 @@ impl Render for NewTabView {
             .justify_center()
             .gap(px(PAGE_GAP))
             .bg(palette.pane_background())
-            .child(Wordmark::new(px(WORDMARK_WIDTH)))
+            .child(Wordmark::new(wordmark))
             .child(div().flex().flex_col().gap(px(ROW_GAP)).children(rows))
     }
+}
+
+fn wordmark_width(viewport: Size<Pixels>) -> Pixels {
+    let short = f32::from(viewport.width.min(viewport.height));
+    px((short * WORDMARK_SHARE).clamp(WORDMARK_MIN, WORDMARK_MAX))
 }
 
 #[cfg(test)]
@@ -56,6 +67,19 @@ mod tests {
     ) {
         let handler = move |_, action: &NewTabAction, _: &mut App| sink.borrow_mut().push(*action);
         cx.update(|cx| cx.subscribe(view, handler).detach());
+    }
+
+    #[test]
+    fn the_wordmark_is_a_seventh_of_the_window_s_short_side_within_96_and_148_px() {
+        let cases = [
+            ((640.0, 480.0), 96.0),
+            ((1280.0, 800.0), 112.0),
+            ((1920.0, 1200.0), 148.0),
+        ];
+        for ((width, height), expected) in cases {
+            let viewport = gpui::size(px(width), px(height));
+            assert_eq!(wordmark_width(viewport), px(expected), "{width}x{height}");
+        }
     }
 
     #[gpui::test]
