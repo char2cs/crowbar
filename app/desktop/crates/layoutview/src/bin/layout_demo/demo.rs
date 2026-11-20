@@ -31,6 +31,7 @@ impl Demo {
         let view = cx.new(|_| LayoutView::new(Rc::new(DemoSource::starting_at_first_tab())));
         let chrome = ChromeContext {
             sidebar: SidebarEdge::Left,
+            side: layout::SidebarSide::Left,
             tab_strip: true,
         };
         let tab = layout.active_tab().cloned();

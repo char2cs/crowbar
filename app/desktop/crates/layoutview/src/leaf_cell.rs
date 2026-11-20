@@ -39,7 +39,7 @@ impl LayoutView {
             y: 0.0,
             ..frame.hole
         };
-        let shown = Presentation::of(group, local, self.chrome.sidebar.side(), DEFAULT_CHAT_SHARE);
+        let shown = Presentation::of(group, local, self.chrome.side, DEFAULT_CHAT_SHARE);
         let cell = PaneCell {
             handle: self.handle_for(&pane, (now, motion), cx),
             ring_opacity: self.rings.opacity(&pane, now, motion),

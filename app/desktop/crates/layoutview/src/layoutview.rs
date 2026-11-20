@@ -19,7 +19,7 @@ pub fn pane_holes(
         .into_iter()
         .flat_map(|(rect, group)| {
             let hole = PaneFrame::new(rect, content, chrome).hole;
-            let shown = Presentation::of(group, hole, chrome.sidebar.side(), DEFAULT_CHAT_SHARE);
+            let shown = Presentation::of(group, hole, chrome.side, DEFAULT_CHAT_SHARE);
             holes_of(group, &shown)
         })
         .collect()
@@ -90,6 +90,7 @@ mod tests {
     };
     const CHROME: ChromeContext = ChromeContext {
         sidebar: SidebarEdge::Left,
+        side: layout::SidebarSide::Left,
         tab_strip: true,
     };
 
@@ -232,6 +233,23 @@ mod tests {
             editor.y - chat.y,
             layout::TOP_ROW_HEIGHT,
             "below the tab bar"
+        );
+    }
+
+    #[test]
+    fn a_closed_sidebar_docked_on_the_right_keeps_the_chat_on_the_right() {
+        let mut layout = layout_of("a", &[]);
+        crate::test_support::open_tab(&mut layout, "t1");
+        let tab = layout.active_tab().expect("tab");
+        let chrome = ChromeContext {
+            sidebar: SidebarEdge::Closed,
+            side: layout::SidebarSide::Right,
+            ..CHROME
+        };
+        let holes = pane_holes(tab, CONTENT, chrome);
+        assert!(
+            holes[0].rect.x > holes[1].rect.x,
+            "the chat right of the editor: {holes:?}"
         );
     }
 }

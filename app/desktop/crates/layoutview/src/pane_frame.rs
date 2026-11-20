@@ -84,18 +84,22 @@ mod tests {
     };
     const WITH_STRIP: ChromeContext = ChromeContext {
         sidebar: SidebarEdge::Left,
+        side: layout::SidebarSide::Left,
         tab_strip: true,
     };
     const CLOSED: ChromeContext = ChromeContext {
         sidebar: SidebarEdge::Closed,
+        side: layout::SidebarSide::Left,
         tab_strip: true,
     };
     const SIDEBAR_RIGHT: ChromeContext = ChromeContext {
         sidebar: SidebarEdge::Right,
+        side: layout::SidebarSide::Right,
         tab_strip: true,
     };
     const NO_STRIP: ChromeContext = ChromeContext {
         sidebar: SidebarEdge::Left,
+        side: layout::SidebarSide::Left,
         tab_strip: false,
     };
 

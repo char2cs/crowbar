@@ -119,6 +119,7 @@ mod tests {
         };
         let chrome = ChromeContext {
             sidebar: SidebarEdge::Left,
+            side: layout::SidebarSide::Left,
             tab_strip: true,
         };
         let panes = visible_panes(layout.active_tab(), area, (chrome, &NoChrome));
