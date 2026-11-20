@@ -59,4 +59,11 @@ mod tests {
             assert!(cx.debug_bounds(selector).is_some(), "{selector}");
         }
     }
+
+    #[gpui::test]
+    fn a_chord_button_stands_as_tall_as_develops_outline_button(cx: &mut TestAppContext) {
+        let (_, cx) = open(cx, "keybindings");
+        let chord = cx.debug_bounds("chord-navigation.toggleConsole");
+        assert_eq!(chord.map(|bounds| bounds.size.height), Some(gpui::px(32.0)));
+    }
 }

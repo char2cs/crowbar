@@ -118,15 +118,28 @@ mod tests {
 
     #[test]
     fn path_resolves_only_embedded_weights() {
-        assert_eq!(
-            Icon::path(IconName::Gear, IconWeight::Regular),
-            Some("icons/regular/gear.svg")
-        );
-        assert_eq!(
-            Icon::path(IconName::GitBranch, IconWeight::Fill),
-            Some("icons/fill/git-branch.svg")
-        );
-        assert_eq!(Icon::path(IconName::Gear, IconWeight::Duotone), None);
+        type Case = (IconName, IconWeight, Option<&'static str>);
+        const CASES: &[Case] = &[
+            (
+                IconName::Gear,
+                IconWeight::Regular,
+                Some("icons/regular/gear.svg"),
+            ),
+            (
+                IconName::GitBranch,
+                IconWeight::Fill,
+                Some("icons/fill/git-branch.svg"),
+            ),
+            (IconName::Gear, IconWeight::Duotone, None),
+            (
+                IconName::Keyboard,
+                IconWeight::Regular,
+                Some("icons/regular/keyboard.svg"),
+            ),
+        ];
+        for &(name, weight, path) in CASES {
+            assert_eq!(Icon::path(name, weight), path, "{name:?} {weight:?}");
+        }
     }
 
     #[test]

@@ -20,7 +20,8 @@ use chord::Chord;
 
 const LABEL_ICON: f32 = 14.0;
 const WARNING_ICON: f32 = 14.0;
-const CHORD_HEIGHT: f32 = 28.0;
+const CHORD_HEIGHT: f32 = 32.0;
+const OUTLINE_FILL: f32 = 0.32;
 const CHORD_MIN_WIDTH: f32 = 88.0;
 const DISABLED_OPACITY: f32 = 0.64;
 const CHIP_X: f32 = 6.0;
@@ -181,10 +182,14 @@ fn chord_colors(
         ),
         ChordLook::Conflict => (
             palette.destructive(),
-            palette.background(),
+            palette.input().opacity(OUTLINE_FILL),
             palette.destructive(),
         ),
-        ChordLook::Idle => (palette.input(), palette.background(), palette.foreground()),
+        ChordLook::Idle => (
+            palette.input(),
+            palette.input().opacity(OUTLINE_FILL),
+            palette.foreground(),
+        ),
     }
 }
 
@@ -199,6 +204,10 @@ fn chord_button(
     let (border, fill, ink) = chord_colors(palette, face.look);
     let base = div()
         .id(element_id("chord", command))
+        .debug_selector({
+            let selector = format!("chord-{command}");
+            move || selector
+        })
         .flex()
         .items_center()
         .justify_center()
