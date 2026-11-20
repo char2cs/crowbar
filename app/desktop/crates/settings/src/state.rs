@@ -82,6 +82,12 @@ impl State {
         self.visibility = Visibility::compute(&self.schema, &self.scope(), &self.query);
         let visible: Vec<&PageId> = self.visibility.pages().iter().collect();
         self.navigation.reconcile(&visible);
+        if self.query.trim().is_empty() {
+            return;
+        }
+        if let Some(&first) = visible.first() {
+            self.navigation.select(first, &visible);
+        }
     }
 }
 

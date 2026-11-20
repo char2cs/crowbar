@@ -2,8 +2,8 @@
 //! Spec: web/src/features/settings/components/tabs/keybindings-settings.tsx.
 
 use gpui::{
-    AnyElement, App, InteractiveElement, IntoElement, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled, Window, div, px,
+    AnyElement, App, Div, FocusHandle, InteractiveElement, IntoElement, ParentElement,
+    SharedString, Stateful, StatefulInteractiveElement, Styled, Window, div, px,
 };
 use settings::{ChordSource, Shortcut, ShortcutGroup};
 use ui::{
@@ -14,6 +14,7 @@ use crate::frame::Frame;
 use crate::frame::element_id;
 use crate::frame::spacing;
 use crate::intent::Intent;
+use crate::modal::pages::shortcuts::capture::capturing;
 use crate::modal::pages::shortcuts::chord_face::ChordFace;
 use crate::modal::pages::shortcuts::chord_look::ChordLook;
 use chord::Chord;
@@ -36,7 +37,7 @@ const RESET: &str = "Reset";
 pub(crate) fn shortcut_row(
     frame: &Frame<'_>,
     entry: (&ShortcutGroup, &Shortcut),
-    (_, cx): (&mut Window, &mut App),
+    (window, cx): (&mut Window, &mut App),
 ) -> impl IntoElement {
     let (group, shortcut) = entry;
     let theme = *Theme::of(cx);
@@ -49,6 +50,7 @@ pub(crate) fn shortcut_row(
     let face = ChordFace {
         text: chord_text(frame, (&command, chord.as_ref())),
         look: look_of(frame, &command, &conflicts),
+        focus: chord_focus(&command, (window, cx)),
     };
     let chord_box = chord_button(frame, shortcut, face, &theme);
     let selector = format!("shortcut-{command}");
@@ -193,16 +195,55 @@ fn chord_colors(
     }
 }
 
+fn chord_focus(
+    command: &str,
+    (window, cx): (&mut Window, &mut App),
+) -> FocusHandle {
+    window
+        .use_keyed_state(element_id("chord-focus", command), cx, |_, cx| {
+            cx.focus_handle()
+        })
+        .read(cx)
+        .clone()
+}
+
 fn chord_button(
     frame: &Frame<'_>,
     shortcut: &Shortcut,
     face: ChordFace,
     theme: &Theme,
 ) -> AnyElement {
-    let palette = theme.palette(Surface::Window);
     let command = shortcut.command();
+    let look = face.look;
+    let focus = face.focus.clone();
+    let base = chord_box(command, face, theme);
+    if shortcut.is_display_only() {
+        return base.opacity(DISABLED_OPACITY).into_any_element();
+    }
+    let sink = frame.sink.clone();
+    let intent = Intent::Capture(command.to_owned());
+    let held = focus.clone();
+    let base = base
+        .track_focus(&focus)
+        .cursor_pointer()
+        .on_click(move |_, window, cx| {
+            window.focus(&held);
+            sink.deliver(intent.clone(), (window, cx));
+        });
+    if look != ChordLook::Capturing {
+        return base.into_any_element();
+    }
+    capturing(base, &focus, frame.sink).into_any_element()
+}
+
+fn chord_box(
+    command: &str,
+    face: ChordFace,
+    theme: &Theme,
+) -> Stateful<Div> {
+    let palette = theme.palette(Surface::Window);
     let (border, fill, ink) = chord_colors(palette, face.look);
-    let base = div()
+    div()
         .id(element_id("chord", command))
         .debug_selector({
             let selector = format!("chord-{command}");
@@ -221,13 +262,7 @@ fn chord_button(
         .font_family(theme.mono_family())
         .text_size(ScaledText::Sm.size(theme))
         .text_color(ink)
-        .child(face.text);
-    if shortcut.is_display_only() {
-        return base.opacity(DISABLED_OPACITY).into_any_element();
-    }
-    base.cursor_pointer()
-        .on_click(frame.sink.send(Intent::Capture(command.to_owned())))
-        .into_any_element()
+        .child(face.text)
 }
 
 fn reset_button(
@@ -246,7 +281,7 @@ mod tests {
     use settings::{KEYBINDING_OVERRIDES, Key, ModifierKey, Pressed, Read as _, Value};
 
     use crate::intent::Intent;
-    use crate::test_support::{inspect, open, run};
+    use crate::test_support::{inspect, open, open_floating, run};
     use chord::Primary;
 
     const COMMAND: &str = "navigation.toggleConsole";
@@ -294,5 +329,21 @@ mod tests {
             .state
             .capturing()
             .is_none()));
+    }
+
+    #[gpui::test]
+    fn a_chord_clicked_in_the_open_dialog_takes_the_next_typed_chord(cx: &mut TestAppContext) {
+        let (harness, mut owner, mut top) = open_floating(cx, "keybindings");
+        harness
+            .modal
+            .update_in(&mut owner, |modal, window, cx| modal.focus(window, cx));
+        owner.run_until_parked();
+        let chord = top.debug_bounds("chord-navigation.toggleConsole").unwrap();
+        top.simulate_click(chord.center(), gpui::Modifiers::none());
+        top.simulate_keystrokes("escape");
+        assert_eq!(harness.closed.get(), 0, "escape cancels the capture only");
+        top.simulate_click(chord.center(), gpui::Modifiers::none());
+        top.simulate_keystrokes("ctrl-shift-k");
+        assert!(matches!(overrides(&harness), Some(Value::Map(map)) if map.len() == 1));
     }
 }

@@ -5,7 +5,7 @@ mod empty_view;
 mod header;
 mod key_routing;
 mod notice_view;
-mod pages;
+pub(crate) mod pages;
 mod prompt_view;
 mod rail;
 

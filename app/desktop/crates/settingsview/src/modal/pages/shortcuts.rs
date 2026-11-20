@@ -1,5 +1,6 @@
 //! A titled group of rebindable shortcuts.
 
+pub(crate) mod capture;
 mod chord_face;
 mod chord_look;
 mod row;

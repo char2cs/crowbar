@@ -19,7 +19,6 @@ pub(crate) fn body(
 ) -> AnyElement {
     let focus = frame.focus;
     let sink = frame.sink.clone();
-    let capture = frame.state.capturing().map(|_| Mode::Capturing);
     let focused = focus.clone();
     div()
         .id("settings-body")
@@ -29,7 +28,7 @@ pub(crate) fn body(
         .min_w_0()
         .overflow_hidden()
         .on_key_down(move |event, window, cx| {
-            let mode = capture.unwrap_or_else(|| rail_or_page(&focused, window));
+            let mode = rail_or_page(&focused, window);
             deliver_key(&sink, route(&event.keystroke, mode), (window, cx));
         })
         .child(rail(frame, (&mut *window, &mut *cx)))
@@ -64,7 +63,6 @@ mod tests {
     use gpui::TestAppContext;
     use settings::{KEYBINDING_OVERRIDES, Key, Read as _, Value};
 
-    use crate::intent::Intent;
     use crate::test_support::{Harness, inspect, open};
 
     fn focus_body(
@@ -73,7 +71,7 @@ mod tests {
     ) {
         harness
             .modal
-            .update_in(cx, |modal, window, _| modal.focus(window));
+            .update_in(cx, |modal, window, _| modal.focus.focus(window));
         cx.run_until_parked();
     }
 
@@ -107,11 +105,8 @@ mod tests {
     fn while_capturing_a_chord_keys_go_to_the_capture(cx: &mut TestAppContext) {
         let (harness, cx) = open(cx, "keybindings");
         focus_body(&harness, cx);
-        crate::test_support::run(
-            &harness,
-            Intent::Capture("navigation.toggleConsole".to_owned()),
-            cx,
-        );
+        let chord = cx.debug_bounds("chord-navigation.toggleConsole").unwrap();
+        cx.simulate_click(chord.center(), gpui::Modifiers::none());
         cx.simulate_keystrokes("a");
         assert!(inspect(&harness, cx, |modal| modal
             .state

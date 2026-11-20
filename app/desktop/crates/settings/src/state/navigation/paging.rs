@@ -29,11 +29,14 @@ impl State {
             .filter(|page| self.visibility.pages().contains(&page.id))
     }
 
-    /// Selects `id` when it is visible.
+    /// Selects `id` when it is visible; a search keeps its first page selected, as develop's rail does.
     pub fn select_page(
         &mut self,
         id: &PageId,
     ) {
+        if self.searching() {
+            return;
+        }
         let visible: Vec<&PageId> = self.visibility.pages().iter().collect();
         self.navigation.select(id, &visible);
     }
@@ -43,6 +46,9 @@ impl State {
         &mut self,
         movement: RailMove,
     ) {
+        if self.searching() {
+            return;
+        }
         let visible: Vec<&PageId> = self.visibility.pages().iter().collect();
         self.navigation.step(movement, &visible);
     }
@@ -60,12 +66,10 @@ impl State {
     ) {
         query.clone_into(&mut self.query);
         self.refresh();
-        if query.trim().is_empty() {
-            return;
-        }
-        if let Some(first) = self.visibility.pages().first().cloned() {
-            self.select_page(&first);
-        }
+    }
+
+    fn searching(&self) -> bool {
+        !self.query.trim().is_empty()
     }
 }
 
@@ -118,5 +122,21 @@ mod tests {
         state.set_query("");
         assert_eq!(state.visible_pages().len(), 3);
         assert_eq!(state.query(), "");
+    }
+
+    #[test]
+    fn a_search_keeps_its_first_page_selected() {
+        const CASES: &[(&str, &str, &str)] = &[
+            ("font", "browser", "Appearance"),
+            ("", "browser", "Browser"),
+        ];
+        for &(query, picked, shown) in CASES {
+            let mut state = state();
+            state.set_query(query);
+            state.select_page(&PageId::from(picked));
+            state.move_selection(RailMove::First);
+            state.select_page(&PageId::from(picked));
+            assert_eq!(state.page().map(Page::label), Some(shown), "{query:?}");
+        }
     }
 }

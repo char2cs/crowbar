@@ -4,20 +4,17 @@ mod mode;
 mod pressed;
 
 pub(crate) use mode::Mode;
+pub(crate) use pressed::pressed;
 
 use gpui::Keystroke;
 use settings::RailMove;
 
 use crate::intent::Intent;
-use crate::modal::key_routing::pressed::pressed;
 
 pub(crate) fn route(
     keystroke: &Keystroke,
     mode: Mode,
 ) -> Option<Intent> {
-    if mode == Mode::Capturing {
-        return Some(Intent::Key(pressed(keystroke)));
-    }
     if keystroke.key == "escape" {
         return Some(Intent::Close);
     }
@@ -43,15 +40,6 @@ mod tests {
         mode: Mode,
     ) -> Option<Intent> {
         route(&Keystroke::parse(keystroke).unwrap(), mode)
-    }
-
-    #[test]
-    fn capturing_takes_every_key_including_escape() {
-        assert!(matches!(
-            routed("escape", Mode::Capturing),
-            Some(Intent::Key(_))
-        ));
-        assert!(matches!(routed("a", Mode::Capturing), Some(Intent::Key(_))));
     }
 
     #[test]

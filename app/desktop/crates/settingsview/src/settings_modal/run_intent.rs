@@ -99,7 +99,6 @@ impl SettingsModal {
             Intent::Search(event) => self.search_event(&event, window, cx),
             Intent::Capture(command) => {
                 self.state.toggle_capture(&command);
-                self.focus.focus(window);
                 None
             },
             Intent::ClearChord(command) => self.state.clear_chord(&command),

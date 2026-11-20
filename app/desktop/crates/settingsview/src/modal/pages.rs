@@ -6,7 +6,7 @@ mod heading_view;
 mod records;
 mod rows;
 mod section_view;
-mod shortcuts;
+pub(crate) mod shortcuts;
 mod title_block;
 
 use gpui::{AnyElement, App, IntoElement, ParentElement, ScrollHandle, Styled, Window, div};
