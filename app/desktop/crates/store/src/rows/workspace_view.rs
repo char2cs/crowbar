@@ -30,7 +30,8 @@ pub(crate) fn landed(record: &WorkspaceRecord) -> Workspace {
         branch: record.branch.clone(),
         added: record.added,
         deleted: record.deleted,
-        held_by_path: Some(record.held_by_path.clone()).filter(|path| !path.is_empty()),
+        held_by_path: Some(record.held_by_path.clone())
+            .filter(|path| !path.is_empty() && record.provisioning == PLACEHOLDER),
     }
 }
 
@@ -74,6 +75,13 @@ mod tests {
         held.held_by_path = "/repo".into();
         assert_eq!(landed(&held).held_by_path.as_deref(), Some("/repo"));
         assert_eq!(landed(&record("new", "")).held_by_path, None);
+        let mut provisioned = record("new", "provisioned");
+        provisioned.held_by_path = "/repo".into();
+        assert_eq!(
+            landed(&provisioned).held_by_path,
+            None,
+            "a provisioned workspace is held by no one"
+        );
         assert!(is_locked(&held));
     }
 }

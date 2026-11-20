@@ -1,6 +1,6 @@
 //! The chats tree of one space: its home level, then each repository under its header.
 
-use sidebar::{Row, RowKind};
+use sidebar::{Row, RowKind, Worktree};
 
 use crate::live::Entities;
 use crate::live::PendingRow;
@@ -43,8 +43,16 @@ fn scope_rows(
         store,
         pending,
         owners: &owners,
+        folders: folder_worktree(repo),
     };
     emitter.rows(&trees, depth)
+}
+
+fn folder_worktree(repo: &str) -> Worktree {
+    if repo.is_empty() {
+        return Worktree::Shared;
+    }
+    Worktree::Owned
 }
 
 fn header(

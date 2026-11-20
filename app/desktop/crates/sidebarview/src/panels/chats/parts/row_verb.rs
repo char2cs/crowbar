@@ -17,11 +17,11 @@ pub(crate) enum RowVerb {
 
 impl RowVerb {
     pub(crate) fn for_row(row: &Row) -> Vec<Self> {
-        let placeholder = is_placeholder(row);
         let held = row
             .workspace
             .as_ref()
             .is_some_and(|workspace| workspace.held_by_path.is_some());
+        let placeholder = held || is_placeholder(row);
         let is_branch = row.kind == RowKind::Branch;
         let leading = [
             (is_branch && held).then_some(Self::Detach),
@@ -196,14 +196,9 @@ mod tests {
             &[RowVerb::Thread, RowVerb::Fork],
         ),
         (
-            "a holder leaves detach first",
+            "a held branch has no worktree of its own: detach, and nothing that needs one",
             held_branch,
-            &[
-                RowVerb::Detach,
-                RowVerb::Remove,
-                RowVerb::Thread,
-                RowVerb::Fork,
-            ],
+            &[RowVerb::Detach, RowVerb::Remove],
         ),
         (
             "a placeholder offers retry and nothing that needs a worktree",

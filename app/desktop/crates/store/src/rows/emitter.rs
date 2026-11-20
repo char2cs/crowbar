@@ -17,6 +17,7 @@ pub(crate) struct Emitter<'a> {
     pub(crate) store: &'a Entities,
     pub(crate) pending: &'a [PendingRow],
     pub(crate) owners: &'a HashMap<String, String>,
+    pub(crate) folders: Worktree,
 }
 
 impl Emitter<'_> {
@@ -61,12 +62,14 @@ impl Emitter<'_> {
         depth: u8,
     ) -> Row {
         let name = self.store.folders.get(&tree.id).map(|f| f.name.as_str());
-        Row::new(
+        let mut row = Row::new(
             tree.id.as_str(),
             RowKind::Folder,
             depth,
             name.unwrap_or_default(),
-        )
+        );
+        row.worktree = self.folders;
+        row
     }
 
     fn chat(
@@ -199,6 +202,18 @@ mod tests {
 
     type Line<'a> = (&'a str, RowKind, u8, &'a str);
 
+    fn folder_with_a_branch() -> [Tree; 1] {
+        [node(
+            "f",
+            ItemKind::Folder,
+            vec![node(
+                "w",
+                ItemKind::Workspace,
+                vec![node("blank", ItemKind::Chat, vec![])],
+            )],
+        )]
+    }
+
     #[test]
     fn rows_carry_kind_label_depth_state_and_nesting() {
         let store = store();
@@ -207,16 +222,9 @@ mod tests {
             store: &store,
             pending: &[],
             owners: &owners,
+            folders: Worktree::Owned,
         };
-        let trees = [node(
-            "f",
-            ItemKind::Folder,
-            vec![node(
-                "w",
-                ItemKind::Workspace,
-                vec![node("blank", ItemKind::Chat, vec![])],
-            )],
-        )];
+        let trees = folder_with_a_branch();
         let rows = emitter.rows(&trees, 0);
         let summary: Vec<Line<'_>> = rows
             .iter()
@@ -230,7 +238,12 @@ mod tests {
                 ("blank", RowKind::Chat, 2, UNTITLED_CHAT),
             ]
         );
-        assert_eq!(rows[0].nesting, Nesting::Parent);
+        let folder = (rows[0].nesting, rows[0].worktree);
+        assert_eq!(
+            folder,
+            (Nesting::Parent, Worktree::Owned),
+            "a repo folder forks"
+        );
         assert_eq!(rows[1].activity, Activity::Working);
         assert_eq!(rows[2].titling, Titling::Provisional);
         assert_eq!(rows[2].pending_move.as_deref(), Some("feat"));
@@ -257,6 +270,7 @@ mod tests {
             store: &store,
             pending: &pending,
             owners: &owners,
+            folders: Worktree::Shared,
         };
         let rows = emitter.rows(&[node("c", ItemKind::Chat, vec![])], 0);
         assert_eq!(
