@@ -8,6 +8,8 @@
 # Each builder has its own lock, so builders in separate worktrees build at the same time.
 # RBUILD_TARGET_VOLUME=<name> keeps the target in a named docker volume on disk instead of RAM,
 # so more builders fit in memory.
+# Builders share compiled crates through sccache when the RBUILD_SCCACHE volume holds
+# bin/sccache; without it they build as before.
 set -euo pipefail
 
 name=${RBUILD_NAME:-crowbar-build}
@@ -16,6 +18,7 @@ registry_volume=${RBUILD_REGISTRY:-a-cargo}
 target_size=${RBUILD_TARGET_SIZE:-10g}
 lock=${RBUILD_LOCK:-/tmp/claude-1000/cargo-${name}.lock}
 target_volume=${RBUILD_TARGET_VOLUME:-}
+sccache_volume=${RBUILD_SCCACHE:-crowbar-sccache}
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 
 create_builder() {
@@ -24,9 +27,15 @@ create_builder() {
   if [[ -n $target_volume ]]; then
     target_mount=(-v "$target_volume:/target")
   fi
+  local cache=()
+  if docker run --rm -v "$sccache_volume:/sccache" "$image" test -x /sccache/bin/sccache 2>/dev/null; then
+    cache=(-v "$sccache_volume:/sccache" -e RUSTC_WRAPPER=/sccache/bin/sccache
+      -e SCCACHE_DIR=/sccache/cache -e SCCACHE_CACHE_SIZE=12G)
+  fi
   docker run -d --init --name "$name" \
     --ulimit core=0 \
     "${target_mount[@]}" \
+    "${cache[@]}" \
     -v "$registry_volume:/usr/local/cargo/registry" \
     -v "$root:/w" \
     -e CARGO_TARGET_DIR=/target \
