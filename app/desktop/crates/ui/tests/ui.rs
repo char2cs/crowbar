@@ -13,7 +13,7 @@ use gpui::{
 
 #[cfg(target_os = "linux")]
 #[path = "support/on_x11.rs"]
-mod on_x11;
+mod needs_display;
 
 const RED_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><rect width="2" height="2" fill="#ff0000"/></svg>"##;
 const BGRA_RED: [u8; 4] = [0, 0, 255, 255];
