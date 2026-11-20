@@ -7,6 +7,6 @@ use serde::Deserialize;
 pub(super) struct SummaryFile {
     pub(super) path: String,
     pub(super) status: String,
-    pub(super) additions: u32,
-    pub(super) deletions: u32,
+    pub(super) additions: i64,
+    pub(super) deletions: i64,
 }
