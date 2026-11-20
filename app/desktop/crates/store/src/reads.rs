@@ -217,13 +217,30 @@ mod tests {
         assert_eq!(changes(state).branch, "main");
     }
 
-    const CASES: [Check; 6] = [
+    fn a_branch_with_summary_files_is_not_empty_though_its_record_counts_none(state: &mut State) {
+        state.panels.follow(Some("rdo".into()));
+        state.panels.changes.files = vec![sidebar::ChangedFile {
+            path: "src/pricing.ts".into(),
+            status: sidebar::GitStatus::Modified,
+            added: 16,
+            deleted: 2,
+        }];
+        let reason = merge_box(state).and_then(|card| card.blocked);
+        assert_eq!(
+            reason.as_deref(),
+            Some("This branch has no parent to merge into."),
+            "the summary's files make the branch non-empty"
+        );
+    }
+
+    const CASES: [Check; 7] = [
         synced_host_lists_spaces,
         tree_reach_follows_the_stream,
         a_chat_decides_focus,
         move_targets_are_the_other_rows,
         an_unsynced_store_is_pending,
         the_pill_names_the_workspace_branch_before_git_answers,
+        a_branch_with_summary_files_is_not_empty_though_its_record_counts_none,
     ];
 
     #[test]
