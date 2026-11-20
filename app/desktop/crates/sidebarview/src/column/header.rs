@@ -72,7 +72,7 @@ impl Sidebar {
         };
         IconButton::new("sidebar-toggle", icon)
             .tooltip(tooltip)
-            .on_click(cx.listener(|this, _, _, cx| this.toggle(cx)))
+            .on_click(cx.listener(|this, _, window, cx| this.toggle(window, cx)))
     }
 
     fn host_choice(
@@ -161,9 +161,9 @@ mod tests {
     #[gpui::test]
     fn the_toggle_closes_and_reopens_the_sidebar(cx: &mut TestAppContext) {
         let (_, sidebar, cx) = open(cx, DemoShell::reference());
-        sidebar.update(cx, Sidebar::toggle);
+        sidebar.update_in(cx, Sidebar::toggle);
         assert!(sidebar.read_with(cx, |this, _| this.panel.visibility() == Visibility::Closed));
-        sidebar.update(cx, Sidebar::toggle);
+        sidebar.update_in(cx, Sidebar::toggle);
         assert!(sidebar.read_with(cx, |this, _| this.panel.visibility() == Visibility::Open));
     }
 

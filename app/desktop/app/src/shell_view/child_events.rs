@@ -3,7 +3,6 @@ use layout::Command;
 use layoutview::LayoutEvent;
 use sidebarview::Sidebar;
 use ui::ToastKind;
-use viewtabs::TabBar;
 
 use super::ShellView;
 use super::built::Built;
@@ -22,7 +21,9 @@ impl ShellView {
             cx.subscribe_in(&built.workspace, window, |this, _, event, window, cx| {
                 this.on_workspace(event, window, cx);
             }),
-            cx.subscribe(&built.tabs, Self::on_tabs),
+            cx.subscribe_in(&built.tabs, window, |this, _, event, window, cx| {
+                this.on_tabs(event, window, cx);
+            }),
             cx.subscribe_in(&built.layout, window, |this, _, event, window, cx| {
                 this.on_layout(event, window, cx);
             }),
@@ -92,13 +93,16 @@ impl ShellView {
 
     fn on_tabs(
         &mut self,
-        _: Entity<TabBar>,
         event: &viewtabs::Event,
+        window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
         match event {
             viewtabs::Event::Apply(commands) => self.apply_guarded(commands.clone(), cx),
-            viewtabs::Event::ToggleSidebar => self.sidebar.update(cx, Sidebar::toggle),
+            viewtabs::Event::ToggleSidebar => {
+                self.sidebar
+                    .update(cx, |sidebar, cx| sidebar.toggle(window, cx));
+            },
             _ => {},
         }
     }

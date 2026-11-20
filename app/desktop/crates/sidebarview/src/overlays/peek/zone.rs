@@ -62,7 +62,7 @@ mod tests {
     #[gpui::test]
     fn the_pointer_leaving_the_kept_area_dismisses_the_card(cx: &mut TestAppContext) {
         let (_, sidebar, cx) = open(cx, DemoShell::reference());
-        sidebar.update(cx, Sidebar::toggle);
+        sidebar.update_in(cx, Sidebar::toggle);
         sidebar.update(cx, Sidebar::begin_peek);
         cx.run_until_parked();
         cx.simulate_mouse_move(point(px(100.0), px(300.0)), None, gpui::Modifiers::none());

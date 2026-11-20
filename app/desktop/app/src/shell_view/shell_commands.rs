@@ -3,7 +3,6 @@ use gpui::{Context, KeyDownEvent, Window};
 use keymap::ShellCommand;
 use layout::Command;
 use sidebar::{ActiveSpace as _, Mode, PaneFocus as _, Sink as _, SpaceList as _};
-use sidebarview::Sidebar;
 
 use super::ShellView;
 
@@ -44,7 +43,10 @@ impl ShellView {
     ) {
         match command {
             ShellCommand::ToggleEditor => self.toggle_editor(cx),
-            ShellCommand::ToggleSidebar => self.sidebar.update(cx, Sidebar::toggle),
+            ShellCommand::ToggleSidebar => {
+                self.sidebar
+                    .update(cx, |sidebar, cx| sidebar.toggle(window, cx));
+            },
             ShellCommand::SidebarChats => self.set_sidebar_mode(Mode::Chats, cx),
             ShellCommand::SidebarFiles => self.set_sidebar_mode(Mode::Files, cx),
             ShellCommand::SidebarGit => self.set_sidebar_mode(Mode::Changes, cx),

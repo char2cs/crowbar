@@ -102,7 +102,7 @@ mod tests {
         cx: &mut TestAppContext
     ) -> (gpui::Entity<Sidebar>, &mut gpui::VisualTestContext) {
         let (_, sidebar, cx) = open(cx, DemoShell::reference());
-        sidebar.update(cx, Sidebar::toggle);
+        sidebar.update_in(cx, Sidebar::toggle);
         (sidebar, cx)
     }
 
@@ -112,6 +112,16 @@ mod tests {
         sidebar.update_in(cx, |this, window, cx| {
             this.track_peek(point(px(2.0), px(300.0)), window, cx);
         });
+        assert!(sidebar.read_with(cx, |this, _| this.peek.is_wanted()));
+    }
+
+    #[gpui::test]
+    fn hiding_the_sidebar_under_a_pointer_resting_on_the_edge_summons_the_card(
+        cx: &mut TestAppContext
+    ) {
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
+        cx.simulate_mouse_move(point(px(2.0), px(300.0)), None, gpui::Modifiers::none());
+        sidebar.update_in(cx, Sidebar::toggle);
         assert!(sidebar.read_with(cx, |this, _| this.peek.is_wanted()));
     }
 

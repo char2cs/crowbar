@@ -57,7 +57,7 @@ mod tests {
     #[gpui::test]
     fn the_pointer_leaving_the_window_dismisses_the_peek_card(cx: &mut gpui::TestAppContext) {
         let (_, sidebar, cx) = open(cx, DemoShell::reference());
-        sidebar.update(cx, Sidebar::toggle);
+        sidebar.update_in(cx, Sidebar::toggle);
         sidebar.update(cx, Sidebar::begin_peek);
         cx.simulate_event(MouseExitEvent {
             position: point(px(-1.0), px(40.0)),
@@ -70,7 +70,7 @@ mod tests {
     #[gpui::test]
     fn the_pointer_crossing_onto_the_card_keeps_it(cx: &mut gpui::TestAppContext) {
         let (_, sidebar, cx) = open(cx, DemoShell::reference());
-        sidebar.update(cx, Sidebar::toggle);
+        sidebar.update_in(cx, Sidebar::toggle);
         sidebar.update(cx, Sidebar::begin_peek);
         cx.simulate_event(MouseExitEvent {
             position: point(px(100.0), px(300.0)),

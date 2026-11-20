@@ -24,7 +24,7 @@ pub(crate) use scale::{
 
 use std::rc::Rc;
 
-use gpui::{AnyView, AppContext as _, Context, Entity, EventEmitter, FocusHandle};
+use gpui::{AnyView, AppContext as _, Context, Entity, EventEmitter, FocusHandle, Window};
 use sidebar::{Mode, Panel, Preferences, Question, Resizing, RowId, WorkAtRisk};
 use ui::{CubicBezier, Glide, ToastQueue};
 
@@ -126,10 +126,12 @@ impl Sidebar {
     /// Opens or closes the sidebar (Mod+B, the header button).
     pub fn toggle(
         &mut self,
+        window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
         self.panel.toggle();
         self.peek.slide_to(0.0, ui::Motion::of(cx));
+        self.track_peek(window.mouse_position(), window, cx);
         Self::changed(cx);
     }
 
@@ -250,9 +252,9 @@ mod tests {
     fn toggling_twice_restores_the_sidebar(cx: &mut TestAppContext) {
         let (_, sidebar, cx) = open(cx, DemoShell::reference());
         let before = sidebar.read_with(cx, |this, _| this.panel.visibility());
-        sidebar.update(cx, |this, cx| {
-            this.toggle(cx);
-            this.toggle(cx);
+        sidebar.update_in(cx, |this, window, cx| {
+            this.toggle(window, cx);
+            this.toggle(window, cx);
         });
         assert_eq!(
             sidebar.read_with(cx, |this, _| this.panel.visibility()),
