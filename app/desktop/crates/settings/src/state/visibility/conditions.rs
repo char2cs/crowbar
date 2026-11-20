@@ -1,6 +1,5 @@
 //! What the current values show: rows, blocks, options and descriptions.
 
-use crate::keys::Shortcut;
 use crate::schema::ChoiceSource;
 use crate::schema::Control;
 use crate::schema::Row;
@@ -14,14 +13,6 @@ impl State {
         row: &Row,
     ) -> bool {
         self.visibility.row(row)
-    }
-
-    /// Whether the search leaves `shortcut` visible.
-    pub fn shortcut_visible(
-        &self,
-        shortcut: &Shortcut,
-    ) -> bool {
-        self.visibility.shortcut(shortcut)
     }
 
     /// Whether the search leaves the non-row block `index` of the selected page visible.

@@ -1,9 +1,10 @@
 //! Which pages, rows and blocks a search query leaves visible.
+//! Spec: web/src/features/settings/components/settings-section.tsx (row and section filtering)
+//! and settings-vertical-tabs.tsx (pages by index hit). A block outside any section goes with the
+//! section above it (else the first below), as develop draws it inside that section.
 
 use std::collections::BTreeSet;
 
-use crate::keys::Shortcut;
-use crate::keys::ShortcutGroup;
 use crate::schema::Block;
 use crate::schema::Condition;
 use crate::schema::Page;
@@ -12,21 +13,18 @@ use crate::schema::Row;
 use crate::schema::Schema;
 use crate::schema::Scope;
 use crate::schema::Section;
-use crate::state::visibility::filter::{Filter, matches};
+use crate::state::visibility::query::Query;
+use crate::state::visibility::slot::Slot;
 use crate::values::Key;
 
 mod conditions;
-mod filter;
-mod texts;
-
-use self::texts::{block_text, row_texts, words};
+mod query;
+mod slot;
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Visibility {
-    searching: bool,
     pages: Vec<PageId>,
     rows: BTreeSet<Key>,
-    shortcuts: BTreeSet<String>,
     blocks: BTreeSet<(PageId, usize)>,
 }
 
@@ -36,109 +34,67 @@ impl Visibility {
         scope: &Scope<'_>,
         query: &str,
     ) -> Self {
-        let words = words(query);
-        let mut visibility = Self {
-            searching: !words.is_empty(),
-            ..Self::default()
-        };
+        let query = Query::new(query);
+        let mut visibility = Self::default();
         for page in schema
             .pages()
             .iter()
             .filter(|page| holds(page.when.as_ref(), scope))
+            .filter(|page| {
+                query.is_blank() || page.index.iter().any(|entry| query.finds_entry(entry))
+            })
         {
-            visibility.add_page(page, scope, &words);
+            visibility.add_page(page, scope, &query);
         }
         visibility
-    }
-
-    fn page_filter<'a>(
-        &self,
-        page: &Page,
-        words: &'a [String],
-    ) -> Filter<'a> {
-        if !self.searching || matches(words, &[&page.label]) {
-            return Filter::Everything;
-        }
-        Filter::Words(words)
     }
 
     fn add_page(
         &mut self,
         page: &Page,
         scope: &Scope<'_>,
-        words: &[String],
+        query: &Query,
     ) {
-        let filter = self.page_filter(page, words);
-        let mut any = matches!(filter, Filter::Everything);
-        for (index, block) in page.blocks.iter().enumerate() {
-            any |= self.add_block((page, index, block), scope, filter);
-        }
-        if any {
-            self.pages.push(page.id.clone());
-        }
+        self.pages.push(page.id.clone());
+        let slots: Vec<Slot> = page
+            .blocks
+            .iter()
+            .map(|block| self.slot(block, scope, query))
+            .collect();
+        let shown = (0..slots.len())
+            .filter(|&index| slots.get(index) == Some(&Slot::Plain) && owner_shown(&slots, index))
+            .map(|index| (page.id.clone(), index));
+        self.blocks.extend(shown);
     }
 
-    fn add_block(
+    fn slot(
         &mut self,
-        entry: (&Page, usize, &Block),
+        block: &Block,
         scope: &Scope<'_>,
-        filter: Filter<'_>,
-    ) -> bool {
-        let (_, _, block) = entry;
-        match block {
-            Block::Section(section) => self.add_rows(section, scope, filter),
-            Block::Shortcuts(group) => self.add_shortcuts(group, filter),
-            other => self.add_plain((entry.0, entry.1, other), filter),
+        query: &Query,
+    ) -> Slot {
+        let Block::Section(section) = block else {
+            return Slot::Plain;
+        };
+        if self.add_rows(section, scope, query) {
+            return Slot::Shown;
         }
-    }
-
-    fn add_plain(
-        &mut self,
-        (page, index, block): (&Page, usize, &Block),
-        filter: Filter<'_>,
-    ) -> bool {
-        let shown = filter.admits(&[&block_text(block)]);
-        if shown {
-            self.blocks.insert((page.id.clone(), index));
-        }
-        shown
+        Slot::Hidden
     }
 
     fn add_rows(
         &mut self,
         section: &Section,
         scope: &Scope<'_>,
-        filter: Filter<'_>,
+        query: &Query,
     ) -> bool {
         let shown: Vec<&Row> = section
             .rows
             .iter()
             .filter(|row| holds(row.when.as_ref(), scope))
-            .filter(|row| filter.admits(&[&row_texts(row, section)]))
+            .filter(|row| query.finds_row(row))
             .collect();
         self.rows.extend(shown.iter().map(|row| row.key.clone()));
-        !shown.is_empty()
-    }
-
-    fn add_shortcuts(
-        &mut self,
-        group: &ShortcutGroup,
-        filter: Filter<'_>,
-    ) -> bool {
-        let shown: Vec<&Shortcut> = group
-            .shortcuts
-            .iter()
-            .filter(|shortcut| {
-                let texts = [
-                    shortcut.label.as_str(),
-                    shortcut.command.as_str(),
-                    group.title.as_str(),
-                ];
-                filter.admits(&texts)
-            })
-            .collect();
-        self.shortcuts
-            .extend(shown.iter().map(|shortcut| shortcut.command.clone()));
         !shown.is_empty()
     }
 
@@ -153,13 +109,6 @@ impl Visibility {
         self.rows.contains(&row.key)
     }
 
-    pub(crate) fn shortcut(
-        &self,
-        shortcut: &Shortcut,
-    ) -> bool {
-        self.shortcuts.contains(&shortcut.command)
-    }
-
     pub(crate) fn block(
         &self,
         page: &PageId,
@@ -167,6 +116,16 @@ impl Visibility {
     ) -> bool {
         self.blocks.contains(&(page.clone(), index))
     }
+}
+
+fn owner_shown(
+    slots: &[Slot],
+    index: usize,
+) -> bool {
+    let (before, after) = slots.split_at(index.min(slots.len()));
+    let above = before.iter().rev().find_map(|slot| slot.section());
+    let below = || after.iter().find_map(|slot| slot.section());
+    above.or_else(below).is_none_or(|slot| slot == Slot::Shown)
 }
 
 fn holds(
@@ -181,49 +140,73 @@ mod tests {
     use std::collections::BTreeSet;
 
     use super::*;
-    use crate::schema::Condition;
+    use crate::keys::Shortcut;
+    use crate::keys::ShortcutGroup;
     use crate::schema::Control;
     use crate::schema::Heading;
+    use crate::schema::SearchEntry;
     use crate::values::Values;
 
-    fn schema() -> Schema {
-        let appearance = Page::new("appearance", "Appearance", "paint-brush").block(
-            Section::new("Typography")
-                .row(
-                    Row::new("uiFontSize", "UI Font Size", Control::switch())
-                        .describe("Adjust UI text")
-                        .keywords(&["zoom"]),
-                )
-                .row(Row::new(
-                    "sidebarPosition",
-                    "Sidebar Position",
-                    Control::switch(),
-                )),
-        );
-        let browser = Page::new("browser", "Browser", "globe").block(
-            Section::new("Navigation")
-                .row(Row::new("browserHomepage", "Homepage", Control::switch()))
-                .row(
-                    Row::new("customUrl", "Custom Search URL", Control::switch())
-                        .when(Condition::equals("engine", "custom")),
+    fn appearance() -> Page {
+        Page::new("appearance", "Appearance", "paint-brush")
+            .indexed([
+                SearchEntry::new("Typography", "UI Font Size", "Adjust UI text")
+                    .keywords(&["zoom"]),
+            ])
+            .block(
+                Section::new("Typography")
+                    .row(
+                        Row::new("uiFontSize", "UI Font Size", Control::switch())
+                            .describe("Adjust UI text"),
+                    )
+                    .row(Row::new(
+                        "sidebarPosition",
+                        "Sidebar Position",
+                        Control::switch(),
+                    )),
+            )
+    }
+
+    fn agents() -> Page {
+        Page::new("providers", "Agents", "robot")
+            .indexed([SearchEntry::new(
+                "Chat",
+                "Chat By Default",
+                "Open a chat on Chat rather than Terminal",
+            )])
+            .block(Heading::new("Agents", "The coding CLIs."))
+            .block(Section::new("Agents").row(Row::new(
+                "permission",
+                "Default permission level",
+                Control::switch(),
+            )))
+            .block(Heading::new("Agents list", "Drag to reorder."))
+            .block(
+                Section::new("Chat").row(
+                    Row::new("chatDefault", "Chat By Default", Control::switch())
+                        .describe("Open a chat on Chat rather than Terminal")
+                        .when(Condition::capability("chat")),
                 ),
-        );
+            )
+    }
+
+    fn schema() -> Schema {
+        let (appearance, agents) = (appearance(), agents());
         let keys = Page::new("keybindings", "Keybindings", "keyboard").block(
             ShortcutGroup::new("Tabs", "overrides")
                 .shortcut(Shortcut::new("tabs.new", "New tab", "mod+t")),
         );
-        let hosts = Page::new("hosts", "Hosts", "hard-drives")
-            .block(Heading::new("Hosts", "Add another machine."));
         let hidden = Page::new("dev", "Developer", "bug").when(Condition::capability("dev"));
-        Schema::new(vec![appearance, browser, keys, hosts, hidden]).unwrap()
+        Schema::new(vec![appearance, agents, keys, hidden]).unwrap()
     }
 
     fn compute(
         schema: &Schema,
         query: &str,
+        capability: Option<&str>,
     ) -> Visibility {
         let values = Values::default();
-        let capabilities = BTreeSet::new();
+        let capabilities: BTreeSet<String> = capability.into_iter().map(str::to_owned).collect();
         let scope = Scope {
             values: &values,
             defaults: schema.defaults(),
@@ -236,75 +219,68 @@ mod tests {
         visibility.pages().iter().map(PageId::as_str).collect()
     }
 
-    #[test]
-    fn without_a_query_every_applicable_page_and_row_shows() {
-        let schema = schema();
-        let visibility = compute(&schema, "  ");
-        assert_eq!(
-            page_ids(&visibility),
-            ["appearance", "browser", "keybindings", "hosts"]
-        );
-        let shown: Vec<&str> = schema
+    fn rows<'a>(
+        schema: &'a Schema,
+        visibility: &Visibility,
+    ) -> Vec<&'a str> {
+        schema
             .rows()
             .filter(|row| visibility.row(row))
             .map(|row| row.key.as_str())
-            .collect();
-        assert_eq!(
-            shown,
-            ["uiFontSize", "sidebarPosition", "browserHomepage"],
-            "the conditional row is hidden"
-        );
+            .collect()
     }
 
     #[test]
-    fn one_matcher_decides_pages_and_rows_together() {
+    fn without_a_query_every_applicable_page_row_and_block_shows() {
+        let schema = schema();
+        let visibility = compute(&schema, "  ", None);
+        assert_eq!(
+            page_ids(&visibility),
+            ["appearance", "providers", "keybindings"]
+        );
+        assert_eq!(
+            rows(&schema, &visibility),
+            ["uiFontSize", "sidebarPosition", "permission"],
+            "the conditional row is hidden"
+        );
+        assert!(visibility.block(&PageId::from("keybindings"), 0));
+    }
+
+    #[test]
+    fn the_index_finds_pages_and_the_row_text_finds_rows() {
         type Case = (
             &'static str,
             &'static [&'static str],
             &'static [&'static str],
         );
         const CASES: &[Case] = &[
-            ("font", &["appearance"], &["uiFontSize"]),
-            ("zoom", &["appearance"], &["uiFontSize"]),
-            ("adjust text", &["appearance"], &["uiFontSize"]),
-            (
-                "typography",
-                &["appearance"],
-                &["uiFontSize", "sidebarPosition"],
-            ),
-            ("browser", &["browser"], &["browserHomepage"]),
+            ("zoom", &["appearance"], &[]),
+            ("font size", &["appearance"], &["uiFontSize"]),
+            ("adjust ui", &["appearance"], &["uiFontSize"]),
+            ("typography", &["appearance"], &[]),
+            ("terminal", &["providers"], &["chatDefault"]),
+            ("new tab", &[], &[]),
             ("zzz", &[], &[]),
         ];
         let schema = schema();
-        for &(query, pages, rows) in CASES {
-            let visibility = compute(&schema, query);
+        for &(query, pages, shown) in CASES {
+            let visibility = compute(&schema, query, Some("chat"));
             assert_eq!(page_ids(&visibility), pages, "pages for {query:?}");
-            let shown: Vec<&str> = schema
-                .rows()
-                .filter(|row| visibility.row(row))
-                .map(|row| row.key.as_str())
-                .collect();
-            assert_eq!(shown, rows, "rows for {query:?}");
+            assert_eq!(rows(&schema, &visibility), shown, "rows for {query:?}");
         }
     }
 
     #[test]
-    fn shortcuts_and_heading_pages_are_searchable_too() {
+    fn a_plain_block_follows_the_section_it_sits_under() {
         let schema = schema();
-        let by_label = compute(&schema, "new tab");
-        assert_eq!(page_ids(&by_label), ["keybindings"]);
+        let agents = PageId::from("providers");
+        let chat = compute(&schema, "terminal", Some("chat"));
         assert!(
-            schema
-                .shortcuts()
-                .all(|(_, shortcut)| by_label.shortcut(shortcut))
+            !chat.block(&agents, 0),
+            "the heading goes with the hidden Agents section"
         );
-        let by_text = compute(&schema, "another machine");
-        assert_eq!(page_ids(&by_text), ["hosts"]);
-        assert!(by_text.block(&PageId::from("hosts"), 0));
-        let by_page = compute(&schema, "hosts");
-        assert!(
-            by_page.block(&PageId::from("hosts"), 0),
-            "a matching page label shows all its blocks"
-        );
+        assert!(!chat.block(&agents, 2), "so does the list under it");
+        let all = compute(&schema, "", None);
+        assert!(all.block(&agents, 0) && all.block(&agents, 2));
     }
 }

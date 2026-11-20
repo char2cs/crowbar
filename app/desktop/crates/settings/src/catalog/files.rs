@@ -13,6 +13,7 @@ const INDENT_SIZE: NumberSetting = NumberSetting::new((8.0, 32.0, 1.0), 16.0);
 
 pub(super) fn page() -> Page {
     Page::new("file-explorer", "Files", "tree-structure")
+        .indexed(super::search_index::entries(super::search_index::FILES))
         .block(display())
         .block(filters())
 }

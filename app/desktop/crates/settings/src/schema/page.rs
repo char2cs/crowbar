@@ -5,6 +5,7 @@ use crate::schema::block::Block;
 use crate::schema::condition::Condition;
 use crate::schema::page_id::PageId;
 use crate::schema::row::Row;
+use crate::schema::search_entry::SearchEntry;
 
 /// A rail entry and the blocks it shows.
 #[derive(Debug, Clone, PartialEq)]
@@ -14,6 +15,7 @@ pub struct Page {
     pub(crate) icon: String,
     pub(crate) when: Option<Condition>,
     pub(crate) blocks: Vec<Block>,
+    pub(crate) index: Vec<SearchEntry>,
 }
 
 impl Page {
@@ -41,6 +43,7 @@ impl Page {
             icon: icon.into(),
             when: None,
             blocks: Vec::new(),
+            index: Vec::new(),
         }
     }
 
@@ -61,6 +64,16 @@ impl Page {
         block: impl Into<Block>,
     ) -> Self {
         self.blocks.push(block.into());
+        self
+    }
+
+    /// Adds `entries` to the search index; a search shows the page only when one of them matches.
+    #[must_use]
+    pub fn indexed(
+        mut self,
+        entries: impl IntoIterator<Item = SearchEntry>,
+    ) -> Self {
+        self.index.extend(entries);
         self
     }
 

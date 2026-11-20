@@ -29,7 +29,8 @@ pub(crate) fn rail_item(
         .page()
         .filter(|selected| selected.id() == page.id());
     let active = selected.is_some();
-    let id = ElementId::from(SharedString::from(format!("rail-{}", page.id())));
+    let name = format!("rail-{}", page.id());
+    let id = ElementId::from(SharedString::from(name.clone()));
     let color = selected.map_or(palette.muted_foreground(), |_| palette.foreground());
     let base = div()
         .flex()
@@ -48,6 +49,7 @@ pub(crate) fn rail_item(
             item.hover(move |style| style.text_color(foreground))
         })
         .cursor_pointer()
+        .debug_selector(move || name)
         .on_click(frame.sink.send(Intent::Select(page.id().clone())))
         .children(
             icon_named(page.icon())

@@ -12,6 +12,7 @@ use crate::schema::NumberRange;
 use crate::schema::Page;
 use crate::schema::Row;
 use crate::schema::Schema;
+use crate::schema::SearchEntry;
 use crate::schema::Section;
 use crate::schema::Validator;
 use crate::state::State;
@@ -74,13 +75,22 @@ pub(crate) fn clear_button() -> ButtonSpec {
 }
 
 pub(crate) fn schema() -> Schema {
-    let appearance = Page::new("appearance", "Appearance", "paint-brush").block(
-        Section::new("Typography")
-            .headerless()
-            .row(size_row())
-            .row(gitignore_row()),
-    );
+    let appearance = Page::new("appearance", "Appearance", "paint-brush")
+        .indexed([
+            SearchEntry::new("Typography", "UI Font Size", "Adjust UI text").keywords(&["font"]),
+        ])
+        .block(
+            Section::new("Typography")
+                .headerless()
+                .row(size_row())
+                .row(gitignore_row()),
+        );
     let browser = Page::new("browser", "Browser", "globe")
+        .indexed([
+            SearchEntry::new("Navigation", "Search Engine", "Used for the address bar")
+                .keywords(&["font"]),
+            SearchEntry::new("Privacy", "Clear Browsing Data", "Delete cookies"),
+        ])
         .block(
             Section::new("Navigation")
                 .row(engine_row())

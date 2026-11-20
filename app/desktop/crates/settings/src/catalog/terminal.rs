@@ -18,6 +18,7 @@ const CURSOR_WIDTH: NumberSetting = NumberSetting::new((1.0, 6.0, 1.0), 2.0);
 
 pub(super) fn page() -> Page {
     Page::new("terminal", "Terminal", "terminal-window")
+        .indexed(super::search_index::entries(super::search_index::TERMINAL))
         .block(typography())
         .block(cursor())
 }

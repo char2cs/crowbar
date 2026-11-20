@@ -15,7 +15,6 @@ pub struct Row {
     pub(crate) control: Control,
     pub(crate) default: Option<Value>,
     pub(crate) when: Option<Condition>,
-    pub(crate) keywords: Vec<String>,
 }
 
 impl Row {
@@ -39,7 +38,6 @@ impl Row {
             control,
             default: None,
             when: None,
-            keywords: Vec::new(),
         }
     }
 
@@ -83,16 +81,6 @@ impl Row {
         self
     }
 
-    /// Extra search terms.
-    #[must_use]
-    pub fn keywords(
-        mut self,
-        words: &[&str],
-    ) -> Self {
-        self.keywords = words.iter().map(|&word| word.to_owned()).collect();
-        self
-    }
-
     /// The setting this row edits.
     pub fn key(&self) -> &Key {
         &self.key
@@ -114,13 +102,11 @@ mod tests {
             .describe("Spaces per tab")
             .describe_invalid("Bad")
             .default_value(2.0)
-            .when(Condition::capability("editor"))
-            .keywords(&["indent", "spaces"]);
+            .when(Condition::capability("editor"));
         assert_eq!((row.key().as_str(), row.label()), ("tabSize", "Tab Size"));
         assert_eq!(row.description.as_deref(), Some("Spaces per tab"));
         assert_eq!(row.invalid_description.as_deref(), Some("Bad"));
         assert_eq!(row.default, Some(Value::Number(2.0)));
         assert!(row.when.is_some());
-        assert_eq!(row.keywords, ["indent", "spaces"]);
     }
 }

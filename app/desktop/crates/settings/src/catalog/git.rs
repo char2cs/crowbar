@@ -8,6 +8,7 @@ use crate::values::Value;
 
 pub(super) fn page() -> Page {
     Page::new("git", "Git", "git-branch")
+        .indexed(super::search_index::entries(super::search_index::GIT))
         .block(Section::new("Git View").headerless().row(row(
             ("compactGitStatusBadges", "Compact Git Status Badges"),
             "Use a denser layout for diff stats and staged labels in the Git panel",

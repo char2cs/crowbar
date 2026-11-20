@@ -10,6 +10,7 @@ mod hosts;
 mod keybindings;
 mod number_setting;
 mod rows;
+mod search_index;
 mod sessions;
 mod terminal;
 

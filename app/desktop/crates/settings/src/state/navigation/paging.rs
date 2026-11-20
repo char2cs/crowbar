@@ -52,13 +52,20 @@ impl State {
         &self.query
     }
 
-    /// Searches pages, sections, rows, descriptions, keywords and shortcuts; the selection moves to the first visible page when its own page drops out.
+    /// Searches the pages' index and the rows' text; a non-blank query selects the first page it
+    /// leaves, as develop's rail does.
     pub fn set_query(
         &mut self,
         query: &str,
     ) {
         query.clone_into(&mut self.query);
         self.refresh();
+        if query.trim().is_empty() {
+            return;
+        }
+        if let Some(first) = self.visibility.pages().first().cloned() {
+            self.select_page(&first);
+        }
     }
 }
 
@@ -100,6 +107,14 @@ mod tests {
         state.set_query("zzz");
         assert_eq!(state.visible_pages().len(), 0);
         assert!(state.page().is_none(), "no match shows no page");
+        state.set_query("");
+        state.select_page(&PageId::from("browser"));
+        state.set_query("font");
+        assert_eq!(
+            state.page().map(Page::label),
+            Some("Appearance"),
+            "a search lands on the first page it leaves, even when the selected one stays"
+        );
         state.set_query("");
         assert_eq!(state.visible_pages().len(), 3);
         assert_eq!(state.query(), "");

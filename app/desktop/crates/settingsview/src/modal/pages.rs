@@ -15,7 +15,6 @@ use ui::ScrollArea;
 
 use crate::frame::Frame;
 use crate::frame::spacing;
-use crate::modal::empty_view::empty_view;
 use crate::modal::pages::block_view::block_view;
 
 pub(crate) fn content(
@@ -25,7 +24,7 @@ pub(crate) fn content(
 ) -> impl IntoElement {
     let inner = match frame.state.page() {
         Some(page) => blocks(frame, page.blocks(), (window, cx)).into_any_element(),
-        None => empty_view(cx).into_any_element(),
+        None => div().into_any_element(),
     };
     div()
         .flex_1()

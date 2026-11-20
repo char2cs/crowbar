@@ -8,6 +8,7 @@ mod page;
 mod page_id;
 mod row;
 mod scope;
+mod search_entry;
 
 pub use block::{Block, Heading, ListBlock, Section};
 pub use button_spec::{Action, ButtonSpec, Confirm};
@@ -17,6 +18,7 @@ pub use page::Page;
 pub use page_id::PageId;
 pub use row::Row;
 pub(crate) use scope::Scope;
+pub use search_entry::SearchEntry;
 
 use std::collections::BTreeSet;
 

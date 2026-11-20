@@ -3,7 +3,10 @@
 mod item;
 
 use gpui::prelude::FluentBuilder as _;
-use gpui::{AnyElement, App, IntoElement, ParentElement, Styled, Window, div, px};
+use gpui::{
+    AnyElement, App, InteractiveElement as _, IntoElement, ParentElement,
+    StatefulInteractiveElement as _, Styled, Window, div, px,
+};
 
 use crate::frame::Frame;
 use crate::frame::spacing;
@@ -33,7 +36,8 @@ pub(crate) fn rail(
         .flex_col()
         .gap(spacing::HAIRLINE)
         .p(spacing::COMFORTABLE)
-        .overflow_hidden()
+        .id("settings-rail")
+        .overflow_y_scroll()
         .children(items)
         .children(empty)
 }
@@ -58,7 +62,65 @@ mod tests {
             cx,
         );
         assert_eq!(pages(&harness, cx), 1);
-        run(&harness, Intent::Search(TextInputEvent::Cancelled), cx);
+        run(
+            &harness,
+            Intent::Search(TextInputEvent::Changed(String::new())),
+            cx,
+        );
         assert_eq!(pages(&harness, cx), 10);
+    }
+
+    fn rail_and_page(
+        harness: &crate::test_support::Harness,
+        cx: &mut gpui::VisualTestContext,
+        query: &str,
+    ) -> (Vec<String>, Option<String>) {
+        let typed = Intent::Search(TextInputEvent::Changed(query.to_owned()));
+        run(harness, typed, cx);
+        inspect(harness, cx, |modal| {
+            let rail = modal
+                .state
+                .visible_pages()
+                .iter()
+                .map(|page| page.label().to_owned())
+                .collect();
+            (rail, modal.state.page().map(|page| page.label().to_owned()))
+        })
+    }
+
+    #[gpui::test]
+    fn a_search_lists_only_indexed_pages_and_opens_the_first(cx: &mut TestAppContext) {
+        let (harness, cx) = open(cx, "appearance");
+        let (rail, page) = rail_and_page(&harness, cx, "terminal");
+        assert_eq!(rail, ["Terminal", "Agents"]);
+        assert_eq!(page.as_deref(), Some("Terminal"));
+        let (rail, _) = rail_and_page(&harness, cx, "a");
+        for unindexed in ["Active sessions", "Keybindings", "Hosts"] {
+            assert!(
+                !rail.iter().any(|label| label == unindexed),
+                "{unindexed} in {rail:?}"
+            );
+        }
+    }
+
+    #[gpui::test]
+    fn the_wheel_scrolls_a_rail_taller_than_the_dialog(cx: &mut TestAppContext) {
+        let (_, cx) = open(cx, "appearance");
+        cx.simulate_resize(gpui::size(gpui::px(760.0), gpui::px(480.0)));
+        cx.run_until_parked();
+        let first = |cx: &mut gpui::VisualTestContext| cx.debug_bounds("rail-appearance").unwrap();
+        let before = first(cx);
+        cx.simulate_event(gpui::ScrollWheelEvent {
+            position: before.center(),
+            delta: gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.0), gpui::px(-60.0))),
+            ..Default::default()
+        });
+        cx.run_until_parked();
+        assert!(
+            first(cx).top() < before.top(),
+            "{:?} then {:?}",
+            before,
+            first(cx)
+        );
     }
 }

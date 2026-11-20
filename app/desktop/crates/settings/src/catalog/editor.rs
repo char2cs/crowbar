@@ -17,6 +17,7 @@ const MARKDOWN_FONT_SIZE: NumberSetting = NumberSetting::new((12.0, 24.0, 1.0), 
 
 pub(super) fn page() -> Page {
     Page::new("editor", "Editor", "code-block")
+        .indexed(super::search_index::entries(super::search_index::EDITOR))
         .block(assist(saving(display(typing()))))
         .block(markdown())
 }

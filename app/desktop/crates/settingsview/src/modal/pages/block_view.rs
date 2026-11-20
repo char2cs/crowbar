@@ -18,8 +18,8 @@ pub(crate) fn block_view(
     let (index, block) = entry;
     match block {
         Block::Section(section) => section_view(frame, section, (window, cx)),
-        Block::Shortcuts(group) => shortcuts_view(frame, group, (window, cx)),
         _ if !frame.state.block_visible(index) => None,
+        Block::Shortcuts(group) => Some(shortcuts_view(frame, group, (window, cx))),
         Block::Heading(heading) => Some(heading_view(heading, cx).into_any_element()),
         Block::List(list) => Some(list_view(frame, list, (window, cx)).into_any_element()),
         Block::Button(spec) => button_block(frame, spec).map(IntoElement::into_any_element),
@@ -42,18 +42,14 @@ mod tests {
     }
 
     #[gpui::test]
-    fn a_list_block_follows_the_search(cx: &mut TestAppContext) {
-        let (harness, cx) = open(cx, "providers");
-        let any_block = |harness: &crate::test_support::Harness,
-                         cx: &mut gpui::VisualTestContext| {
-            inspect(harness, cx, visible_blocks)
+    fn the_agent_lists_show_with_the_permission_row_and_hide_without_it(cx: &mut TestAppContext) {
+        let (harness, cx) = open(cx, "appearance");
+        let mut shown = |query: &str| {
+            let typed = Intent::Search(TextInputEvent::Changed(query.to_owned()));
+            run(&harness, typed, cx);
+            inspect(&harness, cx, visible_blocks)
         };
-        let all = any_block(&harness, cx);
-        run(
-            &harness,
-            Intent::Search(TextInputEvent::Changed("descriptor".to_owned())),
-            cx,
-        );
-        assert!(any_block(&harness, cx) <= all);
+        assert_eq!(shown("permission"), 3, "heading and both lists");
+        assert_eq!(shown("chat by default"), 0);
     }
 }

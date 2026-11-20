@@ -12,6 +12,9 @@ const UI_FONT_SIZE: NumberSetting = NumberSetting::new((10.0, 24.0, 0.5), 15.0);
 
 pub(super) fn page() -> Page {
     Page::new("appearance", "Appearance", "paint-brush")
+        .indexed(super::search_index::entries(
+            super::search_index::APPEARANCE,
+        ))
         .block(theme())
         .block(icons())
         .block(typography())
@@ -48,9 +51,9 @@ fn icons() -> Section {
         "Icons displayed in the file tree and tabs",
         Control::select(
             &[
+                ("classic", "Classic"),
                 ("material", "Material Icons"),
                 ("colorful-material", "Colorful Material Icons"),
-                ("classic", "Classic"),
                 ("compact", "Compact"),
                 ("minimal", "Minimal Icons"),
                 ("none", "None"),
@@ -71,7 +74,7 @@ fn typography() -> Section {
         ))
         .row(row(
             ("headingFontFamily", "Heading Font Family"),
-            "Font for headings - Markdown titles, dialog titles, settings section titles",
+            "Font for headings — Markdown titles, dialog titles, settings section titles",
             Control::provided_select("fonts", ControlWidth::Text),
             "Instrument Serif",
         ))
@@ -146,5 +149,32 @@ mod tests {
             })
             .collect();
         assert_eq!(headers, [false, true, true, true]);
+    }
+
+    #[test]
+    fn icon_themes_are_offered_in_registration_order() {
+        let page = page();
+        let Some(icon) = page.rows().find(|row| row.key().as_str() == "iconTheme") else {
+            panic!("no icon theme row");
+        };
+        let Control::Select {
+            source: crate::schema::ChoiceSource::Fixed(choices),
+            ..
+        } = icon.control()
+        else {
+            panic!("icon theme is not a fixed select");
+        };
+        let labels: Vec<&str> = choices.iter().map(crate::values::Choice::label).collect();
+        assert_eq!(
+            labels,
+            [
+                "Classic",
+                "Material Icons",
+                "Colorful Material Icons",
+                "Compact",
+                "Minimal Icons",
+                "None"
+            ]
+        );
     }
 }
