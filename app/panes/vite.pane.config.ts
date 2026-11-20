@@ -11,6 +11,8 @@ const pane = process.env.PANE ?? 'chat'
 export default defineConfig({
   root: path.resolve(import.meta.dirname, 'entries', pane),
   base: './',
+  // The root is entries/<pane>, so the shared public/ (fonts) is named, or no pane carries it.
+  publicDir: path.resolve(import.meta.dirname, 'public'),
   plugins: [react(), tailwindcss()],
   define: { __APP_VERSION__: JSON.stringify('shell') },
   worker: { format: 'es' },
