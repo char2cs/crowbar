@@ -9,6 +9,7 @@ pub struct Shortcut {
     pub(crate) label: String,
     pub(crate) default: Option<Chord>,
     pub(crate) presets: Vec<(String, Chord)>,
+    pub(crate) display_only: bool,
 }
 
 impl Shortcut {
@@ -29,6 +30,7 @@ impl Shortcut {
             label: label.into(),
             default: Chord::parse(default),
             presets: Vec::new(),
+            display_only: false,
         }
     }
 
@@ -42,6 +44,19 @@ impl Shortcut {
         self.presets
             .extend(Chord::parse(chord).map(|chord| (preset.to_owned(), chord)));
         self
+    }
+
+    /// Marks the chord as shown but not rebindable: the shell does not route it through the keymap.
+    #[must_use]
+    pub fn display_only(mut self) -> Self {
+        self.display_only = true;
+        self
+    }
+
+    /// Whether the chord is shown but cannot be rebound.
+    #[must_use]
+    pub fn is_display_only(&self) -> bool {
+        self.display_only
     }
 
     /// The command id.

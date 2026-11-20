@@ -1,31 +1,41 @@
-//! One shortcut: its label, its chord button and a clear control.
+//! One shortcut: label with its tags, the chord button and a Reset for a custom chord.
+//! Spec: web/src/features/settings/components/tabs/keybindings-settings.tsx.
 
 use gpui::{
-    App, InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement,
-    Styled, Window, div, px,
+    AnyElement, App, InteractiveElement, IntoElement, ParentElement, SharedString,
+    StatefulInteractiveElement, Styled, Window, div, px,
 };
 use settings::{ChordSource, Shortcut, ShortcutGroup};
-use ui::{HoverFill, Icon, IconName, IconWeight, Palette, ScaledText, Surface, Theme, radius};
+use ui::{
+    Button, ButtonSize, ButtonVariant, Icon, IconName, Palette, ScaledText, Surface, Theme, radius,
+};
 
 use crate::frame::Frame;
 use crate::frame::element_id;
 use crate::frame::spacing;
 use crate::intent::Intent;
+use crate::modal::pages::shortcuts::chord_face::ChordFace;
+use crate::modal::pages::shortcuts::chord_look::ChordLook;
 use chord::Chord;
 
-const HEIGHT: f32 = 49.0;
-const BORDER_FADE: f32 = 0.6;
 const LABEL_ICON: f32 = 14.0;
-const CHORD_HEIGHT: f32 = 32.0;
-const CLEAR_BOX: f32 = 20.0;
-const CLEAR_ICON: f32 = 16.0;
-const CAPTURE_PROMPT: &str = "Press a shortcut...";
+const WARNING_ICON: f32 = 14.0;
+const CHORD_HEIGHT: f32 = 28.0;
+const CHORD_MIN_WIDTH: f32 = 88.0;
+const DISABLED_OPACITY: f32 = 0.64;
+const CHIP_X: f32 = 6.0;
+const CHIP_Y: f32 = 2.0;
+const CAPTURE_PROMPT: &str = "Press keys\u{2026}";
 const UNBOUND: &str = "Unbound";
+const DISPLAY_ONLY: &str = "display-only";
+const CUSTOM: &str = "custom";
+const PRESET: &str = "preset";
+const RESET: &str = "Reset";
 
 pub(crate) fn shortcut_row(
     frame: &Frame<'_>,
     entry: (&ShortcutGroup, &Shortcut),
-    (window, cx): (&mut Window, &mut App),
+    (_, cx): (&mut Window, &mut App),
 ) -> impl IntoElement {
     let (group, shortcut) = entry;
     let theme = *Theme::of(cx);
@@ -33,46 +43,66 @@ pub(crate) fn shortcut_row(
     let command = shortcut.command().to_owned();
     let (chord, source) = frame.state.chord(group, shortcut);
     let conflicts = frame.state.conflicts(group, shortcut);
-    let note = (!conflicts.is_empty()).then(|| format!("Also used by {}", conflicts.join(", ")));
-    let clear = (source == ChordSource::Custom).then(|| clear_button(frame, &command, palette));
-    let base = div()
+    let warning = (!conflicts.is_empty()).then(|| warning(&conflicts, palette));
+    let reset = (source == ChordSource::Custom).then(|| reset_button(frame, &command));
+    let face = ChordFace {
+        text: chord_text(frame, (&command, chord.as_ref())),
+        look: look_of(frame, &command, &conflicts),
+    };
+    let chord_box = chord_button(frame, shortcut, face, &theme);
+    let selector = format!("shortcut-{command}");
+    div()
+        .debug_selector(move || selector)
         .flex()
         .items_center()
         .justify_between()
-        .h(px(HEIGHT))
+        .gap(spacing::ROOMY)
         .px(spacing::TIGHT)
-        .border_b_1()
-        .border_color(palette.border().opacity(BORDER_FADE))
+        .py(spacing::COMFORTABLE)
         .font_family(theme.ui_family())
-        .text_size(ScaledText::Sm.size(&theme));
-    HoverFill::new(
-        element_id("shortcut", &command),
-        palette.muted().opacity(0.5),
-    )
-    .apply(base, (window, cx))
-    .child(label(shortcut, note, palette))
-    .child(
-        div()
-            .flex()
-            .items_center()
-            .gap(spacing::SNUG)
-            .children(clear)
-            .child(chord_button(frame, (&command, chord.as_ref()), &theme)),
-    )
+        .text_size(ScaledText::Sm.size(&theme))
+        .child(label(shortcut, source, &theme))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(spacing::COMFORTABLE)
+                .children(warning)
+                .child(chord_box)
+                .children(reset),
+        )
 }
 
 fn label(
     shortcut: &Shortcut,
-    note: Option<String>,
-    palette: &Palette,
+    source: ChordSource,
+    theme: &Theme,
 ) -> impl IntoElement {
+    let palette = theme.palette(Surface::Window);
+    let small = ScaledText::Xs.size(theme);
+    let chip = shortcut.is_display_only().then(|| {
+        div()
+            .px(px(CHIP_X))
+            .py(px(CHIP_Y))
+            .rounded(radius::SM)
+            .bg(palette.muted())
+            .text_size(small)
+            .text_color(palette.muted_foreground())
+            .child(DISPLAY_ONLY)
+    });
+    let tag = source_tag(source).map(|text| {
+        div()
+            .text_size(small)
+            .text_color(palette.accent_foreground())
+            .child(text)
+    });
     div()
         .flex()
         .items_center()
         .gap(spacing::COMFORTABLE)
+        .min_w_0()
         .child(
             Icon::new(IconName::Keyboard)
-                .weight(IconWeight::Duotone)
                 .size(px(LABEL_ICON))
                 .color(palette.muted_foreground()),
         )
@@ -81,7 +111,30 @@ fn label(
                 .text_color(palette.foreground())
                 .child(shortcut.label().to_owned()),
         )
-        .children(note.map(|text| div().text_color(palette.warning()).child(text)))
+        .children(chip)
+        .children(tag)
+}
+
+fn source_tag(source: ChordSource) -> Option<&'static str> {
+    match source {
+        ChordSource::Custom => Some(CUSTOM),
+        ChordSource::Preset => Some(PRESET),
+        _ => None,
+    }
+}
+
+fn warning(
+    conflicts: &[String],
+    palette: &Palette,
+) -> impl IntoElement {
+    let text: SharedString = format!("Also bound to: {}", conflicts.join(", ")).into();
+    ui::Tooltip::new(
+        SharedString::from(format!("conflict-{text}")),
+        text,
+        Icon::new(IconName::Warning)
+            .size(px(WARNING_ICON))
+            .color(palette.destructive()),
+    )
 }
 
 fn chord_text(
@@ -102,52 +155,80 @@ fn chord_text(
         .into()
 }
 
+fn look_of(
+    frame: &Frame<'_>,
+    command: &str,
+    conflicts: &[String],
+) -> ChordLook {
+    if frame.state.capturing() == Some(command) {
+        return ChordLook::Capturing;
+    }
+    if !conflicts.is_empty() {
+        return ChordLook::Conflict;
+    }
+    ChordLook::Idle
+}
+
+fn chord_colors(
+    palette: &Palette,
+    look: ChordLook,
+) -> (gpui::Hsla, gpui::Hsla, gpui::Hsla) {
+    match look {
+        ChordLook::Capturing => (
+            palette.primary(),
+            palette.primary(),
+            palette.primary_foreground(),
+        ),
+        ChordLook::Conflict => (
+            palette.destructive(),
+            palette.background(),
+            palette.destructive(),
+        ),
+        ChordLook::Idle => (palette.input(), palette.background(), palette.foreground()),
+    }
+}
+
 fn chord_button(
     frame: &Frame<'_>,
-    (command, chord): (&str, Option<&Chord>),
+    shortcut: &Shortcut,
+    face: ChordFace,
     theme: &Theme,
-) -> impl IntoElement {
+) -> AnyElement {
     let palette = theme.palette(Surface::Window);
-    let capturing = frame.state.capturing().filter(|target| *target == command);
-    let border = capturing.map_or(palette.input(), |_| palette.ring());
-    let color = capturing.map_or(palette.muted_foreground(), |_| palette.foreground());
-    div()
+    let command = shortcut.command();
+    let (border, fill, ink) = chord_colors(palette, face.look);
+    let base = div()
         .id(element_id("chord", command))
         .flex()
         .items_center()
+        .justify_center()
         .h(px(CHORD_HEIGHT))
-        .px(spacing::ROOMY)
+        .min_w(px(CHORD_MIN_WIDTH))
+        .px(spacing::COMFORTABLE)
         .rounded(radius::LG)
         .border_1()
         .border_color(border)
-        .bg(palette.background())
+        .bg(fill)
         .font_family(theme.mono_family())
         .text_size(ScaledText::Sm.size(theme))
-        .text_color(color)
-        .cursor_pointer()
+        .text_color(ink)
+        .child(face.text);
+    if shortcut.is_display_only() {
+        return base.opacity(DISABLED_OPACITY).into_any_element();
+    }
+    base.cursor_pointer()
         .on_click(frame.sink.send(Intent::Capture(command.to_owned())))
-        .child(chord_text(frame, (command, chord)))
+        .into_any_element()
 }
 
-fn clear_button(
+fn reset_button(
     frame: &Frame<'_>,
     command: &str,
-    palette: &Palette,
 ) -> impl IntoElement {
-    div()
-        .id(element_id("clear", command))
-        .flex()
-        .items_center()
-        .justify_center()
-        .size(px(CLEAR_BOX))
-        .rounded(radius::MD)
-        .cursor_pointer()
+    Button::new(element_id("reset-chord", command), RESET)
+        .variant(ButtonVariant::Ghost)
+        .size(ButtonSize::Xs)
         .on_click(frame.sink.send(Intent::ClearChord(command.to_owned())))
-        .child(
-            Icon::new(IconName::ArrowCounterClockwise)
-                .size(px(CLEAR_ICON))
-                .color(palette.muted_foreground()),
-        )
 }
 
 #[cfg(test)]

@@ -1,73 +1,62 @@
 //! A titled group of rebindable shortcuts.
 
+mod chord_face;
+mod chord_look;
 mod row;
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{AnyElement, App, IntoElement, ParentElement, Styled, Window, div};
 use settings::ShortcutGroup;
+use ui::{Surface, Theme};
 
 use crate::frame::Frame;
 use crate::frame::spacing;
 use crate::modal::pages::shortcuts::row::shortcut_row;
 use crate::modal::pages::title_block::title_block;
 
+const DIVIDER_FADE: f32 = 0.6;
+
 pub(crate) fn shortcuts_view(
     frame: &Frame<'_>,
     group: &ShortcutGroup,
     (window, cx): (&mut Window, &mut App),
-) -> Option<AnyElement> {
-    let shown: Vec<_> = group
-        .shortcuts()
-        .iter()
-        .filter(|shortcut| frame.state.shortcut_visible(shortcut))
-        .collect();
-    if shown.is_empty() {
-        return None;
-    }
-    let mut rows: Vec<AnyElement> = Vec::with_capacity(shown.len());
-    for shortcut in shown {
-        rows.push(
-            shortcut_row(frame, (group, shortcut), (&mut *window, &mut *cx)).into_any_element(),
-        );
+) -> AnyElement {
+    let shortcuts = group.shortcuts();
+    let divider = Theme::of(cx)
+        .palette(Surface::Window)
+        .border()
+        .opacity(DIVIDER_FADE);
+    let mut rows: Vec<AnyElement> = Vec::with_capacity(shortcuts.len());
+    for (index, shortcut) in shortcuts.iter().enumerate() {
+        let row = shortcut_row(frame, (group, shortcut), (&mut *window, &mut *cx));
+        let ruled = div().when(index > 0, |d| d.border_t_1().border_color(divider));
+        rows.push(ruled.child(row).into_any_element());
     }
     let title = title_block(group.title(), None, cx);
-    Some(
-        div()
-            .px(spacing::TIGHT)
-            .child(title)
-            .child(div().flex().flex_col().children(rows))
-            .into_any_element(),
-    )
+    div()
+        .px(spacing::TIGHT)
+        .child(title)
+        .child(div().flex().flex_col().children(rows))
+        .into_any_element()
 }
 
 #[cfg(test)]
 mod tests {
     use gpui::TestAppContext;
 
-    use crate::intent::Intent;
-    use crate::test_support::{inspect, open, run};
-    use ui::TextInputEvent;
-
-    fn visible_shortcuts(modal: &crate::settings_modal::SettingsModal) -> usize {
-        modal
-            .state
-            .schema()
-            .shortcuts()
-            .filter(|(_, shortcut)| modal.state.shortcut_visible(shortcut))
-            .count()
-    }
+    use crate::test_support::open;
 
     #[gpui::test]
-    fn a_search_keeps_only_the_matching_shortcuts(cx: &mut TestAppContext) {
-        let (harness, cx) = open(cx, "keybindings");
-        let count = |harness: &crate::test_support::Harness, cx: &mut gpui::VisualTestContext| {
-            inspect(harness, cx, visible_shortcuts)
-        };
-        let all = count(&harness, cx);
-        run(
-            &harness,
-            Intent::Search(TextInputEvent::Changed("console".to_owned())),
-            cx,
-        );
-        assert_eq!((all, count(&harness, cx)), (24, 1));
+    fn every_group_draws_a_row_per_shortcut(cx: &mut TestAppContext) {
+        let (_, cx) = open(cx, "keybindings");
+        cx.simulate_resize(gpui::size(gpui::px(1600.0), gpui::px(4000.0)));
+        cx.run_until_parked();
+        for selector in [
+            "shortcut-navigation.toggleConsole",
+            "shortcut-tabs.openFile",
+            "shortcut-editor.saveAll",
+        ] {
+            assert!(cx.debug_bounds(selector).is_some(), "{selector}");
+        }
     }
 }

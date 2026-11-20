@@ -17,7 +17,8 @@ pub(super) const PRESET: &str = "keybindingPreset";
 const DEFAULT_PRESET: &str = "default";
 const COMPACT_PRESET: &str = "compact";
 const COMPACT: &[(&str, &str)] = &[("tabs.reopenClosed", "mod+shift+r")];
-const PRESET_NOTE: &str = "Note: the standard IDE presets (VS Code, JetBrains, Sublime, Xcode, Atom, Emacs, Zed) are not yet provided - only Default and one alternate (Compact) ship real bindings.";
+const DISPLAY_ONLY: &[&str] = &["editor.save", "editor.saveAll"];
+const PRESET_NOTE: &str = "Note: the standard IDE presets (VS Code, JetBrains, Sublime, Xcode, Atom, Emacs, Zed) are not yet provided — only Default and one alternate (Compact) ship real bindings.";
 
 pub(super) fn preset_overrides(preset: &str) -> BTreeMap<String, String> {
     if preset != COMPACT_PRESET {
@@ -127,11 +128,18 @@ fn in_presets(
     label: &str,
     chord: &str,
 ) -> Shortcut {
-    let shortcut = Shortcut::new(command, label, chord);
+    let shortcut = fixed(Shortcut::new(command, label, chord));
     match COMPACT.iter().find(|(bound, _)| *bound == command) {
         Some((_, compact)) => shortcut.in_preset(COMPACT_PRESET, compact),
         None => shortcut,
     }
+}
+
+fn fixed(shortcut: Shortcut) -> Shortcut {
+    if !DISPLAY_ONLY.contains(&shortcut.command()) {
+        return shortcut;
+    }
+    shortcut.display_only()
 }
 
 #[cfg(test)]
@@ -186,5 +194,17 @@ mod tests {
             .map(Shortcut::command)
             .collect();
         assert_eq!(unbound, ["agent.cycleProvider"]);
+    }
+
+    #[test]
+    fn only_save_and_save_all_are_display_only() {
+        let page = page();
+        let fixed: Vec<&str> = page
+            .shortcut_groups()
+            .flat_map(ShortcutGroup::shortcuts)
+            .filter(|shortcut| shortcut.is_display_only())
+            .map(Shortcut::command)
+            .collect();
+        assert_eq!(fixed, ["editor.save", "editor.saveAll"]);
     }
 }

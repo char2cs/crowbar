@@ -57,6 +57,13 @@ impl State {
         &mut self,
         command: &str,
     ) {
+        let display_only = self
+            .schema
+            .shortcuts()
+            .any(|(_, shortcut)| shortcut.command == command && shortcut.display_only);
+        if display_only {
+            return;
+        }
         self.capture.begin(command);
     }
 
@@ -136,7 +143,8 @@ mod tests {
         let keys = Page::new("keybindings", "Keybindings", "keyboard").block(
             ShortcutGroup::new("Tabs", "overrides")
                 .shortcut(Shortcut::new("tabs.new", "New tab", "mod+t"))
-                .shortcut(Shortcut::new("tabs.close", "Close active tab", "mod+w")),
+                .shortcut(Shortcut::new("tabs.close", "Close active tab", "mod+w"))
+                .shortcut(Shortcut::new("editor.save", "Save", "mod+s").display_only()),
         );
         let schema = Schema::new(vec![keys]).unwrap();
         State::new(schema, Snapshot::default(), None, Primary::Control)
@@ -230,7 +238,17 @@ mod tests {
         assert_eq!(state.clear_chord("unknown.command"), None);
     }
 
+    fn a_display_only_shortcut_never_captures() {
+        let mut state = state();
+        state.toggle_capture("editor.save");
+        assert_eq!(state.capturing(), None);
+    }
+
     const CASES: &[Case] = &[
+        (
+            "a display-only shortcut never captures",
+            a_display_only_shortcut_never_captures,
+        ),
         (
             "capture stores a chord and refuses bare keys",
             capture_stores_a_chord_and_refuses_bare_keys,
