@@ -57,6 +57,7 @@ mod tests {
 
     use crate::intent::Intent;
     use crate::test_support::{inspect, open, run};
+    use settings::PageId;
     use ui::TextInputEvent;
 
     #[gpui::test]
@@ -71,5 +72,25 @@ mod tests {
             .state
             .visible_pages()
             .is_empty()));
+    }
+
+    #[gpui::test]
+    fn another_page_opens_at_its_top(cx: &mut TestAppContext) {
+        let (harness, cx) = open(cx, "editor");
+        let top = |cx: &mut gpui::VisualTestContext| {
+            cx.debug_bounds("row-text-fontFamily")
+                .map(|bounds| bounds.top())
+        };
+        let fresh = top(cx);
+        run(&harness, Intent::Select(PageId::from("keybindings")), cx);
+        let chord = cx.debug_bounds("chord-navigation.toggleConsole").unwrap();
+        cx.simulate_event(gpui::ScrollWheelEvent {
+            position: chord.center(),
+            delta: gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.0), gpui::px(-400.0))),
+            ..Default::default()
+        });
+        cx.run_until_parked();
+        run(&harness, Intent::Select(PageId::from("editor")), cx);
+        assert_eq!(top(cx), fresh);
     }
 }
