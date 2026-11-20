@@ -167,7 +167,7 @@ jobs:
       # processes and files, no display. webview and platform keep their display tests for the GUI step below,
       # as does every test in a `needs_display` module.
       - name: Real-infrastructure tests
-        run: cd app && cargo test --locked --workspace --all-features --exclude webview --exclude platform -- --include-ignored --skip needs_display::
+        run: 'cd app && cargo test --locked --workspace --all-features --exclude webview --exclude platform -- --include-ignored --skip needs_display::'
       # Tests that open a real window are `#[ignore = "needs display"]` (docs/rust-style.md M41).
       # Linux: Xvfb + openbox + lavapipe software Vulkan.
       - name: GUI tests (Linux, Xvfb + openbox + lavapipe)
