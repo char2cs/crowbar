@@ -57,12 +57,6 @@ mod tests {
     use super::*;
     use crate::test_support::{FakeSource, layout_of, open, open_with, pane_id, stacked_layout};
 
-    fn stacking() -> FakeSource {
-        FakeSource::starting_at_first_tab()
-            .stacking(pane_id("b"))
-            .stacking(pane_id("c"))
-    }
-
     #[gpui::test]
     fn the_enter_and_leave_actions_move_the_hover_to_their_pane_and_off_it(
         cx: &mut TestAppContext
@@ -103,7 +97,7 @@ mod tests {
 
     #[gpui::test]
     fn closing_a_group_from_its_handle_closes_every_tab_in_one_command(cx: &mut TestAppContext) {
-        let harness = open_with(cx, &stacked_layout(), stacking());
+        let harness = open_with(cx, &stacked_layout(), FakeSource::starting_at_first_tab());
         let (view, cx, commands) = (harness.view, harness.cx, harness.commands);
         let close = view.update(cx, |_, cx| LayoutView::close_action(&pane_id("b"), cx));
         cx.update(|window, cx| close(window, cx));

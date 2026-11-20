@@ -1,13 +1,13 @@
 use crate::pane_chrome::PaneChrome;
 use crate::pane_content::PaneContent;
 use crate::pane_detach::PaneDetach;
-use crate::pane_tabs::PaneTabs;
+use ideshell::TabLooks;
 
 /// What the layout view asks of the shell about a pane; the shell implements it, the view never
 /// looks a pane up itself.
-pub trait PaneSource: PaneContent + PaneChrome + PaneTabs + PaneDetach {}
+pub trait PaneSource: PaneContent + PaneChrome + TabLooks + PaneDetach {}
 
-impl<T: PaneContent + PaneChrome + PaneTabs + PaneDetach> PaneSource for T {}
+impl<T: PaneContent + PaneChrome + TabLooks + PaneDetach> PaneSource for T {}
 
 #[cfg(test)]
 mod tests {

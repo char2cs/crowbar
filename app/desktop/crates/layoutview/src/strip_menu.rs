@@ -185,18 +185,12 @@ mod tests {
     use ideshell::PathAction;
     use ideshell::TabLook;
 
-    fn stacking() -> FakeSource {
-        FakeSource::starting_at_first_tab()
-            .stacking(pane_id("a"))
-            .stacking(pane_id("b"))
-            .stacking(pane_id("c"))
-    }
     fn choose(
         cx: &mut TestAppContext,
         layout: &Layout,
         keys: &str,
     ) -> Vec<Command> {
-        let harness = open_with(cx, layout, stacking());
+        let harness = open_with(cx, layout, FakeSource::starting_at_first_tab());
         let (view, cx, commands) = (harness.view, harness.cx, harness.commands);
         let size = view.read_with(cx, |view, _| view.bounds.size);
         let tab = point(size.width * 0.5 + px(74.0), px(20.0));
@@ -253,7 +247,7 @@ mod tests {
 
     fn file_source() -> FakeSource {
         let look = TabLook::plain("main.rs").at_path("src/main.rs");
-        stacking().looking(pane_id("b"), look)
+        FakeSource::starting_at_first_tab().looking(pane_id("b"), look)
     }
 
     fn chosen_path_row(
@@ -282,7 +276,7 @@ mod tests {
     #[gpui::test]
     fn a_renamable_tab_offers_rename_right_after_pin(cx: &mut TestAppContext) {
         let look = TabLook::plain("zsh").renamable();
-        let source = stacking().looking(pane_id("b"), look);
+        let source = FakeSource::starting_at_first_tab().looking(pane_id("b"), look);
         let harness = open_with(cx, &stacked_layout(), source);
         let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
         let size = view.read_with(cx, |view, _| view.bounds.size);
@@ -307,7 +301,7 @@ mod tests {
         cx: &mut TestAppContext,
         press: f32,
     ) -> Opened {
-        let harness = open_with(cx, &stacked_layout(), stacking());
+        let harness = open_with(cx, &stacked_layout(), FakeSource::starting_at_first_tab());
         let (view, cx) = (harness.view, harness.cx);
         let size = view.read_with(cx, |view, _| view.bounds.size);
         let at = point(size.width * 0.5 + px(press), px(20.0));

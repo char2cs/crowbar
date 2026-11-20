@@ -47,9 +47,9 @@ impl LayoutView {
         let Some(tab) = &self.tab else {
             return;
         };
-        if !tab
+        if tab
             .pane(pane)
-            .is_some_and(|dragged| self.source.stacks(dragged))
+            .is_none_or(|dragged| dragged.type_id.is_chat())
         {
             return;
         }
@@ -72,16 +72,9 @@ mod tests {
     use super::*;
     use crate::test_support::{FakeSource, open_with, pane_id, stacked_layout, strip_of};
 
-    fn stacking() -> FakeSource {
-        FakeSource::starting_at_first_tab()
-            .stacking(pane_id("a"))
-            .stacking(pane_id("b"))
-            .stacking(pane_id("c"))
-    }
-
     #[gpui::test]
     fn dropping_on_a_strip_tab_ends_the_drag_and_releases_the_overlay(cx: &mut TestAppContext) {
-        let harness = open_with(cx, &stacked_layout(), stacking());
+        let harness = open_with(cx, &stacked_layout(), FakeSource::starting_at_first_tab());
         let (view, cx) = (harness.view, harness.cx);
         let subject = DragSubject::Pane(pane_id("a"));
         let drop = view.update(cx, |view, cx| {

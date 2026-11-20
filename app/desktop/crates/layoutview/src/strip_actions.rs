@@ -81,16 +81,9 @@ mod tests {
     use ideshell::TabEnd;
     use ideshell::TabState;
 
-    fn stacking() -> FakeSource {
-        FakeSource::starting_at_first_tab()
-            .stacking(pane_id("a"))
-            .stacking(pane_id("b"))
-            .stacking(pane_id("c"))
-    }
-
     #[gpui::test]
     fn the_plus_button_asks_for_a_new_tab_in_the_group_of_the_shown_tab(cx: &mut TestAppContext) {
-        let harness = open_with(cx, &stacked_layout(), stacking());
+        let harness = open_with(cx, &stacked_layout(), FakeSource::starting_at_first_tab());
         let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
         let strip = view
             .update(cx, |view, cx| strip_of(view, &pane_id("b"), cx))
@@ -105,7 +98,7 @@ mod tests {
 
     #[gpui::test]
     fn keys_on_the_strip_select_neighbours_and_ignore_the_rest(cx: &mut TestAppContext) {
-        let harness = open_with(cx, &stacked_layout(), stacking());
+        let harness = open_with(cx, &stacked_layout(), FakeSource::starting_at_first_tab());
         let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
         let strip = view
             .update(cx, |view, cx| strip_of(view, &pane_id("b"), cx))
@@ -126,7 +119,7 @@ mod tests {
         cx: &mut TestAppContext,
         layout: &layout::Layout,
     ) -> (Vec<Command>, Vec<LayoutEvent>) {
-        let harness = open_with(cx, layout, stacking());
+        let harness = open_with(cx, layout, FakeSource::starting_at_first_tab());
         let (view, cx) = (harness.view, harness.cx);
         let (commands, opened) = (harness.commands, harness.opened);
         let strip = view
@@ -170,7 +163,7 @@ mod tests {
 
     #[gpui::test]
     fn the_more_tabs_menu_lists_every_tab_and_marks_the_shown_one(cx: &mut TestAppContext) {
-        let harness = open_with(cx, &stacked_layout(), stacking());
+        let harness = open_with(cx, &stacked_layout(), FakeSource::starting_at_first_tab());
         let (view, cx) = (harness.view, harness.cx);
         let entries = view.update(cx, |view, cx| {
             let strip = strip_of(view, &pane_id("b"), cx).expect("strip");
@@ -190,7 +183,7 @@ mod tests {
         layout
             .apply(Command::PinPane { pane: pane_id("c") })
             .unwrap();
-        let harness = open_with(cx, &layout, stacking());
+        let harness = open_with(cx, &layout, FakeSource::starting_at_first_tab());
         let (view, cx, commands) = (harness.view, harness.cx, harness.commands);
         let strip = view
             .update(cx, |view, cx| strip_of(view, &pane_id("b"), cx))

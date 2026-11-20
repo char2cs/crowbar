@@ -124,10 +124,7 @@ impl LayoutView {
         let own_group = tab
             .group_of(dragged)
             .is_some_and(|group| group.contains(target));
-        let stacks = |pane: &PaneId| {
-            tab.pane(pane)
-                .is_some_and(|found| self.source.stacks(found))
-        };
+        let stacks = |pane: &PaneId| tab.pane(pane).is_some_and(|found| !found.type_id.is_chat());
         !own_group && stacks(dragged) && stacks(target)
     }
 
@@ -166,16 +163,21 @@ pub(crate) fn state_in(
 #[cfg(test)]
 mod tests {
     use gpui::{Modifiers, MouseButton, TestAppContext, point, px};
-    use layout::{Command, DragSubject};
+    use layout::{Command, DragSubject, Layout};
 
     use super::*;
-    use crate::test_support::{FakeSource, open_with, pane_id, stacked_layout, strip_of};
+    use crate::test_support::{FakeSource, editor, open_with, pane_id, stacked_layout, strip_of};
 
-    fn stacking() -> FakeSource {
-        FakeSource::starting_at_first_tab()
-            .stacking(pane_id("a"))
-            .stacking(pane_id("b"))
-            .stacking(pane_id("c"))
+    /// The stacked layout with the editor tab `d` in chat `a`'s group.
+    fn with_tab_by_the_chat() -> Layout {
+        let mut layout = stacked_layout();
+        let open = Command::OpenPaneInGroup {
+            instance: editor("d"),
+            onto: pane_id("a"),
+            index: None,
+        };
+        layout.apply(open).expect("d by the chat");
+        layout
     }
 
     fn joins(
@@ -188,7 +190,7 @@ mod tests {
 
     #[gpui::test]
     fn every_group_has_a_strip_with_a_tab_per_editor_tab(cx: &mut TestAppContext) {
-        let harness = open_with(cx, &stacked_layout(), stacking());
+        let harness = open_with(cx, &stacked_layout(), FakeSource::starting_at_first_tab());
         let (view, cx) = (harness.view, harness.cx);
         let counts = view.update(cx, |view, cx| {
             ["a", "b", "c"].map(|pane| strip_of(view, &pane_id(pane), cx).map(|s| s.tabs.len()))
@@ -198,7 +200,8 @@ mod tests {
 
     #[gpui::test]
     fn the_tab_actions_focus_close_and_drop_before_their_index(cx: &mut TestAppContext) {
-        let harness = open_with(cx, &stacked_layout(), stacking());
+        let source = FakeSource::starting_at_first_tab();
+        let harness = open_with(cx, &with_tab_by_the_chat(), source);
         let (view, cx, commands) = (harness.view, harness.cx, harness.commands);
         let opened = harness.opened;
         let strip = view
@@ -208,12 +211,12 @@ mod tests {
         cx.update(|window, cx| {
             (first.select)(window, cx);
             (first.close)(window, cx);
-            (first.drop)(&DragSubject::Pane(pane_id("a")), window, cx);
+            (first.drop)(&DragSubject::Pane(pane_id("d")), window, cx);
         });
         let expected = [
             Command::ClosePane { pane: pane_id("b") },
             Command::MoveToGroup {
-                pane: pane_id("a"),
+                pane: pane_id("d"),
                 onto: pane_id("c"),
                 index: Some(0),
             },
@@ -230,7 +233,7 @@ mod tests {
     fn dragging_a_strip_tab_over_the_layout_starts_a_drag_after_its_first_moves(
         cx: &mut TestAppContext
     ) {
-        let harness = open_with(cx, &stacked_layout(), stacking());
+        let harness = open_with(cx, &stacked_layout(), FakeSource::starting_at_first_tab());
         let (view, cx) = (harness.view, harness.cx);
         let size = view.read_with(cx, |view, _| view.bounds.size);
         let tab = point(size.width * 0.5 + px(74.0), px(20.0));
@@ -243,19 +246,18 @@ mod tests {
     }
 
     #[gpui::test]
-    fn a_pane_joins_a_strip_only_when_both_stack_and_it_is_not_already_a_member(
-        cx: &mut TestAppContext
-    ) {
-        let harness = open_with(cx, &stacked_layout(), stacking());
+    fn an_editor_tab_joins_another_group_and_a_chat_never_does(cx: &mut TestAppContext) {
+        let source = FakeSource::starting_at_first_tab();
+        let harness = open_with(cx, &with_tab_by_the_chat(), source);
         let (view, cx) = (harness.view, harness.cx);
         let joins = view.update(cx, |view, _| {
-            [("b", "c"), ("a", "c"), ("c", "b")]
+            [("b", "c"), ("d", "c"), ("a", "c"), ("c", "b")]
                 .map(|(dragged, target)| joins(view, dragged, target))
         });
         assert_eq!(
             joins,
-            [false, true, false],
-            "b and c share a group; a does not"
+            [false, true, false, false],
+            "b and c share a group; d joins it; chat a never does"
         );
     }
 
@@ -267,7 +269,7 @@ mod tests {
         layout
             .apply(Command::FocusPane { pane: pane_id("a") })
             .unwrap();
-        let harness = open_with(cx, &layout, stacking());
+        let harness = open_with(cx, &layout, FakeSource::starting_at_first_tab());
         let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
         let commands = harness.commands;
         let size = view.read_with(cx, |view, _| view.bounds.size);

@@ -7,14 +7,12 @@ use protocol::PaneId;
 use crate::pane_chrome::PaneChrome;
 use crate::pane_content::PaneContent;
 use crate::pane_detach::PaneDetach;
-use crate::pane_tabs::PaneTabs;
-use ideshell::TabLook;
+use ideshell::{TabLook, TabLooks};
 
 pub(crate) struct FakeSource {
     next: Cell<u64>,
     native: Vec<PaneId>,
     chrome: Vec<(PaneId, f32)>,
-    stacking: Vec<PaneId>,
     looks: Vec<(PaneId, TabLook)>,
 }
 
@@ -26,7 +24,6 @@ impl FakeSource {
             next: Cell::new(FIRST_TAB),
             native: Vec::new(),
             chrome: Vec::new(),
-            stacking: Vec::new(),
             looks: Vec::new(),
         }
     }
@@ -36,14 +33,6 @@ impl FakeSource {
         pane: PaneId,
     ) -> Self {
         self.native.push(pane);
-        self
-    }
-
-    pub(crate) fn stacking(
-        mut self,
-        pane: PaneId,
-    ) -> Self {
-        self.stacking.push(pane);
         self
     }
 
@@ -96,7 +85,7 @@ impl PaneChrome for FakeSource {
     }
 }
 
-impl PaneTabs for FakeSource {
+impl TabLooks for FakeSource {
     fn tab_look(
         &self,
         instance: &PaneInstance,
@@ -109,13 +98,6 @@ impl PaneTabs for FakeSource {
             || TabLook::plain(instance.type_id.to_string()),
             |(_, look)| look.clone(),
         )
-    }
-
-    fn stacks(
-        &self,
-        instance: &PaneInstance,
-    ) -> bool {
-        self.stacking.contains(&instance.pane_id)
     }
 }
 

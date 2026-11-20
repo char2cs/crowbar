@@ -42,8 +42,9 @@ fn placed(
 
 #[cfg(test)]
 mod tests {
+    use ideshell::TabLooks;
     use layout::{Command, Layout, PaneInstance, TabId};
-    use layoutview::{PaneChrome, PaneContent, PaneDetach, PaneTabs, SidebarEdge};
+    use layoutview::{PaneChrome, PaneContent, PaneDetach, SidebarEdge};
     use protocol::{PaneId, PaneState, PaneTypeId, Params};
 
     use super::*;
@@ -63,7 +64,7 @@ mod tests {
 
     impl PaneChrome for NoChrome {}
 
-    impl PaneTabs for NoChrome {}
+    impl TabLooks for NoChrome {}
 
     impl PaneDetach for NoChrome {
         fn label(

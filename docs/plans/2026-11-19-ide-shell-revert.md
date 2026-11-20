@@ -29,6 +29,11 @@ Tree plan section 7 step 6, approved. Spec: develop `web/src/features/panes` (`t
 - `PaneGroup` is held inline in the leaf, with no side map: `{ chat, tabs, active, pinned,
   editor_open, chat_selected }`. Pins are a count of leading tabs, as the strip kept them, not a
   flag per tab; there is no group id and no preview flag until a row needs one.
+- Step 4 keeps the seven `layoutview` strip wiring files (`strip_drop`, `strip_keyboard`,
+  `strip_menu`, `strip_actions`, `strip_input`, `strip_index`, `tab_seat`) and `strip_head`: they
+  wire `ideshell`'s elements to `LayoutView`'s commands. `PaneTabs` becomes `ideshell::TabLooks`
+  (only `tab_look`); its `stacks` was the model's rule that a chat is never an editor tab, so the
+  view asks the pane's type instead.
 - Step 1 is two commits: the data shape with no behaviour change (schema v3; older files load as
   the default layout, so there is no migration), then chat and tabs merged into one group together
   with the step-2 presentation geometry.

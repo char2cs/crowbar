@@ -14,4 +14,5 @@ pub(crate) mod tab_dragging;
 pub(crate) mod tab_end;
 pub(crate) mod tab_frame;
 pub(crate) mod tab_look;
+pub(crate) mod tab_looks;
 pub(crate) mod tab_state;

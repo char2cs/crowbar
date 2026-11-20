@@ -95,7 +95,7 @@ impl layoutview::PaneChrome for ShellPaneSource {
     }
 }
 
-impl layoutview::PaneTabs for ShellPaneSource {
+impl ideshell::TabLooks for ShellPaneSource {
     fn tab_look(
         &self,
         instance: &layout::PaneInstance,
@@ -109,13 +109,6 @@ impl layoutview::PaneTabs for ShellPaneSource {
             return look.unsaved();
         }
         look
-    }
-
-    fn stacks(
-        &self,
-        instance: &layout::PaneInstance,
-    ) -> bool {
-        !instance.type_id.is_chat()
     }
 }
 
@@ -177,7 +170,7 @@ mod tests {
 
     #[test]
     fn a_tab_is_marked_exactly_while_its_pane_has_unsaved_work() {
-        use layoutview::PaneTabs as _;
+        use ideshell::TabLooks as _;
         let dirty = DirtyPanes::default();
         let source = ShellPaneSource::new(
             Titles::default(),
