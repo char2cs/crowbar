@@ -51,8 +51,7 @@ impl TextInput {
                 this.extend_by_word(Direction::Forward, cx);
             }))
             .on_action(cx.listener(|this, _: &actions::SelectAll, _, cx| {
-                this.buffer.select_all();
-                this.restart_blink(cx);
+                this.select_all(cx);
             }))
             .on_action(cx.listener(|this, _: &actions::Home, _, cx| {
                 this.buffer.move_to(0);

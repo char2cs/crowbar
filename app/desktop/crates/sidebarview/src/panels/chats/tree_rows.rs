@@ -10,6 +10,7 @@ use crate::panels::chats::kinds::OperationRow;
 use crate::panels::chats::kinds::RemovingRow;
 use crate::panels::chats::kinds::TreeRow;
 use crate::panels::chats::parts::RowInput;
+use crate::panels::chats::parts::Trailing;
 use crate::panels::chats::reorder::RowDrag;
 use crate::sidebar::RowHandler;
 use crate::sidebar::Sidebar;
@@ -91,13 +92,15 @@ impl Sidebar {
         row: &Row,
     ) -> Option<RowInput> {
         let edit = self.inline.as_ref().filter(|edit| edit.row == row.id)?;
-        let wanted = matches!(
-            self.tree.editing(),
-            Editing::Renaming(_) | Editing::Branching(_)
-        );
-        wanted.then(|| RowInput {
+        let trailing = match self.tree.editing() {
+            Editing::Renaming(_) => Trailing::Kept,
+            Editing::Branching(_) => Trailing::Hidden,
+            _ => return None,
+        };
+        Some(RowInput {
             field: edit.input.clone(),
             error: edit.error.clone(),
+            trailing,
         })
     }
 
@@ -119,6 +122,7 @@ impl Sidebar {
         let input = RowInput {
             field: edit.input.clone(),
             error: edit.error.clone(),
+            trailing: Trailing::Hidden,
         };
         let handler = Rc::clone(handler);
         let expansion = Expansion::Expanded;

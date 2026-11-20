@@ -17,6 +17,13 @@ pub enum Outcome {
     ClearBrowsingData,
     /// A file was read for the clipboard: the shell puts this text on it.
     CopyText(String),
+    /// A row was created to be named at once: the sidebar opens `name` on `row` for editing.
+    NameRow {
+        /// The new row.
+        row: RowId,
+        /// The name it was created with.
+        name: String,
+    },
     /// The daemon refused or could not be reached; the reason is fit to show.
     Failed(String),
     /// The daemon refused to delete `row` because work on it exists nowhere else: the shell asks

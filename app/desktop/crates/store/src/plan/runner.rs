@@ -1,6 +1,8 @@
 //! Carrying out a plan: the requests in order, the local row meanwhile, the outcome after.
 
 use daemonapi::Call;
+use serde_json::Value;
+use sidebar::RowId;
 
 use crate::live::Hub;
 use crate::live::PlanError;
@@ -11,6 +13,10 @@ use crate::live::{Outcome, OutcomeSink};
 use crate::live::{fleet::catalog as providers, panel_loader::changes_reload};
 use crate::plan::Plan;
 use crate::plan::after::After;
+
+const FOLDER: &str = "folder";
+const ID: &str = "id";
+const TITLE: &str = "title";
 
 pub(crate) async fn run(
     hub: &Hub,
@@ -29,7 +35,7 @@ pub(crate) async fn run(
         hub.edit(|state| state.panels.committing = true);
     }
     match (carry_out(hub, &plan).await, &plan.removal) {
-        (Ok(()), _) => finish(hub, plan.after, outcome).await,
+        (Ok(answer), _) => finish(hub, (plan.after, &answer), outcome).await,
         (Err(error), Some(removal)) => outcome(removal.refused(&error)),
         (Err(reason), None) => fail(hub, row_id.as_deref(), outcome, &reason.to_string()),
     }
@@ -41,15 +47,16 @@ pub(crate) async fn run(
 async fn carry_out(
     hub: &Hub,
     plan: &Plan,
-) -> Result<(), PlanError> {
+) -> Result<Value, PlanError> {
     let client = hub
         .read(|state| client_of(state, &plan.host))
         .ok_or_else(|| PlanError::UnknownHost(plan.host.clone()))?;
     let provider = chosen_provider(hub, &client, plan).await?;
+    let mut answer = Value::Null;
     for call in plan.calls.iter().cloned() {
-        send(&client, call, provider.as_ref().zip(Some(plan.landing))).await?;
+        answer = send(&client, call, provider.as_ref().zip(Some(plan.landing))).await?;
     }
-    Ok(())
+    Ok(answer)
 }
 
 async fn chosen_provider(
@@ -67,7 +74,7 @@ async fn send(
     client: &daemonapi::Client,
     mut call: Call,
     chosen: Option<(&Provider, Surface)>,
-) -> Result<(), PlanError> {
+) -> Result<Value, PlanError> {
     if let Some((body, (provider, landing))) = call.body.as_mut().zip(chosen) {
         providers::fill(body, &provider.id);
         providers::land(body, (provider, landing));
@@ -75,7 +82,6 @@ async fn send(
     client
         .send(call)
         .await
-        .map(drop)
         .map_err(|error| PlanError::Daemon(error.into()))
 }
 
@@ -103,9 +109,19 @@ async fn pick_provider(
         .ok_or(PlanError::NoAgentEnabled)
 }
 
+fn named_folder(answer: &Value) -> Option<Outcome> {
+    let folder = answer.get(FOLDER)?;
+    let id = folder.get(ID)?.as_str()?;
+    let name = folder.get(TITLE)?.as_str()?;
+    Some(Outcome::NameRow {
+        row: RowId::from(id),
+        name: name.to_owned(),
+    })
+}
+
 async fn finish(
     hub: &Hub,
-    after: After,
+    (after, answer): (After, &Value),
     outcome: &OutcomeSink,
 ) {
     match after {
@@ -113,6 +129,9 @@ async fn finish(
         After::OpenChat(id) => outcome(Outcome::OpenChat(id)),
         After::SelectProject(id) => hub.edit(|state| state.active_project = Some(id)),
         After::ReloadChanges => changes_reload::reload(hub).await,
+        After::NameFolder => named_folder(answer)
+            .into_iter()
+            .for_each(|named| outcome(named)),
     }
 }
 
@@ -282,9 +301,25 @@ mod tests {
         }
     }
 
+    async fn a_created_folder_opens_its_name_for_editing() {
+        let (state, daemon) = state();
+        let made = r#"{"folder":{"id":"nf","title":"New folder"},"shifted":[]}"#;
+        daemon.ok("POST", "/v0/projects/p/home/chats/folders", made);
+        let hub = Hub::new(state, Arc::new(|| {}));
+        let call = Call::post("/v0/projects/p/home/chats/folders");
+        let plan = Plan::of("local", vec![call]).then(After::NameFolder);
+        let (outcome, seen) = sink();
+        run(&hub, plan, &outcome).await;
+        let named = Outcome::NameRow {
+            row: RowId::from("nf"),
+            name: "New folder".into(),
+        };
+        assert_eq!(*seen.lock().unwrap(), [named]);
+    }
+
     type Case = fn() -> std::pin::Pin<Box<dyn Future<Output = ()>>>;
 
-    const CASES: [Case; 6] = [
+    const CASES: [Case; 7] = [
         || Box::pin(a_create_picks_an_agent_sends_its_call_and_opens_the_chat()),
         || {
             Box::pin(
@@ -295,6 +330,7 @@ mod tests {
         || Box::pin(no_enabled_agent_stops_before_any_create_and_a_drop_plan_only_forgets()),
         || Box::pin(selecting_a_created_space_makes_it_active()),
         || Box::pin(a_commit_is_marked_while_it_runs_and_unmarked_when_it_ends_either_way()),
+        || Box::pin(a_created_folder_opens_its_name_for_editing()),
     ];
 
     async fn run_all() {

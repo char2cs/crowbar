@@ -75,6 +75,9 @@ impl ShellView {
             DataOutcome::CopyText(text) => {
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
             },
+            DataOutcome::NameRow { row, name } => self.sidebar.update(cx, |sidebar, cx| {
+                sidebar.name_new_row((row, &name), window, cx);
+            }),
             DataOutcome::Failed(reason) => {
                 tracing::warn!(%reason, "a command failed");
                 self.show_notice(NoticeKey::Command, (ToastKind::Error, reason), cx);

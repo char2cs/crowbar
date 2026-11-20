@@ -12,6 +12,7 @@ mod row_label;
 mod row_report;
 mod row_shell;
 mod row_verb;
+mod trailing;
 
 pub use chat_glyph::ChatGlyph;
 pub(crate) use cluster_spec::ClusterSpec;
@@ -24,3 +25,4 @@ pub(crate) use row_input::RowInput;
 pub(crate) use row_label::{input_view, label};
 pub(crate) use row_report::report;
 pub(crate) use row_shell::row_shell;
+pub(crate) use trailing::Trailing;

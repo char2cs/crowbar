@@ -24,6 +24,14 @@ impl Tree {
         self.editing = Editing::Renaming(row.id.clone());
     }
 
+    /// Shows the rename input on `row`, a row made to be named that may not be drawn yet.
+    pub fn start_naming(
+        &mut self,
+        row: &RowId,
+    ) {
+        self.editing = Editing::Renaming(row.clone());
+    }
+
     /// Shows the branch-name input on `row`, replacing any other inline input.
     pub fn start_branching(
         &mut self,

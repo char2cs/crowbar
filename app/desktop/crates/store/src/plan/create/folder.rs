@@ -7,6 +7,7 @@ use sidebar::ProjectId;
 use crate::live::PlanError;
 use crate::live::State;
 use crate::plan::Plan;
+use crate::plan::after::After;
 use crate::plan::create::{PARENT_ID, host_id};
 use crate::reads::host_of;
 use crate::target::Kind;
@@ -24,7 +25,7 @@ pub(crate) fn folder(
         row.map_or_else(|| at_top(state, project), |row| beside(state, row))?;
     let call = Call::post(daemonapi::Route::folders(&project_id, &repo))
         .json(json!({NAME: NEW_FOLDER, PARENT_ID: parent}));
-    Ok(Plan::of(&host, vec![call]))
+    Ok(Plan::of(&host, vec![call]).then(After::NameFolder))
 }
 
 type FolderPlace = (String, String, String, String);

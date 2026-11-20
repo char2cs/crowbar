@@ -10,6 +10,7 @@ mod line_element;
 mod line_surface;
 mod mouse;
 mod render;
+mod select_all;
 
 pub(crate) use actions::{
     Backspace, Cancel, Copy, Cut, Delete, End, Home, Left, Paste, Right, SelectAll, SelectLeft,

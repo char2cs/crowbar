@@ -16,6 +16,7 @@ use crate::panels::chats::parts::ClusterSpec;
 use crate::panels::chats::parts::RowBounds;
 use crate::panels::chats::parts::RowGlyph;
 use crate::panels::chats::parts::RowInput;
+use crate::panels::chats::parts::Trailing;
 use crate::panels::chats::parts::cluster;
 use crate::panels::chats::parts::label;
 use crate::panels::chats::parts::row_shell;
@@ -41,6 +42,16 @@ pub(crate) struct TreeRow {
     pub(crate) width: f32,
 }
 
+impl TreeRow {
+    fn shows_buttons(
+        &self,
+        pose: Pose,
+    ) -> bool {
+        let kept = buttons_shown(self.input.as_ref().map(|input| input.trailing));
+        kept && self.drag.ghost.is_none() && pose == Pose::On
+    }
+}
+
 impl RenderOnce for TreeRow {
     fn render(
         self,
@@ -62,7 +73,7 @@ impl RenderOnce for TreeRow {
         let focus = row_focus(&id, window, cx);
         let hover = row_hover(&id, window, cx);
         let live = self.input.is_none() && self.drag.ghost.is_none();
-        let buttons = (live && *hover.read(cx) == Pose::On).then(|| cluster(&spec));
+        let buttons = self.shows_buttons(*hover.read(cx)).then(|| cluster(&spec));
         let shell = row_shell(id, self.row.depth, palette);
         let shell = ringed(hovered_by(shell, &hover), &focus, palette)
             .group(group)
@@ -85,6 +96,10 @@ impl RenderOnce for TreeRow {
         let (id, handler) = (self.row.id.clone(), Rc::clone(&self.handler));
         shell.when(live, move |d| open_on_click(d, id, handler))
     }
+}
+
+fn buttons_shown(input: Option<Trailing>) -> bool {
+    input.is_none_or(|trailing| trailing == Trailing::Kept)
 }
 
 fn payload_of(row: &Row) -> DraggedRow {
@@ -189,6 +204,19 @@ mod tests {
 
     use super::*;
     use crate::test_support::{chat, measure, mount, recording_handler};
+
+    const BUTTONS: [(Option<Trailing>, bool); 3] = [
+        (None, true),
+        (Some(Trailing::Kept), true),
+        (Some(Trailing::Hidden), false),
+    ];
+
+    #[test]
+    fn a_rename_keeps_the_hover_buttons_and_a_branch_name_hides_them() {
+        for (input, shown) in BUTTONS {
+            assert_eq!(buttons_shown(input), shown, "{input:?}");
+        }
+    }
 
     #[test]
     fn only_a_chat_row_carries_a_chat_to_open() {

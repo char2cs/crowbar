@@ -10,4 +10,6 @@ pub(crate) enum After {
     SelectProject(String),
     /// Read the followed chat's changes again.
     ReloadChanges,
+    /// Open the name of the folder the daemon answered with for editing.
+    NameFolder,
 }

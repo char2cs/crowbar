@@ -1,6 +1,7 @@
 //! Inline rename, make-a-branch and fork-name inputs.
 
 mod field;
+mod naming;
 mod outcome;
 
 pub(crate) use field::Field;
@@ -25,21 +26,6 @@ fn creation(
 }
 
 impl Sidebar {
-    pub(crate) fn start_rename(
-        &mut self,
-        id: &RowId,
-        window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        let Some(row) = self.row(id) else {
-            return;
-        };
-        self.tree.start_rename(&row);
-        if self.tree.editing() == &Editing::Renaming(id.clone()) {
-            self.open_field((id.clone(), &row.label, ""), window, cx);
-        }
-    }
-
     pub(crate) fn start_branching(
         &mut self,
         id: &RowId,
