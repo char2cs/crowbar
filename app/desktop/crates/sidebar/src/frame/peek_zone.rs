@@ -52,7 +52,13 @@ impl PeekZone {
         x: f32,
         _y: f32,
     ) -> bool {
-        self.distance_from_edge(x) <= self.card_inset + self.card_width + SLACK
+        self.distance_from_edge(x) <= self.keep_width()
+    }
+
+    /// How far from the docked edge an open card keeps the pointer: the card, its inset and
+    /// eight pixels past its far edge.
+    pub fn keep_width(&self) -> f32 {
+        self.card_inset + self.card_width + SLACK
     }
 }
 

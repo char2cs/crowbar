@@ -1,6 +1,9 @@
 //! Dismisses the peek card when the pointer leaves the window.
 
-use gpui::{AnyElement, App, Context, Entity, IntoElement, MouseExitEvent, Styled, Window, canvas};
+use gpui::{
+    AnyElement, App, Bounds, Context, Entity, IntoElement, MouseExitEvent, Pixels, Point, Styled,
+    Window, canvas,
+};
 
 use crate::sidebar::Sidebar;
 
@@ -9,12 +12,27 @@ fn listen(
     window: &mut Window,
 ) {
     let sidebar = sidebar.clone();
-    window.on_mouse_event(move |_: &MouseExitEvent, _, _, cx: &mut App| {
-        sidebar.update(cx, Sidebar::pointer_left_window);
+    window.on_mouse_event(move |event: &MouseExitEvent, _, window, cx: &mut App| {
+        let at = event.position;
+        sidebar.update(cx, |this, cx| this.pointer_left_window(at, window, cx));
     });
 }
 
 impl Sidebar {
+    fn pointer_left_window(
+        &mut self,
+        at: Point<Pixels>,
+        window: &Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let inside = Bounds::new(Point::default(), window.viewport_size()).contains(&at);
+        let (x, y) = (f32::from(at.x), f32::from(at.y));
+        if inside && self.peek_zone(window).keeps(x, y) {
+            return;
+        }
+        self.pointer_left_peek(cx);
+    }
+
     pub(crate) fn exit_listener(cx: &Context<'_, Self>) -> AnyElement {
         let sidebar = cx.entity();
         canvas(
@@ -47,5 +65,21 @@ mod tests {
             modifiers: Modifiers::none(),
         });
         assert!(!sidebar.read_with(cx, |this, _| this.peek.is_wanted()));
+    }
+
+    #[gpui::test]
+    fn the_pointer_crossing_onto_the_card_keeps_it(cx: &mut gpui::TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
+        sidebar.update(cx, Sidebar::toggle);
+        sidebar.update(cx, Sidebar::begin_peek);
+        cx.simulate_event(MouseExitEvent {
+            position: point(px(100.0), px(300.0)),
+            pressed_button: None,
+            modifiers: Modifiers::none(),
+        });
+        assert!(
+            sidebar.read_with(cx, |this, _| this.peek.is_wanted()),
+            "the top layer took the pointer over the card"
+        );
     }
 }

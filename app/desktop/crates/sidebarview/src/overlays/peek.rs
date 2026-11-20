@@ -2,6 +2,7 @@
 
 mod exit;
 mod ops;
+mod zone;
 
 use std::rc::Rc;
 use std::time::Duration;

@@ -56,6 +56,9 @@ impl Render for Sidebar {
             DockSide::Left => row.child(side_column).child(handle).child(content),
             DockSide::Right => row.child(content).child(handle).child(side_column),
         };
+        if self.peek.is_moving(Motion::of(cx)) {
+            window.request_animation_frame();
+        }
         let sidebar = cx.entity();
         let layers = self
             .floats(&geometry, cx)
@@ -167,9 +170,6 @@ impl Sidebar {
         if !geometry.is_drawer() && !self.peek.is_shown(motion) {
             return None;
         }
-        if self.peek.is_moving(motion) {
-            window.request_animation_frame();
-        }
         let layer = div().absolute().size_full();
         if geometry.is_drawer() {
             let drawer = self.drawer(geometry, window, cx);
@@ -190,7 +190,8 @@ impl Sidebar {
             .min(geometry.container - 2.0 * PEEK_INSET);
         let slide = self.peek.position(motion);
         let card = self.card((geometry.side, width, slide), window, cx);
-        Some(layer.child(card).into_any_element())
+        let area = self.peek_area(card, window, cx);
+        Some(layer.child(area).into_any_element())
     }
 
     fn drawer(
@@ -233,11 +234,11 @@ impl Sidebar {
             .overflow_hidden()
             .border_1()
             .border_color(palette.border())
-            .bg(palette.chrome_bg())
+            .bg(palette.popover())
             .shadow(ui::shadow::lg(FRAME_SHADOW))
             .when(side == DockSide::Left, |d| d.left(px(inset)))
             .when(side == DockSide::Right, |d| d.right(px(inset)))
-            .occlude()
+            .child(div().absolute().inset_0().bg(palette.muted()))
             .child(self.body(width, window, cx))
     }
 

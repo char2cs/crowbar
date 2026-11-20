@@ -25,7 +25,7 @@ impl Sidebar {
         self.slide_peek(0.0, cx);
     }
 
-    pub(crate) fn pointer_left_window(
+    pub(crate) fn pointer_left_peek(
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
@@ -51,6 +51,21 @@ impl Sidebar {
         cx.notify();
     }
 
+    pub(crate) fn peek_zone(
+        &self,
+        window: &Window,
+    ) -> PeekZone {
+        let size = window.viewport_size();
+        let container = Self::container_width(window);
+        PeekZone {
+            window: (f32::from(size.width), f32::from(size.height)),
+            card_width: self.panel.preferred().min(container - 2.0 * PEEK_INSET),
+            side: self.panel.side(),
+            header_height: HEADER_HEIGHT,
+            card_inset: PEEK_INSET,
+        }
+    }
+
     pub(crate) fn track_peek(
         &mut self,
         at: Point<Pixels>,
@@ -65,14 +80,7 @@ impl Sidebar {
         if !closed || Panel::presentation(container) == Presentation::Overlay {
             return;
         }
-        let size = window.viewport_size();
-        let zone = PeekZone {
-            window: (f32::from(size.width), f32::from(size.height)),
-            card_width: self.panel.preferred().min(container - 2.0 * PEEK_INSET),
-            side: self.panel.side(),
-            header_height: HEADER_HEIGHT,
-            card_inset: PEEK_INSET,
-        };
+        let zone = self.peek_zone(window);
         let (x, y) = (f32::from(at.x), f32::from(at.y));
         match (
             zone.summons(x, y) || (self.peek.is_wanted() && zone.keeps(x, y)),
@@ -137,7 +145,7 @@ mod tests {
     fn leaving_the_window_dismisses_the_card(cx: &mut TestAppContext) {
         let (sidebar, cx) = closed_sidebar(cx);
         sidebar.update(cx, Sidebar::begin_peek);
-        sidebar.update(cx, Sidebar::pointer_left_window);
+        sidebar.update(cx, Sidebar::pointer_left_peek);
         assert!(!sidebar.read_with(cx, |this, _| this.peek.is_wanted()));
     }
 
@@ -152,7 +160,7 @@ mod tests {
                 sidebar::Intent::Keep(RowId::from("chat")),
             );
             this.open_menu((vec![entry], point(px(10.0), px(10.0))), window, cx);
-            this.pointer_left_window(cx);
+            this.pointer_left_peek(cx);
         });
         assert!(sidebar.read_with(cx, |this, _| this.peek.is_wanted()));
     }
