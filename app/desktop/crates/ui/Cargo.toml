@@ -22,5 +22,9 @@ unicode-segmentation.workspace = true
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
 
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+raw-window-handle.workspace = true
+x11rb.workspace = true
+
 [lints]
 workspace = true
