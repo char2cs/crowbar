@@ -28,9 +28,12 @@ pub enum Error {
     /// A placement is needed because the tab already has panes and none is focused.
     #[error("tab {0:?} has panes but no focused pane to place next to")]
     PlacementRequired(TabId),
-    /// The pane is the only one of its tab, so it cannot be detached from its siblings.
-    #[error("pane {0} is the only pane of its tab")]
+    /// The pane is the only chat of its tab, so it cannot be detached from its siblings.
+    #[error("pane {0} is the only chat of its tab")]
     OnlyPane(PaneId),
+    /// The pane is an editor tab, which leaves a tab only with its chat.
+    #[error("pane {0} is an editor tab, not a chat")]
+    NotAChat(PaneId),
     /// The pane is a chat, which is never an editor tab: it cannot join a group's tabs or swap
     /// with one.
     #[error("pane {0} is a chat, not an editor tab")]

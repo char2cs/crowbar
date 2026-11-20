@@ -163,7 +163,7 @@ mod tests {
     fn instance(name: &str) -> PaneInstance {
         PaneInstance {
             pane_id: id(name),
-            type_id: PaneTypeId::new("core.terminal").unwrap(),
+            type_id: PaneTypeId::new(PaneTypeId::CHAT).unwrap(),
             params: Params::default(),
             state: PaneState::default(),
         }

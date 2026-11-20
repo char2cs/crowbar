@@ -13,6 +13,7 @@ pub(crate) mod presentation;
 pub(crate) mod sidebar_side;
 pub(crate) mod strip_step;
 mod tab_chat;
+mod tab_group_move;
 mod tab_leaves;
 mod tab_seat;
 pub(crate) mod view_mode;

@@ -42,18 +42,17 @@ impl Tab {
             let focused = self.target_of(None)?;
             return self.open_in_group(instance, (&focused, None));
         }
-        self.insert_leaf(&instance, placement)?;
+        self.insert_node(SplitNode::Leaf(PaneGroup::holding(&instance)), placement)?;
         self.focused = Some(id.clone());
         self.panes.insert(id, instance);
         Ok(())
     }
 
-    fn insert_leaf(
+    pub(crate) fn insert_node(
         &mut self,
-        instance: &PaneInstance,
+        fresh: SplitNode,
         placement: Option<Placement>,
     ) -> Result<()> {
-        let fresh = SplitNode::Leaf(PaneGroup::holding(instance));
         if self.tree.is_none() {
             self.tree = Some(fresh);
             return Ok(());
@@ -95,7 +94,7 @@ impl Tab {
         group.shown().or_else(|| tree.neighbour_of(pane)).cloned()
     }
 
-    fn target_of(
+    pub(crate) fn target_of(
         &self,
         placement: Option<&Placement>,
     ) -> Result<PaneId> {

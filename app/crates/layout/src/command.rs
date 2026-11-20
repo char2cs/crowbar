@@ -117,8 +117,8 @@ pub enum Command {
         /// Where it lands.
         placement: Placement,
     },
-    /// Moves a pane into another tab, keeping its id and state, and shows that tab. The source
-    /// tab closes when the pane was its last.
+    /// Moves a pane into another tab, keeping its id and state, and shows that tab. A chat takes
+    /// its editor tabs with it. The source tab closes when the pane was its last.
     MovePaneToTab {
         /// The pane to move.
         pane: PaneId,
@@ -127,8 +127,8 @@ pub enum Command {
         /// Where it lands; `None` splits the destination's focused pane to the right.
         placement: Option<Placement>,
     },
-    /// Moves a pane out of its siblings into a new tab right of its current one, and shows
-    /// it. Refused for the only pane of a tab.
+    /// Moves a chat and its editor tabs out of its siblings into a new tab right of its current
+    /// one, and shows it. Refused for an editor tab and for the only chat of a tab.
     DetachPane {
         /// The pane to detach.
         pane: PaneId,

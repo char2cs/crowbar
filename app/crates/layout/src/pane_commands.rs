@@ -35,7 +35,8 @@ fn reveal(
     let home = layout.index_of_pane(existing)?;
     let home_id = layout.tabs.get(home).map(Tab::id);
     if home_id != Some(tab) {
-        return move_to_tab(layout, existing, tab, placement);
+        move_to_tab(layout, existing, tab, placement)?;
+        return focus(layout, existing);
     }
     let target = layout.tab_mut(tab)?;
     if let Some(placement) = placement.filter(|placement| &placement.target != existing) {
@@ -107,6 +108,9 @@ pub(crate) fn move_to_tab(
     if from == destination {
         return Err(Error::SameTab(to));
     }
+    if layout.tabs.get(from).is_some_and(|tab| tab.is_chat(pane)) {
+        return move_group(layout, pane, (from, to), placement);
+    }
     layout.tab_mut(to)?.check_open(pane, placement.as_ref())?;
     let source = layout
         .tabs
@@ -115,6 +119,37 @@ pub(crate) fn move_to_tab(
     let instance = source.take_pane(pane)?;
     let emptied = source.is_empty();
     layout.tab_mut(to)?.open(instance, placement)?;
+    if emptied {
+        layout.take_tab_at(from);
+    }
+    layout.active = Some(to);
+    Ok(())
+}
+
+fn move_group(
+    layout: &mut Layout,
+    pane: &PaneId,
+    route: (usize, TabId),
+    placement: Option<Placement>,
+) -> Result<()> {
+    let (from, to) = route;
+    let members = layout
+        .tabs
+        .get(from)
+        .ok_or_else(|| Error::PaneNotFound(pane.clone()))?
+        .group_members(pane)?;
+    layout
+        .tab_mut(to)?
+        .check_receive(&members, placement.as_ref())?;
+    let source = layout
+        .tabs
+        .get_mut(from)
+        .ok_or_else(|| Error::PaneNotFound(pane.clone()))?;
+    let moved = source.take_group(pane)?;
+    let emptied = source.is_empty();
+    let destination = layout.tab_mut(to)?;
+    destination.receive(moved, placement)?;
+    destination.focus(pane)?;
     if emptied {
         layout.take_tab_at(from);
     }
@@ -139,12 +174,16 @@ pub(crate) fn detach(
         .tabs
         .get_mut(from)
         .ok_or_else(|| Error::PaneNotFound(pane.clone()))?;
-    if source.len() < 2 {
+    if !source.is_chat(pane) {
+        return Err(Error::NotAChat(pane.clone()));
+    }
+    if source.chat_count() < 2 {
         return Err(Error::OnlyPane(pane.clone()));
     }
-    let instance = source.take_pane(pane)?;
+    let moved = source.take_group(pane)?;
     let mut tab = Tab::new(new_tab, title);
-    tab.open(instance, None)?;
+    tab.receive(moved, None)?;
+    tab.focus(pane)?;
     layout.tabs.insert(from + 1, tab);
     layout.active = Some(new_tab);
     Ok(())
@@ -312,11 +351,11 @@ mod tests {
             .apply(open_chat(2, "fresh", "chat-7", Some(at("t2", Edge::Left))))
             .unwrap();
         assert_eq!(layout.pane_count(), 3, "no new pane");
-        assert_eq!(order(&layout, 1), ["t1"], "left its old tab");
+        assert_eq!(tab_ids(&layout), [2], "its emptied tab closed");
         assert_eq!(
             order(&layout, 2),
-            ["p1", "t2"],
-            "landed where it was dropped"
+            ["p1", "t1", "t2"],
+            "landed where it was dropped, with its editor tab"
         );
         assert!(
             layout.pane(&id("fresh")).is_none(),
@@ -622,16 +661,34 @@ mod tests {
         assert_eq!(layout, before, "unchanged");
     }
 
-    #[test]
-    fn detaching_moves_the_pane_to_a_new_tab_right_of_its_own_and_shows_it() {
-        let mut layout = layout(vec![
+    fn two_chats_one_with_a_tab() -> Layout {
+        layout(vec![
             add(1),
-            open(1, "a"),
-            open(1, "b"),
+            open_chat(1, "a", "chat-a", None),
+            open(1, "t1"),
+            open_chat(1, "b", "chat-b", Some(at("a", Edge::Right))),
             add(2),
-            open(2, "c"),
-        ]);
-        layout.apply(Command::FocusPane { pane: id("a") }).unwrap();
+            open_chat(2, "c", "chat-c", None),
+        ])
+    }
+
+    #[test]
+    fn moving_a_chat_to_another_tab_takes_its_editor_tabs_with_it() {
+        let mut layout = two_chats_one_with_a_tab();
+        layout.apply(move_to_tab("a", 2, None)).unwrap();
+        assert_eq!(order(&layout, 1), ["b"], "left behind");
+        assert_eq!(order(&layout, 2), ["c", "a", "t1"], "the whole group");
+        assert_eq!(
+            layout.tab(TabId(2)).and_then(|t| t.focused()),
+            Some(&id("a")),
+            "the moved chat is focused"
+        );
+        layout.validate().unwrap();
+    }
+
+    #[test]
+    fn detaching_moves_the_chat_and_its_tabs_to_a_new_tab_right_of_its_own_and_shows_it() {
+        let mut layout = two_chats_one_with_a_tab();
         layout
             .apply(Command::ActivateTab { tab: TabId(2) })
             .unwrap();
@@ -643,7 +700,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(tab_ids(&layout), [1, 7, 2], "right of the source tab");
-        assert_eq!(order(&layout, 7), ["a"], "alone");
+        assert_eq!(order(&layout, 7), ["a", "t1"], "with its tab");
         assert_eq!(order(&layout, 1), ["b"], "siblings stay");
         assert_eq!(layout.tab(TabId(7)).map(Tab::title), Some("alone"), "title");
         assert_eq!(
@@ -656,43 +713,29 @@ mod tests {
             Some(&id("b")),
             "source focus repaired"
         );
+        layout.validate().unwrap();
+    }
+
+    fn detach(
+        pane: &str,
+        new_tab: u64,
+    ) -> Command {
+        Command::DetachPane {
+            pane: id(pane),
+            new_tab: TabId(new_tab),
+            title: String::new(),
+        }
     }
 
     #[test]
     fn detaching_refuses_what_it_cannot_do_and_changes_nothing() {
-        let mut layout = layout(vec![
-            add(1),
-            open(1, "a"),
-            open(1, "b"),
-            add(2),
-            open(2, "c"),
-        ]);
+        let mut layout = two_chats_one_with_a_tab();
         let before = layout.clone();
         let cases = [
-            (
-                Command::DetachPane {
-                    pane: id("c"),
-                    new_tab: TabId(7),
-                    title: String::new(),
-                },
-                Error::OnlyPane(id("c")),
-            ),
-            (
-                Command::DetachPane {
-                    pane: id("a"),
-                    new_tab: TabId(2),
-                    title: String::new(),
-                },
-                Error::DuplicateTab(TabId(2)),
-            ),
-            (
-                Command::DetachPane {
-                    pane: id("z"),
-                    new_tab: TabId(7),
-                    title: String::new(),
-                },
-                Error::PaneNotFound(id("z")),
-            ),
+            (detach("c", 7), Error::OnlyPane(id("c"))),
+            (detach("t1", 7), Error::NotAChat(id("t1"))),
+            (detach("a", 2), Error::DuplicateTab(TabId(2))),
+            (detach("z", 7), Error::PaneNotFound(id("z"))),
         ];
         for (command, error) in cases {
             assert_eq!(layout.apply(command), Err(error));

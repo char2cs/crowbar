@@ -988,17 +988,16 @@ mod tests {
     }
 
     #[test]
-    fn detaching_a_member_opens_it_in_a_new_tab_and_keeps_the_strip() {
+    fn an_editor_tab_cannot_be_detached_without_its_chat() {
         let mut layout = fixture();
+        let before = layout.clone();
         let command = Command::DetachPane {
             pane: id("b"),
             new_tab: TabId(9),
             title: "b".into(),
         };
-        apply(&mut layout, command);
-        assert_eq!(strips(&layout, 1), ["a c*", "d*", "e f*"], "source");
-        assert_eq!(strips(&layout, 9), ["b*"], "new tab");
-        assert_eq!(shown_tab(&layout), Some(TabId(9)), "shown");
+        assert_eq!(layout.apply(command), Err(Error::NotAChat(id("b"))));
+        assert_eq!(layout, before, "unchanged");
     }
 
     #[test]
