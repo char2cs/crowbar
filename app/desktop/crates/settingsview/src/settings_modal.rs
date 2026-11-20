@@ -11,8 +11,8 @@ use std::rc::Rc;
 
 use chord::Primary;
 use gpui::{
-    App, AppContext as _, AsyncApp, Context, Entity, FocusHandle, IntoElement, ParentElement, Render,
-    ScrollHandle, WeakEntity, Window, div,
+    App, AppContext as _, AsyncApp, Context, Entity, FocusHandle, IntoElement, ParentElement,
+    Render, ScrollHandle, WeakEntity, Window, div,
 };
 use settings::{Change, RecordBackend, Subscription};
 use ui::{Dialog, IconName, TextInput, TextInputEvent, TextInputStyle};
