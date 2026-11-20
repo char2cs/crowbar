@@ -47,10 +47,9 @@ impl RenderOnce for TabShell {
         cx: &mut App,
     ) -> impl IntoElement {
         let palette = *Theme::of(cx).palette(Surface::Chrome);
-        let ground = Theme::of(cx).palette(Surface::Window).background();
         let look = self.look;
         let group = SharedString::from(format!("view-tab-{}", self.id));
-        let ends = fade_ends(look, (&palette, ground));
+        let ends = fade_ends(look, &palette);
         let count = self.members.len();
         let members: Vec<_> = self
             .members

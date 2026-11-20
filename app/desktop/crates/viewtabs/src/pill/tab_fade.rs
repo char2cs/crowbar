@@ -9,8 +9,9 @@ const FADE_ANGLE: f32 = 90.0;
 
 pub(crate) fn fade_ends(
     look: ShellLook,
-    (palette, ground): (&Palette, Hsla),
+    palette: &Palette,
 ) -> (Hsla, Hsla) {
+    let ground = palette.chrome_bg();
     match look {
         ShellLook::Idle => (ground, ground.blend(palette.sidebar_element_hover())),
         ShellLook::Active | ShellLook::Lifted => {
@@ -56,7 +57,7 @@ mod tests {
     fn the_fade_under_the_close_button_ends_in_the_fill_the_tab_shows_in_each_state() {
         let theme = Theme::default();
         let palette = theme.palette(Surface::Chrome);
-        let ground = theme.palette(Surface::Window).background();
+        let ground = palette.chrome_bg();
         let hovered = ground.blend(palette.sidebar_element_hover());
         let raised = palette.control_surface();
         let nest = ground.blend(palette.sidebar_drop_nest());
@@ -67,7 +68,18 @@ mod tests {
             (ShellLook::MergeTarget, (nest, nest)),
         ];
         for (look, expected) in cases {
-            assert_eq!(fade_ends(look, (palette, ground)), expected, "{look:?}");
+            assert_eq!(fade_ends(look, palette), expected, "{look:?}");
         }
+    }
+
+    #[test]
+    fn an_idle_tab_s_fade_rests_in_the_strip_ground_so_it_shows_no_shape() {
+        let palette = Theme::default().palette(Surface::Chrome);
+        let (rest, _) = fade_ends(ShellLook::Idle, palette);
+        assert_eq!(
+            rest,
+            Hsla::from(gpui::rgba(0x1212_10ff)),
+            "the dark strip ground"
+        );
     }
 }
