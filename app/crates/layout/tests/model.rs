@@ -274,6 +274,21 @@ fn states(layout: &Layout) -> BTreeMap<PaneId, PaneState> {
         .collect()
 }
 
+fn closed_by(
+    before: &Layout,
+    closed: &PaneId,
+) -> BTreeSet<PaneId> {
+    let Some(tab) = before.tab_of(closed) else {
+        return BTreeSet::from([closed.clone()]);
+    };
+    let is_chat = |id: &PaneId| tab.pane(id).is_some_and(|p| p.type_id.is_chat());
+    let chats = tab.pane_ids().into_iter().filter(|id| is_chat(id)).count();
+    if is_chat(closed) && chats == 1 {
+        return tab.pane_ids().into_iter().collect();
+    }
+    BTreeSet::from([closed.clone()])
+}
+
 fn check_transition(
     step: &Step,
     before: &Layout,
@@ -282,9 +297,9 @@ fn check_transition(
     let (was, now) = (panes(before), panes(after));
     match step {
         Step::Close(p) => {
-            let closed = pane_id(*p)?;
-            let expected: BTreeSet<_> = was.iter().filter(|id| **id != closed).cloned().collect();
-            assert_eq!(now, expected, "{step:?}: exactly the closed pane is gone");
+            let gone = closed_by(before, &pane_id(*p)?);
+            let expected: BTreeSet<_> = was.difference(&gone).cloned().collect();
+            assert_eq!(now, expected, "{step:?}: exactly the closed panes are gone");
         },
         Step::CloseTab(t) => {
             let gone: BTreeSet<_> = before

@@ -184,11 +184,30 @@ impl Sidebar {
         id: &RowId,
         cx: &mut Context<'_, Self>,
     ) {
-        let Some(row) = self.row(id) else {
+        let Some(project) = self.data.active_project() else {
             return;
         };
-        self.tree.request_removal(&row, self.clock.now());
+        let rows = self.data.tree(&project).rows;
+        let from = rows.iter().position(|row| &row.id == id);
+        let Some(below) = from.and_then(|at| rows.get(at..)) else {
+            return;
+        };
+        let Some(row) = below.first() else {
+            return;
+        };
+        let beneath = below
+            .iter()
+            .skip(1)
+            .take_while(|lower| lower.depth > row.depth);
+        let held = std::iter::once(row)
+            .chain(beneath)
+            .map(|held| held.id.clone())
+            .collect();
+        self.tree.request_removal(row, self.clock.now());
         self.schedule_removals(cx);
+        if self.tree.removals().tray().get(id).is_some() {
+            cx.emit(crate::Event::Held(held));
+        }
     }
 
     pub(crate) fn schedule_removals(
@@ -259,6 +278,24 @@ mod tests {
             sidebar.read_with(cx, |this, _| this.preferences().folded.len()),
             1
         );
+    }
+
+    #[gpui::test]
+    fn holding_a_row_names_it_and_every_row_beneath_it(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoShell::rich());
+        let held = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let seen = std::rc::Rc::clone(&held);
+        let record =
+            move |_, event: &crate::Event, _: &mut gpui::App| seen.borrow_mut().push(event.clone());
+        let _subscription = cx.update(|_, cx| cx.subscribe(&sidebar, record));
+        sidebar.update_in(cx, |this, window, cx| {
+            this.apply(Intent::RequestRemoval(RowId::from("folder")), window, cx);
+        });
+        let expected = vec![crate::Event::Held(vec![
+            RowId::from("folder"),
+            RowId::from("child"),
+        ])];
+        assert_eq!(*held.borrow(), expected);
     }
 
     #[gpui::test]

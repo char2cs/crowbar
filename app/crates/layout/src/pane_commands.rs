@@ -57,10 +57,22 @@ pub(crate) fn close(
         .get_mut(index)
         .ok_or_else(|| Error::PaneNotFound(pane.clone()))?;
     let instance = tab.take_pane(pane)?;
+    let chatless = instance.type_id.is_chat() && tab.chat_count() == 0;
+    let mut closed = vec![instance];
+    if chatless {
+        closed.extend(left_behind(tab)?);
+    }
     if tab.is_empty() {
         layout.take_tab_at(index);
     }
-    Ok(vec![instance])
+    Ok(closed)
+}
+
+fn left_behind(tab: &mut Tab) -> Result<Vec<PaneInstance>> {
+    tab.pane_ids()
+        .iter()
+        .map(|pane| tab.take_pane(pane))
+        .collect()
 }
 
 pub(crate) fn focus(
@@ -461,6 +473,19 @@ mod tests {
             Some(&id("b")),
             "adjacent pane"
         );
+    }
+
+    #[test]
+    fn closing_the_last_chat_of_a_tab_closes_the_editor_tabs_it_leaves_and_the_tab() {
+        let mut layout = two_chats_one_with_a_tab();
+        layout.apply(Command::ClosePane { pane: id("b") }).unwrap();
+        assert_eq!(order(&layout, 1), ["a", "t1"], "another chat keeps the tab");
+        let removed = layout
+            .execute(Command::ClosePane { pane: id("a") })
+            .unwrap();
+        let names: Vec<_> = removed.iter().map(|p| p.pane_id.to_string()).collect();
+        assert_eq!(names, ["a", "t1"], "the chat and the tab it left");
+        assert_eq!(tab_ids(&layout), [2], "the chatless tab is gone");
     }
 
     #[test]

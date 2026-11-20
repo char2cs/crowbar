@@ -29,7 +29,7 @@ impl ShellView {
             cx.subscribe(
                 &built.sidebar,
                 |this, source, event: &sidebarview::Event, cx| {
-                    this.on_sidebar(source, *event, cx);
+                    this.on_sidebar(source, event, cx);
                 },
             ),
             cx.subscribe_in(&built.startup, window, |this, _, event, window, cx| {
@@ -136,9 +136,12 @@ impl ShellView {
     fn on_sidebar(
         &mut self,
         _: Entity<Sidebar>,
-        event: sidebarview::Event,
+        event: &sidebarview::Event,
         cx: &mut Context<'_, Self>,
     ) {
+        if let sidebarview::Event::Held(rows) = event {
+            return self.close_held(rows, cx);
+        }
         if !matches!(event, sidebarview::Event::PreferencesChanged) {
             return;
         }
@@ -153,6 +156,20 @@ impl ShellView {
         }
         self.place_notices(cx);
         self.refresh(cx);
+    }
+
+    fn close_held(
+        &mut self,
+        rows: &[sidebar::RowId],
+        cx: &mut Context<'_, Self>,
+    ) {
+        let chats: Vec<String> = rows.iter().map(|row| row.as_str().to_owned()).collect();
+        let panes = crate::open_chats::panes_showing(self.state.layout(), &chats);
+        if panes.is_empty() {
+            return;
+        }
+        let closing = panes.into_iter().map(|pane| Command::ClosePane { pane });
+        self.apply_guarded(closing.collect(), cx);
     }
 
     fn on_startup(

@@ -1,8 +1,27 @@
-use layout::Layout;
+use layout::{Layout, PaneInstance};
+use protocol::PaneId;
 
 const CHAT_ID: &str = "threadId";
 
 pub(crate) fn open_chats(layout: &Layout) -> Vec<String> {
+    chat_panes(layout)
+        .into_iter()
+        .map(|(_, chat)| chat)
+        .collect()
+}
+
+pub(crate) fn panes_showing(
+    layout: &Layout,
+    chats: &[String],
+) -> Vec<PaneId> {
+    chat_panes(layout)
+        .into_iter()
+        .filter(|(_, chat)| chats.contains(chat))
+        .map(|(pane, _)| pane)
+        .collect()
+}
+
+fn chat_panes(layout: &Layout) -> Vec<(PaneId, String)> {
     layout
         .tabs()
         .iter()
@@ -12,8 +31,13 @@ pub(crate) fn open_chats(layout: &Layout) -> Vec<String> {
                 .filter_map(|pane| tab.pane(&pane).cloned())
         })
         .filter(|pane| pane.type_id.is_chat())
-        .filter_map(|pane| pane.params.get(CHAT_ID).map(str::to_owned))
+        .filter_map(chat_of)
         .collect()
+}
+
+fn chat_of(pane: PaneInstance) -> Option<(PaneId, String)> {
+    let chat = pane.params.get(CHAT_ID)?.to_owned();
+    Some((pane.pane_id, chat))
 }
 
 #[cfg(test)]
@@ -79,6 +103,12 @@ mod tests {
             open_chats(&layout),
             ["t-1", "t-2"],
             "both chats, no terminal"
+        );
+        let held = ["t-2".to_owned(), "x".to_owned()];
+        assert_eq!(
+            panes_showing(&layout, &held),
+            [PaneId::new("c2").unwrap()],
+            "the panes of the named chats"
         );
     }
 }
