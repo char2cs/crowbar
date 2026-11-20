@@ -6,6 +6,7 @@ use crate::core_panes::{BROWSER, CONSOLE, NEW_TAB, REVIEW, TERMINAL};
 use crate::error::Result;
 use crate::pane_opener::open_commands;
 use crate::serials::Serials;
+use crate::terminal_ids::opened_state;
 
 mod file_specs;
 
@@ -22,9 +23,10 @@ impl PaneSpec {
         layout: &Layout,
         serials: &Serials,
     ) -> Result<Vec<Command>> {
+        let state = opened_state(&self.type_id, &self.state, layout);
         let mut commands = open_commands(layout, (self.type_id, self.params), serials)?;
         for instance in commands.iter_mut().filter_map(opened_instance) {
-            instance.state = self.state.clone();
+            instance.state = state.clone();
         }
         Ok(commands)
     }

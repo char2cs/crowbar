@@ -81,6 +81,22 @@ mod tests {
     }
 
     #[test]
+    fn a_terminal_opened_without_a_folder_is_numbered_after_the_open_terminals() {
+        let mut rig = shell_rig();
+        for id in ["t1", "t2"] {
+            rig.shell
+                .open_spec(PaneSpec::terminal(id, None, None).unwrap());
+        }
+        let titles: Vec<_> = rig.shell.layout().tabs()[0]
+            .pane_ids()
+            .iter()
+            .map(|pane| rig.shell.titles().get(pane).map(|t| t.to_string()))
+            .collect();
+        let expected = ["Terminal 1", "Terminal 2"].map(|name| Some(name.to_owned()));
+        assert_eq!(titles, expected);
+    }
+
+    #[test]
     fn an_opened_chat_gets_its_own_view_and_an_open_one_is_revealed() {
         let mut rig = shell_rig();
         let open = |rig: &mut crate::test_support::ShellRig, chat: &str| {

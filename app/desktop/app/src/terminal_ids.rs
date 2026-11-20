@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use layout::{Layout, PaneInstance, Tab};
-use protocol::{PaneId, PaneTitle};
+use protocol::{PaneId, PaneState, PaneTitle, PaneTypeId};
 
 use crate::core_panes::TERMINAL;
 use crate::terminal_owner::TerminalOwner;
@@ -11,6 +11,7 @@ use crate::titles::Titles;
 
 const DEFAULT_LABEL: &str = "Terminal";
 pub(crate) const NAME_KEY: &str = "title";
+const BUFFER_NAME_KEY: &str = "name";
 
 type Chats = BTreeMap<PaneId, Option<TerminalOwner>>;
 type Labels = BTreeMap<PaneId, String>;
@@ -63,6 +64,24 @@ impl TerminalIds {
     }
 }
 
+pub(crate) fn opened_state(
+    type_id: &PaneTypeId,
+    state: &PaneState,
+    layout: &Layout,
+) -> PaneState {
+    if type_id.as_str() != TERMINAL {
+        return state.clone();
+    }
+    let mut fields = state.as_value().as_object().cloned().unwrap_or_default();
+    if fields.contains_key(BUFFER_NAME_KEY) {
+        return state.clone();
+    }
+    let number = terminals_in(layout).len() + 1;
+    let name = format!("{DEFAULT_LABEL} {number}");
+    fields.insert(BUFFER_NAME_KEY.to_owned(), serde_json::Value::from(name));
+    PaneState::new(serde_json::Value::Object(fields)).unwrap_or_else(|_| state.clone())
+}
+
 fn name(
     titles: &Titles,
     pane: &PaneId,
@@ -91,7 +110,12 @@ fn label_of(instance: &PaneInstance) -> String {
     let text = |key: &str| state.get(key).and_then(serde_json::Value::as_str);
     let named = text(NAME_KEY).filter(|name| !name.is_empty());
     let folder = text("directory").and_then(|path| path.rsplit('/').find(|part| !part.is_empty()));
-    named.or(folder).unwrap_or(DEFAULT_LABEL).to_owned()
+    let opened_as = text(BUFFER_NAME_KEY);
+    named
+        .or(folder)
+        .or(opened_as)
+        .unwrap_or(DEFAULT_LABEL)
+        .to_owned()
 }
 
 #[cfg(test)]
