@@ -7,6 +7,7 @@ const CONFLICTS: &str = "pr-conflicts";
 pub(crate) struct MergeInputs<'a> {
     pub(crate) parent: Option<&'a str>,
     pub(crate) uncommitted: usize,
+    pub(crate) branch_files: usize,
     pub(crate) open_threads: u32,
     pub(crate) workspace: &'a WorkspaceRecord,
 }
@@ -24,8 +25,7 @@ fn plural(
 
 impl MergeInputs<'_> {
     fn change_reason(&self) -> Option<String> {
-        let workspace = self.workspace;
-        let unchanged = workspace.added == 0 && workspace.deleted == 0 && self.uncommitted == 0;
+        let unchanged = self.branch_files == 0 && self.uncommitted == 0;
         if unchanged {
             return Some("Nothing to merge yet — this branch has no changes.".to_owned());
         }
@@ -70,6 +70,7 @@ mod tests {
 
     struct Case<'a> {
         added: u32,
+        branch_files: usize,
         uncommitted: usize,
         status: &'a str,
         open_threads: u32,
@@ -87,6 +88,7 @@ mod tests {
         let inputs = MergeInputs {
             parent: case.has_parent.then_some("main"),
             uncommitted: case.uncommitted,
+            branch_files: case.branch_files,
             open_threads: case.open_threads,
             workspace: &workspace,
         };
@@ -95,6 +97,7 @@ mod tests {
 
     const MERGEABLE: Case<'static> = Case {
         added: 3,
+        branch_files: 3,
         uncommitted: 0,
         status: "",
         open_threads: 0,
@@ -107,10 +110,18 @@ mod tests {
         let cases = [
             (
                 Case {
-                    added: 0,
+                    branch_files: 0,
                     ..MERGEABLE
                 },
                 "Nothing to merge yet — this branch has no changes.",
+            ),
+            (
+                Case {
+                    added: 0,
+                    can_merge: false,
+                    ..MERGEABLE
+                },
+                "main is protected — open a pull request instead.",
             ),
             (
                 Case {

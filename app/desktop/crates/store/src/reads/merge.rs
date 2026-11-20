@@ -74,6 +74,7 @@ pub(crate) fn merge_box(state: &State) -> Option<MergeBox> {
     let inputs = MergeInputs {
         parent: parent.as_deref(),
         uncommitted: uncommitted.len(),
+        branch_files: state.panels.changes.files.len(),
         open_threads: state.panels.open_threads,
         workspace,
     };
