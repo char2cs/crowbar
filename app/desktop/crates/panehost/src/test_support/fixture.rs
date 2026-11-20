@@ -178,6 +178,16 @@ pub(crate) fn instance(
     }
 }
 
+pub(crate) fn browser_at(
+    id: &str,
+    url: &str,
+) -> PaneInstance {
+    PaneInstance {
+        state: PaneState::new(json!({ "url": url })).unwrap(),
+        ..instance(id, "core.browser")
+    }
+}
+
 pub(crate) fn bounds() -> Bounds {
     Bounds {
         x: 10.0,

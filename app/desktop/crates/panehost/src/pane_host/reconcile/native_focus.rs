@@ -64,7 +64,7 @@ mod tests {
 
     use super::*;
     use crate::catalog::PaneLifecycle;
-    use crate::test_support::{fixture, instance, pane_type, register};
+    use crate::test_support::{browser_at, fixture, instance, pane_type, register};
 
     #[test]
     fn the_keyboard_goes_back_to_its_owner() {
@@ -121,7 +121,7 @@ mod tests {
             .registry_mut()
             .register(pane_type("core.browser", PaneLifecycle::Parkable))
             .unwrap();
-        let panes = [instance("b1", "core.browser")];
+        let panes = [browser_at("b1", "https://example.com/")];
         f.sync_with(&panes, &["b1"], (Some("b1"), Keyboard::Pane));
         let before = f.mock.calls().len();
         f.host.apply_keyboard().unwrap();

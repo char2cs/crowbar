@@ -42,6 +42,14 @@ impl BrowserBars {
         0.0
     }
 
+    pub(crate) fn ground(
+        &self,
+        pane: &PaneId,
+        palette: &ui::Palette,
+    ) -> Option<gpui::Hsla> {
+        self.ids.contains(pane).then(|| palette.background())
+    }
+
     pub(crate) fn view(
         &self,
         pane: &PaneId,
@@ -143,5 +151,46 @@ mod tests {
         let (requests, _queue) = async_channel::unbounded();
         let bars = BrowserBars::new(BrowserIds::default(), requests);
         assert!((bars.height(&PaneId::new("p1").unwrap())).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn a_browser_pane_lays_the_pane_fill_under_its_page_and_other_panes_do_not() {
+        let mut layout = layout::Layout::default();
+        let tab = layout::TabId(1);
+        layout
+            .apply(layout::Command::AddTab {
+                id: tab,
+                title: "t".into(),
+            })
+            .unwrap();
+        for (pane, kind) in [("b1", browser::BROWSER_PANE_TYPE), ("c1", "core.chat")] {
+            layout.apply(opening(tab, pane, kind)).unwrap();
+        }
+        let ids = BrowserIds::default();
+        ids.follow(&layout);
+        let bars = BrowserBars::new(ids, async_channel::unbounded().0);
+        let theme = ui::Theme::default();
+        let palette = theme.palette(ui::Surface::Window);
+        let ground = |pane: &str| bars.ground(&PaneId::new(pane).unwrap(), palette);
+        assert_eq!(ground("b1"), Some(palette.background()));
+        assert_eq!(ground("c1"), None);
+    }
+
+    fn opening(
+        tab: layout::TabId,
+        pane: &str,
+        kind: &str,
+    ) -> layout::Command {
+        let instance = layout::PaneInstance {
+            pane_id: PaneId::new(pane).unwrap(),
+            type_id: protocol::PaneTypeId::new(kind).unwrap(),
+            params: protocol::Params::default(),
+            state: protocol::PaneState::default(),
+        };
+        layout::Command::OpenPane {
+            tab,
+            instance,
+            placement: None,
+        }
     }
 }

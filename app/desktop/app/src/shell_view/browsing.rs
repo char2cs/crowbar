@@ -58,9 +58,10 @@ impl ShellView {
         let Some(action) = action_for(event, &engine) else {
             return;
         };
-        if let Err(error) = self.state.host().browse(pane, &action) {
+        if let Err(error) = self.state.browse(pane, &action) {
             tracing::warn!(%error, "the browser pane could not be driven");
         }
+        self.refresh(cx);
     }
 
     pub(super) fn homepage_state(&mut self) -> protocol::PaneState {

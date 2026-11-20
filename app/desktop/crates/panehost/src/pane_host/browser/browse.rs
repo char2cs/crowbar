@@ -52,7 +52,7 @@ mod tests {
     use webview::Call;
 
     use crate::catalog::PaneLifecycle;
-    use crate::test_support::{fixture, instance, pane_type};
+    use crate::test_support::{browser_at, fixture, instance, pane_type};
 
     #[test]
     fn a_script_runs_in_the_page_of_a_browser_pane_only() {
@@ -61,7 +61,10 @@ mod tests {
             .registry_mut()
             .register(pane_type("core.browser", PaneLifecycle::KeepAlive))
             .unwrap();
-        let panes = [instance("b1", "core.browser"), instance("p1", "core.chat")];
+        let panes = [
+            browser_at("b1", "https://example.com/"),
+            instance("p1", "core.chat"),
+        ];
         f.sync(&panes, &["b1", "p1"], Some("b1"));
         let script = BrowseAction::Script("return 1".into());
         assert!(f.host.browse(&PaneId::new("b1").unwrap(), &script).is_ok());

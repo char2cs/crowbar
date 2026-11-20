@@ -1,4 +1,4 @@
-use gpui::{AnyElement, AnyView, App, Window};
+use gpui::{AnyElement, AnyView, App, IntoElement as _, Styled as _, Window};
 use protocol::PaneId;
 
 use crate::browser_bars::BrowserBars;
@@ -57,6 +57,10 @@ impl layoutview::PaneContent for ShellPaneSource {
         window: &mut Window,
         cx: &mut App,
     ) -> AnyElement {
+        let palette = *ui::Theme::of(cx).palette(ui::Surface::Window);
+        if let Some(fill) = self.bars.ground(pane, &palette) {
+            return gpui::div().size_full().bg(fill).into_any_element();
+        }
         self.native.content(pane, window, cx)
     }
 

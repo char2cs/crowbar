@@ -24,6 +24,7 @@ mod agent_ops;
 mod agent_page;
 mod agent_progress;
 mod agent_tabs;
+mod browsing;
 mod host_events;
 mod host_settings;
 mod navigation_target;

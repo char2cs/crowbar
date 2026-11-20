@@ -72,6 +72,9 @@ impl PaneHost {
         if pane_type.kind == PaneKind::Native {
             return self.release_slot(&visible.pane);
         }
+        if runtime.slot.is_none() && self.page_url(&pane_type, (visible, layout)) == BLANK_URL {
+            return Ok(());
+        }
         match runtime.slot {
             Some(slot) => self
                 .pool

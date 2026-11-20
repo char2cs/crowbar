@@ -483,7 +483,11 @@ mod tests {
             .registry_mut()
             .register(pane_type("core.browser", PaneLifecycle::Parkable))
             .unwrap();
-        f.sync(&[instance("b1", "core.browser")], &["b1"], Some("b1"));
+        f.sync(
+            &[browser_at("b1", "https://example.com/")],
+            &["b1"],
+            Some("b1"),
+        );
         let calls = f.mock.calls();
         let Some(Call::Create { id, kind, .. }) = calls.first() else {
             panic!("no web view was created: {calls:?}");
@@ -498,7 +502,7 @@ mod tests {
             .registry_mut()
             .register(pane_type("core.browser", PaneLifecycle::Parkable))
             .unwrap();
-        f.sync(&[instance("b1", "core.browser")], &["b1"], None);
+        f.sync(&[browser_at("b1", "https://example.com/")], &["b1"], None);
         let pane = PaneId::new("b1").unwrap();
         let press = IpcMessage {
             pane: pane.clone(),
@@ -514,7 +518,10 @@ mod tests {
             .register(pane_type("core.browser", PaneLifecycle::Parkable))
             .unwrap();
         f.sync(
-            &[instance("b1", "core.browser"), instance("c1", "core.chat")],
+            &[
+                browser_at("b1", "https://example.com/"),
+                instance("c1", "core.chat"),
+            ],
             &["b1", "c1"],
             Some("b1"),
         );

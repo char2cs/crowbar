@@ -83,7 +83,7 @@ mod tests {
 
     use super::*;
     use crate::catalog::PaneLifecycle;
-    use crate::test_support::{fixture, instance, pane_type};
+    use crate::test_support::{browser_at, fixture, instance, pane_type};
 
     const WINDOW: ParentWindow = ParentWindow::X11(1);
 
@@ -118,6 +118,28 @@ mod tests {
             1,
             "showing the pane reuses the view"
         );
+    }
+
+    #[test]
+    fn a_shown_browser_pane_has_no_view_until_it_has_an_address() {
+        let mut f = fixture();
+        f.host
+            .registry_mut()
+            .register(pane_type("core.browser", PaneLifecycle::KeepAlive))
+            .unwrap();
+        f.sync(&[instance("b1", "core.browser")], &["b1"], Some("b1"));
+        assert_eq!(f.host.web_view_count(), 0, "the pane fill shows, no page");
+        let page = "https://example.com/";
+        f.sync(&[browser_at("b1", page)], &["b1"], Some("b1"));
+        let navigated = f.mock.calls().into_iter().any(|call| {
+            matches!(call, Call::Navigate { url, .. } | Call::Create { url, .. } if url == page)
+        });
+        assert_eq!(
+            f.host.web_view_count(),
+            1,
+            "a view once there is an address"
+        );
+        assert!(navigated, "{:?}", f.mock.calls());
     }
 
     #[test]

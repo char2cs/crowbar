@@ -164,7 +164,7 @@ impl ShellState {
         outcome.titles_changed = true;
     }
 
-    fn save_address(
+    pub(super) fn save_address(
         &mut self,
         pane: PaneId,
         url: &str,
