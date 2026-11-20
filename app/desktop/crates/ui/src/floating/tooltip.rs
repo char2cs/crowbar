@@ -31,7 +31,6 @@ const WINDOW_MARGIN: f32 = 8.0;
 const SIDE_OFFSET: f32 = 6.0;
 const SLIDE: f32 = 4.0;
 const BORDER_OPACITY: f32 = 0.7;
-const FILL_OPACITY: f32 = 0.95;
 
 /// Wraps a trigger and shows `text` (and an optional shortcut) after the pointer rests on it for 150ms.
 #[derive(IntoElement)]
@@ -86,6 +85,9 @@ fn card(
     opacity: f32,
 ) -> gpui::Div {
     let palette = theme.palette(Surface::Window);
+    let edge = palette
+        .card()
+        .blend(palette.border().opacity(BORDER_OPACITY));
     div()
         .flex()
         .items_center()
@@ -94,8 +96,8 @@ fn card(
         .py(spacing::STEP_1_5)
         .rounded(radius::LG)
         .border_1()
-        .border_color(palette.border().opacity(BORDER_OPACITY))
-        .bg(palette.card().opacity(FILL_OPACITY))
+        .border_color(edge)
+        .bg(palette.card())
         .text_color(palette.foreground())
         .text_size(ScaledText::Sm.size(&theme))
         .font_family(theme.ui_family())
@@ -322,5 +324,20 @@ mod tests {
             "{card:?} below {trigger:?}"
         );
         assert!(top.update(|window, _| window.input_region().is_empty()));
+    }
+
+    #[gpui::test]
+    fn without_a_compositor_the_whole_card_shows_behind_its_text(cx: &mut TestAppContext) {
+        let (mut owner, mut top) = open_floating(cx, |_, _| {
+            Tooltip::new("t", "Settings", Button::icon_only("b", IconName::Gear))
+        });
+        owner.update(|_, cx| cx.set_global(Motion::reduced()));
+        owner.simulate_mouse_move(point(px(10.0), px(10.0)), None, gpui::Modifiers::none());
+        owner.run_until_parked();
+        owner.simulate_mouse_move(point(px(11.0), px(11.0)), None, gpui::Modifiers::none());
+        owner.run_until_parked();
+        let card = top.debug_bounds("tooltip-card").unwrap_or_default();
+        let content = top.update(|window, _| window.content_region().to_vec());
+        assert!(content.contains(&card), "{card:?} shows: {content:?}");
     }
 }
