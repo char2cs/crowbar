@@ -19,29 +19,34 @@ There is no second copy and no daemon endpoint.
   (`ViewedFiles: BTreeMap<workspace id, BTreeMap<path, signature>>`) sits next to `PanelState`
   and is not reset when the followed chat changes.
 - **Persistence:** `<state_dir>/review-viewed.json`, beside `layout.json`, `sidebar.json` and
-  `window.json`. It is written through `atomicfile`, like the other state files, by an adapter
-  `live/files/adapters/viewed_disk.rs` that the app hands in as a constructor argument (no
-  setter). The shape is develop's, keyed per workspace: `{ "<wsId>": { "<path>": "<signature>" } }`.
+  `window.json`. It is read and written through the store's existing `Files` port
+  (`live/files.rs`, whose disk adapter writes through `atomicfile`), so tests use the port's
+  in-memory fake and no new adapter is needed. The shape is develop's, keyed per workspace: `{ "<wsId>": { "<path>": "<signature>" } }`.
   A file that is missing or unreadable reads as empty and is logged; it is never fatal.
 - **Signature:** the same string as develop's `fileSignature`:
   `"{kind}|{old_path or empty}|{additions}|{deletions}"`. `kind` is `A` for added or untracked,
   `D` for deleted, `R` for renamed, otherwise `M`, taken from the branch summary
   (`GET chats/:id/review/files`, as develop's `reviewFileSummaryToGitDiff` does).
-  - `sidebar::ChangedFile` gains `old_path: Option<String>` and `pub fn signature(&self) -> String`.
+  - `sidebar::ChangedFile` gains `signature: String`, filled by the loader from the summary's raw
+    counts and `old_path` through `ChangedFile::signature_of(status, old_path, counts)`. The
+    displayed counts are clamped to `u32`, so the signature has to be taken before clamping.
   - The summary's counts become `i64`: binaries come back as `-1`, and develop's signature keeps
     the `-1`. Today `SummaryFile` reads them as `u32`, so a summary with a binary fails to parse,
     and that fix comes first.
-- **Writes:** a new `sidebar::Command::SetFilesViewed { files: Vec<(String, String)>, viewed: bool }`
-  (path and signature) for the followed workspace. The store applies it, persists it and
-  notifies. The pane's write goes through the same store call (see below), so both surfaces
-  write through one owner.
+- **Writes:** a new `sidebar::Command::SetFilesViewed { files: Vec<(String, Option<String>)> }` for
+  the followed workspace: each path with the signature to mark it with, or `None` to clear it (no
+  bool flag). The store applies it, persists it and reports `Outcome::ReviewViewed { workspace,
+  viewed }`. The pane's write goes through the same call, `SidebarCommands::set_review_viewed(chat,
+  changes)`, and the shell reads a workspace's map with `SidebarCommands::review_viewed(chat)`, so
+  both surfaces write through one owner.
 - **Reads:** `reads::changes` puts the followed workspace's map into `Changes.viewed`.
   `Changes::rows` gives each file `viewed` (its stored signature equals the current one) and each
   folder `viewed/total`. The sidebar draws develop's checkbox (`ui::Checkbox`, with indeterminate
   for a partly viewed folder) in the 22px control slot. A viewed name drops its status colour.
 
 ## Protocol (`protocol` crate, SDK frames)
-- `PaneFrame::ReviewSetViewed` (`"review.setViewed"`): `{ workspace, files: [{ path, signature }], viewed }`.
+- `PaneFrame::ReviewSetViewed` (`"review.setViewed"`): `{ files: [{ path, signature }], viewed }`.
+  It names no workspace: the shell takes it from the pane's own chat.
   Fire-and-forget, like `settings.set`. The shell stays the owner, and the pane sees the result
   when the shell pushes the map again.
 - `ShellFrame::ReviewViewed` (`"review.viewed"`): `{ workspace, viewed: { path: signature } }`.
@@ -49,8 +54,9 @@ There is no second copy and no daemon endpoint.
   every mounted `core.review` pane of that workspace whenever the map changes, from either
   surface.
 - `ShellFrame::ReviewReveal` (`"review.reveal"`): `{ path }`. It is sent to one review pane when a
-  Changes file is clicked and that pane is already open. A review opened by the click carries
-  `{ "reveal": path }` in its mount state instead, so the reveal never races the mount.
+  Changes file is clicked and that pane is already open and mounted. A review opened by the click,
+  or an open one whose page is not mounted (a tab never shown), gets `{ "reveal": path }` in its
+  saved state instead, so the reveal applies on mount and is never lost.
 - Files: `app/crates/protocol/src/control/pane_frame.rs`, `shell_frame.rs` and one payload type
   `control/payload/viewed_file.rs`.
 
@@ -59,28 +65,32 @@ There is no second copy and no daemon endpoint.
   `HostEvent::ReviewViewedSet { pane, files, viewed }`. A page that registers and mounts is
   reported as `HostEvent::Mounted { pane }`, so the shell can send the map once the page listens.
 - `slot/inbox/host_event.rs`: those two variants.
-- No broadcast helper is needed: the public `PaneHost::send(pane, frame)` already exists, and only
-  the shell knows which workspace each review pane's chat belongs to, so it picks the panes.
+- No `send_to_type` or other broadcast helper: the public `PaneHost::send(pane, frame)` already
+  exists, and only the shell knows which workspace each review pane's chat belongs to, so it picks
+  the panes (`app/src/review_panes.rs`).
 - Nothing in layoutview.
 
 ## app (the shell crate)
-- `shell_view/pump.rs`: `HostEvent::ReviewViewedSet` goes to the store's `SetFilesViewed`. The
+- `shell_state/host_events.rs` puts `HostEvent::ReviewViewedSet` and `Mounted` in the outcome;
+  `shell_view/review_viewed.rs` hands the marks to `SidebarCommands::set_review_viewed`. The
   workspace comes from the pane's own `threadId`, never from the frame, so a pane cannot write
   another workspace's map.
 - When the store reports a viewed change, the shell sends `review.viewed` to the review panes of
   that workspace. On a review pane's mount, it sends the map once.
-- `Command::OpenReview` becomes `OpenReview { path }`: open (with `reveal` in the state) or focus,
-  then send `review.reveal`.
+- `Command::OpenReview` becomes `OpenReview { path }`. A review that is not open opens with
+  `reveal` in its state. An open one is focused; if its page is mounted it is sent
+  `review.reveal`, otherwise `reveal` is written into its saved state for the mount to apply.
 
 ## app/panes (one owner per process, never a fallback)
 The mobile app loads `index.html` -> `main.tsx` -> `app-main`, the full app, which renders the
 branch review (`review-code-view.tsx` uses `useReviewViewed`). So mobile has no native shell and
 still shows the review. The slice therefore talks to an interface:
-- `features/git/lib/viewed-owner.ts`: `ViewedOwner { load(wsId): Promise<Record<string,string>>;
-  set(wsId, entries, viewed): void; follow(wsId, listener): () => void }`. The owner is chosen
-  once at the entry point and injected into the workspace store registry.
+- `features/git/lib/viewed-owner.ts`: `ViewedOwner { follow(wsId, listener): () => void;
+  set(wsId, change: ViewedChange): Promise<void> }`, where `ViewedChange` (`sdk/viewed-change.ts`)
+  is `{ files, viewed }`. The owner is installed once at the entry point (`installViewedOwner`)
+  and read by the slice through `viewedOwner()`.
 - Desktop entries (`entries/review.tsx` and any other `entries/*` page that mounts the review)
-  use `ShellViewedOwner`. `load` resolves on the first `review.viewed` frame, `set` posts
+  use `ShellViewedOwner`. `follow` first hears the last `review.viewed` frame, `set` posts
   `review.setViewed` and writes nothing locally, and `follow` hears later `review.viewed` frames.
 - `app-main` (mobile and the plain web build) uses `IdbViewedOwner`: today's
   `branch-review-viewed.ts`, moved behind the interface. The IDB schema keeps the
