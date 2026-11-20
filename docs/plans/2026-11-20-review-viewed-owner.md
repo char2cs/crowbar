@@ -7,9 +7,12 @@ Develop keeps the viewed map in the web app's IndexedDB (`web/src/lib/persistenc
 store `branch-review`, key `wsId`, value `{ wsId, viewed: { [path]: signature } }`). The Changes
 tree and the review pane share it because they run in one webview. In the Rust shell the Changes
 tree is native and the review pane is a web page with its own IndexedDB. One of them has to own
-the map. The owner is the native shell: lane B later replaces the review pane with a native
-GPUI view, so native ownership is where this ends up anyway. There is no second copy and no
-daemon endpoint.
+the map. The owner is the native shell, for two reasons:
+- The native Changes tree has to show its ticks while no review pane is mounted, so the pane
+  cannot own the map.
+- The shell is always alive and already persists its own state.
+
+There is no second copy and no daemon endpoint.
 
 ## Owner and persistence
 - **Owner:** the `store` crate. A new held type `live/held/viewed_files.rs`
