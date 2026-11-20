@@ -18,6 +18,7 @@ fn status_of(word: &str) -> GitStatus {
     match word {
         "added" | "untracked" => GitStatus::Added,
         "deleted" => GitStatus::Deleted,
+        "renamed" => GitStatus::Renamed,
         _ => GitStatus::Modified,
     }
 }
@@ -48,7 +49,7 @@ mod tests {
         ("untracked", GitStatus::Added),
         ("added", GitStatus::Added),
         ("deleted", GitStatus::Deleted),
-        ("renamed", GitStatus::Modified),
+        ("renamed", GitStatus::Renamed),
     ];
 
     #[test]

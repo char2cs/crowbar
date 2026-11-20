@@ -1,5 +1,6 @@
 //! The Changes panel: branch pill, file count and the changed files.
 
+mod changed_tree_row;
 mod merge_card;
 mod merge_draft;
 mod merge_lines;
@@ -7,38 +8,18 @@ mod merge_lines;
 pub(crate) use merge_draft::MergeDraft;
 
 use gpui::{AnyElement, Context, Div, IntoElement, ParentElement, Pixels, Styled, div, px};
-use sidebar::{ChangedFile, Changes, FileKind, Focus, GitStatus, MenuScope};
+use sidebar::{Changes, Focus};
 use ui::{Icon, IconName, Palette, ScrollArea, Surface, Theme, radius, shadow};
 
-use crate::panels::explorer::FileTreeEntry;
-use crate::panels::explorer::FileTreeRow;
+use crate::panels::changes::changed_tree_row::ChangedTreeRow;
 use crate::panels::explorer::TreeLook;
 use crate::panels::message::panel_message;
-use crate::sidebar::RowHandler;
 use crate::sidebar::Sidebar;
 use crate::sidebar::{ICON_MEDIUM, SPACE_MD, SPACE_SM, SPACE_XS, TEXT_BODY, TEXT_CAPTION};
 
 const PILL_HEIGHT: Pixels = px(36.0);
 const PILL_SHADOW: f32 = 0.1;
 const COUNT_INSET: Pixels = px(14.0);
-
-fn entry(file: ChangedFile) -> FileTreeEntry {
-    let name = file
-        .path
-        .rsplit('/')
-        .next()
-        .unwrap_or(&file.path)
-        .to_owned();
-    let changed = file.added + file.deleted > 0 && file.status != GitStatus::Clean;
-    FileTreeEntry {
-        counts: changed.then_some((file.added, file.deleted)),
-        path: file.path,
-        name,
-        depth: 0,
-        kind: FileKind::File,
-        status: file.status,
-    }
-}
 
 fn branch_pill(
     changes: &Changes,
@@ -97,20 +78,6 @@ fn count_line(
         .child(format!("Changed — {count} file{plural}"))
 }
 
-fn rows<'a>(
-    files: Vec<ChangedFile>,
-    (handler, scope, look): (&'a RowHandler, &'a std::rc::Rc<MenuScope>, &'a TreeLook),
-) -> impl Iterator<Item = FileTreeRow> + 'a {
-    files.into_iter().map(|file| FileTreeRow {
-        look: look.clone(),
-        entry: entry(file),
-        input: None,
-        selected: false,
-        scope: std::rc::Rc::clone(scope),
-        handler: std::rc::Rc::clone(handler),
-    })
-}
-
 impl Sidebar {
     pub(crate) fn changes_panel(
         &mut self,
@@ -122,8 +89,8 @@ impl Sidebar {
             return panel_message("No repository open", cx);
         }
         let handler = Self::row_handler(cx);
-        let scope = std::rc::Rc::new(self.menu_scope());
         let look = TreeLook::of(&self.data.file_tree_view(), None);
+        let rows = changes.rows(self.tree.files().changed_folds());
         let list = div()
             .flex()
             .flex_col()
@@ -133,14 +100,17 @@ impl Sidebar {
             )
             .children(self.merge_card(cx))
             .child(count_line(changes.files.len(), palette))
-            .children(rows(changes.files, (&handler, &scope, &look)));
+            .children(rows.into_iter().map(|row| ChangedTreeRow {
+                row,
+                look: look.clone(),
+                handler: std::rc::Rc::clone(&handler),
+            }));
         ScrollArea::new("changes-scroll", &self.scrolls.changes, list).into_any_element()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::test_support::prelude::*;
 
     #[gpui::test]
@@ -154,15 +124,26 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_changed_file_row_carries_its_line_counts() {
-        use sidebar::{ChangedFile, GitStatus};
-        let file = ChangedFile {
-            path: "a/b.rs".into(),
-            status: GitStatus::Added,
-            added: 3,
-            deleted: 1,
-        };
-        assert_eq!(entry(file).counts, Some((3, 1)));
+    #[gpui::test]
+    fn changed_files_sit_under_folders_that_fold(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
+        sidebar.update(cx, |this, cx| this.set_mode(Mode::Changes, cx));
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("changed-row-src").is_some(),
+            "the folder row"
+        );
+        assert!(
+            cx.debug_bounds("changed-row-src/lib.rs").is_some(),
+            "the file row"
+        );
+        sidebar.update_in(cx, |this, window, cx| {
+            this.apply(Intent::ToggleChangedFold("src".into()), window, cx);
+        });
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("changed-row-src/lib.rs").is_none(),
+            "folded away"
+        );
     }
 }

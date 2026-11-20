@@ -21,8 +21,8 @@ pub use frame::{
     Resizing, Visibility,
 };
 pub use shell::{
-    ActiveSpace, Activity, AfterMerge, AvatarTint, ChangedFile, Changes, ChangesSource, ClipMode,
-    Command, Sink,
+    ActiveSpace, Activity, AfterMerge, AvatarTint, ChangedFile, ChangedRow, Changes, ChangesSource,
+    ClipMode, Command, Sink,
 };
 pub use shell::{
     DropMode, Expansion, FileAccess, FileDensity, FileKind, FileRow, FileTreeFlag, FileTreeView,

@@ -1,5 +1,7 @@
 //! What the Changes panel draws.
 
+use std::collections::BTreeMap;
+
 use crate::shell::git::changed_file::ChangedFile;
 
 /// The branch pill and the changed files of the focused repository workspace.
@@ -11,4 +13,6 @@ pub struct Changes {
     pub parent: Option<String>,
     /// Changed files sorted by path.
     pub files: Vec<ChangedFile>,
+    /// Unresolved review threads per file path.
+    pub threads: BTreeMap<String, u32>,
 }

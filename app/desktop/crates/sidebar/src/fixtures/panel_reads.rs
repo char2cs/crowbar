@@ -71,6 +71,7 @@ impl ChangesSource for DemoShell {
             branch: "inv-rb".into(),
             parent: Some(MAIN.into()),
             files: vec![file],
+            ..Changes::default()
         }
     }
 }

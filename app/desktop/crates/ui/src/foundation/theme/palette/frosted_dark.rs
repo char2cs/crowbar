@@ -55,4 +55,5 @@ pub(super) const PALETTE: Palette = Palette {
     git_modified: hex(0xd5a2_4aff),
     git_modified_staged: hex(0xdeb1_5dff),
     git_untracked: hex(0x7aa6_d8ff),
+    git_renamed: hex(0xb693_ceff),
 };

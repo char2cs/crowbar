@@ -11,6 +11,7 @@ use std::collections::{HashMap, HashSet};
 
 use sidebar::{ChangedFile, Changes, GitStatus};
 
+use crate::live::held::OpenThreads;
 use crate::live::held::panel_state::asking::Asking;
 use crate::live::held::panel_state::ignore_rules::IgnoreRules;
 
@@ -24,7 +25,7 @@ pub(crate) struct PanelState {
     pub(crate) ignores: IgnoreRules,
     pub(crate) changes: Changes,
     pub(crate) staged: HashSet<String>,
-    pub(crate) open_threads: u32,
+    pub(crate) open_threads: OpenThreads,
     pub(crate) committing: bool,
 }
 
@@ -99,7 +100,7 @@ impl PanelState {
     pub(crate) fn staged_and_threads(
         &mut self,
         chat: &str,
-        (staged, open_threads): (HashSet<String>, u32),
+        (staged, open_threads): (HashSet<String>, OpenThreads),
     ) {
         if self.chat.as_deref() == Some(chat) {
             self.staged = staged;

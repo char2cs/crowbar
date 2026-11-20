@@ -1,11 +1,13 @@
-use gpui::{Div, ParentElement, Pixels, Styled, div, px};
+use gpui::{Div, InteractiveElement, ParentElement, Pixels, Styled, div, px};
 use sidebar::GitStatus;
 use ui::Palette;
 
 use crate::panels::explorer::file_tree_row::tree_look::TreeLook;
-use crate::sidebar::{SPACE_XS, TEXT_CAPTION};
+use crate::sidebar::{SPACE_SM, SPACE_XS, TEXT_CAPTION};
 
 const TIGHT_COUNT_GAP: f32 = 2.0;
+const LETTER_SIZE: Pixels = px(10.0);
+const LETTER_OPACITY: f32 = 0.8;
 
 pub(crate) fn status_color(
     status: GitStatus,
@@ -15,15 +17,24 @@ pub(crate) fn status_color(
         GitStatus::Added => palette.git_added(),
         GitStatus::Untracked => palette.git_untracked(),
         GitStatus::Modified => palette.git_modified(),
+        GitStatus::StagedModified => palette.git_modified_staged(),
+        GitStatus::Renamed => palette.git_renamed(),
         GitStatus::Deleted => palette.git_deleted(),
         GitStatus::Clean | GitStatus::Ignored => palette.foreground(),
     }
 }
 
-pub(crate) fn letter_badge(letter: char) -> Div {
+pub(crate) fn letter_badge(
+    letter: char,
+    mono: &'static str,
+) -> Div {
     div()
         .flex_none()
-        .text_size(TEXT_CAPTION)
+        .debug_selector(|| "status-letter".into())
+        .font_family(mono)
+        .text_size(LETTER_SIZE)
+        .line_height(LETTER_SIZE)
+        .opacity(LETTER_OPACITY)
         .child(letter.to_string())
 }
 
@@ -41,20 +52,24 @@ pub(crate) fn counts_view(
 ) -> Div {
     let ((added, deleted), (mono, gap)) = (counts, spacing);
     div()
+        .debug_selector(|| "row-counts".into())
+        .ml_auto()
+        .pl(SPACE_SM)
         .flex()
+        .flex_none()
         .gap(gap)
         .font_family(mono)
         .text_size(TEXT_CAPTION)
-        .child(
+        .children((added > 0).then(|| {
             div()
                 .text_color(palette.sidebar_count_added())
-                .child(format!("+{added}")),
-        )
-        .child(
+                .child(format!("+{added}"))
+        }))
+        .children((deleted > 0).then(|| {
             div()
                 .text_color(palette.sidebar_count_deleted())
-                .child(format!("-{deleted}")),
-        )
+                .child(format!("-{deleted}"))
+        }))
 }
 
 #[cfg(test)]

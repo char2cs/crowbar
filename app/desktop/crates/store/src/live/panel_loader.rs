@@ -18,6 +18,7 @@ pub(crate) use file_target::FileTarget;
 pub(crate) use reload_target::ReloadTarget;
 
 use crate::live::held::FileEntry;
+use crate::live::held::OpenThreads;
 use crate::live::panel_loader::git_diff_body::GitDiffBody;
 use crate::live::panel_loader::git_status_body::GitStatusBody;
 use crate::live::panel_loader::line_counts::LineCounts;
@@ -104,15 +105,18 @@ async fn load_open_threads(
     hub: &Hub,
     client: &daemonapi::Client,
     chat: &str,
-) -> u32 {
+) -> OpenThreads {
     let Some(path) = hub.read(|state| threads_path(state, chat)) else {
-        return 0;
+        return OpenThreads::default();
     };
     client
         .read::<Vec<ThreadBody>>(path)
         .await
         .inspect_err(|error| tracing::warn!(chat, %error, "review threads could not be read"))
-        .map_or(0, |threads| thread_body::open_in(&threads))
+        .map_or_else(
+            |_| OpenThreads::default(),
+            |threads| thread_body::open_in(&threads),
+        )
 }
 
 fn threads_path(
@@ -210,6 +214,8 @@ mod tests {
             .collect()
     }
 
+    const THREADS: &str = r#"[{"filePath":"src/pricing.ts"},{"filePath":"src/pricing.ts"},{"filePath":""},{"filePath":"a.txt","resolved":true}]"#;
+
     const SUMMARY: &str = r#"{"files":[{"path":"src/pricing.ts","status":"modified","additions":16,"deletions":2},{"path":"src/pricing.test.ts","status":"added","additions":18}]}"#;
 
     #[tokio::test]
@@ -219,6 +225,8 @@ mod tests {
         daemon.ok("GET", "/v0/chats/hc/git/diff?staged=false", DIFF);
         daemon.ok("GET", "/v0/chats/hc/git/diff?staged=true", "[]");
         daemon.ok("GET", "/v0/chats/hc/review/files", SUMMARY);
+        let threads = hub.read(|state| threads_path(state, "hc"));
+        daemon.ok("GET", &threads.unwrap_or_default(), THREADS);
         load_changes(&hub, &client, "hc").await;
         let listed = hub.read(changed_files);
         assert_eq!(
@@ -236,5 +244,8 @@ mod tests {
             Some(vec!["a.txt".to_owned()]),
             "the commit form lists the working tree"
         );
+        let per_file = hub.read(|state| crate::reads::changes(state).threads);
+        let open = std::collections::BTreeMap::from([("src/pricing.ts".to_owned(), 2)]);
+        assert_eq!(per_file, open, "a file counts its open threads");
     }
 }

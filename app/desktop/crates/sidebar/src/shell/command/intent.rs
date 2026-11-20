@@ -59,6 +59,8 @@ pub enum Intent {
     },
     /// Focus the Files panel and select the file at this path.
     SelectFile(String),
+    /// Fold or unfold a folder of the Changes tree.
+    ToggleChangedFold(String),
     /// Ask a yes-or-no question before sending its command.
     Ask(Question),
     /// Send the command to the shell.

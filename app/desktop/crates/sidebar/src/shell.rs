@@ -16,7 +16,8 @@ pub use chats::{
 pub use command::{ClipMode, Command, Intent, NewEntry, Question, RowActions, Sink};
 pub use daemons::{Host, HostId, HostKind, HostState, HostTone};
 pub use git::{
-    AfterMerge, ChangedFile, Changes, ChangesSource, MergeBox, MergeFacts, MergeStrategy, MergeWork,
+    AfterMerge, ChangedFile, ChangedRow, Changes, ChangesSource, MergeBox, MergeFacts,
+    MergeStrategy, MergeWork,
 };
 pub use listing::{
     FileAccess, FileDensity, FileKind, FileRow, FileTreeFlag, FileTreeView, FilesSource,

@@ -18,6 +18,14 @@ impl Tree {
         self.files.select(path);
     }
 
+    /// Folds the Changes folder at `path`, or unfolds it when folded.
+    pub fn toggle_changed_fold(
+        &mut self,
+        path: String,
+    ) {
+        self.files.toggle_changed_fold(path);
+    }
+
     /// Stages `clipboard` for the next paste, or clears the staged files with `None`.
     pub fn set_file_clipboard(
         &mut self,

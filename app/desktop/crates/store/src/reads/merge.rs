@@ -75,7 +75,7 @@ pub(crate) fn merge_box(state: &State) -> Option<MergeBox> {
         parent: parent.as_deref(),
         uncommitted: uncommitted.len(),
         branch_files: state.panels.changes.files.len(),
-        open_threads: state.panels.open_threads,
+        open_threads: state.panels.open_threads.total(),
         workspace,
     };
     let operation = operation_of(state, &workspace.id);

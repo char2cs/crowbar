@@ -9,6 +9,7 @@ pub(crate) enum SidebarAction {
     OpenSettings,
     OpenHosts,
     OpenFile(String),
+    OpenReview,
     ImportRepo,
     ChooseSpaceFolder(String),
     ImportBranches(String),
@@ -26,6 +27,7 @@ pub(crate) fn action_for(command: &sidebar::Command) -> Result<SidebarAction> {
         sidebar::Command::OpenSettings => Ok(SidebarAction::OpenSettings),
         sidebar::Command::OpenHostSettings(_) => Ok(SidebarAction::OpenHosts),
         sidebar::Command::OpenFile(path) => Ok(SidebarAction::OpenFile(path.clone())),
+        sidebar::Command::OpenReview => Ok(SidebarAction::OpenReview),
         sidebar::Command::ImportRepo => Ok(SidebarAction::ImportRepo),
         sidebar::Command::ChooseSpaceFolder(host) => {
             Ok(SidebarAction::ChooseSpaceFolder(host.as_str().to_owned()))
@@ -48,14 +50,14 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn sidebar_commands_become_the_actions_the_shell_carries_out() {
-        let cases = [
+    fn cases() -> Vec<(Command, SidebarAction)> {
+        vec![
             (
                 Command::OpenRow(RowId::from("t1")),
                 SidebarAction::Open(chat_type().unwrap(), chat_params("t1").unwrap()),
             ),
             (Command::OpenSettings, SidebarAction::OpenSettings),
+            (Command::OpenReview, SidebarAction::OpenReview),
             (
                 Command::OpenHostSettings(sidebar::HostId::from("box")),
                 SidebarAction::OpenHosts,
@@ -84,8 +86,12 @@ mod tests {
                     on: false,
                 },
             ),
-        ];
-        for (command, expected) in cases {
+        ]
+    }
+
+    #[test]
+    fn sidebar_commands_become_the_actions_the_shell_carries_out() {
+        for (command, expected) in cases() {
             assert_eq!(action_for(&command).unwrap(), expected, "{command:?}");
         }
     }

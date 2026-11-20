@@ -2,6 +2,8 @@
 
 mod after_merge;
 mod changed_file;
+mod changed_row;
+mod changed_tree;
 mod changes;
 mod changes_source;
 mod merge_box;
@@ -11,6 +13,7 @@ mod merge_work;
 
 pub use after_merge::AfterMerge;
 pub use changed_file::ChangedFile;
+pub use changed_row::ChangedRow;
 pub use changes::Changes;
 pub use changes_source::ChangesSource;
 pub use merge_box::MergeBox;

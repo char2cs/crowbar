@@ -122,8 +122,10 @@ pub enum Command {
         /// Before, after or into.
         mode: DropMode,
     },
-    /// Open a file of the Files or Changes panel.
+    /// Open a file of the Files panel.
     OpenFile(String),
+    /// Open the branch review of the focused workspace, as a click on a Changes file does.
+    OpenReview,
     /// Show the file or directory in the system file manager; the path is workspace-relative.
     RevealFile {
         /// The path relative to the workspace root.

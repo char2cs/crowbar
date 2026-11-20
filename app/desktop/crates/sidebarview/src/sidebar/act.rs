@@ -86,6 +86,7 @@ impl Sidebar {
                 self.files_focus.focus(window);
                 self.tree.select_file(Some(path));
             },
+            Intent::ToggleChangedFold(path) => self.tree.toggle_changed_fold(path),
             Intent::Ask(question) => self.question = Some(question),
             Intent::Send(command) => self.send_intent(command, cx),
         }

@@ -80,6 +80,7 @@ palette! {
     git_modified => "--git-modified",
     git_modified_staged => "--git-modified-staged",
     git_untracked => "--git-untracked",
+    git_renamed => "--git-renamed",
 }
 
 impl Palette {

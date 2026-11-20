@@ -167,7 +167,7 @@ mod tests {
             let entry = crate::overlays::popup::MenuEntry::action(
                 "Keep",
                 ui::IconName::Check,
-                sidebar::Intent::Keep(RowId::from("chat")),
+                Intent::Keep(RowId::from("chat")),
             );
             this.open_menu((vec![entry], point(px(10.0), px(10.0))), window, cx);
             this.pointer_left_peek(cx);

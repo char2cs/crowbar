@@ -1,6 +1,6 @@
 //! A 26px row of the Files and Changes panels.
 
-mod badges;
+pub(crate) mod badges;
 mod glyph;
 pub(crate) mod tree_look;
 
@@ -55,7 +55,7 @@ impl RenderOnce for FileTreeRow {
         let entry = self.entry;
         let id = ElementId::from(SharedString::from(format!("file-{}", entry.path)));
         let action = RowAction::Intent(Intent::Send(command(&entry)));
-        let letter = entry.status.letter().map(letter_badge);
+        let letter = entry.status.letter().map(|l| letter_badge(l, mono));
         let menu = file_menu(&entry, &self.scope, &self.handler);
         let matched = matched_range(&entry.name, &self.look);
         let name = name_cell(&entry, self.input.as_ref(), (mono, palette));
@@ -74,11 +74,7 @@ impl RenderOnce for FileTreeRow {
             .child(glyph(&entry, &self.look))
             .child(name)
             .children(letter)
-            .children(
-                entry
-                    .counts
-                    .map(|counts| counts_view(counts, (mono, count_gap(&self.look)), palette)),
-            )
+            .children(trailing_counts(&entry, (mono, &self.look), palette))
             .on_drop(file_drop::on_drop(
                 &self.handler,
                 file_drop::drop_directory(&entry),
@@ -91,11 +87,20 @@ impl RenderOnce for FileTreeRow {
     }
 }
 
+fn trailing_counts(
+    entry: &FileTreeEntry,
+    (mono, look): (&'static str, &TreeLook),
+    palette: &Palette,
+) -> Option<Div> {
+    let counts = entry.counts?;
+    Some(counts_view(counts, (mono, count_gap(look)), palette))
+}
+
 fn menu_id(entry: &FileTreeEntry) -> SharedString {
     SharedString::from(format!("file-menu-{}", entry.path))
 }
 
-fn frame(
+pub(crate) fn frame(
     id: ElementId,
     entry: &FileTreeEntry,
     (look, palette): (&TreeLook, &Palette),
@@ -125,10 +130,9 @@ fn name_cell(
     input: Option<&RowInput>,
     look: (&'static str, &Palette),
 ) -> Div {
-    let cell = div().flex_1().min_w_0();
     match input {
-        Some(input) => cell.child(input_view(input, look)),
-        None => cell.truncate().child(entry.name.clone()),
+        Some(input) => div().flex_1().min_w_0().child(input_view(input, look)),
+        None => div().min_w_0().truncate().child(entry.name.clone()),
     }
 }
 
@@ -167,7 +171,7 @@ fn highlighted(
         ..HighlightStyle::default()
     };
     let text = StyledText::new(name.to_owned()).with_highlights([(range, style)]);
-    div().flex_1().min_w_0().truncate().child(text)
+    div().min_w_0().truncate().child(text)
 }
 
 fn faded(status: GitStatus) -> f32 {
@@ -209,7 +213,7 @@ fn chevron(
     }
 }
 
-fn glyph(
+pub(crate) fn glyph(
     entry: &FileTreeEntry,
     look: &TreeLook,
 ) -> Div {
@@ -235,7 +239,7 @@ mod tests {
     use crate::test_support::prelude::*;
     use sidebar::{Expansion, FileKind, GitStatus};
 
-    use crate::test_support::measure;
+    use crate::test_support::{measure, mount};
 
     fn entry(
         kind: FileKind,
@@ -262,6 +266,33 @@ mod tests {
             handler: std::rc::Rc::new(|_, _, _| {}),
         });
         assert_eq!(f32::from(bounds.size.height), 26.0);
+    }
+
+    #[gpui::test]
+    fn the_status_letter_follows_the_name_and_the_counts_close_the_row(cx: &mut TestAppContext) {
+        let changed = FileTreeEntry {
+            status: GitStatus::Modified,
+            counts: Some((3, 1)),
+            ..entry(FileKind::File, "a.rs")
+        };
+        let cx = mount(cx, move |_, _| FileTreeRow {
+            entry: changed.clone(),
+            input: None,
+            selected: false,
+            look: TreeLook::default(),
+            scope: std::rc::Rc::default(),
+            handler: std::rc::Rc::new(|_, _, _| {}),
+        });
+        let letter = cx.debug_bounds("status-letter").unwrap_or_default();
+        let counts = cx.debug_bounds("row-counts").unwrap_or_default();
+        assert!(
+            f32::from(letter.left()) < 80.0,
+            "the letter sits after a short name: {letter:?}"
+        );
+        assert!(
+            f32::from(counts.left() - letter.right()) > 100.0,
+            "the counts sit at the row end: {counts:?}"
+        );
     }
 
     #[test]

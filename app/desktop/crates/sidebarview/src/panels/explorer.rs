@@ -11,7 +11,8 @@ mod menu_lines;
 mod search;
 
 pub(crate) use file_tree_entry::FileTreeEntry;
-pub(crate) use file_tree_row::{FileTreeRow, TreeLook};
+pub(crate) use file_tree_row::badges;
+pub(crate) use file_tree_row::{TreeLook, frame, glyph};
 pub(crate) use search::FileSearch;
 
 use std::rc::Rc;

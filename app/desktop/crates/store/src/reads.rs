@@ -160,6 +160,7 @@ pub(crate) fn files(state: &State) -> Vec<FileRow> {
 
 pub(crate) fn changes(state: &State) -> Changes {
     let mut changes = state.panels.changes.clone();
+    changes.threads = state.panels.open_threads.by_file();
     let workspace = followed_workspace(state);
     changes.parent = workspace.and_then(|workspace| merge::parent_branch(state, workspace));
     let named = workspace.map(|workspace| workspace.branch.clone());

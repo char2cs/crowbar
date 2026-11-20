@@ -1,12 +1,10 @@
 //! The daemon's `GET chats/:id/git/status` answer.
 
-mod changes;
 mod file_body;
 
 use serde::Deserialize;
 use sidebar::{ChangedFile, Changes};
 
-use crate::live::panel_loader::git_status_body::changes::status_of;
 use crate::live::panel_loader::git_status_body::file_body::FileBody;
 use crate::live::panel_loader::line_counts::LineCounts;
 
@@ -38,6 +36,7 @@ impl GitStatusBody {
                 .iter()
                 .map(|file| changed_file(file, counts))
                 .collect(),
+            ..Changes::default()
         }
     }
 }
@@ -49,7 +48,7 @@ fn changed_file(
     let (added, deleted) = counts.get(&file.path).copied().unwrap_or_default();
     ChangedFile {
         path: file.path.clone(),
-        status: status_of(&file.status),
+        status: file.git_status(),
         added,
         deleted,
     }
@@ -57,7 +56,6 @@ fn changed_file(
 
 #[cfg(test)]
 mod tests {
-    use sidebar::GitStatus;
 
     use super::*;
 
@@ -69,9 +67,17 @@ mod tests {
         .unwrap();
         let counts = LineCounts::from([("b".to_owned(), (4, 2))]);
         let changes = body.changes(&counts);
+        let files: Vec<String> = changes
+            .files
+            .iter()
+            .map(|file| {
+                format!(
+                    "{} {:?} +{} -{}",
+                    file.path, file.status, file.added, file.deleted
+                )
+            })
+            .collect();
         assert_eq!(changes.branch, "main");
-        assert_eq!(changes.files[0].status, GitStatus::Untracked);
-        assert_eq!(changes.files[1].status, GitStatus::Modified);
-        assert_eq!((changes.files[1].added, changes.files[1].deleted), (4, 2));
+        assert_eq!(files, ["a Untracked +0 -0", "b Renamed +4 -2"]);
     }
 }

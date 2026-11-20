@@ -81,8 +81,13 @@ fn status_of(
         return GitStatus::Ignored;
     }
     let inside = |changed: &str| directory && changed.starts_with(&format!("{path}/"));
-    if statuses.keys().any(|changed| inside(changed)) {
-        return GitStatus::Modified;
+    let highest = statuses
+        .iter()
+        .filter(|(changed, _)| inside(changed))
+        .map(|(_, status)| *status)
+        .max_by_key(|status| status.priority());
+    if let Some(status) = highest {
+        return status;
     }
     statuses
         .iter()
@@ -149,11 +154,27 @@ mod tests {
     }
 
     #[test]
-    fn status_is_inherited_from_an_untracked_directory_and_bubbles_to_a_parent() {
+    fn status_is_inherited_from_an_untracked_directory_and_a_parent_takes_its_highest_child() {
         type Case = (&'static [(&'static str, GitStatus)], usize, GitStatus);
         const CASES: &[Case] = &[
             (&[("src", GitStatus::Untracked)], 1, GitStatus::Untracked),
-            (&[("src/m.rs", GitStatus::Added)], 0, GitStatus::Modified),
+            (&[("src/m.rs", GitStatus::Added)], 0, GitStatus::Added),
+            (
+                &[
+                    ("src/m.rs", GitStatus::Untracked),
+                    ("src/n.rs", GitStatus::Deleted),
+                ],
+                0,
+                GitStatus::Deleted,
+            ),
+            (
+                &[
+                    ("src/m.rs", GitStatus::Renamed),
+                    ("src/n.rs", GitStatus::Added),
+                ],
+                0,
+                GitStatus::Renamed,
+            ),
         ];
         for (reported, row, expected) in CASES {
             let panel = reporting(reported);
