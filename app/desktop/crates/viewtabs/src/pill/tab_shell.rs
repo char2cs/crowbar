@@ -3,7 +3,8 @@ use std::rc::Rc;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, CursorStyle, ElementId, FontWeight, Hsla, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, RenderOnce, StatefulInteractiveElement, Styled, Window, div, px,
+    MouseButton, ParentElement, RenderOnce, SharedString, StatefulInteractiveElement, Styled,
+    Window, div, px,
 };
 use ui::{
     FlickerSpinner, Icon, IconName, IconWeight, Palette, Surface, Theme, radius, shadow, text_size,
@@ -12,6 +13,7 @@ use ui::{
 use crate::pill::member_kind::MemberKind;
 use crate::pill::member_view::MemberView;
 use crate::pill::shell_look::ShellLook;
+use crate::pill::tab_fade::{fade, fade_ends};
 use crate::strip_metrics::TAB_HEIGHT;
 
 const GLYPH: f32 = 16.0;
@@ -45,15 +47,22 @@ impl RenderOnce for TabShell {
         cx: &mut App,
     ) -> impl IntoElement {
         let palette = *Theme::of(cx).palette(Surface::Chrome);
+        let ground = Theme::of(cx).palette(Surface::Window).background();
         let look = self.look;
+        let group = SharedString::from(format!("view-tab-{}", self.id));
+        let ends = fade_ends(look, (&palette, ground));
         let count = self.members.len();
         let members: Vec<_> = self
             .members
             .into_iter()
             .enumerate()
-            .map(|(index, member)| member_row(&self.id, (index, count), member, (look, &palette)))
+            .map(|(index, member)| {
+                member_row(&self.id, (index, count), member, (look, &palette))
+                    .when(index + 1 == count, |row| row.child(fade(&group, ends)))
+            })
             .collect();
         shell(self.id.clone(), self.width, look, &palette)
+            .group(group.clone())
             .font_family(Theme::of(cx).ui_family())
             .children(members)
             .when_some(self.on_close, |shell, close| {
@@ -168,7 +177,7 @@ fn member_row(
     place: (usize, usize),
     member: MemberView,
     style: (ShellLook, &Palette),
-) -> impl IntoElement {
+) -> gpui::Div {
     let ((index, count), (look, palette)) = (place, style);
     let (strong, muted) = ink(look, palette);
     let text = member_ink(look, strong, muted);
@@ -187,7 +196,6 @@ fn member_row(
         .gap(px(ROW_GAP))
         .h(px(TAB_HEIGHT))
         .px(px(ROW_PADDING))
-        .when(last, |row| row.pr(px(CLOSE + CLOSE_INSET)))
         .when(!last && look == ShellLook::Idle, |row| {
             row.child(divider(muted))
         })

@@ -3,6 +3,7 @@
 mod member_kind;
 mod member_view;
 mod shell_look;
+mod tab_fade;
 mod tab_shell;
 mod tab_view;
 
