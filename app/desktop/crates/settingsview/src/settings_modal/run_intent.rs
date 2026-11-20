@@ -1,7 +1,7 @@
 //! Applies an [`Intent`] to the state and performs the resulting effect.
 
 use gpui::{Context, Window};
-use settings::{Control, Effect, Key, Page, RecordCommand, Value};
+use settings::{Control, Effect, Key, RecordCommand, Value};
 use ui::TextInputEvent;
 
 use crate::intent::Intent;
@@ -16,11 +16,7 @@ impl Runner for SettingsModal {
         cx: &mut Context<'_, Self>,
     ) {
         self.notice = None;
-        let shown = self.state.page().map(|page| page.id().clone());
         let effect = self.apply(intent, window, cx);
-        if self.state.page().map(Page::id) != shown.as_ref() {
-            self.scroll.set_offset(gpui::Point::default());
-        }
         self.perform(effect);
         self.fields.sync(&self.state, cx);
         cx.notify();

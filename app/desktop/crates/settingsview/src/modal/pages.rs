@@ -75,7 +75,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn another_page_opens_at_its_top(cx: &mut TestAppContext) {
+    fn another_page_keeps_the_scroll_offset_of_the_one_scroller(cx: &mut TestAppContext) {
         let (harness, cx) = open(cx, "editor");
         let top = |cx: &mut gpui::VisualTestContext| {
             cx.debug_bounds("row-text-fontFamily")
@@ -91,6 +91,10 @@ mod tests {
         });
         cx.run_until_parked();
         run(&harness, Intent::Select(PageId::from("editor")), cx);
-        assert_eq!(top(cx), fresh);
+        let moved = top(cx);
+        assert!(
+            moved.zip(fresh).is_some_and(|(moved, fresh)| moved < fresh),
+            "{moved:?} above {fresh:?}"
+        );
     }
 }
