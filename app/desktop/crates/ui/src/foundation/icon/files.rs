@@ -116,6 +116,7 @@ pub(crate) const FILES: &[File] = files![
     (XCircle, "x-circle", [Regular]),
     (Crosshair, "crosshair", [Regular]),
     (ArrowRight, "arrow-right", [Regular]),
+    (ArrowLeft, "arrow-left", [Regular]),
     (Funnel, "funnel", [Regular]),
     (Eye, "eye", [Regular]),
     (UploadSimple, "upload-simple", [Regular]),

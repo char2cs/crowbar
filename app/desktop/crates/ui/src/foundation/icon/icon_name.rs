@@ -106,6 +106,7 @@ icon_names! {
     SidebarToggleRight => "sidebar-toggle-right",
     Crosshair => "crosshair",
     ArrowRight => "arrow-right",
+    ArrowLeft => "arrow-left",
 }
 
 #[cfg(test)]
