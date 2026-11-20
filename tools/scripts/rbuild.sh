@@ -5,20 +5,28 @@
 # this worktree at /w and the cargo registry from a named volume, and serialises callers with a
 # lock. Usage: tools/scripts/rbuild.sh cargo test -p layout
 #        tools/scripts/rbuild.sh --reset   # recreate the container (empties the RAM target)
+# Each builder has its own lock, so builders in separate worktrees build at the same time.
+# RBUILD_TARGET_VOLUME=<name> keeps the target in a named docker volume on disk instead of RAM,
+# so more builders fit in memory.
 set -euo pipefail
 
 name=${RBUILD_NAME:-crowbar-build}
 image=${RBUILD_IMAGE:-a-gpui}
 registry_volume=${RBUILD_REGISTRY:-a-cargo}
 target_size=${RBUILD_TARGET_SIZE:-10g}
-lock=${RBUILD_LOCK:-/tmp/claude-1000/cargo.lock}
+lock=${RBUILD_LOCK:-/tmp/claude-1000/cargo-${name}.lock}
+target_volume=${RBUILD_TARGET_VOLUME:-}
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 
 create_builder() {
   docker rm -f "$name" >/dev/null 2>&1 || true
+  local target_mount=(--tmpfs "/target:rw,exec,size=${target_size}")
+  if [[ -n $target_volume ]]; then
+    target_mount=(-v "$target_volume:/target")
+  fi
   docker run -d --init --name "$name" \
     --ulimit core=0 \
-    --tmpfs "/target:rw,exec,size=${target_size}" \
+    "${target_mount[@]}" \
     -v "$registry_volume:/usr/local/cargo/registry" \
     -v "$root:/w" \
     -e CARGO_TARGET_DIR=/target \
