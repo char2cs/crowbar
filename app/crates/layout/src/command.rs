@@ -1,6 +1,7 @@
 use protocol::{PaneId, PaneState};
 
 use crate::branch::Branch;
+use crate::ide::editor_view::EditorView;
 use crate::pane_instance::PaneInstance;
 use crate::placement::Placement;
 use crate::rect::Rect;
@@ -104,6 +105,14 @@ pub enum Command {
     UnpinPane {
         /// The pane to unpin.
         pane: PaneId,
+    },
+    /// Opens or closes the editor view of the group holding `pane`, as the chat header's open
+    /// editor button and the split toggle do. An open editor with no tab is empty.
+    SetEditorView {
+        /// A member of the group.
+        pane: PaneId,
+        /// Whether the editor view shows.
+        view: EditorView,
     },
     /// Focuses a pane, shows it in its group and activates its tab.
     FocusPane {
@@ -273,6 +282,10 @@ mod tests {
                 pane: pane.clone(),
                 onto: other.clone(),
                 index: None,
+            },
+            Command::SetEditorView {
+                pane: pane.clone(),
+                view: EditorView::Open,
             },
         ]
     }

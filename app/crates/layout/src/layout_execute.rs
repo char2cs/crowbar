@@ -3,6 +3,7 @@ use crate::error::Result;
 use crate::ide::close_panes;
 use crate::ide::group_commands;
 use crate::ide::pin_commands;
+use crate::ide::view_commands;
 use crate::layout::Layout;
 use crate::pane_commands;
 use crate::pane_instance::PaneInstance;
@@ -34,6 +35,9 @@ impl Layout {
                 .map(none_removed),
             Command::ResetSplit { tab, path } => {
                 tab_commands::equalize(self, tab, &path).map(none_removed)
+            },
+            Command::SetEditorView { pane, view } => {
+                view_commands::set_editor_view(self, &pane, view).map(none_removed)
             },
             pane_command => self.execute_pane(pane_command),
         }
@@ -96,16 +100,16 @@ mod tests {
     #[test]
     fn executing_add_then_close_returns_the_closed_tabs_panes() {
         let mut layout = Layout::default();
-        let id = TabId(1);
+        let tab = TabId(1);
         layout
             .execute(Command::AddTab {
-                id,
+                id: tab,
                 title: "t".into(),
             })
             .unwrap();
-        assert!(layout.tab(id).is_some(), "tab added");
-        let removed = layout.execute(Command::CloseTab { tab: id }).unwrap();
+        assert!(layout.tab(tab).is_some(), "tab added");
+        let removed = layout.execute(Command::CloseTab { tab }).unwrap();
         assert!(removed.is_empty(), "an empty tab holds no panes");
-        assert!(layout.tab(id).is_none(), "tab closed");
+        assert!(layout.tab(tab).is_none(), "tab closed");
     }
 }

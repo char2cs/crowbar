@@ -56,6 +56,7 @@ const TABLE: &[CommandEntry] = &[
         "panes.navigateDown",
         "mod+alt+arrowdown",
     ),
+    entry(ShellCommand::ToggleEditor, "panes.toggleEditor", ""),
     entry(
         ShellCommand::ToggleSidebar,
         "navigation.toggleSidebar",

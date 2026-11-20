@@ -43,6 +43,7 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) {
         match command {
+            ShellCommand::ToggleEditor => self.toggle_editor(cx),
             ShellCommand::ToggleSidebar => self.sidebar.update(cx, Sidebar::toggle),
             ShellCommand::SidebarChats => self.set_sidebar_mode(Mode::Chats, cx),
             ShellCommand::SidebarFiles => self.set_sidebar_mode(Mode::Files, cx),

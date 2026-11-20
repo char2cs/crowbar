@@ -181,6 +181,7 @@ impl PaneHost {
         self.focused.clone_from(&snapshot.focused);
         let held_by = std::mem::replace(&mut self.keyboard, snapshot.keyboard);
         failures.note(self.route_activation(snapshot.layout));
+        failures.note(self.send_groups(snapshot.layout));
         failures.note(self.settle_keyboard(held_by));
         SyncReport {
             events,

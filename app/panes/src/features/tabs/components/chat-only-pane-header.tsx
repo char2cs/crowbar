@@ -4,6 +4,7 @@ import { useSettingsStore } from '@/features/settings/store'
 import type { PaneGroup } from '@/features/panes/types/pane'
 import { ChatHeaderSlot } from '@/features/agent/hooks/chat-header-slot'
 import { ChatBranchHeader } from './chat-branch-header'
+import { togglePaneEditor } from '@/features/panes/utils/pane-command-actions'
 import { OpenEditorButton } from './open-editor-button'
 import { PaneTopRow } from './pane-top-row'
 
@@ -33,7 +34,7 @@ export function ChatOnlyPaneHeader({ pane, wsId }: ChatOnlyPaneHeaderProps) {
       overlay
     >
       <ChatBranchHeader chatId={pane.chatId ?? ''} wsId={wsId} className="h-full min-w-0 flex-1" />
-      <OpenEditorButton paneId={pane.id} wsId={wsId} />
+      <OpenEditorButton wsId={wsId} onOpen={() => togglePaneEditor(pane.id)} />
       <ChatHeaderSlot />
     </PaneTopRow>
   )

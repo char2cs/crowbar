@@ -16,7 +16,11 @@ vi.mock('@/features/agent/components/agent-chat-pane-gate', () => ({
 }))
 
 vi.mock('@/entries/chat-pane-header', () => ({
-  ChatPaneHeader: () => <div data-testid="header" />,
+  ChatPaneHeader: ({ onOpenEditor }: { onOpenEditor?: () => void }) => (
+    <div data-testid="header">
+      {onOpenEditor && <button onClick={onOpenEditor}>Open editor</button>}
+    </div>
+  ),
 }))
 
 const { ChatPaneHost } = await import('@/entries/chat-pane-host')
@@ -24,7 +28,7 @@ const { ChatPaneHost } = await import('@/entries/chat-pane-host')
 afterEach(() => {
   chat.title = ''
   chat.workspaceId = ''
-  chatSession.setState({ chatId: null, active: false })
+  chatSession.setState({ chatId: null, active: false, fillsGroup: false })
 })
 
 describe('ChatPaneHost', () => {
@@ -34,15 +38,29 @@ describe('ChatPaneHost', () => {
   ])('%s', (_name, title, sent) => {
     chat.title = title
     const setTitle = vi.fn()
-    render(<ChatPaneHost client={{ setTitle }} />)
+    render(<ChatPaneHost client={{ setTitle, runCommand: vi.fn() }} />)
     expect(setTitle).toHaveBeenCalledTimes(sent)
   })
 
   it('clears the chat surface below the identity row', () => {
     chat.workspaceId = 'ws-1'
     chatSession.setState({ chatId: 'chat-1', active: true })
-    render(<ChatPaneHost client={{ setTitle: vi.fn() }} />)
+    render(<ChatPaneHost client={{ setTitle: vi.fn(), runCommand: vi.fn() }} />)
     expect(screen.getByTestId('header')).toBeTruthy()
     expect(screen.getByTestId('gate').dataset.below).toBe('true')
+  })
+
+  it.each([
+    ['asks the shell to open the editor while the chat fills its group', true, 1],
+    ['offers nothing while the editor is beside it', false, 0],
+  ])('%s', (_name, fillsGroup, buttons) => {
+    chat.workspaceId = 'ws-1'
+    chatSession.setState({ chatId: 'chat-1', active: true, fillsGroup })
+    const runCommand = vi.fn()
+    render(<ChatPaneHost client={{ setTitle: vi.fn(), runCommand }} />)
+    const offered = screen.queryAllByRole('button', { name: 'Open editor' })
+    expect(offered).toHaveLength(buttons)
+    offered.forEach((button) => button.click())
+    expect(runCommand.mock.calls).toEqual(buttons ? [['panes.toggleEditor']] : [])
   })
 })

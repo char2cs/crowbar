@@ -19,7 +19,7 @@ pub(crate) fn unpin(
     Ok(())
 }
 
-fn group_of<'a>(
+pub(crate) fn group_of<'a>(
     layout: &'a mut Layout,
     pane: &PaneId,
 ) -> Result<&'a mut crate::ide::pane_group::PaneGroup> {

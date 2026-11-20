@@ -53,6 +53,7 @@ export class PaneClient {
   private readonly lifecycle = new Set<Listener<LifecycleMessage>>()
   private readonly themes = new Set<Listener<ThemeTokens>>()
   private readonly saves = new Set<() => void>()
+  private readonly groups = new Set<Listener<boolean>>()
   private readonly shellSettings = new Set<Listener<SettingValues>>()
   private readonly events = new Map<string, EventSubscription>()
 
@@ -76,6 +77,11 @@ export class PaneClient {
   /** Hears the design tokens on mount and whenever the theme changes; returns the stop. */
   onTheme(listener: Listener<ThemeTokens>): () => void {
     return this.listen(this.themes, listener)
+  }
+
+  /** Hears whether this chat fills its group, on mount and whenever that changes; returns the stop. */
+  onGroup(listener: Listener<boolean>): () => void {
+    return this.listen(this.groups, listener)
   }
 
   /** Hears the shell's settings on mount and whenever one changes, the whole set each time; returns the stop. */
@@ -198,6 +204,7 @@ export class PaneClient {
       console.error('crowbar: the shell refused a frame', frame.message)
     if (frame.kind === 'pane.save') this.saves.forEach((listener) => listener())
     if (frame.kind === 'theme') this.themes.forEach((listener) => listener(frame.tokens))
+    if (frame.kind === 'group') this.groups.forEach((listener) => listener(frame.chatFills))
     if (frame.kind === 'settings' && frame.version === SETTINGS_FRAME_VERSION) {
       this.shellSettings.forEach((listener) => listener(frame.values))
     }

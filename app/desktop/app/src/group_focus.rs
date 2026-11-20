@@ -1,4 +1,4 @@
-use layout::{Layout, PaneGroup, Rect, Tab};
+use layout::{Command, EditorView, Layout, PaneGroup, Rect, Tab};
 use protocol::PaneId;
 
 const ANY_BOUNDS: Rect = Rect {
@@ -30,6 +30,13 @@ pub(crate) fn close_target(tab: &Tab) -> Option<PaneId> {
     group.chat().filter(|_| chats > 1).cloned()
 }
 
+pub(crate) fn editor_toggle(tab: &Tab) -> Option<Command> {
+    let group = focused_group(tab)?;
+    let pane = tab.focused()?.clone();
+    let view = EditorView::of(group).flipped();
+    Some(Command::SetEditorView { pane, view })
+}
+
 pub(crate) fn listed(tab: &Tab) -> Vec<PaneId> {
     let chats = chats_of(tab);
     if !chats.is_empty() {
@@ -51,7 +58,7 @@ fn chats_of(tab: &Tab) -> Vec<PaneId> {
 
 #[cfg(test)]
 mod tests {
-    use layout::{Command, PaneInstance, TabId};
+    use layout::{PaneInstance, TabId};
     use protocol::{PaneState, PaneTypeId, Params};
 
     use super::*;
@@ -164,5 +171,29 @@ mod tests {
             let target = close_target(layout.active_tab().unwrap());
             assert_eq!(target.as_ref().map(PaneId::as_str), *expected, "{opened:?}");
         }
+    }
+
+    #[test]
+    fn the_editor_toggle_flips_the_focused_group_and_needs_one() {
+        const CASES: &[(Opened, Option<EditorView>)] = &[
+            (&[], None),
+            (&[("c1", "core.chat")], Some(EditorView::Open)),
+            (
+                &[("c1", "core.chat"), ("e1", "core.editor")],
+                Some(EditorView::Closed),
+            ),
+        ];
+        for (opened, expected) in CASES {
+            let layout = layout_of(opened);
+            let toggle = layout.active_tab().and_then(editor_toggle);
+            assert_eq!(toggle.and_then(|c| view_of(&c)), *expected, "{opened:?}");
+        }
+    }
+
+    fn view_of(command: &Command) -> Option<EditorView> {
+        let Command::SetEditorView { view, .. } = command else {
+            return None;
+        };
+        Some(*view)
     }
 }

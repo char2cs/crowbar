@@ -72,6 +72,7 @@ pub use drag_subject::DragSubject;
 pub use edge::Edge;
 pub use error::{Error, Result};
 pub use ide::close_scope::CloseScope;
+pub use ide::editor_view::EditorView;
 pub use ide::pane_group::PaneGroup;
 pub use ide::presentation::{DEFAULT_CHAT_SHARE, Presentation, SIDE_BY_SIDE_MIN, TOP_ROW_HEIGHT};
 pub use ide::sidebar_side::SidebarSide;

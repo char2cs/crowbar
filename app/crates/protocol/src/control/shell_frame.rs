@@ -75,6 +75,12 @@ pub enum ShellFrame {
         /// The tokens.
         tokens: ThemeTokens,
     },
+    /// `group`: how the pane's group is arranged; sent to a chat on mount and whenever it
+    /// changes. A chat that fills its group offers to open the editor beside it.
+    Group {
+        /// Whether the chat fills its group: no editor tab and the editor view closed.
+        chat_fills: bool,
+    },
     /// `settings`: the settings every pane follows, sent on mount and whenever one changes. It
     /// is the whole set each time: a key that is missing has its default.
     Settings {

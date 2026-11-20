@@ -13,10 +13,13 @@ import type { PaneClient } from '@/sdk/pane-client'
 import { ChatPaneHeader } from './chat-pane-header'
 import { chatSession } from './chat-session'
 
-/** The shell's chat pane: the chat the shell opened, placed in its own workspace like the desktop pane container does, with its identity row and title sent to the shell tab. An untitled chat keeps the shell's own label. */
-export function ChatPaneHost({ client }: { client: Pick<PaneClient, 'setTitle'> }) {
+const TOGGLE_EDITOR = 'panes.toggleEditor'
+
+/** The shell's chat pane: the chat the shell opened, placed in its own workspace like the desktop pane container does, with its identity row and title sent to the shell tab; the row's open editor button asks the shell to open the editor beside the chat. An untitled chat keeps the shell's own label. */
+export function ChatPaneHost({ client }: { client: Pick<PaneClient, 'setTitle' | 'runCommand'> }) {
   const chatId = useStore(chatSession, (s) => s.chatId)
   const active = useStore(chatSession, (s) => s.active)
+  const fillsGroup = useStore(chatSession, (s) => s.fillsGroup)
   const wsId = useChatField(chatId ?? '', (c) => c?.workspaceId || null)
   const title = useChatField(chatId ?? '', (c) => c?.title ?? '')
 
@@ -33,7 +36,11 @@ export function ChatPaneHost({ client }: { client: Pick<PaneClient, 'setTitle'> 
     <WorkspaceStoreContext.Provider value={getOrCreateWorkspaceStore(wsId)}>
       <ChatHeaderSlotProvider>
         <div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden">
-          <ChatPaneHeader chatId={chatId} wsId={wsId} />
+          <ChatPaneHeader
+            chatId={chatId}
+            wsId={wsId}
+            onOpenEditor={fillsGroup ? () => client.runCommand(TOGGLE_EDITOR) : undefined}
+          />
           <AgentChatPaneGate
             chatId={chatId}
             runnerId=""

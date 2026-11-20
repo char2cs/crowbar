@@ -121,8 +121,10 @@ impl PaneHost {
         runtime.phase = PanePhase::Mounted;
         let mount = runtime.lifecycle_frame(pane, Lifecycle::Mount, layout.pane(pane));
         runtime.discard_state = false;
+        runtime.chat_fills = None;
         self.send(pane, &mount)?;
         self.send_context(pane)?;
+        self.send_groups(layout)?;
         self.route_activation(layout)
     }
 

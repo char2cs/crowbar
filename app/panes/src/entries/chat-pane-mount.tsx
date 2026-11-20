@@ -24,6 +24,7 @@ export class ChatPaneMount {
   /** Starts following the shell's lifecycle messages. */
   start(): void {
     this.client.onLifecycle((message) => this.handle(message))
+    this.client.onGroup((fillsGroup) => chatSession.setState({ fillsGroup }))
   }
 
   private handle({ event, params }: LifecycleMessage): void {
@@ -58,6 +59,6 @@ export class ChatPaneMount {
   private unmount(): void {
     this.root?.unmount()
     this.root = null
-    chatSession.setState({ chatId: null, active: false })
+    chatSession.setState({ chatId: null, active: false, fillsGroup: false })
   }
 }

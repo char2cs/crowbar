@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { createElement } from 'react'
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
@@ -167,6 +168,12 @@ describe('ChatOnlyPaneHeader', () => {
     seedRepoChats(false)
     renderHeader(makePane())
     expect(screen.getByRole('button', { name: 'Open editor' })).toBeInTheDocument()
+  })
+
+  it('opens its pane’s editor area on Open editor', async () => {
+    renderHeader(makePane())
+    await userEvent.click(screen.getByRole('button', { name: 'Open editor' }))
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID].editorOpen).toBe(true)
   })
 
   it('offers no Open editor for a chat with no workspace', () => {

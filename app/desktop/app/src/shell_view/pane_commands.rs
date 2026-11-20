@@ -64,6 +64,20 @@ impl ShellView {
         self.open_spec(PaneSpec::review(&chat), cx);
     }
 
+    pub(super) fn toggle_editor(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let toggle = self
+            .state
+            .layout()
+            .active_tab()
+            .and_then(crate::group_focus::editor_toggle);
+        if let Some(command) = toggle {
+            self.apply_guarded(vec![command], cx);
+        }
+    }
+
     pub(super) fn toggle_console(
         &mut self,
         cx: &mut Context<'_, Self>,

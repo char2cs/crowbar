@@ -13,6 +13,7 @@ pub(crate) struct PaneRuntime {
     pub(crate) stage: Stage,
     pub(crate) discard_state: bool,
     pub(crate) violations: u32,
+    pub(crate) chat_fills: Option<bool>,
 }
 
 impl PaneRuntime {
@@ -24,6 +25,7 @@ impl PaneRuntime {
             stage: Stage::Hidden,
             discard_state: false,
             violations: 0,
+            chat_fills: None,
         }
     }
 

@@ -111,7 +111,7 @@ fn every_shell_frame_round_trips() {
 }
 
 #[test]
-fn the_sdk_push_frames_for_keybindings_settings_theme_and_protocol_errors_round_trip() {
+fn the_sdk_push_frames_for_keybindings_settings_theme_group_and_protocol_errors_round_trip() {
     let cases = [
         ShellFrame::Keybindings {
             bindings: vec![KeyBinding::new(
@@ -125,6 +125,7 @@ fn the_sdk_push_frames_for_keybindings_settings_theme_and_protocol_errors_round_
         ShellFrame::Theme {
             tokens: ThemeTokens::default().with("color-bg", "#111").unwrap(),
         },
+        ShellFrame::Group { chat_fills: true },
         ShellFrame::Settings {
             version: SETTINGS_FRAME_VERSION,
             values: SettingValues::default()
@@ -189,6 +190,11 @@ fn wire_shapes_are_camel_case_with_dotted_kinds() {
         encode(&register).unwrap(),
         r#"{"sdk":1,"kind":"pane.register","typeId":"core.chat","sdkVersion":"1.0"}"#,
         "register"
+    );
+    assert_eq!(
+        encode(&ShellFrame::Group { chat_fills: false }).unwrap(),
+        r#"{"sdk":1,"kind":"group","chatFills":false}"#,
+        "group"
     );
 }
 

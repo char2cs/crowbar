@@ -34,6 +34,8 @@ pub enum ShellCommand {
     FocusPaneUp,
     /// Move focus to the pane below.
     FocusPaneDown,
+    /// Open the focused group's editor beside its chat, or close it.
+    ToggleEditor,
     /// Show or hide the sidebar.
     ToggleSidebar,
     /// Switch the sidebar to chats.

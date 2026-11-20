@@ -17,4 +17,5 @@ export type ShellFrame =
   | { kind: 'protocol.error'; message: string }
   | { kind: 'pane.save' }
   | { kind: 'theme'; tokens: ThemeTokens }
+  | { kind: 'group'; chatFills: boolean }
   | { kind: 'settings'; version: number; values: SettingValues }

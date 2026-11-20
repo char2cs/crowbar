@@ -176,6 +176,15 @@ describe('PaneClient', () => {
     expect(heard.mock.calls).toEqual([[{ wordWrap: true }]])
   })
 
+  it('hears whether its chat fills its group', () => {
+    const client = new PaneClient(pane.channel, 'core.chat')
+    const heard = vi.fn()
+    client.onGroup(heard)
+    pane.deliver({ sdk: 1, kind: 'group', chatFills: true })
+    pane.deliver({ sdk: 1, kind: 'group', chatFills: false })
+    expect(heard.mock.calls).toEqual([[true], [false]])
+  })
+
   it('ignores text that is not a frame', () => {
     const client = new PaneClient(pane.channel, 'core.chat')
     const heard = vi.fn()
