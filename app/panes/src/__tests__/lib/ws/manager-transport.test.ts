@@ -113,7 +113,9 @@ describe('WSManager in the GPUI shell', () => {
   it('dials the shell relay with the pane token as a subprotocol', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => new Response('', { status: 503 })),
+      vi.fn(async () => {
+        throw new TypeError('lookup unreachable')
+      }),
     )
     const win = window as unknown as Record<string, unknown>
     win.crowbar = { post: vi.fn(), onmessage: null }
