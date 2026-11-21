@@ -4,9 +4,16 @@ use crate::error::Result;
 use crate::rest::Rest;
 use crate::rest::session_paths::SessionPaths;
 
-#[derive(Debug, Clone)]
-pub(crate) enum Binding {
+/// How a terminal view is bound to a daemon session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Binding {
+    /// A new session is made for the view, reported as [`Report::Bound`](crate::Report::Bound)
+    /// and killed when the view goes.
     Create,
+    /// The session the view was bound to before, attached if the daemon still lists it, else
+    /// reported as [`Report::Gone`](crate::Report::Gone); killed when the view goes.
+    Saved(String),
+    /// A session someone else owns, such as an agent runner's PTY: never created or killed.
     Existing(String),
 }
 
@@ -15,10 +22,14 @@ impl Binding {
         &self,
         rest: &Rest,
         base: &SessionPaths,
-    ) -> Result<String> {
+    ) -> Result<Option<String>> {
         match self {
-            Self::Create => rest.create(base).await,
-            Self::Existing(session) => Ok(session.clone()),
+            Self::Create => rest.create(base).await.map(Some),
+            Self::Saved(session) => {
+                let live = rest.live(base).await?;
+                Ok(live.contains(session).then(|| session.clone()))
+            },
+            Self::Existing(session) => Ok(Some(session.clone())),
         }
     }
 
@@ -28,7 +39,7 @@ impl Binding {
         base: &SessionPaths,
         session: &str,
     ) {
-        if !matches!(self, Self::Create) {
+        if matches!(self, Self::Existing(_)) {
             return;
         }
         if let Err(error) = rest.kill(base, session).await {
@@ -42,13 +53,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_a_created_session_is_the_views_to_kill() {
+    fn only_an_agents_session_is_never_the_views_to_kill() {
         let cases = [
             (Binding::Create, true),
+            (Binding::Saved("s1".to_owned()), true),
             (Binding::Existing("agent".to_owned()), false),
         ];
         for (binding, owned) in cases {
-            assert_eq!(matches!(binding, Binding::Create), owned, "{binding:?}");
+            assert_eq!(
+                !matches!(binding, Binding::Existing(_)),
+                owned,
+                "{binding:?}"
+            );
         }
     }
 }

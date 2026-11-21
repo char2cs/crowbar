@@ -31,6 +31,33 @@ impl Store {
             .read(|state| crate::live::chat_project::of(state, chat))
     }
 
+    /// The folder `chat` works in, on whichever computer holds it; `None` when it is not loaded.
+    pub fn chat_root(
+        &self,
+        chat: &str,
+    ) -> Option<std::path::PathBuf> {
+        self.hub
+            .read(|state| crate::live::workspace_root::of_chat(state, chat))
+    }
+
+    /// The name of the other computer `chat` runs on; `None` when it runs on this one.
+    pub fn chat_remote_host(
+        &self,
+        chat: &str,
+    ) -> Option<String> {
+        self.hub
+            .read(|state| crate::live::workspace_root::remote_host_of(state, chat))
+    }
+
+    /// The id of the host `chat` runs on; `None` when it is not loaded.
+    pub fn chat_host(
+        &self,
+        chat: &str,
+    ) -> Option<String> {
+        self.hub
+            .read(|state| crate::live::workspace_root::host_id_of(state, chat))
+    }
+
     /// `chat` as a view tab draws it: its title, or "Untitled chat" provisionally, and the
     /// branch status of the workspace it owns; `None` when it is not loaded.
     pub fn chat_row(

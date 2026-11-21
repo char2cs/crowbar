@@ -48,6 +48,11 @@ mod shell_commands;
 mod sidebar_position;
 mod sidebar_wiring;
 mod tab_strip;
+mod terminal_files;
+mod terminal_life;
+mod terminal_links;
+#[cfg(test)]
+mod test_support;
 mod watches;
 
 use self::watches::Watches;
@@ -98,6 +103,7 @@ pub(crate) struct ShellView {
     ports: Ports,
     readout: crate::readout_state::ReadoutState,
     notices: Entity<ToastQueue>,
+    link_menu: Option<crate::link_menu::LinkMenu>,
     subscriptions: Vec<Subscription>,
 }
 
@@ -155,6 +161,7 @@ impl ShellView {
             readout: crate::readout_state::ReadoutState::new(Arc::clone(&parts.ports.clock)),
             ports: parts.ports,
             notices: built.notices,
+            link_menu: None,
             subscriptions: built.subscriptions,
         }
     }
@@ -313,6 +320,7 @@ impl Render for ShellView {
             .relative()
             .bg(palette.background())
             .child(self.sidebar.clone())
+            .children(self.link_layers(cx))
             .children(self.floating(cx))
     }
 }

@@ -1,5 +1,5 @@
 use gpui::{Context, MouseButton, MouseUpEvent, Pixels, Point};
-use terminal::{LinkTarget, MouseAction, ViewPoint, resolve_file_path};
+use terminal::{LinkTarget, MouseAction, ViewPoint};
 
 use crate::terminal_view::TerminalView;
 use crate::terminal_view::event::Event;
@@ -58,21 +58,9 @@ impl TerminalView {
         };
         match link.target {
             LinkTarget::Url(url) => cx.emit(Event::OpenUrl { url, position }),
-            LinkTarget::File { path, line } => self.open_file(&path, line, cx),
+            LinkTarget::File { path, line } => cx.emit(Event::OpenFile { path, line }),
         }
         true
-    }
-
-    pub(crate) fn open_file(
-        &mut self,
-        path: &str,
-        line: Option<u32>,
-        cx: &mut Context<'_, Self>,
-    ) {
-        match resolve_file_path(path, self.working_directory.as_deref()) {
-            Some(path) => cx.emit(Event::OpenFile { path, line }),
-            None => cx.emit(Event::UnresolvedFile(path.to_owned())),
-        }
     }
 
     #[cfg(any(target_os = "linux", target_os = "freebsd"))]

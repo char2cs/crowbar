@@ -6,6 +6,14 @@ use std::sync::Arc;
 use tokio::io::{DuplexStream, duplex};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
+mod fake_daemon;
+mod relay_server;
+
+pub(crate) use fake_daemon::{
+    CREATED, FAILED, FakeDaemon, LISTED, NONE_LISTED, daemon, daemon_answering,
+};
+pub(crate) use relay_server::{serve_held, serve_output, serve_then_drop};
+
 use crate::stream::{
     Dial,
     dial::{Dialing, Link},

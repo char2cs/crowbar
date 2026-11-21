@@ -50,6 +50,13 @@ impl NativePanes {
         self.terminals.focus(pane, window, cx);
     }
 
+    pub(crate) fn closes_on_exit(
+        &self,
+        pane: &PaneId,
+    ) -> bool {
+        self.terminals.closes_on_exit(pane)
+    }
+
     pub(crate) fn is_native(
         &self,
         pane: &PaneId,

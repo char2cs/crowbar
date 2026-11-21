@@ -3,7 +3,7 @@
 mod binding;
 mod session_paths;
 
-pub(crate) use binding::Binding;
+pub use binding::Binding;
 pub use session_paths::SessionPaths;
 
 use std::sync::Arc;
@@ -16,6 +16,8 @@ use serde_json::Value;
 use tokio::sync::oneshot;
 
 use crate::error::{Error, Result};
+
+const ENDED: &str = "ended";
 
 #[derive(Clone)]
 pub(crate) struct Rest {
@@ -33,6 +35,17 @@ impl Rest {
         let data = daemonapi::Envelope::unwrap(path, &response)?;
         let id = data.pointer("/sessionId").and_then(Value::as_str);
         id.map(str::to_owned).ok_or(Error::NoSessionId)
+    }
+
+    pub(crate) async fn live(
+        &self,
+        base: &SessionPaths,
+    ) -> Result<Vec<String>> {
+        let path = base.create_path();
+        let response = self.send("GET", path).await?;
+        let data = daemonapi::Envelope::unwrap(path, &response)?;
+        let sessions = data.as_array().map_or(&[][..], Vec::as_slice);
+        Ok(sessions.iter().filter_map(live_id).collect())
     }
 
     pub(crate) async fn kill(
@@ -61,6 +74,12 @@ impl Rest {
             .map_err(Error::TransportStopped)?
             .map_err(daemon_error)
     }
+}
+
+fn live_id(session: &Value) -> Option<String> {
+    let ended = session.get("status").and_then(Value::as_str) == Some(ENDED);
+    let id = session.get("id").and_then(Value::as_str)?;
+    (!ended).then(|| id.to_owned())
 }
 
 fn reply(respond: oneshot::Sender<protocol::Result<DaemonResponse>>) -> Responder {
@@ -148,7 +167,16 @@ mod tests {
         );
     }
 
-    const FAILURES: [(u16, &str); 3] = [
+    #[tokio::test]
+    async fn the_live_sessions_are_the_listed_ones_that_have_not_ended() {
+        let body = r#"{"success":true,"data":[{"id":"s1","status":"running"},{"id":"s2","status":"ended"},{"id":"s3","status":"suspended"}]}"#;
+        let (rest, canned) = rest(200, body);
+        let base = SessionPaths::chat("c1").unwrap();
+        assert_eq!(rest.live(&base).await.unwrap(), ["s1", "s3"]);
+        assert_eq!(*canned.seen.lock().unwrap(), ["GET /v0/chats/c1/terminals"]);
+    }
+
+    const FAILURE_CASES: [(u16, &str); 3] = [
         (CREATED, r#"{"success":true,"data":{}}"#),
         (404, ""),
         (
@@ -169,7 +197,7 @@ mod tests {
 
     async fn create_errors() -> Vec<String> {
         let mut errors = Vec::new();
-        for (status, body) in FAILURES {
+        for (status, body) in FAILURE_CASES {
             let (rest, _) = rest(status, body);
             let base = SessionPaths::chat("c1").unwrap();
             errors.push(rest.create(&base).await.unwrap_err().to_string());

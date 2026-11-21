@@ -170,6 +170,27 @@ mod tests {
     }
 
     #[gpui::test]
+    fn a_modifier_click_on_a_relative_path_hands_it_to_the_host_as_printed(
+        cx: &mut TestAppContext
+    ) {
+        let (harness, cx) = open(cx);
+        feed(&harness, cx, "at src/pricing.ts:3 now");
+        let events = record_events::<TerminalView, Event>(cx, &harness.view);
+        let position = cell_position(&harness, cx, 5);
+        let modifiers = Modifiers {
+            control: true,
+            platform: true,
+            ..Modifiers::default()
+        };
+        cx.simulate_event(press(position, modifiers));
+        let expected = Event::OpenFile {
+            path: "src/pricing.ts".into(),
+            line: Some(3),
+        };
+        assert_eq!(events.borrow().as_slice(), [expected]);
+    }
+
+    #[gpui::test]
     fn two_presses_on_one_cell_select_a_word_only_while_the_window_is_open(
         cx: &mut TestAppContext
     ) {

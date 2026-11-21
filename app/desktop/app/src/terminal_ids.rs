@@ -12,6 +12,7 @@ use crate::titles::Titles;
 const DEFAULT_LABEL: &str = "Terminal";
 pub(crate) const NAME_KEY: &str = "title";
 const BUFFER_NAME_KEY: &str = "name";
+pub(crate) const SESSION_KEY: &str = "sessionId";
 
 type Chats = BTreeMap<PaneId, Option<TerminalOwner>>;
 type Labels = BTreeMap<PaneId, String>;
@@ -20,6 +21,7 @@ type Labels = BTreeMap<PaneId, String>;
 pub(crate) struct TerminalIds {
     panes: Rc<RefCell<Chats>>,
     labels: Rc<RefCell<Labels>>,
+    sessions: Rc<RefCell<Labels>>,
 }
 
 impl TerminalIds {
@@ -37,6 +39,13 @@ impl TerminalIds {
         self.panes.borrow().get(pane).cloned().flatten()
     }
 
+    pub(crate) fn saved_session(
+        &self,
+        pane: &PaneId,
+    ) -> Option<String> {
+        self.sessions.borrow().get(pane).cloned()
+    }
+
     pub(crate) fn follow(
         &self,
         layout: &Layout,
@@ -48,8 +57,13 @@ impl TerminalIds {
         let labels = terminals
             .iter()
             .map(|(pane, instance)| (pane.clone(), label_of(instance)));
+        let sessions = terminals.iter().filter_map(|(pane, instance)| {
+            let saved = instance.state.as_value().get(SESSION_KEY)?.as_str()?;
+            Some((pane.clone(), saved.to_owned()))
+        });
         *self.panes.borrow_mut() = chats.collect();
         *self.labels.borrow_mut() = labels.collect();
+        *self.sessions.borrow_mut() = sessions.collect();
     }
 
     pub(crate) fn name_into(
@@ -197,6 +211,16 @@ mod tests {
             .unwrap();
         ids.follow(&layout);
         assert!(!ids.contains(&PaneId::new("t1").unwrap()));
+    }
+
+    #[test]
+    fn a_terminal_remembers_the_session_it_was_bound_to() {
+        let mut layout = Layout::default();
+        open_with_state(&mut layout, serde_json::json!({ "sessionId": "s7" }));
+        let ids = TerminalIds::default();
+        ids.follow(&layout);
+        let pane = PaneId::new("t1").unwrap();
+        assert_eq!(ids.saved_session(&pane).as_deref(), Some("s7"));
     }
 
     type LabelCase = (&'static str, Option<&'static str>, &'static str);

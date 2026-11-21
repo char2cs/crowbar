@@ -34,11 +34,7 @@ pub(crate) async fn recover(
         reconnect.connected();
         return pressed;
     };
-    notice(
-        ends,
-        &format!("{WARNING_COLOR}terminal disconnected ({reason}); reconnecting{RESET}"),
-    )
-    .await;
+    tracing::debug!(%reason, ?delay, "reattaching the terminal");
     sleep(delay).await;
     true
 }
@@ -50,7 +46,7 @@ async fn next_input(messages: &Receiver<ClientMessage>) -> bool {
     pin!(inputs).next().await.is_some()
 }
 
-pub(crate) async fn notice(
+async fn notice(
     ends: &Ends,
     text: &str,
 ) {
@@ -76,32 +72,77 @@ mod tests {
         reconnect
     }
 
-    async fn notice_text(frames: &Receiver<DaemonFrame>) -> String {
-        let frame = frames.recv().await.unwrap();
-        let DaemonFrame::Output(bytes) = frame else {
-            panic!("expected a notice");
-        };
-        String::from_utf8(bytes).unwrap()
+    #[derive(Clone, Copy)]
+    enum Before {
+        ViewClosed,
+        FirstDrop,
+        GaveUpThenKey,
     }
 
-    #[tokio::test]
-    async fn a_closed_view_is_not_reconnected() {
-        let (frames, _view_frames) = unbounded();
-        let (view_messages, messages) = unbounded::<ClientMessage>();
-        drop(view_messages);
-        let ends = Ends { frames, messages };
-        assert!(!recover(&ends, &mut Reconnect::default(), "gone").await);
+    struct Case {
+        before: Before,
+        reconnects: bool,
+        shown: &'static str,
     }
 
-    #[tokio::test]
-    async fn after_giving_up_a_key_press_reconnects() {
+    const CASES: [Case; 3] = [
+        Case {
+            before: Before::ViewClosed,
+            reconnects: false,
+            shown: "",
+        },
+        Case {
+            before: Before::FirstDrop,
+            reconnects: true,
+            shown: "",
+        },
+        Case {
+            before: Before::GaveUpThenKey,
+            reconnects: true,
+            shown: "press a key to reconnect",
+        },
+    ];
+
+    async fn recover_after(before: Before) -> (bool, String) {
         let (frames, view_frames) = unbounded();
         let (view_messages, messages) = unbounded();
+        let mut reconnect = Reconnect::default();
+        match before {
+            Before::ViewClosed => drop(view_messages),
+            Before::FirstDrop => {},
+            Before::GaveUpThenKey => {
+                reconnect = exhausted();
+                view_messages
+                    .send(ClientMessage::Input("x".into()))
+                    .await
+                    .unwrap();
+            },
+        }
         let ends = Ends { frames, messages };
-        let typed = ClientMessage::Input("x".into());
-        view_messages.send(typed).await.unwrap();
-        assert!(recover(&ends, &mut exhausted(), "lost").await);
-        let text = notice_text(&view_frames).await;
-        assert!(text.contains("press a key to reconnect"), "{text}");
+        let reconnects = recover(&ends, &mut reconnect, "lost").await;
+        drop(ends);
+        (reconnects, shown(&view_frames))
+    }
+
+    fn shown(frames: &Receiver<DaemonFrame>) -> String {
+        let mut text = String::new();
+        while let Ok(DaemonFrame::Output(bytes)) = frames.try_recv() {
+            text.push_str(&String::from_utf8_lossy(&bytes));
+        }
+        text
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_lost_stream_reattaches_quietly_until_it_gives_up_or_the_view_closes() {
+        check_all().await;
+    }
+
+    async fn check_all() {
+        for case in CASES {
+            let (reconnects, shown) = recover_after(case.before).await;
+            assert_eq!(reconnects, case.reconnects);
+            let same_silence = shown.is_empty() == case.shown.is_empty();
+            assert!(same_silence && shown.contains(case.shown), "{shown:?}");
+        }
     }
 }

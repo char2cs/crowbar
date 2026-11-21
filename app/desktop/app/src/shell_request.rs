@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ShellRequest {
     Sidebar(sidebar::Command),
     Startup(startup::Command),
@@ -27,5 +27,21 @@ pub(crate) enum ShellRequest {
     Browse {
         pane: protocol::PaneId,
         event: browserbar::Event,
+    },
+    /// A terminal pane told its host something.
+    Terminal {
+        pane: protocol::PaneId,
+        event: terminalview::Event,
+    },
+    /// A terminal pane's session was bound, ended unseen, or could not start.
+    TerminalSession {
+        pane: protocol::PaneId,
+        report: ptysession::Report,
+    },
+    /// The user chose a row of a terminal URL's menu.
+    Link {
+        pane: protocol::PaneId,
+        url: String,
+        choice: crate::link_choice::LinkChoice,
     },
 }

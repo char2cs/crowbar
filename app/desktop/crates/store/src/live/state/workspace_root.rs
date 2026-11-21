@@ -12,13 +12,18 @@ fn non_empty(path: &str) -> Option<PathBuf> {
 
 pub(crate) fn of(state: &State) -> Option<PathBuf> {
     let chat_id = state.panels.chat.as_deref()?;
-    let slot = state
-        .hosts
-        .iter()
-        .find(|slot| slot.store.chats.get(chat_id).is_some())?;
-    if slot.spec.endpoint.is_some() {
+    let remote = host_of(state, chat_id)?.spec.endpoint.is_some();
+    if remote {
         return None;
     }
+    of_chat(state, chat_id)
+}
+
+pub(crate) fn of_chat(
+    state: &State,
+    chat_id: &str,
+) -> Option<PathBuf> {
+    let slot = host_of(state, chat_id)?;
     let chat = slot.store.chats.get(chat_id)?;
     let own = slot
         .store
@@ -29,6 +34,31 @@ pub(crate) fn of(state: &State) -> Option<PathBuf> {
         let project = slot.store.projects.get(&chat.project_id)?;
         non_empty(&project.path)
     })
+}
+
+pub(crate) fn remote_host_of(
+    state: &State,
+    chat_id: &str,
+) -> Option<String> {
+    let slot = host_of(state, chat_id)?;
+    slot.spec.endpoint.as_ref().map(|_| slot.spec.name.clone())
+}
+
+pub(crate) fn host_id_of(
+    state: &State,
+    chat_id: &str,
+) -> Option<String> {
+    host_of(state, chat_id).map(|slot| slot.spec.id.clone())
+}
+
+fn host_of<'a>(
+    state: &'a State,
+    chat_id: &str,
+) -> Option<&'a crate::live::held::HostSlot> {
+    state
+        .hosts
+        .iter()
+        .find(|slot| slot.store.chats.get(chat_id).is_some())
 }
 
 #[cfg(test)]
@@ -66,10 +96,20 @@ mod tests {
     }
 
     #[test]
-    fn a_workspace_of_another_computer_has_no_root_here() {
+    fn a_chat_on_another_computer_has_no_root_here_but_keeps_its_own_and_names_its_host() {
         let (mut state, _) = state();
         state.panels.follow(Some("hc".into()));
+        state.hosts[0]
+            .store
+            .workspaces
+            .put("hw", 99, workspace("/far/tree"));
+        assert_eq!(remote_host_of(&state, "hc"), None, "this computer");
+        assert_eq!(host_id_of(&state, "hc").as_deref(), Some("local"));
         state.hosts[0].spec.endpoint = Some("far:1".into());
-        assert_eq!(of(&state), None);
+        assert_eq!(of(&state), None, "not a folder of this computer");
+        assert_eq!(of_chat(&state, "hc"), Some(PathBuf::from("/far/tree")));
+        let name = state.hosts[0].spec.name.clone();
+        assert_eq!(remote_host_of(&state, "hc"), Some(name));
+        assert_eq!(of_chat(&state, "gone"), None);
     }
 }

@@ -14,7 +14,7 @@ pub(crate) use dial::{Dial, tcp_dial};
 pub(crate) use end::End;
 pub(crate) use handshake::{CONNECT_TIMEOUT, header, stream_error, within};
 pub(crate) use reconnect::Reconnect;
-pub(crate) use recovery::{notice, recover};
+pub(crate) use recovery::recover;
 
 use std::ops::ControlFlow;
 use std::pin::pin;

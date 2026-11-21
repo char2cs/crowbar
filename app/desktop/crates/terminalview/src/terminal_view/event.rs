@@ -20,15 +20,13 @@ pub enum Event {
         /// Pointer position in window coordinates, for a menu.
         position: Point<Pixels>,
     },
-    /// A file link was activated; `path` is absolute.
+    /// A file link was activated; the host resolves `path` against the terminal's folder.
     OpenFile {
-        /// Absolute path.
+        /// The path as printed: absolute, relative or `~/`.
         path: String,
         /// One-based line to reveal.
         line: Option<u32>,
     },
-    /// A file link could not be resolved to an absolute path.
-    UnresolvedFile(String),
     /// Zoom changed the font size; the host stores it in the settings.
     FontSizeChanged(f32),
 }

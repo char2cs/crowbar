@@ -129,6 +129,11 @@ impl ShellView {
             ShellRequest::Browse { pane, event } => self.browse(&pane, event, cx),
             ShellRequest::Agent(command) => self.run_agent(&command, cx),
             ShellRequest::Command(command) => self.run_shell_command(command, window, cx),
+            ShellRequest::Terminal { pane, event } => self.on_terminal((&pane, event), window, cx),
+            ShellRequest::TerminalSession { pane, report } => {
+                self.on_terminal_session((&pane, report), cx);
+            },
+            ShellRequest::Link { pane, url, choice } => self.choose_link((&pane, url, choice), cx),
         }
     }
 

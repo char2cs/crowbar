@@ -59,6 +59,7 @@ pub(super) fn build_panes<V: 'static>(
     let terminals = TerminalPanes::new(
         state.terminals(),
         (terminal_sessions(link), ChatTerminals::of(data)),
+        (*requests).clone(),
     );
     let new_tab = crate::new_tab_panes::NewTabPanes::new((*requests).clone());
     let panes = NativePanes::new(terminals, new_tab);

@@ -2,14 +2,16 @@
 
 use std::sync::Arc;
 
-use protocol::{DaemonTransport, HostId, PaneId, PaneOrigin, RelayScope};
+use async_channel::Sender;
+use protocol::{DaemonTransport, HostId, PaneOrigin, RelayScope};
 use tokio::runtime::Handle;
 use tokio::time::timeout;
 use tokio_tungstenite::client_async;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
-use crate::ends::Ends;
+use crate::connection::Connection;
 use crate::error::{Error, Result};
+use crate::report::Report;
 use crate::rest::Binding;
 use crate::rest::Rest;
 use crate::rest::SessionPaths;
@@ -17,14 +19,12 @@ use crate::stream::Attachment;
 use crate::stream::End;
 use crate::stream::Reconnect;
 use crate::stream::pump;
+use crate::stream::recover;
 use crate::stream::{CONNECT_TIMEOUT, header, stream_error, within};
 use crate::stream::{Dial, tcp_dial};
-use crate::stream::{notice, recover};
 
 const RELAY_SUBPROTOCOL: &str = "crowbar.relay.v1";
 const TOKEN_PREFIX: &str = "crowbar.token.";
-const FAILURE_COLOR: &str = "\x1b[31m";
-const RESET: &str = "\x1b[0m";
 
 /// Starts terminal sessions on one daemon host.
 #[derive(Clone)]
@@ -63,6 +63,17 @@ impl TerminalSessions {
         )
     }
 
+    /// The same sessions, asked of `host` instead.
+    #[must_use]
+    pub fn on(
+        &self,
+        host: HostId,
+    ) -> Self {
+        let mut sessions = self.clone();
+        sessions.rest.host = host;
+        sessions
+    }
+
     pub(crate) fn dialing(
         rest: Rest,
         runtime: Handle,
@@ -77,70 +88,59 @@ impl TerminalSessions {
         }
     }
 
-    /// Creates a session in `base` for `pane` and connects it to `ends`. A failure is written
-    /// into the terminal itself; a dropped connection reattaches to the same PTY; dropping the view ends the session and kills it.
-    pub fn start(
+    /// Binds `connection`'s pane to a session of `base` as `binding` says, reports how it went
+    /// and streams it; a dropped connection reattaches to the same PTY, and dropping the view ends
+    /// the stream and kills the session unless it was only watched.
+    pub fn open(
         &self,
         base: SessionPaths,
-        pane: PaneId,
-        ends: Ends,
-    ) {
-        self.spawn((base, Binding::Create), pane, ends);
-    }
-
-    /// Connects `ends` to the existing `session` of `base` without creating or killing anything,
-    /// for the PTY of an agent runner.
-    pub fn watch(
-        &self,
-        (base, session): (SessionPaths, String),
-        pane: PaneId,
-        ends: Ends,
-    ) {
-        self.spawn((base, Binding::Existing(session)), pane, ends);
-    }
-
-    fn spawn(
-        &self,
-        (base, binding): (SessionPaths, Binding),
-        pane: PaneId,
-        ends: Ends,
+        binding: Binding,
+        connection: Connection,
     ) {
         let session = self.clone();
         self.runtime.spawn(async move {
-            session.run((&base, &binding), pane, ends).await;
+            session.run((&base, &binding), connection).await;
         });
     }
 
     async fn run(
         &self,
         (base, binding): (&SessionPaths, &Binding),
-        pane: PaneId,
-        ends: Ends,
+        connection: Connection,
     ) {
+        let Connection {
+            pane,
+            ends,
+            reports,
+        } = connection;
         let scope = RelayScope::new(self.rest.host.clone(), pane, PaneOrigin::Core);
-        if let Err(error) = self.attach((base, binding), &scope, &ends).await {
+        let attachment = Attachment { scope, ends };
+        if let Err(error) = self.attach((base, binding), &attachment, &reports).await {
             tracing::warn!(%error, "terminal session failed");
-            notice(&ends, &format!("{FAILURE_COLOR}{error}{RESET}")).await;
+            report(&reports, Report::Failed(error.to_string())).await;
         }
-        self.rest.transport.revoke_pane(&scope);
+        self.rest.transport.revoke_pane(&attachment.scope);
     }
 
     async fn attach(
         &self,
         (base, binding): (&SessionPaths, &Binding),
-        scope: &RelayScope,
-        ends: &Ends,
+        attachment: &Attachment,
+        reports: &Sender<Report>,
     ) -> Result<()> {
-        let created = timeout(CONNECT_TIMEOUT, binding.session(&self.rest, base));
-        let session = created.await.map_err(|source| Error::TimedOut {
+        let resolved = timeout(CONNECT_TIMEOUT, binding.session(&self.rest, base));
+        let session = resolved.await.map_err(|source| Error::TimedOut {
             stage: "creating the session",
             source,
         })??;
-        let attachment = Attachment {
-            scope: scope.clone(),
-            ends: ends.clone(),
+        let Some(session) = session else {
+            report(reports, Report::Gone).await;
+            return Ok(());
         };
-        self.keep_attached((base, &session), &attachment).await;
+        if matches!(binding, Binding::Create) {
+            report(reports, Report::Bound(session.clone())).await;
+        }
+        self.keep_attached((base, &session), attachment).await;
         binding.release(&self.rest, base, &session).await;
         Ok(())
     }
@@ -196,94 +196,34 @@ impl TerminalSessions {
     }
 }
 
+async fn report(
+    reports: &Sender<Report>,
+    turn: Report,
+) {
+    if reports.send(turn).await.is_err() {
+        tracing::debug!("the host stopped listening to a terminal session");
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
-
     use async_channel::{Receiver, unbounded};
-    use futures_util::SinkExt as _;
-    use futures_util::StreamExt;
-    use protocol::{DaemonRequest, DaemonResponse, RelayEndpoint, Responder};
     use terminal::DaemonFrame;
-    use tokio::io::DuplexStream;
-    use tokio::sync::Notify;
-    use tokio::sync::mpsc::UnboundedReceiver;
-    use tokio_tungstenite::accept_hdr_async;
-    use tokio_tungstenite::tungstenite::Message;
-    use tokio_tungstenite::tungstenite::handshake::server::{
-        Callback, ErrorResponse, Request, Response,
-    };
-    use tokio_tungstenite::tungstenite::http::HeaderValue;
+
+    use protocol::PaneId;
 
     use super::*;
-    use crate::test_support::{memory_dial, refusing_dial};
-
-    const CREATED: u16 = 201;
-
-    struct Daemon {
-        relay: String,
-        seen: Mutex<Vec<String>>,
-        deleted: Notify,
-    }
-
-    fn note_delete(
-        daemon: &Daemon,
-        request: &DaemonRequest,
-    ) {
-        if request.method().as_str() != "DELETE" {
-            return;
-        }
-        daemon.deleted.notify_one();
-    }
-
-    impl DaemonTransport for Daemon {
-        fn request(
-            &self,
-            request: DaemonRequest,
-            respond: Responder,
-        ) {
-            let line = format!(
-                "{} {}",
-                request.method().as_str(),
-                request.target().as_str()
-            );
-            note_delete(self, &request);
-            self.seen.lock().unwrap().push(line);
-            let body = r#"{"success":true,"data":{"sessionId":"s1"}}"#;
-            respond(Ok(DaemonResponse::new(CREATED, Vec::new(), body.into())));
-        }
-
-        fn relay_endpoint(
-            &self,
-            _scope: &RelayScope,
-        ) -> protocol::Result<RelayEndpoint> {
-            Ok(RelayEndpoint::new(self.relay.clone(), "tok"))
-        }
-    }
-
-    struct SelectRelay;
-
-    impl Callback for SelectRelay {
-        fn on_request(
-            self,
-            _request: &Request,
-            mut response: Response,
-        ) -> std::result::Result<Response, ErrorResponse> {
-            let selected = HeaderValue::from_static(RELAY_SUBPROTOCOL);
-            response
-                .headers_mut()
-                .insert("sec-websocket-protocol", selected);
-            Ok(response)
-        }
-    }
-
-    type Accepted = UnboundedReceiver<DuplexStream>;
+    use crate::ends::Ends;
+    use crate::test_support::{
+        CREATED, FAILED, FakeDaemon, LISTED, NONE_LISTED, daemon, daemon_answering, memory_dial,
+        refusing_dial, serve_held, serve_output, serve_then_drop,
+    };
 
     fn sessions(
-        daemon: &Arc<Daemon>,
+        daemon: &Arc<FakeDaemon>,
         dial: Dial,
     ) -> TerminalSessions {
-        let transport: Arc<dyn DaemonTransport> = Arc::<Daemon>::clone(daemon);
+        let transport: Arc<dyn DaemonTransport> = Arc::<FakeDaemon>::clone(daemon);
         let host = HostId::new("local").unwrap();
         TerminalSessions::dialing(
             Rest { transport, host },
@@ -291,39 +231,6 @@ mod tests {
             "crowbar://local",
             dial,
         )
-    }
-
-    async fn serve_output(accepted: &mut Accepted) {
-        let tcp = accepted.recv().await.unwrap();
-        let mut socket = accept_hdr_async(tcp, SelectRelay).await.unwrap();
-        let output = Message::binary(vec![0, b'o', b'k']);
-        socket.send(output).await.unwrap();
-        let exit = Message::text(r#"{"type":"exit","code":0}"#);
-        socket.send(exit).await.unwrap();
-        socket.close(None).await.unwrap();
-    }
-
-    async fn serve_then_drop(mut accepted: Accepted) {
-        let tcp = accepted.recv().await.unwrap();
-        let mut socket = accept_hdr_async(tcp, SelectRelay).await.unwrap();
-        socket.close(None).await.unwrap();
-        serve_output(&mut accepted).await;
-    }
-
-    async fn serve_held(mut accepted: Accepted) {
-        let tcp = accepted.recv().await.unwrap();
-        let mut socket = accept_hdr_async(tcp, SelectRelay).await.unwrap();
-        let output = Message::binary(vec![0, b'o', b'k']);
-        socket.send(output).await.unwrap();
-        while socket.next().await.is_some_and(|message| message.is_ok()) {}
-    }
-
-    fn daemon() -> Arc<Daemon> {
-        Arc::new(Daemon {
-            relay: "ws://relay".into(),
-            seen: Mutex::default(),
-            deleted: Notify::new(),
-        })
     }
 
     async fn first_output(frames: &Receiver<DaemonFrame>) -> String {
@@ -348,12 +255,29 @@ mod tests {
         DropsOnce,
     }
 
+    #[derive(Clone, Copy)]
+    enum Bind {
+        Create,
+        Resume(&'static str),
+        Watch(&'static str),
+    }
+
+    impl Bind {
+        fn binding(self) -> Binding {
+            match self {
+                Self::Create => Binding::Create,
+                Self::Resume(session) => Binding::Saved(session.into()),
+                Self::Watch(session) => Binding::Existing(session.into()),
+            }
+        }
+    }
+
     struct Case {
         name: &'static str,
         relay: Relay,
-        watching: Option<&'static str>,
-        shown: &'static str,
+        bind: Bind,
         rest_calls: &'static [&'static str],
+        first_report: Option<Report>,
     }
 
     const CREATE: &[&str] = &[
@@ -361,29 +285,48 @@ mod tests {
         "DELETE /v0/chats/c1/terminals/s1",
     ];
 
+    const RESUME: &[&str] = &[
+        "GET /v0/chats/c1/terminals",
+        "DELETE /v0/chats/c1/terminals/s1",
+    ];
+
     const CASES: &[Case] = &[
         Case {
-            name: "a session is created, streamed and killed",
+            name: "a session is created, reported, streamed and killed",
             relay: Relay::Output,
-            watching: None,
-            shown: "ok",
+            bind: Bind::Create,
             rest_calls: CREATE,
+            first_report: Some(Report::Bound(String::new())),
         },
         Case {
             name: "a dropped stream reattaches to the same session without killing it",
             relay: Relay::DropsOnce,
-            watching: None,
-            shown: "reconnecting",
+            bind: Bind::Create,
             rest_calls: CREATE,
+            first_report: Some(Report::Bound(String::new())),
+        },
+        Case {
+            name: "a saved session the daemon still lists is attached, not created",
+            relay: Relay::Output,
+            bind: Bind::Resume("s1"),
+            rest_calls: RESUME,
+            first_report: None,
         },
         Case {
             name: "watching an existing session creates and kills nothing",
             relay: Relay::Output,
-            watching: Some("agent"),
-            shown: "ok",
+            bind: Bind::Watch("agent"),
             rest_calls: &[],
+            first_report: None,
         },
     ];
+
+    fn bound(report: Option<Report>) -> Option<Report> {
+        report.map(|report| match report {
+            Report::Bound(_) => Report::Bound("s1".into()),
+            other => other,
+        })
+    }
 
     async fn all_frames(frames: &Receiver<DaemonFrame>) -> String {
         let mut text = String::new();
@@ -405,18 +348,26 @@ mod tests {
         };
         let (frames, view_frames) = unbounded();
         let (_view_messages, messages) = unbounded();
+        let (reports, heard) = unbounded();
         let base = SessionPaths::chat("c1").unwrap();
         let pane = PaneId::new("t1").unwrap();
-        let ends = Ends { frames, messages };
-        match case.watching {
-            Some(session) => sessions(&daemon, dial).watch((base, session.into()), pane, ends),
-            None => sessions(&daemon, dial).start(base, pane, ends),
-        }
+        let connection = Connection {
+            pane,
+            ends: Ends { frames, messages },
+            reports,
+        };
+        sessions(&daemon, dial).open(base, case.bind.binding(), connection);
         let shown = all_frames(&view_frames).await;
         server.await.unwrap();
-        assert!(shown.contains(case.shown), "{}: {shown}", case.name);
+        assert_eq!(shown, "ok", "{}", case.name);
         let seen = daemon.seen.lock().unwrap().clone();
         assert_eq!(seen, case.rest_calls, "{}", case.name);
+        assert_eq!(
+            heard.try_recv().ok(),
+            bound(case.first_report.clone()),
+            "{}",
+            case.name
+        );
     }
 
     #[tokio::test]
@@ -439,7 +390,13 @@ mod tests {
         let (view_messages, messages) = unbounded();
         let base = SessionPaths::chat("c1").unwrap();
         let pane = PaneId::new("t1").unwrap();
-        sessions(&daemon, dial).start(base, pane, Ends { frames, messages });
+        let reports = unbounded().0;
+        let connection = Connection {
+            pane,
+            ends: Ends { frames, messages },
+            reports,
+        };
+        sessions(&daemon, dial).open(base, Binding::Create, connection);
         first_output(&view_frames).await;
         drop(view_frames);
         drop(view_messages);
@@ -449,15 +406,51 @@ mod tests {
         assert_eq!(seen.last().unwrap(), "DELETE /v0/chats/c1/terminals/s1");
     }
 
-    #[tokio::test]
-    async fn a_session_that_cannot_connect_says_so_in_the_terminal() {
-        let daemon = daemon();
+    async fn failed_start(
+        daemon: &Arc<FakeDaemon>,
+        bind: Bind,
+    ) -> (String, Option<Report>) {
         let (frames, view_frames) = unbounded();
         let (_view_messages, messages) = unbounded();
+        let (reports, heard) = unbounded();
         let base = SessionPaths::chat("c1").unwrap();
         let pane = PaneId::new("t1").unwrap();
-        sessions(&daemon, refusing_dial()).start(base, pane, Ends { frames, messages });
-        let notice = notice_text(&view_frames).await;
-        assert!(notice.contains("stream"), "names the stage");
+        let connection = Connection {
+            pane,
+            ends: Ends { frames, messages },
+            reports,
+        };
+        sessions(daemon, refusing_dial()).open(base, bind.binding(), connection);
+        let report = heard.recv().await.ok();
+        (all_frames(&view_frames).await, report)
+    }
+
+    #[tokio::test]
+    async fn a_session_the_daemon_cannot_create_is_reported_not_written_into_the_terminal() {
+        let daemon = daemon_answering(FAILED, LISTED);
+        let (shown, report) = failed_start(&daemon, Bind::Create).await;
+        assert_eq!(shown, "", "nothing written into the terminal");
+        let reason = failure_reason(report);
+        assert!(reason.contains("500"), "{reason}");
+    }
+
+    fn failure_reason(report: Option<Report>) -> String {
+        let Some(Report::Failed(reason)) = report else {
+            panic!("expected a failure, got {report:?}");
+        };
+        reason
+    }
+
+    #[tokio::test]
+    async fn a_saved_session_the_daemon_no_longer_lists_is_gone_and_none_is_made() {
+        let daemon = daemon_answering(CREATED, NONE_LISTED);
+        let (shown, report) = failed_start(&daemon, Bind::Resume("s1")).await;
+        assert_eq!((shown.as_str(), report), ("", Some(Report::Gone)));
+        let seen = daemon.seen.lock().unwrap().clone();
+        assert_eq!(
+            seen,
+            ["GET /v0/chats/c1/terminals"],
+            "no session made or killed"
+        );
     }
 }

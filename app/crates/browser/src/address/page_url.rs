@@ -1,4 +1,4 @@
-use url::Url;
+use url::{Host, Url};
 
 use crate::error::Error;
 
@@ -40,6 +40,26 @@ impl PageUrl {
         Self::parse(text).is_ok()
     }
 
+    /// Whether the page is served by the computer that opens it: localhost and its subdomains,
+    /// 127.0.0.0/8, 0.0.0.0, `[::1]`, `[::]` and IPv4-mapped loopback addresses.
+    #[must_use]
+    pub fn is_loopback(&self) -> bool {
+        let Ok(url) = Url::parse(&self.0) else {
+            return false;
+        };
+        match url.host() {
+            Some(Host::Domain(name)) => is_local_name(name),
+            Some(Host::Ipv4(address)) => address.is_loopback() || address.is_unspecified(),
+            Some(Host::Ipv6(address)) => {
+                let mapped = address.to_ipv4_mapped();
+                address.is_loopback()
+                    || address.is_unspecified()
+                    || mapped.is_some_and(|address| address.is_loopback())
+            },
+            None => false,
+        }
+    }
+
     /// The URL text.
     #[must_use]
     pub fn as_str(&self) -> &str {
@@ -47,9 +67,34 @@ impl PageUrl {
     }
 }
 
+fn is_local_name(name: &str) -> bool {
+    let name = name.trim_end_matches('.').to_ascii_lowercase();
+    name == "localhost" || name.ends_with(".localhost")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn loopback_pages_are_told_from_pages_of_other_computers() {
+        const CASES: &[(&str, bool)] = &[
+            ("http://localhost:3000/a", true),
+            ("http://app.localhost/", true),
+            ("http://127.0.0.2:8000", true),
+            ("http://0.0.0.0:80", true),
+            ("http://[::1]:5173", true),
+            ("http://[::]/", true),
+            ("http://[::ffff:127.0.0.1]/", true),
+            ("https://example.com", false),
+            ("http://10.0.0.1", false),
+            ("http://localhost.example.com", false),
+        ];
+        for (text, loopback) in CASES {
+            let url = PageUrl::parse(text).unwrap();
+            assert_eq!(url.is_loopback(), *loopback, "{text}");
+        }
+    }
 
     #[test]
     fn only_web_urls_and_the_blank_page_load() {

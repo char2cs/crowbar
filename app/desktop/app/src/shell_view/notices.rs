@@ -51,7 +51,15 @@ impl ShellView {
         (kind, text): (ToastKind, String),
         cx: &mut Context<'_, Self>,
     ) {
-        let content = ToastContent::new(kind, text);
+        self.show_toast(key, ToastContent::new(kind, text), cx);
+    }
+
+    pub(super) fn show_toast(
+        &self,
+        key: NoticeKey,
+        content: ToastContent,
+        cx: &mut Context<'_, Self>,
+    ) {
         self.show_keyed(key.slug(), (content, key.lifetime()), cx);
     }
 

@@ -3,17 +3,16 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use gpui::{App, AppContext as _, Entity, Focusable as _, Window};
 use protocol::PaneId;
-use ptysession::{Ends, TerminalSessions};
-use terminal::DaemonFrame;
+use ptysession::{Connection, Ends, TerminalSessions};
 use terminalview::TerminalView;
 
 use crate::chat_terminals::ChatTerminals;
 use crate::plan::Plan;
+use crate::shell_request::ShellRequest;
 use crate::terminal_ids::TerminalIds;
 use crate::terminal_owner::TerminalOwner;
 
-const STARTING: &str = "Starting the chat's terminal...\r\n";
-const NO_CHAT: &str = "Open a chat first: a terminal runs in a chat's workspace.\r\n";
+mod wiring;
 
 pub(crate) struct TerminalPanes {
     ids: TerminalIds,
@@ -22,12 +21,14 @@ pub(crate) struct TerminalPanes {
     views: RefCell<BTreeMap<PaneId, Entity<TerminalView>>>,
     waiting: RefCell<BTreeSet<PaneId>>,
     settings: RefCell<terminalview::Settings>,
+    requests: async_channel::Sender<ShellRequest>,
 }
 
 impl TerminalPanes {
     pub(crate) fn new(
         ids: TerminalIds,
         (sessions, chats): (TerminalSessions, ChatTerminals),
+        requests: async_channel::Sender<ShellRequest>,
     ) -> Self {
         Self {
             ids,
@@ -36,6 +37,7 @@ impl TerminalPanes {
             views: RefCell::default(),
             waiting: RefCell::default(),
             settings: RefCell::default(),
+            requests,
         }
     }
 
@@ -56,6 +58,15 @@ impl TerminalPanes {
         pane: &PaneId,
     ) -> bool {
         self.ids.contains(pane)
+    }
+
+    pub(crate) fn closes_on_exit(
+        &self,
+        pane: &PaneId,
+    ) -> bool {
+        let owner = self.ids.owner_of(pane);
+        self.ids.contains(pane)
+            && owner.is_none_or(|owner| !matches!(self.plan_for(&owner), Plan::Watch(_)))
     }
 
     pub(crate) fn focus(
@@ -94,51 +105,21 @@ impl TerminalPanes {
     ) -> Entity<TerminalView> {
         let (link, peer) = terminalview::Link::open();
         let view = cx.new(|cx| TerminalView::new(link, self.settings.borrow().clone(), window, cx));
+        let (requests, source) = (self.requests.clone(), pane.clone());
+        cx.subscribe(&view, move |_, event: &terminalview::Event, _| {
+            Self::forward(&requests, &source, event);
+        })
+        .detach();
         let (frames, messages) = peer.into_channels();
-        self.connect((pane, owner), Ends { frames, messages });
+        let reports = Self::report_into_shell(self.requests.clone(), pane.clone(), cx);
+        let connection = Connection {
+            pane: pane.clone(),
+            ends: Ends { frames, messages },
+            reports,
+        };
+        self.connect(owner, connection);
         self.views.borrow_mut().insert(pane.clone(), view.clone());
         view
-    }
-
-    fn connect(
-        &self,
-        (pane, owner): (&PaneId, Option<&TerminalOwner>),
-        ends: Ends,
-    ) {
-        let base = owner.map(TerminalOwner::base);
-        let (Some(owner), Some(Ok(base))) = (owner, base) else {
-            notify(&ends, NO_CHAT);
-            return;
-        };
-        let pane = pane.clone();
-        match self.plan_for(owner) {
-            Plan::Own => self.sessions.start(base, pane, ends),
-            Plan::Watch(session) => self.sessions.watch((base, session), pane, ends),
-            Plan::Resume => self.resume(&pane, owner, &ends),
-        }
-    }
-
-    fn plan_for(
-        &self,
-        owner: &TerminalOwner,
-    ) -> Plan {
-        match owner {
-            TerminalOwner::Chat(chat) => Plan::of(self.chats.state(chat).as_ref()),
-            TerminalOwner::Home(_) => Plan::Own,
-        }
-    }
-
-    fn resume(
-        &self,
-        pane: &PaneId,
-        owner: &TerminalOwner,
-        ends: &Ends,
-    ) {
-        notify(ends, STARTING);
-        self.waiting.borrow_mut().insert(pane.clone());
-        if let TerminalOwner::Chat(chat) = owner {
-            self.chats.resume(chat);
-        }
     }
 
     pub(crate) fn attached(&self) -> bool {
@@ -165,55 +146,16 @@ impl TerminalPanes {
     }
 }
 
-fn notify(
-    ends: &Ends,
-    text: &str,
-) {
-    let frame = DaemonFrame::Output(text.as_bytes().to_vec());
-    if ends.frames.try_send(frame).is_err() {
-        tracing::debug!("the terminal closed before its notice");
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::rc::Rc;
 
     use gpui::TestAppContext;
-    use layout::{Command, Layout, PaneInstance, TabId};
-    use protocol::{PaneState, PaneTypeId, Params};
+    use layout::Layout;
     use store::{ChatPhase, ChatSurface, ChatTerminal};
 
     use super::*;
-    use crate::core_panes::TERMINAL;
-    use crate::test_support::{idle_terminals, idle_terminals_for};
-
-    fn layout_with_terminal(chat: Option<&str>) -> Layout {
-        let mut layout = Layout::default();
-        let tab = TabId(1);
-        let add = Command::AddTab {
-            id: tab,
-            title: String::new(),
-        };
-        layout.apply(add).unwrap();
-        let params = chat.map_or_else(Params::default, |chat| {
-            Params::default().with("threadId", chat).unwrap()
-        });
-        let instance = PaneInstance {
-            pane_id: PaneId::new("t1").unwrap(),
-            type_id: PaneTypeId::new(TERMINAL).unwrap(),
-            params,
-            state: PaneState::default(),
-        };
-        let placement = None;
-        let open = Command::OpenPane {
-            tab,
-            instance,
-            placement,
-        };
-        layout.apply(open).unwrap();
-        layout
-    }
+    use crate::test_support::{idle_terminals, idle_terminals_for, terminal_layout};
 
     fn panes_for(layout: &Layout) -> TerminalPanes {
         let ids = TerminalIds::default();
@@ -224,7 +166,7 @@ mod tests {
     #[gpui::test]
     fn a_terminal_pane_gets_one_view_and_keeps_it(cx: &mut TestAppContext) {
         cx.update(|cx| ui::init(cx).unwrap());
-        let panes = panes_for(&layout_with_terminal(Some("c1")));
+        let panes = panes_for(&terminal_layout(Some("c1")));
         let (_root, cx) = cx.add_window_view(|_, _| gpui::Empty);
         let pane = PaneId::new("t1").unwrap();
         let first = cx.update(|window, cx| panes.view(&pane, window, cx));
@@ -239,7 +181,7 @@ mod tests {
     #[gpui::test]
     fn a_focused_terminal_pane_takes_the_keyboard(cx: &mut TestAppContext) {
         cx.update(|cx| ui::init(cx).unwrap());
-        let panes = panes_for(&layout_with_terminal(Some("c1")));
+        let panes = panes_for(&terminal_layout(Some("c1")));
         let (_root, cx) = cx.add_window_view(|_, _| gpui::Empty);
         let pane = PaneId::new("t1").unwrap();
         cx.update(|window, cx| panes.focus(&pane, window, cx));
@@ -252,7 +194,7 @@ mod tests {
 
     #[gpui::test]
     fn other_panes_get_no_terminal(cx: &mut TestAppContext) {
-        let panes = panes_for(&layout_with_terminal(None));
+        let panes = panes_for(&terminal_layout(None));
         let (_root, cx) = cx.add_window_view(|_, _| gpui::Empty);
         let other = PaneId::new("p9").unwrap();
         assert!(
@@ -276,7 +218,7 @@ mod tests {
     #[gpui::test]
     fn a_larger_font_applied_live_shrinks_the_grid(cx: &mut TestAppContext) {
         cx.update(|cx| ui::init(cx).unwrap());
-        let panes = panes_for(&layout_with_terminal(Some("c1")));
+        let panes = panes_for(&terminal_layout(Some("c1")));
         let pane = PaneId::new("t1").unwrap();
         let (shown, cx) =
             cx.add_window_view(|window, cx| Shown(panes.view(&pane, window, cx).unwrap().into()));
@@ -310,7 +252,7 @@ mod tests {
         let seen = Rc::clone(&state);
         let chats = ChatTerminals::new(
             Rc::new(move |_| Some(seen.borrow().clone())),
-            Rc::new(|_| {}),
+            (Rc::new(|_| {}), Rc::new(|_| None)),
         );
         (chats, state)
     }
@@ -320,7 +262,7 @@ mod tests {
         cx.update(|cx| ui::init(cx).unwrap());
         let (chats, state) = dormant_then_live();
         let ids = TerminalIds::default();
-        ids.follow(&layout_with_terminal(Some("c1")));
+        ids.follow(&terminal_layout(Some("c1")));
         let panes = idle_terminals_for(ids, chats);
         let (_root, cx) = cx.add_window_view(|_, _| gpui::Empty);
         let pane = PaneId::new("t1").unwrap();

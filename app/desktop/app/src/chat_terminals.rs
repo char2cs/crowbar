@@ -4,23 +4,38 @@ use store::ChatTerminal;
 
 pub(crate) type Lookup = Rc<dyn Fn(&str) -> Option<ChatTerminal>>;
 pub(crate) type Resume = Rc<dyn Fn(&str)>;
+pub(crate) type HostOf = Rc<dyn Fn(&str) -> Option<String>>;
 
 #[derive(Clone)]
 pub(crate) struct ChatTerminals {
     lookup: Lookup,
     resume: Resume,
+    host: HostOf,
 }
 
 impl ChatTerminals {
     pub(crate) fn new(
         lookup: Lookup,
-        resume: Resume,
+        (resume, host): (Resume, HostOf),
     ) -> Self {
-        Self { lookup, resume }
+        Self {
+            lookup,
+            resume,
+            host,
+        }
     }
 
     pub(crate) fn of(data: &Rc<store::Store>) -> Self {
-        Self::new(reader(data), starter(data))
+        let held = Rc::clone(data);
+        let host: HostOf = Rc::new(move |chat| held.chat_host(chat));
+        Self::new(reader(data), (starter(data), host))
+    }
+
+    pub(crate) fn host(
+        &self,
+        chat: &str,
+    ) -> Option<String> {
+        (self.host)(chat)
     }
 
     pub(crate) fn state(
@@ -75,7 +90,10 @@ mod tests {
     }
 
     fn fixed(state: Option<ChatTerminal>) -> ChatTerminals {
-        ChatTerminals::new(Rc::new(move |_| state.clone()), Rc::new(|_| {}))
+        ChatTerminals::new(
+            Rc::new(move |_| state.clone()),
+            (Rc::new(|_| {}), Rc::new(|_| None)),
+        )
     }
 
     #[test]

@@ -28,14 +28,6 @@ impl TerminalView {
         cx.notify();
     }
 
-    /// The directory relative paths in the output resolve against.
-    pub fn set_working_directory(
-        &mut self,
-        directory: Option<String>,
-    ) {
-        self.working_directory = directory;
-    }
-
     /// Types `command` and Enter once the shell has drawn its first output.
     pub fn run_after_attach(
         &mut self,
@@ -127,11 +119,8 @@ mod tests {
     }
 
     #[gpui::test]
-    fn a_working_directory_and_flush_inset_can_be_set(cx: &mut TestAppContext) {
+    fn a_flush_inset_can_be_set(cx: &mut TestAppContext) {
         let (harness, cx) = open(cx);
-        harness.view.update(cx, |view, _| {
-            view.set_working_directory(Some("/work".into()));
-        });
         harness.view.update(cx, TerminalView::set_flush);
         let inset = harness.view.read_with(cx, |view, _| view.inset);
         assert_eq!(inset, 0.0);
