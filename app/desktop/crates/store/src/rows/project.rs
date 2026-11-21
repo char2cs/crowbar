@@ -1,4 +1,7 @@
-//! The chats tree of one space: its home level, then each repository under its header.
+//! The chats tree of one space: its home level and its repositories, each under its header,
+//! sorted as one sibling list.
+
+mod root_block;
 
 use sidebar::{Row, RowKind, Worktree};
 
@@ -7,52 +10,83 @@ use crate::live::PendingRow;
 use crate::live::RepoRecord;
 use crate::live::WorkspaceRecord;
 use crate::rows::emitter::Emitter;
+use crate::rows::forest::SiblingKey;
 use crate::rows::look::{activity_of, nesting_for};
+use crate::rows::project::root_block::RootBlock;
 use crate::rows::{forest, repo_mark};
 use crate::rows::{scope_items, scope_items::ScopeItems};
+
+const REPO_DEPTH: u8 = 1;
 
 pub(crate) fn of(
     store: &Entities,
     project: &str,
     pending: &[PendingRow],
 ) -> Vec<Row> {
-    let mut rows = scope_rows(store, (project, ""), pending);
-    let mut repos: Vec<&RepoRecord> = store
+    let mut blocks = home_blocks(store, project, pending);
+    let repos = store
         .repos
         .values()
-        .filter(|repo| repo.project_id == project)
-        .collect();
-    repos.sort_by(|a, b| (a.order, &a.id).cmp(&(b.order, &b.id)));
-    for repo in repos {
-        let body = scope_rows(store, (project, &repo.id), pending);
-        rows.push(header(store, repo, body.len()));
-        rows.extend(body);
-    }
-    rows
+        .filter(|repo| repo.project_id == project);
+    blocks.extend(repos.map(|repo| repo_block(store, repo, pending)));
+    blocks.sort_by(|a, b| a.key.cmp(&b.key));
+    blocks.into_iter().flat_map(|block| block.rows).collect()
 }
 
-fn scope_rows(
+fn home_blocks(
+    store: &Entities,
+    project: &str,
+    pending: &[PendingRow],
+) -> Vec<RootBlock> {
+    let ScopeItems { items, owners } = scope_items::of(store, (project, ""), pending);
+    let trees = forest::fold_owners(forest::build(&items), &owners);
+    let emitter = Emitter {
+        store,
+        pending,
+        owners: &owners,
+        folders: Worktree::Shared,
+    };
+    let key_of = |id: &str| {
+        let item = items.iter().find(|item| item.id == id);
+        item.map_or_default(SiblingKey::of_item)
+    };
+    trees
+        .iter()
+        .map(|tree| RootBlock {
+            key: key_of(&tree.id),
+            rows: emitter.rows(std::slice::from_ref(tree), 0),
+        })
+        .collect()
+}
+
+fn repo_block(
+    store: &Entities,
+    repo: &RepoRecord,
+    pending: &[PendingRow],
+) -> RootBlock {
+    let body = repo_rows(store, (&repo.project_id, &repo.id), pending);
+    let mut rows = vec![header(store, repo, body.len())];
+    rows.extend(body);
+    RootBlock {
+        key: SiblingKey::of_repo(repo.order, &repo.id),
+        rows,
+    }
+}
+
+fn repo_rows(
     store: &Entities,
     (project, repo): (&str, &str),
     pending: &[PendingRow],
 ) -> Vec<Row> {
-    let depth = u8::from(!repo.is_empty());
     let ScopeItems { items, owners } = scope_items::of(store, (project, repo), pending);
     let trees = forest::fold_owners(forest::build(&items), &owners);
     let emitter = Emitter {
         store,
         pending,
         owners: &owners,
-        folders: folder_worktree(repo),
+        folders: Worktree::Owned,
     };
-    emitter.rows(&trees, depth)
-}
-
-fn folder_worktree(repo: &str) -> Worktree {
-    if repo.is_empty() {
-        return Worktree::Shared;
-    }
-    Worktree::Owned
+    emitter.rows(&trees, REPO_DEPTH)
 }
 
 fn header(
@@ -195,7 +229,41 @@ mod tests {
         );
     }
 
-    const CASES: [fn(); 3] = [
+    const ORDERED: [(&str, &str, &str); 4] = [
+        (
+            "chat",
+            "late",
+            r#"{"id":"late","projectId":"p","repoId":"","title":"Late","order":2}"#,
+        ),
+        (
+            "repo",
+            "r",
+            r#"{"id":"r","projectId":"p","name":"crowbar","order":1}"#,
+        ),
+        (
+            "chat",
+            "first",
+            r#"{"id":"first","projectId":"p","repoId":"","title":"First","order":0}"#,
+        ),
+        (
+            "folder",
+            "f",
+            r#"{"id":"f","projectId":"p","name":"Notes","order":1}"#,
+        ),
+    ];
+
+    fn the_home_level_and_the_repos_sort_as_one_sibling_list() {
+        let rows = of(&store_of(&ORDERED), "p", &[]);
+        let ids: Vec<&str> = rows.iter().map(|row| row.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            ["first", "f", "r", "late"],
+            "order, then folder before repo"
+        );
+    }
+
+    const CASES: [fn(); 4] = [
+        the_home_level_and_the_repos_sort_as_one_sibling_list,
         a_space_lists_its_home_chats_then_each_repo_under_a_header,
         another_space_has_its_own_rows,
         the_shapes_the_daemon_sends_for_a_fresh_space_list_its_extra_home_chat,

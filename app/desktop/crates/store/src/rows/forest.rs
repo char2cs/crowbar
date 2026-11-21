@@ -3,15 +3,15 @@
 mod created_key;
 mod item;
 mod item_kind;
+mod sibling_key;
 mod tree;
 
 pub(crate) use item::Item;
 pub(crate) use item_kind::ItemKind;
+pub(crate) use sibling_key::SiblingKey;
 pub(crate) use tree::Tree;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-
-use crate::rows::forest::created_key::created_key;
 
 type Parents = HashMap<String, Option<String>>;
 
@@ -108,7 +108,7 @@ fn level(
     children: &BTreeMap<String, Vec<&Item>>,
 ) -> Vec<Tree> {
     let mut members: Vec<&Item> = children.get(parent).cloned().unwrap_or_default();
-    members.sort_by_cached_key(|item| (item.order, item.kind, created_key(&item.created)));
+    members.sort_by_cached_key(|item| SiblingKey::of_item(item));
     members
         .into_iter()
         .map(|item| Tree {
