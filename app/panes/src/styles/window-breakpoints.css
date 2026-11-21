@@ -1,0 +1,61 @@
+/* SPEC: docs/plans/2026-11-21-pane-window-breakpoints.md — in the shell each pane is its own
+   webview, so a breakpoint asks the shell window (data-window), and a page no shell names keeps
+   the media query. */
+
+@custom-variant sm {
+  &:where(:root[data-window~='sm'], :root[data-window~='sm'] *) {
+    @slot;
+  }
+  @media (width >= 40rem) {
+    &:where(:root:not([data-window]), :root:not([data-window]) *) {
+      @slot;
+    }
+  }
+}
+
+@custom-variant md {
+  &:where(:root[data-window~='md'], :root[data-window~='md'] *) {
+    @slot;
+  }
+  @media (width >= 48rem) {
+    &:where(:root:not([data-window]), :root:not([data-window]) *) {
+      @slot;
+    }
+  }
+}
+
+@custom-variant lg {
+  &:where(:root[data-window~='lg'], :root[data-window~='lg'] *) {
+    @slot;
+  }
+  @media (width >= 64rem) {
+    &:where(:root:not([data-window]), :root:not([data-window]) *) {
+      @slot;
+    }
+  }
+}
+
+@custom-variant xl {
+  &:where(:root[data-window~='xl'], :root[data-window~='xl'] *) {
+    @slot;
+  }
+  @media (width >= 80rem) {
+    &:where(:root:not([data-window]), :root:not([data-window]) *) {
+      @slot;
+    }
+  }
+}
+
+@custom-variant max-sm {
+  &:where(
+    :root[data-window]:not([data-window~='sm']),
+    :root[data-window]:not([data-window~='sm']) *
+  ) {
+    @slot;
+  }
+  @media (width < 40rem) {
+    &:where(:root:not([data-window]), :root:not([data-window]) *) {
+      @slot;
+    }
+  }
+}

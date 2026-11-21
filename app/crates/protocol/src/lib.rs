@@ -29,12 +29,12 @@ mod protocol;
 mod string_id;
 
 pub use control::{
-    DisplayText, DocumentPath, ErrorCode, EventName, ExtensionStatus, ExternalUrl, FsPath,
-    KeyBinding, KeyChord, Lifecycle, MAX_DISPLAY_TEXT_BYTES, MAX_PARAMS, MAX_SETTING_VALUES,
-    MAX_STATE_BYTES, MAX_THEME_TOKENS, MAX_TITLE_BYTES, MethodName, OpenMode, PANE_SETTING_KEYS,
-    PaneFrame, PaneOpen, PaneState, PaneTitle, PaneToast, Params, Precedence, RequestId, RpcError,
-    RpcOutcome, RpcResponse, SDK_VERSION, SETTINGS_FRAME_VERSION, SdkVersion, SettingKey,
-    SettingValues, ShellFrame, StatusKind, ThemeTokens, ToastTone, ViewedFile,
+    Breakpoint, DisplayText, DocumentPath, ErrorCode, EventName, ExtensionStatus, ExternalUrl,
+    FsPath, KeyBinding, KeyChord, Lifecycle, MAX_DISPLAY_TEXT_BYTES, MAX_PARAMS,
+    MAX_SETTING_VALUES, MAX_STATE_BYTES, MAX_THEME_TOKENS, MAX_TITLE_BYTES, MethodName, OpenMode,
+    PANE_SETTING_KEYS, PaneFrame, PaneOpen, PaneState, PaneTitle, PaneToast, Params, Precedence,
+    RequestId, RpcError, RpcOutcome, RpcResponse, SDK_VERSION, SETTINGS_FRAME_VERSION, SdkVersion,
+    SettingKey, SettingValues, ShellFrame, StatusKind, ThemeTokens, ToastTone, ViewedFile,
 };
 pub use error::{Error, Result};
 pub use identity::{

@@ -29,6 +29,16 @@ impl ShellState {
         }
     }
 
+    pub(crate) fn set_window_width(
+        &mut self,
+        width: f32,
+    ) {
+        let cleared = protocol::Breakpoint::cleared_by(width);
+        if let Err(error) = self.host.set_breakpoints(cleared) {
+            tracing::warn!(%error, "sending the window's breakpoints to panes failed");
+        }
+    }
+
     pub(crate) fn set_pane_settings(
         &mut self,
         values: protocol::SettingValues,
@@ -42,6 +52,25 @@ impl ShellState {
 #[cfg(test)]
 mod tests {
     use crate::test_support::{shell_rig, synced_chat};
+
+    #[test]
+    fn a_mounted_pane_learns_the_breakpoints_the_window_width_clears() {
+        let mut rig = shell_rig();
+        let pane = synced_chat(&mut rig);
+        let register = protocol::PaneFrame::Register {
+            type_id: crate::core_panes::chat_type().unwrap(),
+            sdk: protocol::SDK_VERSION,
+        };
+        let text = protocol::encode(&register).unwrap();
+        rig.shell.handle_ipc(panehost::IpcMessage { pane, text });
+        rig.shell.set_window_width(1100.0);
+        let frame = r#"{\"sdk\":1,\"kind\":\"breakpoints\",\"cleared\":[\"sm\",\"md\",\"lg\"]}"#;
+        let told = rig.mock.calls().into_iter().any(|call| match call {
+            webview::Call::Eval { script, .. } => script.contains(frame),
+            _ => false,
+        });
+        assert!(told, "{:?}", rig.mock.calls());
+    }
 
     #[test]
     fn a_theme_change_recolours_the_live_pane_views() {

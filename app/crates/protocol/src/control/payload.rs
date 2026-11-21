@@ -1,5 +1,6 @@
 //! Bounded values the frames carry: pane state, titles, params, display text, URLs, paths, statuses and toasts.
 
+mod breakpoint;
 mod byte_counter;
 mod display_text;
 mod document_path;
@@ -16,6 +17,7 @@ mod status_kind;
 mod toast_tone;
 mod viewed_file;
 
+pub use breakpoint::Breakpoint;
 pub use display_text::{DisplayText, MAX_DISPLAY_TEXT_BYTES};
 pub use document_path::DocumentPath;
 pub use extension_status::ExtensionStatus;

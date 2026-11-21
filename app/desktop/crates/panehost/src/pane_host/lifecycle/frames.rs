@@ -147,10 +147,10 @@ impl PaneHost {
         if let Some(tokens) = self.theme.clone() {
             self.send(pane, &ShellFrame::Theme { tokens })?;
         }
-        match self.settings_context() {
-            Some(frame) => self.send(pane, &frame),
-            None => Ok(()),
-        }
+        [self.breakpoints_context(), self.settings_context()]
+            .into_iter()
+            .flatten()
+            .try_for_each(|frame| self.send(pane, &frame))
     }
 
     pub(crate) fn fail(

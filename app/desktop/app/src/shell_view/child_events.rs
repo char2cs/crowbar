@@ -97,6 +97,8 @@ impl ShellView {
         let WorkspaceEvent::Measured(bounds) = event;
         match webview::ParentWindow::from_window(window) {
             Ok(parent) => {
+                self.state
+                    .set_window_width(window.viewport_size().width.into());
                 self.placement = Some((parent, crate::pixels::to_bounds(*bounds)));
                 self.sync(cx);
             },

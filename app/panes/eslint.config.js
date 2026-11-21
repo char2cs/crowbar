@@ -72,6 +72,16 @@ const PROVIDER_VOCABULARY_RULES = [
 ]
 
 // A swallowed failure is invisible: return a fallback or report() it.
+// A pane page is as wide as its pane, not the window develop's breakpoints ask about.
+const WINDOW_WIDTH_RULES = [
+  {
+    selector:
+      "CallExpression:matches([callee.name='matchMedia'], [callee.property.name='matchMedia']) > :matches(Literal[value=/width/], TemplateLiteral).arguments",
+    message:
+      'A width media query asks the pane, not the window: use the sm:/md:/lg:/xl: variants, which follow the shell window (docs/plans/2026-11-21-pane-window-breakpoints.md).',
+  },
+]
+
 const SWALLOWED_FAILURE_RULES = [
   {
     selector: 'CatchClause > BlockStatement[body.length=0]',
@@ -186,6 +196,7 @@ export default tseslint.config(
       'no-restricted-syntax': [
         'error',
         ...SWALLOWED_FAILURE_RULES,
+        ...WINDOW_WIDTH_RULES,
         ...ENTITY_API_SELECTORS.map((selector) => ({ selector, message: ENTITY_API_PATH_MESSAGE })),
       ],
     },
@@ -197,6 +208,7 @@ export default tseslint.config(
       'no-restricted-syntax': [
         'error',
         ...SWALLOWED_FAILURE_RULES,
+        ...WINDOW_WIDTH_RULES,
         ...ENTITY_API_SELECTORS.map((selector) => ({ selector, message: ENTITY_API_PATH_MESSAGE })),
         ...PROVIDER_VOCABULARY_RULES,
       ],
@@ -206,7 +218,7 @@ export default tseslint.config(
     // The URL builders spell the paths every other module must not.
     files: ['src/lib/host-path.ts', 'src/lib/project-url.ts', 'src/lib/workspace-scope-url.ts'],
     rules: {
-      'no-restricted-syntax': ['error', ...SWALLOWED_FAILURE_RULES],
+      'no-restricted-syntax': ['error', ...SWALLOWED_FAILURE_RULES, ...WINDOW_WIDTH_RULES],
     },
   },
   {

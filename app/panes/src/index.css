@@ -1,5 +1,6 @@
 @import 'tailwindcss' source('.');
 @import 'tw-animate-css';
+@import './styles/window-breakpoints.css';
 @import './styles/theme-fonts.css';
 @import './styles/theme-vars.css';
 @import './styles/theme.css';

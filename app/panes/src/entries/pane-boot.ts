@@ -10,6 +10,7 @@ import { followWorkspaceScopes } from '@/lib/follow-workspace-scopes'
 import { shellChannel } from '@/sdk/shell-channel'
 import { PaneClient } from '@/sdk/pane-client'
 import { followTheme } from '@/sdk/theme'
+import { followBreakpoints } from '@/sdk/window-breakpoints'
 import { ShellViewedOwner } from '@/features/git/lib/shell-viewed-owner'
 import { installViewedOwner } from '@/features/git/lib/viewed-owner'
 import type { BootedPane } from './booted-pane'
@@ -36,6 +37,7 @@ export function bootPane(typeId: string): BootedPane {
   const client = new PaneClient(channel, typeId)
   installViewedOwner(new ShellViewedOwner(client))
   followTheme(client)
+  followBreakpoints(client)
   followShellAppearance(client)
   followShellSettings(client)
   forwardToastsToShell(client)

@@ -9,6 +9,7 @@ use crate::control::config::KeyBinding;
 use crate::control::config::SettingValues;
 use crate::control::config::ThemeTokens;
 use crate::control::lifecycle::Lifecycle;
+use crate::control::payload::Breakpoint;
 use crate::control::payload::DisplayText;
 use crate::control::payload::ExtensionStatus;
 use crate::control::payload::PaneState;
@@ -77,6 +78,12 @@ pub enum ShellFrame {
         /// The tokens.
         tokens: ThemeTokens,
     },
+    /// `breakpoints`: the breakpoints the window clears, so a pane styles as develop's one
+    /// webview would at this window size; sent on mount and whenever the set changes.
+    Breakpoints {
+        /// Smallest first.
+        cleared: Vec<Breakpoint>,
+    },
     /// `group`: how the pane's group is arranged; sent to a chat on mount and whenever it
     /// changes. A chat that fills its group offers to open the editor beside it.
     Group {
@@ -113,10 +120,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_review_frames_have_the_shape_the_pane_sdk_reads() {
+    fn the_review_and_breakpoint_frames_have_the_shape_the_pane_sdk_reads() {
         let cases = [
             r#"{"kind":"review.viewed","workspace":"w1","viewed":{"src/a.ts":"M||1|0"}}"#,
             r#"{"kind":"review.reveal","path":"src/a.ts"}"#,
+            r#"{"kind":"breakpoints","cleared":["sm","md"]}"#,
         ];
         for text in cases {
             let frame: ShellFrame = serde_json::from_str(text).unwrap();

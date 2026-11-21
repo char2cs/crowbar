@@ -9,6 +9,7 @@ import type { PaneToast } from './pane-toast'
 import type { SettingValues } from './setting-values'
 import type { ShellFrame } from './shell-frame'
 import type { ThemeTokens } from './theme-tokens'
+import type { Breakpoint } from './breakpoint'
 import {
   MAX_STATE_BYTES,
   REQUEST_TIMEOUT_MS,
@@ -55,6 +56,7 @@ export class PaneClient {
   private readonly pending = new Map<number, Pending>()
   private readonly lifecycle = new Set<Listener<LifecycleMessage>>()
   private readonly themes = new Set<Listener<ThemeTokens>>()
+  private readonly breakpoints = new Set<Listener<Breakpoint[]>>()
   private readonly saves = new Set<() => void>()
   private readonly groups = new Set<Listener<boolean>>()
   private readonly shellSettings = new Set<Listener<SettingValues>>()
@@ -82,6 +84,11 @@ export class PaneClient {
   /** Hears the design tokens on mount and whenever the theme changes; returns the stop. */
   onTheme(listener: Listener<ThemeTokens>): () => void {
     return this.listen(this.themes, listener)
+  }
+
+  /** Hears the breakpoints the shell's window clears, on mount and whenever the set changes; returns the stop. */
+  onBreakpoints(listener: Listener<Breakpoint[]>): () => void {
+    return this.listen(this.breakpoints, listener)
   }
 
   /** Hears whether this chat fills its group, on mount and whenever that changes; returns the stop. */
@@ -247,6 +254,8 @@ export class PaneClient {
       console.error('crowbar: the shell refused a frame', frame.message)
     if (frame.kind === 'pane.save') this.saves.forEach((listener) => listener())
     if (frame.kind === 'theme') this.themes.forEach((listener) => listener(frame.tokens))
+    if (frame.kind === 'breakpoints')
+      this.breakpoints.forEach((listener) => listener(frame.cleared))
     if (frame.kind === 'group') this.groups.forEach((listener) => listener(frame.chatFills))
     if (frame.kind === 'review.viewed') {
       const { workspace, viewed } = frame

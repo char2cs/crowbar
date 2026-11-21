@@ -1,3 +1,4 @@
+import type { Breakpoint } from './breakpoint'
 import type { LifecycleMessage } from './lifecycle-message'
 import type { ReviewViewedFrame } from './review-viewed-frame'
 import type { RpcFailure } from './rpc-failure'
@@ -18,6 +19,7 @@ export type ShellFrame =
   | { kind: 'protocol.error'; message: string }
   | { kind: 'pane.save' }
   | { kind: 'theme'; tokens: ThemeTokens }
+  | { kind: 'breakpoints'; cleared: Breakpoint[] }
   | { kind: 'group'; chatFills: boolean }
   | { kind: 'settings'; version: number; values: SettingValues }
   | ({ kind: 'review.viewed' } & ReviewViewedFrame)

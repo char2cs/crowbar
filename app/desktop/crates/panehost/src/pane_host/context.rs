@@ -1,6 +1,7 @@
 //! What panes are told: broadcasts, settings and the background.
 
 mod background;
+mod breakpoints;
 mod broadcast;
 mod settings;
 
