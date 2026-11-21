@@ -1,9 +1,11 @@
 //! A text or list field.
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{IntoElement, ParentElement, Styled, div, px};
 use settings::{Control, Row};
 
 use crate::frame::Frame;
+use crate::frame::RowLayout;
 
 pub(crate) fn field_control(
     frame: &Frame<'_>,
@@ -15,6 +17,7 @@ pub(crate) fn field_control(
     };
     div()
         .w(px(width))
+        .when(frame.rows == RowLayout::Stacked, Styled::w_full)
         .max_w_full()
         .children(frame.fields.get(row.key()).cloned())
 }

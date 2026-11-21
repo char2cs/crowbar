@@ -3,6 +3,7 @@
 mod controls;
 mod reset_button;
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     App, InteractiveElement as _, IntoElement, ParentElement, StatefulInteractiveElement as _,
     Styled, Window, div, px,
@@ -11,6 +12,7 @@ use settings::Row;
 use ui::{HoverFill, ScaledText, Surface, Theme, radius};
 
 use crate::frame::Frame;
+use crate::frame::RowLayout;
 use crate::frame::element_id;
 use crate::frame::spacing;
 use crate::intent::Intent;
@@ -38,7 +40,8 @@ pub(crate) fn row_view(
         .px(spacing::TIGHT)
         .py(spacing::COMFORTABLE)
         .font_family(theme.ui_family())
-        .text_size(text_size);
+        .text_size(text_size)
+        .when(frame.rows == RowLayout::Stacked, stack);
     HoverFill::new(
         element_id("row", row.key().as_str()),
         palette.muted().opacity(WASH),
@@ -49,10 +52,20 @@ pub(crate) fn row_view(
     .child(
         div()
             .id(element_id("control", row.key().as_str()))
+            .debug_selector({
+                let key = row.key().as_str().to_owned();
+                move || format!("row-control-{key}")
+            })
             .flex_none()
+            .when(frame.rows == RowLayout::Stacked, Styled::w_full)
             .on_click(|_, _, cx| cx.stop_propagation())
             .child(control_view(frame, row, (window, cx))),
     )
+}
+
+fn stack(mut base: gpui::Div) -> gpui::Div {
+    base.style().align_items = Some(gpui::AlignItems::Stretch);
+    base.flex_col().gap(spacing::COMFORTABLE)
 }
 
 fn text_column(
@@ -105,6 +118,17 @@ mod tests {
 
     use crate::intent::Intent;
     use crate::test_support::{inspect, open, row, run};
+
+    #[gpui::test]
+    fn under_640px_a_row_puts_its_control_under_its_text_at_full_width(cx: &mut TestAppContext) {
+        let (_, cx) = open(cx, "appearance");
+        cx.simulate_resize(gpui::size(gpui::px(600.0), gpui::px(480.0)));
+        cx.run_until_parked();
+        let text = cx.debug_bounds("row-text-themeMode").unwrap();
+        let control = cx.debug_bounds("row-select-themeMode").unwrap();
+        assert!(control.top() >= text.bottom(), "{text:?} {control:?}");
+        assert_eq!(control.size.width, text.size.width);
+    }
 
     #[gpui::test]
     fn an_invalid_row_swaps_its_description_for_the_invalid_text(cx: &mut TestAppContext) {

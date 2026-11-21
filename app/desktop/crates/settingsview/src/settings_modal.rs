@@ -23,6 +23,7 @@ use crate::settings_modal::close_handler::CloseHandler;
 
 use crate::frame::Fields;
 use crate::frame::Frame;
+use crate::frame::RowLayout;
 use crate::intent::Intent;
 use crate::intent::Runner as _;
 use crate::intent::Sink;
@@ -196,6 +197,7 @@ impl Render for SettingsModal {
             focus: &self.focus,
             scroll: &self.scroll,
             lift: self.lift.as_ref(),
+            rows: RowLayout::of(window),
         };
         let content = body(&frame, (window, cx));
         let actions = header_actions(&frame, &self.search, (window, cx));

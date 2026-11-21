@@ -3,11 +3,13 @@
 mod element_id;
 mod fields;
 mod icon_stem;
+mod row_layout;
 pub(crate) mod spacing;
 
 pub(crate) use element_id::element_id;
 pub(crate) use fields::Fields;
 pub(crate) use icon_stem::icon_named;
+pub(crate) use row_layout::RowLayout;
 
 use gpui::{FocusHandle, ScrollHandle};
 use settings::RecordBackend;
@@ -24,4 +26,5 @@ pub(crate) struct Frame<'a> {
     pub(crate) focus: &'a FocusHandle,
     pub(crate) scroll: &'a ScrollHandle,
     pub(crate) lift: Option<&'a Lift>,
+    pub(crate) rows: RowLayout,
 }

@@ -1,10 +1,12 @@
 //! A select with an optional info icon.
 
-use gpui::{IntoElement, ParentElement, SharedString, Styled, div, px};
+use gpui::prelude::FluentBuilder as _;
+use gpui::{InteractiveElement as _, IntoElement, ParentElement, SharedString, Styled, div, px};
 use settings::{Control, Row};
 use ui::{Icon, IconName, Select, Tooltip};
 
 use crate::frame::Frame;
+use crate::frame::RowLayout;
 use crate::frame::element_id;
 use crate::frame::spacing;
 use crate::intent::Intent;
@@ -40,14 +42,18 @@ pub(crate) fn select_control(
     .placeholder(placeholder.clone().unwrap_or_default())
     .width(px(width.pixels()))
     .compact()
+    .when(frame.rows == RowLayout::Stacked, Select::fill)
     .on_change(move |index, window, cx| {
         sink.deliver(Intent::Choose(target.clone(), index), (window, cx));
     });
+    let key = row.key().as_str().to_owned();
     div()
+        .debug_selector(move || format!("row-select-{key}"))
         .flex()
         .items_center()
         .gap(spacing::COMFORTABLE)
-        .child(select)
+        .when(frame.rows == RowLayout::Stacked, Styled::w_full)
+        .child(div().flex_1().min_w_0().child(select))
         .children(hint.as_ref().map(|text| info_icon(row, text)))
 }
 
