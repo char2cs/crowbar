@@ -86,8 +86,7 @@ fn opened_pane(command: &Command) -> Option<PaneId> {
 
 #[cfg(test)]
 mod tests {
-    use panehost::IpcMessage;
-    use protocol::{PaneFrame, PaneState, encode};
+    use protocol::PaneState;
 
     use super::*;
     use crate::test_support::{open_chat, resync, shell_rig};
@@ -195,8 +194,7 @@ mod tests {
         resync(&mut rig);
         let tab = rig.shell.layout().active_tab().unwrap();
         let pane = tab.pane_ids().into_iter().last().unwrap();
-        let text = encode(&PaneFrame::SetDirty { dirty: true }).unwrap();
-        rig.shell.handle_ipc(IpcMessage { pane, text });
+        rig.shell.mark_dirty(pane);
         assert_eq!(preview_of(&rig.shell), None);
     }
 }

@@ -114,16 +114,7 @@ mod tests {
         }
     }
 
-    #[derive(Clone, Copy)]
-    enum Sender {
-        Chat,
-        ShownEditor,
-    }
-
-    fn shown_after_a_page_opens(
-        (file, mode): (&str, OpenMode),
-        sender: Sender,
-    ) -> Option<serde_json::Value> {
+    fn shown_after_the_chat_opens((file, mode): (&str, OpenMode)) -> Option<serde_json::Value> {
         let mut rig = shell_rig();
         open_chat(&mut rig.shell, "t1");
         resync(&mut rig);
@@ -133,14 +124,6 @@ mod tests {
             rig.shell.open_spec(PaneSpec::editor("t1", kept).unwrap());
         }
         resync(&mut rig);
-        let shown = rig.shell.layout().find_pane(
-            &PaneTypeId::new(EDITOR).unwrap(),
-            &file_params("src/pricing.ts"),
-        );
-        let from = match sender {
-            Sender::Chat => chat,
-            Sender::ShownEditor => shown?.pane_id.clone(),
-        };
         let frame = PaneFrame::Open(PaneOpen {
             type_id: PaneTypeId::new(EDITOR).unwrap(),
             params: Params::default(),
@@ -148,7 +131,7 @@ mod tests {
             mode,
         });
         let text = encode(&frame).unwrap();
-        let outcome = rig.shell.handle_ipc(IpcMessage { pane: from, text });
+        let outcome = rig.shell.handle_ipc(IpcMessage { pane: chat, text });
         rig.shell.apply(outcome.opens);
         let layout = rig.shell.layout();
         let editor = layout.find_pane(&PaneTypeId::new(EDITOR).unwrap(), &file_params(file))?;
@@ -169,18 +152,13 @@ mod tests {
         ("an open file, kept", "src/a.ts", OpenMode::Kept),
     ];
 
-    fn shown_by_each_sender(ask: (&str, OpenMode)) -> [Option<serde_json::Value>; 2] {
-        [Sender::Chat, Sender::ShownEditor].map(|sender| shown_after_a_page_opens(ask, sender))
-    }
-
     #[test]
     fn a_page_shows_the_file_it_opens_whether_new_or_already_open() {
         for (name, file, mode) in CASES {
-            let shown = shown_by_each_sender((file, mode));
             assert_eq!(
-                shown,
-                [Some(file.into()), Some(file.into())],
-                "{name}: chat, pricing.ts"
+                shown_after_the_chat_opens((file, mode)),
+                Some(file.into()),
+                "{name}"
             );
         }
     }

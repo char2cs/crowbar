@@ -155,8 +155,13 @@ mod tests {
         opened.shell.update(&mut opened.window, |shell, _| {
             crate::test_support::sync_shown(&mut shell.state);
         });
-        let refused = r#"{"sdk":1,"kind":"pane.openRefused","message":"src/gone.ts"}"#;
-        post(&mut opened, refused);
+        let gone = (
+            &opened.pane.clone(),
+            Err(editor::OpenFailure::of("src/gone.ts", 404, None)),
+        );
+        opened.shell.update(&mut opened.window, |shell, cx| {
+            shell.land_document(gone, cx);
+        });
         let shown = opened.shell.update(&mut opened.window, |shell, _| {
             let tab = shell.state.layout().active_tab().expect("a tab");
             let group = tab

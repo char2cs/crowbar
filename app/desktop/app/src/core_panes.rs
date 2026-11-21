@@ -24,8 +24,8 @@ const TYPES: [CoreType; 6] = [
     CoreType {
         id: EDITOR,
         title: "File",
-        entry: "editor/index.html",
-        kind: PaneKind::Web,
+        entry: "",
+        kind: PaneKind::Native,
         lifecycle: PaneLifecycle::Parkable,
         multiplicity: Multiplicity::PerParams,
     },
@@ -112,7 +112,7 @@ mod tests {
 
     const CASES: [(&str, bool); 7] = [
         (CHAT, true),
-        (EDITOR, true),
+        (EDITOR, false),
         (REVIEW, true),
         (CONSOLE, true),
         (TERMINAL, false),
