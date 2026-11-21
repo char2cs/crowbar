@@ -933,7 +933,6 @@ dependencies = [
 name = "calloop"
 version = "0.14.5"
 dependencies = [
- "bitflags 2.13.2",
  "polling",
  "rustix",
  "tracing",

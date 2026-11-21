@@ -47,6 +47,8 @@ Drop it when upstream gpui reports the physical key. Tracking: zed-industries/ze
 
 Drop it when calloop leaves the feature to its users. Tracking: Smithay/calloop.
 
+`no-bitflags` (`Cargo.toml`): calloop 0.14.5 declares `bitflags` but never uses it, so `cargo machete` reports it. Drop it when calloop removes the dependency.
+
 ## gpui-base 0.10.0 and gpui-component 0.10.0
 
 The editor engine (`gpui-base`: `InputBaseState`, the rope, tree-sitter highlighting) and the `Editor` element over it (`gpui-component`), reached through `gpui-kit` 0.10.0 (`editorview`). A fix to either lands here as a series rather than waiting for a release; both pin `gpui-pre =0.3.12`, the version vendored above.
