@@ -1,7 +1,7 @@
 //! A stepper: minus, a typed field and plus.
 
 use gpui::prelude::FluentBuilder as _;
-use gpui::{IntoElement, ParentElement, Styled, div, px};
+use gpui::{InteractiveElement as _, IntoElement, ParentElement, Styled, div, px};
 use settings::{Control, Nudge, Row};
 use ui::{Button, IconName};
 
@@ -11,6 +11,7 @@ use crate::frame::spacing;
 use crate::intent::Intent;
 
 const STEP_ICON: f32 = 14.0;
+const FIELD_MIN: f32 = 35.0;
 
 pub(crate) fn number_control(
     frame: &Frame<'_>,
@@ -19,6 +20,7 @@ pub(crate) fn number_control(
     let Control::Number { range, width } = &row.control() else {
         return div();
     };
+    let key = row.key().as_str().to_owned();
     let typed = range.parse(&frame.state.field_text(row));
     let at_min = typed.is_some_and(|value| value <= range.min());
     let at_max = typed.is_some_and(|value| value >= range.max());
@@ -35,8 +37,9 @@ pub(crate) fn number_control(
         .child(step("minus", IconName::Minus, Nudge::Down).when(at_min, Button::disabled))
         .child(
             div()
+                .debug_selector(move || format!("number-field-{key}"))
                 .flex_1()
-                .min_w_0()
+                .min_w(px(FIELD_MIN))
                 .children(frame.fields.get(row.key()).cloned()),
         )
         .child(step("plus", IconName::Plus, Nudge::Up).when(at_max, Button::disabled))
@@ -49,6 +52,13 @@ mod tests {
 
     use crate::intent::Intent;
     use crate::test_support::{inspect, open, row, run};
+
+    #[gpui::test]
+    fn a_compact_stepper_keeps_its_field_five_characters_wide(cx: &mut TestAppContext) {
+        let (_, cx) = open(cx, "editor");
+        let field = cx.debug_bounds("number-field-fontSize").unwrap_or_default();
+        assert_eq!(field.size.width, gpui::px(35.0), "{field:?}");
+    }
 
     #[gpui::test]
     fn the_buttons_step_by_the_range_step_and_stop_at_its_ends(cx: &mut TestAppContext) {
