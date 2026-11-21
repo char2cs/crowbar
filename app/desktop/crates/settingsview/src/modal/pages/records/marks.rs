@@ -1,16 +1,15 @@
 //! The small marks of a record row: its grip, its artwork and its status dot.
 
-use std::sync::Arc;
-
 use gpui::prelude::FluentBuilder as _;
-use gpui::{ImageFormat, IntoElement, ParentElement, Styled, div, img, px};
-use ui::{Icon, IconName, Palette};
+use gpui::{ParentElement, Styled, div, px};
+use ui::{Icon, IconName, Palette, ProviderGlyph};
 
 use settings::RecordFlag;
 
 pub(crate) const ICON: f32 = 18.0;
 pub(crate) const FLAG_COLUMN: f32 = 64.0;
 const GRIP: f32 = 16.0;
+const ARTWORK: f32 = 14.0;
 const DOT: f32 = 8.0;
 
 pub(crate) fn grip(palette: &Palette) -> Icon {
@@ -19,9 +18,11 @@ pub(crate) fn grip(palette: &Palette) -> Icon {
         .color(palette.muted_foreground())
 }
 
-pub(crate) fn artwork_image(markup: &str) -> impl IntoElement {
-    let image = gpui::Image::from_bytes(ImageFormat::Svg, markup.as_bytes().to_vec());
-    img(Arc::new(image)).size(px(ICON)).flex_none()
+pub(crate) fn artwork_image(
+    markup: &str,
+    palette: &Palette,
+) -> ProviderGlyph {
+    ProviderGlyph::new(markup.to_owned(), palette.foreground()).size(px(ARTWORK))
 }
 
 pub(crate) fn dot_box(

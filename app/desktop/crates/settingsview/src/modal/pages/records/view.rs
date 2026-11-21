@@ -37,7 +37,9 @@ pub(crate) fn record_view(
     let theme = *Theme::of(cx);
     let palette = theme.palette(Surface::Window);
     let leading = leading_icon(record, palette);
-    let artwork = record.artwork_svg().map(artwork_image);
+    let artwork = record
+        .artwork_svg()
+        .map(|markup| artwork_image(markup, palette));
     let text = text_column(record, &theme);
     let controlled = !record.flags().is_empty() || record.offered_action().is_some();
     let flags = flag_boxes(frame, entry, palette);
