@@ -1,7 +1,7 @@
 import { workspaceRef, type DocumentRef } from '@/lib/api/documents'
 import { documentName } from '@/features/editor/documents/document-ref'
 import { openDocument, openUntitledDocument } from '@/features/editor/documents/open-document'
-import { restoreDocuments } from '@/features/editor/documents/restore-documents'
+import { restorePaneDocuments } from '@/features/editor/documents/restore-documents'
 import { revealInEditor } from '@/features/editor/lib/reveal'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
@@ -17,7 +17,7 @@ function placeThenRestore(ref: DocumentRef): Promise<void> {
       { type: 'editor', doc: ref, name: documentName(ref) },
       { paneId: ROOT_PANE_ID },
     )
-  return restoreDocuments()
+  return restorePaneDocuments()
 }
 
 /** Opens the file a file pane was saved with: one the user just opened is read first and refused when it cannot be, one restored with the layout keeps its tab whatever its read finds. */

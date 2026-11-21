@@ -15,7 +15,7 @@ vi.mock('@/features/editor/documents/open-document', () => ({
   openUntitledDocument: opened.untitled,
 }))
 vi.mock('@/features/editor/documents/restore-documents', () => ({
-  restoreDocuments: opened.restore,
+  restorePaneDocuments: opened.restore,
 }))
 vi.mock('@/features/editor/lib/reveal', () => ({ revealInEditor: opened.reveal }))
 
