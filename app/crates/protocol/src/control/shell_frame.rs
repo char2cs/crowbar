@@ -84,6 +84,13 @@ pub enum ShellFrame {
         /// Smallest first.
         cleared: Vec<Breakpoint>,
     },
+    /// `chat.zoom`: the window's chat zoom, as develop's one zoom store holds it; sent on mount
+    /// and whenever it changes.
+    #[serde(rename = "chat.zoom")]
+    ChatZoom {
+        /// 100 is no zoom; 30 to 300 in steps of 10.
+        percent: u16,
+    },
     /// `group`: how the pane's group is arranged; sent to a chat on mount and whenever it
     /// changes. A chat that fills its group offers to open the editor beside it.
     Group {
@@ -125,6 +132,7 @@ mod tests {
             r#"{"kind":"review.viewed","workspace":"w1","viewed":{"src/a.ts":"M||1|0"}}"#,
             r#"{"kind":"review.reveal","path":"src/a.ts"}"#,
             r#"{"kind":"breakpoints","cleared":["sm","md"]}"#,
+            r#"{"kind":"chat.zoom","percent":120}"#,
         ];
         for text in cases {
             let frame: ShellFrame = serde_json::from_str(text).unwrap();

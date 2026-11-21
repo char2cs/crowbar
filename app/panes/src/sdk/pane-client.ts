@@ -58,6 +58,7 @@ export class PaneClient {
   private readonly lifecycle = new Set<Listener<LifecycleMessage>>()
   private readonly themes = new Set<Listener<ThemeTokens>>()
   private readonly breakpoints = new Set<Listener<Breakpoint[]>>()
+  private readonly chatZooms = new Set<Listener<number>>()
   private readonly saves = new Set<() => void>()
   private readonly groups = new Set<Listener<boolean>>()
   private readonly shellSettings = new Set<Listener<SettingValues>>()
@@ -90,6 +91,11 @@ export class PaneClient {
   /** Hears the breakpoints the shell's window clears, on mount and whenever the set changes; returns the stop. */
   onBreakpoints(listener: Listener<Breakpoint[]>): () => void {
     return this.listen(this.breakpoints, listener)
+  }
+
+  /** Hears the window's chat zoom in percent, on mount and whenever it changes; returns the stop. */
+  onChatZoom(listener: Listener<number>): () => void {
+    return this.listen(this.chatZooms, listener)
   }
 
   /** Hears whether this chat fills its group, on mount and whenever that changes; returns the stop. */
@@ -257,6 +263,7 @@ export class PaneClient {
     if (frame.kind === 'theme') this.themes.forEach((listener) => listener(frame.tokens))
     if (frame.kind === 'breakpoints')
       this.breakpoints.forEach((listener) => listener(frame.cleared))
+    if (frame.kind === 'chat.zoom') this.chatZooms.forEach((listener) => listener(frame.percent))
     if (frame.kind === 'group') this.groups.forEach((listener) => listener(frame.chatFills))
     if (frame.kind === 'review.viewed') {
       const { workspace, viewed } = frame

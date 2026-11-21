@@ -20,6 +20,7 @@ mod backend;
 mod browsing;
 mod browsing_data;
 mod built;
+mod chat_zoom;
 mod child_events;
 mod children;
 mod closing;
@@ -323,6 +324,7 @@ impl Render for ShellView {
         div()
             .size_full()
             .track_focus(&self.focus)
+            .capture_key_down(cx.listener(Self::on_key_alongside))
             .on_key_down(cx.listener(Self::on_key_down))
             .capture_any_mouse_down(cx.listener(Self::on_shell_pressed))
             .relative()

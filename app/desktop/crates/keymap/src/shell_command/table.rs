@@ -75,6 +75,9 @@ const TABLE: &[CommandEntry] = &[
     entry(ShellCommand::SidebarGit, "navigation.sidebarGit", "mod+3"),
     entry(ShellCommand::OpenLog, "app.openLog", ""),
     entry(ShellCommand::ExportDiagnostics, "app.exportDiagnostics", ""),
+    entry(ShellCommand::ZoomChatIn, "agent.zoomIn", "mod+="),
+    entry(ShellCommand::ZoomChatOut, "agent.zoomOut", "mod+-"),
+    entry(ShellCommand::ZoomChatReset, "agent.zoomReset", "mod+0"),
 ];
 
 impl ShellCommand {
@@ -96,6 +99,17 @@ impl ShellCommand {
     #[must_use]
     pub fn id(self) -> &'static str {
         self.entry().id
+    }
+
+    /// Whether the command runs beside the focused view's own handling of its chord rather
+    /// than instead of it: develop zooms the chat from anywhere, and a focused terminal still
+    /// zooms its own font on the same chord.
+    #[must_use]
+    pub fn runs_alongside(self) -> bool {
+        matches!(
+            self,
+            Self::ZoomChatIn | Self::ZoomChatOut | Self::ZoomChatReset
+        )
     }
 
     /// The chord the command has until the user rebinds it.
@@ -143,8 +157,11 @@ mod tests {
             (ShellCommand::NewTab, "mod+t"),
             (ShellCommand::CloseTab, "mod+w"),
             (ShellCommand::NewChat, "mod+n"),
+            (ShellCommand::ZoomChatIn, "mod+="),
+            (ShellCommand::ZoomChatOut, "mod+-"),
+            (ShellCommand::ZoomChatReset, "mod+0"),
         ];
-        const NOT_SHELL: &[&str] = &["editor.save", "agent.zoomIn", "ext.git.openReview", ""];
+        const NOT_SHELL: &[&str] = &["editor.save", "ext.git.openReview", ""];
         for id in NOT_SHELL {
             assert_eq!(ShellCommand::parse(id), None, "{id:?}");
         }

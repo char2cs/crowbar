@@ -67,6 +67,9 @@ impl ShellView {
             ShellCommand::FocusPaneRight => self.focus_towards(Direction::Right, cx),
             ShellCommand::FocusPaneUp => self.focus_towards(Direction::Up, cx),
             ShellCommand::FocusPaneDown => self.focus_towards(Direction::Down, cx),
+            ShellCommand::ZoomChatIn | ShellCommand::ZoomChatOut | ShellCommand::ZoomChatReset => {
+                self.state.zoom_chat(command);
+            },
         }
     }
 
@@ -173,7 +176,7 @@ impl ShellView {
     }
 }
 
-fn keystroke_of(stroke: &gpui::Keystroke) -> Keystroke {
+pub(super) fn keystroke_of(stroke: &gpui::Keystroke) -> Keystroke {
     let modifiers = stroke.modifiers;
     let primary =
         (PRIMARY_IS_COMMAND && modifiers.platform) || (!PRIMARY_IS_COMMAND && modifiers.control);

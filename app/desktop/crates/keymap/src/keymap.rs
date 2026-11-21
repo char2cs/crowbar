@@ -51,9 +51,28 @@ impl Keymap {
         }
     }
 
-    /// The shell command a key press runs, if any.
+    /// The shell command a key press runs instead of the focused view, if any.
     #[must_use]
     pub fn resolve(
+        &self,
+        stroke: &Keystroke,
+    ) -> Option<ShellCommand> {
+        self.bound_to(stroke)
+            .filter(|command| !command.runs_alongside())
+    }
+
+    /// The shell command a key press runs beside the focused view's own handling, if any;
+    /// see [`ShellCommand::runs_alongside`].
+    #[must_use]
+    pub fn alongside(
+        &self,
+        stroke: &Keystroke,
+    ) -> Option<ShellCommand> {
+        self.bound_to(stroke)
+            .filter(|command| command.runs_alongside())
+    }
+
+    fn bound_to(
         &self,
         stroke: &Keystroke,
     ) -> Option<ShellCommand> {
@@ -144,6 +163,25 @@ mod tests {
         for (chord, expected) in cases {
             assert_eq!(keymap.resolve(&stroke(chord)), expected, "{chord}");
         }
+    }
+
+    #[test]
+    fn chat_zoom_runs_beside_the_focused_view_and_is_forwarded_from_pages() {
+        let keymap = Keymap::defaults();
+        let cases = [
+            ("mod+=", Some(ShellCommand::ZoomChatIn)),
+            ("mod+-", Some(ShellCommand::ZoomChatOut)),
+            ("mod+0", Some(ShellCommand::ZoomChatReset)),
+            ("mod+s", None),
+        ];
+        for (chord, expected) in cases {
+            assert_eq!(keymap.alongside(&stroke(chord)), expected, "{chord}");
+            assert_eq!(keymap.resolve(&stroke(chord)), None, "{chord}");
+        }
+        assert!(
+            forwards(&keymap, "agent.zoomIn"),
+            "a page forwards the chord"
+        );
     }
 
     #[test]

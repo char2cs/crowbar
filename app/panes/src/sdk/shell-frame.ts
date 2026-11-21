@@ -20,6 +20,7 @@ export type ShellFrame =
   | { kind: 'pane.save' }
   | { kind: 'theme'; tokens: ThemeTokens }
   | { kind: 'breakpoints'; cleared: Breakpoint[] }
+  | { kind: 'chat.zoom'; percent: number }
   | { kind: 'group'; chatFills: boolean }
   | { kind: 'settings'; version: number; values: SettingValues }
   | ({ kind: 'review.viewed' } & ReviewViewedFrame)

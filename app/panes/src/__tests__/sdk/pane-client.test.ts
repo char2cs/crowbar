@@ -210,6 +210,14 @@ describe('PaneClient', () => {
     expect(heard.mock.calls).toEqual([[true], [false]])
   })
 
+  it('hears the window’s chat zoom', () => {
+    const client = new PaneClient(pane.channel, 'core.chat')
+    const heard = vi.fn()
+    client.onChatZoom(heard)
+    pane.deliver({ sdk: 1, kind: 'chat.zoom', percent: 120 })
+    expect(heard.mock.calls).toEqual([[120]])
+  })
+
   it('hears the viewed map and the files to reveal the shell sends', () => {
     const client = new PaneClient(pane.channel, 'core.review')
     const viewed = vi.fn()

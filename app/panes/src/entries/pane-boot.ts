@@ -15,6 +15,7 @@ import { installPreviewOpener } from '@/features/editor/documents/open-preview'
 import { ShellViewedOwner } from '@/features/git/lib/shell-viewed-owner'
 import { installViewedOwner } from '@/features/git/lib/viewed-owner'
 import type { BootedPane } from './booted-pane'
+import { followChatZoom } from './follow-chat-zoom'
 import { followShellAppearance } from './follow-shell-appearance'
 import { followShellSettings } from './follow-shell-settings'
 import { forwardToastsToShell } from './forward-toasts-to-shell'
@@ -39,6 +40,7 @@ export function bootPane(typeId: string): BootedPane {
   installViewedOwner(new ShellViewedOwner(client))
   followTheme(client)
   followBreakpoints(client)
+  followChatZoom(client)
   followShellAppearance(client)
   followShellSettings(client)
   forwardToastsToShell(client)

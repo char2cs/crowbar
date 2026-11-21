@@ -48,4 +48,10 @@ pub enum ShellCommand {
     OpenLog,
     /// Zip the logs and the daemon's live dumps and show the file.
     ExportDiagnostics,
+    /// Zoom the window's chats in one step.
+    ZoomChatIn,
+    /// Zoom the window's chats out one step.
+    ZoomChatOut,
+    /// Put the window's chat zoom back to 100%.
+    ZoomChatReset,
 }
