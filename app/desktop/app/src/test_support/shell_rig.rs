@@ -26,7 +26,14 @@ pub(crate) fn open_chat(
     shell: &mut ShellState,
     thread: &str,
 ) {
-    shell.open_pane(chat_type().unwrap(), chat_params(thread).unwrap());
+    let nobody = PaneId::new("nobody").unwrap();
+    let chat = protocol::PaneOpen {
+        type_id: chat_type().unwrap(),
+        params: chat_params(thread).unwrap(),
+        file: None,
+        mode: protocol::OpenMode::Kept,
+    };
+    shell.open_requested(&nobody, chat);
 }
 
 fn window_area() -> Bounds {

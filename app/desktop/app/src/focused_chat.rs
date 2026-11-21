@@ -1,11 +1,19 @@
 use layout::{Layout, PaneGroup};
+use protocol::PaneId;
 
 pub(crate) fn focused_chat(layout: &Layout) -> Option<String> {
     let tab = layout.active_tab()?;
-    let focused = tab.focused()?;
-    let chat = tab.group_of(focused).and_then(PaneGroup::chat);
-    let pane = layout.pane(chat.unwrap_or(focused))?;
-    pane.params.get("threadId").map(str::to_owned)
+    chat_of_pane(layout, tab.focused()?)
+}
+
+pub(crate) fn chat_of_pane(
+    layout: &Layout,
+    pane: &PaneId,
+) -> Option<String> {
+    let tab = layout.tab_of(pane)?;
+    let chat = tab.group_of(pane).and_then(PaneGroup::chat);
+    let instance = layout.pane(chat.unwrap_or(pane))?;
+    instance.params.get("threadId").map(str::to_owned)
 }
 
 #[cfg(test)]

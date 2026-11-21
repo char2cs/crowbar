@@ -3,21 +3,10 @@ use protocol::{PaneTypeId, Params};
 
 use super::ShellState;
 use crate::core_panes::{chat_params, chat_type};
-use crate::pane_opener::{open_at, open_commands, open_view_commands};
+use crate::pane_opener::{open_at, open_view_commands};
 use crate::pane_spec::PaneSpec;
 
 impl ShellState {
-    pub(crate) fn open_pane(
-        &mut self,
-        type_id: PaneTypeId,
-        params: Params,
-    ) {
-        match open_commands(self.history.layout(), (type_id, params), &self.serials) {
-            Ok(commands) => self.apply(commands),
-            Err(error) => tracing::warn!(%error, "could not open the pane"),
-        }
-    }
-
     pub(crate) fn open_view(
         &mut self,
         type_id: PaneTypeId,

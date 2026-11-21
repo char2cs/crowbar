@@ -28,7 +28,7 @@ impl ShellState {
     }
 }
 
-fn previewing(commands: Vec<Command>) -> Vec<Command> {
+pub(super) fn previewing(commands: Vec<Command>) -> Vec<Command> {
     let fresh: Vec<PaneId> = commands.iter().filter_map(opened_pane).collect();
     let previews = fresh.into_iter().map(|pane| Command::PreviewPane { pane });
     commands.into_iter().chain(previews).collect()

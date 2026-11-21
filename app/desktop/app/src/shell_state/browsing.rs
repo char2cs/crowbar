@@ -31,8 +31,14 @@ mod tests {
     #[test]
     fn going_somewhere_from_a_browser_with_no_page_saves_the_address_its_view_opens_at() {
         let mut rig = shell_rig();
-        rig.shell
-            .open_pane(PaneTypeId::new(BROWSER).unwrap(), Params::default());
+        let browser = protocol::PaneOpen {
+            type_id: PaneTypeId::new(BROWSER).unwrap(),
+            params: Params::default(),
+            file: None,
+            mode: protocol::OpenMode::Kept,
+        };
+        let nobody = PaneId::new("nobody").unwrap();
+        rig.shell.open_requested(&nobody, browser);
         let pane = rig.shell.layout().tabs()[0].pane_ids()[0].clone();
         let page = PageUrl::parse("https://example.com/").unwrap();
         let went = rig.shell.browse(&pane, &BrowseAction::Go(page));

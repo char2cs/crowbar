@@ -1,11 +1,11 @@
 //! Public-API tests: every frame survives encoding, and wire shapes stay stable.
 
 use protocol::{
-    CommandId, DisplayText, ErrorCode, EventName, ExtensionId, ExtensionStatus, KeyBinding,
-    KeyChord, Lifecycle, MethodName, PaneFrame, PaneId, PaneState, PaneTitle, PaneTypeId, Params,
-    RequestId, RpcError, RpcOutcome, RpcResponse, SDK_VERSION, SETTINGS_FRAME_VERSION, SdkVersion,
-    SettingKey, SettingValues, ShellFrame, SpaceId, StatusKind, ThemeTokens, decode_pane_frame,
-    decode_shell_frame, encode,
+    CommandId, DisplayText, DocumentPath, ErrorCode, EventName, ExtensionId, ExtensionStatus,
+    KeyBinding, KeyChord, Lifecycle, MethodName, OpenMode, PaneFrame, PaneId, PaneOpen, PaneState,
+    PaneTitle, PaneTypeId, Params, RequestId, RpcError, RpcOutcome, RpcResponse, SDK_VERSION,
+    SETTINGS_FRAME_VERSION, SdkVersion, SettingKey, SettingValues, ShellFrame, SpaceId, StatusKind,
+    ThemeTokens, decode_pane_frame, decode_shell_frame, encode,
 };
 use serde_json::{Value, json};
 
@@ -33,10 +33,12 @@ fn every_pane_frame_round_trips() {
             type_id: type_id.clone(),
             sdk: SDK_VERSION,
         },
-        PaneFrame::Open {
+        PaneFrame::Open(PaneOpen {
             type_id,
             params: Params::default().with("threadId", "t").unwrap(),
-        },
+            file: Some(DocumentPath::new("src/a.ts").unwrap()),
+            mode: OpenMode::Preview,
+        }),
         PaneFrame::SetTitle {
             title: PaneTitle::new("x").unwrap(),
         },
@@ -266,5 +268,39 @@ fn a_pane_cannot_claim_an_identity() {
             title: PaneTitle::new("t").unwrap()
         },
         "the claimed id is ignored"
+    );
+}
+
+fn editor_open(
+    file: Option<&str>,
+    mode: OpenMode,
+) -> protocol::Result<PaneFrame> {
+    Ok(PaneFrame::Open(PaneOpen {
+        type_id: PaneTypeId::new("core.editor")?,
+        params: Params::default(),
+        file: file.map(DocumentPath::new).transpose()?,
+        mode,
+    }))
+}
+
+#[test]
+fn a_pane_open_names_a_document_and_whether_it_previews_and_old_pages_still_open_tabs() {
+    let old = r#"{"sdk":1,"kind":"pane.open","typeId":"core.editor","params":{}}"#;
+    let new = r#"{"sdk":1,"kind":"pane.open","typeId":"core.editor","params":{},"file":"src/a.ts","mode":"preview"}"#;
+    let cases = [
+        (old, editor_open(None, OpenMode::Kept).unwrap()),
+        (
+            new,
+            editor_open(Some("src/a.ts"), OpenMode::Preview).unwrap(),
+        ),
+    ];
+    for (text, expected) in cases {
+        assert_eq!(decode_pane_frame(text).unwrap(), expected, "{text}");
+    }
+    let climbing =
+        r#"{"sdk":1,"kind":"pane.open","typeId":"core.editor","params":{},"file":"../x"}"#;
+    assert!(
+        decode_pane_frame(climbing).is_err(),
+        "no way out of the workspace"
     );
 }

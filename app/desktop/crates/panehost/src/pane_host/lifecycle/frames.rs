@@ -86,11 +86,7 @@ impl PaneHost {
             PaneFrame::SetTitle { title } => HostEvent::TitleChanged { pane, title },
             PaneFrame::SetState { state } => HostEvent::StateChanged { pane, state },
             PaneFrame::SetDirty { dirty } => HostEvent::DirtyChanged { pane, dirty },
-            PaneFrame::Open { type_id, params } => HostEvent::OpenRequested {
-                from: pane,
-                type_id,
-                params,
-            },
+            PaneFrame::Open(open) => HostEvent::OpenRequested { from: pane, open },
             PaneFrame::Request { id, method, .. } => {
                 return self.refuse_request(&pane, id, &method);
             },

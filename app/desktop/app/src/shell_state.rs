@@ -28,6 +28,7 @@ mod browsing;
 mod host_events;
 mod host_settings;
 mod navigation_target;
+mod open_requested;
 mod opening;
 mod page_step;
 mod preview;

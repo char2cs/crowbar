@@ -1,7 +1,7 @@
 use browser::PageUpdate;
 use protocol::{
-    CommandId, DisplayText, ExternalUrl, FsPath, PaneId, PaneState, PaneTitle, PaneToast,
-    PaneTypeId, Params, SettingKey, ViewedFile,
+    CommandId, DisplayText, ExternalUrl, FsPath, PaneId, PaneOpen, PaneState, PaneTitle, PaneToast,
+    SettingKey, ViewedFile,
 };
 use serde_json::Value;
 
@@ -39,10 +39,8 @@ pub enum HostEvent {
     OpenRequested {
         /// The asking pane.
         from: PaneId,
-        /// The type to open.
-        type_id: PaneTypeId,
-        /// The ids the new pane is identified by.
-        params: Params,
+        /// What it asked to open.
+        open: PaneOpen,
     },
     /// A pane or one of the shell's keybindings triggered a command.
     CommandRequested {

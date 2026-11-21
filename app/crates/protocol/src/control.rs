@@ -18,9 +18,9 @@ pub(crate) use envelope::Envelope;
 pub use lifecycle::Lifecycle;
 pub use pane_frame::PaneFrame;
 pub use payload::{
-    DisplayText, ExtensionStatus, ExternalUrl, FsPath, MAX_DISPLAY_TEXT_BYTES, MAX_PARAMS,
-    MAX_STATE_BYTES, MAX_TITLE_BYTES, PaneState, PaneTitle, PaneToast, Params, StatusKind,
-    ToastTone, ViewedFile,
+    DisplayText, DocumentPath, ExtensionStatus, ExternalUrl, FsPath, MAX_DISPLAY_TEXT_BYTES,
+    MAX_PARAMS, MAX_STATE_BYTES, MAX_TITLE_BYTES, OpenMode, PaneOpen, PaneState, PaneTitle,
+    PaneToast, Params, StatusKind, ToastTone, ViewedFile,
 };
 pub use sdk_version::{SDK_VERSION, SdkVersion};
 pub use shell_frame::ShellFrame;

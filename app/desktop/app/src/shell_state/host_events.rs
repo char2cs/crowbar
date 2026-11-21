@@ -78,9 +78,7 @@ impl ShellState {
                 self.dirty.clear(&pane);
                 outcome.dirty_changed = true;
             },
-            HostEvent::OpenRequested {
-                type_id, params, ..
-            } => self.open_pane(type_id, params),
+            HostEvent::OpenRequested { from, open } => self.open_requested(&from, open),
             HostEvent::CommandRequested { command, .. } => outcome.commands.push(command),
             HostEvent::HoverChanged { pane, hovered } => outcome.hover.push((pane, hovered)),
             HostEvent::PageFocused { pane } => outcome.focused.push(pane),

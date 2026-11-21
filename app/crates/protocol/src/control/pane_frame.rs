@@ -8,10 +8,10 @@ use crate::control::config::SettingKey;
 use crate::control::payload::DisplayText;
 use crate::control::payload::ExternalUrl;
 use crate::control::payload::FsPath;
+use crate::control::payload::PaneOpen;
 use crate::control::payload::PaneState;
 use crate::control::payload::PaneTitle;
 use crate::control::payload::PaneToast;
-use crate::control::payload::Params;
 use crate::control::payload::ViewedFile;
 use crate::control::sdk_version::SdkVersion;
 use crate::identity::CommandId;
@@ -41,12 +41,7 @@ pub enum PaneFrame {
     },
     /// `pane.open`: asks the shell to open another pane.
     #[serde(rename = "pane.open")]
-    Open {
-        /// The type to open.
-        type_id: PaneTypeId,
-        /// The ids the new pane is identified by.
-        params: Params,
-    },
+    Open(PaneOpen),
     /// `pane.setTitle`: sets the pane's tab title.
     #[serde(rename = "pane.setTitle")]
     SetTitle {
