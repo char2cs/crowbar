@@ -101,6 +101,8 @@ impl ShellView {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use gpui::TestAppContext;
 
     use crate::notice_key::NoticeKey;
@@ -129,6 +131,44 @@ mod tests {
             floats,
             (false, true),
             "docked in the open sidebar, then floating"
+        );
+    }
+
+    #[gpui::test]
+    fn a_notice_waits_while_the_window_is_inactive_and_runs_out_once_it_is_active_again(
+        cx: &mut TestAppContext
+    ) {
+        let mut opened = open_shell(cx);
+        let count = |opened: &mut crate::shell_view::tests::Opened| {
+            opened
+                .shell
+                .read_with(&opened.window, |shell, cx| shell.notices.read(cx).len())
+        };
+        opened.window.update(|window, _| window.activate_window());
+        opened.window.run_until_parked();
+        let base = count(&mut opened);
+        opened.shell.update(&mut opened.window, |shell, cx| {
+            let text = ("The command failed".to_owned(), NoticeKey::Command);
+            shell.show_notice(text.1, (ui::ToastKind::Error, text.0), cx);
+        });
+        opened.window.deactivate_window();
+        opened.window.run_until_parked();
+        opened
+            .window
+            .executor()
+            .advance_clock(Duration::from_secs(60));
+        assert_eq!(count(&mut opened), base + 1, "held while nobody looks");
+        opened.window.update(|window, _| window.activate_window());
+        opened.window.run_until_parked();
+        opened
+            .window
+            .executor()
+            .advance_clock(Duration::from_secs(60));
+        opened.window.executor().advance_clock(ui::timing::SLOW);
+        assert_eq!(
+            count(&mut opened),
+            base,
+            "ran out once the window was active"
         );
     }
 }

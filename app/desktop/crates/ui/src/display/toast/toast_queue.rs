@@ -4,6 +4,7 @@ use gpui::{Context, EventEmitter, SharedString};
 
 use crate::display::toast::toast_queue::entry::Entry;
 use crate::display::toast::toast_queue::swipe::Swipe;
+use crate::display::toast::toast_queue::toast_hold::ToastHold;
 use crate::foundation::opaque_debug;
 use crate::foundation::tokens::timing;
 
@@ -17,7 +18,7 @@ pub struct ToastQueue {
     pub(crate) entries: Vec<Entry>,
     pub(crate) placement: ToastPlacement,
     pub(crate) swipe: Option<Swipe>,
-    pub(crate) held: bool,
+    pub(crate) holds: Vec<ToastHold>,
     next: u64,
 }
 
@@ -27,6 +28,7 @@ mod surface;
 mod swipe;
 mod timer;
 mod toast_content;
+mod toast_hold;
 mod toast_id;
 mod toast_lifetime;
 mod toast_placement;
@@ -50,7 +52,7 @@ impl ToastQueue {
             entries: Vec::new(),
             placement,
             swipe: None,
-            held: false,
+            holds: Vec::new(),
             next: 0,
         }
     }

@@ -1,9 +1,10 @@
 use std::time::{Duration, Instant};
 
-use gpui::{Context, Task};
+use gpui::{Context, Task, Window};
 
 use crate::display::toast::toast_queue::ToastQueue;
 use crate::display::toast::toast_queue::entry::Entry;
+use crate::display::toast::toast_queue::toast_hold::ToastHold;
 use crate::display::toast::toast_queue::toast_id::ToastId;
 use crate::foundation::Pose;
 
@@ -19,7 +20,7 @@ impl ToastQueue {
         let Some(delay) = timeout else {
             return (None, None, None);
         };
-        if self.held {
+        if !self.holds.is_empty() {
             return (None, None, Some(delay));
         }
         let due = cx.background_executor().now() + delay;
@@ -30,16 +31,18 @@ impl ToastQueue {
         )
     }
 
-    /// Stops every toast's expiry while the pointer rests on the column, keeping the time each
-    /// has left.
-    pub fn hold(
+    pub(crate) fn hold(
         &mut self,
+        by: ToastHold,
         cx: &mut Context<'_, Self>,
     ) {
-        if self.held {
+        if self.holds.contains(&by) {
             return;
         }
-        self.held = true;
+        self.holds.push(by);
+        if self.holds.len() > 1 {
+            return;
+        }
         let now = cx.background_executor().now();
         self.entries
             .iter_mut()
@@ -54,20 +57,34 @@ impl ToastQueue {
         cx: &mut Context<'_, Self>,
     ) {
         match pointer {
-            Pose::On => self.hold(cx),
-            Pose::Off => self.release(cx),
+            Pose::On => self.hold(ToastHold::Pointer, cx),
+            Pose::Off => self.release(ToastHold::Pointer, cx),
         }
     }
 
-    /// Restarts every held toast's expiry with the time it had left.
-    pub fn release(
+    /// Holds the expiry while `window` is not the active window, as develop's toasts wait for
+    /// someone to look.
+    pub fn follow_window(
         &mut self,
+        window: &Window,
         cx: &mut Context<'_, Self>,
     ) {
-        if !self.held {
+        if window.is_window_active() {
+            return self.release(ToastHold::Window, cx);
+        }
+        self.hold(ToastHold::Window, cx);
+    }
+
+    pub(crate) fn release(
+        &mut self,
+        by: ToastHold,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let before = self.holds.len();
+        self.holds.retain(|hold| *hold != by);
+        if self.holds.len() == before || !self.holds.is_empty() {
             return;
         }
-        self.held = false;
         let waiting: Vec<(ToastId, Duration)> = self
             .entries
             .iter_mut()
@@ -128,7 +145,7 @@ mod tests {
     use gpui::TestAppContext;
 
     use crate::display::toast::test_support::{advance, push, queue};
-    use crate::display::toast::toast_queue::ToastQueue;
+    use crate::display::toast::toast_queue::toast_hold::ToastHold;
     use crate::display::toast::toast_queue::toast_id::ToastId;
     use crate::display::toast::toast_queue::toast_lifetime::ToastLifetime;
     use crate::foundation::tokens::timing;
@@ -155,17 +172,25 @@ mod tests {
     }
 
     #[gpui::test]
-    fn a_held_queue_keeps_its_toasts_and_releasing_it_resumes_the_time_they_had_left(
+    fn a_held_queue_keeps_its_toasts_until_nothing_holds_and_then_resumes_the_time_they_had_left(
         cx: &mut TestAppContext
     ) {
         let queue = queue(cx);
         push(&queue, ToastLifetime::Auto, cx);
         advance(cx, Duration::from_secs(3));
-        queue.update(cx, ToastQueue::hold);
+        queue.update(cx, |queue, cx| queue.hold(ToastHold::Pointer, cx));
+        queue.update(cx, |queue, cx| queue.hold(ToastHold::Window, cx));
         push(&queue, ToastLifetime::Auto, cx);
         advance(cx, Duration::from_secs(60));
         assert_eq!(queue.read_with(cx, |queue, _| queue.len()), 2, "held");
-        queue.update(cx, ToastQueue::release);
+        queue.update(cx, |queue, cx| queue.release(ToastHold::Pointer, cx));
+        advance(cx, Duration::from_secs(60));
+        assert_eq!(
+            queue.read_with(cx, |queue, _| queue.len()),
+            2,
+            "the inactive window still holds after the pointer leaves"
+        );
+        queue.update(cx, |queue, cx| queue.release(ToastHold::Window, cx));
         advance(cx, Duration::from_secs(2) + timing::SLOW);
         assert_eq!(
             queue.read_with(cx, |queue, _| queue.len()),

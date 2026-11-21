@@ -70,6 +70,8 @@ impl ShellView {
             self.sidebar
                 .update(cx, |sidebar, cx| sidebar.cancel_drag(window, cx));
         }
+        self.notices
+            .update(cx, |notices, cx| notices.follow_window(window, cx));
         self.return_keyboard(window, cx);
     }
 
