@@ -1,10 +1,11 @@
-import { fitTitle } from './fit-title'
+import { fitDisplayText, fitTitle } from './fit-title'
 import type { LifecycleMessage } from './lifecycle-message'
 import type { PaneChannel } from './pane-channel'
 import type { PaneFrame } from './pane-frame'
 import type { PaneParams } from './pane-params'
 import type { ReviewViewedFrame } from './review-viewed-frame'
 import type { ViewedChange } from './viewed-change'
+import type { PaneToast } from './pane-toast'
 import type { SettingValues } from './setting-values'
 import type { ShellFrame } from './shell-frame'
 import type { ThemeTokens } from './theme-tokens'
@@ -135,6 +136,19 @@ export class PaneClient {
       throw new RangeError(`pane state is ${size} bytes; the limit is ${MAX_STATE_BYTES}`)
     }
     this.send({ kind: 'pane.setState', state })
+  }
+
+  /** Shows a toast in the shell's toast host, or rewrites the one shown under the same key; text over the shell's limit is cut. */
+  showToast(toast: PaneToast): void {
+    const { description, ...rest } = toast
+    const title = fitDisplayText(toast.title)
+    const detail = description === undefined ? {} : { description: fitDisplayText(description) }
+    this.send({ kind: 'shell.toast', ...rest, key: fitDisplayText(toast.key), title, ...detail })
+  }
+
+  /** Takes down the toast shown under `key`. */
+  closeToast(key: string): void {
+    this.send({ kind: 'shell.toastClose', key: fitDisplayText(key) })
   }
 
   /** Asks the shell to open another pane. */

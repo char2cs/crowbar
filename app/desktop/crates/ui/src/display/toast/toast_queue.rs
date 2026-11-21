@@ -92,14 +92,23 @@ impl ToastQueue {
         key: &str,
         cx: &mut Context<'_, Self>,
     ) {
-        let held = self
+        self.clear_matching(|held| held == key, cx);
+    }
+
+    /// Dismisses every live toast whose key `matches`, such as all the toasts of a closed pane.
+    pub fn clear_matching(
+        &mut self,
+        matches: impl Fn(&str) -> bool,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let held: Vec<ToastId> = self
             .entries
             .iter()
-            .find(|entry| {
-                entry.key.as_ref().is_some_and(|held| held.as_ref() == key) && !entry.leaving
-            })
-            .map(|entry| entry.id);
-        if let Some(id) = held {
+            .filter(|entry| !entry.leaving)
+            .filter(|entry| entry.key.as_ref().is_some_and(|key| matches(key.as_ref())))
+            .map(|entry| entry.id)
+            .collect();
+        for id in held {
             self.dismiss(id, cx);
         }
     }
@@ -247,6 +256,17 @@ mod tests {
         })
     }
 
+    fn show_daemon_as(
+        queue: &Entity<ToastQueue>,
+        key: &'static str,
+        cx: &mut TestAppContext,
+    ) {
+        queue.update(cx, |queue, cx| {
+            let content = ToastContent::new(ToastKind::Info, key);
+            queue.show(key, (content, ToastLifetime::Pinned), cx);
+        });
+    }
+
     fn record_removals(
         queue: &Entity<ToastQueue>,
         sink: &Rc<RefCell<Vec<ToastQueueEvent>>>,
@@ -336,6 +356,28 @@ mod tests {
         assert!(queue.read_with(cx, |queue, _| queue.is_empty()));
         let third = show_daemon(&queue, ("down again", ToastLifetime::Auto), cx);
         assert_ne!(first, third, "a cleared key starts a new toast");
+    }
+
+    #[gpui::test]
+    fn clearing_by_match_takes_down_every_matching_keyed_toast(cx: &mut TestAppContext) {
+        let queue = queue(cx);
+        let kept = push(&queue, ToastLifetime::Pinned, cx);
+        for key in ["pane:a:1", "pane:a:2", "pane:b:1"] {
+            show_daemon_as(&queue, key, cx);
+        }
+        queue.update(cx, |queue, cx| {
+            queue.clear_matching(|key| key.starts_with("pane:a:"), cx);
+        });
+        advance(cx, timing::SLOW);
+        let left = queue.read_with(cx, |queue, _| {
+            queue
+                .entries
+                .iter()
+                .map(|e| e.message.to_string())
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(left, ["pane:b:1", "Saved"]);
+        assert_eq!(queue.read_with(cx, |queue, _| queue.entries[1].id), kept);
     }
 
     #[gpui::test]

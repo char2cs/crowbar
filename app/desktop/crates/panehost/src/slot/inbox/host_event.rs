@@ -1,7 +1,7 @@
 use browser::PageUpdate;
 use protocol::{
-    CommandId, ExternalUrl, FsPath, PaneId, PaneState, PaneTitle, PaneTypeId, Params, SettingKey,
-    ViewedFile,
+    CommandId, DisplayText, ExternalUrl, FsPath, PaneId, PaneState, PaneTitle, PaneToast,
+    PaneTypeId, Params, SettingKey, ViewedFile,
 };
 use serde_json::Value;
 
@@ -111,6 +111,20 @@ pub enum HostEvent {
         pane: PaneId,
         /// The dropped files that are absolute paths.
         paths: Vec<FsPath>,
+    },
+    /// A pane asked the shell to show a toast, or to rewrite the one it showed under the same key.
+    ToastShown {
+        /// The pane.
+        pane: PaneId,
+        /// The toast.
+        toast: PaneToast,
+    },
+    /// A pane took down the toast it showed under `key`.
+    ToastClosed {
+        /// The pane.
+        pane: PaneId,
+        /// The pane's id for the toast.
+        key: DisplayText,
     },
     /// A browser pane's page reported its address, load state or title.
     BrowserPage {

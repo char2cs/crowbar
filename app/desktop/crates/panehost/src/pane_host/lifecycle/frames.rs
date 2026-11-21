@@ -106,6 +106,8 @@ impl PaneHost {
                 files,
                 viewed,
             },
+            PaneFrame::Toast(toast) => HostEvent::ToastShown { pane, toast },
+            PaneFrame::ToastClose { key } => HostEvent::ToastClosed { pane, key },
         };
         Ok(vec![event])
     }
@@ -355,6 +357,35 @@ mod tests {
             register(&mut f, "p1", "core.chat"),
             [HostEvent::Mounted { pane }]
         );
+    }
+
+    #[test]
+    fn toast_frames_become_their_events() {
+        let pane = PaneId::new("p1").unwrap();
+        let key = DisplayText::new("save").unwrap();
+        let toast = protocol::PaneToast {
+            key: key.clone(),
+            tone: protocol::ToastTone::Error,
+            title: DisplayText::new("Save the file").unwrap(),
+            description: Some(DisplayText::new("disk full").unwrap()),
+            pinned: false,
+        };
+        let cases: Vec<Case> = vec![
+            (
+                "a toast frame",
+                PaneFrame::Toast(toast.clone()),
+                HostEvent::ToastShown {
+                    pane: pane.clone(),
+                    toast,
+                },
+            ),
+            (
+                "a toast close frame",
+                PaneFrame::ToastClose { key: key.clone() },
+                HostEvent::ToastClosed { pane, key },
+            ),
+        ];
+        assert_events(cases);
     }
 
     #[test]

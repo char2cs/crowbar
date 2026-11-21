@@ -5,10 +5,12 @@ use crate::control::call::EventName;
 use crate::control::call::MethodName;
 use crate::control::call::RequestId;
 use crate::control::config::SettingKey;
+use crate::control::payload::DisplayText;
 use crate::control::payload::ExternalUrl;
 use crate::control::payload::FsPath;
 use crate::control::payload::PaneState;
 use crate::control::payload::PaneTitle;
+use crate::control::payload::PaneToast;
 use crate::control::payload::Params;
 use crate::control::payload::ViewedFile;
 use crate::control::sdk_version::SdkVersion;
@@ -129,6 +131,16 @@ pub enum PaneFrame {
         /// The absolute path.
         path: FsPath,
     },
+    /// `shell.toast`: shows a toast in the shell's toast host. A toast already shown under the
+    /// same key by this pane is rewritten in place. Nothing is answered.
+    #[serde(rename = "shell.toast")]
+    Toast(PaneToast),
+    /// `shell.toastClose`: takes down the toast this pane showed under `key`.
+    #[serde(rename = "shell.toastClose")]
+    ToastClose {
+        /// The pane's id for the toast.
+        key: DisplayText,
+    },
 }
 
 #[cfg(test)]
@@ -141,6 +153,9 @@ mod tests {
             r#"{"kind":"shell.openExternal","url":"https://example.com/"}"#,
             r#"{"kind":"shell.reveal","path":"/tmp/a b"}"#,
             r#"{"kind":"review.setViewed","files":[{"path":"src/a.ts","signature":"M||1|0"}],"viewed":true}"#,
+            r#"{"kind":"shell.toast","key":"t1","tone":"error","title":"Save the file","description":"disk full","pinned":false}"#,
+            r#"{"kind":"shell.toast","key":"t2","tone":"loading","title":"Taking the prompt back…","pinned":true}"#,
+            r#"{"kind":"shell.toastClose","key":"t2"}"#,
         ];
         for text in cases {
             let frame: PaneFrame = serde_json::from_str(text).unwrap();
@@ -153,6 +168,7 @@ mod tests {
         let cases = [
             r#"{"kind":"shell.openExternal","url":"file:///etc/passwd"}"#,
             r#"{"kind":"shell.reveal","path":"relative"}"#,
+            r#"{"kind":"shell.toast","key":"t1","tone":"shout","title":"x"}"#,
         ];
         for text in cases {
             assert!(serde_json::from_str::<PaneFrame>(text).is_err(), "{text}");

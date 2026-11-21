@@ -11,6 +11,7 @@ use layout::Command;
 use crate::dropped_files;
 use crate::event_commands::commands_for;
 use crate::outcome::Outcome;
+use crate::pane_toast_change::PaneToastChange;
 
 impl ShellState {
     pub(crate) fn sync(
@@ -83,10 +84,7 @@ impl ShellState {
             HostEvent::HoverChanged { pane, hovered } => outcome.hover.push((pane, hovered)),
             HostEvent::PageFocused { pane } => outcome.focused.push(pane),
             HostEvent::SettingRequested { key, value, .. } => outcome.settings.push((key, value)),
-            HostEvent::OpenExternal { url } => log_failure(platform::open_external(url.as_str())),
-            HostEvent::Reveal { path } => {
-                log_failure(platform::reveal_in_file_manager(Path::new(path.as_str())));
-            },
+            HostEvent::OpenExternal { .. } | HostEvent::Reveal { .. } => open_in_system(event),
             HostEvent::FilesDropped { pane, paths }
                 if dropped_files::opens_files(self.history.layout(), &pane) =>
             {
@@ -100,6 +98,9 @@ impl ShellState {
             },
             HostEvent::BrowserPage { pane, update } => self.note_page(pane, update, outcome),
             HostEvent::PointerMoved { pane, x, y } => outcome.pointer = Some((pane, x, y)),
+            HostEvent::ToastShown { .. } | HostEvent::ToastClosed { .. } => {
+                outcome.toasts.extend(PaneToastChange::of(event));
+            },
         }
     }
 
@@ -198,6 +199,18 @@ fn note_review(
     outcome.viewed.push((pane, marks.collect()));
 }
 
+fn open_in_system(event: HostEvent) {
+    match event {
+        HostEvent::OpenExternal { url } => {
+            log_failure(platform::open_external(url.as_str()));
+        },
+        HostEvent::Reveal { path } => {
+            log_failure(platform::reveal_in_file_manager(Path::new(path.as_str())));
+        },
+        _ => {},
+    }
+}
+
 fn log_failure<E: std::fmt::Display>(served: Result<(), E>) {
     if let Err(error) = served {
         tracing::warn!(%error, "a pane's request could not be served");
@@ -243,6 +256,47 @@ mod tests {
             text,
         });
         assert_eq!(outcome.pointer, Some((pane, 3.5, 120.0)), "the latest move");
+    }
+
+    fn toasts_after(
+        rig: &mut crate::test_support::ShellRig,
+        pane: &PaneId,
+        text: &str,
+    ) -> Vec<PaneToastChange> {
+        let message = IpcMessage {
+            pane: pane.clone(),
+            text: text.to_owned(),
+        };
+        rig.shell.handle_ipc(message).toasts
+    }
+
+    #[test]
+    fn a_pane_toast_and_its_close_reach_the_toast_host() {
+        let mut rig = shell_rig();
+        let pane = synced_chat(&mut rig);
+        let frames = [
+            r#"{"sdk":1,"kind":"shell.toast","key":"t1","tone":"error","title":"Save the file"}"#,
+            r#"{"sdk":1,"kind":"shell.toastClose","key":"t1"}"#,
+        ];
+        let toasts: Vec<PaneToastChange> = frames
+            .iter()
+            .flat_map(|text| toasts_after(&mut rig, &pane, text))
+            .collect();
+        let key = protocol::DisplayText::new("t1").unwrap();
+        let shown = protocol::PaneToast {
+            key: key.clone(),
+            tone: protocol::ToastTone::Error,
+            title: protocol::DisplayText::new("Save the file").unwrap(),
+            description: None,
+            pinned: false,
+        };
+        assert_eq!(
+            toasts,
+            [
+                PaneToastChange::Shown(pane.clone(), shown),
+                PaneToastChange::Closed(pane, key)
+            ]
+        );
     }
 
     #[test]

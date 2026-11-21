@@ -1,5 +1,6 @@
 import type { PaneParams } from './pane-params'
 import type { ViewedFile } from './viewed-file'
+import type { PaneToast } from './pane-toast'
 
 /** The frames a pane sends; each is wrapped as `{ sdk: 1, ...frame }`. */
 export type PaneFrame =
@@ -16,3 +17,5 @@ export type PaneFrame =
   | { kind: 'shell.reveal'; path: string }
   | { kind: 'settings.set'; version: number; key: string; value: unknown }
   | { kind: 'review.setViewed'; files: ViewedFile[]; viewed: boolean }
+  | ({ kind: 'shell.toast' } & PaneToast)
+  | { kind: 'shell.toastClose'; key: string }

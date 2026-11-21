@@ -44,6 +44,7 @@ impl ShellView {
         let mut outcome = self.state.handle_ipc(message);
         let page_took_focus = !outcome.focused.is_empty();
         let pointer = outcome.pointer.take();
+        self.show_pane_toasts(std::mem::take(&mut outcome.toasts), cx);
         self.apply_outcome(outcome, cx);
         self.replay_pointer(pointer, window, cx);
         if !page_took_focus {

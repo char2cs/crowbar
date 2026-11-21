@@ -34,6 +34,7 @@ mod notices;
 mod outcomes;
 mod pane_commands;
 mod pane_settings_watch;
+mod pane_toasts;
 mod pane_wiring;
 mod panes;
 mod pick_effect;
@@ -254,6 +255,7 @@ impl ShellView {
             view.set_tab(tab, cx);
         });
         self.announce_evictions(cx);
+        self.drop_toasts_of_closed_panes(cx);
         self.sync(cx);
         self.state.publish_tabs();
         cx.notify();
@@ -359,7 +361,7 @@ mod tests {
         pub(super) window: gpui::VisualTestContext,
         top: gpui::VisualTestContext,
         mock: Rc<webview::MockPlatform>,
-        pane: protocol::PaneId,
+        pub(super) pane: protocol::PaneId,
         preferences: Arc<crate::test_support::MemoryPreferences>,
     }
 
