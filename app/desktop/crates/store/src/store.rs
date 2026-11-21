@@ -174,6 +174,8 @@ impl Store {
     ) {
         self.hub
             .edit(|state| state.panels.follow(chat.map(str::to_owned)));
+        self.fleet
+            .steer(None, crate::live::StreamControl::FollowFiles);
         panel_loader::followed_ask::ask(&self.hub, &self.commands.handle);
     }
 }
@@ -236,6 +238,7 @@ mod tests {
         requests: mpsc::UnboundedReceiver<String>,
         changed: Arc<Notify>,
         opened: Opened,
+        daemon: Arc<FakeDaemon>,
     }
 
     fn start() -> Rig {
@@ -246,7 +249,7 @@ mod tests {
             r#"[{"id":"claude","enabled":true,"connected":true}]"#,
         );
         daemon.ok("POST", "/v0/projects/p/home/chats", "{}");
-        let transport: Arc<dyn DaemonTransport> = daemon;
+        let transport: Arc<dyn DaemonTransport> = Arc::<FakeDaemon>::clone(&daemon);
         let (frames_in, incoming) = mpsc::channel(64);
         let (outgoing, requests) = mpsc::unbounded_channel();
         let changed = Arc::new(Notify::new());
@@ -273,6 +276,7 @@ mod tests {
             requests,
             changed,
             opened,
+            daemon,
         }
     }
 
@@ -289,6 +293,36 @@ mod tests {
                 .await
                 .unwrap();
             until_ready(&self.data, &self.changed).await;
+        }
+
+        async fn until(
+            &self,
+            ready: impl Fn(&State) -> bool,
+        ) -> bool {
+            let reached = reached(&self.data.hub, &self.changed, ready);
+            tokio::time::timeout(STUCK, reached).await.is_ok()
+        }
+
+        async fn next_request(&mut self) -> Option<String> {
+            let asked = tokio::time::timeout(STUCK, self.requests.recv()).await;
+            asked.ok().flatten()
+        }
+
+        async fn send(
+            &self,
+            frame: &str,
+        ) {
+            self.frames_in.send(frame.to_owned()).await.unwrap();
+        }
+    }
+
+    async fn reached(
+        hub: &Hub,
+        changed: &Notify,
+        ready: impl Fn(&State) -> bool,
+    ) {
+        while !hub.read(&ready) {
+            changed.notified().await;
         }
     }
 
@@ -380,6 +414,51 @@ mod tests {
         for case in CASES {
             case().await;
         }
+    }
+
+    const ONE_FILE: &str = r#"[{"name":"a.txt","path":"a.txt","type":"file"}]"#;
+    const TWO_FILES: &str = r#"[{"name":"a.txt","path":"a.txt","type":"file"},{"name":"b.txt","path":"b.txt","type":"file"}]"#;
+    const B_CREATED: &str = r#"{"t":"signal","scope":"files:hw","kind":"file_change","data":{"type":"created","path":"b.txt","wsId":"hw"}}"#;
+    const FILES_SYNCED: &str = r#"{"t":"synced","scope":"files:hw"}"#;
+    const ROOT: &str = "/v0/chats/hc/files/tree?path=.";
+
+    fn root_names(state: &State) -> Vec<String> {
+        let root = state.panels.listings.get("").into_iter().flatten();
+        root.map(|entry| entry.name.clone()).collect()
+    }
+
+    const STUCK: std::time::Duration = std::time::Duration::from_secs(5);
+
+    fn b_listed_on_feature(state: &State) -> bool {
+        root_names(state) == ["a.txt", "b.txt"] && state.panels.changes.branch == "feature"
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_focused_workspaces_files_scope_is_held_and_its_changes_relist_the_tree() {
+        let mut rig = start();
+        rig.hear_the_space().await;
+        rig.daemon.ok("GET", ROOT, ONE_FILE);
+        rig.data.focus_chat(Some("hc"));
+        let held = Some(r#"{"op":"sub","scope":"files:hw"}"#.to_owned());
+        assert_eq!(rig.next_request().await, held);
+        assert!(rig.until(|state| root_names(state) == ["a.txt"]).await);
+        rig.daemon.ok("GET", ROOT, TWO_FILES);
+        let status = r#"{"branch":"feature","files":[]}"#;
+        rig.daemon.ok("GET", "/v0/chats/hc/git/status", status);
+        rig.send(B_CREATED).await;
+        assert!(
+            rig.until(b_listed_on_feature).await,
+            "a created file re-lists its folder and git"
+        );
+        rig.daemon.ok("GET", ROOT, ONE_FILE);
+        rig.send(FILES_SYNCED).await;
+        assert!(
+            rig.until(|state| root_names(state) == ["a.txt"]).await,
+            "a snapshot re-lists the root"
+        );
+        rig.data.focus_chat(None);
+        let released = Some(r#"{"op":"unsub","scope":"files:hw"}"#.to_owned());
+        assert_eq!(rig.next_request().await, released);
     }
 
     #[tokio::test]

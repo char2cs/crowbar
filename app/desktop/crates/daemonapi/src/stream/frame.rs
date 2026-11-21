@@ -65,10 +65,16 @@ pub enum Frame {
         /// The scope.
         scope: String,
     },
-    /// An unversioned fact about a scope.
+    /// An unversioned fact about a scope, such as a file change.
     Signal {
         /// The scope.
         scope: String,
+        /// What the fact is, such as `file_change`.
+        #[serde(default)]
+        kind: String,
+        /// Its payload, whose shape the kind names.
+        #[serde(default)]
+        data: Option<Value>,
     },
 }
 
@@ -109,6 +115,18 @@ mod tests {
     fn an_unknown_type_is_an_error() {
         assert!(Frame::decode(r#"{"t":"gossip"}"#).is_err());
         assert!(Frame::decode("nope").is_err());
+    }
+
+    #[test]
+    fn a_signal_carries_its_kind_and_data() {
+        let frame = Frame::decode(
+            r#"{"t":"signal","scope":"files:w","kind":"file_change","data":{"type":"deleted","path":"a"}}"#,
+        );
+        let Ok(Frame::Signal { kind, data, .. }) = frame else {
+            panic!("not a signal: {frame:?}");
+        };
+        assert_eq!(kind, "file_change");
+        assert_eq!(data, Some(serde_json::json!({"type":"deleted","path":"a"})));
     }
 
     #[test]

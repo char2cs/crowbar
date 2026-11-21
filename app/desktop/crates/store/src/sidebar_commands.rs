@@ -75,7 +75,8 @@ impl SidebarCommands {
         let host = self
             .hub
             .read(|state| host_of(state, project).map(|slot| slot.spec.id.clone()));
-        self.fleet.resubscribe(host.as_deref());
+        self.fleet
+            .steer(host.as_deref(), crate::live::StreamControl::Resubscribe);
     }
 
     fn toggle(

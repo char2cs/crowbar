@@ -2,6 +2,9 @@
 
 mod backoff;
 mod ended;
+mod file_change;
+mod files_hold;
+mod files_wire;
 mod icon_ask;
 mod icon_fetch;
 mod step;
@@ -15,6 +18,7 @@ use tokio::sync::mpsc;
 
 use crate::live::fleet::host_stream::backoff::Backoff;
 use crate::live::fleet::host_stream::ended::Ended;
+use crate::live::fleet::host_stream::files_hold::FilesHold;
 use crate::live::fleet::host_stream::step::{Step, next_step};
 use crate::live::fleet::host_stream::terminal_offer::read_terminal_support;
 use crate::live::fleet::stream_control::StreamControl;
@@ -90,49 +94,59 @@ impl HostStream {
             mut incoming,
             outgoing,
         } = connection;
+        let mut files = None;
         loop {
             match next_step(&mut incoming, controls).await {
                 Step::Frame(None) => return Ended::Dropped,
-                Step::Frame(Some(text)) => self.on_text(&text, &outgoing, backoff),
-                Step::Control(Some(StreamControl::Resubscribe)) => self.subscribe(&outgoing),
+                Step::Frame(Some(text)) => self.on_text(&text, (&outgoing, &mut files), backoff),
+                Step::Control(Some(control)) => self.steer(control, (&outgoing, &mut files)),
                 Step::Control(None) => return Ended::Stopped,
             }
+        }
+    }
+
+    fn steer(
+        &self,
+        control: StreamControl,
+        (outgoing, files): Wire<'_>,
+    ) {
+        match control {
+            StreamControl::Resubscribe => self.subscribe(outgoing),
+            StreamControl::FollowFiles => FilesHold::sync_held(files, outgoing),
         }
     }
 
     fn on_text(
         &self,
         text: &str,
-        outgoing: &mpsc::UnboundedSender<String>,
+        wire: Wire<'_>,
         backoff: &mut Backoff,
     ) {
-        let Some(frame) = self.decode(text) else {
+        let decoded = Frame::decode(text).inspect_err(|error| {
+            tracing::warn!(host = %self.host, %error, "a stream frame was unreadable and skipped");
+        });
+        let Ok(frame) = decoded else {
             return;
         };
         if matches!(frame, Frame::Ready { .. }) {
             backoff.reset();
         }
-        self.react(frame, outgoing);
-    }
-
-    fn decode(
-        &self,
-        text: &str,
-    ) -> Option<Frame> {
-        Frame::decode(text)
-            .inspect_err(|error| {
-                tracing::warn!(host = %self.host, %error, "a stream frame was unreadable and skipped");
-            })
-            .ok()
+        self.react(frame, wire);
     }
 
     fn react(
         &self,
         frame: Frame,
-        outgoing: &mpsc::UnboundedSender<String>,
+        (outgoing, files): Wire<'_>,
     ) {
+        if files
+            .as_ref()
+            .is_some_and(|held| held.hear(&frame, outgoing))
+        {
+            return;
+        }
         match &frame {
-            Frame::Ready { .. } => self.on_ready(frame, outgoing),
+            Frame::Ready { .. } => self.on_ready(frame, (outgoing, files)),
             Frame::Closed { scope, reason, .. } if scope == PROJECTS_SCOPE && reason == RESYNC => {
                 self.subscribe(outgoing);
             },
@@ -146,18 +160,23 @@ impl HostStream {
             Frame::Error { problem } => {
                 tracing::warn!(host = %self.host, ?problem, "the daemon refused a stream request");
             },
-            _ => self.apply(frame),
+            _ => {
+                self.apply(frame);
+                FilesHold::sync_held(files, outgoing);
+            },
         }
     }
 
     fn on_ready(
         &self,
         frame: Frame,
-        outgoing: &mpsc::UnboundedSender<String>,
+        (outgoing, files): Wire<'_>,
     ) {
         self.set_link(LinkState::Live);
         self.apply(frame);
         self.subscribe(outgoing);
+        let held = files.insert(FilesHold::new(&self.hub, &self.host));
+        held.sync(outgoing);
         self.learn_providers();
     }
 
@@ -194,6 +213,8 @@ impl HostStream {
         }
     }
 }
+
+type Wire<'a> = (&'a mpsc::UnboundedSender<String>, &'a mut Option<FilesHold>);
 
 #[cfg(test)]
 mod tests {

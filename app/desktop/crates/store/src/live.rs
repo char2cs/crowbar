@@ -10,7 +10,9 @@ mod state;
 
 pub(crate) use files::{DiskFiles, Files, read_text};
 pub use fleet::{BookError, BookFuture, HostBook, HostDesk, HostNotes, Note, PairingRequest};
-pub(crate) use fleet::{Dialled, Fleet, Provider, Roster, Surface, relay_for, slot_for};
+pub(crate) use fleet::{
+    Dialled, Fleet, Provider, Roster, StreamControl, Surface, relay_for, slot_for,
+};
 pub use held::HostSpec;
 pub(crate) use held::{
     ChatRecord, Entities, FileEntry, FolderRecord, HostSlot, IconCache, Item, LinkState,

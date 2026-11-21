@@ -11,6 +11,7 @@ pub(crate) use catalog::{Provider, Surface};
 pub(crate) use host_desk::Roster;
 pub use host_desk::{BookError, BookFuture, HostBook, HostDesk, HostNotes, Note, PairingRequest};
 pub(crate) use host_dialling::{Dialled, relay_for, slot_for};
+pub(crate) use stream_control::StreamControl;
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -23,7 +24,6 @@ use tokio::sync::mpsc;
 use crate::error::{Error, Result};
 use crate::live::fleet::host_stream::HostStream;
 use crate::live::fleet::member::Member;
-use crate::live::fleet::stream_control::StreamControl;
 use crate::live::held::HostSpec;
 use crate::live::state::Hub;
 
@@ -121,14 +121,15 @@ impl Fleet {
         self.hub.edit(|state| state.remove_host(host));
     }
 
-    pub(crate) fn resubscribe(
+    pub(crate) fn steer(
         &self,
         host: Option<&str>,
+        control: StreamControl,
     ) {
         self.held()
             .iter()
             .filter(|(id, _)| host.is_none_or(|wanted| wanted == id.as_str()))
-            .for_each(|(id, member)| resubscribe(id, member));
+            .for_each(|(id, member)| tell(id, member, control));
     }
 
     pub(crate) fn stop_all(&self) {
@@ -136,12 +137,13 @@ impl Fleet {
     }
 }
 
-fn resubscribe(
+fn tell(
     id: &str,
     member: &Member,
+    control: StreamControl,
 ) {
-    if member.control.send(StreamControl::Resubscribe).is_err() {
-        tracing::warn!(host = %id, "the stream task is gone; the chats cannot be reloaded");
+    if member.control.send(control).is_err() {
+        tracing::warn!(host = %id, ?control, "the stream task is gone; it cannot be steered");
     }
 }
 
