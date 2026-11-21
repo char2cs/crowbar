@@ -53,6 +53,7 @@ mod tab_strip;
 mod terminal_files;
 mod terminal_life;
 mod terminal_links;
+mod terminal_zoom;
 #[cfg(test)]
 mod test_support;
 mod watches;

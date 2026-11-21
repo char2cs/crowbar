@@ -27,6 +27,7 @@ impl ShellView {
             },
             Event::OpenFile { path, line } => self.open_printed_file(pane, (&path, line), cx),
             Event::Exited(_) => self.close_terminal(pane, cx),
+            Event::FontSizeChanged(size) => self.store_terminal_font_size(size),
             _ => {},
         }
     }
