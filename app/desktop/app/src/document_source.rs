@@ -3,6 +3,7 @@ use store::{Documents, FileDone, FileError};
 
 use crate::document_request::DocumentRequest;
 use crate::request_queue::send;
+use crate::saved_file::SavedFile;
 use crate::shell_request::ShellRequest;
 
 pub(crate) trait DocumentSource {
@@ -78,6 +79,20 @@ fn failure_of(
 ) -> editor::OpenFailure {
     let (status, code) = error.refusal();
     editor::OpenFailure::of(file.as_str(), status, code)
+}
+
+pub(crate) fn saved_as_into(
+    requests: async_channel::Sender<ShellRequest>,
+    pane: PaneId,
+    saved: SavedFile,
+) -> FileDone<()> {
+    Box::new(move |result| {
+        let request = match result {
+            Ok(()) => ShellRequest::Document(DocumentRequest::SavedAs { pane, saved }),
+            Err(error) => save_failed(pane, &error),
+        };
+        send(&requests, request);
+    })
 }
 
 pub(crate) fn save_failed(

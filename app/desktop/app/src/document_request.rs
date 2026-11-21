@@ -18,6 +18,11 @@ pub(crate) enum DocumentRequest {
         pane: protocol::PaneId,
         text: String,
     },
+    /// An untitled pane's text reached the file it was saved as.
+    SavedAs {
+        pane: protocol::PaneId,
+        saved: crate::saved_file::SavedFile,
+    },
     /// A file pane's save failed, with the daemon's reason.
     SaveFailed {
         pane: protocol::PaneId,

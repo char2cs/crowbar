@@ -76,6 +76,20 @@ impl EditorView {
         self.state.read(cx).text() != &self.saved
     }
 
+    /// The view now shows the file at `path`: its toolbar and its language follow it.
+    pub fn rebind(
+        &mut self,
+        path: &str,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let toolbar = Toolbar::of(path);
+        let language = crate::highlight_name::of(toolbar.language());
+        self.state
+            .update(cx, |state, cx| state.set_highlighter(language, cx));
+        self.toolbar = Some(toolbar);
+        cx.notify();
+    }
+
     /// `text` is now on disk: the view is clean again while it still holds that text.
     pub fn mark_saved(
         &mut self,
@@ -218,6 +232,14 @@ mod tests {
         cx.add_window_view(|window, cx| EditorView::new(opening, window, cx))
     }
 
+    fn language_of(
+        view: &Entity<EditorView>,
+        cx: &App,
+    ) -> Option<&'static str> {
+        let toolbar = view.read(cx).toolbar.as_ref();
+        toolbar.map(|toolbar| toolbar.language().display_name())
+    }
+
     pub(super) fn listened(
         view: &Entity<EditorView>,
         window: &mut gpui::VisualTestContext,
@@ -280,5 +302,15 @@ mod tests {
             EditorEvent::SaveRequested,
         ];
         assert_eq!(*heard.borrow(), expected);
+    }
+
+    #[gpui::test]
+    fn a_rebound_view_follows_its_new_file_s_language(cx: &mut TestAppContext) {
+        let (view, window) = opened(("a", None), Access::Editable, cx);
+        let language =
+            |window: &mut gpui::VisualTestContext| window.read(|cx| language_of(&view, cx));
+        assert_eq!(language(window), Some("TypeScript"), "src/a.ts");
+        window.update(|_, cx| view.update(cx, |view, cx| view.rebind("notes.md", cx)));
+        assert_eq!(language(window), Some("Markdown"));
     }
 }

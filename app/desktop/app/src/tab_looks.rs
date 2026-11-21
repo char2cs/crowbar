@@ -5,7 +5,7 @@ use ui::IconName;
 use crate::chat_label::NEW_CHAT;
 use crate::core_panes::{BROWSER, CHAT, CONSOLE, EDITOR, NEW_TAB, REVIEW, TERMINAL};
 
-const UNTITLED: &str = "Untitled";
+pub(crate) const UNTITLED: &str = "Untitled";
 const THREAD_ID: &str = "threadId";
 
 pub(crate) fn tab_look(

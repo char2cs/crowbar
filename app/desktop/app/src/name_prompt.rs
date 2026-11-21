@@ -4,21 +4,39 @@ use gpui::{
 };
 use ui::{Button, ButtonVariant, Dialog, DialogSize, Surface, TextInput, TextInputEvent};
 
-use crate::rename_event::RenameEvent;
+use crate::name_event::NameEvent;
+use crate::prompt_words::PromptWords;
 
 const BUTTON_GAP: f32 = 8.0;
 const PLACEHOLDER: &str = "Name";
 
-pub(crate) struct RenamePrompt {
+pub(crate) const RENAME: PromptWords = PromptWords {
+    dialog: "rename-prompt",
+    title: "Rename Tab",
+    cancel_id: "rename-prompt-cancel",
+    confirm_id: "rename-prompt-confirm",
+    confirm: "Rename",
+};
+
+pub(crate) const SAVE_AS: PromptWords = PromptWords {
+    dialog: "save-as-prompt",
+    title: "Save as:",
+    cancel_id: "save-as-prompt-cancel",
+    confirm_id: "save-as-prompt-confirm",
+    confirm: "OK",
+};
+
+pub(crate) struct NamePrompt {
+    words: PromptWords,
     field: Entity<TextInput>,
     _watch: gpui::Subscription,
 }
 
-impl EventEmitter<RenameEvent> for RenamePrompt {}
+impl EventEmitter<NameEvent> for NamePrompt {}
 
-impl RenamePrompt {
+impl NamePrompt {
     pub(crate) fn new(
-        current: &str,
+        (current, words): (&str, PromptWords),
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> Self {
@@ -31,6 +49,7 @@ impl RenamePrompt {
             _ => {},
         });
         Self {
+            words,
             field,
             _watch: watch,
         }
@@ -41,29 +60,29 @@ impl RenamePrompt {
         cx: &mut Context<'_, Self>,
     ) {
         let name = self.field.read(cx).text().trim().to_owned();
-        cx.emit(RenameEvent::Confirmed(name));
+        cx.emit(NameEvent::Confirmed(name));
     }
 
     fn dismiss(cx: &mut Context<'_, Self>) {
-        cx.emit(RenameEvent::Dismissed);
+        cx.emit(NameEvent::Dismissed);
     }
 }
 
-impl Render for RenamePrompt {
+impl Render for NamePrompt {
     fn render(
         &mut self,
         _: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
-        let cancel = Button::new("rename-prompt-cancel", "Cancel")
+        let cancel = Button::new(self.words.cancel_id, "Cancel")
             .variant(ButtonVariant::Ghost)
             .on_click(cx.listener(|_, _, _, cx| Self::dismiss(cx)));
-        let rename = Button::new("rename-prompt-confirm", "Rename")
+        let rename = Button::new(self.words.confirm_id, self.words.confirm)
             .variant(ButtonVariant::Secondary)
             .on_click(cx.listener(|this, _, _, cx| this.confirm(cx)));
         let prompt = cx.entity();
-        Dialog::new("rename-prompt")
-            .title("Rename Tab")
+        Dialog::new(self.words.dialog)
+            .title(self.words.title)
             .size(DialogSize::Sm)
             .body(self.field.clone())
             .footer(
@@ -73,7 +92,7 @@ impl Render for RenamePrompt {
                     .child(cancel)
                     .child(rename),
             )
-            .on_close(move |_, cx| prompt.update(cx, |_, cx| RenamePrompt::dismiss(cx)))
+            .on_close(move |_, cx| prompt.update(cx, |_, cx| NamePrompt::dismiss(cx)))
     }
 }
 
@@ -86,11 +105,11 @@ mod tests {
 
     use super::*;
 
-    type Heard = Rc<RefCell<Vec<RenameEvent>>>;
+    type Heard = Rc<RefCell<Vec<NameEvent>>>;
 
     fn recorder(
         sink: &Heard
-    ) -> impl FnMut(Entity<RenamePrompt>, &RenameEvent, &mut gpui::App) + 'static {
+    ) -> impl FnMut(Entity<NamePrompt>, &NameEvent, &mut gpui::App) + 'static {
         let sink = Rc::clone(sink);
         move |_, event, _| sink.borrow_mut().push(event.clone())
     }
@@ -98,9 +117,10 @@ mod tests {
     fn prompt(
         cx: &mut TestAppContext,
         current: &str,
-    ) -> (Entity<RenamePrompt>, Heard) {
+    ) -> (Entity<NamePrompt>, Heard) {
         cx.update(|cx| cx.set_global(ui::Theme::default()));
-        let (prompt, cx) = cx.add_window_view(|window, cx| RenamePrompt::new(current, window, cx));
+        let (prompt, cx) =
+            cx.add_window_view(|window, cx| NamePrompt::new((current, RENAME), window, cx));
         let heard = Heard::default();
         cx.update(|_, cx| cx.subscribe(&prompt, recorder(&heard)).detach());
         (prompt, heard)
@@ -116,10 +136,10 @@ mod tests {
     fn confirming_sends_the_trimmed_name(cx: &mut TestAppContext) {
         for (name, typed, sent) in CASES {
             let (prompt, heard) = prompt(cx, typed);
-            prompt.update(cx, RenamePrompt::confirm);
+            prompt.update(cx, NamePrompt::confirm);
             assert_eq!(
                 *heard.borrow(),
-                [RenameEvent::Confirmed((*sent).to_owned())],
+                [NameEvent::Confirmed((*sent).to_owned())],
                 "{name}"
             );
         }
@@ -128,7 +148,7 @@ mod tests {
     #[gpui::test]
     fn dismissing_sends_no_name(cx: &mut TestAppContext) {
         let (prompt, heard) = prompt(cx, "zsh");
-        prompt.update(cx, |_, cx| RenamePrompt::dismiss(cx));
-        assert_eq!(*heard.borrow(), [RenameEvent::Dismissed]);
+        prompt.update(cx, |_, cx| NamePrompt::dismiss(cx));
+        assert_eq!(*heard.borrow(), [NameEvent::Dismissed]);
     }
 }

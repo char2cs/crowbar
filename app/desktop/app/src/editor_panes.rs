@@ -20,6 +20,7 @@ mod landing;
 mod pane_phase;
 mod retry;
 mod saving;
+mod saving_as;
 mod unavailable_panel;
 
 pub(crate) use editor_target::EditorTarget;

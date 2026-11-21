@@ -1,4 +1,4 @@
-use gpui::Context;
+use gpui::{Context, Window};
 use protocol::{DisplayText, PaneId};
 
 use ui::{ToastContent, ToastKind, ToastLifetime};
@@ -13,14 +13,12 @@ impl ShellView {
     pub(super) fn on_document(
         &mut self,
         request: DocumentRequest,
+        window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
         match request {
             DocumentRequest::Read { pane, read } => self.land_document((&pane, read), cx),
-            DocumentRequest::Retry { pane } => {
-                self.source.native().editors().retry(&pane);
-                self.layout.update(cx, |_, cx| cx.notify());
-            },
+            DocumentRequest::Retry { pane } => self.retry_document(&pane, cx),
             DocumentRequest::Dirty { pane, dirty: true } => {
                 self.state.mark_dirty(pane);
                 self.dirty_changed(cx);
@@ -29,7 +27,8 @@ impl ShellView {
                 self.state.clear_dirty(&pane);
                 self.dirty_changed(cx);
             },
-            DocumentRequest::Save { pane } => self.source.native().editors().save(&pane, cx),
+            DocumentRequest::Save { pane } => self.save_document(&pane, window, cx),
+            DocumentRequest::SavedAs { pane, saved } => self.adopt_saved_as(&pane, &saved, cx),
             DocumentRequest::Paused { pane } if self.autosaves() => {
                 self.source.native().editors().autosave(&pane, cx);
             },
@@ -54,6 +53,15 @@ impl ShellView {
         self.layout.update(cx, |_, cx| cx.notify());
     }
 
+    fn retry_document(
+        &mut self,
+        pane: &PaneId,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.source.native().editors().retry(pane);
+        self.layout.update(cx, |_, cx| cx.notify());
+    }
+
     fn dirty_changed(
         &mut self,
         cx: &mut Context<'_, Self>,
@@ -62,7 +70,7 @@ impl ShellView {
         self.refresh(cx);
     }
 
-    fn refuse_save(
+    pub(super) fn refuse_save(
         &mut self,
         pane: &PaneId,
         reason: String,
