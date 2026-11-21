@@ -51,7 +51,7 @@ impl Row {
     }
 }
 
-fn colors(
+pub(crate) fn colors(
     action: &MenuAction,
     highlight: Pose,
     palette: &Palette,
@@ -133,6 +133,7 @@ impl RenderOnce for Row {
         let (index, handlers) = (self.index, self.handlers);
         div()
             .id(("menu-row", index))
+            .debug_selector(move || format!("menu-row-{index}"))
             .flex()
             .items_center()
             .gap(spacing::STEP_1_5)

@@ -5,12 +5,15 @@ use std::rc::Rc;
 use gpui::{App, AppContext as _, Entity, Pixels, Window};
 
 use crate::floating::menu::Menu;
+use crate::floating::menu::RowStyle;
 use crate::floating::menu::menu_item::MenuItem;
 
 #[derive(Clone)]
 pub(crate) struct Spec {
     pub(crate) items: Rc<[MenuItem]>,
     pub(crate) min_width: Option<Pixels>,
+    pub(crate) row_style: RowStyle,
+    pub(crate) highlighted: Option<usize>,
 }
 
 impl Spec {
@@ -18,6 +21,8 @@ impl Spec {
         Self {
             items,
             min_width: None,
+            row_style: RowStyle::Plain,
+            highlighted: None,
         }
     }
 
@@ -30,6 +35,8 @@ impl Spec {
             let menu = Menu::new(Rc::clone(&self.items), window, cx);
             let width = self.min_width.unwrap_or(Menu::DEFAULT_MIN_WIDTH);
             menu.min_width(width)
+                .row_style(self.row_style)
+                .highlighting(self.highlighted)
         })
     }
 }
@@ -43,8 +50,8 @@ mod tests {
 
     fn spec(min_width: Option<Pixels>) -> Spec {
         Spec {
-            items: Rc::from(Vec::<MenuItem>::new()),
             min_width,
+            ..Spec::new(Rc::from(Vec::<MenuItem>::new()))
         }
     }
 

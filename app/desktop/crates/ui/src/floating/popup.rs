@@ -43,6 +43,26 @@ pub(crate) fn placed(
     anchor.child(portal).into_any_element()
 }
 
+pub(crate) fn over(
+    id: ElementId,
+    offset: Point<Pixels>,
+    content: Content,
+) -> AnyElement {
+    let portal = Portal::here(id, move |window, cx| {
+        anchored()
+            .anchor(Corner::TopLeft)
+            .snap_to_window_with_margin(px(WINDOW_MARGIN))
+            .child(content(window, cx))
+    })
+    .priority(layer::MENU);
+    div()
+        .absolute()
+        .top(offset.y)
+        .left(offset.x)
+        .child(portal)
+        .into_any_element()
+}
+
 pub(crate) fn beside(content: impl IntoElement) -> AnyElement {
     div()
         .absolute()

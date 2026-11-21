@@ -4,9 +4,10 @@ use std::rc::Rc;
 
 use gpui::{
     AnyElement, App, DismissEvent, ElementId, Entity, InteractiveElement, IntoElement,
-    ParentElement, Pixels, RenderOnce, StatefulInteractiveElement, Styled, Window, div,
+    ParentElement, Pixels, Point, RenderOnce, StatefulInteractiveElement, Styled, Window, div,
 };
 
+use crate::floating::menu::RowStyle;
 use crate::floating::menu::menu_item::MenuItem;
 use crate::floating::menu::trigger::dropdown_state::DropdownState;
 use crate::floating::menu::trigger::spec::Spec;
@@ -23,6 +24,7 @@ pub struct DropdownMenu {
     trigger: AnyElement,
     spec: Spec,
     placement: Placement,
+    over: Option<Point<Pixels>>,
 }
 
 impl DropdownMenu {
@@ -37,6 +39,7 @@ impl DropdownMenu {
             trigger: trigger.into_any_element(),
             spec: Spec::new(items.into()),
             placement: Placement::default(),
+            over: None,
         }
     }
 
@@ -57,6 +60,19 @@ impl DropdownMenu {
         width: Pixels,
     ) -> Self {
         self.spec.min_width = Some(width);
+        self
+    }
+}
+
+impl DropdownMenu {
+    pub(crate) fn options_over(
+        mut self,
+        chosen: Option<usize>,
+        over: Point<Pixels>,
+    ) -> Self {
+        self.spec.row_style = RowStyle::Option;
+        self.spec.highlighted = chosen;
+        self.over = Some(over);
         self
     }
 }
@@ -86,12 +102,10 @@ impl RenderOnce for DropdownMenu {
             .child(popup::click_away((id.clone(), "away"), move |_, cx| {
                 close(&state, cx);
             }))
-            .child(popup::placed(
-                (id, "menu").into(),
-                self.placement,
-                OFFSET,
-                content,
-            ))
+            .child(match self.over {
+                Some(offset) => popup::over((id, "menu").into(), offset, content),
+                None => popup::placed((id, "menu").into(), self.placement, OFFSET, content),
+            })
             .into_any_element()
     }
 }

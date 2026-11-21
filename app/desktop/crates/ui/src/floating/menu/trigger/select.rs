@@ -5,12 +5,13 @@ use std::rc::Rc;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     App, ElementId, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, Pixels,
-    RenderOnce, SharedString, Styled, Window, div, px,
+    Point, RenderOnce, SharedString, Styled, Window, div, point, px,
 };
 
 use crate::floating::menu::menu_item::MenuAction;
 use crate::floating::menu::menu_item::MenuItem;
 use crate::floating::menu::trigger::dropdown_menu::DropdownMenu;
+use crate::floating::menu::{OPTION_CHECK, OPTION_GAP, OPTION_HEIGHT, OPTION_START};
 use crate::foundation::Appearance;
 use crate::foundation::Icon;
 use crate::foundation::IconName;
@@ -29,6 +30,8 @@ const DEFAULT_WIDTH: f32 = 144.0;
 const STANDARD_HEIGHT: f32 = 32.0;
 const COMPACT_HEIGHT: f32 = 28.0;
 const CARET_OPACITY: f32 = 0.8;
+const MENU_EDGE: Pixels = px(5.0);
+const OPTION_REACH: Pixels = px(30.0);
 const PLACEHOLDER_OPACITY: f32 = 0.72;
 
 /// A select box: the trigger shows the chosen option, the popup lists all of them with a check on the current one.
@@ -180,6 +183,16 @@ fn forward(
     }
 }
 
+fn over_chosen(chosen: usize) -> Point<Pixels> {
+    let rows = OPTION_HEIGHT * index_f32(chosen);
+    let x = spacing::STEP_2_5 - (MENU_EDGE + OPTION_START + OPTION_CHECK + OPTION_GAP);
+    point(x, -(MENU_EDGE + rows))
+}
+
+fn index_f32(index: usize) -> f32 {
+    u16::try_from(index).map_or(f32::from(u16::MAX), f32::from)
+}
+
 impl RenderOnce for Select {
     fn render(
         self,
@@ -193,7 +206,10 @@ impl RenderOnce for Select {
             .enumerate()
             .map(|(index, option)| self.item(index, option))
             .collect();
-        DropdownMenu::new(self.id, trigger, items).min_width(self.width)
+        let chosen = self.selected.unwrap_or(0);
+        DropdownMenu::new(self.id, trigger, items)
+            .min_width(self.width + OPTION_REACH)
+            .options_over(self.selected, over_chosen(chosen))
     }
 }
 
@@ -226,5 +242,23 @@ mod tests {
             Select::new("s", options(), Some(0)).width(px(112.0))
         });
         assert_eq!(f32::from(bounds.size.width), 144.0);
+    }
+
+    #[gpui::test]
+    fn the_list_opens_over_the_trigger_with_the_chosen_row_on_it(cx: &mut TestAppContext) {
+        let cx = crate::test_support::probe::open(cx, |_, _| {
+            div()
+                .pt(px(200.0))
+                .pl(px(100.0))
+                .child(Select::new("s", options(), Some(2)).compact())
+        });
+        cx.simulate_click(point(px(120.0), px(210.0)), gpui::Modifiers::none());
+        cx.run_until_parked();
+        let menu = cx.debug_bounds("ui-menu").unwrap_or_default();
+        let chosen = cx.debug_bounds("menu-row-2").unwrap_or_default();
+        assert_eq!(chosen.top(), px(200.0), "{chosen:?}");
+        assert_eq!(chosen.size.height, px(28.0), "{chosen:?}");
+        assert_eq!(menu.left(), px(100.0 - 27.0), "{menu:?}");
+        assert_eq!(menu.size.width, px(144.0 + 30.0), "{menu:?}");
     }
 }

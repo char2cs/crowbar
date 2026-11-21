@@ -12,11 +12,9 @@ use crate::floating::menu::navigation::actions::{CONTEXT, SelectNext, SelectPrev
 use crate::floating::menu::nested::level::Level;
 use crate::floating::menu::nested::navigation::Navigation;
 use crate::floating::menu::nested::open_submenu::OpenSubmenu;
-use crate::floating::menu::row::Row;
 use crate::floating::menu::row_handlers::{RowHandler, RowHandlers};
 use crate::foundation::Direction;
 use crate::foundation::Palette;
-use crate::foundation::Pose;
 use crate::foundation::Surface;
 use crate::foundation::Theme;
 use crate::foundation::opaque_debug;
@@ -31,6 +29,7 @@ pub struct Menu {
     pub(crate) items: Rc<[MenuItem]>,
     pub(crate) highlighted: Option<usize>,
     min_width: Pixels,
+    pub(crate) row_style: RowStyle,
     pub(crate) focus_handle: FocusHandle,
     pub(crate) level: Level,
     pub(crate) submenu: Option<OpenSubmenu<Menu>>,
@@ -39,12 +38,18 @@ pub struct Menu {
 mod menu_item;
 mod navigation;
 mod nested;
+mod option_row;
 mod row;
 mod row_handlers;
+mod row_style;
 mod trigger;
 
 pub use menu_item::{MenuAction, MenuItem};
 pub(crate) use navigation::bindings;
+pub(crate) use option_row::{
+    CHECK as OPTION_CHECK, GAP as OPTION_GAP, HEIGHT as OPTION_HEIGHT, START as OPTION_START,
+};
+pub(crate) use row_style::RowStyle;
 pub use trigger::{ContextMenu, DropdownMenu, Select};
 
 impl EventEmitter<DismissEvent> for Menu {}
@@ -95,6 +100,7 @@ impl Menu {
             items,
             highlighted: None,
             min_width: Self::DEFAULT_MIN_WIDTH,
+            row_style: RowStyle::Plain,
             focus_handle,
             level,
             submenu: None,
@@ -138,9 +144,8 @@ impl Menu {
     ) -> AnyElement {
         match item {
             MenuItem::Action(action) => {
-                let highlight = Pose::from(self.highlighted == Some(index));
-                let row = Row::new(index, action.clone(), highlight, handlers.clone());
-                self.with_submenu(index, row.into_any_element())
+                let row = self.action_row((index, action), handlers);
+                self.with_submenu(index, row)
             },
             MenuItem::Separator => div()
                 .my(spacing::STEP_1)
