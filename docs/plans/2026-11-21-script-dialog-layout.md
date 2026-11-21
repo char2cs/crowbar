@@ -30,7 +30,11 @@ view owns this allocation. WebKit's overlay grabs focus when it maps: the defaul
 alert, the entry for a prompt. That grab emits `set-focus` on the page's `GtkWindow`
 synchronously, inside WebKit's own `AddDialog`. Our handler re-allocates the web view at its
 current allocation. `webkitWebViewBaseSizeAllocate` then centres and sizes the dialog, and it
-draws.
+draws. `set-focus` also fires on ordinary focus moves, so the handler acts only when the newly
+focused widget lies inside the view, not on the view itself.
+
+Focusing a page grabs the view only when the GTK focus is not already inside it, so a dialog
+keeps its typing when the shell hands the keyboard back.
 
 The trigger is a GTK event, not an idle, a tick or a retry. Nothing else is stored: the
 allocation already lives in GTK.
@@ -40,8 +44,12 @@ allocation already lives in GTK.
 The tests live in `webview/tests/host.rs` and run on a parent with a black background, so stale
 pixels cannot pass a check:
 
-- `a_prompt_shows_over_its_page_and_answers_it`: the page goes dark, `prompt()` runs, lit pixels
-  must appear, and Return must answer "Untitled". Red before the change.
+- `a_dialog_shows_over_its_page_and_answers_it`: the page goes dark; `prompt()`, `confirm()` and
+  `alert()` each must light pixels, and Return must answer each. Red before the change.
+- `a_prompt_takes_typing_after_the_keyboard_comes_back`: the shell takes the keyboard and gives it
+  back while a prompt is open; typed text must reach the prompt.
+- `only_focus_inside_the_view_lays_it_out` (unit, `gtk_state.rs`): focus on the view itself or
+  beside it allocates nothing.
 - `a_spare_page_paints_over_the_page_it_replaces`: a regression guard for the placement path.
 
 Every webview display test runs three ways: bare Xvfb, Xvfb with openbox, and Xvfb with openbox

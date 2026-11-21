@@ -486,6 +486,12 @@ fn native_views_on_x11() -> TestResult {
         &host,
         parent,
     )?;
+    script_dialog::a_prompt_takes_typing_after_the_keyboard_comes_back(
+        &connection,
+        &screen,
+        &host,
+        parent,
+    )?;
     a_focused_view_takes_keys_while_the_pointer_is_elsewhere(&connection, &screen, &host, parent)?;
     a_press_on_the_page_is_reported(&connection, &screen, &host, parent)?;
     the_page_holding_the_keyboard_has_document_focus(&connection, &screen, &host, parent)?;

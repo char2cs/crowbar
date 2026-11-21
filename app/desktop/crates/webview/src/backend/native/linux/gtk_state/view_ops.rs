@@ -2,7 +2,8 @@ use std::sync::mpsc;
 
 use gtk::gdk;
 use gtk::gdk::EventMask;
-use gtk::prelude::WidgetExt as _;
+use gtk::glib::Cast as _;
+use gtk::prelude::{GtkWindowExt as _, WidgetExt as _};
 use webkit2gtk::{SnapshotOptions, SnapshotRegion, WebViewExt as _};
 use wry::WebViewExtUnix;
 
@@ -27,6 +28,20 @@ fn select_keys(
     if let Some(window) = live.view.webview().window() {
         window.set_events(keys(window.events()));
     }
+}
+
+// PLATFORM: linux WebKit's script dialog holds the GTK focus inside the view, and grabbing the view would take its typing away.
+fn grab_unless_within(view: &gtk::Widget) {
+    let window = view
+        .toplevel()
+        .and_then(|top| top.downcast::<gtk::Window>().ok());
+    let within = window
+        .and_then(|window| window.focused_widget())
+        .is_some_and(|focused| focused.is_ancestor(view));
+    if within {
+        return;
+    }
+    view.grab_focus();
 }
 
 pub(crate) fn deactivate(live: &LiveView) {
@@ -98,7 +113,7 @@ impl GtkState {
             .filter(|(other, _)| **other != id)
             .for_each(|(_, other)| deactivate(other));
         select_keys(live, |events| events | KEYS);
-        live.view.focus()?;
+        grab_unless_within(live.view.webview().upcast_ref());
         // PLATFORM: linux X serves each client connection on its own, so GDK's queued map of the page window must reach the server before the focus request on ours.
         gdk::Display::default().iter().for_each(gdk::Display::sync);
         self.keyboard.give_to(live.page_window)?;
