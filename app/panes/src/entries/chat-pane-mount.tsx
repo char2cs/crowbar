@@ -11,6 +11,7 @@ import type { LifecycleMessage } from '@/sdk/lifecycle-message'
 import type { PaneClient } from '@/sdk/pane-client'
 import { ChatPaneHost } from './chat-pane-host'
 import { chatSession } from './chat-session'
+import { FontStyleInjector } from '@/features/settings/components/font-style-injector'
 
 /** Mounts and unmounts the chat page's React tree as the shell's lifecycle messages arrive. */
 export class ChatPaneMount {
@@ -45,6 +46,7 @@ export class ChatPaneMount {
     this.root ??= createRoot(this.container)
     this.root.render(
       <StrictMode>
+        <FontStyleInjector />
         <MotionConfig reducedMotion="user">
           <TooltipProvider>
             <PrimitiveDialogProvider>

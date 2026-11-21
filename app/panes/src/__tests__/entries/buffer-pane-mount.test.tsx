@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { LifecycleMessage } from '@/sdk/lifecycle-message'
 import { lifecycleDriver } from '../__fixtures__/lifecycle-client'
 import { bufferSession } from '@/entries/buffer-session'
+import { useSettingsStore } from '@/features/settings/store'
+import { getUiFontScale } from '@/features/settings/lib/ui-font-size'
 
 vi.mock('@/entries/buffer-pane-host', () => ({ BufferPaneHost: () => null }))
 
@@ -41,6 +43,18 @@ describe('BufferPaneMount', () => {
     send('mount', { threadId: 't1' })
     send(event)
     expect(bufferSession.getState().chatId).toBeNull()
+  })
+
+  it("sizes its text by the shell's UI font size, as develop's app shell does", async () => {
+    const send = startedMount()
+    send('mount', { threadId: 't1' })
+    useSettingsStore.setState((s) => ({ settings: { ...s.settings, uiFontSize: 17 } }))
+
+    await vi.waitFor(() =>
+      expect(document.documentElement.style.getPropertyValue('--app-ui-scale')).toBe(
+        `${getUiFontScale(17)}`,
+      ),
+    )
   })
 
   it('refuses a mount without a threadId', () => {

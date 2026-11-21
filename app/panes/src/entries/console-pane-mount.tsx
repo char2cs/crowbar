@@ -6,6 +6,7 @@ import { openTransport } from '@/features/hosts/lib/open-transport'
 import type { LifecycleMessage } from '@/sdk/lifecycle-message'
 import type { PaneClient } from '@/sdk/pane-client'
 import { ConsolePane } from './console-pane'
+import { FontStyleInjector } from '@/features/settings/components/font-style-injector'
 
 const BROWSER_TIMERS = {
   set: (fn: () => void, ms: number) => setTimeout(fn, ms),
@@ -40,6 +41,7 @@ export class ConsolePaneMount {
     this.root ??= createRoot(this.container)
     this.root.render(
       <StrictMode>
+        <FontStyleInjector />
         <ConsolePane />
       </StrictMode>,
     )

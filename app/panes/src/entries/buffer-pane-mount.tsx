@@ -11,6 +11,7 @@ import type { PaneClient } from '@/sdk/pane-client'
 import { BufferPaneHost } from './buffer-pane-host'
 import { bufferSession } from './buffer-session'
 import type { OpenBuffer } from './open-buffer'
+import { FontStyleInjector } from '@/features/settings/components/font-style-injector'
 
 /** Mounts and unmounts a buffer page's React tree (a file or a review in the pane's one tab) as the shell's lifecycle messages arrive. */
 export class BufferPaneMount {
@@ -42,6 +43,7 @@ export class BufferPaneMount {
     this.root ??= createRoot(this.container)
     this.root.render(
       <StrictMode>
+        <FontStyleInjector />
         <MotionConfig reducedMotion="user">
           <TooltipProvider>
             <PrimitiveDialogProvider>
