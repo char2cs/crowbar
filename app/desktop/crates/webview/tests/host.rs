@@ -4,6 +4,8 @@
 //! GTK runs on one thread per process, so one test drives every case on one host.
 #![cfg(target_os = "linux")]
 
+#[path = "support/keyboard_owner.rs"]
+mod keyboard_owner;
 #[path = "support/pixels.rs"]
 mod pixels;
 #[path = "support/placement.rs"]
@@ -496,6 +498,12 @@ fn native_views_on_x11() -> TestResult {
     a_press_on_the_page_is_reported(&connection, &screen, &host, parent)?;
     the_page_holding_the_keyboard_has_document_focus(&connection, &screen, &host, parent)?;
     the_parent_takes_keys_over_a_page_once_it_holds_the_keyboard(
+        &connection,
+        &screen,
+        &host,
+        parent,
+    )?;
+    keyboard_owner::the_parent_takes_keys_once_another_client_gives_it_the_keyboard(
         &connection,
         &screen,
         &host,

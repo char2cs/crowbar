@@ -3,6 +3,8 @@ mod adapters;
 #[cfg(target_os = "linux")]
 mod live_view;
 #[cfg(target_os = "linux")]
+mod page_focus;
+#[cfg(target_os = "linux")]
 mod placed;
 #[cfg(target_os = "linux")]
 mod remembered_place;
@@ -13,7 +15,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use gtk::gdk;
 use gtk::glib::prelude::ObjectExt as _;
 use gtk::glib::{self, Cast as _, Propagation};
 use gtk::prelude::{GtkWindowExt as _, WidgetExt as _};
@@ -35,8 +36,6 @@ use crate::view::ParentWindow;
 use crate::view::{PageEvent, PageHandler};
 
 const BROWSER_DIR: &str = "browser";
-const FOCUS_IN: &str = "focus-in-event";
-const FOCUS_OUT: &str = "focus-out-event";
 const NO_PAGE_WINDOW: &str = "the web view got no X11 window of its own";
 
 fn page_window_of(view: &WebView) -> Result<u32> {
@@ -87,18 +86,6 @@ fn report_pointer(
         on_page(PageEvent::PointerMoved { x, y });
         Propagation::Proceed
     });
-}
-
-// PLATFORM: linux the page's GtkWindow wraps a foreign X window, so GDK never hears its focus change; without an active window WebKit draws no focus, caret or active selection.
-fn show_focus(
-    live: &LiveView,
-    signal: &str,
-) {
-    let Some(toplevel) = live.view.webview().toplevel() else {
-        return;
-    };
-    let event = gdk::Event::new(gdk::EventType::FocusChange);
-    toplevel.emit_by_name::<bool>(signal, &[&event]);
 }
 
 pub(crate) struct GtkState {
@@ -163,7 +150,7 @@ impl GtkState {
             page_window,
             parent: window,
         };
-        view_ops::deactivate(&live);
+        page_focus::give_keys([&live], page_focus::NOBODY);
         self.views.insert(id, live);
         Ok(())
     }
@@ -191,14 +178,11 @@ impl GtkState {
 
     pub(crate) fn follow_focus(&self) {
         for change in self.keyboard.changes() {
-            let (window, signal) = match change {
-                FocusChange::Gained(window) => (window, FOCUS_IN),
-                FocusChange::Lost(window) => (window, FOCUS_OUT),
-            };
+            let (FocusChange::Gained(window) | FocusChange::Lost(window)) = change;
             self.views
                 .values()
                 .filter(|live| live.page_window == window)
-                .for_each(|live| show_focus(live, signal));
+                .for_each(|live| page_focus::follow(live, change));
         }
     }
 
