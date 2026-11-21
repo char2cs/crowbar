@@ -11,6 +11,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 use crate::connection::Connection;
 use crate::error::{Error, Result};
+use crate::readiness::Readiness;
 use crate::report::Report;
 use crate::rest::Binding;
 use crate::rest::Rest;
@@ -33,6 +34,7 @@ pub struct TerminalSessions {
     runtime: Handle,
     origin: String,
     dial: Dial,
+    ready: Readiness,
 }
 
 impl std::fmt::Debug for TerminalSessions {
@@ -71,7 +73,17 @@ impl TerminalSessions {
     ) -> Self {
         let mut sessions = self.clone();
         sessions.rest.host = host;
+        sessions.ready = Readiness::immediate();
         sessions
+    }
+
+    /// The same sessions, binding only once `ready` says the daemon serves.
+    #[must_use]
+    pub fn once(
+        self,
+        ready: Readiness,
+    ) -> Self {
+        Self { ready, ..self }
     }
 
     pub(crate) fn dialing(
@@ -85,6 +97,7 @@ impl TerminalSessions {
             runtime,
             origin: origin.to_owned(),
             dial,
+            ready: Readiness::immediate(),
         }
     }
 
@@ -115,6 +128,10 @@ impl TerminalSessions {
         } = connection;
         let scope = RelayScope::new(self.rest.host.clone(), pane, PaneOrigin::Core);
         let attachment = Attachment { scope, ends };
+        self.ready.wait().await;
+        if attachment.ends.messages.is_closed() {
+            return;
+        }
         if let Err(error) = self.attach((base, binding), &attachment, &reports).await {
             tracing::warn!(%error, "terminal session failed");
             report(&reports, Report::Failed(error.to_string())).await;

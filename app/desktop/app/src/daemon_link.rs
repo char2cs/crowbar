@@ -18,6 +18,7 @@ use crate::transport_book::TransportBook;
 mod host_specs;
 mod launch;
 mod lifecycle;
+mod readiness;
 
 const LOCAL_HOST: &str = "local";
 const CORE_ORIGIN: &str = "crowbar://local";
