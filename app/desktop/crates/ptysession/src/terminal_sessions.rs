@@ -140,8 +140,11 @@ impl TerminalSessions {
         if matches!(binding, Binding::Create) {
             report(reports, Report::Bound(session.clone())).await;
         }
-        self.keep_attached((base, &session), attachment).await;
-        binding.release(&self.rest, base, &session).await;
+        let end = self.keep_attached((base, &session), attachment).await;
+        let released = binding.release(&self.rest, base, &session).await;
+        if let (End::ViewGone, Err(error)) = (end, released) {
+            report(reports, Report::StopFailed(error.words())).await;
+        }
         Ok(())
     }
 
@@ -149,9 +152,13 @@ impl TerminalSessions {
         &self,
         target: (&SessionPaths, &str),
         attachment: &Attachment,
-    ) {
+    ) -> End {
         let mut reconnect = Reconnect::default();
-        while !self.round(target, attachment, &mut reconnect).await {}
+        let mut ended = None;
+        while ended.is_none() {
+            ended = self.round(target, attachment, &mut reconnect).await;
+        }
+        ended.unwrap_or(End::Lost)
     }
 
     async fn round(
@@ -159,18 +166,19 @@ impl TerminalSessions {
         target: (&SessionPaths, &str),
         attachment: &Attachment,
         reconnect: &mut Reconnect,
-    ) -> bool {
+    ) -> Option<End> {
         let outcome = self.stream(target, attachment).await;
         let reason = match outcome {
-            Ok(End::ViewGone | End::Exited) => return true,
             Ok(End::Lost) => {
                 reconnect.connected();
                 "the connection dropped".to_owned()
             },
+            Ok(end) => return Some(end),
             Err(error) => error.to_string(),
         };
         tracing::warn!(%reason, "terminal stream lost");
-        !recover(&attachment.ends, reconnect, &reason).await
+        let recovered = recover(&attachment.ends, reconnect, &reason).await;
+        (!recovered).then_some(End::Lost)
     }
 
     async fn stream(
@@ -215,8 +223,9 @@ mod tests {
     use super::*;
     use crate::ends::Ends;
     use crate::test_support::{
-        CREATED, FAILED, FakeDaemon, LISTED, NONE_LISTED, daemon, daemon_answering, memory_dial,
-        refusing_dial, serve_held, serve_output, serve_then_drop,
+        CREATED, FAILED, FakeDaemon, KILL_REFUSED, LISTED, NONE_LISTED, daemon, daemon_answering,
+        daemon_refusing_kills, memory_dial, refusing_dial, serve_held, serve_output,
+        serve_then_drop,
     };
 
     fn sessions(
@@ -381,29 +390,38 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn closing_the_view_kills_the_session_it_created() {
+    async fn close_the_view(daemon: &Arc<FakeDaemon>) -> Vec<Report> {
         let (dial, accepted) = memory_dial();
-        let daemon = daemon();
         let server = tokio::spawn(serve_held(accepted));
         let (frames, view_frames) = unbounded();
         let (view_messages, messages) = unbounded();
-        let base = SessionPaths::chat("c1").unwrap();
-        let pane = PaneId::new("t1").unwrap();
-        let reports = unbounded().0;
+        let (reports, heard) = unbounded();
         let connection = Connection {
-            pane,
+            pane: PaneId::new("t1").unwrap(),
             ends: Ends { frames, messages },
             reports,
         };
-        sessions(&daemon, dial).open(base, Binding::Create, connection);
+        let base = SessionPaths::chat("c1").unwrap();
+        sessions(daemon, dial).open(base, Binding::Create, connection);
         first_output(&view_frames).await;
-        drop(view_frames);
-        drop(view_messages);
-        daemon.deleted.notified().await;
+        drop((view_frames, view_messages));
         server.await.unwrap();
+        let mut told = Vec::new();
+        while let Ok(report) = heard.recv().await {
+            told.push(report);
+        }
         let seen = daemon.seen.lock().unwrap().clone();
         assert_eq!(seen.last().unwrap(), "DELETE /v0/chats/c1/terminals/s1");
+        told
+    }
+
+    #[tokio::test]
+    async fn closing_the_view_kills_the_session_it_created_and_reports_a_refused_kill() {
+        let bound = || Report::Bound("s1".into());
+        assert_eq!(close_the_view(&daemon()).await, [bound()]);
+        let refused = close_the_view(&daemon_refusing_kills()).await;
+        let stop_failed = Report::StopFailed(KILL_REFUSED.into());
+        assert_eq!(refused, [bound(), stop_failed]);
     }
 
     async fn failed_start(

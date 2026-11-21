@@ -19,6 +19,9 @@ pub(crate) const NONE_LISTED: &str = r#"{"success":true,"data":[]}"#;
 const OK: u16 = 200;
 const MADE: &str = r#"{"success":true,"data":{"sessionId":"s1"}}"#;
 const EMPTY: &str = r#"{"success":true,"data":{}}"#;
+/// What a daemon that refuses to kill a session says.
+pub(crate) const KILL_REFUSED: &str = "injected";
+const REFUSED: &str = r#"{"success":false,"error":"injected"}"#;
 
 /// Creates session `s1` with `create_status`, lists `listed`, and notes each call.
 pub(crate) struct FakeDaemon {
@@ -26,6 +29,7 @@ pub(crate) struct FakeDaemon {
     pub(crate) deleted: Notify,
     create_status: u16,
     listed: &'static str,
+    kill: (u16, &'static str),
 }
 
 /// A daemon that creates and lists session `s1`.
@@ -33,17 +37,33 @@ pub(crate) fn daemon() -> Arc<FakeDaemon> {
     daemon_answering(CREATED, LISTED)
 }
 
+/// A daemon that creates and lists session `s1` but refuses to kill it.
+pub(crate) fn daemon_refusing_kills() -> Arc<FakeDaemon> {
+    Arc::new(FakeDaemon {
+        kill: (FAILED, REFUSED),
+        ..fake(CREATED, LISTED)
+    })
+}
+
 /// A daemon answering creation with `create_status` and the list with `listed`.
 pub(crate) fn daemon_answering(
     create_status: u16,
     listed: &'static str,
 ) -> Arc<FakeDaemon> {
-    Arc::new(FakeDaemon {
+    Arc::new(fake(create_status, listed))
+}
+
+fn fake(
+    create_status: u16,
+    listed: &'static str,
+) -> FakeDaemon {
+    FakeDaemon {
         seen: Mutex::default(),
         deleted: Notify::new(),
         create_status,
         listed,
-    })
+        kill: (OK, EMPTY),
+    }
 }
 
 impl DaemonTransport for FakeDaemon {
@@ -58,6 +78,7 @@ impl DaemonTransport for FakeDaemon {
         let (status, body) = match method.as_str() {
             "GET" => (OK, self.listed),
             "POST" => (self.create_status, MADE),
+            "DELETE" => self.kill,
             _ => (OK, EMPTY),
         };
         if method == "DELETE" {

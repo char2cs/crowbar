@@ -38,13 +38,11 @@ impl Binding {
         rest: &Rest,
         base: &SessionPaths,
         session: &str,
-    ) {
+    ) -> Result<()> {
         if matches!(self, Self::Existing(_)) {
-            return;
+            return Ok(());
         }
-        if let Err(error) = rest.kill(base, session).await {
-            tracing::debug!(%error, "the terminal session was already gone");
-        }
+        rest.kill(base, session).await
     }
 }
 

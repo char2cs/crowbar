@@ -10,7 +10,8 @@ mod fake_daemon;
 mod relay_server;
 
 pub(crate) use fake_daemon::{
-    CREATED, FAILED, FakeDaemon, LISTED, NONE_LISTED, daemon, daemon_answering,
+    CREATED, FAILED, FakeDaemon, KILL_REFUSED, LISTED, NONE_LISTED, daemon, daemon_answering,
+    daemon_refusing_kills,
 };
 pub(crate) use relay_server::{serve_held, serve_output, serve_then_drop};
 

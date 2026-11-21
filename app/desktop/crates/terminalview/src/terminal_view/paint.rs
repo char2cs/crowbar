@@ -102,7 +102,7 @@ impl TerminalView {
     fn fit_grid(
         &mut self,
         layout: &ViewLayout,
-        _: &mut Context<'_, Self>,
+        cx: &mut Context<'_, Self>,
     ) {
         let size = (layout.metrics.columns, layout.metrics.lines);
         if self.reported_size == Some(size) {
@@ -111,6 +111,9 @@ impl TerminalView {
         self.reported_size = Some(size);
         self.terminal.resize(size.0, size.1);
         self.cache.clear();
+        if let Some(frames) = self.unread.take() {
+            self.start_frame_task(frames, cx);
+        }
         let Ok(columns) = u16::try_from(size.0) else {
             return;
         };

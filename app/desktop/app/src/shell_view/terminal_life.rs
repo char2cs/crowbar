@@ -10,6 +10,7 @@ use crate::terminal_ids::SESSION_KEY;
 
 const UNAVAILABLE: &str = "Terminal unavailable";
 const TRY_AGAIN: &str = "Could not start the terminal. Try reopening the tab.";
+const NOT_STOPPED: &str = "Stop the closed terminal";
 
 impl ShellView {
     pub(super) fn on_terminal_session(
@@ -17,14 +18,14 @@ impl ShellView {
         (pane, report): (&PaneId, Report),
         cx: &mut Context<'_, Self>,
     ) {
+        if let Some(content) = notice_of(&report) {
+            self.show_toast(NoticeKey::Terminal, content, cx);
+        }
         match report {
             Report::Bound(session) => self.remember_session(pane, &session),
             Report::Gone => self.close_terminal(pane, cx),
-            Report::Failed(reason) => {
-                tracing::warn!(%reason, "a terminal could not start");
-                let content = ToastContent::new(ToastKind::Error, TRY_AGAIN).titled(UNAVAILABLE);
-                self.show_toast(NoticeKey::Terminal, content, cx);
-            },
+            Report::Failed(reason) => tracing::warn!(%reason, "a terminal could not start"),
+            Report::StopFailed(words) => tracing::warn!(%words, "a closed terminal kept running"),
         }
     }
 
@@ -64,6 +65,17 @@ impl ShellView {
     }
 }
 
+fn notice_of(report: &Report) -> Option<ToastContent> {
+    let notice = match report {
+        Report::Failed(_) => ToastContent::new(ToastKind::Error, TRY_AGAIN).titled(UNAVAILABLE),
+        Report::StopFailed(words) => {
+            ToastContent::new(ToastKind::Error, words.clone()).titled(NOT_STOPPED)
+        },
+        Report::Bound(_) | Report::Gone => return None,
+    };
+    Some(notice)
+}
+
 #[cfg(test)]
 mod tests {
     use gpui::TestAppContext;
@@ -92,6 +104,25 @@ mod tests {
             panes_of(shell, TERMINAL)
         });
         assert!(left.is_empty(), "{left:?}");
+    }
+
+    #[test]
+    fn a_terminal_that_cannot_start_or_stop_is_told_in_develop_s_words() {
+        let error = |text: &str, title: &str| {
+            Some(ToastContent::new(ToastKind::Error, text.to_owned()).titled(title.to_owned()))
+        };
+        let cases = [
+            (Report::Failed("500".into()), error(TRY_AGAIN, UNAVAILABLE)),
+            (
+                Report::StopFailed("injected".into()),
+                error("injected", NOT_STOPPED),
+            ),
+            (Report::Bound("s1".into()), None),
+            (Report::Gone, None),
+        ];
+        for (report, notice) in cases {
+            assert_eq!(notice_of(&report), notice, "{report:?}");
+        }
     }
 
     #[gpui::test]

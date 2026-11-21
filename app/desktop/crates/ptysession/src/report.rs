@@ -10,4 +10,6 @@ pub enum Report {
     Gone,
     /// The session could not be created or attached, for this reason.
     Failed(String),
+    /// The closed view's session could not be stopped, in the daemon's words.
+    StopFailed(String),
 }

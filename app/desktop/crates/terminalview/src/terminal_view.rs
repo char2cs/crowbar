@@ -56,6 +56,7 @@ pub struct TerminalView {
     pub(crate) blink: Blink,
     pub(crate) search: Option<Session>,
     pub(crate) preedit: Option<String>,
+    pub(crate) unread: Option<Receiver<DaemonFrame>>,
     pub(crate) pending_command: Option<String>,
     pub(crate) notice: Option<SharedString>,
     pub(crate) cache: LineCache,
@@ -117,6 +118,7 @@ impl TerminalView {
             blink: Blink::default(),
             search: None,
             preedit: None,
+            unread: Some(link.frames),
             pending_command: None,
             notice: None,
             cache: LineCache::default(),
@@ -126,7 +128,6 @@ impl TerminalView {
             subscriptions: Vec::new(),
             tasks: Vec::new(),
         };
-        view.start_frame_task(link.frames, cx);
         view.start_blink_task(cx);
         view.watch_focus(window, cx);
         view.watch_theme(cx);
@@ -134,7 +135,7 @@ impl TerminalView {
         view
     }
 
-    fn start_frame_task(
+    pub(crate) fn start_frame_task(
         &mut self,
         frames: Receiver<DaemonFrame>,
         cx: &mut Context<'_, Self>,
@@ -281,10 +282,34 @@ async fn feed_frames(
 
 #[cfg(test)]
 mod tests {
-    use gpui::TestAppContext;
-    use terminal::ClientMessage;
+    use gpui::{AppContext as _, TestAppContext, point, px};
+    use terminal::{ClientMessage, DaemonFrame};
 
+    use super::TerminalView;
+    use crate::daemon::Link;
+    use crate::settings::Settings;
     use crate::test_support::{draw, feed, first_row, open, sent};
+
+    #[gpui::test]
+    fn a_screen_sent_before_the_first_layout_keeps_its_cursor_on_its_prompt(
+        cx: &mut TestAppContext
+    ) {
+        let (harness, cx) = open(cx);
+        let lines = harness.view.read_with(cx, |view, _| view.terminal.size().1);
+        let (link, peer) = Link::open();
+        let late = cx.update(|window, cx| {
+            cx.new(|cx| TerminalView::new(link, Settings::default(), window, cx))
+        });
+        let screen = format!("again\r\n$ {}\u{1b}[2;3H", "\r\n".repeat(lines - 2));
+        peer.deliver_blocking(DaemonFrame::Snapshot(screen.into_bytes()));
+        cx.run_until_parked();
+        let size = cx.update(|window, _| window.viewport_size());
+        let origin = point(px(0.0), px(0.0));
+        cx.draw(origin, size, |_, _| late.clone());
+        cx.run_until_parked();
+        let row = late.read_with(cx, |view, _| view.terminal.snapshot().cursor.map(|c| c.row));
+        assert_eq!(row, Some(1), "the cursor stays after the prompt");
+    }
 
     #[gpui::test]
     fn frames_from_the_daemon_reach_the_screen(cx: &mut TestAppContext) {

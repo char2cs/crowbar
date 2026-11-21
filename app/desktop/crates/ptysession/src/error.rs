@@ -32,6 +32,15 @@ pub enum Error {
     Stream(String),
 }
 
+impl Error {
+    pub(crate) fn words(&self) -> String {
+        let Self::Api(daemonapi::Error::Refused { message, .. }) = self else {
+            return self.to_string();
+        };
+        message.clone()
+    }
+}
+
 /// Result of a session operation.
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -44,6 +53,11 @@ mod tests {
         assert_eq!(
             Error::NoSessionId.to_string(),
             "terminal session: the daemon answered without a session id"
+        );
+        assert_eq!(
+            Error::NoSessionId.words(),
+            Error::NoSessionId.to_string(),
+            "an error the daemon did not word speaks for itself"
         );
     }
 }
