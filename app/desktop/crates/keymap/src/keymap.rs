@@ -145,6 +145,7 @@ mod tests {
                 .map(|(_, modifier)| modifier)
                 .collect(),
             key,
+            physical: None,
         }
     }
 

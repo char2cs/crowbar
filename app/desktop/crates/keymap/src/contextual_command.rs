@@ -75,6 +75,7 @@ mod tests {
         Keystroke {
             modifiers: modifiers.iter().copied().collect(),
             key: key.to_owned(),
+            physical: None,
         }
     }
 

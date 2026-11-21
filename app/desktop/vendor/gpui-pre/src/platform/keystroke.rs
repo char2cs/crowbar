@@ -30,6 +30,21 @@ pub struct Keystroke {
     /// this binding was pressed.
     /// e.g. for s this is "s", for option-s "ß", and cmd-s None
     pub key_char: Option<String>,
+
+    /// The key's position on the keyboard, when the platform reports it; see [`PhysicalKey`].
+    #[serde(skip)]
+    pub physical: Option<PhysicalKey>,
+}
+
+/// A key press as the keyboard saw it, before the layout and shift turned it into `key`, as
+/// the web's `KeyboardEvent.code` does: shift-2 on a US layout is the key `@` but the position `2`.
+#[derive(Clone, Debug, Eq, PartialEq, Default, Hash)]
+pub struct PhysicalKey {
+    /// The key at this position on an unshifted US layout, e.g. `2` or `a`.
+    pub code: String,
+
+    /// The modifier keys held, shift included even when the platform folded it into `key`.
+    pub modifiers: Modifiers,
 }
 
 /// Represents a keystroke that can be used in keybindings and displayed to the user.
@@ -234,6 +249,7 @@ impl Keystroke {
             modifiers,
             key,
             key_char,
+            physical: None,
         })
     }
 

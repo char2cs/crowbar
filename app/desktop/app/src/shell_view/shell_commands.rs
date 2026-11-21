@@ -1,4 +1,4 @@
-use chord::{Keystroke, Modifier};
+use chord::{Keystroke, Modifier, Modifiers, PhysicalKey};
 use gpui::{Context, KeyDownEvent, Window};
 use keymap::ShellCommand;
 use layout::Command;
@@ -177,7 +177,18 @@ impl ShellView {
 }
 
 pub(super) fn keystroke_of(stroke: &gpui::Keystroke) -> Keystroke {
-    let modifiers = stroke.modifiers;
+    let physical = stroke.physical.as_ref().map(|at| PhysicalKey {
+        code: at.code.clone(),
+        modifiers: modifiers_of(at.modifiers),
+    });
+    Keystroke {
+        modifiers: modifiers_of(stroke.modifiers),
+        key: stroke.key.clone(),
+        physical,
+    }
+}
+
+fn modifiers_of(modifiers: gpui::Modifiers) -> Modifiers {
     let primary =
         (PRIMARY_IS_COMMAND && modifiers.platform) || (!PRIMARY_IS_COMMAND && modifiers.control);
     let held = [
@@ -185,14 +196,10 @@ pub(super) fn keystroke_of(stroke: &gpui::Keystroke) -> Keystroke {
         (modifiers.shift, Modifier::Shift),
         (modifiers.alt, Modifier::Alt),
     ];
-    Keystroke {
-        modifiers: held
-            .into_iter()
-            .filter(|(down, _)| *down)
-            .map(|(_, modifier)| modifier)
-            .collect(),
-        key: stroke.key.clone(),
-    }
+    held.into_iter()
+        .filter(|(down, _)| *down)
+        .map(|(_, modifier)| modifier)
+        .collect()
 }
 
 #[cfg(test)]
@@ -204,6 +211,24 @@ mod tests {
             return gpui::OperatingSystem::Mac;
         }
         gpui::OperatingSystem::Linux
+    }
+
+    #[test]
+    fn a_digit_key_typing_a_symbol_under_shift_still_selects_its_project() {
+        let typed = gpui::Keystroke::parse_with_os("secondary-@", native_os()).unwrap();
+        let held = gpui::Keystroke::parse_with_os("secondary-shift-2", native_os()).unwrap();
+        let physical = gpui::PhysicalKey {
+            code: held.key,
+            modifiers: held.modifiers,
+        };
+        let stroke = gpui::Keystroke {
+            physical: Some(physical),
+            ..typed
+        };
+        assert_eq!(
+            keymap::project_slot_of_stroke(&keystroke_of(&stroke)),
+            Some(2)
+        );
     }
 
     #[test]

@@ -1,0 +1,13 @@
+diff --git a/src/events.rs b/src/events.rs
+index 89ae111..158046c 100644
+--- a/src/events.rs
++++ b/src/events.rs
+@@ -498,6 +498,8 @@ fn parse_keystroke(native_event: &NSEvent) -> Keystroke {
+         },
+         key,
+         key_char,
++        // PLATFORM: macOS names the position by the event's keyCode (kVK_ANSI_2); not mapped yet.
++        physical: None,
+     }
+ }
+ 

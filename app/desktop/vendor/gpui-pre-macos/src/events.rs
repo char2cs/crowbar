@@ -498,6 +498,8 @@ fn parse_keystroke(native_event: &NSEvent) -> Keystroke {
         },
         key,
         key_char,
+        // PLATFORM: macOS names the position by the event's keyCode (kVK_ANSI_2); not mapped yet.
+        physical: None,
     }
 }
 

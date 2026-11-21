@@ -1457,12 +1457,28 @@ fn guess_ascii(keycode: Keycode, shift: bool) -> Option<char> {
     Some(c)
 }
 
+/// The key at `keycode` on an unshifted US layout, whatever layout is active.
+#[cfg(any(feature = "wayland", feature = "x11"))]
+fn us_unshifted_key(keycode: Keycode) -> Option<char> {
+    match keycode.raw() {
+        raw @ 10..=18 => char::from_digit(raw - 9, 10),
+        19 => Some('0'),
+        20 => Some('-'),
+        21 => Some('='),
+        _ => guess_ascii(keycode, false),
+    }
+}
+
 #[cfg(any(feature = "wayland", feature = "x11"))]
 pub(super) fn keystroke_from_xkb(
     state: &State,
     mut modifiers: gpui::Modifiers,
     keycode: Keycode,
 ) -> gpui::Keystroke {
+    let physical = us_unshifted_key(keycode).map(|code| gpui::PhysicalKey {
+        code: code.to_string(),
+        modifiers,
+    });
     let key_utf32 = state.key_get_utf32(keycode);
     let key_utf8 = state.key_get_utf8(keycode);
     let key_sym = state.key_get_one_sym(keycode);
@@ -1579,6 +1595,7 @@ pub(super) fn keystroke_from_xkb(
         modifiers,
         key,
         key_char,
+        physical,
     }
 }
 

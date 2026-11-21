@@ -144,6 +144,7 @@ mod tests {
         Keystroke {
             modifiers: [Modifier::Primary].into_iter().collect(),
             key: chord_key.to_owned(),
+            physical: None,
         }
     }
 

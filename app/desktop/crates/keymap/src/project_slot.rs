@@ -17,15 +17,22 @@ pub fn project_slot_of_command(id: &str) -> Option<u8> {
     SLOTS.contains(&slot).then_some(slot)
 }
 
-/// The slot a `mod+shift+<digit>` key press selects; the chord is fixed, never rebound.
+/// The slot a `mod+shift+<digit>` key press selects, by the digit key's position when the
+/// windowing layer reports it, whatever shift and the layout make it type; never rebound.
 #[must_use]
 pub fn project_slot_of_stroke(stroke: &Keystroke) -> Option<u8> {
-    let held = |modifier| stroke.modifiers.contains(modifier);
+    let (modifiers, key) = stroke
+        .physical
+        .as_ref()
+        .map_or((stroke.modifiers, &stroke.key), |at| {
+            (at.modifiers, &at.code)
+        });
+    let held = |modifier| modifiers.contains(modifier);
     let is_chord = held(Modifier::Primary) && held(Modifier::Shift) && !held(Modifier::Alt);
     if !is_chord {
         return None;
     }
-    let slot: u8 = stroke.key.parse().ok()?;
+    let slot: u8 = key.parse().ok()?;
     SLOTS.contains(&slot).then_some(slot)
 }
 
@@ -43,6 +50,7 @@ pub(crate) fn project_bindings() -> Vec<KeyBinding> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chord::PhysicalKey;
 
     fn stroke(
         modifiers: &str,
@@ -60,6 +68,46 @@ mod tests {
                 .map(|(_, modifier)| modifier)
                 .collect(),
             key: key.to_owned(),
+            physical: None,
+        }
+    }
+
+    fn at(
+        typed: Keystroke,
+        (modifiers, code): (&str, &str),
+    ) -> Keystroke {
+        let physical = PhysicalKey {
+            code: code.to_owned(),
+            modifiers: stroke(modifiers, code).modifiers,
+        };
+        Keystroke {
+            physical: Some(physical),
+            ..typed
+        }
+    }
+
+    #[test]
+    fn the_digit_key_selects_its_slot_whatever_shift_and_the_layout_make_it_type() {
+        let cases = [
+            (
+                "us shift+2 types @",
+                at(stroke("m", "@"), ("ms", "2")),
+                Some(2),
+            ),
+            (
+                "azerty shift+2 types 2",
+                at(stroke("m", "2"), ("ms", "2")),
+                Some(2),
+            ),
+            (
+                "azerty 2 alone types é",
+                at(stroke("m", "é"), ("m", "2")),
+                None,
+            ),
+            ("us shift+a", at(stroke("ms", "a"), ("ms", "a")), None),
+        ];
+        for (name, press, expected) in cases {
+            assert_eq!(project_slot_of_stroke(&press), expected, "{name}");
         }
     }
 
