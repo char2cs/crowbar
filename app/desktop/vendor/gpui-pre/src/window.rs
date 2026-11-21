@@ -2741,8 +2741,20 @@ impl Window {
         self.keys_for_unrendered_focus.clear();
         self.clear_pending_keystrokes(cx);
         self.take_keys_back_from_overlays(handle.id, cx);
+        self.share_focus_with_owner(handle, cx);
 
         self.refresh();
+    }
+
+    /// An overlay's focus is its owner's too: the owner hands its focus to its overlays on every
+    /// frame, so it must hold the element focused inside the overlay, not one focused before.
+    fn share_focus_with_owner(&mut self, handle: &FocusHandle, cx: &mut App) {
+        let Some(owner) = self.overlay_of else {
+            return;
+        };
+        owner
+            .update(cx, |_, window, cx| window.focus(handle, cx))
+            .log_err();
     }
 
     /// The owner moved its focus to an element it renders itself: its overlays let go of theirs,

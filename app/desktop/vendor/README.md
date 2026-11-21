@@ -41,6 +41,10 @@ Drop it when upstream gpui reads the detail of a focus change. Tracking: zed-ind
 
 Drop it when upstream gpui reports the physical key. Tracking: zed-industries/zed.
 
+`overlay-focus-owner` (`gpui-pre`, `src/window.rs`), applied on top of `physical-key`: focusing an element in an overlay also focuses it in the owner. The owner hands its focus to its overlays on every frame, so with only the overlay's focus moved (a click into a dialog's field, a select opening its list) the owner's next frame, such as the one the window's activation draws, put the keyboard back on what the owner focused before.
+
+Drop it with `overlay-window`.
+
 ## calloop 0.14.5
 
 `tracing-without-log` (`Cargo.toml`): calloop, reached through `gpui-pre-linux`, asks for tracing's `log` feature, and cargo turns a feature on for every crate that uses tracing. With `log` on, each `tracing` macro also expands to its `log` fallback, which quadruples `clippy::cognitive_complexity` in every function that logs. Nothing in the shell reads `log` records (no `log` logger or bridge is installed), so calloop loses only output nobody received.
