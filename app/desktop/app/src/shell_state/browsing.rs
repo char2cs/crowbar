@@ -38,7 +38,8 @@ mod tests {
             mode: protocol::OpenMode::Kept,
         };
         let nobody = PaneId::new("nobody").unwrap();
-        rig.shell.open_requested(&nobody, browser);
+        let opened = rig.shell.requested_open(&nobody, browser);
+        rig.shell.apply(opened);
         let pane = rig.shell.layout().tabs()[0].pane_ids()[0].clone();
         let page = PageUrl::parse("https://example.com/").unwrap();
         let went = rig.shell.browse(&pane, &BrowseAction::Go(page));

@@ -10,11 +10,11 @@ use crate::pane_opener::open_commands;
 use crate::pane_spec::PaneSpec;
 
 impl ShellState {
-    pub(crate) fn open_requested(
-        &mut self,
+    pub(crate) fn requested_open(
+        &self,
         from: &PaneId,
         open: PaneOpen,
-    ) {
+    ) -> Vec<Command> {
         let document = open.file.filter(|_| open.type_id.as_str() == EDITOR);
         let commands = match document {
             Some(file) => self.document_commands(from, &file),
@@ -25,11 +25,11 @@ impl ShellState {
             ),
         };
         match commands {
-            Ok(commands) => {
-                let commands = kept_or_previewed(self.history.layout(), commands, open.mode);
-                self.apply(commands);
+            Ok(commands) => kept_or_previewed(self.history.layout(), commands, open.mode),
+            Err(error) => {
+                tracing::warn!(%error, "could not open the pane");
+                Vec::new()
             },
-            Err(error) => tracing::warn!(%error, "could not open the pane"),
         }
     }
 
@@ -86,10 +86,11 @@ mod tests {
             mode,
         });
         let text = encode(&frame).unwrap();
-        rig.shell.handle_ipc(IpcMessage {
+        let outcome = rig.shell.handle_ipc(IpcMessage {
             pane: chat.clone(),
             text,
         });
+        rig.shell.apply(outcome.opens);
         let tab = rig.shell.layout().active_tab().unwrap();
         let group = tab.group_of(&chat).unwrap();
         let opened = group
@@ -110,6 +111,77 @@ mod tests {
             let state = state.expect("an editor tab");
             assert_eq!(state["path"], "src/a.ts", "{mode:?}");
             assert_eq!(preview.is_some(), mode == OpenMode::Preview, "{mode:?}");
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    enum Sender {
+        Chat,
+        ShownEditor,
+    }
+
+    fn shown_after_a_page_opens(
+        (file, mode): (&str, OpenMode),
+        sender: Sender,
+    ) -> Option<serde_json::Value> {
+        let mut rig = shell_rig();
+        open_chat(&mut rig.shell, "t1");
+        resync(&mut rig);
+        let tab = rig.shell.layout().active_tab().unwrap();
+        let chat = tab.pane_ids().into_iter().next().unwrap();
+        for kept in ["src/a.ts", "src/pricing.ts"] {
+            rig.shell.open_spec(PaneSpec::editor("t1", kept).unwrap());
+        }
+        resync(&mut rig);
+        let shown = rig.shell.layout().find_pane(
+            &PaneTypeId::new(EDITOR).unwrap(),
+            &file_params("src/pricing.ts"),
+        );
+        let from = match sender {
+            Sender::Chat => chat,
+            Sender::ShownEditor => shown?.pane_id.clone(),
+        };
+        let frame = PaneFrame::Open(PaneOpen {
+            type_id: PaneTypeId::new(EDITOR).unwrap(),
+            params: Params::default(),
+            file: Some(DocumentPath::new(file).unwrap()),
+            mode,
+        });
+        let text = encode(&frame).unwrap();
+        let outcome = rig.shell.handle_ipc(IpcMessage { pane: from, text });
+        rig.shell.apply(outcome.opens);
+        let layout = rig.shell.layout();
+        let editor = layout.find_pane(&PaneTypeId::new(EDITOR).unwrap(), &file_params(file))?;
+        let group = layout.tab_of(&editor.pane_id)?.group_of(&editor.pane_id)?;
+        let shown = layout.pane(group.shown()?)?;
+        Some(shown.state.as_value()["path"].clone())
+    }
+
+    fn file_params(file: &str) -> Params {
+        let spec = PaneSpec::editor("t1", file).unwrap();
+        spec.instance(PaneId::new("probe").unwrap()).params
+    }
+
+    const CASES: [(&str, &str, OpenMode); 4] = [
+        ("a new file, previewed", "src/b.ts", OpenMode::Preview),
+        ("a new file, kept", "src/b.ts", OpenMode::Kept),
+        ("an open file, previewed", "src/a.ts", OpenMode::Preview),
+        ("an open file, kept", "src/a.ts", OpenMode::Kept),
+    ];
+
+    fn shown_by_each_sender(ask: (&str, OpenMode)) -> [Option<serde_json::Value>; 2] {
+        [Sender::Chat, Sender::ShownEditor].map(|sender| shown_after_a_page_opens(ask, sender))
+    }
+
+    #[test]
+    fn a_page_shows_the_file_it_opens_whether_new_or_already_open() {
+        for (name, file, mode) in CASES {
+            let shown = shown_by_each_sender((file, mode));
+            assert_eq!(
+                shown,
+                [Some(file.into()), Some(file.into())],
+                "{name}: chat, pricing.ts"
+            );
         }
     }
 

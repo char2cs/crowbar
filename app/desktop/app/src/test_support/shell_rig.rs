@@ -33,7 +33,8 @@ pub(crate) fn open_chat(
         file: None,
         mode: protocol::OpenMode::Kept,
     };
-    shell.open_requested(&nobody, chat);
+    let opened = shell.requested_open(&nobody, chat);
+    shell.apply(opened);
 }
 
 fn window_area() -> Bounds {

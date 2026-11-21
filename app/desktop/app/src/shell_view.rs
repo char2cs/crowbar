@@ -378,7 +378,7 @@ mod tests {
         pub(super) shell: Entity<ShellView>,
         pub(super) window: gpui::VisualTestContext,
         top: gpui::VisualTestContext,
-        mock: Rc<webview::MockPlatform>,
+        pub(super) mock: Rc<webview::MockPlatform>,
         pub(super) pane: protocol::PaneId,
         preferences: Arc<crate::test_support::MemoryPreferences>,
     }
@@ -476,7 +476,7 @@ mod tests {
         mock.calls().iter().filter(focuses).count()
     }
 
-    const PLACED: webview::Bounds = webview::Bounds {
+    pub(super) const PLACED: webview::Bounds = webview::Bounds {
         x: 300.0,
         y: 40.0,
         width: 900.0,
