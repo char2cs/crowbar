@@ -82,14 +82,17 @@ mod tests {
     }
 
     #[gpui::test]
-    fn option_style_draws_option_rows(cx: &mut TestAppContext) {
-        let cx = opened(cx, RowStyle::Option);
-        assert!(cx.debug_bounds("option-label-1").is_some());
-    }
-
-    #[gpui::test]
-    fn plain_style_keeps_plain_rows(cx: &mut TestAppContext) {
-        let cx = opened(cx, RowStyle::Plain);
-        assert!(cx.debug_bounds("option-label-1").is_none());
+    fn both_styles_draw_develop_28px_rows(cx: &mut TestAppContext) {
+        const CASES: &[(RowStyle, bool)] = &[(RowStyle::Option, true), (RowStyle::Plain, false)];
+        for &(style, option) in CASES {
+            let cx = opened(cx, style);
+            let row = cx.debug_bounds("menu-row-1").unwrap_or_default();
+            assert_eq!(row.size.height, gpui::px(28.0), "{style:?}");
+            assert_eq!(
+                cx.debug_bounds("option-label-1").is_some(),
+                option,
+                "{style:?}"
+            );
+        }
     }
 }

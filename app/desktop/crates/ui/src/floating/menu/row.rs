@@ -68,6 +68,9 @@ pub(crate) fn colors(
         },
         (Tone::Destructive, Pose::Off) => (clear, palette.destructive()),
         (Tone::Normal, Pose::On) => (palette.accent(), palette.accent_foreground()),
+        (Tone::Normal, Pose::Off) if action.current == Pose::On => {
+            (palette.muted(), palette.foreground())
+        },
         (Tone::Normal, Pose::Off) => (clear, palette.foreground()),
     }
 }
@@ -143,6 +146,7 @@ impl RenderOnce for Row {
             .bg(fill)
             .text_color(text)
             .text_size(text_size::SM)
+            .line_height(text_size::LINE_HEIGHT)
             .when(action.disabled, |d| d.opacity(DISABLED_OPACITY))
             .when(!action.disabled, |d| {
                 d.cursor_pointer()
@@ -185,6 +189,15 @@ mod tests {
         );
         assert_eq!(
             colors(&plain, Pose::On, palette, Appearance::Light),
+            (palette.accent(), palette.accent_foreground())
+        );
+        let current = plain.clone().current();
+        assert_eq!(
+            colors(&current, Pose::Off, palette, Appearance::Light),
+            (palette.muted(), palette.foreground())
+        );
+        assert_eq!(
+            colors(&current, Pose::On, palette, Appearance::Light),
             (palette.accent(), palette.accent_foreground())
         );
     }

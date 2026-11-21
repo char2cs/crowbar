@@ -8,6 +8,7 @@ use crate::floating::menu::menu_item::nested_items::NestedItems;
 use crate::floating::menu::menu_item::tone::Tone;
 use crate::foundation::IconName;
 use crate::foundation::IconWeight;
+use crate::foundation::Pose;
 
 pub(crate) type Select = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 
@@ -19,6 +20,7 @@ pub struct MenuAction {
     pub(crate) icon_weight: IconWeight,
     pub(crate) shortcut: Option<SharedString>,
     pub(crate) checked: bool,
+    pub(crate) current: Pose,
     pub(crate) tone: Tone,
     pub(crate) disabled: bool,
     pub(crate) submenu: Option<NestedItems>,
@@ -49,6 +51,7 @@ impl MenuAction {
             icon_weight: IconWeight::Regular,
             shortcut: None,
             checked: false,
+            current: Pose::Off,
             tone: Tone::Normal,
             disabled: false,
             submenu: None,
@@ -93,6 +96,13 @@ impl MenuAction {
         self
     }
 
+    /// Fills the row at rest as the page or item now shown.
+    #[must_use]
+    pub fn current(mut self) -> Self {
+        self.current = Pose::On;
+        self
+    }
+
     /// Colours the row as destructive.
     #[must_use]
     pub fn destructive(mut self) -> Self {
@@ -120,7 +130,7 @@ mod tests {
     fn a_new_action_is_plain() {
         let action = action();
         assert_eq!(action.label.as_ref(), "Rename");
-        assert!(!action.checked && !action.disabled);
+        assert!(!action.checked && !action.disabled && action.current == Pose::Off);
         assert_eq!(action.tone, Tone::Normal);
         assert!(action.icon.is_none() && action.shortcut.is_none());
         assert_eq!(action.icon_weight, IconWeight::Regular);
@@ -132,13 +142,14 @@ mod tests {
             .icon(IconName::Check)
             .shortcut("F2")
             .checked()
+            .current()
             .icon_weight(IconWeight::Duotone)
             .disabled()
             .destructive();
         assert_eq!(action.icon, Some(IconName::Check));
         assert_eq!(action.icon_weight, IconWeight::Duotone);
         assert_eq!(action.shortcut.as_ref().map(AsRef::as_ref), Some("F2"));
-        assert!(action.checked && action.disabled);
+        assert!(action.checked && action.disabled && action.current == Pose::On);
         assert_eq!(action.tone, Tone::Destructive);
     }
 }

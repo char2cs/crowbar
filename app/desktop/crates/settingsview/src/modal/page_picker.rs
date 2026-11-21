@@ -69,15 +69,16 @@ fn items(frame: &Frame<'_>) -> Vec<MenuItem> {
         .state
         .visible_pages()
         .into_iter()
-        .map(|page| item(frame.sink.clone(), page))
+        .map(|page| item(frame.sink.clone(), (page, frame.state.page())))
         .collect()
 }
 
 fn item(
     sink: Sink,
-    page: &Page,
+    (page, shown): (&Page, Option<&Page>),
 ) -> MenuItem {
     let id = page.id().clone();
+    let current = shown.is_some_and(|shown| shown.id() == page.id());
     let action = MenuAction::new(page.label().to_owned(), move |window, cx| {
         sink.deliver(Intent::Select(id.clone()), (window, cx));
     });
@@ -85,6 +86,9 @@ fn item(
         Some(icon) => action.icon(icon).icon_weight(IconWeight::Duotone),
         None => action,
     };
+    if current {
+        return MenuItem::Action(action.current());
+    }
     MenuItem::Action(action)
 }
 
