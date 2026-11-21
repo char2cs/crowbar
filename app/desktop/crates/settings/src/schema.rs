@@ -11,7 +11,7 @@ mod scope;
 mod search_entry;
 
 pub use block::{Block, Heading, ListBlock, Section};
-pub use button_spec::{Action, ButtonSpec, Confirm};
+pub use button_spec::{Action, ButtonFace, ButtonSpec, Confirm};
 pub use condition::Condition;
 pub use control::{ChoiceSource, Control, ControlWidth, Issue, Nudge, NumberRange, Validator};
 pub use page::Page;

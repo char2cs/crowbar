@@ -2,6 +2,7 @@
 
 use super::rows::row;
 use crate::schema::Action;
+use crate::schema::ButtonFace;
 use crate::schema::ButtonSpec;
 use crate::schema::Control;
 use crate::schema::ControlWidth;
@@ -62,6 +63,7 @@ fn upload() -> ButtonSpec {
         "Upload agent descriptor",
         Action::backend("agents.uploadDescriptor"),
     )
+    .faced(ButtonFace::Label)
     .noted(
         "Upload a YAML descriptor with a unique provider ID. Its CLI must be installed separately.",
     )

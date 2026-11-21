@@ -25,7 +25,7 @@ pub use records::FakeBackend;
 pub use records::{
     FlagLook, Line, Record, RecordAction, RecordBackend, RecordCommand, RecordFlag, Records, Tone,
 };
-pub use schema::{Action, Block, ButtonSpec};
+pub use schema::{Action, Block, ButtonFace, ButtonSpec};
 pub use schema::{ChoiceSource, Condition, Confirm, Control, ControlWidth};
 pub use schema::{
     Heading, Issue, ListBlock, Nudge, NumberRange, Page, PageId, Row, Schema, SearchEntry, Section,

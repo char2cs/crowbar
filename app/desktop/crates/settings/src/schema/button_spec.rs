@@ -1,9 +1,11 @@
 //! A button in a row or between blocks.
 
 mod action;
+mod button_face;
 mod confirm;
 
 pub use action::Action;
+pub use button_face::ButtonFace;
 pub use confirm::Confirm;
 
 use crate::schema::condition::Condition;
@@ -18,6 +20,7 @@ pub struct ButtonSpec {
     pub(crate) enabled: Option<Condition>,
     pub(crate) disabled_note: Option<String>,
     pub(crate) note: Option<String>,
+    pub(crate) face: ButtonFace,
 }
 
 impl ButtonSpec {
@@ -52,6 +55,7 @@ impl ButtonSpec {
             enabled: None,
             disabled_note: None,
             note: None,
+            face: ButtonFace::Button,
         }
     }
 
@@ -91,6 +95,22 @@ impl ButtonSpec {
         self.note.as_deref()
     }
 
+    /// How the button is drawn between blocks.
+    #[must_use]
+    pub fn face(&self) -> ButtonFace {
+        self.face
+    }
+
+    /// Draws the button between blocks as `face`.
+    #[must_use]
+    pub fn faced(
+        mut self,
+        face: ButtonFace,
+    ) -> Self {
+        self.face = face;
+        self
+    }
+
     /// Sets the help line under a button that stands between blocks.
     #[must_use]
     pub fn noted(
@@ -123,10 +143,12 @@ mod tests {
             .confirm(Confirm::new("Clear?", "Sure?", "Clear data"))
             .enabled_when(Condition::capability("browser.clearData"))
             .disabled_note("Not available")
-            .noted("Help");
+            .noted("Help")
+            .faced(ButtonFace::Label);
         assert_eq!(spec.icon.as_deref(), Some("trash"));
         assert!(spec.confirm.is_some() && spec.enabled.is_some());
         assert_eq!(spec.disabled_note.as_deref(), Some("Not available"));
         assert_eq!(spec.note(), Some("Help"));
+        assert_eq!(spec.face(), ButtonFace::Label);
     }
 }
