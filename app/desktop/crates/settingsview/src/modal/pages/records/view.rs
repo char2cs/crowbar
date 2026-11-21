@@ -1,14 +1,15 @@
 //! One record of a list: icon, text, flags and actions.
 
 use gpui::AppContext as _;
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AnyElement, App, InteractiveElement, IntoElement, ParentElement, StatefulInteractiveElement,
     Styled, Window, div, px,
 };
-use settings::{FlagLook, RecordFlag};
+use settings::{FlagLook, RecordFlag, Tone};
 use ui::{
-    Badge, Button, ButtonSize, ButtonVariant, DragGhost, Icon, IconName, ScaledText, Surface,
-    Switch, Theme,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, DragGhost, Icon, IconName, ScaledText,
+    Surface, Switch, Theme,
 };
 
 use crate::modal::pages::records::drag_record::DragRecord;
@@ -37,11 +38,8 @@ pub(crate) fn record_view(
     let palette = theme.palette(Surface::Window);
     let leading = leading_icon(record, palette);
     let artwork = record.artwork_svg().map(artwork_image);
-    let badge = record
-        .badge_line()
-        .as_ref()
-        .map(|line| Badge::new(line.text().to_owned()).variant(ui::BadgeVariant::Secondary));
     let text = text_column(record, &theme);
+    let controlled = !record.flags().is_empty() || record.offered_action().is_some();
     let flags = flag_boxes(frame, entry, palette);
     let grip = record.is_movable().then(|| grip(palette));
     let row = div()
@@ -49,16 +47,17 @@ pub(crate) fn record_view(
         .flex()
         .items_center()
         .gap(spacing::ROOMY)
-        .min_h(px(ROW_MIN_HEIGHT))
         .px(spacing::TIGHT)
-        .py(spacing::SNUG)
+        .py(spacing::TIGHT)
+        .when(controlled, |row| {
+            row.min_h(px(ROW_MIN_HEIGHT)).py(spacing::SNUG)
+        })
         .font_family(theme.ui_family())
         .text_size(ScaledText::Sm.size(&theme))
         .children(grip)
         .children(leading)
         .children(artwork)
         .child(text)
-        .children(badge)
         .children(flags)
         .children(
             record
@@ -142,12 +141,48 @@ fn text_column(
         .gap(spacing::HAIRLINE)
         .flex_1()
         .min_w_0()
+        .child(title_line(record, theme, palette))
+        .children(lines)
+}
+
+fn title_line(
+    record: &Record,
+    theme: &Theme,
+    palette: &ui::Palette,
+) -> impl IntoElement {
+    let aside = record.aside_line().map(|line| {
+        div()
+            .min_w_0()
+            .truncate()
+            .text_size(ScaledText::Xs.size(theme))
+            .text_color(palette.muted_foreground())
+            .child(line.text().to_owned())
+    });
+    let badge = record
+        .badge_line()
+        .map(|line| Badge::new(line.text().to_owned()).variant(badge_variant(line.tone())));
+    div()
+        .flex()
+        .items_center()
+        .gap(spacing::COMFORTABLE)
+        .min_w_0()
         .child(
             div()
+                .flex_none()
                 .text_color(palette.foreground())
                 .child(record.title().to_owned()),
         )
-        .children(lines)
+        .children(aside)
+        .children(badge)
+}
+
+fn badge_variant(tone: Tone) -> BadgeVariant {
+    match tone {
+        Tone::Success => BadgeVariant::Success,
+        Tone::Warning => BadgeVariant::Warning,
+        Tone::Error => BadgeVariant::Error,
+        Tone::Neutral | Tone::Pending => BadgeVariant::Secondary,
+    }
 }
 
 fn line_family(

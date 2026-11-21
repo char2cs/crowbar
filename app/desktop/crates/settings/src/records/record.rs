@@ -17,6 +17,7 @@ pub struct Record {
     pub(crate) artwork: Option<String>,
     pub(crate) status: Option<Tone>,
     pub(crate) lines: Vec<Line>,
+    pub(crate) aside: Option<Line>,
     pub(crate) badge: Option<Line>,
     pub(crate) flags: Vec<RecordFlag>,
     pub(crate) action: Option<RecordAction>,
@@ -36,6 +37,7 @@ impl Record {
             artwork: None,
             status: None,
             lines: Vec::new(),
+            aside: None,
             badge: None,
             flags: Vec::new(),
             action: None,
@@ -51,6 +53,22 @@ impl Record {
     ) -> Self {
         self.lines.push(line);
         self
+    }
+
+    /// Shows a short muted text on the title's line, after the title.
+    #[must_use]
+    pub fn aside(
+        mut self,
+        aside: Line,
+    ) -> Self {
+        self.aside = Some(aside);
+        self
+    }
+
+    /// The text on the title's line after the title, if any.
+    #[must_use]
+    pub fn aside_line(&self) -> Option<&Line> {
+        self.aside.as_ref()
     }
 
     /// Shows a badge after the title.
@@ -97,10 +115,12 @@ mod tests {
         let record = Record::new("claude", "Claude Code")
             .line(Line::plain("v2.1"))
             .line(Line::plain("~/.claude"))
+            .aside(Line::plain("shipped"))
             .badge(Line::plain("OK").toned(Tone::Success));
         assert_eq!((record.id(), record.title()), ("claude", "Claude Code"));
         let texts: Vec<&str> = record.lines().iter().map(Line::text).collect();
         assert_eq!(texts, ["v2.1", "~/.claude"]);
         assert_eq!(record.badge_line().map(Line::tone), Some(Tone::Success));
+        assert_eq!(record.aside_line().map(Line::text), Some("shipped"));
     }
 }

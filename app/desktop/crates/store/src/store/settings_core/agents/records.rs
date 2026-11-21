@@ -2,7 +2,7 @@
 
 use daemonapi::Switch;
 use serde_json::{Value, json};
-use settings::{Line, Record, RecordFlag, Tone};
+use settings::{Record, RecordFlag, Tone};
 
 use crate::live::Provider;
 use crate::store::settings_core::agents::artwork;
@@ -16,9 +16,7 @@ pub(crate) fn of(providers: &[Provider]) -> Vec<Record> {
 }
 
 fn record(provider: &Provider) -> Record {
-    let record = Record::new(provider.id.as_str(), name_of(provider))
-        .status(status_of(provider))
-        .line(Line::plain(provider.id.as_str()).mono());
+    let record = Record::new(provider.id.as_str(), name_of(provider)).status(status_of(provider));
     with_artwork(record, provider)
         .flag(flag(CONNECTED, "Installed", provider.connected).as_dot())
         .flag(flag(TOOLS, "Tools", provider.mcp_enabled))
@@ -97,6 +95,10 @@ mod tests {
         assert_eq!(
             records.iter().map(Record::id).collect::<Vec<_>>(),
             ["claude", "codex"]
+        );
+        assert!(
+            records.iter().all(|record| record.lines().is_empty()),
+            "a provider row shows its name only"
         );
         assert_eq!(
             preferences(&all),
