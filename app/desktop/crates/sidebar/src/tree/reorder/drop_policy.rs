@@ -84,6 +84,9 @@ fn container(
         return DropModes::NONE;
     }
     let ownerless = dragged.is_ownerless();
+    if dragged.kind == RowKind::Branch && !ownerless {
+        return DropModes::ALL;
+    }
     let siblings = parent_of(rows, subject) == parent_of(rows, target);
     match (siblings, over.kind, ownerless) {
         (true, _, _) => DropModes::REORDER,
@@ -213,6 +216,30 @@ mod tests {
             "folder into another repository",
             untouched,
             (3, 7),
+            DropModes::NONE,
+        ),
+        (
+            "an owned branch reorders or nests at a sibling folder",
+            untouched,
+            (1, 3),
+            DropModes::ALL,
+        ),
+        (
+            "an owned branch moves under a chat of its repository",
+            untouched,
+            (1, 5),
+            DropModes::ALL,
+        ),
+        (
+            "a plain branch only reorders among its siblings",
+            plain_branch,
+            (1, 3),
+            DropModes::REORDER,
+        ),
+        (
+            "no branch leaves its repository",
+            untouched,
+            (1, 7),
             DropModes::NONE,
         ),
         (

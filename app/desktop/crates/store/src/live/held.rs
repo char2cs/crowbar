@@ -12,8 +12,8 @@ mod settings_slot;
 mod viewed_files;
 
 pub(crate) use entities::{
-    ChatRecord, Entities, FolderRecord, Item, OperationRecord, PROJECTS_SCOPE, ProjectRecord,
-    RepoRecord, WorkspaceRecord,
+    ChatRecord, Entities, FolderRecord, Item, OperationRecord, PROJECTS_SCOPE, PlacementAnswer,
+    ProjectRecord, RepoRecord, WorkspaceRecord,
 };
 pub(crate) use host_slot::HostSlot;
 pub use host_spec::HostSpec;

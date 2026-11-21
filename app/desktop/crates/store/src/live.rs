@@ -16,8 +16,8 @@ pub(crate) use fleet::{
 pub use held::HostSpec;
 pub(crate) use held::{
     ChatRecord, Entities, FileEntry, FolderRecord, HostSlot, IconCache, Item, LinkState,
-    OperationRecord, PanelState, PendingRow, ProjectRecord, RepoRecord, SettingsSlot, ViewedFiles,
-    WorkspaceRecord,
+    OperationRecord, PanelState, PendingRow, PlacementAnswer, ProjectRecord, RepoRecord,
+    SettingsSlot, ViewedFiles, WorkspaceRecord,
 };
 pub use outcome::{Outcome, OutcomeSink};
 pub(crate) use panel_loader::{DocumentBody, FileTarget, ReloadTarget, load_directory, tree_path};

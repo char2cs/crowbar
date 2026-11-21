@@ -1,10 +1,13 @@
 //! Carrying out a plan: the requests in order, the local row meanwhile, the outcome after.
 
 use daemonapi::Call;
+use serde::Deserialize;
 use serde_json::Value;
 use sidebar::RowId;
 
+use crate::live::HostSlot;
 use crate::live::Hub;
+use crate::live::PlacementAnswer;
 use crate::live::PlanError;
 use crate::live::Provider;
 use crate::live::State;
@@ -13,6 +16,7 @@ use crate::live::{Outcome, OutcomeSink};
 use crate::live::{fleet::catalog as providers, panel_loader::changes_reload};
 use crate::plan::Plan;
 use crate::plan::after::After;
+use crate::plan::settle;
 
 const FOLDER: &str = "folder";
 const ID: &str = "id";
@@ -34,7 +38,7 @@ pub(crate) async fn run(
         hub.edit(|state| state.panels.committing = true);
     }
     match (carry_out(hub, &plan).await, &plan.removal) {
-        (Ok(answer), _) => finish(hub, (plan.after, &answer), outcome).await,
+        (Ok(answer), _) => finish(hub, (&plan, &answer), outcome).await,
         (Err(error), Some(removal)) => outcome(removal.refused(&error)),
         (Err(reason), None) => fail(hub, &plan, outcome, reason.to_string()),
     }
@@ -53,7 +57,12 @@ async fn carry_out(
     let provider = chosen_provider(hub, &client, plan).await?;
     let mut answer = Value::Null;
     for call in plan.calls.iter().cloned() {
+        let awaited = plan
+            .settling
+            .clone()
+            .filter(|operation| settle::starts(&call, operation));
         answer = send(&client, call, provider.as_ref().zip(Some(plan.landing))).await?;
+        settle::settled(hub, (&plan.host, awaited)).await?;
     }
     Ok(answer)
 }
@@ -120,10 +129,10 @@ fn named_folder(answer: &Value) -> Option<Outcome> {
 
 async fn finish(
     hub: &Hub,
-    (after, answer): (After, &Value),
+    (plan, answer): (&Plan, &Value),
     outcome: &OutcomeSink,
 ) {
-    match after {
+    match plan.after.clone() {
         After::Nothing => {},
         After::OpenChat(id) => outcome(Outcome::OpenChat(id)),
         After::SelectProject(id) => hub.edit(|state| state.active_project = Some(id)),
@@ -132,7 +141,20 @@ async fn finish(
             .into_iter()
             .for_each(|named| outcome(named)),
         After::SettleName(row) => outcome(Outcome::NameAnswered { row, refusal: None }),
+        After::Place(workspace) => place(hub, (&plan.host, &workspace), answer),
     }
+}
+
+fn place(
+    hub: &Hub,
+    (host, workspace): (&str, &str),
+    answer: &Value,
+) {
+    let Ok(placed) = PlacementAnswer::deserialize(answer) else {
+        return tracing::warn!("a workspace placement answered an unreadable body");
+    };
+    let file = |slot: &mut HostSlot| placed.apply((workspace, &mut slot.store));
+    hub.edit(|state| state.host_mut(host).map(file));
 }
 
 fn fail(

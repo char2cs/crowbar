@@ -1,5 +1,7 @@
 //! Plans that file a row somewhere else.
 
+mod branch_drop;
+mod container;
 mod placement;
 mod slot;
 
@@ -7,9 +9,11 @@ use daemonapi::Call;
 use serde_json::json;
 use sidebar::DropMode;
 
+use crate::live::HostSlot;
 use crate::live::PlanError;
 use crate::live::State;
 use crate::plan::Plan;
+use crate::plan::relocate::branch_drop::BranchDrop;
 use crate::plan::relocate::placement::slot_for;
 use crate::plan::relocate::slot::Slot;
 use crate::reads::{active_project, host_of, tree};
@@ -33,24 +37,14 @@ fn place(
     slot: &Slot,
 ) -> Result<Plan, PlanError> {
     let moved = resolve(state, row).ok_or(PlanError::RowNotLoaded)?;
-    let host = host_of(state, &moved.project)
-        .map(|held| held.spec.id.clone())
-        .ok_or(PlanError::SpaceNotLoaded)?;
+    let held = host_of(state, &moved.project).ok_or(PlanError::SpaceNotLoaded)?;
+    let host = held.spec.id.clone();
     let (project, repo) = (&moved.project, &moved.repo);
     let body = json!({"parentId": slot.parent, "order": slot.index});
     let path = match &moved.kind {
         Kind::Folder => format!("{}/{row}", daemonapi::Route::folders(project, repo)),
-        Kind::Branch {
-            workspace,
-            locked: true,
-            ..
-        } => {
-            format!(
-                "{}/workspaces/{workspace}/placement",
-                daemonapi::Route::scope(project, repo)
-            )
-        },
-        Kind::Branch { .. } | Kind::Chat { .. } => {
+        Kind::Branch { workspace, .. } => return branch((held, &host), workspace, slot),
+        Kind::Chat { .. } => {
             format!(
                 "{}/{}/placement",
                 daemonapi::Route::chats(project, repo),
@@ -62,6 +56,19 @@ fn place(
         },
     };
     Ok(Plan::of(&host, vec![Call::patch(path).json(body)]))
+}
+
+fn branch(
+    (held, host): (&HostSlot, &str),
+    workspace: &str,
+    slot: &Slot,
+) -> Result<Plan, PlanError> {
+    let store = &held.store;
+    let ws = store
+        .workspaces
+        .get(workspace)
+        .ok_or(PlanError::WorkspaceNotLoaded)?;
+    BranchDrop { store, host, ws }.plan(slot)
 }
 
 #[cfg(test)]

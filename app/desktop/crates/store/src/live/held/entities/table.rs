@@ -22,9 +22,19 @@ impl<T> Table<T> {
         version: u64,
         row: T,
     ) {
-        let stale = self.rows.get(id).is_some_and(|(held, _)| version <= *held);
+        let stale = self.rows.get(id).is_some_and(|(held, _)| version < *held);
         if !stale {
             self.rows.insert(id.to_owned(), (version, row));
+        }
+    }
+
+    pub(crate) fn patch(
+        &mut self,
+        id: &str,
+        change: impl FnOnce(&mut T),
+    ) {
+        if let Some((_, row)) = self.rows.get_mut(id) {
+            change(row);
         }
     }
 
@@ -64,18 +74,20 @@ mod tests {
 
     enum Step {
         Put(&'static str, u64, &'static str),
+        Patch(&'static str, &'static str),
         Void,
         Remove(&'static str),
         Forget(&'static str),
     }
 
-    use Step::{Forget, Put, Remove, Void};
+    use Step::{Forget, Patch, Put, Remove, Void};
 
     fn values(steps: &[Step]) -> Vec<&'static str> {
         let mut table = Table::default();
         for step in steps {
             match step {
                 Put(key, version, value) => table.put(key, *version, *value),
+                Patch(key, value) => table.patch(key, |row| *row = *value),
                 Void => table.void_versions(),
                 Remove(key) => table.remove(key),
                 Forget(value) => table.retain(|_, row| row != value),
@@ -88,23 +100,54 @@ mod tests {
 
     type Scenario = (&'static str, Vec<Step>, Vec<&'static str>);
 
+    fn check(cases: Vec<Scenario>) {
+        for (name, steps, expected) in cases {
+            assert_eq!(values(&steps), expected, "{name}");
+        }
+    }
+
     #[test]
-    fn versions_epochs_removal_and_retention_decide_what_a_table_holds() {
-        let cases: [Scenario; 5] = [
+    fn versions_and_patches_decide_which_write_a_row_keeps() {
+        check(vec![
             (
                 "an older version is ignored",
+                vec![Put("a", 5, "five"), Put("a", 4, "four")],
+                vec!["five"],
+            ),
+            (
+                "the same version replaces",
+                vec![Put("a", 5, "five"), Put("a", 5, "again")],
+                vec!["again"],
+            ),
+            (
+                "a patch edits the held row",
                 vec![
                     Put("a", 5, "five"),
-                    Put("a", 4, "four"),
-                    Put("a", 5, "again"),
+                    Patch("a", "placed"),
+                    Patch("b", "none"),
                 ],
-                vec!["five"],
+                vec!["placed"],
+            ),
+            (
+                "the frame after a patch wins at the version the patch kept",
+                vec![
+                    Put("a", 5, "five"),
+                    Patch("a", "placed"),
+                    Put("a", 5, "frame"),
+                ],
+                vec!["frame"],
             ),
             (
                 "a newer version replaces",
                 vec![Put("a", 5, "five"), Put("a", 6, "six")],
                 vec!["six"],
             ),
+        ]);
+    }
+
+    #[test]
+    fn epochs_removal_and_retention_decide_what_a_table_holds() {
+        check(vec![
             (
                 "a new epoch lets any version replace",
                 vec![Put("a", 9, "old"), Void, Put("a", 1, "new")],
@@ -120,9 +163,6 @@ mod tests {
                 vec![Put("a", 1, "one"), Put("b", 1, "two"), Forget("two")],
                 vec!["one"],
             ),
-        ];
-        for (name, steps, expected) in cases {
-            assert_eq!(values(&steps), expected, "{name}");
-        }
+        ]);
     }
 }

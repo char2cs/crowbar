@@ -11,6 +11,7 @@ pub(crate) mod planner;
 mod relocate;
 pub(crate) mod removal;
 pub(crate) mod runner;
+mod settle;
 
 pub(crate) use agent::running;
 pub(crate) use failure_title::failure_title;
@@ -34,6 +35,7 @@ pub(crate) struct Plan {
     pub(crate) committing: bool,
     pub(crate) removal: Option<Removal>,
     pub(crate) failure: Option<String>,
+    pub(crate) settling: Option<String>,
 }
 
 impl Plan {
@@ -52,6 +54,7 @@ impl Plan {
             committing: false,
             removal: None,
             failure: None,
+            settling: None,
         }
     }
 
@@ -88,6 +91,15 @@ impl Plan {
         title: Option<String>,
     ) -> Self {
         self.failure = title;
+        self
+    }
+
+    #[must_use]
+    pub(crate) fn settling(
+        mut self,
+        operation: String,
+    ) -> Self {
+        self.settling = Some(operation);
         self
     }
 

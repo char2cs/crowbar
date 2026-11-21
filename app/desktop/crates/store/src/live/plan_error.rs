@@ -46,6 +46,10 @@ pub(crate) enum PlanError {
     UnknownHost(String),
     #[error("no agent is enabled on this host; enable one in Settings")]
     NoAgentEnabled,
+    #[error("That branch hasn't been checked out yet — try again once it has")]
+    ForkNotCheckedOut,
+    #[error("{0}")]
+    Operation(String),
     #[error("{}", .0.reason())]
     Daemon(#[source] Error),
 }
