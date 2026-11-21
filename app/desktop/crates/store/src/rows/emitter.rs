@@ -196,6 +196,7 @@ mod tests {
         Tree {
             id: id.into(),
             kind,
+            key: crate::rows::forest::SiblingKey::default(),
             children,
         }
     }

@@ -107,16 +107,18 @@ fn level(
     parent: &str,
     children: &BTreeMap<String, Vec<&Item>>,
 ) -> Vec<Tree> {
-    let mut members: Vec<&Item> = children.get(parent).cloned().unwrap_or_default();
-    members.sort_by_cached_key(|item| SiblingKey::of_item(item));
-    members
+    let members: Vec<&Item> = children.get(parent).cloned().unwrap_or_default();
+    let mut trees: Vec<Tree> = members
         .into_iter()
         .map(|item| Tree {
             id: item.id.clone(),
             kind: item.kind,
+            key: SiblingKey::of_item(item),
             children: level(&item.id, children),
         })
-        .collect()
+        .collect();
+    trees.sort_by(|a, b| a.key.cmp(&b.key));
+    trees
 }
 
 pub(crate) fn fold_owners(
@@ -167,6 +169,7 @@ fn fold(
         .flatten();
     let adopted = owner.map_or_default(|owner| merge(owner.children.clone(), owners, detached));
     node.children.extend(adopted);
+    node.children.sort_by(|a, b| a.key.cmp(&b.key));
     node
 }
 
@@ -233,7 +236,7 @@ mod tests {
         &'static [&'static str],
     );
 
-    const CASES: [Scenario; 6] = [
+    const CASES: [Scenario; 7] = [
         (
             "chats sit under their parent or their workspace",
             &[
@@ -287,6 +290,17 @@ mod tests {
             ],
             OWNER_OF_W,
             &["w[thread[]]"],
+        ),
+        (
+            "an owner chat's threads sort among its workspace's own children",
+            &[
+                spec("w", Workspace, ("", "")),
+                spec("owner", Chat, ("", "w")),
+                ("later", Chat, ("", "w"), (1, "")),
+                spec("thread", Chat, ("owner", "w")),
+            ],
+            OWNER_OF_W,
+            &["w[thread[],later[]]"],
         ),
     ];
 
