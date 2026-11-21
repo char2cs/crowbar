@@ -1,10 +1,10 @@
 use std::rc::Rc;
 
 use gpui::{
-    Context, FontWeight, InteractiveElement as _, IntoElement, ParentElement, Render, Styled,
+    Context, FontWeight, Hsla, InteractiveElement as _, IntoElement, ParentElement, Render, Styled,
     Window, div, px,
 };
-use ui::{Button, ButtonSize, ButtonVariant, Surface, Theme};
+use ui::{Button, ButtonSize, ButtonVariant, Palette, Surface, Theme};
 
 const GLYPH: &str = "⚠";
 const TITLE: &str = "Could not load your projects";
@@ -41,7 +41,7 @@ impl Render for ProjectsFailed {
         div()
             .absolute()
             .inset_0()
-            .bg(palette.pane_background())
+            .bg(ground(palette))
             .flex()
             .flex_col()
             .items_center()
@@ -70,6 +70,10 @@ impl Render for ProjectsFailed {
     }
 }
 
+fn ground(palette: &Palette) -> Hsla {
+    palette.chrome_bg()
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
@@ -89,5 +93,16 @@ mod tests {
         let button = window.debug_bounds(RETRY_SELECTOR).unwrap();
         window.simulate_click(button.center(), Modifiers::none());
         assert_eq!(asked.get(), 1);
+    }
+
+    #[test]
+    fn the_landing_sits_on_the_window_ground_not_in_a_pane_box() {
+        let theme = Theme::default();
+        let palette = theme.palette(Surface::Window);
+        assert_eq!(
+            ground(palette),
+            palette.chrome_bg(),
+            "develop's landing is a transparent column over the body's chrome ground"
+        );
     }
 }
