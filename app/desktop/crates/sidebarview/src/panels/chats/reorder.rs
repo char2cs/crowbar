@@ -5,6 +5,7 @@ mod drag_line;
 mod drag_state;
 mod drop_hint;
 mod drop_line;
+mod drop_refusal;
 mod line_box;
 mod line_slide;
 mod row_drag;
@@ -78,8 +79,11 @@ impl Sidebar {
         if clicked_in_place {
             return self.open_row(subject, cx);
         }
-        let Some(hint) = hint.filter(|_| lifted) else {
+        if !lifted {
             return;
+        }
+        let Some(hint) = hint else {
+            return self.say_refused((&subject, &target), cx);
         };
         let command = Command::Drop {
             row: subject,
