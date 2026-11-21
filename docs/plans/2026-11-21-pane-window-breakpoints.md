@@ -21,8 +21,9 @@ No pane writes it back, and nothing else keeps a copy that anyone can edit.
 ## Steps
 
 1. **Protocol.** Add `ShellFrame::Breakpoints { cleared: Vec<Breakpoint> }`, where
-   `Breakpoint` is `Sm | Md | Lg | Xl` at Tailwind's 640/768/1024/1280 px, and
-   `Breakpoint::cleared_by(width)` derives the set. Round-trip it in `pane_frame`'s table test.
+   `Breakpoint` is the wire names `Sm | Md | Lg | Xl` only. The widths stay in `ui::Breakpoint`;
+   the shell maps `ui::Breakpoint::cleared_by(ui::app_window_width(window))` onto the wire names
+   with one exhaustive match. Round-trip the frame in `pane_frame`'s table test.
 2. **panehost.** Add `PaneHost::set_breakpoints(cleared)`, a twin of `set_theme`: unchanged sets
    send nothing, and it sends to mounted panes and again on `mount`. The shell calls it from the
    window's bounds observer that already lays out panes. Tests: a width change that crosses no

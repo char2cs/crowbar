@@ -33,7 +33,10 @@ impl ShellState {
         &mut self,
         width: f32,
     ) {
-        let cleared = protocol::Breakpoint::cleared_by(width);
+        let cleared = ui::Breakpoint::cleared_by(width)
+            .into_iter()
+            .map(crate::pane_breakpoint::wire_breakpoint)
+            .collect();
         if let Err(error) = self.host.set_breakpoints(cleared) {
             tracing::warn!(%error, "sending the window's breakpoints to panes failed");
         }

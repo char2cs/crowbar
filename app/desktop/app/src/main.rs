@@ -68,6 +68,7 @@ mod open_all;
 mod open_chats;
 mod outcome;
 mod page_shot;
+mod pane_breakpoint;
 mod pane_opener;
 mod pane_settings;
 mod pane_spec;

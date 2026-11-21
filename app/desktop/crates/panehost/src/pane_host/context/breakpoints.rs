@@ -53,21 +53,12 @@ mod tests {
     fn a_pane_gets_the_breakpoints_on_mount_and_once_per_new_set() {
         let mut f = fixture();
         f.sync(&[instance("p1", "core.chat")], &["p1"], Some("p1"));
-        f.host
-            .set_breakpoints(Breakpoint::cleared_by(700.0))
-            .unwrap();
+        let (sm, lg) = (vec![Breakpoint::Sm], vec![Breakpoint::Sm, Breakpoint::Lg]);
+        f.host.set_breakpoints(sm.clone()).unwrap();
         assert!(sent(&f).is_empty(), "not mounted yet");
         register(&mut f, "p1", "core.chat");
-        f.host
-            .set_breakpoints(Breakpoint::cleared_by(720.0))
-            .unwrap();
-        f.host
-            .set_breakpoints(Breakpoint::cleared_by(1100.0))
-            .unwrap();
-        let (sm, lg) = (
-            Breakpoint::cleared_by(700.0),
-            Breakpoint::cleared_by(1100.0),
-        );
+        f.host.set_breakpoints(sm.clone()).unwrap();
+        f.host.set_breakpoints(lg.clone()).unwrap();
         assert_eq!(
             sent(&f),
             vec![sm, lg],
