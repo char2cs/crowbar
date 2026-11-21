@@ -3,6 +3,7 @@ use protocol::PaneId;
 
 use crate::tabbar::input_mode::InputMode;
 use crate::tabbar::strip_drag::StripDrag;
+use crate::tabbar::tab_actions::TabAction;
 
 const OVERFLOW_SLACK: f32 = 1.0;
 pub(crate) struct StripState {
@@ -13,6 +14,7 @@ pub(crate) struct StripState {
     pub(crate) mode: InputMode,
     pub(crate) pressed: Point<Pixels>,
     pub(crate) drag: Option<StripDrag>,
+    pub(crate) chosen: Option<TabAction>,
 }
 
 impl StripState {
@@ -56,6 +58,7 @@ impl StripState {
             mode: InputMode::default(),
             pressed: Point::default(),
             drag: None,
+            chosen: None,
         }
     }
 
@@ -78,6 +81,11 @@ impl StripState {
         pointer: Point<Pixels>,
     ) -> bool {
         self.drag.as_mut().is_some_and(|drag| drag.moved(pointer))
+    }
+
+    pub(crate) fn chosen_once_armed(&mut self) -> Option<TabAction> {
+        let armed = self.drag.as_ref().is_some_and(StripDrag::armed);
+        armed.then(|| self.chosen.take()).flatten()
     }
 
     pub(crate) fn land(

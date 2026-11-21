@@ -3,11 +3,14 @@ use gpui::{
     App, AppContext as _, Div, Entity, InteractiveElement, IntoElement, MouseDownEvent, RenderOnce,
     SharedString, Stateful, StatefulInteractiveElement, Styled, Window,
 };
+use std::rc::Rc;
+
 use ui::DragGhost;
 
 use crate::tabbar::strip_seat::StripSeat;
 use crate::tabbar::strip_state::StripState;
 use crate::tabbar::strip_tab::StripTab;
+use crate::tabbar::tab_actions::TabAction;
 use crate::tabbar::tab_drag::TabDrag;
 use crate::tabbar::tab_ghost::TabGhost;
 
@@ -68,8 +71,8 @@ impl RenderOnce for CarriedTab {
             .drag
             .as_ref()
             .is_some_and(|drag| drag.lifts(seat.index));
-        let label = tab.look.label.clone();
-        tab.element(cx, move |frame| wire(frame, seat, label))
+        let picked = (tab.look.label.clone(), Rc::clone(&tab.actions.select));
+        tab.element(cx, move |frame| wire(frame, seat, picked))
             .when(lifted, |tab| tab.opacity(LIFTED_OPACITY))
     }
 }
@@ -77,13 +80,13 @@ impl RenderOnce for CarriedTab {
 fn wire(
     frame: Stateful<Div>,
     seat: StripSeat,
-    label: SharedString,
+    picked: (SharedString, TabAction),
 ) -> Stateful<Div> {
     let pressing = seat.strip.clone();
     frame
         .capture_any_mouse_down(move |event, _, cx| press(&pressing, event, cx))
         .on_drag(key_of(&seat), move |_, _, _, cx| {
-            lift(&seat, label.clone(), cx)
+            lift(&seat, picked.clone(), cx)
         })
 }
 
@@ -103,12 +106,14 @@ fn press(
 
 fn lift(
     seat: &StripSeat,
-    label: SharedString,
+    (label, select): (SharedString, TabAction),
     cx: &mut App,
 ) -> Entity<TabGhost> {
     let tab = (seat.pane.clone(), seat.index);
-    seat.strip
-        .update(cx, |state, _| state.begin(tab, seat.tabs));
+    seat.strip.update(cx, |state, _| {
+        state.begin(tab, seat.tabs);
+        state.chosen = Some(select);
+    });
     let pill = cx.new(|_| DragGhost::new(label, GHOST_WIDTH));
     let strip = seat.strip.clone();
     cx.new(|_| TabGhost { pill, strip })
