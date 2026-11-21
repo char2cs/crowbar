@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PaneChannel } from '@/sdk/pane-channel'
 import { getOwningChatId } from '@/lib/workspace-scope'
 import { toastManager } from '@/lib/toast-manager'
+import { openPreview } from '@/features/editor/documents/open-preview'
+import { workspaceRef } from '@/lib/api/documents'
 import { putEntities, resetEntities, workspaceDTO } from '@/__tests__/__fixtures__/sidebar-entities'
 
 const shell = vi.hoisted(() => ({ channel: null as PaneChannel | null }))
@@ -59,6 +61,24 @@ describe('bootPane', () => {
       after: () => {
         putEntities('workspace', [workspaceDTO({ id: 'ws1', projectId: 'p1', owningChatId: 'c1' })])
         expect(getOwningChatId('ws1')).toBe('c1')
+      },
+    },
+    {
+      name: 'asks the shell to open a linked file as the preview tab, not this pane',
+      pane: 'core.editor',
+      before: () => undefined,
+      after: (post: ReturnType<typeof vi.fn>) => {
+        void openPreview(workspaceRef('ws1', 'src/pricing.ts'))
+        const opens = post.mock.calls
+          .map(([text]) => JSON.parse(text as string) as { kind: string })
+          .filter((frame) => frame.kind === 'pane.open')
+        expect(opens).toEqual([
+          expect.objectContaining({
+            typeId: 'core.editor',
+            file: 'src/pricing.ts',
+            mode: 'preview',
+          }),
+        ])
       },
     },
   ])('$name', ({ pane, before, after }) => {

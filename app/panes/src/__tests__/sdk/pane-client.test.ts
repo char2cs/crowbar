@@ -52,6 +52,18 @@ describe('PaneClient', () => {
       { kind: 'pane.open', typeId: 'core.files', params: { spaceId: 's1' } },
     ],
     [
+      'opens a file as the preview tab',
+      (client: PaneClient) =>
+        client.open('core.editor', {}, { file: 'src/pricing.ts', mode: 'preview' }),
+      {
+        kind: 'pane.open',
+        typeId: 'core.editor',
+        params: {},
+        file: 'src/pricing.ts',
+        mode: 'preview',
+      },
+    ],
+    [
       'asks the shell to store a setting',
       (client: PaneClient) => client.setSetting('showMinimap', true),
       { kind: 'settings.set', version: 1, key: 'showMinimap', value: true },

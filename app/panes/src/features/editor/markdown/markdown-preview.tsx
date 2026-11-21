@@ -3,7 +3,7 @@ import { useCallback, useMemo, useRef } from 'react'
 import { usePreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
 import { exists } from '@/features/file-system/controllers/platform'
 import { siblingRef } from '@/features/editor/documents/document-ref'
-import { openDocument } from '@/features/editor/documents/open-document'
+import { openPreview } from '@/features/editor/documents/open-preview'
 import { usePreviewSource } from '@/features/editor/documents/use-preview-source'
 import { workspaceRef, type DocumentRef } from '@/lib/api/documents'
 import { LinkWorkspaceContext } from '@/lib/markdown-link'
@@ -25,14 +25,14 @@ export interface MarkdownPreviewProps {
 async function openLinkedDocument(source: DocumentRef, href: string): Promise<void> {
   const target = siblingRef(source, href)
   if (target.authority === 'host') {
-    await openDocument(target, { preview: true })
+    await openPreview(target)
     return
   }
   const { workspaceId, path } = target
   if (await exists(workspaceId, path)) {
-    await openDocument(target, { preview: true })
+    await openPreview(target)
   } else if (!path.endsWith('.md') && (await exists(workspaceId, `${path}.md`))) {
-    await openDocument(workspaceRef(workspaceId, `${path}.md`), { preview: true })
+    await openPreview(workspaceRef(workspaceId, `${path}.md`))
   } else {
     logger.warn('MarkdownPreview', `File not found: ${path}`)
   }

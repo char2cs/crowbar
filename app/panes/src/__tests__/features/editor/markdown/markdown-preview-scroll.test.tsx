@@ -18,6 +18,7 @@ import { MONACO_LOAD_MS } from '@/__tests__/__fixtures__/documents'
 import { replaceDocumentText } from '@/features/editor/documents/document-text'
 import { getEditorHost, loadEditorHost } from '@/features/editor/host/editor-host'
 import { MarkdownPreview } from '@/features/editor/markdown/markdown-preview'
+import { installPreviewOpener } from '@/features/editor/documents/open-preview'
 import { workspaceRef, type DocumentRef } from '@/lib/api/documents'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
@@ -216,6 +217,20 @@ describe('MarkdownPreview links', () => {
     )
     expect(exists).toHaveBeenCalledWith('w1', 'docs/spec.md')
     setActiveWorkspaceId(null)
+  })
+
+  it('in a shell pane asks the shell for a tab, trying `.md` first when the bare path is missing', async () => {
+    const opener = vi.fn(async () => {})
+    installPreviewOpener(opener)
+    exists.mockImplementation(async (_ws, path) => path.endsWith('.md'))
+    previewOf(workspaceRef('w1', 'docs/README.md'), '[spec](./spec)\n')
+
+    await waitFor(() =>
+      expect(opener).toHaveBeenCalledExactlyOnceWith(workspaceRef('w1', 'docs/spec.md')),
+    )
+    expect(openDocument).not.toHaveBeenCalled()
+    installPreviewOpener(null)
+    exists.mockImplementation(async () => true)
   })
 
   it('opens a host document’s link as a host document', async () => {

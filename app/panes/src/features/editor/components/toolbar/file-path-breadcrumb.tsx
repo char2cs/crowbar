@@ -3,7 +3,7 @@ import { ArrowLeft } from '@phosphor-icons/react'
 import { useRef, useState } from 'react'
 import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 import { logger } from '@/features/editor/utils/logger'
-import { openDocument } from '@/features/editor/documents/open-document'
+import { openPreview } from '@/features/editor/documents/open-preview'
 import { workspaceRef } from '@/lib/api/documents'
 import type { FileEntry } from '@/features/file-system/types/app'
 import { Button } from '@/components/ui/button'
@@ -24,7 +24,7 @@ interface FilePathBreadcrumbProps {
 
 async function handleNavigate(workspaceId: string, path: string) {
   try {
-    await openDocument(workspaceRef(workspaceId, path), { preview: true })
+    await openPreview(workspaceRef(workspaceId, path))
   } catch (error) {
     logger.error('Editor', 'Failed to navigate to path:', path, error)
   }

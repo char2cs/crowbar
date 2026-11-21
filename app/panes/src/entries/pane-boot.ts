@@ -11,6 +11,7 @@ import { shellChannel } from '@/sdk/shell-channel'
 import { PaneClient } from '@/sdk/pane-client'
 import { followTheme } from '@/sdk/theme'
 import { followBreakpoints } from '@/sdk/window-breakpoints'
+import { installPreviewOpener } from '@/features/editor/documents/open-preview'
 import { ShellViewedOwner } from '@/features/git/lib/shell-viewed-owner'
 import { installViewedOwner } from '@/features/git/lib/viewed-owner'
 import type { BootedPane } from './booted-pane'
@@ -41,5 +42,8 @@ export function bootPane(typeId: string): BootedPane {
   followShellAppearance(client)
   followShellSettings(client)
   forwardToastsToShell(client)
+  installPreviewOpener(async (doc) =>
+    client.open('core.editor', {}, { file: doc.path, mode: 'preview' }),
+  )
   return { client, container }
 }

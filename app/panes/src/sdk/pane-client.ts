@@ -3,6 +3,7 @@ import type { LifecycleMessage } from './lifecycle-message'
 import type { PaneChannel } from './pane-channel'
 import type { PaneFrame } from './pane-frame'
 import type { PaneParams } from './pane-params'
+import type { OpenTarget } from './open-target'
 import type { ReviewViewedFrame } from './review-viewed-frame'
 import type { ViewedChange } from './viewed-change'
 import type { PaneToast } from './pane-toast'
@@ -168,9 +169,9 @@ export class PaneClient {
     })
   }
 
-  /** Asks the shell to open another pane. */
-  open(typeId: string, params: PaneParams): void {
-    this.send({ kind: 'pane.open', typeId, params })
+  /** Asks the shell to open another pane; `target` names the file an editor pane opens and how. */
+  open(typeId: string, params: PaneParams, target?: OpenTarget): void {
+    this.send({ kind: 'pane.open', typeId, params, ...target })
   }
 
   /** Runs a shell command by id. */

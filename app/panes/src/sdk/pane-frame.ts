@@ -1,11 +1,12 @@
 import type { PaneParams } from './pane-params'
+import type { OpenTarget } from './open-target'
 import type { ViewedFile } from './viewed-file'
 import type { PaneToast } from './pane-toast'
 
 /** The frames a pane sends; each is wrapped as `{ sdk: 1, ...frame }`. */
 export type PaneFrame =
   | { kind: 'pane.register'; typeId: string; sdkVersion: string }
-  | { kind: 'pane.open'; typeId: string; params: PaneParams }
+  | ({ kind: 'pane.open'; typeId: string; params: PaneParams } & Partial<OpenTarget>)
   | { kind: 'pane.setTitle'; title: string }
   | { kind: 'pane.setState'; state: unknown }
   | { kind: 'pane.setDirty'; dirty: boolean }
