@@ -148,7 +148,11 @@ impl RenderOnce for Row {
                     .on_mouse_move(move |_, window, cx| (handlers.hover)(index, window, cx))
                     .on_click(move |_, window, cx| (handlers.choose)(index, window, cx))
             })
-            .children(action.icon.map(|name| Icon::new(name).color(text)))
+            .children(
+                action
+                    .icon
+                    .map(|name| Icon::new(name).weight(action.icon_weight).color(text)),
+            )
             .child(action.label.clone())
             .children(hint(action, palette))
             .children(trailing(action, text))

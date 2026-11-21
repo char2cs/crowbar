@@ -82,7 +82,7 @@ fn item(
         sink.deliver(Intent::Select(id.clone()), (window, cx));
     });
     let action = match icon_named(page.icon()) {
-        Some(icon) => action.icon(icon),
+        Some(icon) => action.icon(icon).icon_weight(IconWeight::Duotone),
         None => action,
     };
     MenuItem::Action(action)
