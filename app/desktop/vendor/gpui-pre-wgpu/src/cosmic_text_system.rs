@@ -863,6 +863,8 @@ impl CosmicTextSystemState {
         });
 
         let mut runs: Vec<ShapedRun> = Vec::new();
+        // WebKitGTK advances a fixed-pitch face by whole pixels; the shift carries the rounding on.
+        let mut shift = 0.0_f32;
         for glyph in &layout.glyphs {
             let mut font_id = FontId(glyph.metadata);
             let mut loaded_font = self.loaded_font(font_id);
@@ -888,9 +890,14 @@ impl CosmicTextSystemState {
                 continue;
             }
 
+            let x = glyph.x + shift;
+            if self.is_fixed_pitch(font_id) {
+                shift += glyph.w.round() - glyph.w;
+            }
+
             let shaped_glyph = ShapedGlyph {
                 id: GlyphId(glyph.glyph_id as u32),
-                position: point(glyph.x.into(), glyph.y.into()),
+                position: point(x.into(), glyph.y.into()),
                 index: glyph.start,
                 is_emoji,
             };
@@ -914,12 +921,20 @@ impl CosmicTextSystemState {
 
         LineLayout {
             font_size,
-            width: layout.w.into(),
+            width: (layout.w + shift).into(),
             ascent: layout.max_ascent.into(),
             descent: layout.max_descent.into(),
             runs,
             len: text.len(),
         }
+    }
+
+    fn is_fixed_pitch(&self, font_id: FontId) -> bool {
+        let database_id = self.loaded_font(font_id).font.id();
+        self.font_system
+            .db()
+            .face(database_id)
+            .is_some_and(|face| face.monospaced)
     }
 
     fn missing_glyphs(
