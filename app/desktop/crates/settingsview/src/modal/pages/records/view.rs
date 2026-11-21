@@ -1,19 +1,17 @@
 //! One record of a list: icon, text, flags and actions.
 
-use gpui::AppContext as _;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    AnyElement, App, InteractiveElement, IntoElement, ParentElement, StatefulInteractiveElement,
-    Styled, Window, div, px,
+    AnyElement, App, InteractiveElement, IntoElement, ParentElement, Styled, Window, div, px,
 };
 use settings::{FlagLook, RecordFlag, Tone};
 use ui::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, DragGhost, Icon, IconName, ScaledText,
-    Surface, Switch, Theme,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Icon, IconName, ScaledText, Surface,
+    Switch, Theme,
 };
 
-use crate::modal::pages::records::drag_record::DragRecord;
 use crate::modal::pages::records::marks::{FLAG_COLUMN, ICON, artwork_image, dot_box, grip};
+use crate::modal::pages::records::sortable::sortable;
 use settings::{Line, Record};
 
 use crate::frame::Frame;
@@ -24,8 +22,6 @@ use crate::intent::Intent;
 use crate::modal::pages::records::listed_record::ListedRecord;
 use crate::modal::pages::records::tone_color::tone_color;
 
-const DROP_LINE: f32 = 2.0;
-const GHOST_WIDTH: f32 = 220.0;
 const ROW_MIN_HEIGHT: f32 = 44.0;
 
 pub(crate) fn record_view(
@@ -41,19 +37,9 @@ pub(crate) fn record_view(
         .artwork_svg()
         .map(|markup| artwork_image(markup, palette));
     let text = text_column(record, &theme);
-    let controlled = !record.flags().is_empty() || record.offered_action().is_some();
     let flags = flag_boxes(frame, entry, palette);
     let grip = record.is_movable().then(|| grip(palette));
-    let row = div()
-        .id(element_id("record", &format!("{source}-{}", record.id())))
-        .flex()
-        .items_center()
-        .gap(spacing::ROOMY)
-        .px(spacing::TIGHT)
-        .py(spacing::TIGHT)
-        .when(controlled, |row| {
-            row.min_h(px(ROW_MIN_HEIGHT)).py(spacing::SNUG)
-        })
+    let row = row_shell(source, record)
         .font_family(theme.ui_family())
         .text_size(ScaledText::Sm.size(&theme))
         .children(grip)
@@ -68,9 +54,28 @@ pub(crate) fn record_view(
                 .map(|action| action_button(frame, (source, record), action)),
         );
     if record.is_movable() {
-        return draggable(row, frame, entry).into_any_element();
+        return sortable(row, frame, entry).into_any_element();
     }
     row.into_any_element()
+}
+
+fn row_shell(
+    source: &str,
+    record: &Record,
+) -> gpui::Stateful<gpui::Div> {
+    let controlled = !record.flags().is_empty() || record.offered_action().is_some();
+    let selector = format!("record-{source}-{}", record.id());
+    div()
+        .id(element_id("record", &format!("{source}-{}", record.id())))
+        .debug_selector(move || selector)
+        .flex()
+        .items_center()
+        .gap(spacing::ROOMY)
+        .px(spacing::TIGHT)
+        .py(spacing::TIGHT)
+        .when(controlled, |row| {
+            row.min_h(px(ROW_MIN_HEIGHT)).py(spacing::SNUG)
+        })
 }
 
 fn flag_boxes(
@@ -84,36 +89,6 @@ fn flag_boxes(
         .iter()
         .map(|flag| flag_box(frame, entry, (flag, palette)))
         .collect()
-}
-
-fn draggable(
-    row: gpui::Stateful<gpui::Div>,
-    frame: &Frame<'_>,
-    entry: ListedRecord<'_>,
-) -> impl IntoElement {
-    let ListedRecord {
-        source,
-        record,
-        index,
-    } = entry;
-    let drag = DragRecord {
-        source: source.to_owned(),
-        record: record.id().to_owned(),
-        title: record.title().to_owned(),
-    };
-    let sink = frame.sink.clone();
-    let target = source.to_owned();
-    row.cursor_grab()
-        .on_drag(drag, |drag, _, _, cx| {
-            cx.new(|_| DragGhost::new(drag.title.clone(), GHOST_WIDTH))
-        })
-        .drag_over::<DragRecord>(|row, _, _, cx| {
-            let line = Theme::of(cx).palette(Surface::Window).ring();
-            row.border_t(px(DROP_LINE)).border_color(line)
-        })
-        .on_drop::<DragRecord>(move |drag, window, cx| {
-            drag.deliver(&sink, (&target, index), (window, cx));
-        })
 }
 
 fn leading_icon(

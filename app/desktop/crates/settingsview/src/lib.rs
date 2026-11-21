@@ -3,6 +3,7 @@
 
 mod frame;
 mod intent;
+mod lift;
 mod modal;
 mod settings_modal;
 mod test_support;

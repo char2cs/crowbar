@@ -8,6 +8,7 @@ pub(crate) use sink::Sink;
 
 use ui::TextInputEvent;
 
+use crate::lift::Lift;
 use settings::{ButtonSpec, Nudge, PageId, Pressed, RailMove, RecordAction, Row};
 
 #[derive(Debug, Clone)]
@@ -42,6 +43,8 @@ pub(crate) enum Intent {
         record: String,
         action: RecordAction,
     },
+    Lift(Lift),
+    Land,
     Retry(String),
     Accept,
     Dismiss,

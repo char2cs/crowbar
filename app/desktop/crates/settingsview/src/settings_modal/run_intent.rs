@@ -6,6 +6,7 @@ use ui::TextInputEvent;
 
 use crate::intent::Intent;
 use crate::intent::Runner;
+use crate::lift::Lift;
 use crate::settings_modal::SettingsModal;
 
 impl Runner for SettingsModal {
@@ -105,8 +106,20 @@ impl SettingsModal {
                 None
             },
             Intent::Close => self.close(window, cx),
-            record => Self::record_effect(record),
+            Intent::Lift(lift) => self.hold(lift),
+            record => {
+                self.lift = None;
+                Self::record_effect(record)
+            },
         }
+    }
+
+    fn hold(
+        &mut self,
+        lift: Lift,
+    ) -> Option<Effect> {
+        self.lift = Some(lift);
+        None
     }
 
     fn activate(

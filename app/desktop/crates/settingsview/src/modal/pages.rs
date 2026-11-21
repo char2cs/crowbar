@@ -3,7 +3,7 @@
 mod block_view;
 mod button_block;
 mod heading_view;
-mod records;
+pub(crate) mod records;
 mod rows;
 mod section_view;
 pub(crate) mod shortcuts;

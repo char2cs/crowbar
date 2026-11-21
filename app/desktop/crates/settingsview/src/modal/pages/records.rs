@@ -1,9 +1,11 @@
 //! A list of backend records with its loading, failed and empty states.
 
 mod drag_record;
+mod hover;
 mod listed_record;
 mod marks;
 mod note_text;
+mod sortable;
 
 pub(crate) use note_text::note_text;
 mod tone_color;
@@ -99,7 +101,8 @@ fn table(
 ) -> impl IntoElement {
     let (list, records) = source;
     let mut rows: Vec<AnyElement> = Vec::with_capacity(records.len());
-    for (index, record) in records.iter().enumerate() {
+    let order = crate::lift::arranged(frame.lift, list.source(), records);
+    for (index, record) in order.into_iter().enumerate() {
         let row = record_view(
             frame,
             ListedRecord::new(list.source(), record, index),

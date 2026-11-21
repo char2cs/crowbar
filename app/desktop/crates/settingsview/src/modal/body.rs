@@ -1,8 +1,9 @@
 //! The body of the modal: the rail and the page.
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    AnyElement, App, FocusHandle, InteractiveElement, IntoElement, ParentElement, Styled, Window,
-    div,
+    AnyElement, App, Div, FocusHandle, InteractiveElement, IntoElement, MouseButton, ParentElement,
+    Stateful, Styled, Window, div,
 };
 
 use crate::frame::Frame;
@@ -20,6 +21,7 @@ pub(crate) fn body(
     let focus = frame.focus;
     let sink = frame.sink.clone();
     let focused = focus.clone();
+    let lander = frame.lift.is_some().then(|| frame.sink.clone());
     div()
         .id("settings-body")
         .track_focus(focus)
@@ -31,9 +33,19 @@ pub(crate) fn body(
             let mode = rail_or_page(&focused, window);
             deliver_key(&sink, route(&event.keystroke, mode), (window, cx));
         })
+        .when_some(lander, land_on_release)
         .child(rail(frame, (&mut *window, &mut *cx)))
         .child(content(frame, frame.scroll, (window, cx)))
         .into_any_element()
+}
+
+fn land_on_release(
+    body: Stateful<Div>,
+    sink: Sink,
+) -> Stateful<Div> {
+    body.on_mouse_up(MouseButton::Left, move |_, window, cx| {
+        sink.deliver(Intent::Land, (window, cx));
+    })
 }
 
 fn rail_or_page(

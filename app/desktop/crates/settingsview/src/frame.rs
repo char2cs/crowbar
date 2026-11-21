@@ -13,6 +13,7 @@ use gpui::{FocusHandle, ScrollHandle};
 use settings::RecordBackend;
 
 use crate::intent::Sink;
+use crate::lift::Lift;
 
 #[derive(Clone, Copy)]
 pub(crate) struct Frame<'a> {
@@ -22,4 +23,5 @@ pub(crate) struct Frame<'a> {
     pub(crate) records: &'a dyn RecordBackend,
     pub(crate) focus: &'a FocusHandle,
     pub(crate) scroll: &'a ScrollHandle,
+    pub(crate) lift: Option<&'a Lift>,
 }

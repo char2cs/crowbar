@@ -9,7 +9,6 @@ use crate::intent::Sink;
 pub(crate) struct DragRecord {
     pub(crate) source: String,
     pub(crate) record: String,
-    pub(crate) title: String,
 }
 
 impl DragRecord {
@@ -48,7 +47,6 @@ mod tests {
         let drag = DragRecord {
             source: "agents".into(),
             record: "codex".into(),
-            title: "Codex".into(),
         };
         let cases = [
             (

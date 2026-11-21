@@ -25,6 +25,7 @@ use crate::frame::Frame;
 use crate::intent::Intent;
 use crate::intent::Runner as _;
 use crate::intent::Sink;
+use crate::lift::Lift;
 use crate::modal::notice_view;
 use crate::modal::prompt_view;
 use crate::modal::{extent, search_field};
@@ -42,6 +43,7 @@ pub struct SettingsModal {
     pub(crate) scroll: ScrollHandle,
     pub(crate) focus: FocusHandle,
     pub(crate) notice: Option<String>,
+    pub(crate) lift: Option<Lift>,
     pub(crate) on_close: Option<CloseHandler>,
     _subscriptions: Vec<gpui::Subscription>,
     _changes: Subscription,
@@ -83,6 +85,7 @@ impl SettingsModal {
             scroll: ScrollHandle::new(),
             focus: cx.focus_handle(),
             notice: None,
+            lift: None,
             on_close: config.on_close,
             _subscriptions: vec![typing],
             _changes: changes,
@@ -191,6 +194,7 @@ impl Render for SettingsModal {
             records: self.records.as_ref(),
             focus: &self.focus,
             scroll: &self.scroll,
+            lift: self.lift.as_ref(),
         };
         let content = body(&frame, (window, cx));
         let dialog = Dialog::new("settings")
