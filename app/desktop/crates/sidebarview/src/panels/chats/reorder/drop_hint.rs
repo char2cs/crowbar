@@ -103,7 +103,7 @@ mod tests {
     fn the_pointer_height_picks_the_placement() {
         const CASES: [Case; 7] = [
             ("a", "b", 2.0, Some(DropMode::Before)),
-            ("a", "b", 18.0, Some(DropMode::After)),
+            ("a", "b", 18.0, Some(DropMode::Into)),
             ("a", "b", 34.0, Some(DropMode::After)),
             ("a", "f", 5.0, Some(DropMode::Before)),
             ("a", "f", 18.0, Some(DropMode::Into)),

@@ -29,7 +29,7 @@ impl DropModes {
             return working(dragged, over);
         }
         match dragged.kind {
-            RowKind::Chat => chat(over),
+            RowKind::Chat => DropModes::ALL,
             RowKind::RepoHeader => repo(over),
             RowKind::Folder | RowKind::Branch => container(rows, (subject, target)),
         }
@@ -64,13 +64,6 @@ fn working(
         return DropModes::NONE;
     }
     DropModes::INTO
-}
-
-fn chat(over: &Row) -> DropModes {
-    match over.kind {
-        RowKind::Chat => DropModes::REORDER,
-        RowKind::RepoHeader | RowKind::Folder | RowKind::Branch => DropModes::ALL,
-    }
 }
 
 fn repo(over: &Row) -> DropModes {
@@ -175,10 +168,10 @@ mod tests {
         ("chat over folder", untouched, (2, 3), DropModes::ALL),
         ("chat over repo", untouched, (2, 0), DropModes::ALL),
         (
-            "chat over chat only reorders",
+            "a chat over a chat reorders or nests as its thread",
             untouched,
             (2, 5),
-            DropModes::REORDER,
+            DropModes::ALL,
         ),
         ("self", untouched, (3, 3), DropModes::NONE),
         ("own child", untouched, (3, 4), DropModes::NONE),
