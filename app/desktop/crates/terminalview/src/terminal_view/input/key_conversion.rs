@@ -65,7 +65,7 @@ pub(crate) fn link_modifier_held(modifiers: gpui::Modifiers) -> bool {
 mod tests {
     use super::*;
 
-    fn keystroke(source: &str) -> Keystroke {
+    fn keystroke(source: &'static str) -> Keystroke {
         Keystroke::parse(source).unwrap_or_else(|_| Keystroke {
             modifiers: gpui::Modifiers::default(),
             key: source.to_owned(),

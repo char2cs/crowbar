@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use gpui::StyledImage as _;
+use gpui::TaskExt as _;
 use gpui::{
     App, AppContext as _, Context, Div, FontWeight, IntoElement, ParentElement, PathPromptOptions,
     Render, Styled, Window, div, img, px,

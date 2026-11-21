@@ -172,7 +172,7 @@ impl ShellView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
         self.system_fonts = crate::installed_fonts::installed(cx);
         self.announce_start(cx);
         self.spawn_tasks(queue, window, cx);
@@ -375,6 +375,7 @@ mod tests {
     }
 
     pub(super) fn open_shell(cx: &mut TestAppContext) -> Opened {
+        cx.executor().allow_parking();
         cx.update(|cx| ui::init(cx).expect("ui installs"));
         let mut rig = crate::test_support::shell_rig();
         let pane = crate::test_support::synced_chat(&mut rig);

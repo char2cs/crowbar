@@ -131,8 +131,9 @@ impl TextArea {
     pub fn focus(
         &self,
         window: &mut Window,
+        cx: &mut App,
     ) {
-        window.focus(&self.focus_handle);
+        window.focus(&self.focus_handle, cx);
     }
 
     pub(crate) fn accepts_input(&self) -> bool {

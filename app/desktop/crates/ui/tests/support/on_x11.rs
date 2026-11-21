@@ -65,7 +65,7 @@ struct Seen {
 #[ignore = "needs display"]
 fn a_real_window_parents_paints_inherited_icon_colour_and_each_weight() {
     let (sender, seen) = mpsc::channel();
-    gpui::Application::new()
+    gpui_platform::application()
         .with_assets(ui::assets())
         .run(move |cx| open_probe(&sender, cx));
     let seen = seen
@@ -98,7 +98,7 @@ fn open_window(
     let deadline = Instant::now() + FRAME_WAIT;
     cx.spawn(async move |cx| {
         cx.background_executor().timer(FRAME_WAIT).await;
-        cx.update(|cx| cx.quit()).unwrap_or_default();
+        cx.update(|cx| cx.quit());
     })
     .detach();
     let bounds = Bounds::new(

@@ -4,8 +4,8 @@ use std::ops::Range;
 
 use gpui::{
     App, Bounds, Element, ElementId, ElementInputHandler, Entity, GlobalElementId, Hsla,
-    InspectorElementId, IntoElement, LayoutId, Pixels, ShapedLine, SharedString, Style, TextRun,
-    Window, fill, point, px, relative, size,
+    InspectorElementId, IntoElement, LayoutId, Pixels, ShapedLine, SharedString, Style, TextAlign,
+    TextRun, Window, fill, point, px, relative, size,
 };
 
 use crate::control::editor::field::Frame;
@@ -174,9 +174,14 @@ impl<S: LineSurface> Element for LineElement<S> {
         if let Some(selection) = prepaint.selection.take() {
             window.paint_quad(selection);
         }
-        let painted = prepaint
-            .line
-            .paint(bounds.origin, window.line_height(), window, cx);
+        let painted = prepaint.line.paint(
+            bounds.origin,
+            window.line_height(),
+            TextAlign::Left,
+            None,
+            window,
+            cx,
+        );
         debug_assert!(painted.is_ok(), "shaped line failed to paint");
         let lit = focus.is_focused(window) && window.is_window_active();
         let caret = prepaint.caret.take().filter(|_| lit);

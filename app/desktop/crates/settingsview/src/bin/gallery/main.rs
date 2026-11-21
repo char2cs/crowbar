@@ -8,7 +8,7 @@ mod demo;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use gpui::{App, AppContext as _, Application, Bounds, WindowBounds, WindowOptions, px, size};
+use gpui::{App, AppContext as _, Bounds, WindowBounds, WindowOptions, px, size};
 use settings::default_schema;
 use settingsview::{ModalConfig, SettingsModal};
 
@@ -76,7 +76,7 @@ fn main() -> Result<(), Failure> {
     let arguments = Arguments::from_env();
     let failure = Rc::new(RefCell::new(None));
     let slot = Rc::clone(&failure);
-    Application::new()
+    gpui_platform::application()
         .with_assets(ui::assets())
         .run(move |cx: &mut App| launch(cx, &arguments, &slot));
     failure.take().map_or(Ok(()), Err)

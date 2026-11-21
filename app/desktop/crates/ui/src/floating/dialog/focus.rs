@@ -38,28 +38,28 @@ impl Focus {
     fn focus_first(
         &self,
         window: &mut Window,
-        cx: &App,
+        cx: &mut App,
     ) {
         if self.root.contains_focused(window, cx) {
             return;
         }
         if self.root.contains(&self.close, window) {
-            return window.focus(&self.close);
+            return window.focus(&self.close, cx);
         }
-        window.focus(&self.root);
+        window.focus(&self.root, cx);
     }
 
     pub(crate) fn step(
         &self,
-        step: fn(&mut Window),
+        step: fn(&mut Window, &mut App),
         window: &mut Window,
-        cx: &App,
+        cx: &mut App,
     ) {
-        step(window);
+        step(window, cx);
         if self.root.contains_focused(window, cx) {
             return;
         }
-        window.focus(&self.close);
+        window.focus(&self.close, cx);
     }
 }
 
@@ -102,7 +102,7 @@ mod tests {
             .unwrap_or_else(|| panic!("the dialog opened"));
         assert!(window.update(|window, _| focus.close.is_focused(window)));
         window.update(|window, cx| {
-            window.focus(&other);
+            window.focus(&other, cx);
             focus.step(Window::focus_next, window, cx);
         });
         assert!(window.update(|window, _| focus.close.is_focused(window)));

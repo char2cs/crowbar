@@ -10,8 +10,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use gpui::{
-    App, AppContext as _, Application, AsyncApp, Bounds, Context, Entity, WindowBounds,
-    WindowOptions, px, size,
+    App, AppContext as _, AsyncApp, Bounds, Context, Entity, WindowBounds, WindowOptions, px, size,
 };
 use startup::{Command, Event, Input, MonotonicClock, View};
 use ui::{Theme, ThemeId, ThemeMode};
@@ -73,20 +72,19 @@ async fn play_all(
     view: &Entity<View>,
     sequence: impl Iterator<Item = Input>,
     cx: &mut AsyncApp,
-) -> Option<()> {
+) {
     for input in sequence {
-        step(view, input, cx).await?;
+        step(view, input, cx).await;
     }
-    Some(())
 }
 
 async fn step(
     view: &Entity<View>,
     input: Input,
     cx: &mut AsyncApp,
-) -> Option<()> {
+) {
     cx.background_executor().timer(STEP_TIME).await;
-    view.update(cx, |view, cx| view.apply(input, cx)).ok()
+    view.update(cx, |view, cx| view.apply(input, cx));
 }
 
 fn build(
@@ -168,7 +166,7 @@ fn main() -> Result<(), Failure> {
     };
     let failure = FailureSlot::default();
     let slot = Rc::clone(&failure);
-    Application::new()
+    gpui_platform::application()
         .with_assets(ui::assets())
         .run(move |cx: &mut App| start(cx, &phase, &Look { id, mode }, &slot));
     failure.take().map_or(Ok(()), Err)

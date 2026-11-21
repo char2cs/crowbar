@@ -167,9 +167,9 @@ impl TerminalView {
         cx: &mut Context<'_, Self>,
     ) {
         let text = terminal::format_dropped_paths(paths.paths());
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
         if !text.is_empty() {
-            self.paste(&text, cx);
+            self.paste_text(&text, cx);
         }
     }
 }
@@ -218,7 +218,7 @@ impl TerminalView {
             .track_focus(&self.focus)
             .cursor(self.pointer_style())
             .on_key_down(cx.listener(Self::on_key_down))
-            .on_scroll_wheel(cx.listener(Self::on_scroll_wheel))
+            .on_scroll(cx.listener(Self::on_scroll))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_drop(cx.listener(Self::on_drop))
             .child(Self::surface(cx));
@@ -305,7 +305,9 @@ mod tests {
         cx.run_until_parked();
         let size = cx.update(|window, _| window.viewport_size());
         let origin = point(px(0.0), px(0.0));
-        cx.draw(origin, size, |_, _| late.clone());
+        cx.draw(origin, size, |_, _| {
+            gpui::IntoElement::into_any_element(late.clone())
+        });
         cx.run_until_parked();
         let row = late.read_with(cx, |view, _| view.terminal.snapshot().cursor.map(|c| c.row));
         assert_eq!(row, Some(1), "the cursor stays after the prompt");

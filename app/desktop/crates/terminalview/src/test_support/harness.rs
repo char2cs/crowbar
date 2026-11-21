@@ -31,7 +31,7 @@ pub(crate) fn open(cx: &mut TestAppContext) -> (Harness, &mut VisualTestContext)
 
 pub(crate) fn draw(cx: &mut VisualTestContext) {
     cx.run_until_parked();
-    cx.update(|window, cx| window.draw(cx).clear());
+    cx.update(|window, cx| window.draw(cx).clear(cx));
     cx.run_until_parked();
 }
 
@@ -96,7 +96,7 @@ pub(crate) fn focus(
     harness: &Harness,
     cx: &mut VisualTestContext,
 ) {
-    cx.update(|window, cx| harness.view.update(cx, |view, _| view.focus(window)));
+    cx.update(|window, cx| harness.view.update(cx, |view, cx| view.focus(window, cx)));
     draw(cx);
 }
 

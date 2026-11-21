@@ -1,0 +1,162 @@
+diff --git a/src/window.rs b/src/window.rs
+index 32a6a54..af98464 100644
+--- a/src/window.rs
++++ b/src/window.rs
+@@ -704,6 +704,9 @@ struct MacWindowState {
+     accesskit_adapter: Option<accesskit_macos::SubclassingAdapter>,
+     // The parent window if this window is a sheet (Dialog kind)
+     sheet_parent: Option<*mut AnyObject>,
++    // The owner of an overlay window, and the overlay of an owner.
++    owner: Option<*mut AnyObject>,
++    overlay: Option<*mut AnyObject>,
+ }
+ 
+ impl MacWindowState {
+@@ -998,6 +1001,7 @@ impl MacWindow {
+             window_min_size,
+             tabbing_identifier,
+             use_display_p3,
++            overlay_of,
+             ..
+         }: WindowParams,
+         cursor_visible: Arc<AtomicBool>,
+@@ -1034,6 +1038,11 @@ impl MacWindow {
+                 style_mask = NSWindowStyleMask::Titled | NSWindowStyleMask::FullSizeContentView;
+             }
+ 
++            let owner = overlay_of.and_then(|owner| native_window_of(owner));
++            if owner.is_some() {
++                style_mask = NSWindowStyleMask::Borderless;
++            }
++
+             let native_window: *mut AnyObject = match kind {
+                 WindowKind::Normal => {
+                     msg_send![WINDOW_CLASS, alloc]
+@@ -1079,6 +1088,7 @@ impl MacWindow {
+                 ),
+             );
+ 
++            let window_rect = owner.map_or(window_rect, |owner| content_rect(owner));
+             let native_window: *mut AnyObject = msg_send![
+                 native_window,
+                 initWithContentRect: window_rect,
+@@ -1165,6 +1175,8 @@ impl MacWindow {
+                 closed: Arc::new(AtomicBool::new(false)),
+                 accesskit_adapter: None,
+                 sheet_parent: None,
++                owner,
++                overlay: None,
+             }));
+             let mut window = Self(state, marker, metal_frames);
+ 
+@@ -1311,6 +1323,14 @@ impl MacWindow {
+                 }
+             }
+ 
++            if let Some(owner) = owner {
++                let _: () = msg_send![native_window, setHasShadow: Bool::NO];
++                let _: () = msg_send![native_window, setIgnoresMouseEvents: Bool::YES];
++                let _: () = msg_send![owner, addChildWindow: native_window, ordered: NSWindowOrderingMode::Above];
++                get_window_state(&*owner).lock().overlay = Some(native_window);
++                return Ok(window);
++            }
++
+             if focus && show {
+                 let _: () =
+                     msg_send![native_window, makeKeyAndOrderFront: ptr::null_mut::<AnyObject>()];
+@@ -2173,6 +2193,55 @@ impl PlatformWindow for MacWindow {
+         None
+     }
+ 
++    fn owner_bounds(&self) -> Option<Bounds<Pixels>> {
++        let lock = self.0.lock();
++        lock.owner
++            .map(|_| Bounds::new(Point::default(), lock.content_size()))
++    }
++
++    // PLATFORM: an NSWindow cannot shape its input, so an overlay takes every click while it
++    // has a region and none while it has none.
++    fn set_input_region(&self, region: Option<&[Bounds<Pixels>]>) {
++        let lock = self.0.lock();
++        if lock.owner.is_none() {
++            return;
++        }
++        let ignores = Bool::new(region.is_some_and(<[_]>::is_empty));
++        unsafe {
++            let _: () = msg_send![lock.native_window, setIgnoresMouseEvents: ignores];
++        }
++    }
++
++    // PLATFORM: hiding a child window with orderOut detaches it from its owner, so a hidden
++    // overlay stays attached and turns fully transparent instead.
++    fn set_overlay_shown(&self, shown: bool) {
++        let lock = self.0.lock();
++        if lock.owner.is_none() {
++            return;
++        }
++        let alpha: f64 = if shown { 1.0 } else { 0.0 };
++        unsafe {
++            let _: () = msg_send![lock.native_window, setAlphaValue: alpha];
++        }
++    }
++
++    fn set_takes_keys(&self, takes_keys: bool) {
++        let lock = self.0.lock();
++        let Some(owner) = lock.owner else {
++            return;
++        };
++        let native_window = lock.native_window;
++        let is_key = lock.native_window().isKeyWindow();
++        drop(lock);
++        unsafe {
++            if takes_keys {
++                let _: () = msg_send![native_window, makeKeyWindow];
++            } else if is_key {
++                let _: () = msg_send![owner, makeKeyWindow];
++            }
++        }
++    }
++
+     fn update_ime_position(&self, _bounds: Bounds<Pixels>) {
+         let executor = self.0.lock().foreground_executor.clone();
+         executor
+@@ -3073,7 +3142,38 @@ extern "C" fn window_did_change_occlusion_state(this: &AnyObject, _: Sel, _: *mu
+ 
+ extern "C" fn window_did_resize(this: &AnyObject, _: Sel, _: *mut AnyObject) {
+     let window_state = unsafe { get_window_state(this) };
+-    window_state.as_ref().lock().move_traffic_light();
++    let mut lock = window_state.as_ref().lock();
++    lock.move_traffic_light();
++    if let Some(overlay) = lock.overlay {
++        unsafe {
++            let frame = content_rect(lock.native_window);
++            let _: () = msg_send![overlay, setFrame: frame, display: Bool::YES];
++        }
++    }
++}
++
++/// The content area of `window` in screen coordinates.
++unsafe fn content_rect(window: *mut AnyObject) -> NSRect {
++    unsafe {
++        let frame: NSRect = msg_send![window, frame];
++        msg_send![window, contentRectForFrameRect: frame]
++    }
++}
++
++/// The native window GPUI opened as `handle`.
++unsafe fn native_window_of(handle: AnyWindowHandle) -> Option<*mut AnyObject> {
++    unsafe {
++        let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
++        let windows: *mut AnyObject = msg_send![app, windows];
++        let count: NSUInteger = msg_send![windows, count];
++        (0..count)
++            .map(|index| -> *mut AnyObject { msg_send![windows, objectAtIndex: index] })
++            .filter(|window| {
++                let is_gpui: Bool = msg_send![*window, isKindOfClass: WINDOW_CLASS];
++                is_gpui.as_bool()
++            })
++            .find(|window| get_window_state(&**window).lock().handle == handle)
++    }
+ }
+ 
+ extern "C" fn window_will_enter_fullscreen(this: &AnyObject, _: Sel, _: *mut AnyObject) {

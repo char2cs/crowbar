@@ -5,7 +5,7 @@
 mod arguments;
 mod local_pty;
 
-use gpui::{App, AppContext, Application, Bounds, WindowBounds, WindowOptions, px, size};
+use gpui::{App, AppContext, Bounds, WindowBounds, WindowOptions, px, size};
 use terminalview::{Link, Settings, TerminalView};
 use ui::Theme;
 
@@ -15,7 +15,7 @@ use crate::local_pty::spawn_local_pty;
 fn main() {
     tracing_subscriber::fmt().init();
     let arguments = Arguments::from_env();
-    Application::new()
+    gpui_platform::application()
         .with_assets(ui::assets())
         .run(move |cx: &mut App| start(&arguments, cx));
 }
@@ -63,7 +63,7 @@ fn open_session(
         tracing::error!(%error, "shell could not start");
     }
     let view = cx.new(|cx| attached_view(link, arguments.command, window, cx));
-    view.update(cx, |view, _| view.focus(window));
+    view.update(cx, |view, cx| view.focus(window, cx));
     view
 }
 

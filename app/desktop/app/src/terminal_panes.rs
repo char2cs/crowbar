@@ -76,7 +76,7 @@ impl TerminalPanes {
         cx: &mut App,
     ) {
         if let Some(view) = self.view(pane, window, cx) {
-            window.focus(&view.focus_handle(cx));
+            window.focus(&view.focus_handle(cx), cx);
         }
     }
 
@@ -165,6 +165,7 @@ mod tests {
 
     #[gpui::test]
     fn a_terminal_pane_gets_one_view_and_keeps_it(cx: &mut TestAppContext) {
+        cx.executor().allow_parking();
         cx.update(|cx| ui::init(cx).unwrap());
         let panes = panes_for(&terminal_layout(Some("c1")));
         let (_root, cx) = cx.add_window_view(|_, _| gpui::Empty);
@@ -180,6 +181,7 @@ mod tests {
 
     #[gpui::test]
     fn a_focused_terminal_pane_takes_the_keyboard(cx: &mut TestAppContext) {
+        cx.executor().allow_parking();
         cx.update(|cx| ui::init(cx).unwrap());
         let panes = panes_for(&terminal_layout(Some("c1")));
         let (_root, cx) = cx.add_window_view(|_, _| gpui::Empty);
@@ -223,7 +225,7 @@ mod tests {
         let (shown, cx) =
             cx.add_window_view(|window, cx| Shown(panes.view(&pane, window, cx).unwrap().into()));
         cx.run_until_parked();
-        cx.update(|window, cx| window.draw(cx).clear());
+        cx.update(|window, cx| window.draw(cx).clear(cx));
         let terminal = cx.read_entity(&shown, |shown, _| {
             shown.0.clone().downcast::<TerminalView>().unwrap()
         });
@@ -234,7 +236,7 @@ mod tests {
         };
         cx.update(|_, cx| panes.apply(larger, cx));
         cx.run_until_parked();
-        cx.update(|window, cx| window.draw(cx).clear());
+        cx.update(|window, cx| window.draw(cx).clear(cx));
         let after = cx.read_entity(&terminal, |view, _| view.grid_size());
         assert!(
             after.0 < before.0,
@@ -259,6 +261,7 @@ mod tests {
 
     #[gpui::test]
     fn a_dormant_chat_terminal_is_rebuilt_once_its_runner_appears(cx: &mut TestAppContext) {
+        cx.executor().allow_parking();
         cx.update(|cx| ui::init(cx).unwrap());
         let (chats, state) = dormant_then_live();
         let ids = TerminalIds::default();

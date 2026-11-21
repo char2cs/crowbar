@@ -2,8 +2,9 @@
 
 use std::rc::Rc;
 
-use gpui::{App, ElementId, Entity, IntoElement, RenderOnce, Styled, Window, canvas};
+use gpui::{App, ElementId, Entity, IntoElement, RenderOnce, Styled, Window, canvas, div};
 
+use crate::floating::TopLayer;
 use crate::floating::top_layer::{Build, Layer, Reach, Registry, Slot};
 use crate::foundation::opaque_debug;
 use crate::foundation::tokens::layer;
@@ -29,6 +30,16 @@ impl Portal {
         build: impl Fn(&mut Window, &mut App) -> E + 'static,
     ) -> Self {
         Self::new(id.into(), Reach::Here(gpui::Bounds::default()), build)
+    }
+
+    /// Paints `build` at the portal's own bounds like [`Portal::here`], for the view a drag
+    /// shows under the pointer. Every window draws the dragged view, so it paints only in the
+    /// owner's top layer, or in place in a window without one.
+    pub fn lifted<E: IntoElement>(
+        id: impl Into<ElementId>,
+        build: impl Fn(&mut Window, &mut App) -> E + 'static,
+    ) -> Self {
+        Self::new(id.into(), Reach::Lifted, build)
     }
 
     /// Paints `build` over the whole window, its origin at the window's top-left corner.
@@ -88,6 +99,10 @@ impl RenderOnce for Portal {
         cx: &mut App,
     ) -> impl IntoElement {
         let layer = self.layer();
+        let in_top_layer = window.root::<TopLayer>().flatten().is_some();
+        if in_top_layer && layer.reach == Reach::Lifted {
+            return div().into_any_element();
+        }
         let Some(layers) = Registry::of(window, cx) else {
             return layer.inline(window, cx);
         };
@@ -97,7 +112,7 @@ impl RenderOnce for Portal {
         canvas(
             move |bounds, window, cx| {
                 let reach = match layer.reach {
-                    Reach::Here(_) => Reach::Here(bounds),
+                    Reach::Here(_) | Reach::Lifted => Reach::Here(bounds),
                     reach => reach,
                 };
                 let layer = Layer { reach, ..layer };

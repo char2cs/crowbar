@@ -56,7 +56,7 @@ impl View {
                 .on(Surface::Window)
                 .style(TextInputStyle::Compact)
         });
-        input.read(cx).focus(window);
+        input.update(cx, |field, cx| field.focus(window, cx));
         let subscription = cx.subscribe(&input, Self::on_input);
         Self {
             source,

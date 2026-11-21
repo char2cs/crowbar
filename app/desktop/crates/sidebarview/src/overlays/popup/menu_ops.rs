@@ -21,10 +21,10 @@ impl Sidebar {
             return;
         }
         let focus = cx.focus_handle();
-        window.focus(&focus);
+        window.focus(&focus, cx);
         // PLATFORM: gpui gives focus to the pressed ancestor after the click handler ran; claim it back.
         let later = focus.clone();
-        window.defer(cx, move |window, _| window.focus(&later));
+        window.defer(cx, move |window, cx| window.focus(&later, cx));
         let cursor = MenuCursor::default();
         self.menu = Some(OpenMenu {
             entries,

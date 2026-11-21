@@ -58,7 +58,7 @@ mod tests {
         cx.run_until_parked();
         let handles = seen.borrow().clone();
         let clicked = cx.update(|window, _| handles.iter().any(|handle| handle.is_focused(window)));
-        cx.update(|window, _| window.focus_next());
+        cx.update(Window::focus_next);
         cx.run_until_parked();
         let focused = cx.update(|window, _| handles.iter().any(|handle| handle.is_focused(window)));
         let distinct = handles.windows(2).all(|pair| pair[0] == pair[1]);

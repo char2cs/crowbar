@@ -37,7 +37,7 @@ pub(crate) fn wake(
     let left = STEP.saturating_sub(into_step(now - epoch));
     let tick = cx.spawn(async move |cx| {
         cx.background_executor().timer(left).await;
-        cx.update(tick).unwrap_or_default();
+        cx.update(tick);
     });
     cx.global_mut::<SpinnerClock>().tick = Some(tick);
 }

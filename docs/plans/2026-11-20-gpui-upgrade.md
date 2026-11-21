@@ -1,5 +1,7 @@
 # GPUI upgrade: gpui 0.2.2 to gpui-pre 0.3.12
 
+Status: DONE. A0 and A1 landed; A2 landed as one commit with A3 folded in (see Outcome).
+
 ## Goal
 Move the shell from the vendored, patched gpui 0.2.2 to gpui-pre 0.3.12 (crates.io,
 publisher huacnlee), a snapshot of zed@d2a4fb6ded7c470be25d1541281da3882495b65b (the
@@ -105,3 +107,19 @@ A3 is part of the A2 commit.
   X11 client); it is re-ported by hand, not rebased.
 - gpui-pre is published by one person; the `upstream.txt` sha256 pins and the vendored
   copies keep the build reproducible if a release is yanked.
+
+## Outcome
+- wgpu runs on lavapipe. Rig shots of all seven states render; whole-window pixels differing
+  from Tauri fell from 33,966 to 30,127. Glyph baselines now round to nearest instead of
+  flooring: more rows land on Tauri's positions, one italic row sits 1 px low (S3 polish).
+- `ui::init` sets `TextRenderingMode::Grayscale`: gpui_wgpu defaults to subpixel on Linux,
+  WebKit draws grayscale.
+- CPU unchanged within noise (idle 0.3%, spinner 94% against 104% before). Binary 41 to 49 MB.
+- calloop 0.14.5 is vendored without tracing's `log` feature.
+
+### Notes: checking the macOS target from a Linux host
+CI checks on a macOS runner and needs neither of these; they only let a Linux host run
+`cargo check -p crowbar --target x86_64-apple-darwin`:
+- `objc2-exception-helper` compiles C: point `CC_x86_64_apple_darwin` at a no-op compiler.
+- `gpui-pre-macos`'s build.rs compiles Metal shaders only on a macOS host: enable
+  `gpui_platform/runtime_shaders` and create the empty shader outputs it expects.

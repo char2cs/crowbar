@@ -14,6 +14,7 @@ path = "src/bin/gallery/main.rs"
 
 [dependencies]
 gpui.workspace = true
+gpui_platform.workspace = true
 layout.workspace = true
 protocol.workspace = true
 ui.workspace = true

@@ -40,7 +40,7 @@ impl Sidebar {
         let width = self.live_width(container);
         let drag = ResizeDrag::begin(width, f32::from(press_x), self.panel, container);
         self.resizing = Some(Resizing { drag, width });
-        window.focus(&self.handle_focus);
+        window.focus(&self.handle_focus, cx);
         cx.notify();
     }
 
@@ -155,9 +155,10 @@ mod tests {
     #[gpui::test]
     fn the_home_key_collapses_and_end_widens(cx: &mut TestAppContext) {
         let (_, sidebar, cx) = open(cx, DemoShell::reference());
-        let press = |key: &str| KeyDownEvent {
+        let press = |key: &'static str| KeyDownEvent {
             keystroke: gpui::Keystroke::parse(key).expect("a key"),
             is_held: false,
+            prefer_character_input: false,
         };
         sidebar.update_in(cx, |this, window, cx| {
             this.press_separator(&press("end"), window, cx);

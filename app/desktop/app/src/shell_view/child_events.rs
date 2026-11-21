@@ -249,7 +249,7 @@ mod tests {
         shell.update_in(&mut opened.window, |shell, window, cx| {
             shell.new_terminal(window, cx);
             shell.new_terminal(window, cx);
-            window.focus(&shell.focus);
+            window.focus(&shell.focus, cx);
         });
         let first = shell.update(&mut opened.window, |shell, _| terminals(shell))[0].clone();
         shell.update_in(&mut opened.window, |shell, window, cx| {

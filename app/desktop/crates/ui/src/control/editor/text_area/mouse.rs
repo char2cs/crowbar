@@ -1,6 +1,6 @@
 //! Pointer handling of [`TextArea`]: click to place the caret, drag to select, wheel to scroll.
 
-use gpui::{Context, MouseDownEvent, MouseUpEvent, Pixels, Point, ScrollWheelEvent, Window, point};
+use gpui::{Context, MouseDownEvent, MouseUpEvent, Pixels, Point, ScrollEvent, Window, point};
 
 use crate::control::editor::field::SelectionDrag;
 use crate::control::editor::text_area::TextArea;
@@ -123,7 +123,7 @@ impl TextArea {
 
     pub(crate) fn on_scroll(
         &mut self,
-        event: &ScrollWheelEvent,
+        event: &ScrollEvent,
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {

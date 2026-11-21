@@ -21,12 +21,12 @@ impl Redraw {
     fn apply(
         self,
         window: &mut Window,
-        cx: &App,
+        cx: &mut App,
     ) {
         window.set_overlay_shown(self.floating);
         let moved_within = |focus: &FocusHandle| focus.contains_focused(window, cx);
         if let Some(focus) = self.focus.as_ref().filter(|focus| !moved_within(focus)) {
-            window.focus(focus);
+            window.focus(focus, cx);
         }
         window.refresh();
     }

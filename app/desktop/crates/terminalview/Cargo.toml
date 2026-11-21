@@ -21,6 +21,7 @@ required-features = ["gallery"]
 alacritty_terminal = { version = "=0.25.1", optional = true }
 async-channel.workspace = true
 gpui.workspace = true
+gpui_platform.workspace = true
 rustix = { version = "1", features = ["fs"], optional = true }
 terminal.workspace = true
 tracing.workspace = true

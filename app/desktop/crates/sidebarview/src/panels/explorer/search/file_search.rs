@@ -1,6 +1,6 @@
 //! The filter box of the Files panel and the rows it keeps.
 
-use gpui::{Entity, Modifiers, Subscription};
+use gpui::{App, Entity, Modifiers, Subscription};
 use sidebar::{FileKind, FileRow};
 use ui::TextInput;
 
@@ -19,8 +19,9 @@ pub(crate) struct FileSearch {
 pub(crate) fn opens_search(
     key: &str,
     modifiers: Modifiers,
+    cx: &App,
 ) -> bool {
-    if modifiers.secondary() {
+    if modifiers.secondary(cx) {
         return key == OPEN_KEY_WITH_MODIFIER;
     }
     key == OPEN_KEY && !modifiers.modified()
@@ -194,10 +195,10 @@ mod tests {
         assert_eq!(paths(matching(tree(), "docs")), ["docs"]);
     }
 
-    #[test]
-    fn slash_and_the_secondary_f_open_the_box() {
+    #[gpui::test]
+    fn slash_and_the_secondary_f_open_the_box(cx: &mut gpui::TestAppContext) {
         let plain = Modifiers::none();
-        let secondary = Modifiers::secondary_key();
+        let secondary = cx.update(|cx| Modifiers::secondary_key(cx));
         let shift = Modifiers::shift();
         let cases = [
             ("/", plain, true),
@@ -208,7 +209,8 @@ mod tests {
             ("a", plain, false),
         ];
         for (key, modifiers, opens) in cases {
-            assert_eq!(opens_search(key, modifiers), opens, "{key} {modifiers:?}");
+            let opened = cx.update(|cx| opens_search(key, modifiers, cx));
+            assert_eq!(opened, opens, "{key} {modifiers:?}");
         }
     }
 }

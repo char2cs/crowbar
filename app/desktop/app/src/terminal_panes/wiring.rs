@@ -133,6 +133,7 @@ mod tests {
 
     #[gpui::test]
     fn what_a_terminal_tells_its_host_reaches_the_shell(cx: &mut TestAppContext) {
+        cx.executor().allow_parking();
         cx.update(|cx| ui::init(cx).unwrap());
         let ids = TerminalIds::default();
         ids.follow(&terminal_layout(Some("c1")));

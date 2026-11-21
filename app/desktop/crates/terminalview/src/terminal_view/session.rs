@@ -202,7 +202,7 @@ mod tests {
         cx.run_until_parked();
         assert_eq!(typed(&harness), "");
         feed(&harness, cx, "\x1b[?1004h");
-        cx.update(|window, _| window.blur());
+        cx.update(gpui::Window::blur);
         cx.run_until_parked();
         focus(&harness, cx);
         cx.run_until_parked();

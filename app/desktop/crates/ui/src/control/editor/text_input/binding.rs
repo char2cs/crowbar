@@ -84,7 +84,9 @@ impl TextInput {
                     this.erase_word(Direction::Forward, window, cx);
                 }),
             )
-            .on_action(cx.listener(|this, _: &actions::Paste, window, cx| this.paste(window, cx)))
+            .on_action(cx.listener(|this, _: &actions::Paste, window, cx| {
+                this.paste_from_clipboard(window, cx);
+            }))
             .on_action(cx.listener(|this, _: &actions::Copy, _, cx| this.copy(cx)))
             .on_action(cx.listener(|this, _: &actions::Cut, window, cx| this.cut(window, cx)))
     }

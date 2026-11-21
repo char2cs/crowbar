@@ -67,7 +67,7 @@ fn hosted(
         draws: counter,
     });
     let area = host.read_with(cx, |host, _| host.area.clone());
-    cx.update(|window, cx| area.read(cx).focus(window));
+    cx.update(|window, cx| area.update(cx, |field, cx| field.focus(window, cx)));
     (area, draws, cx)
 }
 

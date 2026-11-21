@@ -96,9 +96,10 @@ impl SettingsModal {
     pub fn focus(
         &self,
         window: &mut Window,
-        cx: &App,
+        cx: &mut App,
     ) {
-        self.search.read(cx).focus(window);
+        self.search
+            .update(cx, |search, cx| search.focus(window, cx));
     }
 
     /// Starts with `query` typed into the search field.

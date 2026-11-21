@@ -2,6 +2,8 @@
 
 use gpui::{KeyBinding, actions};
 
+use crate::control::editor::secondary::secondary;
+
 use crate::control::editor::text_input::{
     Backspace, Cancel, Copy, Cut, Delete, End, Home, Left, Paste, Right, SelectAll, SelectLeft,
     SelectRight, Submit, word_bindings,
@@ -48,17 +50,17 @@ pub(crate) fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("end", End, context),
         KeyBinding::new("shift-home", SelectHome, context),
         KeyBinding::new("shift-end", SelectEnd, context),
-        KeyBinding::new("secondary-home", DocumentStart, context),
-        KeyBinding::new("secondary-end", DocumentEnd, context),
-        KeyBinding::new("secondary-a", SelectAll, context),
-        KeyBinding::new("secondary-v", Paste, context),
-        KeyBinding::new("secondary-c", Copy, context),
-        KeyBinding::new("secondary-x", Cut, context),
-        KeyBinding::new("secondary-z", Undo, context),
-        KeyBinding::new("secondary-shift-z", Redo, context),
-        KeyBinding::new("secondary-y", Redo, context),
+        KeyBinding::new(secondary!("home"), DocumentStart, context),
+        KeyBinding::new(secondary!("end"), DocumentEnd, context),
+        KeyBinding::new(secondary!("a"), SelectAll, context),
+        KeyBinding::new(secondary!("v"), Paste, context),
+        KeyBinding::new(secondary!("c"), Copy, context),
+        KeyBinding::new(secondary!("x"), Cut, context),
+        KeyBinding::new(secondary!("z"), Undo, context),
+        KeyBinding::new(secondary!("shift-z"), Redo, context),
+        KeyBinding::new(secondary!("y"), Redo, context),
         KeyBinding::new("enter", Newline, context),
-        KeyBinding::new("secondary-enter", Submit, context),
+        KeyBinding::new(secondary!("enter"), Submit, context),
         KeyBinding::new("escape", Cancel, context),
         KeyBinding::new("pageup", PageUp, context),
         KeyBinding::new("pagedown", PageDown, context),

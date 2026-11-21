@@ -19,6 +19,7 @@ required-features = ["fixtures"]
 
 [dependencies]
 gpui.workspace = true
+gpui_platform.workspace = true
 sidebar.workspace = true
 tracing.workspace = true
 ui.workspace = true

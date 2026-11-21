@@ -15,7 +15,7 @@ impl TerminalView {
         cx: &mut Context<'_, Self>,
     ) {
         if let Some(session) = &self.search {
-            session.bar.read(cx).focus(window, cx);
+            session.bar.update(cx, |bar, cx| bar.focus(window, cx));
             return;
         }
         let bar = cx.new(|cx| SearchBar::new(window, cx));
@@ -36,7 +36,7 @@ impl TerminalView {
     ) {
         self.search = None;
         self.terminal.clear_search();
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
         cx.notify();
     }
 

@@ -14,6 +14,7 @@ path = "src/bin/gallery/main.rs"
 
 [dependencies]
 gpui.workspace = true
+gpui_platform.workspace = true
 image.workspace = true
 thiserror.workspace = true
 tracing.workspace = true

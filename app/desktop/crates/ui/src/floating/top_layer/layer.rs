@@ -44,6 +44,9 @@ impl Layer {
         cx: &mut App,
     ) -> AnyElement {
         let content = (self.build)(window, cx);
+        if let Reach::Lifted = self.reach {
+            return content;
+        }
         if let Reach::Here(_) = self.reach {
             return deferred(content)
                 .with_priority(self.priority)

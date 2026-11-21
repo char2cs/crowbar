@@ -60,7 +60,7 @@ mod tests {
             let handler: CloseHandler = Rc::new(move |_, _| sink.set(sink.get() + 1));
             close_button("d".into(), Some(handler), DialogStyle::Plain).focus_handle(held.clone())
         });
-        window.update(|window, _| window.focus(&focus));
+        window.update(|window, cx| window.focus(&focus, cx));
         window.simulate_keystrokes("enter space");
         assert_eq!(closed.get(), 0, "keys leave the dialog open");
         let button = window.debug_bounds("probe").unwrap_or_default().center();

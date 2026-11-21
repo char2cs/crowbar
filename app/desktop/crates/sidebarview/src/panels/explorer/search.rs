@@ -45,7 +45,7 @@ impl Sidebar {
                 .style(TextInputStyle::Compact)
                 .leading_icon(IconName::MagnifyingGlass)
         });
-        field.read(cx).focus(window);
+        field.update(cx, |field, cx| field.focus(window, cx));
         let subscription = cx.subscribe_in(
             &field,
             window,
@@ -70,7 +70,7 @@ impl Sidebar {
         cx: &mut Context<'_, Self>,
     ) {
         self.search = None;
-        window.focus(&self.files_focus);
+        window.focus(&self.files_focus, cx);
         cx.notify();
     }
 
@@ -204,7 +204,7 @@ mod tests {
         let (_, sidebar, cx) = open(cx, DemoShell::reference());
         sidebar.update(cx, |this, cx| this.set_mode(Mode::Files, cx));
         cx.run_until_parked();
-        sidebar.update_in(cx, |this, window, _| window.focus(&this.files_focus));
+        sidebar.update_in(cx, |this, window, cx| window.focus(&this.files_focus, cx));
         cx.simulate_keystrokes("/");
         cx.run_until_parked();
         assert!(sidebar.read_with(cx, |this, _| this.search.is_some()));

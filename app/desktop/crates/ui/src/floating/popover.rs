@@ -141,7 +141,7 @@ fn open(
         state.open = true;
         cx.notify();
     });
-    window.focus(&focus);
+    window.focus(&focus, cx);
 }
 
 fn close(

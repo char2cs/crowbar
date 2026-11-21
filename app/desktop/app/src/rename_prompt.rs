@@ -24,7 +24,7 @@ impl RenamePrompt {
     ) -> Self {
         let field = cx.new(|cx| TextInput::new(PLACEHOLDER, cx).on(Surface::Window));
         field.update(cx, |field, cx| field.set_text(current, cx));
-        field.read(cx).focus(window);
+        field.update(cx, |field, cx| field.focus(window, cx));
         let watch = cx.subscribe(&field, |this, _, event: &TextInputEvent, cx| match event {
             TextInputEvent::Submitted => this.confirm(cx),
             TextInputEvent::Cancelled => Self::dismiss(cx),

@@ -13,7 +13,7 @@ use std::cell::RefCell;
 use std::error::Error;
 use std::rc::Rc;
 
-use gpui::{App, AppContext as _, Application, Bounds, WindowBounds, WindowOptions, px, size};
+use gpui::{App, AppContext as _, Bounds, WindowBounds, WindowOptions, px, size};
 
 use crate::arguments::Arguments;
 use crate::demo::Demo;
@@ -53,7 +53,7 @@ fn main() -> DemoResult<()> {
     let arguments = Arguments::from_env();
     let failure: Rc<RefCell<Option<Failure>>> = Rc::default();
     let report = Rc::clone(&failure);
-    Application::new()
+    gpui_platform::application()
         .with_assets(ui::assets())
         .run(move |cx: &mut App| remember_failure(start(cx, &arguments), &report, cx));
     let error = failure.borrow_mut().take();

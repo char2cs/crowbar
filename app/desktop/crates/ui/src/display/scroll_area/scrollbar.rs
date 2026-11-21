@@ -72,7 +72,7 @@ impl Element for Scrollbar {
         _: &mut App,
     ) -> Self::PrepaintState {
         let scrolled = -f32::from(self.handle.offset().y);
-        let max = f32::from(self.handle.max_offset().height);
+        let max = f32::from(self.handle.max_offset().y);
         Thumb::locate(f32::from(bounds.size.height), max, scrolled).map(|thumb| {
             let origin = point(
                 bounds.right() - px(MARGIN + WIDTH),

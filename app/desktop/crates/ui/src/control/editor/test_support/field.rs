@@ -38,7 +38,7 @@ fn install(cx: &mut TestAppContext) {
 pub(crate) fn field(cx: &mut TestAppContext) -> (Entity<TextInput>, &mut VisualTestContext) {
     install(cx);
     let (input, cx) = cx.add_window_view(|_, cx| TextInput::new("Search", cx));
-    cx.update(|window, cx| input.read(cx).focus(window));
+    cx.update(|window, cx| input.update(cx, |field, cx| field.focus(window, cx)));
     (input, cx)
 }
 
@@ -54,7 +54,7 @@ pub(crate) fn drawn_field(cx: &mut TestAppContext) -> Drawn<'_, TextInput> {
     let input = host.read_with(cx, |host, _| host.input.clone());
     cx.update(|window, cx| {
         window.activate_window();
-        input.read(cx).focus(window);
+        input.update(cx, |field, cx| field.focus(window, cx));
     });
     cx.run_until_parked();
     (input, draws, cx)

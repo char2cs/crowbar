@@ -110,7 +110,7 @@ mod tests {
         cx.run_until_parked();
         let first = |cx: &mut gpui::VisualTestContext| cx.debug_bounds("rail-appearance").unwrap();
         let before = first(cx);
-        cx.simulate_event(gpui::ScrollWheelEvent {
+        cx.simulate_event(gpui::ScrollEvent {
             position: before.center(),
             delta: gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.0), gpui::px(-60.0))),
             ..Default::default()

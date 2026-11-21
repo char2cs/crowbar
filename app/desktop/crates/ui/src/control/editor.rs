@@ -3,6 +3,7 @@
 mod buffer;
 mod field;
 mod history;
+mod secondary;
 #[cfg(test)]
 mod test_support;
 mod text_area;

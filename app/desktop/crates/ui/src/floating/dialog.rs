@@ -432,7 +432,7 @@ mod tests {
 
     fn press(
         cx: &mut gpui::VisualTestContext,
-        keys: &str,
+        keys: &'static str,
     ) {
         for key in keys.split(' ') {
             cx.simulate_keystrokes(key);
@@ -525,7 +525,7 @@ mod tests {
             let (inner, count) = (inner.clone(), Rc::clone(&count));
             crate::floating::Portal::window("dialog", move |_, _| counting_dialog(&inner, &count))
         });
-        owner.update(|window, _| window.focus(&field));
+        owner.update(|window, cx| window.focus(&field, cx));
         owner.run_until_parked();
         top.simulate_keystrokes("a");
         assert_eq!(typed.get(), 1);

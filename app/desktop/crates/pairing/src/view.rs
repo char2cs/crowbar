@@ -61,7 +61,7 @@ impl View {
         let name = stage_widgets::field(NAME_PLACEHOLDER, cx);
         let address = stage_widgets::field(ADDRESS_PLACEHOLDER, cx);
         let code = stage_widgets::field(CODE_PLACEHOLDER, cx);
-        name.read(cx).focus(window);
+        name.update(cx, |field, cx| field.focus(window, cx));
         let inputs = [&name, &address, &code].map(|input| cx.subscribe(input, Self::on_input));
         let seen = source.state().stage;
         Self {

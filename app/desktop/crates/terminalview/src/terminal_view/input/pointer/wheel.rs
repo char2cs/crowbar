@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use gpui::{Context, Pixels, Point, ScrollDelta, ScrollWheelEvent, Window};
+use gpui::{Context, Pixels, Point, ScrollDelta, ScrollEvent, Window};
 use terminal::{MouseAction, ScrollbarThumb, ViewPoint, WheelRoute, route_wheel};
 
 use crate::terminal_view::TerminalView;
@@ -59,9 +59,9 @@ impl TerminalView {
         cx.notify();
     }
 
-    pub(crate) fn on_scroll_wheel(
+    pub(crate) fn on_scroll(
         &mut self,
-        event: &ScrollWheelEvent,
+        event: &ScrollEvent,
         _: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
@@ -151,7 +151,7 @@ fn grab_offset(
 
 #[cfg(test)]
 mod tests {
-    use gpui::{Modifiers, ScrollDelta, ScrollWheelEvent, TestAppContext, TouchPhase};
+    use gpui::{Modifiers, ScrollDelta, ScrollEvent, TestAppContext, TouchPhase};
 
     use crate::test_support::{Harness, cell_position, feed, open, typed};
 
@@ -160,11 +160,12 @@ mod tests {
         cx: &mut gpui::VisualTestContext,
     ) {
         let position = cell_position(harness, cx, 2);
-        cx.simulate_event(ScrollWheelEvent {
+        cx.simulate_event(ScrollEvent {
             position,
             delta: ScrollDelta::Lines(gpui::point(0.0, 3.0)),
             modifiers: Modifiers::default(),
             touch_phase: TouchPhase::Moved,
+            source: gpui::ScrollSource::Pointer,
         });
     }
 
@@ -199,11 +200,12 @@ mod tests {
         feed(&harness, cx, &"line\r\n".repeat(80));
         let position = cell_position(&harness, cx, 2);
         let notch = 3.0;
-        cx.simulate_event(ScrollWheelEvent {
+        cx.simulate_event(ScrollEvent {
             position,
             delta: ScrollDelta::Lines(gpui::point(0.0, notch)),
             modifiers: Modifiers::default(),
             touch_phase: TouchPhase::Moved,
+            source: gpui::ScrollSource::Pointer,
         });
         let offset = harness
             .view

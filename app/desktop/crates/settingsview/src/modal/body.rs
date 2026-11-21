@@ -83,7 +83,7 @@ mod tests {
     ) {
         harness
             .modal
-            .update_in(cx, |modal, window, _| modal.focus.focus(window));
+            .update_in(cx, |modal, window, cx| modal.focus.focus(window, cx));
         cx.run_until_parked();
     }
 

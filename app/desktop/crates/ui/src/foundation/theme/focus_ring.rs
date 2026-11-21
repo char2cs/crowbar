@@ -14,6 +14,7 @@ pub fn focus_ring(palette: &Palette) -> Vec<BoxShadow> {
         offset: point(px(0.0), px(0.0)),
         blur_radius: px(0.0),
         spread_radius: px(spread),
+        inset: false,
     };
     vec![
         layer(palette.ring(), OFFSET + WIDTH),

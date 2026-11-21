@@ -74,7 +74,7 @@ pub(crate) fn open_floating(
 /// Presses and releases each space-separated key, as a keyboard does; buttons click on release.
 pub(crate) fn press(
     cx: &mut VisualTestContext,
-    keys: &str,
+    keys: &'static str,
 ) {
     for key in keys.split(' ') {
         cx.simulate_keystrokes(key);

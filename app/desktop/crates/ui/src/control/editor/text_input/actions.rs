@@ -2,6 +2,8 @@
 
 use gpui::{KeyBinding, actions};
 
+use crate::control::editor::secondary::secondary;
+
 actions!(
     ui_text_input,
     [
@@ -30,19 +32,47 @@ actions!(
 
 pub(crate) const CONTEXT: &str = "UiTextInput";
 
+const WORD_KEYS: [[&str; 6]; 2] = [
+    [
+        "ctrl-left",
+        "ctrl-right",
+        "ctrl-shift-left",
+        "ctrl-shift-right",
+        "ctrl-backspace",
+        "ctrl-delete",
+    ],
+    [
+        "alt-left",
+        "alt-right",
+        "alt-shift-left",
+        "alt-shift-right",
+        "alt-backspace",
+        "alt-delete",
+    ],
+];
+
 pub(crate) fn word_bindings(context: Option<&'static str>) -> Vec<KeyBinding> {
-    ["ctrl", "alt"]
+    WORD_KEYS
         .into_iter()
-        .flat_map(|modifier| {
-            [
-                KeyBinding::new(&format!("{modifier}-left"), WordLeft, context),
-                KeyBinding::new(&format!("{modifier}-right"), WordRight, context),
-                KeyBinding::new(&format!("{modifier}-shift-left"), SelectWordLeft, context),
-                KeyBinding::new(&format!("{modifier}-shift-right"), SelectWordRight, context),
-                KeyBinding::new(&format!("{modifier}-backspace"), DeleteWordLeft, context),
-                KeyBinding::new(&format!("{modifier}-delete"), DeleteWordRight, context),
-            ]
-        })
+        .flat_map(
+            |[
+                left,
+                right,
+                select_left,
+                select_right,
+                delete_left,
+                delete_right,
+            ]| {
+                [
+                    KeyBinding::new(left, WordLeft, context),
+                    KeyBinding::new(right, WordRight, context),
+                    KeyBinding::new(select_left, SelectWordLeft, context),
+                    KeyBinding::new(select_right, SelectWordRight, context),
+                    KeyBinding::new(delete_left, DeleteWordLeft, context),
+                    KeyBinding::new(delete_right, DeleteWordRight, context),
+                ]
+            },
+        )
         .collect()
 }
 
@@ -56,10 +86,10 @@ pub(crate) fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("right", Right, context),
         KeyBinding::new("shift-left", SelectLeft, context),
         KeyBinding::new("shift-right", SelectRight, context),
-        KeyBinding::new("secondary-a", SelectAll, context),
-        KeyBinding::new("secondary-v", Paste, context),
-        KeyBinding::new("secondary-c", Copy, context),
-        KeyBinding::new("secondary-x", Cut, context),
+        KeyBinding::new(secondary!("a"), SelectAll, context),
+        KeyBinding::new(secondary!("v"), Paste, context),
+        KeyBinding::new(secondary!("c"), Copy, context),
+        KeyBinding::new(secondary!("x"), Cut, context),
         KeyBinding::new("home", Home, context),
         KeyBinding::new("end", End, context),
         KeyBinding::new("enter", Submit, context),

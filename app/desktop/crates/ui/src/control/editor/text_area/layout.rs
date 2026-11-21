@@ -9,6 +9,8 @@ mod test_support;
 
 pub(crate) use shaping::Shaping;
 
+use std::rc::Rc;
+
 use gpui::{Pixels, Point, Window, WrappedLine, point, px};
 
 use crate::control::editor::text_area::layout::row::Row;
@@ -18,7 +20,7 @@ use crate::foundation::Pose;
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Layout {
-    pub(crate) lines: Vec<WrappedLine>,
+    pub(crate) lines: Rc<[WrappedLine]>,
     pub(crate) starts: Vec<usize>,
     pub(crate) rows: Vec<Row>,
     pub(crate) line_height: Pixels,
@@ -47,7 +49,7 @@ impl Layout {
         let mut layout = Self {
             starts: Vec::with_capacity(lines.len()),
             rows: Vec::new(),
-            lines,
+            lines: lines.into(),
             line_height,
         };
         let mut start = 0;

@@ -177,7 +177,7 @@ mod tests {
     ) {
         bar.update(cx, |bar, cx| {
             bar.set_address("example.com", cx);
-            bar.input.read(cx).focus(window);
+            bar.input.update(cx, |field, cx| field.focus(window, cx));
         });
     }
 

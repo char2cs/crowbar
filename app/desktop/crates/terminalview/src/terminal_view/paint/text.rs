@@ -92,7 +92,14 @@ fn paint_line(
     window: &mut Window,
     cx: &mut App,
 ) {
-    if let Err(error) = line.paint(bounds.origin, bounds.size.height, window, cx) {
+    if let Err(error) = line.paint(
+        bounds.origin,
+        bounds.size.height,
+        gpui::TextAlign::Left,
+        None,
+        window,
+        cx,
+    ) {
         tracing::warn!(%error, "terminal row could not be painted");
     }
 }

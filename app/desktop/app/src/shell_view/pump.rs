@@ -50,7 +50,7 @@ impl ShellView {
         if !page_took_focus {
             return;
         }
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
         self.state.apply_keyboard();
     }
 
@@ -114,7 +114,7 @@ impl ShellView {
             ShellRequest::Outcome(outcome) => self.on_data_outcome(outcome, window, cx),
             ShellRequest::CloseSettings => {
                 self.settings = None;
-                window.focus(&self.focus);
+                window.focus(&self.focus, cx);
                 cx.notify();
             },
             ShellRequest::Closing(choice) => self.choose_closing(choice, window, cx),

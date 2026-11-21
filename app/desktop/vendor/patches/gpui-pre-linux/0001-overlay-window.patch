@@ -1,0 +1,1763 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index f163503..edef60e 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -244,6 +244,8 @@ features = [
+     "allow-unsafe-code",
+     "xkb",
+     "randr",
++    "shape",
++    "xfixes",
+     "xinput",
+     "cursor",
+     "resource_manager",
+diff --git a/src/linux/x11.rs b/src/linux/x11.rs
+index f9b9727..2a56026 100644
+--- a/src/linux/x11.rs
++++ b/src/linux/x11.rs
+@@ -2,6 +2,7 @@ mod client;
+ mod clipboard;
+ mod display;
+ mod event;
++mod overlay;
+ mod window;
+ mod xim_handler;
+ 
+diff --git a/src/linux/x11/client.rs b/src/linux/x11/client.rs
+index e21f019..36af78d 100644
+--- a/src/linux/x11/client.rs
++++ b/src/linux/x11/client.rs
+@@ -31,7 +31,8 @@ use x11rb::{
+         AtomEnum, ChangeWindowAttributesAux, ClientMessageData, ClientMessageEvent,
+         ConnectionExt as _, EventMask, Visibility,
+     },
+-    protocol::{Event, dri3, randr, render, xinput, xkb, xproto},
++    protocol::xfixes::ConnectionExt as _,
++    protocol::{Event, dri3, randr, render, xfixes, xinput, xkb, xproto},
+     resource_manager::Database,
+     wrapper::ConnectionExt as _,
+     xcb_ffi::XCBConnection,
+@@ -45,6 +46,7 @@ use super::{
+     XimHandler, button_or_scroll_from_event_detail, check_reply,
+     clipboard::{self, Clipboard},
+     get_reply, get_valuator_axis_index, handle_connection_error, modifiers_from_state,
++    overlay::{self, OverlayLink},
+     pressed_button_from_mask, xcb_flush,
+ };
+ 
+@@ -95,7 +97,11 @@ impl WindowRef {
+     /// managers rarely report `FULLY_OBSCURED`, so under them this is the
+     /// mapped state alone.
+     fn visibility(&self) -> WindowVisibility {
+-        if self.is_mapped && !matches!(self.last_visibility, Visibility::FULLY_OBSCURED) {
++        // An overlay cut down to nothing is fully obscured, yet must draw to grow its shape.
++        let is_overlay = self.window.state.borrow().overlay.is_some();
++        if self.is_mapped
++            && (is_overlay || !matches!(self.last_visibility, Visibility::FULLY_OBSCURED))
++        {
+             WindowVisibility::Visible
+         } else {
+             WindowVisibility::Hidden
+@@ -204,6 +210,14 @@ pub struct X11ClientState {
+     pub(crate) xcb_connection: Rc<XCBConnection>,
+     xkb_device_id: i32,
+     client_side_decorations_supported: bool,
++    /// `_NET_WM_CM_Sn` of the screen, owned by its compositing manager while one runs.
++    compositor_selection: xproto::Atom,
++    composited: bool,
++    /// The window each held key went to at its press, so its release goes there too although
++    /// an overlay took or gave back the keyboard in between.
++    pressed_keys: HashMap<xproto::Keycode, xproto::Window>,
++    /// The active monitors in root coordinates, refreshed on RandR notify events.
++    monitors: Vec<Bounds<i32>>,
+     pub(crate) x_root_index: usize,
+     pub(crate) resource_database: Database,
+     pub(crate) atoms: XcbAtoms,
+@@ -385,6 +399,7 @@ impl X11Connection {
+         xcb_connection.prefetch_extension_information(randr::X11_EXTENSION_NAME)?;
+         xcb_connection.prefetch_extension_information(render::X11_EXTENSION_NAME)?;
+         xcb_connection.prefetch_extension_information(xinput::X11_EXTENSION_NAME)?;
++        xcb_connection.prefetch_extension_information(xfixes::X11_EXTENSION_NAME)?;
+ 
+         // Announce to X server that XInput up to 2.4 is supported.
+         // Version 2.4 is needed for gesture events (GesturePinchBegin/Update/End).
+@@ -415,6 +430,9 @@ impl X11Connection {
+             .reply()
+             .context("Failed to get XCB atoms")?;
+ 
++        let (compositor_selection, composited) =
++            watch_compositor(&xcb_connection, x_root_index)?;
++        let monitors = watch_monitors(&xcb_connection, x_root_index)?;
+         let root = xcb_connection.setup().roots[0].root;
+         let compositor_present = check_compositor_present(&xcb_connection, root);
+         let gtk_frame_extents_supported =
+@@ -525,6 +543,10 @@ impl X11Connection {
+                 xcb_connection,
+                 xkb_device_id,
+                 client_side_decorations_supported,
++                compositor_selection,
++                composited,
++                monitors,
++                pressed_keys: HashMap::default(),
+                 x_root_index,
+                 resource_database,
+                 atoms,
+@@ -832,7 +854,7 @@ impl X11Client {
+         let window_id = state.keyboard_focused_window;
+         drop(state);
+         if let Some(window_id) = window_id {
+-            let Some(window) = self.get_window(window_id) else {
++            let Some(window) = self.get_window(self.key_target(window_id)) else {
+                 log::error!("Failed to get window for IME positioning");
+                 let mut state = self.0.borrow_mut();
+                 state.ximc = Some(ximc);
+@@ -879,6 +901,177 @@ impl X11Client {
+             .map(|window_reference| window_reference.window.clone())
+     }
+ 
++    /// The window that handles key events X delivers to `window`: its overlay while that
++    /// overlay takes keys.
++    fn key_target(&self, window: xproto::Window) -> xproto::Window {
++        let state = self.0.borrow();
++        let links: Vec<(xproto::Window, OverlayLink)> = state
++            .windows
++            .iter()
++            .filter_map(|(x_window, window_ref)| {
++                let link = window_ref.window.state.borrow().overlay.clone()?;
++                Some((*x_window, link))
++            })
++            .collect();
++        overlay::key_target(window, links.iter().map(|(x_window, link)| (*x_window, link)))
++    }
++
++    /// `window` with the other windows of its overlay pair: its owner and the owner's overlays.
++    fn pair_of(&self, window: xproto::Window) -> Vec<X11WindowStatePtr> {
++        let owner = self.owner_of(window).unwrap_or(window);
++        let mut pair = self.overlays_of(owner);
++        pair.extend(self.get_window(owner));
++        pair
++    }
++
++    fn owner_of(&self, window: xproto::Window) -> Option<xproto::Window> {
++        let state = self.0.borrow();
++        let window_ref = state.windows.get(&window)?;
++        let owner = window_ref.window.state.borrow().overlay.as_ref()?.owner;
++        Some(owner)
++    }
++
++    fn overlays_of(&self, owner: xproto::Window) -> Vec<X11WindowStatePtr> {
++        let state = self.0.borrow();
++        state
++            .windows
++            .values()
++            .filter(|window_ref| {
++                let window_state = window_ref.window.state.borrow();
++                window_state.overlay.as_ref().is_some_and(|link| link.owner == owner)
++            })
++            .map(|window_ref| window_ref.window.clone())
++            .collect()
++    }
++
++    /// Sets `window` active or inactive, and its overlays with it.
++    fn set_pair_active(&self, window: xproto::Window, active: bool) {
++        let owner = self.owner_of(window).unwrap_or(window);
++        self.get_window(owner).into_iter().chain(self.overlays_of(owner)).for_each(|window| window.set_active(active));
++    }
++
++    /// Whether the pointer leaving `owner` at `root` went into one of its overlays.
++    /// The window that gets a pointer event X delivered to `x_window`, and what to add to the
++    /// event's position: an overlay's catcher stands in for the overlay, whose coordinates are
++    /// offset by the owner's origin inside it.
++    fn pointer_window(&self, x_window: xproto::Window) -> Option<(X11WindowStatePtr, Point<Pixels>)> {
++        if let Some(window) = self.get_window(x_window) {
++            return Some((window, Point::default()));
++        }
++        let state = self.0.borrow();
++        state.windows.values().find_map(|window_ref| {
++            let window_state = window_ref.window.state.borrow();
++            let link = window_state.overlay.as_ref()?;
++            (link.catcher == Some(x_window))
++                .then(|| {
++                    let origin = link.owner_bounds(window_state.scale_factor).origin;
++                    (window_ref.window.clone(), origin)
++                })
++        })
++    }
++
++    fn overlay_holds_pointer(&self, owner: xproto::Window, root: Point<i32>) -> bool {
++        self.overlays_of(owner).iter().any(|window| {
++            let state = window.state.borrow();
++            let link = state.overlay.as_ref();
++            link.is_some_and(|link| overlay::holds_pointer(link, root))
++        })
++    }
++
++    /// The pointer leaving the overlay `window` past its owner's edge leaves the owner too, whose
++    /// own leave went unreported while the pointer was over the overlay.
++    fn owner_left_with(&self, window: xproto::Window, exit: gpui::MouseExitEvent) {
++        let Some(owner_bounds) = self
++            .get_window(window)
++            .and_then(|window| {
++                let state = window.state.borrow();
++                Some(state.overlay.as_ref()?.owner_bounds(state.scale_factor))
++            })
++        else {
++            return;
++        };
++        if owner_bounds.contains(&exit.position) {
++            return;
++        }
++        let Some(owner) = self.owner_of(window).and_then(|owner| self.get_window(owner)) else {
++            return;
++        };
++        owner.handle_input(PlatformInput::MouseExited(gpui::MouseExitEvent {
++            position: exit.position - owner_bounds.origin,
++            ..exit
++        }));
++        owner.set_hovered(false);
++    }
++
++    /// A compositing manager started or stopped: overlays are cut down to their content while
++    /// none runs.
++    fn follow_compositor(&self, selection: xproto::Atom) {
++        let mut state = self.0.borrow_mut();
++        if selection != state.compositor_selection {
++            return;
++        }
++        let composited = selection_owned(&state.xcb_connection, selection);
++        state.composited = composited;
++        let overlays: Vec<X11WindowStatePtr> = state
++            .windows
++            .values()
++            .filter(|window_ref| window_ref.window.state.borrow().overlay.is_some())
++            .map(|window_ref| window_ref.window.clone())
++            .collect();
++        drop(state);
++        for overlay in overlays {
++            overlay.set_composited(composited);
++        }
++    }
++
++    /// Moves the overlays of `owner` with it after its configure event `event`; no round trips.
++    fn follow_owner(&self, event: &xproto::ConfigureNotifyEvent) {
++        let monitors = self.0.borrow().monitors.clone();
++        for window in self.overlays_of(event.window) {
++            if let Some(area) = window.owner_configured(event) {
++                window.follow_owner(area, &monitors);
++            }
++        }
++    }
++
++    /// Records whether `event.window`, an overlay or the owner of some, sits in a frame now.
++    fn follow_reparent(&self, event: &xproto::ReparentNotifyEvent) {
++        let root = {
++            let state = self.0.borrow();
++            state.xcb_connection.setup().roots[state.x_root_index].root
++        };
++        let framed = event.parent != root;
++        if self.owner_of(event.window).is_some() {
++            if let Some(window) = self.get_window(event.window) {
++                window.set_framed(true, framed);
++            }
++            return;
++        }
++        for window in self.overlays_of(event.window) {
++            window.set_framed(false, framed);
++        }
++    }
++
++    /// Whether the focus that `left` lost went to the other window of its overlay pair; one
++    /// round trip, taken only for windows that have a pair.
++    fn focus_stays_in_pair(&self, left: xproto::Window) -> bool {
++        let gained = self
++            .0
++            .borrow()
++            .xcb_connection
++            .get_input_focus()
++            .ok()
++            .and_then(|cookie| cookie.reply().ok())
++            .map_or(x11rb::NONE, |reply| reply.focus);
++        overlay::stays_in_pair(left, gained, |window| self.owner_of(window))
++    }
++
++    fn refresh_monitors(&self) {
++        let mut state = self.0.borrow_mut();
++        let root = state.xcb_connection.setup().roots[state.x_root_index].root;
++        state.monitors = overlay::monitors(&state.xcb_connection, root);
++    }
++
+     fn handle_event(&self, event: Event) -> Option<()> {
+         match event {
+             Event::UnmapNotify(event) => {
+@@ -994,6 +1187,9 @@ impl X11Client {
+                     self.0.borrow_mut().xdnd_state = Xdnd::default();
+                 }
+             }
++            Event::XfixesSelectionNotify(event) => {
++                self.follow_compositor(event.selection);
++            }
+             Event::SelectionNotify(event) => {
+                 let window = self.get_window(event.requestor)?;
+                 let state = self.0.borrow_mut();
+@@ -1045,11 +1241,15 @@ impl X11Client {
+                     },
+                 };
+                 let window = self.get_window(event.window)?;
++                window.overlay_configured(&event);
+                 window
+                     .set_bounds(bounds)
+                     .context("X11: Failed to set window bounds")
+                     .log_err();
++                self.follow_owner(&event);
+             }
++            Event::ReparentNotify(event) => self.follow_reparent(&event),
++            Event::RandrScreenChangeNotify(_) | Event::RandrNotify(_) => self.refresh_monitors(),
+             Event::PropertyNotify(event) => {
+                 let window = self.get_window(event.window)?;
+                 window
+@@ -1058,8 +1258,8 @@ impl X11Client {
+                     .log_err();
+             }
+             Event::FocusIn(event) => {
+-                let window = self.get_window(event.event)?;
+-                window.set_active(true);
++                self.get_window(event.event)?;
++                self.set_pair_active(event.event, true);
+                 let mut state = self.0.borrow_mut();
+                 state.keyboard_focused_window = Some(event.event);
+                 if let Some(handler) = state.xim_handler.as_mut() {
+@@ -1070,7 +1270,11 @@ impl X11Client {
+             }
+             Event::FocusOut(event) => {
+                 let window = self.get_window(event.event)?;
+-                window.set_active(false);
++                let paired = self.owner_of(event.event).is_some()
++                    || !self.overlays_of(event.event).is_empty();
++                if !(paired && self.focus_stays_in_pair(event.event)) {
++                    self.set_pair_active(event.event, false);
++                }
+                 let mut state = self.0.borrow_mut();
+                 // Set last scroll values to `None` so that a large delta isn't created if scrolling is done outside the window (the valuator is global)
+                 reset_all_pointer_device_scroll_positions(&mut state.pointer_device_states);
+@@ -1129,13 +1333,13 @@ impl X11Client {
+                     state.last_capslock_changed_event = capslock;
+                     drop(state);
+ 
+-                    let focused_window = self.get_window(focused_window_id)?;
+-                    focused_window.handle_input(PlatformInput::ModifiersChanged(
+-                        ModifiersChangedEvent {
+-                            modifiers,
+-                            capslock,
+-                        },
+-                    ));
++                    let changed = ModifiersChangedEvent {
++                        modifiers,
++                        capslock,
++                    };
++                    for window in self.pair_of(focused_window_id) {
++                        window.handle_input(PlatformInput::ModifiersChanged(changed.clone()));
++                    }
+                 }
+ 
+                 if new_layout != old_layout {
+@@ -1143,7 +1347,9 @@ impl X11Client {
+                 }
+             }
+             Event::KeyPress(event) => {
+-                let window = self.get_window(event.event)?;
++                let target = self.key_target(event.event);
++                self.0.borrow_mut().pressed_keys.insert(event.detail, target);
++                let window = self.get_window(target)?;
+                 let mut state = self.0.borrow_mut();
+ 
+                 let modifiers = modifiers_from_state(event.state);
+@@ -1207,7 +1413,9 @@ impl X11Client {
+                 }));
+             }
+             Event::KeyRelease(event) => {
+-                let window = self.get_window(event.event)?;
++                let pressed_in = self.0.borrow_mut().pressed_keys.remove(&event.detail);
++                let target = overlay::release_target(pressed_in, self.key_target(event.event));
++                let window = self.get_window(target)?;
+                 let mut state = self.0.borrow_mut();
+ 
+                 let modifiers = modifiers_from_state(event.state);
+@@ -1229,7 +1437,7 @@ impl X11Client {
+                 window.handle_input(PlatformInput::KeyUp(gpui::KeyUpEvent { keystroke }));
+             }
+             Event::XinputButtonPress(event) => {
+-                let window = self.get_window(event.event)?;
++                let (window, shift) = self.pointer_window(event.event)?;
+                 let mut state = self.0.borrow_mut();
+ 
+                 let modifiers = modifiers_from_xinput_info(event.mods);
+@@ -1238,7 +1446,7 @@ impl X11Client {
+                 let position = point(
+                     px(event.event_x as f32 / u16::MAX as f32 / state.scale_factor),
+                     px(event.event_y as f32 / u16::MAX as f32 / state.scale_factor),
+-                );
++                ) + shift;
+ 
+                 if state.composing && state.ximc.is_some() {
+                     drop(state);
+@@ -1308,7 +1516,7 @@ impl X11Client {
+                 }
+             }
+             Event::XinputButtonRelease(event) => {
+-                let window = self.get_window(event.event)?;
++                let (window, shift) = self.pointer_window(event.event)?;
+                 let mut state = self.0.borrow_mut();
+                 let modifiers = modifiers_from_xinput_info(event.mods);
+                 state.modifiers = modifiers;
+@@ -1316,7 +1524,7 @@ impl X11Client {
+                 let position = point(
+                     px(event.event_x as f32 / u16::MAX as f32 / state.scale_factor),
+                     px(event.event_y as f32 / u16::MAX as f32 / state.scale_factor),
+-                );
++                ) + shift;
+                 match button_or_scroll_from_event_detail(event.detail) {
+                     Some(ButtonOrScroll::Button(button)) => {
+                         let click_count = state.current_count;
+@@ -1333,7 +1541,7 @@ impl X11Client {
+                 }
+             }
+             Event::XinputMotion(event) => {
+-                let window = self.get_window(event.event)?;
++                let (window, shift) = self.pointer_window(event.event)?;
+                 let mut state = self.0.borrow_mut();
+                 state.restore_cursor_after_hide();
+                 if window.is_blocked() {
+@@ -1367,7 +1575,7 @@ impl X11Client {
+                 let position = point(
+                     px(event.event_x as f32 / u16::MAX as f32 / state.scale_factor),
+                     px(event.event_y as f32 / u16::MAX as f32 / state.scale_factor),
+-                );
++                ) + shift;
+                 let modifiers = modifiers_from_xinput_info(event.mods);
+                 state.modifiers = modifiers;
+                 drop(state);
+@@ -1394,13 +1602,29 @@ impl X11Client {
+                 }
+             }
+             Event::XinputEnter(event) if event.mode == xinput::NotifyMode::NORMAL => {
+-                let window = self.get_window(event.event)?;
++                let (window, shift) = self.pointer_window(event.event)?;
+                 window.set_hovered(true);
+                 let mut state = self.0.borrow_mut();
+-                state.mouse_focused_window = Some(event.event);
++                state.mouse_focused_window = Some(window.x_window);
+                 state.restore_cursor_after_hide();
++                let position = point(
++                    px(event.event_x as f32 / u16::MAX as f32 / state.scale_factor),
++                    px(event.event_y as f32 / u16::MAX as f32 / state.scale_factor),
++                ) + shift;
++                let modifiers = modifiers_from_xinput_info(event.mods);
++                drop(state);
++                // The pointer may come back without moving, as when an overlay over it unmaps:
++                // hover then follows where it is, not where it was when it left.
++                window.handle_input(PlatformInput::MouseMove(gpui::MouseMoveEvent {
++                    position,
++                    pressed_button: pressed_button_from_mask(event.buttons[0]),
++                    modifiers,
++                }));
+             }
+             Event::XinputLeave(event) if event.mode == xinput::NotifyMode::NORMAL => {
++                if self.get_window(event.event).is_none() {
++                    return Some(());
++                }
+                 let mut state = self.0.borrow_mut();
+ 
+                 // Set last scroll values to `None` so that a large delta isn't created if scrolling is done outside the window (the valuator is global)
+@@ -1415,13 +1639,22 @@ impl X11Client {
+                 state.modifiers = modifiers;
+                 drop(state);
+ 
++                // Only a drag keeps the owner's pointer while it crosses into the overlay, so the
++                // owner's drop targets follow it; otherwise the owner hears the leave, as a page
++                // under a dialog does, and nothing under the overlay stays hovered.
++                let root = point(event.root_x >> 16, event.root_y >> 16);
++                if pressed_button.is_some() && self.overlay_holds_pointer(event.event, root) {
++                    return Some(());
++                }
+                 let window = self.get_window(event.event)?;
+-                window.handle_input(PlatformInput::MouseExited(gpui::MouseExitEvent {
++                let exit = gpui::MouseExitEvent {
+                     pressed_button,
+                     position,
+                     modifiers,
+-                }));
++                };
++                window.handle_input(PlatformInput::MouseExited(exit.clone()));
+                 window.set_hovered(false);
++                self.owner_left_with(event.event, exit);
+             }
+             Event::XinputHierarchy(event) => {
+                 let mut state = self.0.borrow_mut();
+@@ -1555,7 +1788,7 @@ impl X11Client {
+     }
+ 
+     fn xim_handle_commit(&self, window: xproto::Window, text: String) -> Option<()> {
+-        let Some(window) = self.get_window(window) else {
++        let Some(window) = self.get_window(self.key_target(window)) else {
+             log::error!("bug: Failed to get window for XIM commit");
+             return None;
+         };
+@@ -1567,7 +1800,7 @@ impl X11Client {
+     }
+ 
+     fn xim_handle_preedit(&self, window: xproto::Window, text: String) -> Option<()> {
+-        let Some(window) = self.get_window(window) else {
++        let Some(window) = self.get_window(self.key_target(window)) else {
+             log::error!("bug: Failed to get window for XIM preedit");
+             return None;
+         };
+@@ -1698,6 +1931,7 @@ impl X11Client {
+             .xcb_connection
+             .generate_id()
+             .context("X11: Failed to generate window ID")?;
++        let overlay = params.overlay_of.and_then(|owner| state.overlay_start(owner));
+ 
+         let xcb_connection = state.xcb_connection.clone();
+         let client_side_decorations_supported = state.client_side_decorations_supported;
+@@ -1728,6 +1962,7 @@ impl X11Client {
+             parent_window,
+             supports_xinput_gestures,
+             is_bgr,
++            overlay,
+         )?;
+         check_reply(
+             || "Failed to set XdndAware property",
+@@ -1942,6 +2177,34 @@ impl X11Client {
+ }
+ 
+ impl X11ClientState {
++    /// The link and the first placement of a new overlay of the window opened as `owner`.
++    fn overlay_start(&self, owner: AnyWindowHandle) -> Option<(OverlayLink, Bounds<i32>)> {
++        let owner = self
++            .windows
++            .iter()
++            .find(|(_, window_ref)| window_ref.handle() == owner)
++            .map(|(x_window, _)| *x_window)?;
++        let root = self.xcb_connection.setup().roots[self.x_root_index].root;
++        let area = overlay::owner_area(&self.xcb_connection, owner, root)?;
++        let placement = overlay::placement(area, &self.monitors);
++        let link = OverlayLink {
++            owner,
++            window: placement.window,
++            owner_area: area,
++            framed: overlay::Framing {
++                overlay: false,
++                owner: overlay::is_framed(&self.xcb_connection, owner, root),
++            },
++            takes_keys: false,
++            region: Vec::new(),
++            content: Vec::new(),
++            composited: self.composited,
++            shown: false,
++            catcher: None,
++        };
++        Some((link, placement.window))
++    }
++
+     fn has_xim(&self) -> bool {
+         self.ximc.is_some() && self.xim_handler.is_some()
+     }
+@@ -2273,6 +2536,67 @@ fn detect_compositor_gpu(
+     crate::linux::compositor_gpu_hint_from_dev_t(metadata.rdev())
+ }
+ 
++/// The compositor selection of screen `screen` and whether it is owned now. XFixes reports every
++/// later change of its owner as an `XfixesSelectionNotify` on the root window.
++/// Asks for RandR notify events about monitor changes and returns the monitors now.
++fn watch_monitors(
++    xcb_connection: &XCBConnection,
++    screen: usize,
++) -> anyhow::Result<Vec<Bounds<i32>>> {
++    let root = xcb_connection.setup().roots[screen].root;
++    check_reply(
++        || "RandR SelectInput for monitor changes failed",
++        xcb_connection.randr_select_input(
++            root,
++            randr::NotifyMask::SCREEN_CHANGE
++                | randr::NotifyMask::CRTC_CHANGE
++                | randr::NotifyMask::OUTPUT_CHANGE,
++        ),
++    )?;
++    Ok(overlay::monitors(xcb_connection, root))
++}
++
++fn watch_compositor(
++    xcb_connection: &XCBConnection,
++    screen: usize,
++) -> anyhow::Result<(xproto::Atom, bool)> {
++    let name = overlay::compositor_selection(screen);
++    let selection = get_reply(
++        || format!("Failed to intern {name}"),
++        xcb_connection.intern_atom(false, name.as_bytes()),
++    )?
++    .atom;
++    get_reply(
++        || "XFixes QueryVersion failed",
++        xcb_connection.xfixes_query_version(XFIXES_MAJOR_VERSION, 0),
++    )?;
++    let root = xcb_connection.setup().roots[screen].root;
++    check_reply(
++        || "XFixes SelectSelectionInput for the compositor failed",
++        xcb_connection.xfixes_select_selection_input(
++            root,
++            selection,
++            xfixes::SelectionEventMask::SET_SELECTION_OWNER
++                | xfixes::SelectionEventMask::SELECTION_WINDOW_DESTROY
++                | xfixes::SelectionEventMask::SELECTION_CLIENT_CLOSE,
++        ),
++    )?;
++    Ok((selection, selection_owned(xcb_connection, selection)))
++}
++
++/// XFixes 1 is the first version with selection events.
++const XFIXES_MAJOR_VERSION: u32 = 1;
++
++fn selection_owned(xcb_connection: &XCBConnection, selection: xproto::Atom) -> bool {
++    get_reply(
++        || "Failed to get the compositor selection owner",
++        xcb_connection.get_selection_owner(selection),
++    )
++    .map(|reply| reply.owner != x11rb::NONE)
++    .log_err()
++    .unwrap_or(false)
++}
++
+ fn check_compositor_present(xcb_connection: &XCBConnection, root: xproto::Window) -> bool {
+     // Method 1: Check for _NET_WM_CM_S{root}
+     let atom_name = format!("_NET_WM_CM_S{}", root);
+diff --git a/src/linux/x11/overlay.rs b/src/linux/x11/overlay.rs
+new file mode 100644
+index 0000000..9fc3ef2
+--- /dev/null
++++ b/src/linux/x11/overlay.rs
+@@ -0,0 +1,530 @@
++//! Overlay windows (`WindowOptions::overlay_of`): where one goes over its owner and how the
++//! owner's keyboard is lent to it. The window manager never focuses an overlay; the owner keeps
++//! X focus and its key events are delivered to the overlay while the overlay takes keys.
++
++use x11rb::protocol::randr::ConnectionExt as _;
++use x11rb::protocol::xproto::{self, ConnectionExt as _};
++use x11rb::xcb_ffi::XCBConnection;
++
++use gpui::{Bounds, Pixels, Point, Size, point, px, size};
++
++/// The overlay's side of an owner/overlay pair, kept in the overlay's window state.
++#[derive(Debug, Clone)]
++pub(crate) struct OverlayLink {
++    pub(crate) owner: xproto::Window,
++    /// The overlay's rectangle in root coordinates, in device pixels, as its last configure
++    /// event reported it: the window manager may move it elsewhere than asked.
++    pub(crate) window: Bounds<i32>,
++    /// The owner's content area in root coordinates, in device pixels, from its configure events.
++    pub(crate) owner_area: Bounds<i32>,
++    /// Whether a window manager framed the overlay, and the owner: a framed window's real
++    /// configure events give its position in the frame, so only synthetic ones move it.
++    pub(crate) framed: Framing,
++    pub(crate) takes_keys: bool,
++    pub(crate) region: Vec<xproto::Rectangle>,
++    /// What the last frame painted opaque, in device pixels.
++    pub(crate) content: Vec<xproto::Rectangle>,
++    /// Whether a compositor blends the overlay over its owner.
++    pub(crate) composited: bool,
++    /// Whether the overlay is mapped.
++    pub(crate) shown: bool,
++    /// The input-only child of the owner that takes the input region where the overlay was cut
++    /// away (see [`needs_catcher`]), once created.
++    pub(crate) catcher: Option<xproto::Window>,
++}
++
++/// Which windows of an overlay pair a window manager reparented into a frame.
++#[derive(Debug, Default, Clone, Copy)]
++pub(crate) struct Framing {
++    pub(crate) overlay: bool,
++    pub(crate) owner: bool,
++}
++
++impl OverlayLink {
++    /// The owner's content area in the overlay's coordinates, in logical pixels.
++    pub(crate) fn owner_bounds(&self, scale_factor: f32) -> Bounds<Pixels> {
++        let offset = point(
++            self.owner_area.origin.x - self.window.origin.x,
++            self.owner_area.origin.y - self.window.origin.y,
++        );
++        let placed = Placement { window: self.window, offset };
++        placed.owner_bounds(self.owner_area.size, scale_factor)
++    }
++}
++
++/// Where a window is after a configure event `event` about it, last known at `known`, given
++/// whether it sits in a window manager's frame. Root coordinates, device pixels.
++pub(crate) fn configured(
++    known: Bounds<i32>,
++    event: &xproto::ConfigureNotifyEvent,
++    framed: bool,
++) -> Bounds<i32> {
++    let synthetic = event.response_type & SYNTHETIC != 0;
++    let origin = match synthetic || !framed {
++        true => point(event.x.into(), event.y.into()),
++        false => known.origin,
++    };
++    Bounds::new(origin, size(event.width.into(), event.height.into()))
++}
++
++/// The bit X sets in the response type of an event a client sent, such as the root-coordinate
++/// configure events ICCCM 4.1.5 has window managers send.
++const SYNTHETIC: u8 = 0x80;
++
++/// Without a compositor the overlay is cut down to its content, and X clips a window's input to
++/// its shape, so an invisible part of the input region, such as a menu's click-away layer, would
++/// let presses through to the owner and its web views. An input-only child of the owner,
++/// stacked above the web views, takes that part instead.
++pub(crate) fn needs_catcher(link: &OverlayLink) -> bool {
++    link.shown && !link.composited
++}
++
++/// `region` (overlay coordinates) in the owner's coordinates, the owner sitting at `offset`
++/// inside the overlay; all in device pixels.
++pub(crate) fn in_owner(region: &[xproto::Rectangle], offset: Point<i32>) -> Vec<xproto::Rectangle> {
++    region
++        .iter()
++        .map(|rect| xproto::Rectangle {
++            x: (i32::from(rect.x) - offset.x) as i16,
++            y: (i32::from(rect.y) - offset.y) as i16,
++            ..*rect
++        })
++        .collect()
++}
++
++/// A rectangle just outside the window, set in place of an empty shape. Reparenting window
++/// managers such as openbox copy a client's shape onto their frame only while it has rectangles
++/// and take an empty one for no shape, which leaves the whole frame painted and clickable.
++pub(crate) const NOTHING: xproto::Rectangle = xproto::Rectangle {
++    x: -1,
++    y: -1,
++    width: 1,
++    height: 1,
++};
++
++/// `_MOTIF_WM_HINTS` of an overlay: the decorations field is set and asks for none, whether or
++/// not a compositor runs, so no window manager draws a title bar or border around it.
++pub(crate) const UNDECORATED: [u32; 5] = [MWM_HINTS_DECORATIONS, 0, 0, 0, 0];
++const MWM_HINTS_DECORATIONS: u32 = 1 << 1;
++
++/// The rectangles of a shape covering `rects`, or [`NOTHING`] when there are none.
++pub(crate) fn shape_rects(rects: &[xproto::Rectangle]) -> Vec<xproto::Rectangle> {
++    if rects.is_empty() {
++        return vec![NOTHING];
++    }
++    rects.to_vec()
++}
++
++/// The bounding shape of an overlay: none while a compositor blends its transparent pixels;
++/// without one they would show black, so the window is cut down to what it painted opaque.
++pub(crate) fn bounding(
++    content: &[xproto::Rectangle],
++    composited: bool,
++) -> Option<Vec<xproto::Rectangle>> {
++    (!composited).then(|| shape_rects(content))
++}
++
++/// The selection a compositing manager owns on screen `screen` (EWMH `_NET_WM_CM_Sn`).
++pub(crate) fn compositor_selection(screen: usize) -> String {
++    format!("_NET_WM_CM_S{screen}")
++}
++
++/// An overlay window's rectangle in root coordinates and the owner's origin inside it, in
++/// device pixels.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub(crate) struct Placement {
++    pub(crate) window: Bounds<i32>,
++    pub(crate) offset: Point<i32>,
++}
++
++impl Placement {
++    pub(crate) fn owner_bounds(&self, owner: Size<i32>, scale_factor: f32) -> Bounds<Pixels> {
++        Bounds::new(
++            point(
++                px(self.offset.x as f32 / scale_factor),
++                px(self.offset.y as f32 / scale_factor),
++            ),
++            size(
++                px(owner.width as f32 / scale_factor),
++                px(owner.height as f32 / scale_factor),
++            ),
++        )
++    }
++}
++
++fn overlap(a: Bounds<i32>, b: Bounds<i32>) -> Option<Bounds<i32>> {
++    let left = a.origin.x.max(b.origin.x);
++    let top = a.origin.y.max(b.origin.y);
++    let right = (a.origin.x + a.size.width).min(b.origin.x + b.size.width);
++    let bottom = (a.origin.y + a.size.height).min(b.origin.y + b.size.height);
++    (right > left && bottom > top)
++        .then(|| Bounds::new(point(left, top), size(right - left, bottom - top)))
++}
++
++/// Covers the owner's content area `owner` (root coordinates) clipped to the monitor it overlaps
++/// most: window managers push a window that leaves its monitor back onto it, which would shift
++/// the overlay off its owner, so the overlay stays on the monitor and draws with an offset.
++pub(crate) fn placement(owner: Bounds<i32>, monitors: &[Bounds<i32>]) -> Placement {
++    let window = monitors
++        .iter()
++        .filter_map(|monitor| overlap(owner, *monitor))
++        .max_by_key(|visible| visible.size.width * visible.size.height)
++        .unwrap_or(owner);
++    Placement {
++        window,
++        offset: point(
++            owner.origin.x - window.origin.x,
++            owner.origin.y - window.origin.y,
++        ),
++    }
++}
++
++/// The content area of `owner` in root coordinates.
++pub(crate) fn owner_area(
++    xcb: &XCBConnection,
++    owner: xproto::Window,
++    root: xproto::Window,
++) -> Option<Bounds<i32>> {
++    let origin = xcb
++        .translate_coordinates(owner, root, 0, 0)
++        .ok()?
++        .reply()
++        .ok()?;
++    let geometry = xcb.get_geometry(owner).ok()?.reply().ok()?;
++    Some(Bounds::new(
++        point(origin.dst_x.into(), origin.dst_y.into()),
++        size(geometry.width.into(), geometry.height.into()),
++    ))
++}
++
++/// The active monitors in root coordinates; the whole root window when RandR cannot tell.
++pub(crate) fn monitors(xcb: &XCBConnection, root: xproto::Window) -> Vec<Bounds<i32>> {
++    let listed: Vec<Bounds<i32>> = xcb
++        .randr_get_monitors(root, true)
++        .ok()
++        .and_then(|cookie| cookie.reply().ok())
++        .map(|reply| {
++            reply
++                .monitors
++                .iter()
++                .map(|monitor| {
++                    Bounds::new(
++                        point(monitor.x.into(), monitor.y.into()),
++                        size(monitor.width.into(), monitor.height.into()),
++                    )
++                })
++                .collect()
++        })
++        .unwrap_or_default();
++    if !listed.is_empty() {
++        return listed;
++    }
++    xcb.get_geometry(root)
++        .ok()
++        .and_then(|cookie| cookie.reply().ok())
++        .map(|root| {
++            vec![Bounds::new(
++                point(0, 0),
++                size(root.width.into(), root.height.into()),
++            )]
++        })
++        .unwrap_or_default()
++}
++
++/// `region` (logical pixels) as device rectangles covering at least the same area.
++pub(crate) fn device_rects(region: &[Bounds<Pixels>], scale_factor: f32) -> Vec<xproto::Rectangle> {
++    region
++        .iter()
++        .map(|bounds| {
++            let left = (f32::from(bounds.origin.x) * scale_factor).floor();
++            let top = (f32::from(bounds.origin.y) * scale_factor).floor();
++            let right = (f32::from(bounds.right()) * scale_factor).ceil();
++            let bottom = (f32::from(bounds.bottom()) * scale_factor).ceil();
++            xproto::Rectangle {
++                x: left as i16,
++                y: top as i16,
++                width: (right - left).max(0.0) as u16,
++                height: (bottom - top).max(0.0) as u16,
++            }
++        })
++        .collect()
++}
++
++/// The window that gets a key event X delivered to `window`: the overlay of `window` while it
++/// takes keys, `window` itself otherwise.
++pub(crate) fn key_target<'a>(
++    window: xproto::Window,
++    overlays: impl IntoIterator<Item = (xproto::Window, &'a OverlayLink)>,
++) -> xproto::Window {
++    overlays
++        .into_iter()
++        .find(|(_, link)| link.owner == window && link.takes_keys)
++        .map_or(window, |(overlay, _)| overlay)
++}
++
++/// Where a key release goes: to the window its press went to, so a press and its release
++/// never land in different windows; `now` when the press was not seen.
++pub(crate) fn release_target(
++    pressed_in: Option<xproto::Window>,
++    now: xproto::Window,
++) -> xproto::Window {
++    pressed_in.unwrap_or(now)
++}
++
++/// Whether focus leaving `left` for `gained` stays inside one owner/overlay pair, in which case
++/// the owner stays active.
++pub(crate) fn stays_in_pair(
++    left: xproto::Window,
++    gained: xproto::Window,
++    owner_of: impl Fn(xproto::Window) -> Option<xproto::Window>,
++) -> bool {
++    let owner = owner_of(left).unwrap_or(left);
++    gained == owner || owner_of(gained) == Some(owner)
++}
++
++/// Whether the pointer at `root` (root coordinates, device pixels) is over a part of the overlay
++/// that takes input, so that leaving the owner for it is not leaving the pair.
++pub(crate) fn holds_pointer(link: &OverlayLink, root: Point<i32>) -> bool {
++    let x = root.x - link.window.origin.x;
++    let y = root.y - link.window.origin.y;
++    link.region.iter().any(|rect| {
++        let (left, top) = (i32::from(rect.x), i32::from(rect.y));
++        x >= left
++            && y >= top
++            && x < left + i32::from(rect.width)
++            && y < top + i32::from(rect.height)
++    })
++}
++
++/// Whether a window manager reparented `window` into a frame, rather than leaving it a child of
++/// `root`.
++pub(crate) fn is_framed(xcb: &XCBConnection, window: xproto::Window, root: xproto::Window) -> bool {
++    xcb.query_tree(window)
++        .ok()
++        .and_then(|cookie| cookie.reply().ok())
++        .is_some_and(|tree| tree.parent != root)
++}
++
++/// Whether `window` is `ancestor` or one of its descendants, such as a web view parented into it.
++pub(crate) fn is_within(
++    xcb: &XCBConnection,
++    mut window: xproto::Window,
++    ancestor: xproto::Window,
++) -> bool {
++    while window != x11rb::NONE {
++        if window == ancestor {
++            return true;
++        }
++        let Some(tree) = xcb
++            .query_tree(window)
++            .ok()
++            .and_then(|cookie| cookie.reply().ok())
++        else {
++            return false;
++        };
++        if tree.parent == tree.root {
++            return false;
++        }
++        window = tree.parent;
++    }
++    false
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn rect(x: i32, y: i32, width: i32, height: i32) -> Bounds<i32> {
++        Bounds::new(point(x, y), size(width, height))
++    }
++
++    fn link(owner: xproto::Window, takes_keys: bool) -> OverlayLink {
++        OverlayLink {
++            owner,
++            window: Bounds::default(),
++            owner_area: Bounds::default(),
++            framed: Framing::default(),
++            takes_keys,
++            region: Vec::new(),
++            content: Vec::new(),
++            composited: true,
++            shown: false,
++            catcher: None,
++        }
++    }
++
++    #[test]
++    fn an_owner_on_its_monitor_is_covered_exactly() {
++        let placed = placement(rect(100, 80, 900, 600), &[rect(0, 0, 1280, 800)]);
++        assert_eq!(placed.window, rect(100, 80, 900, 600));
++        assert_eq!(placed.offset, point(0, 0));
++    }
++
++    #[test]
++    fn an_owner_past_the_monitor_edge_is_clipped_and_drawn_with_an_offset() {
++        let placed = placement(rect(-200, -30, 900, 600), &[rect(0, 0, 1280, 800)]);
++        assert_eq!(placed.window, rect(0, 0, 700, 570));
++        assert_eq!(placed.offset, point(-200, -30));
++    }
++
++    #[test]
++    fn the_monitor_holding_most_of_the_owner_wins() {
++        let monitors = [rect(0, 0, 1000, 800), rect(1000, 0, 1000, 800)];
++        let placed = placement(rect(900, 0, 600, 400), &monitors);
++        assert_eq!(placed.window, rect(1000, 0, 500, 400));
++        assert_eq!(placed.offset, point(-100, 0));
++    }
++
++    #[test]
++    fn an_owner_on_no_monitor_is_covered_unclipped() {
++        let placed = placement(rect(5000, 0, 600, 400), &[rect(0, 0, 1000, 800)]);
++        assert_eq!(placed.window, rect(5000, 0, 600, 400));
++    }
++
++    #[test]
++    fn the_owner_bounds_are_logical() {
++        let placed = placement(rect(-20, 0, 400, 300), &[rect(0, 0, 1000, 800)]);
++        let bounds = placed.owner_bounds(size(400, 300), 2.0);
++        assert_eq!(bounds.origin, point(px(-10.0), px(0.0)));
++        assert_eq!(bounds.size, size(px(200.0), px(150.0)));
++    }
++
++    #[test]
++    fn device_rects_cover_fractional_bounds() {
++        let region = [Bounds::new(point(px(1.25), px(2.5)), size(px(10.0), px(3.3)))];
++        let rects = device_rects(&region, 2.0);
++        assert_eq!(
++            (rects[0].x, rects[0].y, rects[0].width, rects[0].height),
++            (2, 5, 21, 7)
++        );
++    }
++
++    #[test]
++    fn keys_go_to_an_overlay_only_while_it_takes_them() {
++        let resting = link(1, false);
++        assert_eq!(key_target(1, [(2, &resting)]), 1);
++        let taking = link(1, true);
++        assert_eq!(key_target(1, [(2, &taking)]), 2);
++        assert_eq!(key_target(3, [(2, &taking)]), 3, "another window keeps its keys");
++    }
++
++    #[test]
++    fn focus_moving_within_a_pair_keeps_the_owner_active() {
++        let owner_of = |window| (window == 2).then_some(1);
++        assert!(stays_in_pair(1, 2, owner_of), "owner to its overlay");
++        assert!(stays_in_pair(2, 1, owner_of), "overlay back to its owner");
++        assert!(!stays_in_pair(1, 3, owner_of), "to another window");
++        assert!(!stays_in_pair(2, 3, owner_of), "overlay to another window");
++    }
++
++    #[test]
++    fn only_the_input_region_holds_the_pointer() {
++        let mut held = link(1, false);
++        held.window = rect(100, 50, 400, 300);
++        held.region = vec![xproto::Rectangle {
++            x: 10,
++            y: 20,
++            width: 30,
++            height: 40,
++        }];
++        assert!(holds_pointer(&held, point(110, 70)), "the region's corner");
++        assert!(!holds_pointer(&held, point(140, 70)), "just past its right edge");
++        assert!(!holds_pointer(&held, point(10, 20)), "root coordinates are offset");
++        held.region.clear();
++        assert!(!holds_pointer(&held, point(110, 70)), "an empty region takes nothing");
++    }
++
++    fn rectangle(x: i16, y: i16, width: u16, height: u16) -> xproto::Rectangle {
++        xproto::Rectangle { x, y, width, height }
++    }
++
++    fn plain(rects: &[xproto::Rectangle]) -> Vec<(i16, i16, u16, u16)> {
++        rects.iter().map(|r| (r.x, r.y, r.width, r.height)).collect()
++    }
++
++    #[test]
++    fn an_empty_shape_is_a_rectangle_outside_the_window() {
++        let menu = rectangle(10, 20, 100, 50);
++        assert_eq!(plain(&shape_rects(&[])), plain(&[NOTHING]));
++        assert_eq!(plain(&shape_rects(&[menu])), plain(&[menu]));
++        assert!(NOTHING.x < 0 && NOTHING.y < 0, "outside the window");
++    }
++
++    #[test]
++    fn only_an_uncomposited_overlay_is_cut_to_its_content() {
++        let menu = rectangle(10, 20, 100, 50);
++        assert!(bounding(&[menu], true).is_none());
++        assert_eq!(bounding(&[menu], false).map(|r| plain(&r)), Some(plain(&[menu])));
++        assert_eq!(bounding(&[], false).map(|r| plain(&r)), Some(plain(&[NOTHING])));
++    }
++
++    #[test]
++    fn an_overlay_asks_for_no_decorations() {
++        assert_eq!(UNDECORATED[0] & MWM_HINTS_DECORATIONS, MWM_HINTS_DECORATIONS, "flags");
++        assert_eq!(UNDECORATED[2], 0, "decorations: none");
++    }
++
++    #[test]
++    fn the_compositor_selection_is_named_after_the_screen_number() {
++        assert_eq!(compositor_selection(0), "_NET_WM_CM_S0");
++    }
++
++    #[test]
++    fn only_a_shown_uncomposited_overlay_needs_a_catcher() {
++        let mut overlay = link(1, false);
++        assert!(!needs_catcher(&overlay), "hidden");
++        overlay.shown = true;
++        assert!(!needs_catcher(&overlay), "composited");
++        overlay.composited = false;
++        assert!(needs_catcher(&overlay));
++    }
++
++    #[test]
++    fn the_catcher_region_is_the_input_region_in_owner_coordinates() {
++        let region = [rectangle(10, 20, 100, 50)];
++        assert_eq!(plain(&in_owner(&region, point(4, 6))), plain(&[rectangle(6, 14, 100, 50)]));
++    }
++
++    fn configure(synthetic: bool, (x, y): (i16, i16)) -> xproto::ConfigureNotifyEvent {
++        xproto::ConfigureNotifyEvent {
++            response_type: if synthetic { SYNTHETIC | 22 } else { 22 },
++            sequence: 0,
++            event: 1,
++            window: 1,
++            above_sibling: 0,
++            x,
++            y,
++            width: 640,
++            height: 480,
++            border_width: 0,
++            override_redirect: false,
++        }
++    }
++
++    #[test]
++    fn a_framed_window_moves_only_on_the_window_managers_synthetic_configure() {
++        let known = rect(100, 50, 400, 300);
++        let real = configured(known, &configure(false, (0, 0)), true);
++        assert_eq!(real, rect(100, 50, 640, 480), "frame-relative position ignored");
++        let synthetic = configured(known, &configure(true, (300, 200)), true);
++        assert_eq!(synthetic, rect(300, 200, 640, 480));
++        let unframed = configured(known, &configure(false, (7, 9)), false);
++        assert_eq!(unframed, rect(7, 9, 640, 480), "a child of the root reports root coordinates");
++    }
++
++    #[test]
++    fn the_owner_bounds_follow_where_the_overlay_really_is() {
++        let mut overlay = link(1, false);
++        overlay.owner_area = rect(100, 80, 400, 300);
++        overlay.window = rect(100, 80, 400, 300);
++        assert_eq!(overlay.owner_bounds(1.0).origin, point(px(0.0), px(0.0)));
++        overlay.window = rect(90, 80, 400, 300);
++        assert_eq!(overlay.owner_bounds(1.0).origin, point(px(10.0), px(0.0)));
++    }
++
++    #[test]
++    fn a_release_goes_where_its_press_went() {
++        assert_eq!(release_target(Some(7), 9), 7, "the overlay let go in between");
++        assert_eq!(release_target(None, 9), 9, "a press before the window existed");
++    }
++}
+diff --git a/src/linux/x11/window.rs b/src/linux/x11/window.rs
+index f6ee76a..4fb6a35 100644
+--- a/src/linux/x11/window.rs
++++ b/src/linux/x11/window.rs
+@@ -7,8 +7,8 @@ use gpui::{
+     Pixels, PlatformAtlas, PlatformDisplay, PlatformInput, PlatformInputHandler, PlatformWindow,
+     Point, PromptButton, PromptLevel, RequestFrameOptions, ResizeEdge, ScaledPixels, Scene, Size,
+     Tiling, WindowAppearance, WindowBackgroundAppearance, WindowBounds, WindowControlArea,
+-    WindowDecorations, WindowKind, WindowParams, WindowVisibility, popup::PopupNotSupportedError,
+-    px,
++    WindowDecorations, WindowKind, WindowParams, WindowVisibility, point,
++    popup::PopupNotSupportedError, px,
+ };
+ use gpui_wgpu::{CompositorGpuHint, WgpuRenderer, WgpuSurfaceConfig};
+ 
+@@ -21,6 +21,7 @@ use x11rb::{
+     errors::ConnectionError,
+     properties::{WmHints, WmSizeHints},
+     protocol::{
++        shape::{self, ConnectionExt as _},
+         sync,
+         xinput::{self, ConnectionExt as _},
+         xproto::{self, ClientMessageEvent, ConnectionExt, TranslateCoordinatesReply},
+@@ -33,6 +34,7 @@ use std::{
+     cell::RefCell, ffi::c_void, fmt::Display, num::NonZeroU32, ptr::NonNull, rc::Rc, sync::Arc,
+ };
+ 
++use super::overlay::{self, OverlayLink};
+ use super::{X11Display, XINPUT_ALL_DEVICE_GROUPS, XINPUT_ALL_DEVICES};
+ 
+ x11rb::atom_manager! {
+@@ -68,6 +70,8 @@ x11rb::atom_manager! {
+         _NET_WM_STATE_FULLSCREEN,
+         _NET_WM_STATE_HIDDEN,
+         _NET_WM_STATE_FOCUSED,
++        _NET_WM_STATE_SKIP_TASKBAR,
++        _NET_WM_STATE_SKIP_PAGER,
+         _NET_ACTIVE_WINDOW,
+         _NET_WM_SYNC_REQUEST,
+         _NET_WM_SYNC_REQUEST_COUNTER,
+@@ -268,7 +272,7 @@ pub struct X11WindowState {
+     pub(crate) counter_id: sync::Counter,
+     pub(crate) last_sync_counter: Option<sync::Int64>,
+     bounds: Bounds<Pixels>,
+-    scale_factor: f32,
++    pub(crate) scale_factor: f32,
+     /// Taken when the window is dropped. Its GPU objects use the X connection, so they mustn't
+     /// outlive the window, which a display mode switch relies on.
+     renderer: Option<WgpuRenderer>,
+@@ -291,6 +295,7 @@ pub struct X11WindowState {
+     edge_constraints: Option<EdgeConstraints>,
+     pub handle: AnyWindowHandle,
+     last_insets: [u32; 4],
++    pub(crate) overlay: Option<OverlayLink>,
+     accesskit_adapter: Option<accesskit_unix::Adapter>,
+ }
+ 
+@@ -473,6 +478,7 @@ impl X11WindowState {
+         parent_window: Option<X11WindowStatePtr>,
+         supports_xinput_gestures: bool,
+         is_bgr: bool,
++        overlay: Option<(OverlayLink, Bounds<i32>)>,
+     ) -> anyhow::Result<Self> {
+         // Native popups are not implemented on X11 yet. Rejecting lets callers fall back to
+         // gpui's in-window popovers.
+@@ -507,9 +513,11 @@ impl X11WindowState {
+             id
+         };
+ 
++        let (overlay, overlay_window) = overlay.unzip();
+         let win_aux = xproto::CreateWindowAux::new()
+             // https://stackoverflow.com/questions/43218127/x11-xlib-xcb-creating-a-window-requires-border-pixel-if-specifying-colormap-wh
+             .border_pixel(visual_set.black_pixel)
++            .background_pixel(overlay.as_ref().map(|_| 0))
+             .colormap(colormap)
+             .override_redirect((params.kind == WindowKind::PopUp) as u32)
+             .event_mask(
+@@ -523,6 +531,10 @@ impl X11WindowState {
+             );
+ 
+         let mut bounds = params.bounds.to_device_pixels(scale_factor);
++        if let Some(window) = overlay_window {
++            bounds = window.map(DevicePixels);
++        }
++        let nudge = if overlay.is_some() { 0 } else { 2 };
+         if bounds.size.width.0 == 0 || bounds.size.height.0 == 0 {
+             log::warn!(
+                 "Window bounds contain a zero value. height={}, width={}. Falling back to defaults.",
+@@ -540,7 +552,7 @@ impl X11WindowState {
+                     visual.depth,
+                     x_window,
+                     visual_set.root,
+-                    bounds.origin.x.0 + 2,
++                    bounds.origin.x.0 + nudge,
+                     bounds.origin.y.0,
+                     bounds.size.width.0,
+                     bounds.size.height.0
+@@ -550,7 +562,7 @@ impl X11WindowState {
+                 visual.depth,
+                 x_window,
+                 visual_set.root,
+-                (bounds.origin.x.0 + 2) as i16,
++                (bounds.origin.x.0 + nudge) as i16,
+                 bounds.origin.y.0 as i16,
+                 bounds.size.width.0 as u16,
+                 bounds.size.height.0 as u16,
+@@ -576,7 +588,7 @@ impl X11WindowState {
+             )?;
+ 
+             let reply = get_reply(|| "X11 GetGeometry failed.", xcb.get_geometry(x_window))?;
+-            if reply.x == 0 && reply.y == 0 {
++            if overlay.is_none() && reply.x == 0 && reply.y == 0 {
+                 bounds.origin.x.0 += 2;
+                 // Work around a bug where our rendered content appears
+                 // outside the window bounds when opened at the default position
+@@ -695,6 +707,10 @@ impl X11WindowState {
+                 ),
+             )?;
+ 
++            if let Some(link) = overlay.as_ref() {
++                set_overlay_properties(xcb, x_window, atoms, link, bounds)?;
++            }
++
+             get_reply(
+                 || "X11 sync protocol initialize failed.",
+                 sync::initialize(xcb, 3, 1),
+@@ -858,6 +874,7 @@ impl X11WindowState {
+                 accesskit_adapter: None,
+                 counter_id: sync_request_counter,
+                 last_sync_counter: None,
++                overlay,
+             })
+         });
+ 
+@@ -877,6 +894,147 @@ impl X11WindowState {
+     }
+ }
+ 
++/// The catcher of an overlay: an input-only child of `owner` as large as X allows (its parent
++/// clips it), selecting the pointer events gpui windows select.
++fn create_catcher(xcb: &Rc<XCBConnection>, owner: xproto::Window) -> anyhow::Result<xproto::Window> {
++    let catcher = xcb.generate_id()?;
++    check_reply(
++        || "X11 creating an overlay's catcher failed.",
++        xcb.create_window(
++            0,
++            catcher,
++            owner,
++            0,
++            0,
++            CATCHER_SIZE,
++            CATCHER_SIZE,
++            0,
++            xproto::WindowClass::INPUT_ONLY,
++            0,
++            &xproto::CreateWindowAux::new(),
++        ),
++    )?;
++    check_reply(
++        || "X11 XiSelectEvents for a catcher failed.",
++        xcb.xinput_xi_select_events(
++            catcher,
++            &[xinput::EventMask {
++                deviceid: XINPUT_ALL_DEVICE_GROUPS,
++                mask: vec![
++                    xinput::XIEventMask::MOTION
++                        | xinput::XIEventMask::BUTTON_PRESS
++                        | xinput::XIEventMask::BUTTON_RELEASE
++                        | xinput::XIEventMask::ENTER
++                        | xinput::XIEventMask::LEAVE,
++                ],
++            }],
++        ),
++    )?;
++    Ok(catcher)
++}
++
++/// The largest side of an X window.
++const CATCHER_SIZE: u16 = i16::MAX as u16;
++
++/// Marks `x_window` as the overlay of `owner` before it is mapped: a transient dialog the
++/// window manager never focuses, lists or decorates, placed exactly at `bounds`, and taking no
++/// pointer input until its first frame reports a region.
++fn set_overlay_properties(
++    xcb: &Rc<XCBConnection>,
++    x_window: xproto::Window,
++    atoms: &XcbAtoms,
++    link: &OverlayLink,
++    bounds: Bounds<DevicePixels>,
++) -> anyhow::Result<()> {
++    let owner = link.owner;
++    if let Some(rects) = overlay::bounding(&link.content, link.composited) {
++        check_reply(
++            || "X11 cutting an overlay down to nothing failed.",
++            xcb.shape_rectangles(
++                shape::SO::SET,
++                shape::SK::BOUNDING,
++                xproto::ClipOrdering::UNSORTED,
++                x_window,
++                0,
++                0,
++                &rects,
++            ),
++        )?;
++    }
++    check_reply(
++        || "X11 setting WM_TRANSIENT_FOR for an overlay failed.",
++        xcb.change_property32(
++            xproto::PropMode::REPLACE,
++            x_window,
++            atoms.WM_TRANSIENT_FOR,
++            xproto::AtomEnum::WINDOW,
++            &[owner],
++        ),
++    )?;
++    check_reply(
++        || "X11 setting the window type of an overlay failed.",
++        xcb.change_property32(
++            xproto::PropMode::REPLACE,
++            x_window,
++            atoms._NET_WM_WINDOW_TYPE,
++            xproto::AtomEnum::ATOM,
++            &[atoms._NET_WM_WINDOW_TYPE_DIALOG],
++        ),
++    )?;
++    check_reply(
++        || "X11 setting the state of an overlay failed.",
++        xcb.change_property32(
++            xproto::PropMode::REPLACE,
++            x_window,
++            atoms._NET_WM_STATE,
++            xproto::AtomEnum::ATOM,
++            &[atoms._NET_WM_STATE_SKIP_TASKBAR, atoms._NET_WM_STATE_SKIP_PAGER],
++        ),
++    )?;
++    let mut hints = x11rb::properties::WmHints::new();
++    hints.input = Some(false);
++    check_reply(|| "X11 setting WM_HINTS for an overlay failed.", hints.set(xcb, x_window))?;
++    let (x, y) = (bounds.origin.x.0, bounds.origin.y.0);
++    let (width, height) = (bounds.size.width.0, bounds.size.height.0);
++    let mut size_hints = WmSizeHints::new();
++    size_hints.position = Some((x11rb::properties::WmSizeHintsSpecification::UserSpecified, x, y));
++    size_hints.size = Some((
++        x11rb::properties::WmSizeHintsSpecification::UserSpecified,
++        width,
++        height,
++    ));
++    // A window manager that frames the overlay keeps the overlay itself, not the frame, here.
++    size_hints.win_gravity = Some(xproto::Gravity::STATIC);
++    check_reply(
++        || "X11 setting WM_NORMAL_HINTS for an overlay failed.",
++        size_hints.set_normal_hints(xcb, x_window),
++    )?;
++    check_reply(
++        || "X11 emptying the input region of an overlay failed.",
++        xcb.shape_rectangles(
++            shape::SO::SET,
++            shape::SK::INPUT,
++            xproto::ClipOrdering::UNSORTED,
++            x_window,
++            0,
++            0,
++            &[overlay::NOTHING],
++        ),
++    )?;
++    check_reply(
++        || "X11 placing an overlay failed.",
++        xcb.configure_window(
++            x_window,
++            &xproto::ConfigureWindowAux::new()
++                .x(x)
++                .y(y)
++                .width(width as u32)
++                .height(height as u32),
++        ),
++    )
++}
++
++
+ pub(crate) struct X11Window(pub X11WindowStatePtr);
+ 
+ impl Drop for X11Window {
+@@ -935,6 +1093,7 @@ impl X11Window {
+         parent_window: Option<X11WindowStatePtr>,
+         supports_xinput_gestures: bool,
+         is_bgr: bool,
++        overlay: Option<(OverlayLink, Bounds<i32>)>,
+     ) -> anyhow::Result<Self> {
+         let ptr = X11WindowStatePtr {
+             state: Rc::new(RefCell::new(X11WindowState::new(
+@@ -954,6 +1113,7 @@ impl X11Window {
+                 parent_window,
+                 supports_xinput_gestures,
+                 is_bgr,
++                overlay,
+             )?)),
+             callbacks: Rc::new(RefCell::new(Callbacks::default())),
+             xcb: xcb.clone(),
+@@ -1332,6 +1492,183 @@ impl X11WindowStatePtr {
+         Ok(())
+     }
+ 
++    /// Moves X focus to `owner` when it sits in a child of the owner, such as a web view, so
++    /// the owner's key events reach an overlay that starts taking keys. Focus held by another
++    /// application stays where it is.
++    /// Cuts the overlay down to its content while no compositor runs, and lifts the cut otherwise.
++    fn apply_bounding(&self) {
++        let state = self.state.borrow();
++        let Some(link) = state.overlay.as_ref() else {
++            return;
++        };
++        let request = match overlay::bounding(&link.content, link.composited) {
++            Some(rects) => self.xcb.shape_rectangles(
++                shape::SO::SET,
++                shape::SK::BOUNDING,
++                xproto::ClipOrdering::UNSORTED,
++                self.x_window,
++                0,
++                0,
++                &rects,
++            ),
++            None => self.xcb.shape_mask(
++                shape::SO::SET,
++                shape::SK::BOUNDING,
++                self.x_window,
++                0,
++                0,
++                x11rb::NONE,
++            ),
++        };
++        check_reply(|| "X11 setting the bounding shape of an overlay failed.", request).log_err();
++        xcb_flush(&self.xcb);
++    }
++
++    /// A compositing manager started (`true`) or stopped.
++    pub(crate) fn set_composited(&self, composited: bool) {
++        let mut state = self.state.borrow_mut();
++        let Some(link) = state.overlay.as_mut() else {
++            return;
++        };
++        link.composited = composited;
++        drop(state);
++        self.apply_bounding();
++        self.apply_catcher();
++    }
++
++    /// Shows the catcher (see [`overlay::needs_catcher`]) over the overlay's input region, or
++    /// hides it.
++    fn apply_catcher(&self) {
++        let mut state = self.state.borrow_mut();
++        let Some(link) = state.overlay.as_mut() else {
++            return;
++        };
++        if !overlay::needs_catcher(link) {
++            if let Some(catcher) = link.catcher {
++                check_reply(|| "X11 hiding an overlay's catcher failed.", self.xcb.unmap_window(catcher))
++                    .log_err();
++                xcb_flush(&self.xcb);
++            }
++            return;
++        }
++        let catcher = match link.catcher {
++            Some(catcher) => catcher,
++            None => {
++                let Some(catcher) = create_catcher(&self.xcb, link.owner).log_err() else {
++                    return;
++                };
++                link.catcher = Some(catcher);
++                catcher
++            }
++        };
++        let offset = point(
++            link.owner_area.origin.x - link.window.origin.x,
++            link.owner_area.origin.y - link.window.origin.y,
++        );
++        let rects = overlay::shape_rects(&overlay::in_owner(&link.region, offset));
++        let stacked = xproto::ConfigureWindowAux::new().stack_mode(xproto::StackMode::ABOVE);
++        check_reply(
++            || "X11 placing an overlay's catcher failed.",
++            self.xcb.shape_rectangles(
++                shape::SO::SET,
++                shape::SK::INPUT,
++                xproto::ClipOrdering::UNSORTED,
++                catcher,
++                0,
++                0,
++                &rects,
++            ),
++        )
++        .and_then(|_| check_reply(|| "X11 raising a catcher failed.", self.xcb.configure_window(catcher, &stacked)))
++        .and_then(|_| check_reply(|| "X11 mapping a catcher failed.", self.xcb.map_window(catcher)))
++        .log_err();
++        xcb_flush(&self.xcb);
++    }
++
++    fn pull_keyboard_to(&self, owner: xproto::Window) {
++        let Some(focus) = self
++            .xcb
++            .get_input_focus()
++            .ok()
++            .and_then(|cookie| cookie.reply().ok())
++        else {
++            return;
++        };
++        if focus.focus == owner || !overlay::is_within(&self.xcb, focus.focus, owner) {
++            return;
++        }
++        check_reply(
++            || "X11 moving focus to the owner of an overlay failed.",
++            self.xcb
++                .set_input_focus(xproto::InputFocus::PARENT, owner, x11rb::CURRENT_TIME),
++        )
++        .log_err();
++        xcb_flush(&self.xcb);
++    }
++
++    /// Follows the owner to its content area `area` (root coordinates): asks the window manager
++    /// to move the overlay when it should cover another rectangle of `monitors`, and redraws
++    /// when only the owner's offset inside the overlay changed.
++    pub(crate) fn follow_owner(&self, area: Bounds<i32>, monitors: &[Bounds<i32>]) {
++        let mut state = self.state.borrow_mut();
++        let scale_factor = state.scale_factor;
++        let Some(link) = state.overlay.as_mut() else {
++            return;
++        };
++        let before = link.owner_bounds(scale_factor);
++        link.owner_area = area;
++        let shifted = link.owner_bounds(scale_factor) != before;
++        let window = overlay::placement(area, monitors).window;
++        let moved = link.window != window;
++        drop(state);
++        if moved {
++            check_reply(
++                || "X11 moving an overlay with its owner failed.",
++                self.xcb.configure_window(
++                    self.x_window,
++                    &xproto::ConfigureWindowAux::new()
++                        .x(window.origin.x)
++                        .y(window.origin.y)
++                        .width(window.size.width as u32)
++                        .height(window.size.height as u32),
++                ),
++            )
++            .log_err();
++            xcb_flush(&self.xcb);
++        }
++        if shifted && let Some(ref mut redraw) = self.callbacks.borrow_mut().moved {
++            redraw();
++        }
++    }
++
++    /// Records where the overlay really is after its own configure event.
++    pub(crate) fn overlay_configured(&self, event: &xproto::ConfigureNotifyEvent) {
++        let mut state = self.state.borrow_mut();
++        if let Some(link) = state.overlay.as_mut() {
++            link.window = overlay::configured(link.window, event, link.framed.overlay);
++        }
++    }
++
++    /// Records whether a window manager framed the overlay (`overlay`) or its owner.
++    pub(crate) fn set_framed(&self, overlay: bool, framed: bool) {
++        let mut state = self.state.borrow_mut();
++        let Some(link) = state.overlay.as_mut() else {
++            return;
++        };
++        match overlay {
++            true => link.framed.overlay = framed,
++            false => link.framed.owner = framed,
++        }
++    }
++
++    /// The owner's content area after its configure event `event`, as this overlay knows it.
++    pub(crate) fn owner_configured(&self, event: &xproto::ConfigureNotifyEvent) -> Option<Bounds<i32>> {
++        let state = self.state.borrow();
++        let link = state.overlay.as_ref()?;
++        Some(overlay::configured(link.owner_area, event, link.framed.owner))
++    }
++
++
+     pub fn set_active(&self, focus: bool) {
+         let callback = self.callbacks.borrow_mut().active_status_change.take();
+         if let Some(mut fun) = callback {
+@@ -1918,8 +2255,10 @@ impl PlatformWindow for X11Window {
+     fn request_decorations(&self, mut decorations: gpui::WindowDecorations) {
+         let mut state = self.0.state.borrow_mut();
+ 
++        let is_overlay = state.overlay.is_some();
+         if matches!(decorations, gpui::WindowDecorations::Client)
+             && !state.client_side_decorations_supported
++            && !is_overlay
+         {
+             log::info!(
+                 "x11: no compositor present, falling back to server-side window decorations"
+@@ -1929,6 +2268,7 @@ impl PlatformWindow for X11Window {
+ 
+         // https://github.com/rust-windowing/winit/blob/master/src/platform_impl/linux/x11/util/hint.rs#L53-L87
+         let hints_data: [u32; 5] = match decorations {
++            _ if is_overlay => overlay::UNDECORATED,
+             WindowDecorations::Server => [1 << 1, 0, 1, 0, 0],
+             WindowDecorations::Client => [1 << 1, 0, 0, 0, 0],
+         };
+@@ -2036,6 +2376,93 @@ impl PlatformWindow for X11Window {
+             adapter.set_root_window_bounds(outer, inner);
+         }
+     }
++
++    fn owner_bounds(&self) -> Option<Bounds<Pixels>> {
++        let state = self.0.state.borrow();
++        state
++            .overlay
++            .as_ref()
++            .map(|link| link.owner_bounds(state.scale_factor))
++    }
++
++    fn set_input_region(&self, region: Option<&[Bounds<Pixels>]>) {
++        // An overlay's region comes from what it draws; only a whole-window request has none.
++        let Some(region) = region else {
++            return;
++        };
++        let mut state = self.0.state.borrow_mut();
++        let rects = overlay::device_rects(region, state.scale_factor);
++        let Some(link) = state.overlay.as_mut() else {
++            return;
++        };
++        let same = |a: &xproto::Rectangle, b: &xproto::Rectangle| {
++            (a.x, a.y, a.width, a.height) == (b.x, b.y, b.width, b.height)
++        };
++        if link.region.len() == rects.len() && link.region.iter().zip(&rects).all(|(a, b)| same(a, b)) {
++            return;
++        }
++        link.region = rects;
++        check_reply(
++            || "X11 setting the input region of an overlay failed.",
++            self.0.xcb.shape_rectangles(
++                shape::SO::SET,
++                shape::SK::INPUT,
++                xproto::ClipOrdering::UNSORTED,
++                self.0.x_window,
++                0,
++                0,
++                &overlay::shape_rects(&link.region),
++            ),
++        )
++        .log_err();
++        drop(state);
++        self.0.apply_catcher();
++    }
++
++    fn set_content_region(&self, region: &[Bounds<Pixels>]) {
++        let mut state = self.0.state.borrow_mut();
++        let rects = overlay::device_rects(region, state.scale_factor);
++        let Some(link) = state.overlay.as_mut() else {
++            return;
++        };
++        link.content = rects;
++        drop(state);
++        self.0.apply_bounding();
++    }
++
++    fn set_overlay_shown(&self, shown: bool) {
++        let state = self.0.state.borrow();
++        if state.overlay.is_none() {
++            return;
++        }
++        drop(state);
++        if let Some(link) = self.0.state.borrow_mut().overlay.as_mut() {
++            link.shown = shown;
++            if !shown {
++                link.content.clear();
++            }
++        }
++        let request = match shown {
++            true => self.0.xcb.map_window(self.0.x_window),
++            false => self.0.xcb.unmap_window(self.0.x_window),
++        };
++        check_reply(|| "X11 mapping or unmapping an overlay failed.", request).log_err();
++        self.0.apply_bounding();
++        self.0.apply_catcher();
++    }
++
++    fn set_takes_keys(&self, takes_keys: bool) {
++        let mut state = self.0.state.borrow_mut();
++        let Some(link) = state.overlay.as_mut() else {
++            return;
++        };
++        link.takes_keys = takes_keys;
++        let owner = link.owner;
++        drop(state);
++        if takes_keys {
++            self.0.pull_keyboard_to(owner);
++        }
++    }
+ }
+ 
+ struct TrivialActivationHandler {

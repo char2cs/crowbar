@@ -89,7 +89,7 @@ impl RenderOnce for PaneStrip {
             })
             .capture_any_mouse_down(move |_, window, cx| {
                 StripState::use_mode(&pressing, InputMode::Pointer, cx);
-                window.focus(&focus);
+                window.focus(&focus, cx);
             })
             .on_drop::<layout::DragSubject>(move |subject, window, cx| at_end(subject, window, cx))
             .child(self.toggle)
@@ -177,7 +177,7 @@ fn remeasure(
     (scroll, shown): (&gpui::ScrollHandle, Option<&Shown>),
     cx: &mut App,
 ) {
-    let (spill, width) = (scroll.max_offset().width, scroll.bounds().size.width);
+    let (spill, width) = (scroll.max_offset().x, scroll.bounds().size.width);
     let changed = state.update(cx, |state, _| {
         let resized = state.measure(spill);
         let followed = shown.is_some_and(|(pane, item)| state.follow(pane, *item, width));

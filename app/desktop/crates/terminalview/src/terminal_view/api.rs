@@ -1,6 +1,6 @@
 //! What a host calls on a terminal view.
 
-use gpui::{Context, SharedString, Window};
+use gpui::{App, Context, SharedString, Window};
 
 use crate::settings::Settings;
 use crate::settings::terminal_config;
@@ -11,8 +11,9 @@ impl TerminalView {
     pub fn focus(
         &self,
         window: &mut Window,
+        cx: &mut App,
     ) {
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
     }
 
     /// Applies new settings: font, spacing, scrollback, cursor.
@@ -56,7 +57,7 @@ impl TerminalView {
     }
 
     /// Pastes `text` as if typed, bracketed when the program asked for it.
-    pub fn paste(
+    pub fn paste_text(
         &mut self,
         text: &str,
         cx: &mut Context<'_, Self>,
@@ -105,7 +106,9 @@ mod tests {
     #[gpui::test]
     fn paste_select_all_and_settings_work_through_the_public_api(cx: &mut TestAppContext) {
         let (harness, cx) = open(cx);
-        harness.view.update(cx, |view, cx| view.paste("a\nb", cx));
+        harness
+            .view
+            .update(cx, |view, cx| view.paste_text("a\nb", cx));
         assert_eq!(typed(&harness), "a\rb");
         feed(&harness, cx, "all of it");
         harness.view.update(cx, TerminalView::select_all);

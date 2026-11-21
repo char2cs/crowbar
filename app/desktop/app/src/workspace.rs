@@ -119,14 +119,14 @@ mod tests {
         cx.update(|_, cx| cx.subscribe(&workspace, record_into(sink)).detach());
         cx.simulate_resize(size(px(900.0), px(700.0)));
         cx.run_until_parked();
-        cx.update(|window, cx| window.draw(cx).clear());
+        cx.update(|window, cx| window.draw(cx).clear(cx));
         let measured = areas.borrow().last().copied().unwrap();
         assert!(
             measured.size.width > px(0.0) && measured.size.height > px(0.0),
             "{measured:?}"
         );
         let count = areas.borrow().len();
-        cx.update(|window, cx| window.draw(cx).clear());
+        cx.update(|window, cx| window.draw(cx).clear(cx));
         assert_eq!(
             areas.borrow().len(),
             count,

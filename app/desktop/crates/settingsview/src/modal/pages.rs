@@ -95,7 +95,7 @@ mod tests {
         let fresh = top(cx);
         run(&harness, Intent::Select(PageId::from("keybindings")), cx);
         let chord = cx.debug_bounds("chord-navigation.toggleConsole").unwrap();
-        cx.simulate_event(gpui::ScrollWheelEvent {
+        cx.simulate_event(gpui::ScrollEvent {
             position: chord.center(),
             delta: gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.0), gpui::px(-400.0))),
             ..Default::default()

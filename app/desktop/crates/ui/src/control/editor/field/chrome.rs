@@ -54,6 +54,7 @@ fn focused(
         offset: point(px(0.0), px(0.0)),
         blur_radius: px(0.0),
         spread_radius: px(RING_WIDTH),
+        inset: false,
     });
     Chrome {
         fill,

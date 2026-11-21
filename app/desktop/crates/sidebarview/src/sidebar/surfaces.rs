@@ -46,7 +46,7 @@ impl Sidebar {
         cx: &mut Context<'_, Self>,
     ) {
         match self.search.as_ref() {
-            Some(search) => search.field.read(cx).focus(window),
+            Some(search) => search.field.update(cx, |field, cx| field.focus(window, cx)),
             None => self.open_file_search(window, cx),
         }
     }

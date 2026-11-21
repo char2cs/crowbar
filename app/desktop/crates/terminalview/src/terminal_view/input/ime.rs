@@ -32,7 +32,14 @@ impl TerminalView {
         let backdrop = Bounds::new(origin, size(width, px(metrics.line_height)));
         window.paint_quad(fill(backdrop, look.backdrop));
         let line = shape_preedit(text, look, window);
-        if let Err(error) = line.paint(origin, px(metrics.line_height), window, cx) {
+        if let Err(error) = line.paint(
+            origin,
+            px(metrics.line_height),
+            gpui::TextAlign::Left,
+            None,
+            window,
+            cx,
+        ) {
             tracing::warn!(%error, "terminal composition could not be painted");
         }
     }

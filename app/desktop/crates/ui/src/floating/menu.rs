@@ -92,10 +92,10 @@ impl Menu {
         cx: &mut Context<'_, Self>,
     ) -> Self {
         let focus_handle = cx.focus_handle();
-        window.focus(&focus_handle);
+        window.focus(&focus_handle, cx);
         // PLATFORM: gpui gives focus to the pressed ancestor after the click handler ran; claim it back.
         let later = focus_handle.clone();
-        window.defer(cx, move |window, _| window.focus(&later));
+        window.defer(cx, move |window, cx| window.focus(&later, cx));
         Self {
             items,
             highlighted: None,

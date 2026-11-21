@@ -141,7 +141,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use diagnostics::LogPaths;
-use gpui::{App, AppContext as _, Application, Entity, Window};
+use gpui::{App, AppContext as _, Entity, Window};
 
 use crate::adapters::disk_files::DiskFiles;
 use crate::adapters::disk_preferences::DiskPreferences;
@@ -239,7 +239,7 @@ fn main() -> anyhow::Result<()> {
         ports: system_ports(preferences_path.clone()),
         preferences_path,
     };
-    Application::new()
+    gpui_platform::application()
         .with_assets(ui::assets())
         .run(move |cx: &mut App| {
             caret_follower::follow(caret_changes, cx);

@@ -25,9 +25,9 @@ async fn relay(
     changes: &CaretChanges,
     cx: &mut AsyncApp,
 ) {
-    while let Ok(blink) = changes.recv().await
-        && cx.update(|cx| apply(blink, cx)).is_ok()
-    {}
+    while let Ok(blink) = changes.recv().await {
+        cx.update(|cx| apply(blink, cx));
+    }
 }
 
 fn apply(

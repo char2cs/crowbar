@@ -8,7 +8,7 @@ mod page;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use gpui::{App, AppContext as _, Application, Bounds, WindowBounds, WindowOptions, px, size};
+use gpui::{App, AppContext as _, Bounds, WindowBounds, WindowOptions, px, size};
 
 use arguments::Arguments;
 use page::Page;
@@ -60,7 +60,7 @@ fn main() -> Result<(), Failure> {
     let arguments = Arguments::from_env();
     let failure = FailureSlot::default();
     let slot = Rc::clone(&failure);
-    Application::new()
+    gpui_platform::application()
         .with_assets(ui::assets())
         .run(move |cx: &mut App| start(cx, &arguments, &slot));
     failure.take().map_or(Ok(()), Err)

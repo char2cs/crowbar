@@ -41,7 +41,7 @@ mod tests {
     fn the_dialog_keys_are_unbound_while_capturing() {
         let keys: Vec<String> = bindings()
             .iter()
-            .map(|binding| binding.keystrokes()[0].unparse())
+            .map(|binding| binding.keystrokes()[0].unparse(gpui::OperatingSystem::Linux))
             .collect();
         assert_eq!(keys, ["escape", "tab", "shift-tab"]);
     }

@@ -17,6 +17,7 @@ fn menus() -> Vec<Menu> {
     vec![
         Menu {
             name: APP_MENU.into(),
+            disabled: false,
             items: vec![
                 MenuItem::os_submenu("Services", SystemMenuType::Services),
                 MenuItem::separator(),
@@ -25,6 +26,7 @@ fn menus() -> Vec<Menu> {
         },
         Menu {
             name: EDIT_MENU.into(),
+            disabled: false,
             items: vec![
                 MenuItem::os_action("Cut", Cut, OsAction::Cut),
                 MenuItem::os_action("Copy", Copy, OsAction::Copy),

@@ -49,7 +49,7 @@ impl TerminalView {
         cx: &mut Context<'_, Self>,
     ) {
         let ButtonEvent { button, event } = press;
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
         let Some(layout) = self.layout else {
             return;
         };
@@ -133,7 +133,7 @@ impl TerminalView {
         cx: &mut Context<'_, Self>,
     ) {
         if let Some(text) = cx.read_from_primary().and_then(|item| item.text()) {
-            self.paste(&text, cx);
+            self.paste_text(&text, cx);
         }
     }
 }

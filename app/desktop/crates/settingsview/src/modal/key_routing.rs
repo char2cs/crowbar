@@ -36,7 +36,7 @@ mod tests {
     use super::*;
 
     fn routed(
-        keystroke: &str,
+        keystroke: &'static str,
         mode: Mode,
     ) -> Option<Intent> {
         route(&Keystroke::parse(keystroke).unwrap(), mode)

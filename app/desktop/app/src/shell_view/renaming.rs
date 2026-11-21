@@ -32,7 +32,7 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) {
         let asked = self.rename_prompt.take().map(|(pane, _)| pane);
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
         cx.notify();
         let Some((pane, name)) = confirmed(asked.as_ref(), event) else {
             return;

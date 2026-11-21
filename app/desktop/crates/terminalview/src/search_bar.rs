@@ -41,7 +41,7 @@ impl SearchBar {
                 .style(TextInputStyle::Compact)
                 .leading_icon(IconName::MagnifyingGlass)
         });
-        input.read(cx).focus(window);
+        input.update(cx, |field, cx| field.focus(window, cx));
         let subscription = cx.subscribe(&input, Self::on_input);
         Self {
             input,
@@ -54,9 +54,9 @@ impl SearchBar {
     pub(crate) fn focus(
         &self,
         window: &mut Window,
-        cx: &gpui::App,
+        cx: &mut gpui::App,
     ) {
-        self.input.read(cx).focus(window);
+        self.input.update(cx, |field, cx| field.focus(window, cx));
     }
 
     pub(crate) fn show_summary(

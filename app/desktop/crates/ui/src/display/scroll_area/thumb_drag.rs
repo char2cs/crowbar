@@ -39,7 +39,7 @@ impl ThumbDrag {
         grab: Grab,
         pointer_y: f32,
     ) -> f32 {
-        let max = f32::from(self.handle.max_offset().height);
+        let max = f32::from(self.handle.max_offset().y);
         Thumb::scrolled_after(self.view, max, grab.1, pointer_y - grab.0)
     }
 

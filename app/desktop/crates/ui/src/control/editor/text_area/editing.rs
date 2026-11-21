@@ -75,7 +75,7 @@ impl TextArea {
         self.edit(Edit::Other, cx, |buffer| buffer.erase_toward(edge));
     }
 
-    pub(crate) fn paste(
+    pub(crate) fn paste_from_clipboard(
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {

@@ -115,7 +115,7 @@ mod tests {
         let files = vec![PathBuf::from("/tmp/a.png")];
         cx.simulate_event(FileDropEvent::Entered {
             position: at,
-            paths: ExternalPaths::from_paths(files.clone()),
+            paths: ExternalPaths(files.iter().cloned().collect()),
         });
         cx.simulate_event(FileDropEvent::Submit { position: at });
         assert_eq!(

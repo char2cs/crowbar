@@ -147,7 +147,7 @@ impl SettingsModal {
         let Some(input) = self.fields.get(row.key()).cloned() else {
             return;
         };
-        input.read(cx).focus(window);
+        input.update(cx, |input, cx| input.focus(window, cx));
         input.update(cx, ui::TextInput::select_all);
     }
 
@@ -179,7 +179,7 @@ impl SettingsModal {
         match event {
             TextInputEvent::Changed(text) => self.state.set_query(text),
             TextInputEvent::Cancelled => return self.close(window, cx),
-            TextInputEvent::Submitted => self.focus.focus(window),
+            TextInputEvent::Submitted => self.focus.focus(window, cx),
             _ => {},
         }
         None
@@ -240,7 +240,9 @@ mod tests {
     fn escape_in_a_typed_search_closes_the_dialog_at_once(cx: &mut TestAppContext) {
         let (harness, cx) = open(cx, "appearance");
         harness.modal.update_in(cx, |modal, window, cx| {
-            modal.search.read(cx).focus(window);
+            modal
+                .search
+                .update(cx, |search, cx| search.focus(window, cx));
         });
         cx.simulate_input("git");
         assert_eq!(

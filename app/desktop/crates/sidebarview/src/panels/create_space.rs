@@ -9,6 +9,7 @@ pub(crate) use space_draft::SpaceDraft;
 use std::path::PathBuf;
 use std::rc::Rc;
 
+use gpui::TaskExt as _;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AnyElement, AppContext as _, Context, Div, InteractiveElement, IntoElement, ParentElement,
@@ -55,7 +56,7 @@ impl Sidebar {
                 _ => cx.notify(),
             },
         );
-        name.read(cx).focus(window);
+        name.update(cx, |field, cx| field.focus(window, cx));
         self.mode = Mode::Chats;
         self.space = Some(SpaceDraft {
             name,

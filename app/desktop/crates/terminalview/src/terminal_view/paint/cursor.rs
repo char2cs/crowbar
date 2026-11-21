@@ -84,7 +84,14 @@ fn paint_block(
     let line = window
         .text_system()
         .shape_line(text, look.shaping.font_size, &[run], Some(width));
-    if let Err(error) = line.paint(cells.origin, cells.size.height, window, cx) {
+    if let Err(error) = line.paint(
+        cells.origin,
+        cells.size.height,
+        gpui::TextAlign::Left,
+        None,
+        window,
+        cx,
+    ) {
         tracing::warn!(%error, "terminal cursor glyph could not be painted");
     }
 }

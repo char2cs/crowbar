@@ -24,7 +24,7 @@ impl Render for RowGhost {
         _cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
         let build = Rc::clone(&self.build);
-        Portal::here("row-ghost", move |_, cx| build(cx)).priority(layer::TOOLTIP)
+        Portal::lifted("row-ghost", move |_, cx| build(cx)).priority(layer::TOOLTIP)
     }
 }
 

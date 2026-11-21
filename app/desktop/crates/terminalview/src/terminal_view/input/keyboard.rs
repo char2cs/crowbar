@@ -74,7 +74,7 @@ impl TerminalView {
         let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) else {
             return;
         };
-        self.paste(&text, cx);
+        self.paste_text(&text, cx);
     }
 
     fn zoom(

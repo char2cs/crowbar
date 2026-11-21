@@ -1,5 +1,6 @@
 //! Turning row interactions into view-state changes and commands.
 
+use gpui::TaskExt as _;
 use gpui::{Context, Pixels, Point, Window};
 use sidebar::{
     Command, FileDialog, FileProperties, Intent, MenuContext, ProjectId, Row, RowId,
@@ -84,7 +85,7 @@ impl Sidebar {
             Intent::StageFile { path, mode } => self.stage_file(path, mode),
             Intent::PasteFiles { dir } => self.paste_files(&dir, cx),
             Intent::SelectFile(path) => {
-                self.files_focus.focus(window);
+                self.files_focus.focus(window, cx);
                 self.tree.select_file(Some(path));
             },
             Intent::ToggleChangedFold(path) => self.tree.toggle_changed_fold(path),

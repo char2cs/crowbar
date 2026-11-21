@@ -196,9 +196,16 @@ fn keystroke_of(stroke: &gpui::Keystroke) -> Keystroke {
 mod tests {
     use super::*;
 
+    fn native_os() -> gpui::OperatingSystem {
+        if cfg!(target_os = "macos") {
+            return gpui::OperatingSystem::Mac;
+        }
+        gpui::OperatingSystem::Linux
+    }
+
     #[test]
     fn a_typed_key_becomes_a_chord() {
-        let stroke = gpui::Keystroke::parse("secondary-shift-t").unwrap();
+        let stroke = gpui::Keystroke::parse_with_os("secondary-shift-t", native_os()).unwrap();
         assert_eq!(
             keystroke_of(&stroke).chord().as_deref(),
             Some("mod+shift+t")

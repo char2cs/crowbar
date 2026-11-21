@@ -17,6 +17,7 @@ fn layer(
         offset: point(px(0.0), px(y)),
         blur_radius: px(blur),
         spread_radius: px(spread),
+        inset: false,
     }
 }
 

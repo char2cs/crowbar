@@ -65,7 +65,7 @@ mod tests {
             modal.fields.get(&Key::new("browserHomepage")).cloned()
         })
         .unwrap();
-        cx.update(|window, cx| input.read(cx).focus(window));
+        cx.update(|window, cx| input.update(cx, |field, cx| field.focus(window, cx)));
         (harness, cx, input)
     }
 
@@ -102,7 +102,7 @@ mod tests {
         assert!(before, "typing is a draft");
         harness
             .modal
-            .update_in(cx, |modal, window, _| modal.focus.focus(window));
+            .update_in(cx, |modal, window, cx| modal.focus.focus(window, cx));
         cx.run_until_parked();
         cx.run_until_parked();
         assert_eq!(
@@ -119,7 +119,7 @@ mod tests {
             modal.fields.get(&Key::new("uiFontSize")).cloned()
         })
         .unwrap();
-        cx.update(|window, cx| input.read(cx).focus(window));
+        cx.update(|window, cx| input.update(cx, |input, cx| input.focus(window, cx)));
         cx.simulate_keystrokes("secondary-a");
         cx.simulate_input("40");
         cx.simulate_keystrokes("tab");

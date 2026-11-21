@@ -46,7 +46,7 @@ impl Render for DragGhost {
         _cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
         let (label, width) = (self.label.clone(), self.width);
-        Portal::here("drag-ghost", move |_, cx| pill(label.clone(), width, cx))
+        Portal::lifted("drag-ghost", move |_, cx| pill(label.clone(), width, cx))
             .priority(layer::TOOLTIP)
     }
 }

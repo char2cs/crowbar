@@ -227,7 +227,7 @@ fn chord_button(
         .track_focus(&focus)
         .cursor_pointer()
         .on_click(move |_, window, cx| {
-            window.focus(&held);
+            window.focus(&held, cx);
             sink.deliver(intent.clone(), (window, cx));
         });
     if look != ChordLook::Capturing {

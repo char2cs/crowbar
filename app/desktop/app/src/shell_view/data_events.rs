@@ -187,7 +187,7 @@ impl ShellView {
             .map(|config| open_settings(config, window, cx));
         self.settings = logged(opened, "could not open settings");
         if let Some(modal) = &self.settings {
-            modal.read(cx).focus(window, cx);
+            modal.update(cx, |modal, cx| modal.focus(window, cx));
         }
         cx.notify();
     }

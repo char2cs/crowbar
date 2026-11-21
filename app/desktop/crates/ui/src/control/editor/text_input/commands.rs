@@ -102,7 +102,7 @@ impl TextInput {
         self.replace_text_in_range(None, "", window, cx);
     }
 
-    pub(crate) fn paste(
+    pub(crate) fn paste_from_clipboard(
         &mut self,
         window: &mut Window,
         cx: &mut Context<'_, Self>,

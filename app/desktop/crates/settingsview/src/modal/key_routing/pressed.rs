@@ -36,7 +36,7 @@ mod tests {
     use chord::Primary;
     use settings::Capture;
 
-    fn captured(source: &str) -> Capture {
+    fn captured(source: &'static str) -> Capture {
         let keystroke = Keystroke::parse(source).unwrap();
         Capture::interpret(&pressed(&keystroke), Primary::Control)
     }

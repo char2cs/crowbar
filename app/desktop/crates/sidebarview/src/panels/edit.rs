@@ -92,7 +92,7 @@ impl Sidebar {
                 .style(TextInputStyle::Bare)
         });
         field.update(cx, |field, cx| field.set_text(initial, cx));
-        field.read(cx).focus(window);
+        field.update(cx, |field, cx| field.focus(window, cx));
         let subscriptions = Self::watch_field(&field, window, cx);
         self.inline = Some(Field {
             row,

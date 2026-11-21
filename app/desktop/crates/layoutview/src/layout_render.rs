@@ -186,6 +186,7 @@ fn preview_box(
             offset: gpui::point(px(0.0), px(0.0)),
             blur_radius: px(0.0),
             spread_radius: px(1.0),
+            inset: false,
         }])
 }
 

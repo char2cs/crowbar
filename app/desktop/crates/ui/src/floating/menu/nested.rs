@@ -42,7 +42,7 @@ impl Menu {
         let dismissed = cx.subscribe(&menu, |_, _, _: &DismissEvent, cx| cx.emit(DismissEvent));
         let returned = cx.subscribe_in(&menu, window, |this, _, _: &Navigation, window, cx| {
             this.submenu = None;
-            window.focus(&this.focus_handle);
+            window.focus(&this.focus_handle, cx);
             cx.notify();
         });
         self.submenu = Some(OpenSubmenu {

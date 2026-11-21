@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnchoredPositionMode, AnyElement, App, Corner, Div, ElementId, InteractiveElement, IntoElement,
+    Anchor, AnchoredPositionMode, AnyElement, App, Div, ElementId, InteractiveElement, IntoElement,
     MouseButton, ParentElement, Pixels, Point, Styled, Window, anchored, div, px, relative,
 };
 
@@ -25,12 +25,12 @@ pub(crate) fn placed(
 ) -> AnyElement {
     let anchor = div().absolute().top_full().mt(px(offset));
     let (anchor, corner) = match placement {
-        Placement::Below => (anchor.left_0(), Corner::TopLeft),
-        Placement::BelowEnd => (anchor.right_0(), Corner::TopRight),
-        Placement::BelowCentre => (anchor.left(relative(0.5)), Corner::TopLeft),
+        Placement::Below => (anchor.left_0(), Anchor::TopLeft),
+        Placement::BelowEnd => (anchor.right_0(), Anchor::TopRight),
+        Placement::BelowCentre => (anchor.left(relative(0.5)), Anchor::TopLeft),
         Placement::Right => (
             div().absolute().left_full().top_0().ml(px(offset)),
-            Corner::TopLeft,
+            Anchor::TopLeft,
         ),
     };
     let portal = Portal::here(id, move |window, cx| {
@@ -50,7 +50,7 @@ pub(crate) fn over(
 ) -> AnyElement {
     let portal = Portal::here(id, move |window, cx| {
         anchored()
-            .anchor(Corner::TopLeft)
+            .anchor(Anchor::TopLeft)
             .snap_to_window_with_margin(px(WINDOW_MARGIN))
             .child(content(window, cx))
     })

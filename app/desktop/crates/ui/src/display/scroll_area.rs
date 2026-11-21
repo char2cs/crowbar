@@ -103,7 +103,7 @@ mod tests {
             (100.0, 100.0)
         );
         assert!(
-            f32::from(handle.max_offset().height) > 400.0,
+            f32::from(handle.max_offset().y) > 400.0,
             "content is taller than the viewport"
         );
     }

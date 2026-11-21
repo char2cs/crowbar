@@ -60,7 +60,7 @@ impl TopLayer {
         owner
             .update(cx, |_, window, _| window.refresh())
             .map_err(Error::TopLayer)?;
-        cx.on_window_closed(move |cx| close_with_owner(owner, window, cx))
+        cx.on_window_closed(move |cx, _| close_with_owner(owner, window, cx))
             .detach();
         Ok(window)
     }
@@ -141,8 +141,8 @@ mod tests {
     use std::cell::Cell;
 
     use gpui::{
-        FocusHandle, InteractiveElement, Render, StatefulInteractiveElement, TestAppContext,
-        VisualTestContext, px,
+        Entity, FocusHandle, InteractiveElement, Render, StatefulInteractiveElement,
+        TestAppContext, VisualTestContext, px,
     };
 
     use super::*;
@@ -174,7 +174,7 @@ mod tests {
             !top.update(|window, _| window.takes_keys()),
             "nothing focused yet"
         );
-        owner.update(|window, _| window.focus(&focus));
+        owner.update(|window, cx| window.focus(&focus, cx));
         owner.run_until_parked();
         assert!(top.update(|window, _| window.takes_keys()));
         assert!(
@@ -190,7 +190,7 @@ mod tests {
         let focus = cx.update(|cx| cx.focus_handle());
         let inner = focus.clone();
         let (mut owner, mut top) = open_floating(cx, move |_, _| focusable(&inner));
-        top.update(|window, _| window.focus(&focus));
+        top.update(|window, cx| window.focus(&focus, cx));
         top.run_until_parked();
         assert!(!top.update(|window, _| window.takes_keys()));
         assert!(owner.update(|window, _| focus.is_focused(window)));
@@ -201,6 +201,7 @@ mod tests {
         back: FocusHandle,
         showing: Rc<Cell<bool>>,
         pressed: Rc<Cell<usize>>,
+        back_pressed: Rc<Cell<usize>>,
     }
 
     fn toggled(cx: &mut TestAppContext) -> (Toggled, VisualTestContext, VisualTestContext) {
@@ -210,12 +211,14 @@ mod tests {
             back: back.clone(),
             showing: Rc::new(Cell::new(true)),
             pressed: Rc::new(Cell::new(0)),
+            back_pressed: Rc::new(Cell::new(0)),
         };
         let (showing, pressed) = (Rc::clone(&toggled.showing), Rc::clone(&toggled.pressed));
+        let back_pressed = Rc::clone(&toggled.back_pressed);
         let (owner, top) = open_floating(cx, move |_, _| {
             let (inner, count) = (focus.clone(), Rc::clone(&pressed));
             let portal = Portal::here("p", move |_, _| counting(&inner, &count));
-            focusable(&back).children(showing.get().then_some(portal))
+            counting(&back, &back_pressed).children(showing.get().then_some(portal))
         });
         (toggled, owner, top)
     }
@@ -225,20 +228,40 @@ mod tests {
         owner: &mut VisualTestContext,
     ) {
         toggled.showing.set(false);
-        owner.update(|window, _| window.focus(&toggled.back));
+        owner.update(|window, cx| window.focus(&toggled.back, cx));
         settle(owner);
+    }
+
+    #[gpui::test]
+    fn a_key_typed_as_a_floating_element_closes_reaches_the_owners_new_focus(
+        cx: &mut TestAppContext
+    ) {
+        let (toggled, mut owner, mut top) = toggled(cx);
+        owner.update(|window, cx| window.focus(&toggled.focus, cx));
+        owner.run_until_parked();
+        assert!(top.update(|window, _| window.takes_keys()), "opened");
+        toggled.showing.set(false);
+        owner.update(|window, cx| window.focus(&toggled.back, cx));
+        top.simulate_keystrokes("a");
+        settle(&mut owner);
+        assert_eq!(toggled.pressed.get(), 0, "the closed element takes nothing");
+        assert_eq!(
+            toggled.back_pressed.get(),
+            1,
+            "the early key reaches the owner's focus"
+        );
     }
 
     #[gpui::test]
     fn a_floating_element_opened_again_takes_the_keyboard_again(cx: &mut TestAppContext) {
         let (toggled, mut owner, mut top) = toggled(cx);
-        owner.update(|window, _| window.focus(&toggled.focus));
+        owner.update(|window, cx| window.focus(&toggled.focus, cx));
         owner.run_until_parked();
         toggled.showing.set(false);
         owner.update(|window, _| window.refresh());
         owner.run_until_parked();
         toggled.showing.set(true);
-        owner.update(|window, _| window.focus(&toggled.focus));
+        owner.update(|window, cx| window.focus(&toggled.focus, cx));
         owner.update(|window, _| window.refresh());
         owner.run_until_parked();
         assert!(
@@ -254,7 +277,7 @@ mod tests {
         cx: &mut TestAppContext
     ) {
         let (toggled, mut owner, mut top) = toggled(cx);
-        owner.update(|window, _| window.focus(&toggled.focus));
+        owner.update(|window, cx| window.focus(&toggled.focus, cx));
         owner.run_until_parked();
         close(&toggled, &mut owner);
         assert!(!top.update(|window, _| window.takes_keys()), "closed");
@@ -318,6 +341,50 @@ mod tests {
         assert!(!cx.update(|cx| cx.has_active_drag()), "the drag ended");
     }
 
+    fn floating_drop_target(dropped: &Rc<Cell<usize>>) -> Portal {
+        let count = Rc::clone(dropped);
+        Portal::here("panel", move |_, _| panel(&count))
+    }
+
+    fn panel(seen: &Rc<Cell<usize>>) -> gpui::Stateful<gpui::Div> {
+        let (moved, dropped) = (Rc::clone(seen), Rc::clone(seen));
+        div()
+            .id("panel")
+            .size(px(100.0))
+            .on_drag_move(move |_: &gpui::DragMoveEvent<Carried>, _, _| {
+                moved.set(moved.get() + 10);
+            })
+            .on_drop(move |_: &Carried, _, _| dropped.set(dropped.get() + 1))
+            .child(
+                div()
+                    .id("grip")
+                    .size(px(10.0))
+                    .on_drag(Carried, |_, _, _, cx| cx.new(|_| Ghost)),
+            )
+    }
+
+    #[gpui::test]
+    fn a_drag_inside_the_top_layer_drops_on_its_own_target(cx: &mut TestAppContext) {
+        let seen = Rc::new(Cell::new(0));
+        let count = Rc::clone(&seen);
+        let (_owner, mut top) = open_floating(cx, move |_, _| {
+            div().size(px(300.0)).child(floating_drop_target(&count))
+        });
+        let (left, none) = (gpui::MouseButton::Left, gpui::Modifiers::none());
+        top.simulate_mouse_down(gpui::point(px(5.0), px(5.0)), left, none);
+        top.simulate_mouse_move(gpui::point(px(40.0), px(50.0)), left, none);
+        top.simulate_mouse_move(gpui::point(px(60.0), px(60.0)), left, none);
+        top.simulate_mouse_up(gpui::point(px(60.0), px(60.0)), left, none);
+        top.run_until_parked();
+        assert!(
+            seen.get() > 10,
+            "moves reached the top layer's target: {}",
+            seen.get()
+        );
+        assert_eq!(seen.get() % 10, 1, "the release dropped on it");
+        assert!(!cx.update(|cx| cx.has_active_drag()), "the drag ended");
+    }
+
     #[gpui::test]
     fn files_dropped_on_the_top_layer_drop_on_the_owner(cx: &mut TestAppContext) {
         let dropped = Rc::new(Cell::new(0));
@@ -331,7 +398,7 @@ mod tests {
                 .child(Portal::here("p", |_, _| div().size(px(10.0))))
         });
         let position = gpui::point(px(100.0), px(100.0));
-        let paths = gpui::ExternalPaths::from_paths([std::path::PathBuf::from("/a")]);
+        let paths = gpui::ExternalPaths([std::path::PathBuf::from("/a")].into_iter().collect());
         top.simulate_event(gpui::FileDropEvent::Entered { position, paths });
         top.simulate_event(gpui::FileDropEvent::Pending { position });
         top.simulate_event(gpui::FileDropEvent::Submit { position });
@@ -344,11 +411,37 @@ mod tests {
         let (toggled, mut owner, mut top) = toggled(cx);
         let key = gpui::Keystroke::parse("a").unwrap_or_else(|error| panic!("{error}"));
         owner.update(|window, cx| {
-            window.focus(&toggled.focus);
+            window.focus(&toggled.focus, cx);
             window.dispatch_keystroke(key, cx);
         });
         owner.run_until_parked();
         assert!(top.update(|window, _| window.takes_keys()), "opened");
         assert_eq!(toggled.pressed.get(), 1, "the early key was kept for it");
+    }
+
+    struct Width(f32);
+
+    fn sized(
+        width: &Entity<Width>,
+        cx: &App,
+    ) -> gpui::Div {
+        div().w(px(width.read(cx).0))
+    }
+
+    #[gpui::test]
+    fn an_entity_the_top_layer_draws_stays_in_its_owner_window(cx: &mut TestAppContext) {
+        let width = cx.new(|_| Width(1.0));
+        let read = width.clone();
+        let (mut owner, mut top) = open_floating(cx, move |_, cx| {
+            let read = read.clone();
+            let shown = sized(&read, cx);
+            div()
+                .child(shown)
+                .child(Portal::here("p", move |_, cx| sized(&read, cx)))
+        });
+        top.run_until_parked();
+        let home = width.update_in(&mut top, |_, window, _| window.window_handle());
+        let owner = owner.update(|window, _| window.window_handle());
+        assert_eq!(home.window_id(), owner.window_id());
     }
 }

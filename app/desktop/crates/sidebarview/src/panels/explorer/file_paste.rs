@@ -51,12 +51,12 @@ impl Sidebar {
         }
         let modifiers = event.keystroke.modifiers;
         let key = &event.keystroke.key;
-        if opens_search(key, modifiers) {
+        if opens_search(key, modifiers, cx) {
             cx.stop_propagation();
             self.open_file_search(window, cx);
             return;
         }
-        let secondary = modifiers.secondary();
+        let secondary = modifiers.secondary(cx);
         let parsed = FileKey::plain(key)
             .filter(|_| !secondary)
             .or(FileKey::with_modifier(key).filter(|_| secondary));

@@ -131,7 +131,7 @@ impl TextArea {
             .on_action(cx.listener(|this, _: &shared::DeleteWordRight, _, cx| {
                 this.erase_word(Direction::Forward, cx);
             }))
-            .on_action(cx.listener(|this, _: &shared::Paste, _, cx| this.paste(cx)))
+            .on_action(cx.listener(|this, _: &shared::Paste, _, cx| this.paste_from_clipboard(cx)))
             .on_action(cx.listener(|this, _: &shared::Copy, _, cx| this.copy(cx)))
             .on_action(cx.listener(|this, _: &shared::Cut, _, cx| this.cut(cx)))
             .on_action(cx.listener(|this, _: &area::Undo, _, cx| this.undo(cx)))
