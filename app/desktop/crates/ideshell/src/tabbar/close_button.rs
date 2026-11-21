@@ -1,8 +1,9 @@
+use chord::Primary;
 use gpui::{
     App, CursorStyle, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    RenderOnce, SharedString, Styled, Window, div, px,
+    RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
-use ui::{Icon, Surface, Theme};
+use ui::{Icon, Surface, Theme, Tooltip, TooltipSide};
 
 use crate::tabbar::tab_actions::TabAction;
 use crate::tabbar::tab_end::TabEnd;
@@ -28,17 +29,14 @@ impl RenderOnce for CloseButton {
         cx: &mut App,
     ) -> impl IntoElement {
         let palette = Theme::of(cx).palette(Surface::Window);
-        let rest = self.end.rest_opacity(self.state);
-        let ink = self.end.ink(self.state, palette);
+        let (rest, ink) = (
+            self.end.rest_opacity(self.state),
+            self.end.ink(self.state, palette),
+        );
         let on_close = self.action;
-        div()
-            .id(ElementId::from(SharedString::from(format!(
-                "strip-close-{}",
-                self.name
-            ))))
-            .absolute()
-            .right(px(CLOSE_INSET))
-            .top(px((HEIGHT - CLOSE) / 2.0))
+        let id = format!("strip-close-{}", self.name);
+        let button = div()
+            .id(ElementId::from(SharedString::from(id.clone())))
             .size(px(CLOSE))
             .flex()
             .items_center()
@@ -47,7 +45,8 @@ impl RenderOnce for CloseButton {
             .cursor(CursorStyle::PointingHand)
             .opacity(rest)
             .group_hover(group_of(&self.name), |button| button.opacity(HOVER_OPACITY))
-            .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(move |_, window, cx| {
                 cx.stop_propagation();
                 on_close(window, cx);
             })
@@ -56,8 +55,26 @@ impl RenderOnce for CloseButton {
                     .weight(self.end.weight())
                     .size(px(self.end.glyph()))
                     .color(ink),
-            )
+            );
+        div()
+            .absolute()
+            .right(px(CLOSE_INSET))
+            .top(px((HEIGHT - CLOSE) / 2.0))
+            .child(tipped(&id, self.end, button))
     }
+}
+
+fn tipped(
+    id: &str,
+    end: TabEnd,
+    button: impl IntoElement,
+) -> Tooltip {
+    let tip = Tooltip::new(SharedString::from(format!("{id}-tip")), end.tip(), button)
+        .side(TooltipSide::Bottom);
+    let Some(chord) = end.chord() else {
+        return tip;
+    };
+    tip.shortcut(chord.label(Primary::native()))
 }
 
 #[cfg(test)]
@@ -93,7 +110,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn pressing_the_button_runs_its_action(cx: &mut TestAppContext) {
+    fn the_button_acts_on_release_not_on_press(cx: &mut TestAppContext) {
         cx.update(|cx| {
             cx.set_global(Theme::default());
             cx.set_global(Motion::default());
@@ -103,6 +120,8 @@ mod tests {
         let (_, cx) = cx.add_window_view(move |_, _| Host { presses: host });
         let at = point(px(100.0 - CLOSE_INSET - CLOSE / 2.0), px(HEIGHT / 2.0));
         cx.simulate_mouse_down(at, MouseButton::Left, Modifiers::none());
-        assert_eq!(presses.get(), 1, "one press");
+        assert_eq!(presses.get(), 0, "a press alone closes nothing");
+        cx.simulate_mouse_up(at, MouseButton::Left, Modifiers::none());
+        assert_eq!(presses.get(), 1, "the release closes");
     }
 }

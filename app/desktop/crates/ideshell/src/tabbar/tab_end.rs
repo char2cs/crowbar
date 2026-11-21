@@ -6,6 +6,7 @@ use crate::tabbar::tab_state::TabState;
 const CLOSE_GLYPH: f32 = 12.0;
 const PIN_GLYPH: f32 = 14.0;
 const PIN_OPACITY: f32 = 0.6;
+const CLOSE_CHORD: &str = "mod+w";
 
 /// What the button at the end of a tab does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,6 +57,20 @@ impl TabEnd {
         match self {
             Self::Close => state.rest_opacity(),
             Self::Unpin => PIN_OPACITY,
+        }
+    }
+
+    pub(crate) fn tip(self) -> &'static str {
+        match self {
+            Self::Close => "Close",
+            Self::Unpin => "Unpin tab",
+        }
+    }
+
+    pub(crate) fn chord(self) -> Option<chord::Chord> {
+        match self {
+            Self::Close => chord::Chord::parse(CLOSE_CHORD),
+            Self::Unpin => None,
         }
     }
 }
@@ -114,6 +129,21 @@ mod tests {
         assert!(
             TabEnd::Unpin.glyph() > TabEnd::Close.glyph(),
             "14 against 12"
+        );
+    }
+
+    #[test]
+    fn the_cross_is_titled_close_with_its_chord_and_the_pin_unpin_tab_without_one() {
+        let close = TabEnd::Close
+            .chord()
+            .map(|chord| chord.label(chord::Primary::Control));
+        assert_eq!(
+            (TabEnd::Close.tip(), close.as_deref()),
+            ("Close", Some("Ctrl+W"))
+        );
+        assert_eq!(
+            (TabEnd::Unpin.tip(), TabEnd::Unpin.chord()),
+            ("Unpin tab", None)
         );
     }
 }
