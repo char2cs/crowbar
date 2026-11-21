@@ -7,6 +7,8 @@ use settings::{Control, Row};
 use crate::frame::Frame;
 use crate::frame::RowLayout;
 
+const INLINE_TEXTAREA_DESCENT: f32 = 5.0;
+
 pub(crate) fn field_control(
     frame: &Frame<'_>,
     row: &Row,
@@ -15,11 +17,18 @@ pub(crate) fn field_control(
         Control::Text { width, .. } | Control::TextList { width, .. } => width.pixels(),
         _ => 0.0,
     };
+    let list = matches!(row.control(), Control::TextList { .. });
     div()
         .w(px(width))
+        .when(list, |field| field.pb(px(INLINE_TEXTAREA_DESCENT)))
         .when(frame.rows == RowLayout::Stacked, Styled::w_full)
         .max_w_full()
-        .children(frame.fields.get(row.key()).cloned())
+        .children(
+            frame
+                .fields
+                .get(row.key())
+                .map(crate::frame::Field::element),
+        )
 }
 
 #[cfg(test)]
@@ -29,6 +38,14 @@ mod tests {
     use crate::intent::Intent;
     use crate::test_support::{inspect, open, row, run};
     use ui::TextInputEvent;
+
+    #[gpui::test]
+    fn a_pattern_list_takes_two_rows_and_the_inline_descent_under_them(cx: &mut TestAppContext) {
+        let (_, cx) = open(cx, "file-explorer");
+        let control = cx.debug_bounds("row-control-hiddenFilePatterns");
+        let control = control.unwrap_or_default();
+        assert_eq!(control.size.height, gpui::px(50.0 + 5.0), "{control:?}");
+    }
 
     #[gpui::test]
     fn an_invalid_search_template_is_kept_but_flagged(cx: &mut TestAppContext) {

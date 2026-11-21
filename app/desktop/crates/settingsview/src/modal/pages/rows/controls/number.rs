@@ -40,7 +40,12 @@ pub(crate) fn number_control(
                 .debug_selector(move || format!("number-field-{key}"))
                 .flex_1()
                 .min_w(px(FIELD_MIN))
-                .children(frame.fields.get(row.key()).cloned()),
+                .children(
+                    frame
+                        .fields
+                        .get(row.key())
+                        .map(crate::frame::Field::element),
+                ),
         )
         .child(step("plus", IconName::Plus, Nudge::Up).when(at_max, Button::disabled))
 }

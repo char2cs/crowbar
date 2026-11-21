@@ -2,6 +2,7 @@
 
 mod binding;
 mod editing;
+mod enter_key;
 mod fields;
 mod input_method;
 mod layout;
@@ -21,6 +22,7 @@ use gpui::{
 use crate::control::editor::buffer::Buffer;
 use crate::control::editor::field::Blink;
 use crate::control::editor::history::History;
+use crate::control::editor::text_area::enter_key::EnterKey;
 use crate::control::editor::text_area::layout::Layout;
 use crate::control::editor::text_input_event::TextInputEvent;
 use crate::foundation::Surface;
@@ -48,6 +50,7 @@ pub struct TextArea {
     pub(crate) limit: Option<Pixels>,
     pub(crate) condition: TextAreaCondition,
     pub(crate) blink: Blink,
+    pub(crate) enter: EnterKey,
 }
 
 impl EventEmitter<TextInputEvent> for TextArea {}
@@ -85,6 +88,7 @@ impl TextArea {
             limit: None,
             condition: TextAreaCondition::default(),
             blink: Blink::default(),
+            enter: EnterKey::default(),
         }
     }
 
@@ -103,6 +107,13 @@ impl TextArea {
         surface: Surface,
     ) -> Self {
         self.surface = surface;
+        self
+    }
+
+    /// Makes `Enter` emit `Submitted` and `Shift+Enter` insert the newline, as a settings field does.
+    #[must_use]
+    pub fn submit_on_enter(mut self) -> Self {
+        self.enter = EnterKey::Submit;
         self
     }
 

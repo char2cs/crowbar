@@ -13,13 +13,11 @@ use gpui::{
 };
 
 use crate::control::editor::text_area::TextArea;
-use crate::control::editor::text_area::binding::CONTEXT;
-use crate::control::editor::text_area::render::chrome::text_area_chrome;
+use crate::control::editor::text_area::binding::key_context;
+use crate::control::editor::text_area::render::chrome::{field_chrome, text_area_chrome};
 use crate::control::editor::text_area::wrapped_element::WrappedElement;
 use crate::foundation::Pose;
 use crate::foundation::Theme;
-use crate::foundation::tokens::radius;
-use crate::foundation::tokens::text_size;
 
 const DISABLED_OPACITY: f32 = 0.64;
 
@@ -32,9 +30,16 @@ impl Render for TextArea {
         let theme = *Theme::of(cx);
         let palette = theme.palette(self.surface);
         let focus = Pose::from(self.focus_handle.is_focused(window) && self.accepts_input());
-        let frame = text_area_chrome(palette, theme.appearance(), focus, self.condition);
+        let frame = match self.size {
+            TextAreaSize::Field => field_chrome(palette, focus),
+            TextAreaSize::Small | TextAreaSize::Default | TextAreaSize::Large => {
+                text_area_chrome(palette, theme.appearance(), focus, self.condition)
+            },
+        };
         let limit = self.limit.map(|height| height - self.size.frame_height());
-        let field = div().id("ui-text-area").key_context(CONTEXT);
+        let field = div()
+            .id("ui-text-area")
+            .key_context(key_context(self.enter));
         let field = self.interactive(field, cx);
         Self::bind_actions(field, cx)
             .relative()
@@ -42,14 +47,14 @@ impl Render for TextArea {
             .min_h(self.size.min_height())
             .px(self.size.across())
             .py(self.size.down())
-            .rounded(radius::LG)
+            .rounded(self.size.radius())
             .border_1()
             .border_color(frame.border)
             .bg(frame.fill)
             .shadow(frame.shadows)
             .text_color(palette.foreground())
-            .text_size(text_size::SM)
-            .line_height(text_size::LINE_HEIGHT)
+            .text_size(self.size.text())
+            .line_height(self.size.line_height())
             .font_family(theme.ui_family())
             .when(!self.accepts_input(), |field| {
                 field.opacity(DISABLED_OPACITY)

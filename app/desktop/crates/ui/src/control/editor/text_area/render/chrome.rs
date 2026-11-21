@@ -26,6 +26,21 @@ pub(crate) fn text_area_chrome(
     frame
 }
 
+pub(crate) fn field_chrome(
+    palette: &Palette,
+    focus: Pose,
+) -> Chrome {
+    let border = match focus {
+        Pose::On => palette.ring(),
+        Pose::Off => palette.border(),
+    };
+    Chrome {
+        fill: palette.muted(),
+        border,
+        shadows: Vec::new(),
+    }
+}
+
 fn flag(
     frame: &mut Chrome,
     palette: &Palette,
@@ -61,6 +76,19 @@ mod tests {
     use super::*;
     use crate::foundation::Surface;
     use crate::foundation::Theme;
+
+    #[test]
+    fn a_settings_field_has_a_muted_fill_and_rings_only_its_border() {
+        let palette = Theme::default().palette(Surface::Window);
+        let rest = field_chrome(palette, Pose::Off);
+        let focused = field_chrome(palette, Pose::On);
+        assert_eq!(
+            (rest.fill, rest.border),
+            (palette.muted(), palette.border())
+        );
+        assert_eq!(focused.border, palette.ring());
+        assert_eq!(focused.shadows.len(), 0);
+    }
 
     #[test]
     fn each_condition_recolours_the_border_and_drops_or_keeps_the_ring() {

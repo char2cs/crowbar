@@ -1,15 +1,16 @@
-//! The text inputs of the rows on screen, by setting key.
+//! The text fields of the rows on screen, by setting key.
 
 use std::collections::BTreeMap;
 
-use gpui::{App, Entity};
-use ui::TextInput;
+use gpui::App;
 
 use settings::Key;
 
+use crate::frame::field::Field;
+
 #[derive(Default)]
 pub(crate) struct Fields {
-    inputs: BTreeMap<Key, Entity<TextInput>>,
+    inputs: BTreeMap<Key, Field>,
     subscriptions: Vec<gpui::Subscription>,
 }
 
@@ -17,14 +18,14 @@ impl Fields {
     pub(crate) fn get(
         &self,
         key: &Key,
-    ) -> Option<&Entity<TextInput>> {
+    ) -> Option<&Field> {
         self.inputs.get(key)
     }
 
     pub(crate) fn add(
         &mut self,
         key: Key,
-        input: Entity<TextInput>,
+        input: Field,
         subscriptions: Vec<gpui::Subscription>,
     ) {
         self.inputs.insert(key, input);
@@ -45,14 +46,14 @@ impl Fields {
 }
 
 fn show(
-    input: &Entity<TextInput>,
+    input: &Field,
     text: &str,
     cx: &mut App,
 ) {
-    if input.read(cx).text() == text {
+    if input.text(cx) == text {
         return;
     }
-    input.update(cx, |input, cx| input.set_text(text, cx));
+    input.set_text(text, cx);
 }
 
 #[cfg(test)]
@@ -71,10 +72,7 @@ mod tests {
             .backend
             .publish(&key, Value::Text("https://a.test".to_owned()));
         cx.run_until_parked();
-        assert_eq!(
-            input.read_with(cx, |input, _| input.text().to_owned()),
-            "https://a.test"
-        );
+        assert_eq!(cx.update(|_, cx| input.text(cx)), "https://a.test");
     }
 
     #[gpui::test]

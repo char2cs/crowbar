@@ -31,6 +31,9 @@ actions!(
 );
 
 pub(crate) const CONTEXT: &str = "UiTextArea";
+pub(crate) const SUBMITTING_CONTEXT: &str = "UiTextArea submits";
+const SUBMITTING: &str = "UiTextArea && submits";
+const ENTER: &str = "enter";
 
 pub(crate) fn bindings() -> Vec<KeyBinding> {
     let context = Some(CONTEXT);
@@ -59,13 +62,15 @@ pub(crate) fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new(secondary!("z"), Undo, context),
         KeyBinding::new(secondary!("shift-z"), Redo, context),
         KeyBinding::new(secondary!("y"), Redo, context),
-        KeyBinding::new("enter", Newline, context),
+        KeyBinding::new(ENTER, Newline, context),
         KeyBinding::new(secondary!("enter"), Submit, context),
         KeyBinding::new("escape", Cancel, context),
         KeyBinding::new("pageup", PageUp, context),
         KeyBinding::new("pagedown", PageDown, context),
         KeyBinding::new("shift-pageup", SelectPageUp, context),
         KeyBinding::new("shift-pagedown", SelectPageDown, context),
+        KeyBinding::new(ENTER, Submit, Some(SUBMITTING)),
+        KeyBinding::new("shift-enter", Newline, Some(SUBMITTING)),
     ]);
     all
 }
@@ -78,6 +83,6 @@ mod tests {
     fn every_binding_is_scoped_to_the_text_area() {
         let bindings = bindings();
         assert!(bindings.iter().all(|binding| binding.predicate().is_some()));
-        assert_eq!(bindings.len(), 42);
+        assert_eq!(bindings.len(), 44);
     }
 }

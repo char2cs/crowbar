@@ -113,7 +113,6 @@ fn label_line(
 mod tests {
     use gpui::TestAppContext;
 
-    use gpui::Focusable as _;
     use settings::Read as _;
 
     use crate::intent::Intent;

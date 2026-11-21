@@ -1,12 +1,14 @@
 //! What every drawing function of the view needs.
 
 mod element_id;
+mod field;
 mod fields;
 mod icon_stem;
 mod row_layout;
 pub(crate) mod spacing;
 
 pub(crate) use element_id::element_id;
+pub(crate) use field::Field;
 pub(crate) use fields::Fields;
 pub(crate) use icon_stem::icon_named;
 pub(crate) use row_layout::RowLayout;

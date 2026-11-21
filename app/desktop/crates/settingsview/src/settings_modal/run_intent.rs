@@ -147,8 +147,7 @@ impl SettingsModal {
         let Some(input) = self.fields.get(row.key()).cloned() else {
             return;
         };
-        input.update(cx, |input, cx| input.focus(window, cx));
-        input.update(cx, ui::TextInput::select_all);
+        input.select(window, cx);
     }
 
     fn edit(

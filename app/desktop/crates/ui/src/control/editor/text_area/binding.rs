@@ -4,15 +4,24 @@ mod actions;
 mod caret_motion;
 mod paging;
 
+use actions::SUBMITTING_CONTEXT;
 pub(crate) use actions::{CONTEXT, bindings};
 
 use gpui::{Context, Div, InteractiveElement, Stateful};
 
 use crate::control::editor::text_area::TextArea;
 use crate::control::editor::text_area::binding::actions as area;
+use crate::control::editor::text_area::enter_key::EnterKey;
 use crate::control::editor::text_input::actions as shared;
 use crate::control::editor::text_input_event::TextInputEvent;
 use crate::foundation::Direction;
+
+pub(crate) fn key_context(enter: EnterKey) -> &'static str {
+    match enter {
+        EnterKey::Newline => CONTEXT,
+        EnterKey::Submit => SUBMITTING_CONTEXT,
+    }
+}
 
 impl TextArea {
     pub(crate) fn bind_actions(
@@ -147,7 +156,7 @@ mod tests {
     use gpui::TestAppContext;
 
     use crate::TextInputEvent;
-    use crate::control::editor::test_support::area::{area, area_text};
+    use crate::control::editor::test_support::area::{area, area_text, area_with};
 
     #[gpui::test]
     fn plain_enter_adds_a_line_and_the_modifier_submits(cx: &mut TestAppContext) {
@@ -170,5 +179,29 @@ mod tests {
             (submitted.get(), cancelled.get(), area_text(&area, cx)),
             (1, 1, "a\n".into())
         );
+    }
+
+    fn counting(
+        submitted: &Rc<Cell<usize>>
+    ) -> impl FnMut(gpui::Entity<crate::TextArea>, &TextInputEvent, &mut gpui::App) + 'static {
+        let submitted = Rc::clone(submitted);
+        move |_, event, _| {
+            let more = usize::from(*event == TextInputEvent::Submitted);
+            submitted.set(submitted.get() + more);
+        }
+    }
+
+    #[gpui::test]
+    fn a_submitting_area_submits_on_enter_and_breaks_the_line_on_shift_enter(
+        cx: &mut TestAppContext
+    ) {
+        let (area, cx) = area_with(cx, crate::TextArea::submit_on_enter);
+        let submitted = Rc::new(Cell::new(0));
+        cx.update(|_, cx| cx.subscribe(&area, counting(&submitted)).detach());
+        cx.simulate_input("a");
+        cx.simulate_keystrokes("shift-enter");
+        cx.simulate_input("b");
+        cx.simulate_keystrokes("enter");
+        assert_eq!((submitted.get(), area_text(&area, cx)), (1, "a\nb".into()));
     }
 }
