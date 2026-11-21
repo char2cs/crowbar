@@ -25,6 +25,13 @@ pub enum Outcome {
         /// The name it was created with.
         name: String,
     },
+    /// The daemon answered the name typed into `row`'s inline input.
+    NameAnswered {
+        /// The row being named.
+        row: RowId,
+        /// Why the name was refused, fit to show; `None` when it was taken.
+        refusal: Option<String>,
+    },
     /// The daemon refused or could not be reached; the reason is fit to show.
     Failed(String),
     /// A command failed: shown as a toast titled for the command, such as "Failed to rename

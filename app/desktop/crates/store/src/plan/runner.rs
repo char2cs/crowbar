@@ -131,6 +131,7 @@ async fn finish(
         After::NameFolder => named_folder(answer)
             .into_iter()
             .for_each(|named| outcome(named)),
+        After::SettleName(row) => outcome(Outcome::NameAnswered { row, refusal: None }),
     }
 }
 
@@ -142,6 +143,11 @@ fn fail(
 ) {
     if let Some(row) = &plan.pending {
         hub.edit(|state| state.fail_local(&row.id, &reason));
+    }
+    if let After::SettleName(row) = &plan.after {
+        let row = row.clone();
+        let refusal = Some(reason);
+        return outcome(Outcome::NameAnswered { row, refusal });
     }
     let Some(title) = plan.failure.clone() else {
         return outcome(Outcome::Failed(reason));
@@ -338,9 +344,34 @@ mod tests {
         assert_eq!(*seen.lock().unwrap(), [named]);
     }
 
+    const NOT_A_BRANCH: &str =
+        r#"{"success":false,"error":"\"bad..name\" is not a valid branch name"}"#;
+
+    async fn a_branch_name_closes_its_input_when_taken_and_keeps_it_over_a_refusal() {
+        let (state, daemon) = state();
+        let plan = crate::plan::create::make_branch(&state, ("t", "bad..name")).unwrap();
+        let path = plan.calls[0].path.clone();
+        daemon.answer(("POST", &path), 400, NOT_A_BRANCH);
+        let hub = Hub::new(state, Arc::new(|| {}));
+        let (outcome, seen) = sink();
+        run(&hub, plan.clone(), &outcome).await;
+        daemon.ok("POST", &path, "{}");
+        run(&hub, plan, &outcome).await;
+        let refused = Outcome::NameAnswered {
+            row: RowId::from("t"),
+            refusal: Some(r#""bad..name" is not a valid branch name"#.into()),
+        };
+        let taken = Outcome::NameAnswered {
+            row: RowId::from("t"),
+            refusal: None,
+        };
+        assert_eq!(*seen.lock().unwrap(), [refused, taken]);
+    }
+
     type Case = fn() -> std::pin::Pin<Box<dyn Future<Output = ()>>>;
 
-    const CASES: [Case; 8] = [
+    const CASES: [Case; 9] = [
+        || Box::pin(a_branch_name_closes_its_input_when_taken_and_keeps_it_over_a_refusal()),
         || Box::pin(a_create_picks_an_agent_sends_its_call_and_opens_the_chat()),
         || {
             Box::pin(

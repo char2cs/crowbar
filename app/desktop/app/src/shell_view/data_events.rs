@@ -79,6 +79,9 @@ impl ShellView {
             DataOutcome::NameRow { row, name } => self.sidebar.update(cx, |sidebar, cx| {
                 sidebar.name_new_row((row, &name), window, cx);
             }),
+            DataOutcome::NameAnswered { row, refusal } => self
+                .sidebar
+                .update(cx, |sidebar, cx| sidebar.name_answered(&row, refusal, cx)),
             DataOutcome::Failed(reason) => {
                 tracing::warn!(%reason, "a command failed");
                 self.show_notice(NoticeKey::Command, (ToastKind::Error, reason), cx);

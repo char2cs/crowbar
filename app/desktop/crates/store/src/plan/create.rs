@@ -106,7 +106,8 @@ pub(crate) fn make_branch(
     Ok(Plan::of(
         &host_id(state, &target)?,
         vec![Call::post(path).json(json!({"branch": name}))],
-    ))
+    )
+    .then(After::SettleName(sidebar::RowId::from(row))))
 }
 
 pub(crate) fn space(

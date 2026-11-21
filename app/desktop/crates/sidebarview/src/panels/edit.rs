@@ -4,6 +4,7 @@ mod field;
 mod field_look;
 mod naming;
 mod outcome;
+mod settle;
 
 pub(crate) use field::Field;
 
@@ -146,6 +147,7 @@ impl Sidebar {
         }
         let command = self.edit_command(&edit.row, name);
         match self.sink.dispatch(command) {
+            Ok(()) if matches!(self.tree.editing(), Editing::Branching(_)) => {},
             Ok(()) => self.close_edit(cx),
             Err(Error::Refused { reason } | Error::Failed { reason, .. }) => {
                 self.refuse_edit(reason, cx);

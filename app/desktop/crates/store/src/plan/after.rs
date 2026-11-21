@@ -12,4 +12,6 @@ pub(crate) enum After {
     ReloadChanges,
     /// Open the name of the folder the daemon answered with for editing.
     NameFolder,
+    /// Close the inline input that named this row; a refusal leaves it open over the reason.
+    SettleName(sidebar::RowId),
 }
