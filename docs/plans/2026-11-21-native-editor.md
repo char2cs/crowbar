@@ -357,4 +357,13 @@ A reachability check run for this plan (imports from `entries/{chat,review,conso
 - **D6** gpui-component's global `Theme` is a derived projection of the shell theme, written only by `editorview::theme::install`. (Coordinator.)
 - **D7** The old drafts are imported once, then deleted: S3 reads the pane IndexedDB `editor-drafts` store (and develop's, through the legacy-data-import path) into `editor::Drafts`, then removes the source. (Owner.)
 - **D8** S1 adds the open-and-type bench at 10K, 50K and 200K lines. The cap-or-fix choice is made from its numbers. (Coordinator.)
+  - Bench results (2026-11-21, release, gpui test platform with cosmic-text shaping, 50 keystrokes typed at the end):
+
+    | Lines | Open | Keystroke, mean | Keystroke, worst |
+    |---|---|---|---|
+    | 10K | 446 ms | 0.7 ms | 1.3 ms |
+    | 50K | 163 ms | 0.9 ms | 1.6 ms |
+    | 200K | 252 ms | 0.6 ms | 1.2 ms |
+
+  - The 10K open is the first run and includes loading the font. Neither opening nor typing grows with file size, so 200K lines does not stall and no line cap is needed.
 - **D9** gpui-base and gpui-component (and gpui-kit, if a patch needs it) are vendored in S0 through `vendor/update.sh`, with `update.sh --check` passing. (Coordinator.)
