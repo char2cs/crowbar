@@ -7,11 +7,13 @@ describe('editorTarget', () => {
       kind: 'workspace',
       path: 'src/a.ts',
       fresh: false,
+      line: null,
     })
-    expect(editorTarget({ path: '/home/a.ts', absolute: true, fresh: true })).toEqual({
+    expect(editorTarget({ path: '/home/a.ts', absolute: true, fresh: true, line: 3 })).toEqual({
       kind: 'host',
       path: '/home/a.ts',
       fresh: true,
+      line: 3,
     })
     expect(editorTarget({ untitled: true })).toEqual({ kind: 'untitled' })
   })

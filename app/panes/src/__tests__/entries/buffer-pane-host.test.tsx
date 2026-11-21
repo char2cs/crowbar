@@ -129,9 +129,9 @@ describe('BufferPaneHost opening a file the user just opened', () => {
     expect(shell.setState).not.toHaveBeenCalled()
   })
 
-  it('once open, saves the file as one to restore with the layout', async () => {
+  it('once open, saves the file as one to restore with the layout, without its line', async () => {
     const shell = client()
-    bufferSession.setState({ chatId: 'c1', saved: FRESH, active: false })
+    bufferSession.setState({ chatId: 'c1', saved: { ...FRESH, line: 3 }, active: false })
     await renderHost(
       shell,
       vi.fn(() => Promise.resolve('b1')),

@@ -62,7 +62,7 @@ function useShellReporting(client: Shell, buffer: PaneContent | undefined): void
 function settled(saved: unknown): unknown {
   const openedJustNow = typeof saved === 'object' && saved !== null && 'fresh' in saved
   if (!openedJustNow) return null
-  const { fresh: _fresh, ...kept } = saved as Record<string, unknown>
+  const { fresh: _fresh, line: _line, ...kept } = saved as Record<string, unknown>
   return kept
 }
 

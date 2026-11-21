@@ -3,7 +3,12 @@ import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { makePane } from '@/features/panes/lib/view-state'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 
-const opened = vi.hoisted(() => ({ document: vi.fn(), untitled: vi.fn(), restore: vi.fn() }))
+const opened = vi.hoisted(() => ({
+  document: vi.fn(),
+  untitled: vi.fn(),
+  restore: vi.fn(),
+  reveal: vi.fn(),
+}))
 
 vi.mock('@/features/editor/documents/open-document', () => ({
   openDocument: opened.document,
@@ -12,6 +17,7 @@ vi.mock('@/features/editor/documents/open-document', () => ({
 vi.mock('@/features/editor/documents/restore-documents', () => ({
   restoreDocuments: opened.restore,
 }))
+vi.mock('@/features/editor/lib/reveal', () => ({ revealInEditor: opened.reveal }))
 
 const { openEditorBuffer } = await import('@/entries/open-editor-buffer')
 
@@ -68,6 +74,17 @@ describe('openEditorBuffer', () => {
       expect(opened.restore).not.toHaveBeenCalled()
     },
   )
+
+  it('reveals the line a fresh open names, as a terminal link to path:line asks', async () => {
+    await openEditorBuffer('ws1', { path: 'src/pricing.ts', fresh: true, line: 3 }, refuse)
+    expect(opened.reveal).toHaveBeenCalledWith({
+      doc: { authority: 'workspace', workspaceId: 'ws1', path: 'src/pricing.ts' },
+      position: { line: 2, character: 0 },
+      paneId: ROOT_PANE_ID,
+      onRefused: refuse,
+    })
+    expect(opened.document).not.toHaveBeenCalled()
+  })
 
   it.each(RESTORED)(
     'restores $name into a tab before reading it, so a file that is gone keeps its tab',

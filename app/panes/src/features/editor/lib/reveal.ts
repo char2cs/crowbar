@@ -6,12 +6,12 @@ import type { DocumentTarget } from '@/lib/api/documents'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { isEditorContent } from '@/features/panes/types/pane-content'
 import { documentRefOf, documentUri } from '@/features/editor/documents/document-ref'
-import { openDocument } from '@/features/editor/documents/open-document'
+import { openDocument, type OpenDocumentOptions } from '@/features/editor/documents/open-document'
 import { activeEditors } from './active-editor-context'
 
 type CodeEditor = Monaco.editor.ICodeEditor
 
-export interface RevealTarget {
+export interface RevealTarget extends Pick<OpenDocumentOptions, 'paneId' | 'onRefused'> {
   doc: DocumentTarget
   /** 0-based LSP-style position. */
   position?: { line: number; character: number }
@@ -84,7 +84,8 @@ function placeWhenShown(
  *  the open failed (it reports why) or the user navigated away. A remount may replace the editor;
  *  the survivor restores the cursor from view state and usePaneEditorSatellites focuses it. */
 export async function revealInEditor(target: RevealTarget): Promise<CodeEditor | null> {
-  const bufferId = await openDocument(target.doc, { beforeShow: target.beforeShow })
+  const { paneId: into, onRefused, beforeShow } = target
+  const bufferId = await openDocument(target.doc, { paneId: into, onRefused, beforeShow })
   if (!bufferId) return null
   const state = windowPaneStore.getState()
   const buffer = state.buffers.find((b) => b.id === bufferId)

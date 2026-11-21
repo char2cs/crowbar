@@ -2,6 +2,7 @@ import { workspaceRef, type DocumentRef } from '@/lib/api/documents'
 import { documentName } from '@/features/editor/documents/document-ref'
 import { openDocument, openUntitledDocument } from '@/features/editor/documents/open-document'
 import { restoreDocuments } from '@/features/editor/documents/restore-documents'
+import { revealInEditor } from '@/features/editor/lib/reveal'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { editorTarget } from './editor-target'
@@ -28,5 +29,11 @@ export const openEditorBuffer: OpenBuffer = async (wsId, saved, refuse) => {
     target.kind === HOST ? { authority: HOST, path: target.path } : workspaceRef(wsId, target.path)
   if (!target.fresh) return placeThenRestore(ref)
   const spec = target.kind === HOST ? { absolutePath: target.path } : ref
-  return openDocument(spec, { paneId: ROOT_PANE_ID, onRefused: refuse })
+  const options = { paneId: ROOT_PANE_ID, onRefused: refuse }
+  if (target.line === null) return openDocument(spec, options)
+  return revealInEditor({
+    doc: spec,
+    position: { line: target.line - 1, character: 0 },
+    ...options,
+  })
 }
