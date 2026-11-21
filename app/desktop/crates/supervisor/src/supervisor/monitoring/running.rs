@@ -7,4 +7,5 @@ pub(crate) struct Running {
     pub(crate) _watchdog: Guard,
     pub(crate) child: Child,
     pub(crate) wedged: mpsc::Receiver<()>,
+    pub(crate) healthy: mpsc::Receiver<()>,
 }

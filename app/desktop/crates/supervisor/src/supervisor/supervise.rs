@@ -22,25 +22,26 @@ type Commands = mpsc::Receiver<Command>;
 
 fn start_watchdog(
     supervision: &Supervision,
-    pid: Option<u32>,
-) -> (mpsc::Receiver<()>, CancellationToken) {
+    child: tokio::process::Child,
+) -> Running {
     let (wedged, wedged_rx) = mpsc::channel(1);
+    let (healthy, healthy_rx) = mpsc::channel(1);
     let cancel = CancellationToken::new();
     tokio::spawn(watch(WatchContext {
         socket: supervision.config.paths.socket.clone(),
-        pid,
+        pid: child.id(),
         timings: supervision.config.timings.clone(),
         bus: Arc::clone(&supervision.bus),
         wedged,
+        healthy,
         cancel: cancel.clone(),
         clock: supervision.clock,
     }));
-    (wedged_rx, cancel)
-}
-
-fn recover_because(reason: &str) -> Phase {
-    Phase::Recover {
-        reason: reason.to_owned(),
+    Running {
+        _watchdog: Guard::new(cancel),
+        child,
+        wedged: wedged_rx,
+        healthy: healthy_rx,
     }
 }
 
@@ -88,8 +89,8 @@ async fn after_startup(
             halt(supervision, reason, message)
         },
         Startup::NeverHealthy => {
-            stop_child(supervision, &mut child).await;
-            recover_because("the daemon never became healthy")
+            tracing::warn!("the daemon is not serving yet; it keeps running under the watchdog");
+            monitor(supervision, start_watchdog(supervision, child), commands).await
         },
         Startup::Exited(reason) => Phase::Recover { reason },
         Startup::Stopped => {
@@ -120,13 +121,7 @@ async fn become_ready(
         return refuse(supervision, &mut child, reason).await;
     }
     supervision.bus.emit(DaemonEvent::Ready { pid });
-    let (wedged, watchdog) = start_watchdog(supervision, child.id());
-    let running = Running {
-        _watchdog: Guard::new(watchdog),
-        child,
-        wedged,
-    };
-    monitor(supervision, running, commands).await
+    monitor(supervision, start_watchdog(supervision, child), commands).await
 }
 
 async fn step(

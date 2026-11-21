@@ -2,8 +2,11 @@
 //! `FAKE_DAEMON_MODE`: `ok`, `migrating`, `steps` (reports no step, step 1 of 2, step 2 of 2,
 //! then serves), `halted`, `crash` (exits at once), `die` (serves one health answer, then
 //! exits), `noisy` (writes a megabyte that is not UTF-8 to stderr before serving), `wedge`
-//! (accepts and never answers), `stall` (answers the first request, then never answers) or
-//! `deaf` (serves, and ignores SIGTERM).
+//! (accepts and never answers), `stall` (answers the first request, then never answers),
+//! `deaf` (serves, and ignores SIGTERM) or `late` (answers health with 503 until `<socket>.serve`
+//! exists, dialling `<socket>.spent` after each such answer so a test hears it).
+
+mod late;
 
 use std::io::Write;
 use std::process::ExitCode;
@@ -57,10 +60,13 @@ fn reply_body(
     mode: &str,
     served: u32,
 ) -> String {
-    if !head.starts_with("GET /v0/health ") {
-        return "{}".to_owned();
-    }
-    health_body(mode, served)
+    let body = Some(head)
+        .filter(|head| head.starts_with("GET /v0/health "))
+        .map_or_else(|| "{}".to_owned(), |_| health_body(mode, served));
+    format!(
+        "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+        body.len()
+    )
 }
 
 async fn answer(
@@ -73,13 +79,15 @@ async fn answer(
         return;
     };
     let head = String::from_utf8_lossy(buf.get(..read).unwrap_or_default()).into_owned();
-    let body = reply_body(&head, mode, served);
-    let reply = format!(
-        "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
-        body.len()
-    );
+    let socket = socket_arg();
+    let unserved = late::unserved_reply(&head, mode, socket.as_deref());
+    let late = unserved.is_some();
+    let reply = unserved.unwrap_or_else(|| reply_body(&head, mode, served));
     if let Err(error) = stream.write_all(reply.as_bytes()).await {
         tracing::debug!("the client left before its answer: {error}");
+    }
+    if late {
+        late::tell_spent(socket.as_deref());
     }
 }
 

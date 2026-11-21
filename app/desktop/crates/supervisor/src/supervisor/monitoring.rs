@@ -1,8 +1,10 @@
+mod late_ready;
 mod running;
 mod stale_daemon;
 mod stop;
 pub(crate) mod watchdog;
 
+use late_ready::answered;
 pub(crate) use running::Running;
 pub(crate) use stale_daemon::refuse;
 pub(crate) use watchdog::{Guard, WatchContext, watch};
@@ -21,6 +23,7 @@ use crate::supervisor::readiness::describe_exit;
 use crate::supervisor::supervision::Command;
 use crate::supervisor::supervision::Phase;
 use crate::supervisor::supervision::Supervision;
+use crate::supervisor::supervision::next_command;
 use crate::supervisor::supervision::reply;
 
 type Commands = mpsc::Receiver<Command>;
@@ -62,6 +65,7 @@ async fn watch_once(
         status = running.child.wait() => Some(exited(supervision, &status)),
         command = commands.recv() => on_command(supervision, running, command).await,
         Some(()) = running.wedged.recv() => on_wedged(supervision, running, commands).await,
+        Some(()) = running.healthy.recv() => answered(supervision, running).await,
     }
 }
 
@@ -79,11 +83,14 @@ async fn on_command(
     running: &mut Running,
     command: Option<Command>,
 ) -> Option<Phase> {
-    if let Some(Command::Restart(asked)) = command {
-        reply(asked, Err(Error::AlreadyRunning));
-        return None;
+    match command {
+        Some(Command::Restart(asked)) => {
+            reply(asked, Err(Error::AlreadyRunning));
+            None
+        },
+        Some(Command::Answered) => answered(supervision, running).await,
+        stop => Some(stop_running(supervision, running, stop).await),
     }
-    Some(stop_running(supervision, running, command).await)
 }
 
 async fn on_wedged(
@@ -136,7 +143,7 @@ async fn race_once(
 ) -> Option<Raced> {
     tokio::select! {
         () = &mut *kill => Some(Ok(())),
-        command = commands.recv() => refuse_restart(command),
+        command = next_command(commands) => refuse_restart(command),
     }
 }
 

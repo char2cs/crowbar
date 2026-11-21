@@ -29,6 +29,17 @@ pub(crate) fn backend_status(
     }
 }
 
+pub(crate) fn reports_answer(
+    event: Option<&DaemonEvent>,
+    link: LocalLink,
+) -> bool {
+    let waiting = matches!(
+        event,
+        Some(DaemonEvent::Starting | DaemonEvent::Restarted | DaemonEvent::Migrating { .. })
+    );
+    waiting && link == LocalLink::Live
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -56,6 +67,25 @@ mod tests {
         ];
         for (event, link, status) in cases {
             assert_eq!(backend_status(event, link), status, "{event:?} {link:?}");
+        }
+    }
+
+    #[test]
+    fn a_live_stream_is_reported_only_while_the_launch_is_not_ready() {
+        let starting = DaemonEvent::Starting;
+        let restarted = DaemonEvent::Restarted;
+        let ready = DaemonEvent::Ready { pid: None };
+        let gave_up = DaemonEvent::GaveUp { report: "r".into() };
+        let cases = [
+            (Some(&starting), LocalLink::Live, true),
+            (Some(&restarted), LocalLink::Live, true),
+            (Some(&ready), LocalLink::Live, false),
+            (Some(&starting), LocalLink::Lost, false),
+            (Some(&gave_up), LocalLink::Live, false),
+            (None, LocalLink::Live, false),
+        ];
+        for (event, link, reported) in cases {
+            assert_eq!(reports_answer(event, link), reported, "{event:?} {link:?}");
         }
     }
 }

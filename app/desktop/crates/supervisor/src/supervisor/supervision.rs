@@ -11,7 +11,7 @@ mod verdict;
 
 pub(crate) use bus::Bus;
 pub(crate) use clock::Clock;
-pub(crate) use command::Command;
+pub(crate) use command::{Command, next_command};
 pub(crate) use log::DaemonLog;
 pub(crate) use log::{MAX_LINE_BYTES, crash_report, crash_summary};
 pub(crate) use phase::Phase;

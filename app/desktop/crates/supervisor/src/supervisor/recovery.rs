@@ -7,6 +7,7 @@ use crate::supervisor::supervision::Command;
 use crate::supervisor::supervision::Phase;
 use crate::supervisor::supervision::Supervision;
 use crate::supervisor::supervision::Verdict;
+use crate::supervisor::supervision::next_command;
 use crate::supervisor::supervision::reply;
 use crate::supervisor::supervision::{crash_report, crash_summary};
 
@@ -78,7 +79,7 @@ async fn backoff(
 ) -> Phase {
     tokio::select! {
         () = tokio::time::sleep(delay) => Phase::Launch,
-        command = commands.recv() => while_down(supervision, command),
+        command = next_command(commands) => while_down(supervision, command),
     }
 }
 
@@ -109,7 +110,7 @@ pub(crate) async fn idle(
     supervision: &mut Supervision,
     commands: &mut Commands,
 ) -> Phase {
-    let command = commands.recv().await;
+    let command = next_command(commands).await;
     while_down(supervision, command)
 }
 

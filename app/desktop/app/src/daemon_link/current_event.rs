@@ -9,6 +9,12 @@ impl DaemonLink {
         let event = current.borrow().clone();
         Some(event)
     }
+
+    pub(crate) fn heard_answer(&self) {
+        if let Some(supervisor) = self.supervisor() {
+            supervisor.heard_answer();
+        }
+    }
 }
 
 #[cfg(test)]

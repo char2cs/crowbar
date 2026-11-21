@@ -1,10 +1,13 @@
 //! Public-API tests of `supervisor` against a fake `crowbar-api` binary.
 
+#[path = "support/real_infra/late_launch.rs"]
+mod late_launch;
 #[path = "../src/test_support/script.rs"]
 mod script;
 #[path = "support/real_infra/daemon.rs"]
 mod support;
 
+use late_launch::{heard_until, launch_until_startup_is_spent, probing};
 use std::path::PathBuf;
 use std::time::Duration;
 use supervisor::{DaemonEvent, Error, Supervisor, Timings};
@@ -65,7 +68,7 @@ async fn a_daemon_that_halts_is_reported_and_not_respawned_until_asked() -> Test
         .restart()
         .await
         .expect("restart accepted while halted");
-    next_matching(&mut events, |e| *e == DaemonEvent::Starting).await?;
+    next_matching(&mut events, |e| *e == DaemonEvent::Restarted).await?;
     supervisor.stop().await;
     Ok(())
 }
@@ -120,40 +123,28 @@ async fn a_daemon_that_dies_after_becoming_ready_is_recovered_and_comes_back() -
 
 #[tokio::test]
 #[ignore = "real-infra: supervises a real fake_daemon child process over a real unix socket"]
-async fn a_daemon_that_cannot_serve_is_recovered_with_the_reason_named() -> TestResult {
-    let never_answers = Timings {
-        health_attempts: 3,
-        health_probe_timeout: Duration::from_millis(50),
-        ..fast_timings()
-    };
+async fn a_launch_that_cannot_run_or_exits_is_charged_with_the_reason_named() -> TestResult {
     let cases = [
-        (
-            "never answers",
-            "wedge",
-            never_answers,
-            None,
-            "never became healthy",
-        ),
         (
             "missing binary",
             "ok",
-            fast_timings(),
             Some("/definitely/not/crowbar-api"),
             "cannot run",
         ),
+        ("exits at once", "crash", None, "daemon terminated"),
     ];
-    for (name, mode, timings, binary, reason) in cases {
-        let (mut cfg, _home) = config(mode, timings)?;
+    for (name, mode, binary, reason) in cases {
+        let (mut cfg, _home) = config(mode, fast_timings())?;
         cfg.binary = binary.map_or(cfg.binary, PathBuf::from);
         let supervisor = Supervisor::start(cfg);
         let mut events = supervisor.events();
-        let event =
-            next_matching(&mut events, |e| matches!(e, DaemonEvent::Recovering { .. })).await?;
+        let recovering = |e: &DaemonEvent| matches!(e, DaemonEvent::Recovering { .. });
+        let event = next_matching(&mut events, recovering).await?;
+        supervisor.stop().await;
         assert!(
-            matches!(&event, DaemonEvent::Recovering { reason: said, .. } if said.contains(reason)),
+            matches!(&event, DaemonEvent::Recovering { attempt: 1, reason: said, .. } if said.contains(reason)),
             "{name}: {event:?}"
         );
-        supervisor.stop().await;
     }
     Ok(())
 }
@@ -261,6 +252,75 @@ async fn a_daemon_that_prints_bytes_that_are_not_utf8_never_wedges_on_a_full_pip
         text.len() < 8 * (1 << 20),
         "and not unboundedly: {} bytes",
         text.len()
+    );
+    Ok(())
+}
+
+const NEVER_KILLED: u32 = 1000;
+const KILLED_AFTER: u32 = 2;
+
+#[derive(Debug, Clone, Copy)]
+enum HeardBy {
+    Shell,
+    Watchdog,
+}
+
+fn tell(
+    heard_by: HeardBy,
+    supervisor: &Supervisor,
+) {
+    if matches!(heard_by, HeardBy::Watchdog) {
+        return;
+    }
+    supervisor.heard_answer();
+}
+
+fn charged(event: &DaemonEvent) -> bool {
+    matches!(
+        event,
+        DaemonEvent::Recovering { .. } | DaemonEvent::Restarted
+    )
+}
+
+#[tokio::test]
+#[ignore = "real-infra: supervises a real fake_daemon child process over a real unix socket"]
+async fn a_late_answer_makes_the_launch_ready_without_a_respawn() -> TestResult {
+    let cases = [
+        (HeardBy::Shell, fast_timings()),
+        (HeardBy::Watchdog, probing(NEVER_KILLED)),
+    ];
+    for (heard_by, timings) in cases {
+        let mut launch = launch_until_startup_is_spent(timings).await?;
+        launch.let_serve()?;
+        tell(heard_by, &launch.supervisor);
+        let ready = |e: &DaemonEvent| matches!(e, DaemonEvent::Ready { pid: Some(_) });
+        let heard = heard_until(&mut launch.events, ready).await?;
+        launch.supervisor.stop().await;
+        assert!(!heard.iter().any(charged), "{heard_by:?}: {heard:?}");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "real-infra: supervises a real fake_daemon child process over a real unix socket"]
+async fn a_launch_that_never_serves_is_killed_by_the_watchdog_and_charged_once() -> TestResult {
+    let mut launch = launch_until_startup_is_spent(probing(KILLED_AFTER)).await?;
+    let recovering = |e: &DaemonEvent| matches!(e, DaemonEvent::Recovering { .. });
+    let heard = heard_until(&mut launch.events, recovering).await?;
+    launch.supervisor.stop().await;
+    let tail: Vec<_> = heard
+        .iter()
+        .skip_while(|e| **e != DaemonEvent::Unhealthy)
+        .collect();
+    assert!(
+        matches!(
+            tail.as_slice(),
+            [
+                DaemonEvent::Unhealthy,
+                DaemonEvent::Recovering { attempt: 1, .. }
+            ]
+        ),
+        "{heard:?}"
     );
     Ok(())
 }

@@ -2,6 +2,7 @@ mod daemon_event;
 pub(crate) mod monitoring;
 mod readiness;
 mod recovery;
+mod served_now;
 mod spawn;
 mod supervise;
 pub(crate) mod supervision;
@@ -79,6 +80,14 @@ impl Supervisor {
             .await
             .map_err(stopped)?;
         answer.await.map_err(stopped)?
+    }
+
+    /// Tells the supervisor this computer's daemon answered someone, such as the shell's stream,
+    /// so a launch that was slow to serve is checked now rather than at the next probe.
+    pub fn heard_answer(&self) {
+        if self.commands.try_send(Command::Answered).is_err() {
+            tracing::debug!("the supervisor is busy or stopped; the answer goes unreported");
+        }
     }
 
     /// Stops the daemon gracefully (SIGTERM, then SIGKILL after the grace period) and ends

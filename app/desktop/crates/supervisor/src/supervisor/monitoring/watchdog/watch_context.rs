@@ -14,6 +14,7 @@ pub(crate) struct WatchContext {
     pub(crate) timings: Timings,
     pub(crate) bus: Arc<Bus>,
     pub(crate) wedged: mpsc::Sender<()>,
+    pub(crate) healthy: mpsc::Sender<()>,
     pub(crate) cancel: CancellationToken,
     pub(crate) clock: Clock,
 }

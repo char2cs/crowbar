@@ -14,7 +14,7 @@ test-daemon = []
 
 [[bin]]
 name = "fake_daemon"
-path = "src/bin/fake_daemon.rs"
+path = "src/bin/fake_daemon/main.rs"
 required-features = ["test-daemon"]
 
 [dependencies]

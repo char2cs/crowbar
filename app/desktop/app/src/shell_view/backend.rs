@@ -8,7 +8,7 @@ use ui::{ToastContent, ToastLifetime};
 use super::ShellView;
 use crate::backend::{
     BackendStatus, BackendWatch, ConnectionNotice, CrashPanel, NoticeAct, ProjectsFailed,
-    backend_status,
+    backend_status, reports_answer,
 };
 use crate::workspace::Workspace;
 
@@ -21,7 +21,12 @@ impl ShellView {
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
-        let status = backend_status(self.link.current_event().as_ref(), self.data.local_link());
+        let event = self.link.current_event();
+        let link = self.data.local_link();
+        if reports_answer(event.as_ref(), link) {
+            self.link.heard_answer();
+        }
+        let status = backend_status(event.as_ref(), link);
         self.follow_crash(&status, cx);
         self.follow_projects(cx);
         let act = self.backend.connection.follow(status);

@@ -6,6 +6,7 @@ use crate::error::Error;
 use crate::health::MigrationProgress;
 use crate::health::wait_for_health;
 use crate::supervisor::daemon_event::DaemonEvent;
+use crate::supervisor::served_now::served_now;
 use crate::supervisor::supervision::Command;
 use crate::supervisor::supervision::Startup;
 use crate::supervisor::supervision::Supervision;
@@ -31,11 +32,38 @@ pub(crate) async fn await_ready(
         &supervision.config.timings,
         |progress| bus.emit(migrating(progress)),
     );
-    tokio::select! {
-        outcome = health => startup_of(outcome, child.id()),
-        status = child.wait() => Startup::Exited(describe_exit(&status)),
-        command = commands.recv() => stopped_before_ready(command),
+    let mut health = std::pin::pin!(health);
+    let mut startup = None;
+    while startup.is_none() {
+        startup = startup_step(supervision, health.as_mut(), child, commands).await;
     }
+    startup.unwrap_or(Startup::Stopped)
+}
+
+async fn startup_step(
+    supervision: &Supervision,
+    health: std::pin::Pin<&mut impl Future<Output = Result<Option<u32>, Error>>>,
+    child: &mut tokio::process::Child,
+    commands: &mut Commands,
+) -> Option<Startup> {
+    let spawned = child.id();
+    tokio::select! {
+        outcome = health => Some(startup_of(outcome, spawned)),
+        status = child.wait() => Some(Startup::Exited(describe_exit(&status))),
+        command = commands.recv() => during_startup(supervision, command, spawned).await,
+    }
+}
+
+async fn during_startup(
+    supervision: &Supervision,
+    command: Option<Command>,
+    spawned: Option<u32>,
+) -> Option<Startup> {
+    let Some(Command::Answered) = command else {
+        return Some(stopped_before_ready(command));
+    };
+    let pid = served_now(supervision).await?;
+    Some(Startup::Ready(pid.or(spawned)))
 }
 
 fn migrating(progress: Option<&MigrationProgress>) -> DaemonEvent {
@@ -67,7 +95,7 @@ fn answer_stop_or_busy(command: Option<Command>) {
     match command {
         Some(Command::Stop(done)) => reply(done, ()),
         Some(Command::Restart(asked)) => reply(asked, Err(Error::AlreadyRunning)),
-        None => {},
+        Some(Command::Answered) | None => {},
     }
 }
 

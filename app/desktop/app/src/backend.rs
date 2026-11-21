@@ -11,7 +11,7 @@ mod projects_failed;
 mod warned;
 
 pub(crate) use backend_status::BackendStatus;
-pub(crate) use backend_status::backend_status;
+pub(crate) use backend_status::{backend_status, reports_answer};
 pub(crate) use backend_watch::BackendWatch;
 pub(crate) use connection_notice::ConnectionNotice;
 pub(crate) use crash_panel::CrashPanel;

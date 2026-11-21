@@ -87,6 +87,18 @@ async fn confirmed_wedge(
     false
 }
 
+fn report_healthy(
+    ctx: &WatchContext,
+    outcome: Probe,
+) {
+    if outcome != Probe::Healthy {
+        return;
+    }
+    if ctx.healthy.try_send(()).is_err() {
+        tracing::trace!("an earlier healthy probe is still to be read");
+    }
+}
+
 async fn track_silence(
     ctx: &WatchContext,
     state: &mut WatchState,
@@ -115,6 +127,7 @@ async fn cycle(
         state.forget();
         return false;
     }
+    report_healthy(ctx, outcome);
     track_silence(ctx, state, outcome).await;
     state.tracker.observe(outcome) && confirmed_wedge(ctx, state).await
 }
@@ -181,6 +194,7 @@ mod tests {
             timings,
             bus: Arc::new(Bus::default()),
             wedged,
+            healthy: mpsc::channel(1).0,
             cancel,
             clock: system_clock(),
         }
