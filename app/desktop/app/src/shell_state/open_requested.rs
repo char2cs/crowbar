@@ -2,7 +2,7 @@ use layout::Command;
 use protocol::{DocumentPath, OpenMode, PaneId, PaneOpen};
 
 use super::ShellState;
-use super::preview::previewing;
+use super::preview::{keeping, previewing};
 use crate::core_panes::EDITOR;
 use crate::error::Result;
 use crate::focused_chat::chat_of_pane;
@@ -25,7 +25,10 @@ impl ShellState {
             ),
         };
         match commands {
-            Ok(commands) => self.apply(kept_or_previewed(commands, open.mode)),
+            Ok(commands) => {
+                let commands = kept_or_previewed(self.history.layout(), commands, open.mode);
+                self.apply(commands);
+            },
             Err(error) => tracing::warn!(%error, "could not open the pane"),
         }
     }
@@ -49,11 +52,12 @@ impl ShellState {
 }
 
 fn kept_or_previewed(
+    layout: &layout::Layout,
     commands: Vec<Command>,
     mode: OpenMode,
 ) -> Vec<Command> {
     match mode {
-        OpenMode::Kept => commands,
+        OpenMode::Kept => keeping(layout, commands),
         OpenMode::Preview => previewing(commands),
     }
 }

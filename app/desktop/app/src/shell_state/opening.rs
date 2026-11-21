@@ -2,6 +2,7 @@ use layout::{Placement, TabId};
 use protocol::{PaneTypeId, Params};
 
 use super::ShellState;
+use super::preview::keeping;
 use crate::core_panes::{chat_params, chat_type};
 use crate::pane_opener::{open_at, open_view_commands};
 use crate::pane_spec::PaneSpec;
@@ -37,7 +38,7 @@ impl ShellState {
         spec: PaneSpec,
     ) {
         match spec.open_commands(self.history.layout(), &self.serials) {
-            Ok(commands) => self.apply(commands),
+            Ok(commands) => self.apply(keeping(self.history.layout(), commands)),
             Err(error) => tracing::warn!(%error, "could not open the pane"),
         }
     }
