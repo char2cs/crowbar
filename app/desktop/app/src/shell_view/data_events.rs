@@ -112,7 +112,8 @@ impl ShellView {
         let (Ok(type_id), Ok(params)) = (chat_type(), chat_params(chat)) else {
             return;
         };
-        self.open_from_sidebar((type_id, params), cx);
+        self.state.open_view(type_id, params);
+        self.refresh(cx);
     }
 
     fn pick_descriptor(

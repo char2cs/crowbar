@@ -13,8 +13,23 @@ impl ShellState {
         type_id: PaneTypeId,
         params: Params,
     ) {
-        match open_view_commands(self.history.layout(), (type_id, params), &self.serials) {
-            Ok(commands) => self.apply(commands),
+        self.open_with((type_id, params), Self::apply);
+    }
+
+    pub(crate) fn open_from_sidebar(
+        &mut self,
+        view: (PaneTypeId, Params),
+    ) {
+        self.open_with(view, Self::apply_from_strip);
+    }
+
+    fn open_with(
+        &mut self,
+        view: (PaneTypeId, Params),
+        apply: fn(&mut Self, Vec<layout::Command>),
+    ) {
+        match open_view_commands(self.history.layout(), view, &self.serials) {
+            Ok(commands) => apply(self, commands),
             Err(error) => tracing::warn!(%error, "could not open the view"),
         }
     }

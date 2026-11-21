@@ -174,7 +174,7 @@ impl ShellView {
         (type_id, params): (protocol::PaneTypeId, protocol::Params),
         cx: &mut Context<'_, Self>,
     ) {
-        self.state.open_view(type_id, params);
+        self.state.open_from_sidebar((type_id, params));
         self.refresh(cx);
     }
 }

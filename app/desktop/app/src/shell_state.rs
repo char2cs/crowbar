@@ -206,6 +206,7 @@ mod tests {
     use protocol::PaneId;
 
     use super::*;
+    use crate::core_panes::{chat_params, chat_type};
     use crate::test_support::{ShellRig, open_chat, shell_rig};
 
     type Refused = (&'static str, Command);
@@ -280,6 +281,7 @@ mod tests {
         Strip,
         ShellPress,
         ShellPressThenNothing,
+        SidebarRow,
         Elsewhere,
     }
 
@@ -293,6 +295,11 @@ mod tests {
         (
             "an empty batch after a shell press leaves them in the shell",
             Via::ShellPressThenNothing,
+            1,
+        ),
+        (
+            "a sidebar row opening its chat keeps them on the sidebar",
+            Via::SidebarRow,
             1,
         ),
         (
@@ -318,6 +325,11 @@ mod tests {
                 shell.apply(focus);
                 shell.keep_keyboard_in_shell();
                 shell.apply(Vec::new());
+            },
+            Via::SidebarRow => {
+                shell.keep_keyboard_in_shell();
+                let row = (chat_type().unwrap(), chat_params("t1").unwrap());
+                shell.open_from_sidebar(row);
             },
             Via::Elsewhere => shell.apply(focus),
         }
