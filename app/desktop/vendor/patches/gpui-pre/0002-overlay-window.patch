@@ -136,7 +136,7 @@ index 4a8ccc6..b9f790e 100644
 +    }
  }
 diff --git a/src/window.rs b/src/window.rs
-index 4e2e1a7..cfd8250 100644
+index 4e2e1a7..19bb0e6 100644
 --- a/src/window.rs
 +++ b/src/window.rs
 @@ -79,6 +79,7 @@ use crate::util::{
@@ -389,7 +389,7 @@ index 4e2e1a7..cfd8250 100644
          let current_focus_path = self.rendered_frame.focus_path();
          let current_window_active = self.rendered_frame.window_active;
          let mut focus_before_listeners = self.focus;
-@@ -3815,6 +3958,110 @@ impl Window {
+@@ -3815,6 +3958,128 @@ impl Window {
          arena_scope.exit(&cx.element_arena)
      }
  
@@ -408,7 +408,11 @@ index 4e2e1a7..cfd8250 100644
 +            self.platform_window.set_content_region(&content);
 +            self.content_region = content;
 +        }
-+        let takes_keys = !self.rendered_frame.focus_path().is_empty();
++        let takes_keys = self.overlay_shown && !self.rendered_frame.focus_path().is_empty();
++        self.update_takes_keys(owner, takes_keys, cx);
++    }
++
++    fn update_takes_keys(&mut self, owner: AnyWindowHandle, takes_keys: bool, cx: &mut App) {
 +        if takes_keys != self.takes_keys {
 +            self.platform_window.set_takes_keys(takes_keys);
 +            self.takes_keys = takes_keys;
@@ -440,6 +444,10 @@ index 4e2e1a7..cfd8250 100644
 +        if self.focus.is_none() || !self.rendered_frame.focus_path().is_empty() {
 +            return;
 +        }
++        self.give_focus_back(owner, was_rendered, cx);
++    }
++
++    fn give_focus_back(&mut self, owner: AnyWindowHandle, was_rendered: bool, cx: &mut App) {
 +        let handle = self.focused(cx);
 +        self.focus = None;
 +        let Some(handle) = handle.filter(|_| !was_rendered) else {
@@ -466,9 +474,12 @@ index 4e2e1a7..cfd8250 100644
 +    }
 +
 +    /// For an overlay window: shows it over its owner, or hides it. An overlay starts hidden,
-+    /// so an idle one is no window at all on screen.
-+    pub fn set_overlay_shown(&mut self, shown: bool) {
-+        if self.overlay_of.is_none() || shown == self.overlay_shown {
++    /// so an idle one is no window at all on screen, and a hidden one takes no keys.
++    pub fn set_overlay_shown(&mut self, shown: bool, cx: &mut App) {
++        let Some(owner) = self.overlay_of else {
++            return;
++        };
++        if shown == self.overlay_shown {
 +            return;
 +        }
 +        self.overlay_shown = shown;
@@ -476,6 +487,13 @@ index 4e2e1a7..cfd8250 100644
 +        if !shown {
 +            // The platform forgets a hidden overlay's shape; the next frame sends it again.
 +            self.content_region.clear();
++            // A hidden overlay draws no frames, so it settles now what its next one would have:
++            // it renders nothing, so its focus goes back and it takes no keys.
++            let was_rendered = self
++                .focus
++                .is_some_and(|focus| !self.rendered_frame.dispatch_tree.focus_path(focus).is_empty());
++            self.give_focus_back(owner, was_rendered, cx);
++            self.update_takes_keys(owner, false, cx);
 +        }
 +    }
 +
@@ -500,7 +518,7 @@ index 4e2e1a7..cfd8250 100644
      fn record_entities_accessed(&mut self, cx: &mut App) {
          let entities = cx.entities.take_accessed();
          let handle = self.handle;
-@@ -3823,6 +4070,7 @@ impl Window {
+@@ -3823,6 +4088,7 @@ impl Window {
              // Try moving window invalidator into the Window
              self.invalidator.clone(),
              &entities,
@@ -508,7 +526,7 @@ index 4e2e1a7..cfd8250 100644
          );
          cx.entities.restore_accessed(entities);
      }
-@@ -3972,7 +4220,7 @@ impl Window {
+@@ -3972,7 +4238,7 @@ impl Window {
              tooltip_element = self.prepaint_tooltip(cx);
          }
  
@@ -517,7 +535,7 @@ index 4e2e1a7..cfd8250 100644
  
          // Now actually paint the elements.
          #[cfg(feature = "profiler")]
-@@ -5864,6 +6112,12 @@ impl Window {
+@@ -5864,6 +6130,12 @@ impl Window {
      /// Dispatch a mouse, keyboard, or touch event on the window.
      #[profiling::function]
      pub fn dispatch_event(&mut self, event: PlatformInput, cx: &mut App) -> DispatchEventResult {
@@ -530,7 +548,7 @@ index 4e2e1a7..cfd8250 100644
          #[cfg(feature = "profiler")]
          self.window_profiler.begin_input(event.kind_name());
          let update_count_before = self.invalidator.update_count();
-@@ -5891,11 +6145,13 @@ impl Window {
+@@ -5891,11 +6163,13 @@ impl Window {
              // API for the mouse position can only occur on the main thread.
              PlatformInput::MouseMove(mouse_move) => {
                  self.mouse_position = mouse_move.position;
@@ -544,7 +562,7 @@ index 4e2e1a7..cfd8250 100644
                  self.modifiers = mouse_down.modifiers;
                  PlatformInput::MouseDown(mouse_down)
              }
-@@ -5909,6 +6165,7 @@ impl Window {
+@@ -5909,6 +6183,7 @@ impl Window {
              }
              PlatformInput::MouseExited(mouse_exited) => {
                  self.modifiers = mouse_exited.modifiers;
@@ -552,7 +570,7 @@ index 4e2e1a7..cfd8250 100644
                  PlatformInput::MouseExited(mouse_exited)
              }
              PlatformInput::ModifiersChanged(modifiers_changed) => {
-@@ -5918,6 +6175,7 @@ impl Window {
+@@ -5918,6 +6193,7 @@ impl Window {
              }
              PlatformInput::Scroll(scroll_wheel) => {
                  self.mouse_position = scroll_wheel.position;
@@ -560,7 +578,7 @@ index 4e2e1a7..cfd8250 100644
                  self.modifiers = scroll_wheel.modifiers;
                  PlatformInput::Scroll(scroll_wheel)
              }
-@@ -5931,6 +6189,7 @@ impl Window {
+@@ -5931,6 +6207,7 @@ impl Window {
              PlatformInput::FileDrop(file_drop) => match file_drop {
                  FileDropEvent::Entered { position, paths } => {
                      self.mouse_position = position;
@@ -568,7 +586,7 @@ index 4e2e1a7..cfd8250 100644
                      let source_window = self.handle.window_id();
                      if !cx.restore_platform_drag(source_window) && cx.active_drag.is_none() {
                          cx.active_drag = Some(AnyDrag {
-@@ -5949,6 +6208,7 @@ impl Window {
+@@ -5949,6 +6226,7 @@ impl Window {
                  }
                  FileDropEvent::Pending { position } => {
                      self.mouse_position = position;
@@ -576,7 +594,7 @@ index 4e2e1a7..cfd8250 100644
                      PlatformInput::MouseMove(MouseMoveEvent {
                          position,
                          pressed_button: Some(MouseButton::Left),
-@@ -5958,6 +6218,7 @@ impl Window {
+@@ -5958,6 +6236,7 @@ impl Window {
                  FileDropEvent::Submit { position } => {
                      cx.activate(true);
                      self.mouse_position = position;
@@ -584,7 +602,7 @@ index 4e2e1a7..cfd8250 100644
                      PlatformInput::MouseUp(MouseUpEvent {
                          button: MouseButton::Left,
                          position,
-@@ -6210,8 +6471,130 @@ impl Window {
+@@ -6210,8 +6489,130 @@ impl Window {
          });
      }
  

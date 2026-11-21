@@ -3973,7 +3973,11 @@ impl Window {
             self.platform_window.set_content_region(&content);
             self.content_region = content;
         }
-        let takes_keys = !self.rendered_frame.focus_path().is_empty();
+        let takes_keys = self.overlay_shown && !self.rendered_frame.focus_path().is_empty();
+        self.update_takes_keys(owner, takes_keys, cx);
+    }
+
+    fn update_takes_keys(&mut self, owner: AnyWindowHandle, takes_keys: bool, cx: &mut App) {
         if takes_keys != self.takes_keys {
             self.platform_window.set_takes_keys(takes_keys);
             self.takes_keys = takes_keys;
@@ -4005,6 +4009,10 @@ impl Window {
         if self.focus.is_none() || !self.rendered_frame.focus_path().is_empty() {
             return;
         }
+        self.give_focus_back(owner, was_rendered, cx);
+    }
+
+    fn give_focus_back(&mut self, owner: AnyWindowHandle, was_rendered: bool, cx: &mut App) {
         let handle = self.focused(cx);
         self.focus = None;
         let Some(handle) = handle.filter(|_| !was_rendered) else {
@@ -4031,9 +4039,12 @@ impl Window {
     }
 
     /// For an overlay window: shows it over its owner, or hides it. An overlay starts hidden,
-    /// so an idle one is no window at all on screen.
-    pub fn set_overlay_shown(&mut self, shown: bool) {
-        if self.overlay_of.is_none() || shown == self.overlay_shown {
+    /// so an idle one is no window at all on screen, and a hidden one takes no keys.
+    pub fn set_overlay_shown(&mut self, shown: bool, cx: &mut App) {
+        let Some(owner) = self.overlay_of else {
+            return;
+        };
+        if shown == self.overlay_shown {
             return;
         }
         self.overlay_shown = shown;
@@ -4041,6 +4052,13 @@ impl Window {
         if !shown {
             // The platform forgets a hidden overlay's shape; the next frame sends it again.
             self.content_region.clear();
+            // A hidden overlay draws no frames, so it settles now what its next one would have:
+            // it renders nothing, so its focus goes back and it takes no keys.
+            let was_rendered = self
+                .focus
+                .is_some_and(|focus| !self.rendered_frame.dispatch_tree.focus_path(focus).is_empty());
+            self.give_focus_back(owner, was_rendered, cx);
+            self.update_takes_keys(owner, false, cx);
         }
     }
 

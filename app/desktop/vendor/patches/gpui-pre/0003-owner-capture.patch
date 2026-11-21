@@ -46,10 +46,10 @@ index b9f790e..c538ff2 100644
 +    }
  }
 diff --git a/src/window.rs b/src/window.rs
-index cfd8250..ed808e6 100644
+index 19bb0e6..7f37374 100644
 --- a/src/window.rs
 +++ b/src/window.rs
-@@ -4056,6 +4056,26 @@ impl Window {
+@@ -4074,6 +4074,26 @@ impl Window {
          &self.content_region
      }
  

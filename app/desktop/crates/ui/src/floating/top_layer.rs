@@ -253,6 +253,31 @@ mod tests {
     }
 
     #[gpui::test]
+    fn a_top_layer_hidden_as_a_row_focuses_the_owner_hands_it_the_keyboard_without_drawing(
+        cx: &mut TestAppContext
+    ) {
+        let (toggled, mut owner, mut top) = toggled(cx);
+        owner.update(|window, cx| window.focus(&toggled.focus, cx));
+        owner.run_until_parked();
+        assert!(top.update(|window, _| window.takes_keys()), "opened");
+        let (takes_keys, focused) = top.update(|window, cx| {
+            window.focus(&toggled.back, cx);
+            window.set_overlay_shown(false, cx);
+            (window.takes_keys(), window.focused(cx).is_some())
+        });
+        assert!(
+            !takes_keys,
+            "a hidden window draws no frame to give up the keyboard in"
+        );
+        assert!(!focused, "nor one to hand the focus back in");
+        owner.run_until_parked();
+        let back = owner.update(|window, _| toggled.back.is_focused(window));
+        assert!(back, "the owner's field the row focused");
+        let held = owner.update(|window, cx| TopLayer::holds_keys(window, cx));
+        assert!(!held, "the owner hears the keyboard come back");
+    }
+
+    #[gpui::test]
     fn a_floating_element_opened_again_takes_the_keyboard_again(cx: &mut TestAppContext) {
         let (toggled, mut owner, mut top) = toggled(cx);
         owner.update(|window, cx| window.focus(&toggled.focus, cx));
