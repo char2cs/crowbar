@@ -1,7 +1,7 @@
 //! Windows and fakes shared by the unit tests.
 #![cfg(test)]
 
-mod blank;
+pub(crate) mod blank;
 pub(crate) mod open;
 pub(crate) mod prelude;
 mod probe;

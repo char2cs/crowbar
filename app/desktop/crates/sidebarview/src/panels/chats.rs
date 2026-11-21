@@ -166,6 +166,7 @@ fn wheel_lock() -> AnyElement {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::blank::Blank;
     use crate::test_support::prelude::*;
 
     #[gpui::test]
@@ -266,6 +267,34 @@ mod tests {
             -f32::from(this.scrolls.of_space(&project).offset().y)
         });
         assert!(scrolled >= PULL * 2.0, "scrolled {scrolled}");
+    }
+
+    fn panes_renders(
+        sidebar: &gpui::Entity<Sidebar>,
+        cx: &mut gpui::VisualTestContext,
+    ) -> usize {
+        sidebar.read_with(cx, |this, cx| {
+            let blank = this.content.clone().downcast::<Blank>().ok();
+            blank.map_or(0, |blank| blank.read(cx).renders)
+        })
+    }
+
+    #[gpui::test]
+    fn an_edge_scroll_frame_leaves_the_panes_area_as_it_was(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoShell::rich());
+        cx.simulate_resize(gpui::size(px(1200.0), px(320.0)));
+        sidebar.update(cx, lift_a_row);
+        sidebar.update_in(cx, |this, window, cx| {
+            this.act(RowAction::Edge(PULL), window, cx);
+        });
+        cx.run_until_parked();
+        let before = panes_renders(&sidebar, cx);
+        assert!(before > 0, "the panes area was drawn");
+        for _ in 0..FRAMES {
+            cx.update(Window::simulate_next_frame);
+            cx.run_until_parked();
+        }
+        assert_eq!(panes_renders(&sidebar, cx), before);
     }
 
     #[gpui::test]

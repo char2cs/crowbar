@@ -3,7 +3,7 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, Div, Entity, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
-    ParentElement, Render, Stateful, Styled, Window, div, px,
+    ParentElement, Render, Stateful, StyleRefinement, Styled, Window, div, px,
 };
 use sidebar::{DockSide, Visibility};
 use ui::{Backdrop, HoverFill, Motion, Portal, Surface, Theme};
@@ -32,11 +32,11 @@ impl Render for Sidebar {
         let column = geometry
             .is_docked()
             .then(|| self.body(geometry.width, window, cx));
-        let content = div()
-            .flex_1()
-            .min_w_0()
-            .h_full()
-            .child(self.content.clone());
+        let content = div().flex_1().min_w_0().h_full().child(
+            self.content
+                .clone()
+                .cached(StyleRefinement::default().size_full()),
+        );
         let side_column = div().h_full().flex_none().children(column);
         let handle = self.handle(&geometry, window, cx);
         let row = div()
