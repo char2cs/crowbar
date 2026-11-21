@@ -157,7 +157,7 @@ impl RenderOnce for ChangedTreeRow {
         let row = frame(id, &entry, (&self.look, palette))
             .debug_selector(|| selector)
             .child(viewed_box(&self.row, &self.handler))
-            .child(glyph(&entry, &self.look))
+            .child(glyph(&entry, (&self.look, palette), cx))
             .child(labelled(self.name(&entry, palette), letter))
             .child(self.trailing(&entry, (mono, palette)))
             .on_click(on_click(&self.handler, intent(&self.row)));

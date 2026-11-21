@@ -27,9 +27,9 @@ pub use floating::{
     click_away, popup_at,
 };
 pub use foundation::{
-    Appearance, CaretBlink, CubicBezier, Glide, HoverFill, Icon, IconName, IconWeight, Motion,
-    Palette, Pose, ProviderGlyph, ScaledText, Surface, Theme, ThemeId, ThemeMode, Vibrancy,
-    Wordmark, assets, focus_ring,
+    Appearance, CaretBlink, CubicBezier, Glide, HoverFill, Icon, IconName, IconWeight,
+    MaterialIcon, Motion, Palette, Pose, ProviderGlyph, ScaledText, Surface, Theme, ThemeId,
+    ThemeMode, Vibrancy, Wordmark, assets, focus_ring,
 };
 pub use foundation::{font, layer, radius, shadow, spacing, text_size, timing};
 pub use ui::init;

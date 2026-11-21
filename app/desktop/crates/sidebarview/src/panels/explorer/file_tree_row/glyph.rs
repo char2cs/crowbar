@@ -1,35 +1,40 @@
 //! The icon of a file in the file tree.
 
-use ui::IconName;
+use gpui::{AnyElement, App, Div, Hsla, IntoElement, ParentElement, Styled, div};
+use ui::{Icon, IconName, IconWeight, MaterialIcon, Palette, ProviderGlyph};
+
+use crate::panels::explorer::file_tree_entry::FileTreeEntry;
+use crate::panels::explorer::file_tree_row::TreeLook;
+use crate::sidebar::{ICON_LARGE, ICON_MEDIUM};
 
 use sidebar::{Expansion, FileKind, IconTheme};
 
-const README_STEM: &str = "readme";
-const DOCUMENT_EXTENSIONS: [&str; 5] = ["md", "mdx", "txt", "rst", "pdf"];
 const COLORFUL_FOLDER: u32 = 0x00f2_c14e;
 
-pub(crate) fn file_icon(name: &str) -> IconName {
-    let (stem, extension) = name.rsplit_once('.').unwrap_or((name, ""));
-    if stem.eq_ignore_ascii_case(README_STEM) {
-        return IconName::Info;
-    }
-    if DOCUMENT_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str()) {
-        return IconName::FileText;
-    }
-    IconName::Code
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Glyph {
+    Phosphor(IconName),
+    Monochrome(String),
+    Colored(&'static str),
 }
 
 pub(crate) fn theme_glyph(
     theme: IconTheme,
     kind: FileKind,
     name: &str,
-) -> IconName {
+    cx: &mut App,
+) -> Glyph {
     match (kind, theme) {
-        (FileKind::Directory(Expansion::Expanded), _) => IconName::FolderOpen,
-        (FileKind::Directory(Expansion::Collapsed), _) => IconName::Folder,
-        (FileKind::File, IconTheme::Material | IconTheme::ColorfulMaterial) => file_icon(name),
-        (FileKind::File, IconTheme::Classic) => IconName::FileText,
-        (FileKind::File, _) => IconName::File,
+        (FileKind::Directory(Expansion::Expanded), _) => Glyph::Phosphor(IconName::FolderOpen),
+        (FileKind::Directory(Expansion::Collapsed), _) => Glyph::Phosphor(IconName::Folder),
+        (FileKind::File, IconTheme::Material) => {
+            Glyph::Monochrome(MaterialIcon::of(name, cx).monochrome())
+        },
+        (FileKind::File, IconTheme::ColorfulMaterial) => {
+            Glyph::Colored(MaterialIcon::of(name, cx).colored())
+        },
+        (FileKind::File, IconTheme::Classic) => Glyph::Phosphor(IconName::FileText),
+        (FileKind::File, _) => Glyph::Phosphor(IconName::File),
     }
 }
 
@@ -37,54 +42,83 @@ pub(crate) fn folder_tint(theme: IconTheme) -> Option<u32> {
     (theme == IconTheme::ColorfulMaterial).then_some(COLORFUL_FOLDER)
 }
 
+pub(crate) fn glyph(
+    entry: &FileTreeEntry,
+    (look, palette): (&TreeLook, &Palette),
+    cx: &mut App,
+) -> Div {
+    let ink = palette.muted_foreground();
+    let tint = folder_tint(look.icons).filter(|_| matches!(entry.kind, FileKind::Directory(_)));
+    let drawn = match theme_glyph(look.icons, entry.kind, &entry.name, cx) {
+        Glyph::Phosphor(name) => phosphor(name, (ink, tint)),
+        Glyph::Monochrome(svg) => ProviderGlyph::new(svg, ink)
+            .size(ICON_MEDIUM)
+            .into_any_element(),
+        Glyph::Colored(svg) => ProviderGlyph::new(svg, ink)
+            .size(ICON_MEDIUM)
+            .into_any_element(),
+    };
+    div()
+        .flex()
+        .flex_none()
+        .size(ICON_LARGE)
+        .items_center()
+        .justify_center()
+        .child(drawn)
+}
+
+fn phosphor(
+    name: IconName,
+    (ink, tint): (Hsla, Option<u32>),
+) -> AnyElement {
+    let icon = Icon::new(name).size(ICON_MEDIUM).color(ink);
+    let Some(rgb) = tint else {
+        return icon.into_any_element();
+    };
+    icon.weight(IconWeight::Fill)
+        .color(gpui::rgb(rgb).into())
+        .into_any_element()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use gpui::TestAppContext;
 
-    #[test]
-    fn a_name_picks_its_icon() {
-        const CASES: [(&str, IconName); 8] = [
-            ("README.md", IconName::Info),
-            ("readme", IconName::Info),
-            ("ReadMe.txt", IconName::Info),
-            ("NOTES.md", IconName::FileText),
-            ("guide.PDF", IconName::FileText),
-            ("main.rs", IconName::Code),
-            (".gitignore", IconName::Code),
-            ("README.rs.bak", IconName::Code),
-        ];
-        for (name, icon) in CASES {
-            assert_eq!(file_icon(name), icon, "{name}");
-        }
-    }
+    use super::*;
 
     const OPEN: FileKind = FileKind::Directory(Expansion::Expanded);
     const SHUT: FileKind = FileKind::Directory(Expansion::Collapsed);
 
-    #[test]
-    fn each_theme_draws_its_own_file_glyph_and_every_theme_the_same_folders() {
-        const FILES: [(IconTheme, IconName); 6] = [
-            (IconTheme::Material, IconName::Code),
-            (IconTheme::ColorfulMaterial, IconName::Code),
-            (IconTheme::Classic, IconName::FileText),
-            (IconTheme::Compact, IconName::File),
-            (IconTheme::Minimal, IconName::File),
-            (IconTheme::None, IconName::File),
+    fn drawn_by(
+        theme: IconTheme,
+        cx: &mut App,
+    ) -> [Glyph; 3] {
+        [FileKind::File, OPEN, SHUT].map(|kind| theme_glyph(theme, kind, "pricing.ts", cx))
+    }
+
+    #[gpui::test]
+    fn each_theme_draws_its_file_glyph_and_every_theme_the_same_folders(cx: &mut TestAppContext) {
+        let (mono, colored) = cx.update(|cx| {
+            let typescript = MaterialIcon::of("pricing.ts", cx);
+            (typescript.monochrome(), typescript.colored())
+        });
+        let files = [
+            (IconTheme::Material, Glyph::Monochrome(mono)),
+            (IconTheme::ColorfulMaterial, Glyph::Colored(colored)),
+            (IconTheme::Classic, Glyph::Phosphor(IconName::FileText)),
+            (IconTheme::Compact, Glyph::Phosphor(IconName::File)),
+            (IconTheme::Minimal, Glyph::Phosphor(IconName::File)),
+            (IconTheme::None, Glyph::Phosphor(IconName::File)),
         ];
-        for (theme, file) in FILES {
+        for (theme, file) in files {
+            let drawn = cx.update(|cx| drawn_by(theme, cx));
+            let folders = [
+                Glyph::Phosphor(IconName::FolderOpen),
+                Glyph::Phosphor(IconName::Folder),
+            ];
             assert_eq!(
-                theme_glyph(theme, FileKind::File, "main.rs"),
-                file,
-                "{theme:?}"
-            );
-            assert_eq!(
-                theme_glyph(theme, OPEN, "src"),
-                IconName::FolderOpen,
-                "{theme:?}"
-            );
-            assert_eq!(
-                theme_glyph(theme, SHUT, "src"),
-                IconName::Folder,
+                drawn,
+                [file, folders[0].clone(), folders[1].clone()],
                 "{theme:?}"
             );
         }

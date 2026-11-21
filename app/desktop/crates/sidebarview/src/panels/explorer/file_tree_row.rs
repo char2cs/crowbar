@@ -24,9 +24,9 @@ use crate::panels::explorer::file_tree_entry::FileTreeEntry;
 use crate::panels::explorer::file_tree_row::badges::{
     count_gap, counts_view, labelled, letter_badge, status_color,
 };
-use crate::panels::explorer::file_tree_row::glyph::{folder_tint, theme_glyph};
+pub(crate) use crate::panels::explorer::file_tree_row::glyph::glyph;
 use crate::panels::explorer::search::highlight;
-use crate::sidebar::{ICON_LARGE, ICON_MEDIUM, ICON_TINY, SPACE_SM, TEXT_BODY};
+use crate::sidebar::{ICON_MEDIUM, ICON_TINY, SPACE_SM, TEXT_BODY};
 use crate::sidebar::{RowAction, RowHandler};
 
 const BASE_PADDING: f32 = 6.0;
@@ -71,7 +71,7 @@ impl RenderOnce for FileTreeRow {
         });
         let row = ringed(tinted, &focus, palette)
             .child(chevron(&entry, palette))
-            .child(glyph(&entry, &self.look))
+            .child(glyph(&entry, (&self.look, palette), cx))
             .child(labelled(name, letter))
             .children(trailing_counts(&entry, (mono, &self.look), palette))
             .on_drop(file_drop::on_drop(
@@ -214,26 +214,6 @@ fn chevron(
         FileKind::Directory(_) => frame.child(caret),
         FileKind::File => frame,
     }
-}
-
-pub(crate) fn glyph(
-    entry: &FileTreeEntry,
-    look: &TreeLook,
-) -> Div {
-    let name = theme_glyph(look.icons, entry.kind, &entry.name);
-    let icon = Icon::new(name).size(ICON_MEDIUM);
-    let tint = folder_tint(look.icons).filter(|_| matches!(entry.kind, FileKind::Directory(_)));
-    let icon = match tint {
-        Some(rgb) => icon.color(gpui::rgb(rgb).into()),
-        None => icon,
-    };
-    div()
-        .flex()
-        .flex_none()
-        .size(ICON_LARGE)
-        .items_center()
-        .justify_center()
-        .child(icon)
 }
 
 #[cfg(test)]
