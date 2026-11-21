@@ -65,7 +65,11 @@ pub(super) fn build_panes<V: 'static>(
     let new_tab = crate::new_tab_panes::NewTabPanes::new((*requests).clone());
     let panes = NativePanes::new(terminals, new_tab);
     let source = ShellPaneSource::new(state.titles(), state.serials(), bars, panes);
-    let source = source.marking(state.dirty()).drawing(glyphs_of(data));
+    let reviews = Rc::clone(data);
+    let source = source
+        .marking(state.dirty())
+        .drawing(glyphs_of(data))
+        .reviewing(Rc::new(move |chat| reviews.chat_reviews_branch(chat)));
     let source = Rc::new(source);
     let view_source = Rc::clone(&source);
     let layout = cx.new(|_| LayoutView::new(view_source));

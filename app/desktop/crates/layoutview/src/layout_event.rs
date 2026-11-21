@@ -57,6 +57,12 @@ pub enum LayoutEvent {
         /// Any pane of the group whose strip's button was pressed.
         onto: PaneId,
     },
+    /// The "Review this branch" button of a strip was pressed: open the branch review of the
+    /// group holding `onto`, as a tab of that group.
+    ReviewBranch {
+        /// Any pane of the group whose strip's button was pressed.
+        onto: PaneId,
+    },
 }
 
 impl LayoutEvent {

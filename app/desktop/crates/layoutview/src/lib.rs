@@ -10,6 +10,7 @@
 //! [`layout::DragSubject`] into a target and a [`layout::Command`], [`SashGrab`] turns pointer
 //! moves into resize commands, and the GPUI plumbing only forwards events to them.
 
+mod branch_review;
 mod chrome_context;
 mod clock;
 mod corners;
@@ -49,9 +50,11 @@ mod strip_input;
 mod strip_key;
 mod strip_keyboard;
 mod strip_menu;
+mod strip_review;
 mod tab_seat;
 mod test_support;
 
+pub use branch_review::BranchReview;
 pub use chrome_context::ChromeContext;
 pub use clock::Clock;
 pub use corners::Corners;

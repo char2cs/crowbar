@@ -64,6 +64,8 @@ mod tests {
 
     impl PaneChrome for NoChrome {}
 
+    impl layoutview::BranchReview for NoChrome {}
+
     impl TabLooks for NoChrome {}
 
     impl PaneDetach for NoChrome {

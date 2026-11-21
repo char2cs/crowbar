@@ -68,6 +68,16 @@ impl ShellView {
         }
     }
 
+    pub(super) fn review_in(
+        &mut self,
+        onto: &PaneId,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let focus = layout::Command::FocusPane { pane: onto.clone() };
+        self.state.apply(vec![focus]);
+        self.open_review(cx);
+    }
+
     pub(super) fn open_review_at(
         &mut self,
         path: &str,

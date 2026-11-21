@@ -7,9 +7,11 @@ use crate::native_panes::NativePanes;
 use crate::serials::Serials;
 use crate::titles::Titles;
 
+mod branch_review;
 mod pane_detach;
 
 pub(crate) type ChatGlyphs = std::rc::Rc<dyn Fn(&str) -> Option<String>>;
+pub(crate) type ChatReviews = std::rc::Rc<dyn Fn(&str) -> bool>;
 
 pub(crate) struct ShellPaneSource {
     titles: Titles,
@@ -18,6 +20,7 @@ pub(crate) struct ShellPaneSource {
     native: NativePanes,
     dirty: DirtyPanes,
     glyphs: ChatGlyphs,
+    reviews: ChatReviews,
 }
 
 impl ShellPaneSource {
@@ -34,6 +37,7 @@ impl ShellPaneSource {
             native,
             dirty: DirtyPanes::default(),
             glyphs: std::rc::Rc::new(|_| None),
+            reviews: std::rc::Rc::new(|_| false),
         }
     }
 

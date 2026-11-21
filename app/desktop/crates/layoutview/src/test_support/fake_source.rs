@@ -4,6 +4,7 @@ use gpui::{AnyElement, App, IntoElement, SharedString, Window, div};
 use layout::{PaneInstance, TabId};
 use protocol::PaneId;
 
+use crate::branch_review::BranchReview;
 use crate::pane_chrome::PaneChrome;
 use crate::pane_content::PaneContent;
 use crate::pane_detach::PaneDetach;
@@ -14,6 +15,7 @@ pub(crate) struct FakeSource {
     native: Vec<PaneId>,
     chrome: Vec<(PaneId, f32)>,
     looks: Vec<(PaneId, TabLook)>,
+    reviewing: Vec<PaneId>,
 }
 
 const FIRST_TAB: u64 = 100;
@@ -25,6 +27,7 @@ impl FakeSource {
             native: Vec::new(),
             chrome: Vec::new(),
             looks: Vec::new(),
+            reviewing: Vec::new(),
         }
     }
 
@@ -52,6 +55,23 @@ impl FakeSource {
     ) -> Self {
         self.chrome.push((pane, height));
         self
+    }
+
+    pub(crate) fn reviewing(
+        mut self,
+        chat: PaneId,
+    ) -> Self {
+        self.reviewing.push(chat);
+        self
+    }
+}
+
+impl BranchReview for FakeSource {
+    fn reviews_branch(
+        &self,
+        chat: &PaneInstance,
+    ) -> bool {
+        self.reviewing.contains(&chat.pane_id)
     }
 }
 

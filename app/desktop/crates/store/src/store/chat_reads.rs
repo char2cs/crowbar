@@ -22,6 +22,16 @@ impl Store {
             .read(|state| crate::reads::chat_glyph::of(state, chat))
     }
 
+    /// Whether `chat` has a branch to review: it owns its worktree, as a repository's own
+    /// checkout or a branch does; a thread, a project home chat or an unknown chat has none.
+    pub fn chat_reviews_branch(
+        &self,
+        chat: &str,
+    ) -> bool {
+        self.hub
+            .read(|state| crate::reads::branch_review::of(state, chat))
+    }
+
     /// The project `chat` belongs to; `None` when it is not loaded or has none.
     pub fn chat_project(
         &self,

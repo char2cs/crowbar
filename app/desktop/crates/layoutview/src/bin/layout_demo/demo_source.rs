@@ -3,7 +3,7 @@ use std::cell::Cell;
 use gpui::{AnyElement, App, IntoElement, ParentElement, SharedString, Styled, Window, div, px};
 use ideshell::TabLooks;
 use layout::TabId;
-use layoutview::{PaneChrome, PaneContent, PaneDetach};
+use layoutview::{BranchReview, PaneChrome, PaneContent, PaneDetach};
 use protocol::PaneId;
 use ui::{Surface, Theme, text_size};
 
@@ -44,6 +44,8 @@ impl PaneContent for DemoSource {
 }
 
 impl PaneChrome for DemoSource {}
+
+impl BranchReview for DemoSource {}
 
 impl TabLooks for DemoSource {}
 

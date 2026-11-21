@@ -42,6 +42,7 @@ impl LayoutView {
             add: Self::add_action(anchor, cx),
             keys: self.keys_action(group, cx),
             overflow: self.overflow_of(group, cx),
+            review: self.review_action((group, anchor), cx),
         })
     }
 

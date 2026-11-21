@@ -8,6 +8,7 @@ use ui::{IconName, MenuAction, MenuItem, Palette, Placement, Surface, Theme};
 use crate::tabbar::chat_tab::ChatTab;
 use crate::tabbar::input_mode::InputMode;
 use crate::tabbar::overflow_entry::OverflowEntry;
+use crate::tabbar::review_button::review_button;
 use crate::tabbar::strip_state::StripState;
 use crate::tabbar::strip_tab::StripTab;
 use crate::tabbar::tab_actions::{StripKeys, TabAction, TabDrop};
@@ -47,6 +48,9 @@ pub struct PaneStrip {
     pub keys: StripKeys,
     /// The rows of the overflow menu.
     pub overflow: Vec<OverflowEntry>,
+    /// What the "Review this branch" button ending the row does; `None` when the group's chat
+    /// has no branch to review, and the row has no such button.
+    pub review: Option<TabAction>,
 }
 
 impl RenderOnce for PaneStrip {
@@ -92,6 +96,7 @@ impl RenderOnce for PaneStrip {
             .children(tabs)
             .child(probe(&scroll, (measuring, shown)))
             .children(more)
+            .children(self.review.map(|review| review_button(name, review)))
     }
 }
 
@@ -316,6 +321,7 @@ mod tests {
             add: nothing,
             keys: Rc::new(|_, _, _| {}),
             overflow: names.iter().map(|name| entry_named(name)).collect(),
+            review: Some(Rc::new(|_, _| {})),
         }
     }
 
@@ -405,7 +411,9 @@ mod tests {
     }
 
     #[gpui::test]
-    fn a_bar_with_no_tab_holds_only_the_split_toggle(cx: &mut TestAppContext) {
+    fn a_bar_with_no_tab_holds_only_the_split_toggle_and_the_review_shortcut(
+        cx: &mut TestAppContext
+    ) {
         let cx = opened(cx, (0, 800.0));
         assert!(
             cx.debug_bounds("row-button-split-t0").is_some(),
@@ -413,6 +421,10 @@ mod tests {
         );
         assert!(cx.debug_bounds("row-button-add-t0").is_none(), "no +");
         assert!(cx.debug_bounds("chat-tab-c").is_none(), "no chat tab");
+        assert!(
+            cx.debug_bounds("row-button-review-t0").is_some(),
+            "the review shortcut still ends the row"
+        );
     }
 
     #[gpui::test]
@@ -423,6 +435,7 @@ mod tests {
             "chat-tab-c",
             "strip-tab-frame-t0",
             "row-button-add-t0",
+            "row-button-review-t0",
         ];
         let order = parts.map(|part| cx.debug_bounds(part).map(|bounds| bounds.left()));
         assert!(order.iter().all(Option::is_some), "{order:?}");
