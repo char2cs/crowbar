@@ -17,6 +17,7 @@ use std::collections::BTreeMap;
 use crate::live::held::HostSlot;
 use crate::live::held::IconCache;
 use crate::live::held::LinkState;
+use crate::live::held::PROJECTS_SCOPE;
 use crate::live::held::PanelState;
 use crate::live::held::PendingRow;
 use crate::live::held::SettingsSlot;
@@ -109,8 +110,13 @@ impl State {
         host: &str,
         frame: Frame,
     ) {
-        if let Some(slot) = self.host_mut(host) {
-            slot.store.apply(frame);
+        let Some(slot) = self.host_mut(host) else {
+            return;
+        };
+        let synced = matches!(&frame, Frame::Synced { scope, .. } if scope == PROJECTS_SCOPE);
+        slot.store.apply(frame);
+        if synced {
+            slot.snapshot_failures = 0;
         }
     }
 
@@ -140,6 +146,18 @@ impl State {
     ) {
         if let Some(slot) = self.host_mut(host) {
             slot.store.begin_snapshot();
+        }
+    }
+
+    pub(crate) fn lose_snapshot(
+        &mut self,
+        host: &str,
+    ) {
+        let Some(slot) = self.host_mut(host) else {
+            return;
+        };
+        if slot.store.abandon_snapshot() {
+            slot.snapshot_failures = slot.snapshot_failures.saturating_add(1);
         }
     }
 

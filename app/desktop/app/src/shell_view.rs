@@ -16,6 +16,7 @@ use ui::{Portal, Surface, Theme, ToastQueue, layer};
 use viewtabs::{SidebarState, TabBar};
 
 mod appearance_settings;
+mod backend;
 mod browsing;
 mod browsing_data;
 mod built;
@@ -103,6 +104,7 @@ pub(crate) struct ShellView {
     ports: Ports,
     readout: crate::readout_state::ReadoutState,
     notices: Entity<ToastQueue>,
+    backend: crate::backend::BackendWatch,
     link_menu: Option<crate::link_menu::LinkMenu>,
     subscriptions: Vec<Subscription>,
 }
@@ -161,6 +163,7 @@ impl ShellView {
             readout: crate::readout_state::ReadoutState::new(Arc::clone(&parts.ports.clock)),
             ports: parts.ports,
             notices: built.notices,
+            backend: backend::watching(built.workspace),
             link_menu: None,
             subscriptions: built.subscriptions,
         }
@@ -200,7 +203,10 @@ impl ShellView {
         &self,
         cx: &mut Context<'_, Self>,
     ) -> Option<Portal> {
-        let shown = self.modal_open() || self.readout.view.is_some() || self.floats_toasts(cx);
+        let shown = self.modal_open()
+            || self.readout.view.is_some()
+            || self.floats_toasts(cx)
+            || self.backend.crash.is_some();
         if !shown {
             return None;
         }
@@ -226,6 +232,7 @@ impl ShellView {
             .children(layer(self.unsaved.as_ref()))
             .children(layer(self.startup.as_ref()))
             .children(self.readout.view.clone())
+            .children(self.backend.crash.as_ref().map(|(panel, _)| panel.clone()))
             .children(self.floats_toasts(cx).then(|| self.notices.clone()))
     }
 
@@ -375,6 +382,13 @@ mod tests {
     }
 
     pub(super) fn open_shell(cx: &mut TestAppContext) -> Opened {
+        let opened = open_shell_unsettled(cx);
+        opened.window.executor().advance_clock(backend::SHOW_DELAY);
+        opened.window.run_until_parked();
+        opened
+    }
+
+    pub(super) fn open_shell_unsettled(cx: &mut TestAppContext) -> Opened {
         cx.executor().allow_parking();
         cx.update(|cx| ui::init(cx).expect("ui installs"));
         let mut rig = crate::test_support::shell_rig();

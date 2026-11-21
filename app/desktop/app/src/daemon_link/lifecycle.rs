@@ -21,16 +21,15 @@ impl DaemonLink {
         }
     }
 
-    pub(crate) fn restart(&self) {
+    pub(crate) fn restart(&self) -> async_channel::Receiver<Result<(), supervisor::Error>> {
+        let (answer, answered) = async_channel::bounded(1);
         let Some(supervisor) = self.supervisor() else {
-            return self.relaunch();
+            self.relaunch();
+            relaunched(&answer);
+            return answered;
         };
-        self.runtime.spawn(async move {
-            supervisor
-                .restart()
-                .await
-                .unwrap_or_else(|error| tracing::warn!(%error, "restarting the daemon failed"));
-        });
+        self.runtime.spawn(answer_restart(supervisor, answer));
+        answered
     }
 
     fn relaunch(&self) {
@@ -39,6 +38,21 @@ impl DaemonLink {
         let sender = self.sender.clone();
         self.runtime
             .spawn(async move { relaunch_unless_running(&options, &state, &sender).await });
+    }
+}
+
+fn relaunched(answer: &async_channel::Sender<Result<(), supervisor::Error>>) {
+    if answer.try_send(Ok(())).is_err() {
+        tracing::debug!("nobody waits on the daemon's relaunch");
+    }
+}
+
+async fn answer_restart(
+    supervisor: Arc<supervisor::Supervisor>,
+    answer: async_channel::Sender<Result<(), supervisor::Error>>,
+) {
+    if answer.send(supervisor.restart().await).await.is_err() {
+        tracing::debug!("nobody waits on the daemon's restart");
     }
 }
 

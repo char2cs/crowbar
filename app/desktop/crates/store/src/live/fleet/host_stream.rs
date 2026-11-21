@@ -58,7 +58,10 @@ impl HostStream {
         if matches!(ended, Ended::Stopped) {
             return ended;
         }
-        self.set_link(LinkState::Down);
+        self.hub.edit(|state| {
+            state.lose_snapshot(&self.host);
+            state.link(&self.host, LinkState::Down);
+        });
         tokio::time::sleep(backoff.wait()).await;
         ended
     }

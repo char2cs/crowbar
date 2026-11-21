@@ -20,5 +20,6 @@ pub(crate) fn supervision() -> Supervision {
         log: None,
         budget,
         clock: system_clock(),
+        launches: 0,
     }
 }

@@ -9,6 +9,7 @@ pub(crate) fn phase_input(event: &DaemonEvent) -> startup::Input {
                 .map(|p| MigrationStep::new(p.step(), p.index(), p.total())),
         },
         DaemonEvent::Ready { .. } => startup::Input::Ready,
+        DaemonEvent::Restarted => startup::Input::Restarted,
         DaemonEvent::Halted { reason, message } => startup::Input::Halted {
             reason: reason.clone(),
             message: message.clone(),
@@ -38,6 +39,7 @@ mod tests {
     fn every_event_maps_to_its_screen() {
         let cases = [
             (DaemonEvent::Starting, startup::Input::Starting),
+            (DaemonEvent::Restarted, startup::Input::Restarted),
             (DaemonEvent::Ready { pid: Some(7) }, startup::Input::Ready),
             (
                 DaemonEvent::Migrating { progress: None },

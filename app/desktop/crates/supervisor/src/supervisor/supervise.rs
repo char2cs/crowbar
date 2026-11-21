@@ -44,11 +44,19 @@ fn recover_because(reason: &str) -> Phase {
     }
 }
 
+fn launch_event(launches: u32) -> DaemonEvent {
+    if launches == 0 {
+        return DaemonEvent::Starting;
+    }
+    DaemonEvent::Restarted
+}
+
 async fn launch(
     supervision: &mut Supervision,
     commands: &mut Commands,
 ) -> Phase {
-    supervision.bus.emit(DaemonEvent::Starting);
+    supervision.bus.emit(launch_event(supervision.launches));
+    supervision.launches = supervision.launches.saturating_add(1);
     supervision.note("===", "daemon spawned");
     match spawn_daemon(supervision) {
         Ok(child) => supervise_child(supervision, child, commands).await,
@@ -147,7 +155,41 @@ pub(crate) async fn supervise(
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+    use std::time::Duration;
+
     use super::*;
+    use crate::config::{Config, DaemonPaths};
+
+    const NOWHERE: &str = "/crowbar-test-missing";
+
+    fn missing_binary() -> Config {
+        let paths = DaemonPaths {
+            socket: PathBuf::from(NOWHERE).join("d.sock"),
+            log: PathBuf::from(NOWHERE).join("d.log"),
+        };
+        let mut config = Config::new(
+            PathBuf::from("/definitely/not/crowbar-api"),
+            paths,
+            None,
+            "test",
+        );
+        config.timings.respawn_base = Duration::from_millis(1);
+        config
+    }
+
+    async fn until_recovering(events: &mut tokio::sync::broadcast::Receiver<DaemonEvent>) {
+        while !matches!(events.recv().await, Ok(DaemonEvent::Recovering { .. })) {}
+    }
+
+    #[tokio::test]
+    async fn a_respawn_after_the_daemon_died_says_the_backend_restarted() {
+        let supervisor = crate::Supervisor::start(missing_binary());
+        let mut events = supervisor.events();
+        until_recovering(&mut events).await;
+        assert_eq!(events.recv().await, Ok(DaemonEvent::Restarted));
+        supervisor.stop().await;
+    }
 
     #[test]
     fn a_daemon_that_halts_leaves_the_supervisor_idle_and_says_why() {

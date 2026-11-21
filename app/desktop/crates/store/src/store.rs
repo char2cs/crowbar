@@ -4,15 +4,19 @@ mod branch_import;
 mod chat_reads;
 mod dialogs;
 mod folder_browse;
+mod local_link;
 mod pairing_session;
 mod ports;
+mod projects_load;
 pub(crate) mod settings_core;
 mod system_check;
 
 pub use branch_import::{Availability, BranchImport, BranchListing, ImportBranch, ImportPlan};
 pub use folder_browse::{BrowseEntry, FolderBrowse, FolderChoice, FolderListing, ROOT_PATH};
+pub use local_link::LocalLink;
 pub use pairing_session::{PairingPending, PairingSession, PairingStage, PairingState};
 pub use ports::Ports;
+pub use projects_load::ProjectsLoad;
 pub use settings_core::{LegacyImport, SettingsAdapter, SystemFonts};
 pub use system_check::{SystemCheck, Tool, ToolReport};
 

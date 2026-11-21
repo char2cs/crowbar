@@ -15,6 +15,7 @@ use crate::error::{Error, Result};
 use crate::link_state::{LinkState, linked};
 use crate::transport_book::TransportBook;
 
+mod current_event;
 mod host_specs;
 mod launch;
 mod lifecycle;

@@ -65,6 +65,10 @@ impl Entities {
         self.fresh = Some(HashSet::new());
     }
 
+    pub(crate) fn abandon_snapshot(&mut self) -> bool {
+        self.fresh.take().is_some()
+    }
+
     pub(crate) fn apply(
         &mut self,
         frame: Frame,

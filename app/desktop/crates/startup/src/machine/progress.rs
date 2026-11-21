@@ -12,7 +12,7 @@ impl Machine {
         input: Input,
     ) -> Screen {
         match input {
-            Input::Starting => Screen::Starting,
+            Input::Starting | Input::Restarted => Screen::Starting,
             Input::Ready => Screen::Ready,
             Input::Migrating { step } => self.migrating(step),
             Input::Halted { reason, message } => self.halted(reason.as_deref(), message),

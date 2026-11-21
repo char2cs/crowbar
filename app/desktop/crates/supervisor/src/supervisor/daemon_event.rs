@@ -15,6 +15,8 @@ pub enum DaemonEvent {
         /// The step it is on; `None` before the first step.
         progress: Option<MigrationProgress>,
     },
+    /// The daemon is being spawned again, after it died or on the user's word.
+    Restarted,
     /// The daemon serves.
     Ready {
         /// The daemon's own pid.

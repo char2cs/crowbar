@@ -14,7 +14,7 @@ pub(crate) fn perform<V: 'static>(
     cx: &mut Context<'_, V>,
 ) {
     match action_for(command) {
-        StartupAction::Relaunch => link.restart(),
+        StartupAction::Relaunch => drop(link.restart()),
         StartupAction::ShowLog => open_log(link),
         StartupAction::QuitApp => cx.quit(),
         StartupAction::Nothing => {},

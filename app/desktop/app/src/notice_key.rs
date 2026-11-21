@@ -6,6 +6,8 @@ pub(crate) enum NoticeKey {
     Storage,
     Preferences,
     Daemon,
+    Restarted,
+    Unresponsive,
     Window,
     Command,
     Terminal,
@@ -18,6 +20,8 @@ impl NoticeKey {
             Self::Storage => "storage",
             Self::Preferences => "preferences",
             Self::Daemon => "daemon",
+            Self::Restarted => "daemon-restarted",
+            Self::Unresponsive => "daemon-unhealthy",
             Self::Window => "window",
             Self::Command => "command",
             Self::Terminal => "terminal",
@@ -29,7 +33,11 @@ impl NoticeKey {
             Self::Daemon | Self::Window | Self::Storage | Self::Preferences => {
                 ToastLifetime::Pinned
             },
-            Self::Layout | Self::Command | Self::Terminal => ToastLifetime::Auto,
+            Self::Layout
+            | Self::Command
+            | Self::Terminal
+            | Self::Restarted
+            | Self::Unresponsive => ToastLifetime::Auto,
         }
     }
 }
@@ -40,11 +48,21 @@ mod tests {
 
     #[test]
     fn conditions_that_outlast_a_timeout_stay_until_cleared() {
-        const CASES: [(NoticeKey, &str, ToastLifetime); 7] = [
+        const CASES: [(NoticeKey, &str, ToastLifetime); 9] = [
             (NoticeKey::Layout, "layout", ToastLifetime::Auto),
             (NoticeKey::Storage, "storage", ToastLifetime::Pinned),
             (NoticeKey::Preferences, "preferences", ToastLifetime::Pinned),
             (NoticeKey::Daemon, "daemon", ToastLifetime::Pinned),
+            (
+                NoticeKey::Restarted,
+                "daemon-restarted",
+                ToastLifetime::Auto,
+            ),
+            (
+                NoticeKey::Unresponsive,
+                "daemon-unhealthy",
+                ToastLifetime::Auto,
+            ),
             (NoticeKey::Window, "window", ToastLifetime::Pinned),
             (NoticeKey::Command, "command", ToastLifetime::Auto),
             (NoticeKey::Terminal, "terminal", ToastLifetime::Auto),

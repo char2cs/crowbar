@@ -2,7 +2,7 @@ use gpui::{App, Context, Window};
 use ui::{ToastContent, ToastKind, ToastLifetime, ToastPlacement};
 
 use super::ShellView;
-use crate::daemon_notice::{DaemonNotice, daemon_notice};
+use crate::backend::daemon_notice::{DaemonNotice, daemon_notice};
 use crate::notice_key::NoticeKey;
 use crate::save_report::SaveReport;
 
@@ -13,11 +13,11 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) {
         match daemon_notice(input) {
+            DaemonNotice::Nothing => {},
             DaemonNotice::Clear => self.clear_notice(NoticeKey::Daemon, cx),
-            DaemonNotice::Show(text) => {
-                self.show_notice(NoticeKey::Daemon, (ToastKind::Error, text), cx);
-            },
+            DaemonNotice::Show(key, content) => self.show_toast(key, content, cx),
         }
+        self.follow_backend(cx);
     }
 
     pub(super) fn announce_start(

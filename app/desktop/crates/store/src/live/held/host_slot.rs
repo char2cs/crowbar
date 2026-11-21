@@ -14,6 +14,7 @@ pub(crate) struct HostSlot {
     pub(crate) link: LinkState,
     pub(crate) terminal_threads: bool,
     pub(crate) provider_icons: BTreeMap<String, String>,
+    pub(crate) snapshot_failures: u32,
 }
 
 impl HostSlot {
@@ -28,6 +29,7 @@ impl HostSlot {
             link: LinkState::default(),
             terminal_threads: false,
             provider_icons: BTreeMap::new(),
+            snapshot_failures: 0,
         }
     }
 }

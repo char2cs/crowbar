@@ -5,12 +5,14 @@ use gpui::{
 use layoutview::LayoutView;
 use viewtabs::TabBar;
 
+use crate::backend::ProjectsFailed;
 use crate::workspace_event::WorkspaceEvent;
 
 pub(crate) struct Workspace {
     tabs: Entity<TabBar>,
     layout: Entity<LayoutView>,
     area: Option<Bounds<Pixels>>,
+    landing: Option<Entity<ProjectsFailed>>,
 }
 
 impl EventEmitter<WorkspaceEvent> for Workspace {}
@@ -24,7 +26,21 @@ impl Workspace {
             tabs,
             layout,
             area: None,
+            landing: None,
         }
+    }
+
+    pub(crate) fn has_landing(&self) -> bool {
+        self.landing.is_some()
+    }
+
+    pub(crate) fn show_landing(
+        &mut self,
+        landing: Option<Entity<ProjectsFailed>>,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.landing = landing;
+        cx.notify();
     }
 
     fn measured(
@@ -52,17 +68,22 @@ impl Render for Workspace {
             .flex_col()
             .child(self.tabs.clone())
             .child(
-                div().flex_1().relative().child(self.layout.clone()).child(
-                    canvas(
-                        move |bounds, _, cx| {
-                            this.update(cx, |workspace, cx| workspace.measured(bounds, cx));
-                        },
-                        |_, (), _, _| {},
-                    )
-                    .absolute()
-                    .inset_0()
-                    .size_full(),
-                ),
+                div()
+                    .flex_1()
+                    .relative()
+                    .child(self.layout.clone())
+                    .children(self.landing.clone())
+                    .child(
+                        canvas(
+                            move |bounds, _, cx| {
+                                this.update(cx, |workspace, cx| workspace.measured(bounds, cx));
+                            },
+                            |_, (), _, _| {},
+                        )
+                        .absolute()
+                        .inset_0()
+                        .size_full(),
+                    ),
             )
     }
 }

@@ -31,6 +31,7 @@ pub(crate) struct Supervision {
     pub(crate) log: Option<Arc<DaemonLog>>,
     pub(crate) budget: RestartBudget,
     pub(crate) clock: Clock,
+    pub(crate) launches: u32,
 }
 
 impl Supervision {
@@ -52,6 +53,7 @@ impl Supervision {
             log,
             budget,
             clock: system_clock(),
+            launches: 0,
         }
     }
 

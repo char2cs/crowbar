@@ -8,6 +8,8 @@ use crate::machine::outage::Outage;
 pub enum Input {
     /// The daemon is being spawned or has not answered its health check yet.
     Starting,
+    /// The daemon is being started again, after it died or on the user's word.
+    Restarted,
     /// The daemon migrates its data.
     Migrating {
         /// The step it is on; `None` before the first step.
