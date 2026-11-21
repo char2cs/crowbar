@@ -9,6 +9,8 @@ pub(crate) use file_entry::FileEntry;
 
 use std::collections::{HashMap, HashSet};
 
+use indexmap::IndexMap;
+
 use sidebar::{ChangedFile, Changes, GitStatus};
 
 use crate::live::held::OpenThreads;
@@ -21,7 +23,7 @@ pub(crate) struct PanelState {
     pub(crate) asking: Asking,
     pub(crate) listings: HashMap<String, Vec<FileEntry>>,
     pub(crate) expanded: HashSet<String>,
-    pub(crate) statuses: HashMap<String, GitStatus>,
+    pub(crate) statuses: IndexMap<String, GitStatus>,
     pub(crate) ignores: IgnoreRules,
     pub(crate) changes: Changes,
     pub(crate) staged: HashSet<String>,

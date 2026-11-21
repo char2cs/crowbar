@@ -69,8 +69,7 @@ fn work_of(
 pub(crate) fn merge_box(state: &State) -> Option<MergeBox> {
     let workspace = followed_workspace(state)?;
     let parent = parent_branch(state, workspace);
-    let mut uncommitted: Vec<String> = state.panels.statuses.keys().cloned().collect();
-    uncommitted.sort();
+    let uncommitted: Vec<String> = state.panels.statuses.keys().cloned().collect();
     let inputs = MergeInputs {
         parent: parent.as_deref(),
         uncommitted: uncommitted.len(),
@@ -98,6 +97,8 @@ pub(crate) fn merge_box(state: &State) -> Option<MergeBox> {
 
 #[cfg(test)]
 mod tests {
+    use sidebar::{ChangedFile, Changes};
+
     use super::*;
     use crate::test_support::state;
 
@@ -113,5 +114,22 @@ mod tests {
         state.panels.committing = true;
         let committing = merge_box(&state).expect("still followed");
         assert_eq!(committing.work, MergeWork::Committing);
+        let listed = ["README.md", "src/b.ts", "scratch.txt", "src/a/"];
+        let files = listed.map(|path| ChangedFile {
+            path: path.into(),
+            ..ChangedFile::default()
+        });
+        let working = Changes {
+            files: files.to_vec(),
+            ..Changes::default()
+        };
+        state.panels.change("hc", (working, Vec::new()));
+        let ordered = merge_box(&state).expect("still followed").uncommitted;
+        assert_eq!(ordered, listed, "the commit form keeps git status order");
+        state.panels.follow(Some("rdo".into()));
+        assert!(
+            merge_box(&state).is_none(),
+            "a repo's default checkout has no merge card"
+        );
     }
 }

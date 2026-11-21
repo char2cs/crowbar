@@ -6797,6 +6797,7 @@ dependencies = [
  "daemonapi",
  "futures-util",
  "ignore",
+ "indexmap",
  "protocol",
  "rusqlite",
  "serde",
