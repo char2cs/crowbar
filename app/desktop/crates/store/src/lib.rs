@@ -1,6 +1,7 @@
 //! Daemon-backed data for the native shell: the sidebar's entities and commands, and the settings
 //! and records the settings modal edits.
 
+mod documents;
 mod error;
 mod live;
 mod plan;
@@ -14,6 +15,7 @@ mod target;
 mod test_support;
 
 pub use daemonapi::EntryKind;
+pub use documents::Documents;
 pub use error::{Error, Result};
 pub use live::{
     BookError, BookFuture, ChangeSignal, HostBook, HostDesk, HostNotes, HostSpec, Note, Outcome,

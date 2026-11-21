@@ -13,6 +13,10 @@ pub(crate) fn content(
     )
 }
 
+pub(crate) fn host_content(path: &str) -> String {
+    format!("/v0/documents/content?path={}", encode(path))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -22,6 +26,10 @@ mod tests {
         assert_eq!(
             content("w 1", "a/b.txt"),
             "/v0/documents/content?workspace=w%201&path=a/b.txt"
+        );
+        assert_eq!(
+            host_content("/etc/my hosts"),
+            "/v0/documents/content?path=/etc/my%20hosts"
         );
     }
 }
