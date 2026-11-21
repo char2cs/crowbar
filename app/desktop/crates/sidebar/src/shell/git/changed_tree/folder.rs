@@ -17,6 +17,16 @@ fn segments(path: &str) -> Vec<&str> {
         .collect()
 }
 
+fn label_of(
+    path: &str,
+    name: &str,
+) -> String {
+    if path.trim_end().ends_with(['/', '\\']) {
+        return path.to_owned();
+    }
+    name.to_owned()
+}
+
 fn child_path(
     parent: &str,
     name: &str,
@@ -48,7 +58,7 @@ impl<'a> Folder<'a> {
         for folder in folders {
             node = node.child(folder);
         }
-        node.files.push(((*name).to_owned(), file));
+        node.files.push((label_of(&file.path, name), file));
     }
 
     fn child(

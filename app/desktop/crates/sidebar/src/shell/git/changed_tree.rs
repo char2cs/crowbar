@@ -156,10 +156,10 @@ mod tests {
             outline: &["0 chain/only/ 0/2 folded"],
         },
         Case {
-            name: "a trailing slash names the entry",
-            paths: &["utils/"],
+            name: "an untracked folder is named by its whole path, as git reports it",
+            paths: &["src/utils/", "src/pricing.ts"],
             folded: &[],
-            outline: &["0 utils"],
+            outline: &["0 src/ 1/2", "1 pricing.ts (2) ✓", "1 src/utils/"],
         },
     ];
 
