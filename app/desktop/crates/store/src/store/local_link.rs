@@ -33,22 +33,26 @@ fn link_of(state: &State) -> LocalLink {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::state;
+    use crate::test_support::local_store;
 
-    #[test]
-    fn a_stream_that_is_not_open_is_lost_until_it_opens_again() {
+    fn linked(
+        data: &Store,
+        link: LinkState,
+    ) -> LocalLink {
+        data.hub.edit(|state| state.link("local", link));
+        data.local_link()
+    }
+
+    #[tokio::test]
+    async fn a_stream_that_is_not_open_is_lost_until_it_opens_again() {
+        let data = local_store(1);
         let cases = [
             (LinkState::Live, LocalLink::Live),
             (LinkState::Connecting, LocalLink::Lost),
             (LinkState::Down, LocalLink::Lost),
         ];
-        for (link, expected) in cases {
-            let (mut state, _daemon) = state();
-            state.hosts[0].link = link;
-            assert_eq!(link_of(&state), expected, "{link:?}");
-        }
-        let (mut alone, _daemon) = state();
-        alone.hosts.clear();
-        assert_eq!(link_of(&alone), LocalLink::Unfollowed);
+        let seen = cases.map(|(link, _)| (link, linked(&data, link)));
+        assert_eq!(seen, cases);
+        assert_eq!(local_store(0).local_link(), LocalLink::Unfollowed);
     }
 }

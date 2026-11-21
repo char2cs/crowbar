@@ -95,36 +95,13 @@ impl Store {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use daemonapi::Frame;
 
-    use super::*;
-    use crate::test_support::{FakeDaemon, desk, quiet};
-
-    fn local_store() -> Store {
-        let transport: Arc<dyn protocol::DaemonTransport> = FakeDaemon::shared();
-        let spec = crate::live::HostSpec {
-            id: "local".into(),
-            name: "This computer".into(),
-            endpoint: None,
-        };
-        let wiring = crate::store::ports::Ports {
-            desk: desk(),
-            signal: quiet(),
-            outcome: Arc::new(|_| ()),
-        };
-        Store::start(
-            &tokio::runtime::Handle::current(),
-            &transport,
-            vec![spec],
-            wiring,
-        )
-    }
+    use crate::test_support::local_store;
 
     #[tokio::test]
     async fn a_loaded_chat_reads_its_project_and_its_tab_row() {
-        let data = local_store();
+        let data = local_store(1);
         let frame = Frame::decode(
             r#"{"t":"entity","scope":"projects","kind":"chat","id":"c","v":1,"data":{"id":"c","projectId":"p","working":true}}"#,
         )

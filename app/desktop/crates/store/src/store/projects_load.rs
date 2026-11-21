@@ -54,31 +54,62 @@ fn load_of(state: &State) -> ProjectsLoad {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::live::Entities;
-    use crate::test_support::state;
+    use daemonapi::Frame;
 
-    fn lost(times: usize) -> ProjectsLoad {
-        let (mut state, _daemon) = state();
-        state.hosts[0].store = Entities::default();
-        for _ in 0..times {
-            state.begin_snapshot("local");
-            state.lose_snapshot("local");
-        }
-        load_of(&state)
+    use super::*;
+    use crate::test_support::local_store;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum Step {
+        Lose,
+        Retry,
+        Sync,
     }
 
-    #[test]
-    fn a_snapshot_lost_twice_in_a_row_is_a_failed_load() {
-        let cases = [
-            (0, ProjectsLoad::Loading),
-            (1, ProjectsLoad::Loading),
-            (2, ProjectsLoad::Failed),
-        ];
-        for (times, load) in cases {
-            assert_eq!(lost(times), load, "{times} lost");
+    fn lose(state: &mut State) {
+        state.begin_snapshot("local");
+        state.lose_snapshot("local");
+    }
+
+    fn sync(state: &mut State) {
+        let synced = Frame::Synced {
+            scope: "projects".into(),
+            unread: Vec::new(),
+        };
+        state.apply("local", synced);
+    }
+
+    fn take(
+        data: &Store,
+        step: Step,
+    ) {
+        match step {
+            Step::Lose => data.hub.edit(lose),
+            Step::Retry => data.retry_projects(),
+            Step::Sync => data.hub.edit(sync),
         }
-        let (synced, _daemon) = state();
-        assert_eq!(load_of(&synced), ProjectsLoad::Loaded);
+    }
+
+    fn load_after(steps: &[Step]) -> ProjectsLoad {
+        let data = local_store(1);
+        for step in steps {
+            take(&data, *step);
+        }
+        data.projects_load()
+    }
+
+    #[tokio::test]
+    async fn a_snapshot_lost_twice_in_a_row_fails_until_retried_or_synced() {
+        use Step::{Lose, Retry, Sync};
+        let cases: [(&[Step], ProjectsLoad); 5] = [
+            (&[], ProjectsLoad::Loading),
+            (&[Lose], ProjectsLoad::Loading),
+            (&[Lose, Lose], ProjectsLoad::Failed),
+            (&[Lose, Lose, Retry], ProjectsLoad::Loading),
+            (&[Lose, Lose, Sync], ProjectsLoad::Loaded),
+        ];
+        let seen = cases.map(|(steps, _)| (steps, load_after(steps)));
+        assert_eq!(seen, cases);
+        assert_eq!(local_store(0).projects_load(), ProjectsLoad::Loaded);
     }
 }

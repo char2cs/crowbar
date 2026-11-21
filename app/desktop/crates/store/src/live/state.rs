@@ -17,7 +17,6 @@ use std::collections::BTreeMap;
 use crate::live::held::HostSlot;
 use crate::live::held::IconCache;
 use crate::live::held::LinkState;
-use crate::live::held::PROJECTS_SCOPE;
 use crate::live::held::PanelState;
 use crate::live::held::PendingRow;
 use crate::live::held::SettingsSlot;
@@ -110,13 +109,8 @@ impl State {
         host: &str,
         frame: Frame,
     ) {
-        let Some(slot) = self.host_mut(host) else {
-            return;
-        };
-        let synced = matches!(&frame, Frame::Synced { scope, .. } if scope == PROJECTS_SCOPE);
-        slot.store.apply(frame);
-        if synced {
-            slot.snapshot_failures = 0;
+        if let Some(slot) = self.host_mut(host) {
+            slot.store.apply(frame);
         }
     }
 
