@@ -2,7 +2,9 @@
 
 use std::rc::Rc;
 
-use gpui::{App, ElementId, Entity, IntoElement, RenderOnce, Styled, Window, canvas, div};
+use gpui::{
+    App, Bounds, ElementId, Entity, IntoElement, Pixels, RenderOnce, Styled, Window, canvas, div,
+};
 
 use crate::floating::TopLayer;
 use crate::floating::top_layer::{Build, Layer, Reach, Registry, Slot};
@@ -29,7 +31,16 @@ impl Portal {
         id: impl Into<ElementId>,
         build: impl Fn(&mut Window, &mut App) -> E + 'static,
     ) -> Self {
-        Self::new(id.into(), Reach::Here(gpui::Bounds::default()), build)
+        Self::new(id.into(), Reach::Here(Bounds::default()), build)
+    }
+
+    pub(crate) fn here_sized<E: IntoElement>(
+        id: impl Into<ElementId>,
+        build: impl Fn(Bounds<Pixels>, &mut Window, &mut App) -> E + 'static,
+    ) -> Self {
+        let build: Build =
+            Rc::new(move |bounds, window, cx| build(bounds, window, cx).into_any_element());
+        Self::built(id.into(), Reach::Here(Bounds::default()), build)
     }
 
     /// Paints `build` at the portal's own bounds like [`Portal::here`], for the view a drag
@@ -65,11 +76,20 @@ impl Portal {
         reach: Reach,
         build: impl Fn(&mut Window, &mut App) -> E + 'static,
     ) -> Self {
+        let build: Build = Rc::new(move |_, window, cx| build(window, cx).into_any_element());
+        Self::built(id, reach, build)
+    }
+
+    fn built(
+        id: ElementId,
+        reach: Reach,
+        build: Build,
+    ) -> Self {
         Self {
             id,
             reach,
             priority: layer::OVERLAY,
-            build: Rc::new(move |window, cx| build(window, cx).into_any_element()),
+            build,
         }
     }
 

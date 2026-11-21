@@ -216,8 +216,7 @@ impl RenderOnce for Select {
             .collect();
         let chosen = self.selected.unwrap_or(0);
         DropdownMenu::new(self.id, trigger, items)
-            .min_width(self.width + OPTION_REACH)
-            .options_over(self.selected, over_chosen(chosen, heights))
+            .options_over(self.selected, (over_chosen(chosen, heights), OPTION_REACH))
     }
 }
 
@@ -268,5 +267,18 @@ mod tests {
         assert_eq!(chosen.size.height, px(28.0), "{chosen:?}");
         assert_eq!(menu.left(), px(100.0 - 27.0), "{menu:?}");
         assert_eq!(menu.size.width, px(144.0 + 30.0), "{menu:?}");
+    }
+
+    #[gpui::test]
+    fn a_filling_trigger_opens_a_list_wider_than_itself(cx: &mut TestAppContext) {
+        let cx = crate::test_support::probe::open(cx, |_, _| {
+            div()
+                .w(px(300.0))
+                .child(Select::new("s", options(), Some(0)).fill())
+        });
+        cx.simulate_click(point(px(150.0), px(10.0)), gpui::Modifiers::none());
+        cx.run_until_parked();
+        let menu = cx.debug_bounds("ui-menu").unwrap_or_default();
+        assert_eq!(menu.size.width, px(300.0 + 30.0), "{menu:?}");
     }
 }

@@ -25,7 +25,7 @@ impl Select {
         self
     }
 
-    /// Stretches the trigger to the width of its parent; the popup keeps the `width` as its minimum.
+    /// Stretches the trigger to the width of its parent; the list opens wider than it, as always.
     #[must_use]
     pub fn fill(mut self) -> Self {
         self.fills = true;

@@ -3,13 +3,13 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, IntoElement, ParentElement, Pixels, Point, Styled, Window, anchored, deferred,
-    div, point, px,
+    AnyElement, App, Bounds, IntoElement, ParentElement, Pixels, Point, Styled, Window, anchored,
+    canvas, deferred, div, point, px,
 };
 
 use crate::floating::top_layer::reach::Reach;
 
-pub(crate) type Build = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
+pub(crate) type Build = Rc<dyn Fn(Bounds<Pixels>, &mut Window, &mut App) -> AnyElement>;
 
 #[derive(Clone)]
 pub(crate) struct Layer {
@@ -24,10 +24,11 @@ impl Layer {
         window: &mut Window,
         cx: &mut App,
     ) -> AnyElement {
-        let content = (self.build)(window, cx);
         let Reach::Here(bounds) = self.reach else {
+            let content = (self.build)(whole(window), window, cx);
             return div().absolute().inset_0().child(content).into_any_element();
         };
+        let content = (self.build)(bounds, window, cx);
         div()
             .absolute()
             .left(bounds.origin.x)
@@ -43,14 +44,12 @@ impl Layer {
         window: &mut Window,
         cx: &mut App,
     ) -> AnyElement {
-        let content = (self.build)(window, cx);
+        if let Reach::Here(_) = self.reach {
+            return self.deferred_here();
+        }
+        let content = (self.build)(whole(window), window, cx);
         if let Reach::Lifted = self.reach {
             return content;
-        }
-        if let Reach::Here(_) = self.reach {
-            return deferred(content)
-                .with_priority(self.priority)
-                .into_any_element();
         }
         let viewport = window.viewport_size();
         let cover = div()
@@ -66,6 +65,31 @@ impl Layer {
             .with_priority(self.priority)
             .into_any_element()
     }
+}
+
+impl Layer {
+    fn deferred_here(&self) -> AnyElement {
+        let (build, priority) = (Rc::clone(&self.build), self.priority);
+        canvas(
+            move |bounds: Bounds<Pixels>, window, cx| {
+                let sized = div()
+                    .w(bounds.size.width)
+                    .h(bounds.size.height)
+                    .child(build(bounds, window, cx));
+                let mut content = deferred(sized).with_priority(priority).into_any_element();
+                content.prepaint_as_root(bounds.origin, bounds.size.into(), window, cx);
+                content
+            },
+            |_, mut content, window, cx| content.paint(window, cx),
+        )
+        .absolute()
+        .size_full()
+        .into_any_element()
+    }
+}
+
+fn whole(window: &Window) -> Bounds<Pixels> {
+    Bounds::new(window_origin(), window.viewport_size())
 }
 
 fn window_origin() -> Point<Pixels> {
@@ -89,7 +113,7 @@ mod tests {
         let layer = Layer {
             reach: Reach::Here(bounds),
             priority: 1,
-            build: Rc::new(|_, _| content().into_any_element()),
+            build: Rc::new(|_, _, _| content().into_any_element()),
         };
         let window = open(cx, move |window, cx| {
             div()

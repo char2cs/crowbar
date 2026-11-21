@@ -24,7 +24,7 @@ pub struct DropdownMenu {
     trigger: AnyElement,
     spec: Spec,
     placement: Placement,
-    over: Option<Point<Pixels>>,
+    over: Option<(Point<Pixels>, Pixels)>,
 }
 
 impl DropdownMenu {
@@ -68,7 +68,7 @@ impl DropdownMenu {
     pub(crate) fn options_over(
         mut self,
         chosen: Option<usize>,
-        over: Point<Pixels>,
+        over: (Point<Pixels>, Pixels),
     ) -> Self {
         self.spec.row_style = RowStyle::Option;
         self.spec.highlighted = chosen;
@@ -212,7 +212,7 @@ mod tests {
                 .h(px(28.0));
             let menu = DropdownMenu::new("pick", trigger, one_row());
             let menu = match rows {
-                RowStyle::Option => menu.options_over(Some(0), point(px(0.0), px(0.0))),
+                RowStyle::Option => menu.options_over(Some(0), (point(px(0.0), px(0.0)), px(0.0))),
                 RowStyle::Plain => menu,
             };
             crate::Dialog::new("d")

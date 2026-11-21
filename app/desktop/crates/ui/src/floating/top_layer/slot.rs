@@ -37,7 +37,7 @@ mod tests {
         let layer = Layer {
             reach: Reach::Window,
             priority: 1,
-            build: Rc::new(|_, _| div().into_any_element()),
+            build: Rc::new(|_, _, _| div().into_any_element()),
         };
         cx.update(|cx| layers.place((slot.entity_id(), layer), None, cx));
         assert_eq!(layers.shown().len(), 1);

@@ -45,20 +45,26 @@ pub(crate) fn placed(
 
 pub(crate) fn over(
     id: ElementId,
-    offset: Point<Pixels>,
+    (offset, reach): (Point<Pixels>, Pixels),
     content: Content,
 ) -> AnyElement {
-    let portal = Portal::here(id, move |window, cx| {
+    let portal = Portal::here_sized(id, move |bounds, window, cx| {
+        let list = div()
+            .flex()
+            .flex_col()
+            .min_w(bounds.size.width + reach)
+            .child(content(window, cx));
         anchored()
             .anchor(Anchor::TopLeft)
             .snap_to_window_with_margin(px(WINDOW_MARGIN))
-            .child(content(window, cx))
+            .child(list)
     })
     .priority(layer::MENU);
     div()
         .absolute()
         .top(offset.y)
         .left(offset.x)
+        .w_full()
         .child(portal)
         .into_any_element()
 }

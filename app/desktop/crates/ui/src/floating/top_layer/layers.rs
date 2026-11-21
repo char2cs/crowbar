@@ -89,7 +89,7 @@ mod tests {
         Layer {
             reach: Reach::Window,
             priority,
-            build: Rc::new(|_, _| div().into_any_element()),
+            build: Rc::new(|_, _, _| div().into_any_element()),
         }
     }
 
