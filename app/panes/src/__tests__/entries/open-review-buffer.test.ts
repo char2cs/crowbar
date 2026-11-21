@@ -2,11 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { makePane } from '@/features/panes/lib/view-state'
-import {
-  openReviewBuffer,
-  revealInActiveWorkspace,
-  revealReviewFile,
-} from '@/entries/open-review-buffer'
+import { openReviewBuffer, revealInActiveWorkspace } from '@/entries/open-review-buffer'
 import {
   getOrCreateWorkspaceStore,
   setActiveWorkspaceId,
@@ -41,8 +37,9 @@ const cases: Case[] = [
     name: 'reveals a file in a review already open, again for the same file',
     saved: null,
     reveal: (wsId) => {
-      revealReviewFile(wsId, 'b.ts')
-      revealReviewFile(wsId, 'b.ts')
+      setActiveWorkspaceId(wsId)
+      revealInActiveWorkspace('b.ts')
+      revealInActiveWorkspace('b.ts')
     },
     expected: { revealFilePath: 'b.ts', revealFileNonce: 2, view: 'files' },
   },

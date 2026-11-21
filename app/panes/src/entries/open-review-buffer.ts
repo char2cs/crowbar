@@ -13,8 +13,7 @@ function revealOf(saved: unknown): string | null {
   return typeof reveal === 'string' ? reveal : null
 }
 
-/** Shows `path` on the review's Files view, as a click on a changed file in the sidebar does. */
-export function revealReviewFile(wsId: string, path: string): void {
+function revealReviewFile(wsId: string, path: string): void {
   const id = openBranchReviewForWorkspace(wsId, ROOT_PANE_ID)
   if (id) windowPaneStore.getState().bufferActions.setBranchReviewView(id, 'files')
   getOrCreateWorkspaceStore(wsId).getState().revealBranchReviewFile(path)
