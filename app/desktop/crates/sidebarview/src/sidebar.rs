@@ -132,7 +132,7 @@ impl Sidebar {
         self.panel.toggle();
         self.peek.slide_to(0.0, ui::Motion::of(cx));
         self.track_peek(window.mouse_position(), window, cx);
-        Self::changed(cx);
+        self.changed(cx);
     }
 
     /// Asks again before discarding `row`, naming the work a refused removal would lose.
@@ -156,7 +156,7 @@ impl Sidebar {
             return;
         }
         self.mode = mode;
-        Self::changed(cx);
+        self.changed(cx);
     }
 
     /// Docks the sidebar to the other window edge.
@@ -169,7 +169,7 @@ impl Sidebar {
         self.toasts.update(cx, |queue, cx| {
             queue.set_placement(Self::docked_toasts(side), cx);
         });
-        Self::changed(cx);
+        self.changed(cx);
     }
 
     /// Replaces the chats some pane shows: the shell reports them from its layout whenever it
@@ -185,7 +185,10 @@ impl Sidebar {
         }
     }
 
-    pub(crate) fn changed(cx: &mut Context<'_, Self>) {
+    pub(crate) fn changed(
+        &self,
+        cx: &mut Context<'_, Self>,
+    ) {
         cx.emit(Event::PreferencesChanged);
         cx.notify();
     }

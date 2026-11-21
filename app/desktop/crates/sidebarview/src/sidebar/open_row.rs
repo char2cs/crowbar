@@ -13,7 +13,7 @@ impl Sidebar {
     ) {
         if self.row(&id).is_some_and(|row| row.is_container()) {
             self.tree.toggle_fold(&id);
-            Self::changed(cx);
+            self.changed(cx);
             return;
         }
         self.send(Command::OpenRow(id), cx);

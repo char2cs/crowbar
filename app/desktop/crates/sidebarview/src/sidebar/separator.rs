@@ -68,7 +68,7 @@ impl Sidebar {
             return;
         };
         self.panel.commit(resizing.width);
-        Self::changed(cx);
+        self.changed(cx);
     }
 
     pub(crate) fn toggle_collapsed(
@@ -76,7 +76,7 @@ impl Sidebar {
         cx: &mut Context<'_, Self>,
     ) {
         self.panel.toggle();
-        Self::changed(cx);
+        self.changed(cx);
     }
 
     pub(crate) fn press_separator(
@@ -101,7 +101,7 @@ impl Sidebar {
         if self.panel.visibility() == Visibility::Closed {
             self.peek.slide_to(0.0, ui::Motion::of(cx));
         }
-        Self::changed(cx);
+        self.changed(cx);
     }
 }
 

@@ -64,7 +64,7 @@ impl Sidebar {
             Intent::Keep(id) => self.tree.keep(&id),
             Intent::ToggleFold(id) => {
                 self.tree.toggle_fold(&id);
-                Self::changed(cx);
+                self.changed(cx);
             },
             Intent::StartCreateSpace => self.start_create_space(window, cx),
             Intent::StartFileRename(path) => self.start_file_rename(path, window, cx),

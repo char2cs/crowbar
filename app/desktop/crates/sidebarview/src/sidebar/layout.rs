@@ -261,7 +261,7 @@ impl Sidebar {
         self.peek.slide_to(0.0, Motion::of(cx));
         if self.panel.visibility() == Visibility::Open {
             self.panel.toggle();
-            Self::changed(cx);
+            self.changed(cx);
         }
         cx.notify();
     }
