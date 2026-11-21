@@ -2,6 +2,7 @@
 
 pub(crate) mod badges;
 mod glyph;
+mod tree_guides;
 pub(crate) mod tree_look;
 
 pub(crate) use tree_look::TreeLook;
@@ -25,6 +26,7 @@ use crate::panels::explorer::file_tree_row::badges::{
     count_gap, counts_view, labelled, letter_badge, status_color,
 };
 pub(crate) use crate::panels::explorer::file_tree_row::glyph::glyph;
+pub(crate) use crate::panels::explorer::file_tree_row::tree_guides::tree_guides;
 use crate::panels::explorer::search::highlight;
 use crate::sidebar::{ICON_MEDIUM, ICON_TINY, SPACE_SM, TEXT_BODY};
 use crate::sidebar::{RowAction, RowHandler};
@@ -37,6 +39,7 @@ const HIGHLIGHT_TINT: f32 = 0.3;
 #[derive(IntoElement)]
 pub(crate) struct FileTreeRow {
     pub(crate) entry: FileTreeEntry,
+    pub(crate) neighbours: (u8, u8),
     pub(crate) input: Option<RowInput>,
     pub(crate) selected: bool,
     pub(crate) look: TreeLook,
@@ -69,7 +72,9 @@ impl RenderOnce for FileTreeRow {
         let tinted = shaped.when(matched.is_some() && !self.selected, |row| {
             row.bg(palette.accent().opacity(MATCH_TINT))
         });
+        let guides = tree_guides((entry.depth, self.neighbours), (&self.look, palette));
         let row = ringed(tinted, &focus, palette)
+            .children(guides)
             .child(chevron(&entry, palette))
             .child(glyph(&entry, (&self.look, palette), cx))
             .child(labelled(name, letter))
@@ -242,6 +247,7 @@ mod tests {
     fn a_row_is_twenty_six_pixels_tall(cx: &mut TestAppContext) {
         let bounds = measure(cx, |_, _| FileTreeRow {
             entry: entry(FileKind::File, "main.rs"),
+            neighbours: (0, 0),
             input: None,
             selected: false,
             look: TreeLook::default(),
@@ -260,6 +266,7 @@ mod tests {
         };
         let cx = mount(cx, move |_, _| FileTreeRow {
             entry: changed.clone(),
+            neighbours: (0, 0),
             input: None,
             selected: false,
             look: TreeLook::default(),

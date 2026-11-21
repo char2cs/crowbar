@@ -11,12 +11,13 @@ use crate::panels::changes::viewed_box::viewed_box;
 use crate::panels::explorer::badges::{
     count_gap, counts_view, labelled, letter_badge, status_color,
 };
-use crate::panels::explorer::{FileTreeEntry, TreeLook, frame, glyph};
+use crate::panels::explorer::{FileTreeEntry, TreeLook, frame, glyph, tree_guides};
 use crate::sidebar::{RowAction, RowHandler, SPACE_SM};
 
 #[derive(IntoElement)]
 pub(crate) struct ChangedTreeRow {
     pub(crate) row: ChangedRow,
+    pub(crate) neighbours: (u8, u8),
     pub(crate) look: TreeLook,
     pub(crate) handler: RowHandler,
 }
@@ -156,6 +157,10 @@ impl RenderOnce for ChangedTreeRow {
         let selector = format!("changed-row-{}", entry.path);
         let row = frame(id, &entry, (&self.look, palette))
             .debug_selector(|| selector)
+            .children(tree_guides(
+                (entry.depth, self.neighbours),
+                (&self.look, palette),
+            ))
             .child(viewed_box(&self.row, &self.handler))
             .child(glyph(&entry, (&self.look, palette), cx))
             .child(labelled(self.name(&entry, palette), letter))
@@ -201,6 +206,7 @@ mod tests {
     ) {
         let cx = crate::test_support::mount(cx, |_, _| ChangedTreeRow {
             row: file(3, 1),
+            neighbours: (0, 0),
             look: TreeLook::default(),
             handler: std::rc::Rc::new(|_, _, _| {}),
         });

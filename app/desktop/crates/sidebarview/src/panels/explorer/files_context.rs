@@ -29,6 +29,15 @@ fn entry(row: FileRow) -> FileTreeEntry {
     }
 }
 
+pub(crate) fn neighbours(
+    depths: &[u8],
+    at: usize,
+) -> (u8, u8) {
+    let above = at.checked_sub(1).and_then(|above| depths.get(above));
+    let below = depths.get(at.saturating_add(1));
+    (above.copied().unwrap_or(0), below.copied().unwrap_or(0))
+}
+
 impl FilesContext {
     fn row(
         &self,
@@ -38,6 +47,7 @@ impl FilesContext {
         FileTreeRow {
             selected: self.selected.as_deref() == Some(entry.path.as_str()),
             entry,
+            neighbours: (0, 0),
             input,
             look: self.look.clone(),
             scope: Rc::clone(&self.scope),
@@ -94,6 +104,10 @@ impl FilesContext {
             let input = self.rename_input(&path);
             rows.push(self.row(entry(file), input));
             rows.extend(self.draft_in((&path, below)));
+        }
+        let depths: Vec<u8> = rows.iter().map(|row| row.entry.depth).collect();
+        for (at, row) in rows.iter_mut().enumerate() {
+            row.neighbours = neighbours(&depths, at);
         }
         rows
     }
@@ -170,12 +184,16 @@ mod tests {
     }
 
     #[test]
-    fn a_new_entry_nests_one_level_below_its_directory() {
+    fn a_new_entry_nests_one_level_below_its_directory_between_its_neighbours() {
         let creating = Editing::Creating {
             dir: "src".into(),
             entry: NewEntry::File,
         };
         let rows = context(creating).rows(files());
-        assert_eq!(rows[1].entry.depth, 1);
+        let placed: Vec<_> = rows
+            .iter()
+            .map(|row| (row.entry.depth, row.neighbours))
+            .collect();
+        assert_eq!(placed, [(0, (0, 1)), (1, (0, 1)), (1, (1, 0))]);
     }
 }

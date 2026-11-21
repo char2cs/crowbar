@@ -21,7 +21,7 @@ pub use git::{
 };
 pub use listing::{
     FileAccess, FileDensity, FileKind, FileRow, FileTreeFlag, FileTreeView, FilesSource,
-    FolderPhase, FolderSource, GitStatus, IconTheme, PathText,
+    FolderPhase, FolderSource, GitStatus, IconTheme, IndentGuides, PathText,
 };
 pub use source::Source;
 pub use switcher::{

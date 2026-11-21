@@ -1,6 +1,6 @@
 //! How the settings dress a row of the Files and Changes panels.
 
-use sidebar::{FileTreeView, IconTheme};
+use sidebar::{FileTreeView, IconTheme, IndentGuides};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TreeLook {
@@ -9,6 +9,7 @@ pub(crate) struct TreeLook {
     pub(crate) query: Option<String>,
     pub(crate) compact_badges: bool,
     pub(crate) icons: IconTheme,
+    pub(crate) guides: IndentGuides,
 }
 
 impl TreeLook {
@@ -25,6 +26,7 @@ impl TreeLook {
                 .map(str::to_owned),
             compact_badges: view.compact_badges,
             icons: view.icons,
+            guides: view.guides,
         }
     }
 }

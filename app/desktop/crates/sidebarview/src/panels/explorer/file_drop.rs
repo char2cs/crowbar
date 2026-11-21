@@ -104,6 +104,7 @@ mod tests {
         let (handler, seen) = recording_handler();
         let cx = mount(cx, move |_, _| FileTreeRow {
             entry: entry(FileKind::File, "src/main.rs"),
+            neighbours: (0, 0),
             input: None,
             selected: false,
             look: TreeLook::default(),

@@ -12,11 +12,11 @@ use gpui::{
     AnyElement, Context, Div, FontWeight, InteractiveElement, IntoElement, ParentElement, Pixels,
     Styled, div, px,
 };
-use sidebar::{Changes, Focus};
+use sidebar::{ChangedRow, Changes, Focus, IndentGuides};
 use ui::{Icon, IconName, Palette, ScrollArea, Surface, Theme, radius, shadow};
 
 use crate::panels::changes::changed_tree_row::ChangedTreeRow;
-use crate::panels::explorer::TreeLook;
+use crate::panels::explorer::{TreeLook, neighbours};
 use crate::panels::message::panel_message;
 use crate::sidebar::Sidebar;
 use crate::sidebar::{
@@ -26,6 +26,7 @@ use crate::sidebar::{
 const PILL_HEIGHT: Pixels = px(36.0);
 const PILL_SHADOW: f32 = 0.1;
 const COUNT_INSET: Pixels = px(14.0);
+const ROW_INDENT_STEP: f32 = 14.0;
 
 fn branch_pill(
     changes: &Changes,
@@ -60,6 +61,8 @@ fn branch_pill(
         )
         .child(
             div()
+                .flex_1()
+                .min_w_0()
                 .font_family(mono)
                 .truncate()
                 .child(changes.branch.clone()),
@@ -115,6 +118,30 @@ fn git_error(
 }
 
 impl Sidebar {
+    fn changed_rows(
+        &self,
+        changes: &Changes,
+        cx: &mut Context<'_, Self>,
+    ) -> Vec<ChangedTreeRow> {
+        let handler = Self::row_handler(cx);
+        let look = TreeLook {
+            indent: ROW_INDENT_STEP,
+            guides: IndentGuides::Drawn,
+            ..TreeLook::of(&self.data.file_tree_view(), None)
+        };
+        let rows = changes.rows(self.tree.files().changed_folds());
+        let depths: Vec<u8> = rows.iter().map(ChangedRow::depth).collect();
+        rows.into_iter()
+            .enumerate()
+            .map(|(at, row)| ChangedTreeRow {
+                row,
+                neighbours: neighbours(&depths, at),
+                look: look.clone(),
+                handler: std::rc::Rc::clone(&handler),
+            })
+            .collect()
+    }
+
     pub(crate) fn changes_panel(
         &mut self,
         cx: &mut Context<'_, Self>,
@@ -134,20 +161,14 @@ impl Sidebar {
                 .child(git_error(reason, palette));
             return column.into_any_element();
         }
-        let handler = Self::row_handler(cx);
-        let look = TreeLook::of(&self.data.file_tree_view(), None);
-        let rows = changes.rows(self.tree.files().changed_folds());
+        let rows = self.changed_rows(&changes, cx);
         let list = div()
             .flex()
             .flex_col()
             .children(pill)
             .children(self.merge_card(cx))
             .child(count_line(changes.files.len(), palette))
-            .children(rows.into_iter().map(|row| ChangedTreeRow {
-                row,
-                look: look.clone(),
-                handler: std::rc::Rc::clone(&handler),
-            }));
+            .children(rows);
         ScrollArea::new("changes-scroll", &self.scrolls.changes, list).into_any_element()
     }
 }

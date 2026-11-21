@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 use crate::shell::listing::file_density::FileDensity;
 use crate::shell::listing::file_tree_flag::FileTreeFlag;
 use crate::shell::listing::icon_theme::IconTheme;
+use crate::shell::listing::indent_guides::IndentGuides;
 
 const DEFAULT_INDENT: f32 = 16.0;
 
@@ -29,6 +30,8 @@ pub struct FileTreeView {
     pub compact_badges: bool,
     /// The glyph set of files and folders (`iconTheme`).
     pub icons: IconTheme,
+    /// Whether nested rows draw a rule per ancestor level (`renderIndentGuides`).
+    pub guides: IndentGuides,
 }
 
 impl Default for FileTreeView {
@@ -42,6 +45,7 @@ impl Default for FileTreeView {
             hidden_directories: Vec::new(),
             compact_badges: false,
             icons: IconTheme::default(),
+            guides: IndentGuides::Drawn,
         }
     }
 }

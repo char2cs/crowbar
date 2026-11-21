@@ -11,6 +11,7 @@ mod folder_phase;
 mod folder_source;
 mod git_status;
 mod icon_theme;
+mod indent_guides;
 mod path_text;
 
 pub use file_access::FileAccess;
@@ -24,4 +25,5 @@ pub use folder_phase::FolderPhase;
 pub use folder_source::FolderSource;
 pub use git_status::GitStatus;
 pub use icon_theme::IconTheme;
+pub use indent_guides::IndentGuides;
 pub use path_text::PathText;

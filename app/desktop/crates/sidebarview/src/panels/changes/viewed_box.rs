@@ -7,7 +7,7 @@ use ui::{Checkbox, Pose, Surface};
 
 use crate::sidebar::{RowAction, RowHandler};
 
-const CONTROL_SLOT: f32 = 22.0;
+const CONTROL_BOX: f32 = 16.0;
 
 fn marks(
     row: &ChangedRow,
@@ -63,7 +63,7 @@ pub(crate) fn viewed_box(
         .flex_none()
         .items_center()
         .justify_center()
-        .w(px(CONTROL_SLOT))
+        .w(px(CONTROL_BOX))
         .child(checkbox.when(mixed, Checkbox::indeterminate))
 }
 

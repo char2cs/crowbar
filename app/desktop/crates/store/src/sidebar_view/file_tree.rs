@@ -1,7 +1,7 @@
 //! The Files and Changes panels' look, read from the stored settings.
 
 use settings::Value;
-use sidebar::{FileDensity, FileTreeFlag, FileTreeView, IconTheme};
+use sidebar::{FileDensity, FileTreeFlag, FileTreeView, IconTheme, IndentGuides};
 
 const INDENT: &str = "fileTreeIndentSize";
 const DENSITY: &str = "fileTreeDensity";
@@ -10,6 +10,7 @@ const HIDDEN_FILES: &str = "hiddenFilePatterns";
 const HIDDEN_DIRECTORIES: &str = "hiddenDirectoryPatterns";
 const COMPACT_BADGES: &str = "compactGitStatusBadges";
 const ICON_THEME: &str = "iconTheme";
+const GUIDES: &str = "renderIndentGuides";
 
 fn stored_flag(
     read: &impl Fn(&str) -> Option<Value>,
@@ -56,6 +57,10 @@ pub(crate) fn view_of(read: impl Fn(&str) -> Option<Value>) -> FileTreeView {
         icons: read(ICON_THEME)
             .and_then(|value| value.as_text().map(IconTheme::from_setting))
             .unwrap_or(base.icons),
+        guides: match stored_flag(&read, GUIDES) {
+            Some(false) => IndentGuides::Hidden,
+            _ => base.guides,
+        },
     }
 }
 
@@ -80,10 +85,18 @@ mod tests {
         assert_eq!(view_of(stored(&[])), FileTreeView::default());
     }
 
+    fn hides_files_only(view: &FileTreeView) -> bool {
+        view.hidden_files == ["*.log", "tmp"] && view.hidden_directories.is_empty()
+    }
+
+    fn hides_directories_only(view: &FileTreeView) -> bool {
+        view.hidden_directories == ["*.log", "tmp"] && view.hidden_files.is_empty()
+    }
+
     #[test]
     fn each_stored_setting_moves_its_own_part_of_the_look() {
         let patterns = Value::List(vec!["*.log".into(), "tmp".into()]);
-        let cases: [Case; 10] = [
+        let cases: [Case; 11] = [
             ("fileTreeIndentSize", Value::Number(24.0), |view| {
                 (view.indent - 24.0).abs() < f32::EPSILON
             }),
@@ -110,12 +123,11 @@ mod tests {
             ("iconTheme", Value::Text("classic".into()), |view| {
                 view.icons == IconTheme::Classic
             }),
-            ("hiddenFilePatterns", patterns.clone(), |view| {
-                view.hidden_files == ["*.log", "tmp"] && view.hidden_directories.is_empty()
+            ("renderIndentGuides", Value::Bool(false), |view| {
+                view.guides == IndentGuides::Hidden
             }),
-            ("hiddenDirectoryPatterns", patterns, |view| {
-                view.hidden_directories == ["*.log", "tmp"] && view.hidden_files.is_empty()
-            }),
+            ("hiddenFilePatterns", patterns.clone(), hides_files_only),
+            ("hiddenDirectoryPatterns", patterns, hides_directories_only),
         ];
         for (key, value, holds) in cases {
             assert!(holds(&view_of(stored(&[(key, value)]))), "{key}");
