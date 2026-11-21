@@ -28,8 +28,8 @@ pub use floating::{
 };
 pub use foundation::{
     Appearance, Breakpoint, CaretBlink, CubicBezier, Glide, HoverFill, Icon, IconName, IconWeight,
-    MaterialIcon, Motion, Palette, Pose, ProviderGlyph, ScaledText, Surface, Theme, ThemeId,
-    ThemeMode, Vibrancy, Wordmark, app_window_width, assets, focus_ring,
+    MaterialIcon, MaterialTable, Motion, Palette, Pose, ProviderGlyph, ScaledText, Surface, Theme,
+    ThemeId, ThemeMode, Vibrancy, Wordmark, app_window_width, assets, focus_ring,
 };
 pub use foundation::{font, layer, radius, shadow, spacing, text_size, timing};
 pub use ui::init;

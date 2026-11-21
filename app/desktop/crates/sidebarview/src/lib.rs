@@ -9,5 +9,5 @@ mod sidebar;
 #[cfg(test)]
 mod test_support;
 
-pub use panels::ChatGlyph;
+pub use panels::{ChatGlyph, FileGlyph};
 pub use sidebar::{Event, Sidebar};

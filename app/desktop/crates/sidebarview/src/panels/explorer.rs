@@ -11,6 +11,7 @@ mod menu_lines;
 mod search;
 
 pub(crate) use file_tree_entry::FileTreeEntry;
+pub use file_tree_row::FileGlyph;
 pub(crate) use file_tree_row::badges;
 pub(crate) use file_tree_row::{TreeLook, frame, glyph, tree_guides};
 pub(crate) use files_context::neighbours;
