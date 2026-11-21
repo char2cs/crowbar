@@ -30,6 +30,7 @@ pub struct DemoShell {
     pub(crate) refused: Vec<Command>,
     pub(crate) removable: Vec<String>,
     pub(crate) merge: Option<MergeBox>,
+    pub(crate) git_error: Option<String>,
     pub(crate) running: Vec<RunningAgent>,
 }
 
@@ -59,6 +60,7 @@ impl DemoShell {
             refused: Vec::new(),
             removable: Vec::new(),
             merge: None,
+            git_error: None,
             running: Vec::new(),
         }
     }
@@ -100,6 +102,16 @@ impl DemoShell {
         merge: MergeBox,
     ) -> Self {
         self.merge = Some(merge);
+        self
+    }
+
+    /// The same data with git refusing to read the focused workspace for `reason`.
+    #[must_use]
+    pub fn with_git_error(
+        mut self,
+        reason: &str,
+    ) -> Self {
+        self.git_error = Some(reason.to_owned());
         self
     }
 

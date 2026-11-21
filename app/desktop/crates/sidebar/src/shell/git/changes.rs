@@ -17,4 +17,6 @@ pub struct Changes {
     pub threads: BTreeMap<String, u32>,
     /// The workspace's viewed marks: path to the signature the file had when it was marked.
     pub viewed: BTreeMap<String, String>,
+    /// Why git could not read the workspace; the panel shows it instead of the tree and merge card.
+    pub error: Option<String>,
 }

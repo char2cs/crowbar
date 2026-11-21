@@ -72,6 +72,7 @@ impl ChangesSource for DemoShell {
             branch: "inv-rb".into(),
             parent: Some(MAIN.into()),
             files: vec![file],
+            error: self.git_error.clone(),
             ..Changes::default()
         }
     }

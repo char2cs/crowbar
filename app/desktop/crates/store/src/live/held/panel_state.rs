@@ -97,6 +97,22 @@ impl PanelState {
         };
     }
 
+    pub(crate) fn fail(
+        &mut self,
+        chat: &str,
+        error: String,
+    ) {
+        if self.chat.as_deref() != Some(chat) {
+            return;
+        }
+        self.statuses.clear();
+        self.staged.clear();
+        self.changes = Changes {
+            error: Some(error),
+            ..Changes::default()
+        };
+    }
+
     pub(crate) fn staged_and_threads(
         &mut self,
         chat: &str,

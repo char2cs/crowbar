@@ -70,10 +70,12 @@ pub(crate) async fn load_changes(
     let answer = client
         .read::<GitStatusBody>(format!("/v0/chats/{chat}/git/status"))
         .await;
-    let Ok(body) = answer.inspect_err(|error| {
-        tracing::warn!(chat, %error, "git status could not be read");
-    }) else {
-        return;
+    let body = match answer {
+        Ok(body) => body,
+        Err(error) => {
+            tracing::warn!(chat, %error, "git status could not be read");
+            return hub.edit(|state| state.panels.fail(chat, error.to_string()));
+        },
     };
     let counts = load_counts(client, chat).await;
     let open = load_open_threads(hub, client, chat).await;
@@ -205,7 +207,19 @@ mod tests {
             (listed, branch.as_str(), status, lines),
             (1, "main", Some(GitStatus::Untracked), Some((3, 1)))
         );
+        daemon.answer(("GET", "/v0/chats/hc/git/status"), 500, NOT_A_REPO);
+        load_changes(&hub, &client, "hc").await;
+        let changes = hub.read(crate::reads::changes);
+        let colours = hub.read(|state| state.panels.statuses.len());
+        assert_eq!(
+            (changes.error.as_deref(), changes.files.len(), colours),
+            (Some("git: status: not a git repository: /gone"), 0, 0),
+            "a status git cannot read leaves its error and no files"
+        );
     }
+
+    const NOT_A_REPO: &str =
+        r#"{"success":false,"error":"git: status: not a git repository: /gone"}"#;
 
     fn changed_files(state: &crate::live::state::State) -> Vec<(String, GitStatus, u32, u32)> {
         let files = state.panels.changes.files.iter();
