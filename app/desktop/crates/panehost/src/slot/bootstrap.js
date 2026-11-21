@@ -46,9 +46,13 @@
   };
   document.documentElement.addEventListener('mouseenter', () => hover(true));
   document.documentElement.addEventListener('mouseleave', () => hover(false));
-  window.addEventListener('focus', () => {
-    crowbar.post(JSON.stringify({ sdk: 1, kind: 'shell.focus' }));
-  });
+  // A press, not window focus: the shell's own hand-offs focus the window, and echoing them back
+  // would overturn the shell's later choice to keep the keyboard.
+  window.addEventListener(
+    'pointerdown',
+    () => crowbar.post(JSON.stringify({ sdk: 1, kind: 'shell.focus' })),
+    true,
+  );
   window.__crowbarReceive = (text) => {
     try {
       const frame = JSON.parse(text);

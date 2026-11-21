@@ -60,6 +60,8 @@ mod tests {
 composer.addEventListener('keydown', (event) => event.stopPropagation());
 menu.addEventListener('keydown', (event) => event.preventDefault());
 addEventListener('load', () => window.ipc.postMessage('ready'));
+addEventListener('focus', () => window.ipc.postMessage('focused'));
+addEventListener('blur', () => window.ipc.postMessage('blurred'));
 </script>";
     #[cfg(target_os = "linux")]
     const BINDINGS: &str = "__crowbarReceive(JSON.stringify({ kind: 'keybindings', bindings: [
@@ -79,6 +81,10 @@ press(menu, 'j');
 press(menu, 'f');
 press(document.body, 'Escape', false);
 window.ipc.postMessage('done');";
+    #[cfg(target_os = "linux")]
+    const PRESS: &str =
+        "document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+window.ipc.postMessage('pressed');";
     #[cfg(target_os = "linux")]
     const WAIT: Duration = Duration::from_secs(30);
     #[cfg(target_os = "linux")]
@@ -158,15 +164,10 @@ window.ipc.postMessage('done');";
     }
 
     #[cfg(target_os = "linux")]
-    #[test]
-    #[ignore = "needs display"]
-    fn a_page_that_handles_a_chord_keeps_it_from_the_shell() -> TestResult {
-        let (_connection, parent) = parent_window()?;
-        let host = Host::native(HostConfig {
-            scheme: "crowbar".into(),
-            protocol: Arc::new(Page),
-            data_dir: None,
-        })?;
+    fn bootstrapped_page(
+        host: &Host,
+        parent: u32,
+    ) -> TestResult<(webview::Handle, mpsc::Receiver<String>)> {
         let (sender, messages) = mpsc::channel();
         let side = f64::from(SIDE);
         let bounds = Bounds {
@@ -187,10 +188,56 @@ window.ipc.postMessage('done');";
         };
         let view = host.create_in(ParentWindow::X11(parent), config)?;
         heard_until(&messages, "ready");
+        Ok((view, messages))
+    }
+
+    #[cfg(target_os = "linux")]
+    fn a_page_that_handles_a_chord_keeps_it_from_the_shell(
+        host: &Host,
+        parent: u32,
+    ) -> TestResult {
+        let (view, messages) = bootstrapped_page(host, parent)?;
         view.eval(BINDINGS)?;
         view.eval(PRESSES)?;
         let heard = heard_until(&messages, "done");
         assert_ran_only_what_the_page_left_alone(&heard);
         Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
+    fn only_a_press_on_the_page_reports_that_it_took_the_keyboard(
+        host: &Host,
+        parent: u32,
+    ) -> TestResult {
+        let (view, messages) = bootstrapped_page(host, parent)?;
+        let reported = |last: &str| {
+            heard_until(&messages, last)
+                .iter()
+                .any(|message| message.contains("shell.focus"))
+        };
+        view.focus()?;
+        assert!(
+            !reported("focused"),
+            "the shell handing the page the keyboard"
+        );
+        view.focus_parent()?;
+        assert!(!reported("blurred"), "the shell taking the keyboard back");
+        view.eval(PRESS)?;
+        assert!(reported("pressed"), "a press on the page");
+        Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "needs display"]
+    fn bootstrapped_pages_on_x11() -> TestResult {
+        let (_connection, parent) = parent_window()?;
+        let host = Host::native(HostConfig {
+            scheme: "crowbar".into(),
+            protocol: Arc::new(Page),
+            data_dir: None,
+        })?;
+        a_page_that_handles_a_chord_keeps_it_from_the_shell(&host, parent)?;
+        only_a_press_on_the_page_reports_that_it_took_the_keyboard(&host, parent)
     }
 }
