@@ -29,6 +29,7 @@ pub struct Button {
     id: ElementId,
     label: Option<SharedString>,
     icon: Option<IconName>,
+    icon_size: Option<Pixels>,
     variant: ButtonVariant,
     size: ButtonSize,
     surface: Surface,
@@ -73,6 +74,7 @@ impl Button {
             id,
             label,
             icon,
+            icon_size: None,
             variant: ButtonVariant::default(),
             size: ButtonSize::default(),
             surface: Surface::default(),
@@ -176,33 +178,31 @@ impl RenderOnce for Button {
         let theme = *Theme::of(cx);
         let palette = theme.palette(self.surface);
         let colors = Colors::resolve(self.variant, palette, theme.appearance());
+        let (ring, enabled) = (focus_ring(palette), self.enabled());
         let hover = hover::track(&self.id, Pose::Off, window, cx);
-        let background = hover::color(
-            &hover,
-            colors.background..colors.hover_background,
-            window,
-            cx,
-        );
+        let background = colors.fill(&hover, (window, cx));
         let content = self.content_color(&colors);
         let (height, text, icon_size) = self.size.sized(ControlScale::of(window));
+        let icon_size = self.icon_size.unwrap_or(icon_size);
         let icon = (self.icon.map(Icon::new)).map(|icon| icon.size(icon_size).color(content));
         let spinner = self
             .loading
             .then(|| indicator(&self.id, &colors, self.size));
-        let (ring, enabled) = (focus_ring(palette), self.enabled());
         self.frame(&colors, background, (height, text))
             .font_family(theme.ui_family())
             .relative()
             .id(self.id)
+            .on_hover(hover::listener(&hover))
             .when(enabled, |d| {
                 d.cursor_pointer()
-                    .on_hover(hover::listener(&hover))
                     .focusable()
                     .tab_stop(true)
                     .active(colors.pressed())
                     .when_some(self.focus, |d, focus| d.track_focus(&focus))
             })
-            .when(!enabled, |d| d.opacity(DISABLED_OPACITY))
+            .when(!enabled, |d| {
+                d.opacity(DISABLED_OPACITY).bg(colors.background)
+            })
             .focus(move |s| s.shadow(ring))
             .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
             .children(icon)

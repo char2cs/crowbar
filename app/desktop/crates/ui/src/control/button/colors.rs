@@ -1,10 +1,12 @@
 //! Resolved colours of one button variant.
 
-use gpui::{BoxShadow, Hsla, StyleRefinement, Styled, hsla};
+use gpui::{App, BoxShadow, Entity, Hsla, StyleRefinement, Styled, Window, hsla};
 
 use crate::control::button::button_variant::ButtonVariant;
 use crate::foundation::Appearance;
 use crate::foundation::Palette;
+use crate::foundation::motion::ToggleState;
+use crate::foundation::motion::hover;
 use crate::foundation::tokens::opacity;
 use crate::foundation::tokens::shadow;
 
@@ -31,6 +33,14 @@ fn white() -> Hsla {
 }
 
 impl Colors {
+    pub(crate) fn fill(
+        &self,
+        hover: &Entity<ToggleState>,
+        (window, cx): (&mut Window, &App),
+    ) -> Hsla {
+        hover::color(hover, self.background..self.hover_background, window, cx)
+    }
+
     pub(crate) fn pressed(&self) -> impl FnOnce(StyleRefinement) -> StyleRefinement + use<> {
         let (fill, shadow) = (self.pressed_background, Vec::new());
         move |style| style.bg(fill).shadow(shadow)

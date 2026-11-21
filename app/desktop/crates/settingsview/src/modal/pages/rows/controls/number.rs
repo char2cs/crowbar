@@ -10,6 +10,8 @@ use crate::frame::element_id;
 use crate::frame::spacing;
 use crate::intent::Intent;
 
+const STEP_ICON: f32 = 14.0;
+
 pub(crate) fn number_control(
     frame: &Frame<'_>,
     row: &Row,
@@ -22,6 +24,7 @@ pub(crate) fn number_control(
     let at_max = typed.is_some_and(|value| value >= range.max());
     let step = |name: &str, icon: IconName, nudge: Nudge| {
         Button::icon_only(element_id(name, row.key().as_str()), icon)
+            .icon_size(px(STEP_ICON))
             .on_click(frame.sink.send(Intent::Nudge(row.clone(), nudge)))
     };
     div()
