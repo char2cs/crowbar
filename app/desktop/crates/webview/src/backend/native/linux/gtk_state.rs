@@ -15,8 +15,8 @@ use std::sync::Arc;
 
 use gtk::gdk;
 use gtk::glib::prelude::ObjectExt as _;
-use gtk::glib::{Cast as _, Propagation};
-use gtk::prelude::WidgetExt as _;
+use gtk::glib::{self, Cast as _, Propagation};
+use gtk::prelude::{GtkWindowExt as _, WidgetExt as _};
 use platform::{FocusChange, InputFocus, XlibParent};
 use protocol::ExtensionId;
 use wry::{WebContext, WebView, WebViewBuilder, WebViewBuilderExtUnix, WebViewExtUnix};
@@ -46,6 +46,28 @@ fn page_window_of(view: &WebView) -> Result<u32> {
         .and_then(|window| window.downcast::<gdkx11::X11Window>().ok())
         .and_then(|window| u32::try_from(window.xid()).ok());
     page_window.ok_or(Error::UnsupportedParent(NO_PAGE_WINDOW))
+}
+
+fn lay_out_if_inside(
+    view: &glib::WeakRef<gtk::Widget>,
+    focused: Option<&gtk::Widget>,
+) {
+    let (Some(view), Some(focused)) = (view.upgrade(), focused) else {
+        return;
+    };
+    if focused == &view || !focused.is_ancestor(&view) {
+        return;
+    }
+    view.size_allocate(&view.allocation());
+}
+
+// PLATFORM: linux the page's GtkWindow wraps the shell's X window and has no frame clock, so nothing lays out what WebKit adds to the view later; its script dialog takes focus as it maps, and the view lays it out then.
+fn lay_out_overlays(
+    window: &gtk::Window,
+    view: &gtk::Widget,
+) {
+    let view = view.downgrade();
+    window.connect_set_focus(move |_, focused| lay_out_if_inside(&view, focused));
 }
 
 fn report_pointer(
@@ -124,6 +146,13 @@ impl GtkState {
         let view = common_attributes(builder, &id_text, config)
             .build_as_child(&XlibParent::new(window))?;
         let wanted = to_rect(config.bounds);
+        let window_of_page = view
+            .webview()
+            .toplevel()
+            .and_then(|top| top.downcast::<gtk::Window>().ok());
+        if let Some(window_of_page) = window_of_page {
+            lay_out_overlays(&window_of_page, view.webview().upcast_ref());
+        }
         let page_window = page_window_of(&view)?;
         self.keyboard.follow(page_window)?;
         report_pointer(&view, config.on_page.clone());
@@ -224,7 +253,10 @@ mod tests {
     use std::sync::mpsc;
     use std::time::{Duration, Instant};
 
-    use gtk::prelude::ContainerExt as _;
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    use gtk::prelude::{BoxExt as _, ContainerExt as _};
 
     use super::*;
     use crate::scheme::ProtocolRequest;
@@ -319,7 +351,7 @@ mod tests {
     }
 
     fn pump_until_save(requests: &mpsc::Receiver<ProtocolRequest>) -> ProtocolRequest {
-        gtk::glib::timeout_add_local_once(PAGE_WAIT, || {});
+        glib::timeout_add_local_once(PAGE_WAIT, || {});
         let deadline = Instant::now() + PAGE_WAIT;
         std::iter::repeat_with(|| pump_once(requests, deadline))
             .flatten()
@@ -351,11 +383,41 @@ mod tests {
         assert_eq!(pump_until_save(&requests).body, b"payload", "the PUT body");
     }
 
+    fn only_focus_inside_the_view_lays_it_out() {
+        let window = gtk::Window::new(gtk::WindowType::Toplevel);
+        let row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        let view = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let inside = gtk::Entry::new();
+        let outside = gtk::Entry::new();
+        view.set_can_focus(true);
+        view.pack_start(&inside, true, true, 0);
+        row.pack_start(&view, true, true, 0);
+        row.pack_start(&outside, true, true, 0);
+        window.add(&row);
+        window.show_all();
+        lay_out_overlays(&window, view.upcast_ref());
+        let allocations = Rc::new(Cell::new(0));
+        let counted = Rc::clone(&allocations);
+        view.connect_size_allocate(move |_, _| counted.set(counted.get() + 1));
+        let cases: [(&gtk::Widget, usize, &str); 3] = [
+            (view.upcast_ref(), 0, "the view itself"),
+            (outside.upcast_ref(), 0, "a widget beside the view"),
+            (inside.upcast_ref(), 1, "a widget inside the view"),
+        ];
+        for (focused, laid_out, case) in cases {
+            allocations.set(0);
+            inside.queue_resize();
+            window.set_focus(Some(focused));
+            assert_eq!(allocations.get(), laid_out, "focus on {case}");
+        }
+    }
+
     #[test]
     #[ignore = "needs display"]
     fn live_gtk_web_views() {
         gtk::init().unwrap();
         a_parent_that_is_not_an_x11_window_is_refused();
         a_page_request_body_reaches_the_protocol_handler();
+        only_focus_inside_the_view_lays_it_out();
     }
 }

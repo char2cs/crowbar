@@ -4,6 +4,13 @@
 //! GTK runs on one thread per process, so one test drives every case on one host.
 #![cfg(target_os = "linux")]
 
+#[path = "support/pixels.rs"]
+mod pixels;
+#[path = "support/placement.rs"]
+mod placement;
+#[path = "support/script_dialog.rs"]
+mod script_dialog;
+
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
@@ -87,7 +94,9 @@ fn mapped_parent(
     screen: &Screen,
 ) -> TestResult<u32> {
     let window = connection.generate_id()?;
-    let events = CreateWindowAux::new().event_mask(EventMask::STRUCTURE_NOTIFY);
+    let events = CreateWindowAux::new()
+        .event_mask(EventMask::STRUCTURE_NOTIFY)
+        .background_pixel(screen.black_pixel);
     connection.create_window(
         COPY_DEPTH_FROM_PARENT,
         window,
@@ -124,6 +133,7 @@ fn wait_for(
 fn page_in(
     host: &Host,
     parent: u32,
+    visibility: Visibility,
 ) -> TestResult<(Handle, mpsc::Receiver<String>)> {
     let (sender, messages) = mpsc::channel();
     let side = f64::from(SIDE);
@@ -137,7 +147,7 @@ fn page_in(
         url: PAGE_URL.into(),
         bounds,
         kind: Kind::Core,
-        visibility: Visibility::Shown,
+        visibility,
         background: None,
         initialization_script: None,
         on_ipc: forward_to(sender.clone()),
@@ -170,12 +180,13 @@ fn press(
     Ok(())
 }
 
-fn type_a(
+fn type_key(
     connection: &RustConnection,
     screen: &Screen,
+    keycode: u8,
 ) -> TestResult {
     for event in [KEY_PRESS_EVENT, KEY_RELEASE_EVENT] {
-        connection.xtest_fake_input(event, KEYCODE_A, CURRENT_TIME, screen.root, 0, 0, 0)?;
+        connection.xtest_fake_input(event, keycode, CURRENT_TIME, screen.root, 0, 0, 0)?;
     }
     connection.get_input_focus()?.reply()?;
     Ok(())
@@ -187,12 +198,12 @@ fn a_focused_view_takes_keys_while_the_pointer_is_elsewhere(
     host: &Host,
     parent: u32,
 ) -> TestResult {
-    let (view, messages) = page_in(host, parent)?;
+    let (view, messages) = page_in(host, parent, Visibility::Shown)?;
     park_pointer_outside(connection, screen)?;
     view.focus()?;
     view.eval("window.ipc.postMessage('focused')")?;
     wait_for(&messages, "focused", PAGE_WAIT)?;
-    type_a(connection, screen)?;
+    type_key(connection, screen, KEYCODE_A)?;
     assert_eq!(
         wait_for(&messages, "key a", KEY_WAIT),
         Ok(()),
@@ -207,7 +218,7 @@ fn a_press_on_the_page_is_reported(
     host: &Host,
     parent: u32,
 ) -> TestResult {
-    let (_view, messages) = page_in(host, parent)?;
+    let (_view, messages) = page_in(host, parent, Visibility::Shown)?;
     connection.warp_pointer(NONE, parent, 0, 0, 0, 0, INSIDE, INSIDE)?;
     press(connection, screen)?;
     assert_eq!(
@@ -224,7 +235,7 @@ fn the_page_holding_the_keyboard_has_document_focus(
     host: &Host,
     parent: u32,
 ) -> TestResult {
-    let (view, messages) = page_in(host, parent)?;
+    let (view, messages) = page_in(host, parent, Visibility::Shown)?;
     view.focus()?;
     assert_eq!(
         wait_for(&messages, "has focus true", KEY_WAIT),
@@ -267,7 +278,7 @@ fn the_parent_takes_keys_over_a_page_once_it_holds_the_keyboard(
     host: &Host,
     parent: u32,
 ) -> TestResult {
-    let (view, messages) = page_in(host, parent)?;
+    let (view, messages) = page_in(host, parent, Visibility::Shown)?;
     let listening = EventMask::STRUCTURE_NOTIFY | EventMask::KEY_PRESS;
     connection.change_window_attributes(
         parent,
@@ -279,7 +290,7 @@ fn the_parent_takes_keys_over_a_page_once_it_holds_the_keyboard(
     view.eval("window.ipc.postMessage('handed back')")?;
     wait_for(&messages, "handed back", PAGE_WAIT)?;
     keys_reaching(connection, parent)?;
-    type_a(connection, screen)?;
+    type_key(connection, screen, KEYCODE_A)?;
     assert_eq!(
         keys_reaching(connection, parent)?,
         1,
@@ -288,7 +299,7 @@ fn the_parent_takes_keys_over_a_page_once_it_holds_the_keyboard(
     view.focus()?;
     view.eval("window.ipc.postMessage('taken')")?;
     wait_for(&messages, "taken", PAGE_WAIT)?;
-    type_a(connection, screen)?;
+    type_key(connection, screen, KEYCODE_A)?;
     assert_eq!(
         wait_for(&messages, "key a", KEY_WAIT),
         Ok(()),
@@ -468,6 +479,13 @@ fn native_views_on_x11() -> TestResult {
         protocol: Arc::new(Page(PAGE)),
         data_dir: None,
     })?;
+    placement::a_spare_page_paints_over_the_page_it_replaces(&connection, &host, parent)?;
+    script_dialog::a_dialog_shows_over_its_page_and_answers_it(
+        &connection,
+        &screen,
+        &host,
+        parent,
+    )?;
     a_focused_view_takes_keys_while_the_pointer_is_elsewhere(&connection, &screen, &host, parent)?;
     a_press_on_the_page_is_reported(&connection, &screen, &host, parent)?;
     the_page_holding_the_keyboard_has_document_focus(&connection, &screen, &host, parent)?;
