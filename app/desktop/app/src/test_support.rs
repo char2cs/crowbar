@@ -13,7 +13,7 @@ mod terminal_layout;
 pub(crate) use daemon_link::link_without_daemon;
 pub(crate) use daemon_options::options_without_a_daemon;
 pub(crate) use fixed_clock::FixedClock;
-pub(crate) use idle_terminals::{idle_terminals, idle_terminals_for, idle_terminals_into};
+pub(crate) use idle_terminals::{heard_terminals, idle_terminals, idle_terminals_into};
 pub(crate) use memory_files::{LAYOUT_PATH, MemoryFiles};
 pub(crate) use memory_preferences::MemoryPreferences;
 pub(crate) use mock_host::mock_host;

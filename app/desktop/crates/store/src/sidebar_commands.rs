@@ -32,7 +32,7 @@ use crate::plan::Plan;
 use crate::reads::{active_project, host_of};
 use crate::{
     live::panel_loader,
-    plan::{agent as plan_agent, create as plan_create, planner, runner},
+    plan::{create as plan_create, planner, runner},
 };
 
 /// Plans each command from the current entities and runs it on the runtime; the stream shows the
@@ -118,17 +118,6 @@ impl SidebarCommands {
             )
         });
         self.run(plan)
-    }
-
-    /// Starts the runner of `chat` again; a live chat answers with its runner and nothing changes.
-    ///
-    /// # Errors
-    /// [`Error::Refused`] when the chat is not loaded.
-    pub fn resume_chat(
-        &self,
-        chat: &str,
-    ) -> Result<(), Error> {
-        self.run(self.hub.read(|state| plan_agent::resume(state, chat)))
     }
 
     fn plan_and_run(

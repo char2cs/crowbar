@@ -1,13 +1,12 @@
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use gpui::{App, AppContext as _, Entity, Focusable as _, Window};
 use protocol::PaneId;
 use ptysession::{Connection, Ends, TerminalSessions};
 use terminalview::TerminalView;
 
-use crate::chat_terminals::ChatTerminals;
-use crate::plan::Plan;
+use crate::chat_hosts::ChatHosts;
 use crate::shell_request::ShellRequest;
 use crate::terminal_ids::TerminalIds;
 use crate::terminal_owner::TerminalOwner;
@@ -17,9 +16,8 @@ mod wiring;
 pub(crate) struct TerminalPanes {
     ids: TerminalIds,
     sessions: TerminalSessions,
-    chats: ChatTerminals,
+    hosts: ChatHosts,
     views: RefCell<BTreeMap<PaneId, Entity<TerminalView>>>,
-    waiting: RefCell<BTreeSet<PaneId>>,
     settings: RefCell<terminalview::Settings>,
     requests: async_channel::Sender<ShellRequest>,
 }
@@ -27,15 +25,14 @@ pub(crate) struct TerminalPanes {
 impl TerminalPanes {
     pub(crate) fn new(
         ids: TerminalIds,
-        (sessions, chats): (TerminalSessions, ChatTerminals),
+        (sessions, hosts): (TerminalSessions, ChatHosts),
         requests: async_channel::Sender<ShellRequest>,
     ) -> Self {
         Self {
             ids,
             sessions,
-            chats,
+            hosts,
             views: RefCell::default(),
-            waiting: RefCell::default(),
             settings: RefCell::default(),
             requests,
         }
@@ -58,15 +55,6 @@ impl TerminalPanes {
         pane: &PaneId,
     ) -> bool {
         self.ids.contains(pane)
-    }
-
-    pub(crate) fn closes_on_exit(
-        &self,
-        pane: &PaneId,
-    ) -> bool {
-        let owner = self.ids.owner_of(pane);
-        self.ids.contains(pane)
-            && owner.is_none_or(|owner| !matches!(self.plan_for(&owner), Plan::Watch(_)))
     }
 
     pub(crate) fn focus(
@@ -121,41 +109,17 @@ impl TerminalPanes {
         self.views.borrow_mut().insert(pane.clone(), view.clone());
         view
     }
-
-    pub(crate) fn attached(&self) -> bool {
-        let ready: Vec<PaneId> = self
-            .waiting
-            .borrow()
-            .iter()
-            .filter(|pane| self.is_ready(pane))
-            .cloned()
-            .collect();
-        for pane in &ready {
-            self.waiting.borrow_mut().remove(pane);
-            self.views.borrow_mut().remove(pane);
-        }
-        !ready.is_empty()
-    }
-
-    fn is_ready(
-        &self,
-        pane: &PaneId,
-    ) -> bool {
-        let owner = self.ids.owner_of(pane);
-        owner.is_none_or(|owner| !matches!(self.plan_for(&owner), Plan::Resume))
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::rc::Rc;
-
     use gpui::TestAppContext;
     use layout::Layout;
-    use store::{ChatPhase, ChatSurface, ChatTerminal};
 
     use super::*;
-    use crate::test_support::{idle_terminals, idle_terminals_for, terminal_layout};
+    use crate::test_support::{heard_terminals, idle_terminals, terminal_layout};
+
+    const DAEMON_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
     fn panes_for(layout: &Layout) -> TerminalPanes {
         let ids = TerminalIds::default();
@@ -192,6 +156,25 @@ mod tests {
             .unwrap();
         let focused = cx.update(|window, cx| terminal.focus_handle(cx).is_focused(window));
         assert!(focused, "the terminal holds the keyboard");
+    }
+
+    #[gpui::test]
+    fn a_terminal_beside_a_chat_starts_a_session_of_its_own(cx: &mut TestAppContext) {
+        cx.update(|cx| ui::init(cx).unwrap());
+        let ids = TerminalIds::default();
+        ids.follow(&terminal_layout(Some("c1")));
+        let (heard, requests) = std::sync::mpsc::channel();
+        let panes = heard_terminals(ids, heard);
+        let (_root, cx) = cx.add_window_view(|_, _| gpui::Empty);
+        let pane = PaneId::new("t1").unwrap();
+        cx.update(|window, cx| panes.view(&pane, window, cx));
+        let first = requests.recv_timeout(DAEMON_WAIT).unwrap();
+        let created = ptysession::SessionPaths::chat("c1").unwrap();
+        assert_eq!(
+            first,
+            format!("POST {}", created.create_path()),
+            "the chat's terminal asked for a new shell, not a session already running"
+        );
     }
 
     #[gpui::test]
@@ -241,49 +224,6 @@ mod tests {
         assert!(
             after.0 < before.0,
             "{after:?} should have fewer columns than {before:?}"
-        );
-    }
-
-    fn dormant_then_live() -> (ChatTerminals, Rc<RefCell<ChatTerminal>>) {
-        let state = Rc::new(RefCell::new(ChatTerminal {
-            surface: ChatSurface::Terminal,
-            live_runner_id: None,
-            terminal_session_id: None,
-            phase: ChatPhase::Dormant,
-        }));
-        let seen = Rc::clone(&state);
-        let chats = ChatTerminals::new(
-            Rc::new(move |_| Some(seen.borrow().clone())),
-            (Rc::new(|_| {}), Rc::new(|_| None)),
-        );
-        (chats, state)
-    }
-
-    #[gpui::test]
-    fn a_dormant_chat_terminal_is_rebuilt_once_its_runner_appears(cx: &mut TestAppContext) {
-        cx.executor().allow_parking();
-        cx.update(|cx| ui::init(cx).unwrap());
-        let (chats, state) = dormant_then_live();
-        let ids = TerminalIds::default();
-        ids.follow(&terminal_layout(Some("c1")));
-        let panes = idle_terminals_for(ids, chats);
-        let (_root, cx) = cx.add_window_view(|_, _| gpui::Empty);
-        let pane = PaneId::new("t1").unwrap();
-        let first = cx.update(|window, cx| panes.view(&pane, window, cx));
-        assert!(!panes.attached(), "still dormant");
-        let live = ChatTerminal {
-            live_runner_id: Some("r".into()),
-            terminal_session_id: Some("s1".into()),
-            phase: ChatPhase::Live,
-            ..state.borrow().clone()
-        };
-        *state.borrow_mut() = live;
-        assert!(panes.attached(), "the runner appeared");
-        let second = cx.update(|window, cx| panes.view(&pane, window, cx));
-        assert_ne!(
-            first.map(|view| view.entity_id()),
-            second.map(|view| view.entity_id()),
-            "a view bound to the new session"
         );
     }
 }

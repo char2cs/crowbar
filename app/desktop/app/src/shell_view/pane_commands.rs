@@ -134,7 +134,55 @@ fn terminal_spec(
 
 #[cfg(test)]
 mod tests {
+    use gpui::TestAppContext;
+
     use super::*;
+    use crate::core_panes::{CHAT, TERMINAL, chat_params, chat_type};
+    use crate::shell_view::test_support::panes_of;
+    use crate::shell_view::tests::open_shell;
+
+    #[gpui::test]
+    fn a_chat_opened_from_the_sidebar_opens_its_chat_pane(cx: &mut TestAppContext) {
+        let mut opened = open_shell(cx);
+        let shell = opened.shell.clone();
+        let open = (chat_type().unwrap(), chat_params("c2").unwrap());
+        shell.update_in(&mut opened.window, |shell, _, cx| {
+            shell.open_from_sidebar(open, cx);
+        });
+        shell.read_with(&opened.window, |shell, _| {
+            let layout = shell.state.layout();
+            let focused = layout.active_tab().and_then(layout::Tab::focused).unwrap();
+            let instance = layout.pane(focused).unwrap();
+            assert_eq!(instance.type_id.as_str(), CHAT);
+            assert_eq!(instance.params.get("threadId"), Some("c2"));
+            assert!(
+                panes_of(shell, TERMINAL).is_empty(),
+                "no terminal shows the chat"
+            );
+        });
+    }
+
+    #[gpui::test]
+    fn ctrl_j_beside_a_chat_splits_the_chat_s_tab_with_its_terminal(cx: &mut TestAppContext) {
+        let mut opened = open_shell(cx);
+        let tabs = |opened: &crate::shell_view::tests::Opened| {
+            opened
+                .shell
+                .read_with(&opened.window, |shell, _| shell.state.layout().tabs().len())
+        };
+        let before = tabs(&opened);
+        opened.window.simulate_keystrokes("ctrl-j");
+        opened.window.run_until_parked();
+        assert_eq!(tabs(&opened), before, "no tab of its own");
+        opened.shell.read_with(&opened.window, |shell, _| {
+            assert_eq!(panes_of(shell, CHAT).len(), 1, "the chat stays in its tab");
+            let terminal = panes_of(shell, TERMINAL);
+            assert_eq!(terminal.len(), 1, "a terminal joins it");
+            let layout = shell.state.layout();
+            let params = &layout.pane(&terminal[0]).unwrap().params;
+            assert_eq!(params.get("threadId"), Some("t1"), "the chat owns it");
+        });
+    }
 
     struct Case {
         name: &'static str,

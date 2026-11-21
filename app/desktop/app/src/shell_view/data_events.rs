@@ -49,9 +49,6 @@ impl ShellView {
         self.update_landing(cx);
         self.follow_backend(cx);
         self.push_tabs(cx);
-        if self.source.native().terminals_attached() {
-            self.refresh(cx);
-        }
         if let Some(dialog) = &self.branch_import {
             dialog.update(cx, |_, cx| cx.notify());
         }

@@ -158,7 +158,7 @@ impl TerminalSessions {
             report(reports, Report::Bound(session.clone())).await;
         }
         let end = self.keep_attached((base, &session), attachment).await;
-        let released = binding.release(&self.rest, base, &session).await;
+        let released = self.rest.kill(base, &session).await;
         if let (End::ViewGone, Err(error)) = (end, released) {
             report(reports, Report::StopFailed(error.words())).await;
         }
@@ -285,7 +285,6 @@ mod tests {
     enum Bind {
         Create,
         Resume(&'static str),
-        Watch(&'static str),
     }
 
     impl Bind {
@@ -293,7 +292,6 @@ mod tests {
             match self {
                 Self::Create => Binding::Create,
                 Self::Resume(session) => Binding::Saved(session.into()),
-                Self::Watch(session) => Binding::Existing(session.into()),
             }
         }
     }
@@ -336,13 +334,6 @@ mod tests {
             relay: Relay::Output,
             bind: Bind::Resume("s1"),
             rest_calls: RESUME,
-            first_report: None,
-        },
-        Case {
-            name: "watching an existing session creates and kills nothing",
-            relay: Relay::Output,
-            bind: Bind::Watch("agent"),
-            rest_calls: &[],
             first_report: None,
         },
     ];

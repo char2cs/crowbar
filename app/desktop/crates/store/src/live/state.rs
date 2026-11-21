@@ -2,13 +2,11 @@
 
 mod change_signal;
 pub(crate) mod chat_project;
-mod chat_terminal;
 mod hub;
 mod local_rows;
 pub(crate) mod workspace_root;
 
 pub use change_signal::ChangeSignal;
-pub use chat_terminal::{ChatPhase, ChatSurface, ChatTerminal};
 pub(crate) use hub::Hub;
 
 use daemonapi::{Frame, Switch};

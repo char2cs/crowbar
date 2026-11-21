@@ -29,10 +29,6 @@ impl NativePanes {
         self.new_tabs.follow(layout, titles);
     }
 
-    pub(crate) fn terminals_attached(&self) -> bool {
-        self.terminals.attached()
-    }
-
     pub(crate) fn apply_terminal_settings(
         &self,
         settings: terminalview::Settings,
@@ -48,13 +44,6 @@ impl NativePanes {
         cx: &mut App,
     ) {
         self.terminals.focus(pane, window, cx);
-    }
-
-    pub(crate) fn closes_on_exit(
-        &self,
-        pane: &PaneId,
-    ) -> bool {
-        self.terminals.closes_on_exit(pane)
     }
 
     pub(crate) fn is_native(
@@ -108,10 +97,5 @@ mod tests {
     fn a_pane_nobody_registered_is_a_web_pane() {
         let pane = PaneId::new("p1").unwrap();
         assert!(!native().is_native(&pane), "unknown pane");
-    }
-
-    #[test]
-    fn idle_terminals_are_not_attached() {
-        assert!(!native().terminals_attached(), "nothing attached");
     }
 }

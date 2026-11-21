@@ -174,10 +174,6 @@ impl ShellView {
         (type_id, params): (protocol::PaneTypeId, protocol::Params),
         cx: &mut Context<'_, Self>,
     ) {
-        let chat = params
-            .get("threadId")
-            .and_then(|chat| self.data.chat_terminal(chat));
-        let (type_id, params) = crate::chat_route::route((type_id, params), chat);
         self.state.open_view(type_id, params);
         self.refresh(cx);
     }

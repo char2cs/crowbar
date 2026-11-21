@@ -1,17 +1,8 @@
 //! What the shell reads about one chat.
 
 use crate::Store;
-use crate::live::ChatTerminal;
 
 impl Store {
-    /// The surface, runner, terminal session and phase of `chat`; `None` when it is not loaded.
-    pub fn chat_terminal(
-        &self,
-        chat: &str,
-    ) -> Option<ChatTerminal> {
-        self.hub.read(|state| ChatTerminal::of(state, chat))
-    }
-
     /// The SVG artwork of the provider `chat` runs on, to draw in the host's ink; `None` until
     /// the chat and its host's providers are known.
     pub fn chat_glyph(
@@ -114,6 +105,5 @@ mod tests {
             data.chat_row("gone").is_none(),
             "an unknown chat has no row"
         );
-        assert!(data.chat_terminal("gone").is_none());
     }
 }

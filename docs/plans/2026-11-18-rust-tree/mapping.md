@@ -1240,11 +1240,8 @@ Format: `old path (relative to the old crate) → new path (relative to app/)`. 
 - `src/call.rs` → `desktop/crates/daemonapi/src/client/call.rs` · moves to the new crate daemonapi (decision 7)
 - `src/change_signal.rs` → `desktop/crates/store/src/live/state/change_signal.rs`
 - `src/changes_reload.rs` → `desktop/crates/store/src/live/panel_loader/changes_reload.rs`
-- `src/chat_phase.rs` → `desktop/crates/store/src/live/state/chat_terminal/chat_phase.rs` · stem = type name (type-name check; the type is re-exported from the crate root)
 - `src/chat_project.rs` → `desktop/crates/store/src/live/state/chat_project.rs`
 - `src/chat_record.rs` → `desktop/crates/store/src/live/held/entities/chat_record.rs`
-- `src/chat_surface.rs` → `desktop/crates/store/src/live/state/chat_terminal/chat_surface.rs` · stem = type name (type-name check; the type is re-exported from the crate root)
-- `src/chat_terminal.rs` → `desktop/crates/store/src/live/state/chat_terminal.rs`
 - `src/connection.rs` → `desktop/crates/daemonapi/src/stream/connection.rs` · moves to the new crate daemonapi (decision 7)
 - `src/copy_name.rs` → `desktop/crates/store/src/sidebar_commands/copy_name.rs`
 - `src/core_origin.rs` → `desktop/crates/daemonapi/src/stream/core_origin.rs` · moves to the new crate daemonapi (decision 7)
@@ -1734,8 +1731,7 @@ Format: `old path (relative to the old crate) → new path (relative to app/)`. 
 - `src/browser_tabs.rs` → `desktop/app/src/panes/browser/tabs.rs`
 - `src/byte_source.rs` → `desktop/app/src/shell/ports/byte_source.rs`
 - `src/chat_label.rs` → `desktop/app/src/panes/kinds/chat_label.rs`
-- `src/chat_route.rs` → `desktop/app/src/panes/terminals/chat_route.rs`
-- `src/chat_terminals.rs` → `desktop/app/src/panes/terminals/chats.rs` · ChatTerminals -> Chats
+- `src/chat_hosts.rs` → `desktop/app/src/panes/terminals/chat_hosts.rs` · ChatHosts
 - `src/chrome.rs` → `desktop/app/src/shell/window/chrome.rs` · drop ChromeContext.tab_strip (strip residue)
 - `src/clock.rs` → `desktop/app/src/shell/ports/clock.rs`
 - `src/close_choice.rs` → `desktop/app/src/shell/dialogs/unsaved/close_choice.rs`
@@ -1805,7 +1801,6 @@ Format: `old path (relative to the old crate) → new path (relative to app/)`. 
 - `src/phase_input.rs` → `desktop/app/src/daemon/link/phase_input.rs`
 - `src/picking_panes.rs` → `desktop/app/src/panes/browser/picking_panes.rs` · element picking in browser panes, not strip code
 - `src/pixels.rs` → `desktop/app/src/shell/view/events/pixels.rs`
-- `src/plan.rs` → `desktop/app/src/panes/terminals/plan.rs`
 - `src/ports.rs` → `desktop/app/src/shell/ports.rs` · module root: Ports
 - `src/project_slot.rs` → `desktop/app/src/shell/view/commands/project_slot.rs`
 - `src/prompt_event.rs` → `desktop/app/src/shell/dialogs/prompt_event.rs`

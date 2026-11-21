@@ -4,11 +4,9 @@ use ptysession::{Binding, Connection, Ends, Report, TerminalSessions};
 use terminal::DaemonFrame;
 
 use super::TerminalPanes;
-use crate::plan::Plan;
 use crate::shell_request::ShellRequest;
 use crate::terminal_owner::TerminalOwner;
 
-const STARTING: &str = "Starting the chat's terminal...\r\n";
 const NO_CHAT: &str = "Open a chat first: a terminal runs in a chat's workspace.\r\n";
 
 impl TerminalPanes {
@@ -22,13 +20,10 @@ impl TerminalPanes {
             notify(&connection.ends, NO_CHAT);
             return;
         };
-        let saved = self.ids.saved_session(&connection.pane);
-        let binding = match (self.plan_for(owner), saved) {
-            (Plan::Own, Some(saved)) => Binding::Saved(saved),
-            (Plan::Own, None) => Binding::Create,
-            (Plan::Watch(session), _) => Binding::Existing(session),
-            (Plan::Resume, _) => return self.resume(&connection.pane, owner, &connection.ends),
-        };
+        let binding = self
+            .ids
+            .saved_session(&connection.pane)
+            .map_or(Binding::Create, Binding::Saved);
         self.sessions_of(owner).open(base, binding, connection);
     }
 
@@ -40,33 +35,10 @@ impl TerminalPanes {
             return self.sessions.clone();
         };
         let host = self
-            .chats
+            .hosts
             .host(chat)
             .and_then(|host| HostId::new(host).ok());
         host.map_or_else(|| self.sessions.clone(), |host| self.sessions.on(host))
-    }
-
-    pub(super) fn plan_for(
-        &self,
-        owner: &TerminalOwner,
-    ) -> Plan {
-        match owner {
-            TerminalOwner::Chat(chat) => Plan::of(self.chats.state(chat).as_ref()),
-            TerminalOwner::Home(_) => Plan::Own,
-        }
-    }
-
-    fn resume(
-        &self,
-        pane: &PaneId,
-        owner: &TerminalOwner,
-        ends: &Ends,
-    ) {
-        notify(ends, STARTING);
-        self.waiting.borrow_mut().insert(pane.clone());
-        if let TerminalOwner::Chat(chat) = owner {
-            self.chats.resume(chat);
-        }
     }
 
     pub(super) fn report_into_shell(

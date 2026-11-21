@@ -34,9 +34,6 @@ impl ShellView {
         pane: &PaneId,
         cx: &mut Context<'_, Self>,
     ) {
-        if !self.source.native().closes_on_exit(pane) {
-            return;
-        }
         self.state.close_pane(pane.clone());
         self.refresh(cx);
     }

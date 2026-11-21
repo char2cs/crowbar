@@ -15,7 +15,7 @@ use super::pane_wiring::PaneWiring;
 use super::panes::Panes;
 use super::sidebar_wiring::SidebarWiring;
 use crate::browser_bars::BrowserBars;
-use crate::chat_terminals::ChatTerminals;
+use crate::chat_hosts::ChatHosts;
 use crate::daemon_link::DaemonLink;
 use crate::native_panes::NativePanes;
 use crate::shell_pane_source::ShellPaneSource;
@@ -59,7 +59,7 @@ pub(super) fn build_panes<V: 'static>(
     let bars = BrowserBars::new(state.browsers(), (*requests).clone());
     let terminals = TerminalPanes::new(
         state.terminals(),
-        (terminal_sessions(link), ChatTerminals::of(data)),
+        (terminal_sessions(link), ChatHosts::of(data)),
         (*requests).clone(),
     );
     let new_tab = crate::new_tab_panes::NewTabPanes::new((*requests).clone());
