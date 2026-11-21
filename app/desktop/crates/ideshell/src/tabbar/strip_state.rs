@@ -1,7 +1,8 @@
-use gpui::{App, Context, Entity, FocusHandle, Pixels, ScrollHandle, Window, px};
+use gpui::{App, Bounds, Context, Entity, FocusHandle, Pixels, Point, ScrollHandle, Window, px};
 use protocol::PaneId;
 
 use crate::tabbar::input_mode::InputMode;
+use crate::tabbar::strip_drag::StripDrag;
 
 const OVERFLOW_SLACK: f32 = 1.0;
 pub(crate) struct StripState {
@@ -10,6 +11,8 @@ pub(crate) struct StripState {
     pub(crate) overflowing: bool,
     pub(crate) followed: Option<(PaneId, Pixels)>,
     pub(crate) mode: InputMode,
+    pub(crate) pressed: Point<Pixels>,
+    pub(crate) drag: Option<StripDrag>,
 }
 
 impl StripState {
@@ -51,7 +54,31 @@ impl StripState {
             overflowing: false,
             followed: None,
             mode: InputMode::default(),
+            pressed: Point::default(),
+            drag: None,
         }
+    }
+
+    pub(crate) fn begin(
+        &mut self,
+        tab: (PaneId, usize),
+        tabs: usize,
+    ) {
+        self.drag = Some(StripDrag::new(tab, self.pressed, tabs));
+    }
+
+    pub(crate) fn dragged(
+        &mut self,
+        tab: (usize, Bounds<Pixels>),
+        pointer: Point<Pixels>,
+    ) -> bool {
+        self.drag
+            .as_mut()
+            .is_some_and(|drag| drag.moved(tab, pointer))
+    }
+
+    pub(crate) fn land(&mut self) -> Option<(PaneId, usize)> {
+        self.drag.take().and_then(|drag| drag.landing())
     }
     pub(crate) fn follow(
         &mut self,

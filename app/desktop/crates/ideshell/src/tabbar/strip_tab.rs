@@ -1,22 +1,16 @@
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    App, AppContext as _, CursorStyle, ElementId, FontWeight, InteractiveElement, IntoElement,
-    MouseButton, MouseDownEvent, ParentElement, RenderOnce, SharedString,
-    StatefulInteractiveElement, Styled, Window, div, px,
+    App, CursorStyle, Div, ElementId, FontWeight, InteractiveElement, IntoElement, MouseButton,
+    MouseDownEvent, ParentElement, RenderOnce, SharedString, Stateful, Styled, Window, div, px,
 };
-use layout::DragSubject;
 use protocol::PaneId;
 use std::rc::Rc;
 
-use ui::{
-    ContextMenu, DragGhost, Icon, MenuItem, Palette, Placement, Surface, Theme, Tooltip,
-    TooltipSide,
-};
+use ui::{ContextMenu, Icon, MenuItem, Palette, Placement, Surface, Theme, Tooltip, TooltipSide};
 
 use crate::tabbar::close_button::CloseButton;
 use crate::tabbar::marks::Marks;
-use crate::tabbar::tab_actions::{TabAction, TabActions, TabDrop};
-use crate::tabbar::tab_dragging::TabDragging;
+use crate::tabbar::tab_actions::{TabAction, TabActions};
 use crate::tabbar::tab_end::TabEnd;
 use crate::tabbar::tab_frame::{HEIGHT, group_of};
 use crate::tabbar::tab_keep::TabKeep;
@@ -29,8 +23,6 @@ const PAD_RIGHT: f32 = 32.0;
 const GAP: f32 = 6.0;
 const ICON: f32 = 14.0;
 const LABEL_SIZE: f32 = 13.0;
-const GHOST_WIDTH: f32 = 160.0;
-const DROP_LINE: f32 = 2.0;
 const DOT: f32 = 8.0;
 
 /// One editor tab of the tab bar.
@@ -46,7 +38,7 @@ pub struct StripTab {
     pub end: TabEnd,
     /// Its context menu.
     pub menu: Rc<[MenuItem]>,
-    /// What pressing, closing and dropping on it do.
+    /// What pressing and closing it do.
     pub actions: TabActions,
     /// Whether the keyboard focus ring is drawn on it; the bar sets it.
     pub ringed: bool,
@@ -58,6 +50,16 @@ impl RenderOnce for StripTab {
         _window: &mut Window,
         cx: &mut App,
     ) -> impl IntoElement {
+        self.element(cx, |tab| tab)
+    }
+}
+
+impl StripTab {
+    pub(crate) fn element(
+        self,
+        cx: &App,
+        carry: impl FnOnce(Stateful<Div>) -> Stateful<Div>,
+    ) -> Div {
         let theme = *Theme::of(cx);
         let palette = theme.palette(Surface::Window);
         let name = self.pane.as_str().to_owned();
@@ -65,11 +67,9 @@ impl RenderOnce for StripTab {
             select,
             close,
             remove,
-            drop,
             keep,
         } = self.actions;
         let (label, icon, dirty) = (self.look.label.clone(), self.look.icon, self.look.dirty);
-        let dragging = dragging_of(self.pane, (label.clone(), drop), palette);
         let marks = Marks {
             unsaved: dirty && self.state == TabState::Active,
             ringed: self.ringed,
@@ -78,7 +78,7 @@ impl RenderOnce for StripTab {
             .on_mouse_down(MouseButton::Left, press(select, keep))
             .on_mouse_down(MouseButton::Middle, press(remove, None));
         let ink = self.state.ink(palette);
-        let tab = draggable(tab, dragging)
+        let tab = carry(tab)
             .child(Icon::new(icon).size(px(ICON)).color(ink))
             .child(label_of(&self.look))
             .children((dirty && self.state == TabState::Idle).then(|| unsaved_dot(palette)))
@@ -95,25 +95,12 @@ impl RenderOnce for StripTab {
     }
 }
 
-fn dragging_of(
-    pane: PaneId,
-    (ghost, drop): (SharedString, TabDrop),
-    palette: &Palette,
-) -> TabDragging {
-    TabDragging {
-        subject: DragSubject::Pane(pane),
-        ghost,
-        line: palette.primary(),
-        drop,
-    }
-}
-
 fn framed(
     name: &str,
     state: TabState,
     marks: Marks,
     theme: &Theme,
-) -> gpui::Stateful<gpui::Div> {
+) -> Stateful<Div> {
     let palette = theme.palette(Surface::Window);
     frame(name, state, palette)
         .when(marks.unsaved, |tab| tab.border_color(palette.primary()))
@@ -161,7 +148,7 @@ fn with_menu(
     ContextMenu::new(group_of(name), tipped, menu).placement(Placement::BelowCentre)
 }
 
-fn unsaved_dot(palette: &Palette) -> gpui::Div {
+fn unsaved_dot(palette: &Palette) -> Div {
     div()
         .flex_none()
         .size(px(DOT))
@@ -170,7 +157,7 @@ fn unsaved_dot(palette: &Palette) -> gpui::Div {
         .debug_selector(|| "strip-tab-dot".into())
 }
 
-fn label_of(look: &TabLook) -> gpui::Div {
+fn label_of(look: &TabLook) -> Div {
     div()
         .min_w_0()
         .overflow_hidden()
@@ -179,28 +166,11 @@ fn label_of(look: &TabLook) -> gpui::Div {
         .child(look.label.clone())
 }
 
-fn draggable(
-    tab: gpui::Stateful<gpui::Div>,
-    dragging: TabDragging,
-) -> gpui::Stateful<gpui::Div> {
-    let TabDragging {
-        subject,
-        ghost,
-        line,
-        drop,
-    } = dragging;
-    tab.on_drag(subject, move |_, _, _, cx| {
-        cx.new(|_| DragGhost::new(ghost.clone(), GHOST_WIDTH))
-    })
-    .drag_over::<DragSubject>(move |tab, _, _, _| tab.border_l(px(DROP_LINE)).border_color(line))
-    .on_drop::<DragSubject>(move |subject, window, cx| drop(subject, window, cx))
-}
-
 fn frame(
     name: &str,
     state: TabState,
     palette: &Palette,
-) -> gpui::Stateful<gpui::Div> {
+) -> Stateful<Div> {
     let (fill, ink) = (state.fill(palette), state.ink(palette));
     let (hover_fill, hover_ink) = (palette.sidebar_element_hover(), palette.foreground());
     div()
@@ -257,12 +227,10 @@ mod tests {
     fn counting(selects: Rc<Cell<u32>>) -> TabActions {
         let select: TabAction = Rc::new(move |_, _| selects.set(selects.get() + 1));
         let nothing: TabAction = Rc::new(|_, _| {});
-        let drop: TabDrop = Rc::new(|_, _, _| {});
         TabActions {
             select,
             close: Rc::clone(&nothing),
             remove: nothing,
-            drop,
             keep: None,
         }
     }

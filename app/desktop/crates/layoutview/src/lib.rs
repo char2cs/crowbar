@@ -43,15 +43,12 @@ mod ring_paint;
 mod sash_grab;
 mod sidebar_edge;
 mod strip_actions;
-mod strip_drop;
 mod strip_head;
-mod strip_index;
 mod strip_input;
 mod strip_key;
 mod strip_keyboard;
 mod strip_menu;
 mod strip_review;
-mod tab_seat;
 mod test_support;
 
 pub use branch_review::BranchReview;

@@ -5,13 +5,15 @@ use gpui::{
 use protocol::PaneId;
 use ui::{IconName, MenuAction, MenuItem, Palette, Placement, Surface, Theme};
 
+use crate::tabbar::carried_tab::CarriedTab;
 use crate::tabbar::chat_tab::ChatTab;
 use crate::tabbar::input_mode::InputMode;
 use crate::tabbar::overflow_entry::OverflowEntry;
 use crate::tabbar::review_button::review_button;
+use crate::tabbar::strip_release;
 use crate::tabbar::strip_state::StripState;
 use crate::tabbar::strip_tab::StripTab;
-use crate::tabbar::tab_actions::{StripKeys, TabAction, TabDrop};
+use crate::tabbar::tab_actions::{StripKeys, TabAction, TabMove};
 use crate::tabbar::tab_state::TabState;
 use crate::toprow::row_button::RowButton;
 use crate::toprow::row_ink::RowInk;
@@ -40,8 +42,8 @@ pub struct PaneStrip {
     pub tabs: Vec<StripTab>,
     /// The index of the shown tab.
     pub shown: usize,
-    /// What a drop on the bar past the last tab does.
-    pub at_end_drop: TabDrop,
+    /// What releasing a tab dragged along the bar does.
+    pub reorder: TabMove,
     /// What the "+" does.
     pub add: TabAction,
     /// What a key pressed on the focused bar does.
@@ -68,16 +70,13 @@ impl RenderOnce for PaneStrip {
             (held.focus.clone(), held.scroll.clone(), held.overflowing)
         };
         let mode = StripState::shown_mode(&state, &focus, (window, cx));
-        let (keys, at_end) = (self.keys, self.at_end_drop);
+        let keys = self.keys;
         let (measuring, typing, pressing) = (state.clone(), state.clone(), state.clone());
+        let landing = strip_release::probe(state.clone(), self.reorder);
         let tabs = (!self.tabs.is_empty()).then(|| {
             scroller(name, &scroll)
                 .children(self.chat_tab)
-                .children(
-                    ringing(self.tabs, mode)
-                        .into_iter()
-                        .map(|tab| div().flex_none().child(tab)),
-                )
+                .children(CarriedTab::seated(ringing(self.tabs, mode), &state, cx))
                 .child(add_button(name, self.add))
         });
         let more = overflowing.then(|| more_tabs(name, self.overflow, palette));
@@ -91,10 +90,10 @@ impl RenderOnce for PaneStrip {
                 StripState::use_mode(&pressing, InputMode::Pointer, cx);
                 window.focus(&focus, cx);
             })
-            .on_drop::<layout::DragSubject>(move |subject, window, cx| at_end(subject, window, cx))
             .child(self.toggle)
             .children(tabs)
             .child(probe(&scroll, (measuring, shown)))
+            .child(landing)
             .children(more)
             .children(self.review.map(|review| review_button(name, review)))
     }
@@ -246,7 +245,7 @@ mod tests {
     use ui::{Motion, Theme};
 
     use super::*;
-    use crate::tabbar::tab_actions::{TabActions, TabDrop};
+    use crate::tabbar::tab_actions::{TabActions, TabMove};
     use crate::tabbar::tab_end::TabEnd;
     use crate::tabbar::tab_frame::HEIGHT as TAB_HEIGHT;
     use crate::tabbar::tab_look::TabLook;
@@ -261,12 +260,10 @@ mod tests {
 
     fn loose_tab(name: &str) -> StripTab {
         let nothing: TabAction = Rc::new(|_, _| {});
-        let drop: TabDrop = Rc::new(|_, _, _| {});
         let actions = TabActions {
             select: Rc::clone(&nothing),
             close: Rc::clone(&nothing),
             remove: nothing,
-            drop,
             keep: None,
         };
         StripTab {
@@ -299,12 +296,18 @@ mod tests {
         }
     }
 
+    type Moves = Rc<std::cell::RefCell<Vec<(String, usize)>>>;
+
     fn strip_of(
         tabs: usize,
         shown: usize,
+        moves: &Moves,
     ) -> PaneStrip {
         let nothing: TabAction = Rc::new(|_, _| {});
-        let drop: TabDrop = Rc::new(|_, _, _| {});
+        let moves = Rc::clone(moves);
+        let reorder: TabMove = Rc::new(move |pane, index, _, _| {
+            moves.borrow_mut().push((pane.as_str().to_owned(), index));
+        });
         let names: Vec<String> = (0..tabs).map(|index| format!("t{index}")).collect();
         let toggle = SplitToggle {
             key: "t0".into(),
@@ -317,7 +320,7 @@ mod tests {
             chat_tab: (tabs > 0).then(|| chat_tab(&nothing)),
             tabs: names.iter().map(|name| loose_tab(name)).collect(),
             shown,
-            at_end_drop: drop,
+            reorder,
             add: nothing,
             keys: Rc::new(|_, _, _| {}),
             overflow: names.iter().map(|name| entry_named(name)).collect(),
@@ -329,6 +332,7 @@ mod tests {
         tabs: usize,
         shown: usize,
         width: f32,
+        moves: Moves,
     }
 
     impl Render for Narrow {
@@ -339,7 +343,7 @@ mod tests {
         ) -> impl IntoElement {
             div()
                 .w(px(self.width))
-                .child(strip_of(self.tabs, self.shown))
+                .child(strip_of(self.tabs, self.shown, &self.moves))
         }
     }
 
@@ -352,16 +356,62 @@ mod tests {
 
     fn opened_showing(
         cx: &mut TestAppContext,
-        (tabs, shown, width): (usize, usize, f32),
+        shape: (usize, usize, f32),
     ) -> &mut gpui::VisualTestContext {
+        opened_with(cx, shape, Moves::default())
+    }
+
+    fn opened_with(
+        cx: &mut TestAppContext,
+        shape: (usize, usize, f32),
+        moves: Moves,
+    ) -> &mut gpui::VisualTestContext {
+        let (tabs, shown, width) = shape;
         cx.update(|cx| {
             ui::init(cx).expect("ui init");
             cx.set_global(Theme::default());
             cx.set_global(Motion::default());
         });
-        let (_, cx) = cx.add_window_view(move |_, _| Narrow { tabs, shown, width });
+        let (_, cx) = cx.add_window_view(move |_, _| Narrow {
+            tabs,
+            shown,
+            width,
+            moves,
+        });
         cx.run_until_parked();
         cx
+    }
+
+    fn dragging(
+        cx: &mut TestAppContext,
+        by: f32,
+    ) -> Vec<(String, usize)> {
+        let moves = Moves::default();
+        let cx = opened_with(cx, (3, 0, 1200.0), Rc::clone(&moves));
+        let start = cx
+            .debug_bounds("strip-tab-frame-t0")
+            .unwrap_or_default()
+            .center();
+        let left = gpui::MouseButton::Left;
+        cx.simulate_mouse_down(start, left, Modifiers::none());
+        for step in [by / 2.0, by] {
+            let at = gpui::point(start.x + px(step), start.y);
+            cx.simulate_mouse_move(at, Some(left), Modifiers::none());
+        }
+        let end = gpui::point(start.x + px(by), start.y);
+        cx.simulate_mouse_up(end, left, Modifiers::none());
+        moves.take()
+    }
+
+    #[gpui::test]
+    fn a_tab_dragged_past_its_neighbours_lands_in_their_place(cx: &mut TestAppContext) {
+        let moved = dragging(cx, 420.0);
+        assert_eq!(moved, [("t0".to_owned(), 2)], "past t1 and t2");
+    }
+
+    #[gpui::test]
+    fn a_press_that_moves_less_than_six_pixels_moves_no_tab(cx: &mut TestAppContext) {
+        assert_eq!(dragging(cx, 4.0), [], "still a press");
     }
 
     #[gpui::test]

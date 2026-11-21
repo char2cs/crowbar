@@ -9,7 +9,7 @@ use crate::layout_view::LayoutView;
 use crate::strip_input::state_in;
 use crate::strip_keyboard::StripKeyboard;
 use ideshell::OverflowEntry;
-use ideshell::{StripKeys, TabAction};
+use ideshell::{StripKeys, TabAction, TabMove};
 
 impl LayoutView {
     pub(crate) fn unpin_action(
@@ -32,6 +32,13 @@ impl LayoutView {
         let (view, pane) = (cx.entity(), pane.clone());
         let keep = LayoutEvent::Apply(Command::KeepPane { pane });
         Some(Rc::new(move |_, cx| tell(&view, keep.clone(), cx)))
+    }
+
+    pub(crate) fn reorder_action(cx: &mut Context<'_, Self>) -> TabMove {
+        let view = cx.entity();
+        Rc::new(move |pane, index, _, cx| {
+            tell(&view, LayoutEvent::Apply(reordering(pane, index)), cx);
+        })
     }
 
     pub(crate) fn add_action(
@@ -73,6 +80,17 @@ impl LayoutView {
                 select: Self::select_action(pane, cx),
             })
             .collect()
+    }
+}
+
+fn reordering(
+    pane: &PaneId,
+    index: usize,
+) -> Command {
+    Command::MoveToGroup {
+        pane: pane.clone(),
+        onto: pane.clone(),
+        index: Some(index),
     }
 }
 

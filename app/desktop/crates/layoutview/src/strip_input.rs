@@ -6,7 +6,6 @@ use protocol::PaneId;
 
 use crate::layout_event::LayoutEvent;
 use crate::layout_view::LayoutView;
-use crate::tab_seat::TabSeat;
 use ideshell::PaneStrip;
 use ideshell::StripTab;
 use ideshell::TabEnd;
@@ -24,10 +23,8 @@ impl LayoutView {
         let tabs = group
             .tabs()
             .iter()
-            .enumerate()
-            .map(|(index, pane)| self.strip_tab(group, TabSeat::at(pane, index), cx))
+            .map(|pane| self.strip_tab(group, pane, cx))
             .collect();
-        let end = group.tabs().len();
         Some(PaneStrip {
             key: group.chat().or_else(|| group.tabs().first())?.clone(),
             toggle: Self::toggle_of(group, anchor, cx),
@@ -38,7 +35,7 @@ impl LayoutView {
                 .iter()
                 .position(|pane| pane == anchor)
                 .unwrap_or(0),
-            at_end_drop: Self::drop_action(anchor, end, cx),
+            reorder: Self::reorder_action(cx),
             add: Self::add_action(anchor, cx),
             keys: self.keys_action(group, cx),
             overflow: self.overflow_of(group, cx),
@@ -49,10 +46,9 @@ impl LayoutView {
     fn strip_tab(
         &self,
         group: &PaneGroup,
-        seat: TabSeat<'_>,
+        pane: &PaneId,
         cx: &mut Context<'_, Self>,
     ) -> StripTab {
-        let pane = seat.pane;
         let look = look_in(group, pane, self.look_of(pane));
         StripTab {
             pane: pane.clone(),
@@ -60,23 +56,22 @@ impl LayoutView {
             state: state_in(group, pane),
             end: end_of(group, pane),
             menu: self.tab_menu(group, pane, cx),
-            actions: Self::actions_of(group, seat, cx),
+            actions: Self::actions_of(group, pane, cx),
             ringed: false,
         }
     }
 
     fn actions_of(
         group: &PaneGroup,
-        seat: TabSeat<'_>,
+        pane: &PaneId,
         cx: &mut Context<'_, Self>,
     ) -> TabActions {
-        let remove = Self::strip_close_action(seat.pane, cx);
+        let remove = Self::strip_close_action(pane, cx);
         TabActions {
-            select: Self::select_action(seat.pane, cx),
-            close: Self::end_action(group, seat.pane, &remove, cx),
+            select: Self::select_action(pane, cx),
+            close: Self::end_action(group, pane, &remove, cx),
             remove,
-            drop: Self::drop_action(group.active_tab().unwrap_or(seat.pane), seat.index, cx),
-            keep: Self::keep_action(group, seat.pane, cx),
+            keep: Self::keep_action(group, pane, cx),
         }
     }
 
@@ -212,7 +207,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn the_tab_actions_focus_close_and_drop_before_their_index(cx: &mut TestAppContext) {
+    fn the_tab_actions_focus_and_close_and_the_bar_reorders_in_place(cx: &mut TestAppContext) {
         let source = FakeSource::starting_at_first_tab();
         let harness = open_with(cx, &with_tab_by_the_chat(), source);
         let (view, cx, commands) = (harness.view, harness.cx, harness.commands);
@@ -224,17 +219,17 @@ mod tests {
         cx.update(|window, cx| {
             (first.select)(window, cx);
             (first.close)(window, cx);
-            (first.drop)(&DragSubject::Pane(pane_id("d")), window, cx);
+            (strip.reorder)(&pane_id("c"), 0, window, cx);
         });
         let expected = [
             Command::ClosePane { pane: pane_id("b") },
             Command::MoveToGroup {
-                pane: pane_id("d"),
+                pane: pane_id("c"),
                 onto: pane_id("c"),
                 index: Some(0),
             },
         ];
-        assert_eq!(commands.borrow().as_slice(), &expected, "close, drop");
+        assert_eq!(commands.borrow().as_slice(), &expected, "close, reorder");
         assert_eq!(
             opened.borrow().as_slice(),
             &[LayoutEvent::StripFocus { pane: pane_id("b") }],
@@ -243,9 +238,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn dragging_a_strip_tab_over_the_layout_starts_a_drag_after_its_first_moves(
-        cx: &mut TestAppContext
-    ) {
+    fn a_strip_tab_dragged_over_the_layout_never_offers_a_pane_drop(cx: &mut TestAppContext) {
         let harness = open_with(cx, &stacked_layout(), FakeSource::starting_at_first_tab());
         let (view, cx) = (harness.view, harness.cx);
         let size = view.read_with(cx, |view, _| view.bounds.size);
@@ -255,7 +248,7 @@ mod tests {
         cx.simulate_mouse_move(tab + point(px(20.0), px(2.0)), MouseButton::Left, none);
         cx.simulate_mouse_move(tab + point(px(25.0), px(10.0)), MouseButton::Left, none);
         let dragging = view.read_with(cx, |view, _| view.drop.is_dragging());
-        assert!(dragging, "the first moves of a strip tab start a drag");
+        assert!(!dragging, "an editor tab only moves along its own bar");
     }
 
     #[gpui::test]
