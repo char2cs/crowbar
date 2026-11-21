@@ -1,5 +1,4 @@
 use gpui::Context;
-use layout::Command;
 use protocol::{DisplayText, PaneId};
 use ui::{ToastContent, ToastKind, ToastLifetime};
 
@@ -31,13 +30,13 @@ impl ShellView {
             PaneToastChange::Closed(pane, key) => {
                 self.clear_keyed(&pane_toast_key(&pane, key.as_str()), cx);
             },
-            PaneToastChange::OpenRefused(pane, refusal) => self.refuse_open(pane, &refusal, cx),
+            PaneToastChange::OpenRefused(pane, refusal) => self.refuse_open(&pane, &refusal, cx),
         }
     }
 
     fn refuse_open(
         &mut self,
-        pane: PaneId,
+        pane: &PaneId,
         (title, message): &(Option<DisplayText>, DisplayText),
         cx: &mut Context<'_, Self>,
     ) {
@@ -51,7 +50,8 @@ impl ShellView {
             (content, ToastLifetime::Auto),
             cx,
         );
-        self.apply_guarded(vec![Command::ClosePane { pane }], cx);
+        self.state.withdraw_open(pane);
+        self.refresh(cx);
     }
 
     pub(super) fn drop_toasts_of_closed_panes(
@@ -128,6 +128,43 @@ mod tests {
             shell.state.layout().pane(&pane).is_some()
         });
         assert!(!open, "the pane closed");
+    }
+
+    fn open_file(
+        opened: &mut Opened,
+        path: &str,
+    ) -> protocol::PaneId {
+        opened.shell.update(&mut opened.window, |shell, cx| {
+            shell.open_workspace_file(path, cx);
+            let layout = shell.state.layout();
+            let focused = layout.active_tab().and_then(layout::Tab::focused);
+            focused.cloned().expect("the file pane has focus")
+        })
+    }
+
+    #[gpui::test]
+    fn a_refused_open_leaves_the_tab_that_was_active_before_it(cx: &mut TestAppContext) {
+        let mut opened = open_shell(cx);
+        let before = open_file(&mut opened, "src/a.ts");
+        open_file(&mut opened, "src/b.ts");
+        opened.shell.update(&mut opened.window, |shell, cx| {
+            let pane = before.clone();
+            shell.apply_guarded(vec![Command::FocusPane { pane }], cx);
+        });
+        opened.pane = open_file(&mut opened, "src/gone.ts");
+        opened.shell.update(&mut opened.window, |shell, _| {
+            crate::test_support::sync_shown(&mut shell.state);
+        });
+        let refused = r#"{"sdk":1,"kind":"pane.openRefused","message":"src/gone.ts"}"#;
+        post(&mut opened, refused);
+        let shown = opened.shell.update(&mut opened.window, |shell, _| {
+            let tab = shell.state.layout().active_tab().expect("a tab");
+            let group = tab
+                .group_of(&before)
+                .and_then(layout::PaneGroup::active_tab);
+            (tab.focused().cloned(), group.cloned())
+        });
+        assert_eq!(shown, (Some(before.clone()), Some(before)));
     }
 
     #[gpui::test]

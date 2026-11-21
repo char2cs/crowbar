@@ -7,6 +7,8 @@ use crate::layout::Layout;
 use crate::pane_instance::PaneInstance;
 use crate::undo_step::UndoStep;
 
+mod withdraw;
+
 /// Most undo steps kept; the oldest is forgotten first.
 pub const MAX_UNDO_STEPS: usize = 64;
 

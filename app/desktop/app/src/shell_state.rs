@@ -35,6 +35,7 @@ mod preview;
 mod renaming;
 mod review_reveal;
 mod tab_drop;
+mod withdrawing;
 
 pub(crate) struct ShellState {
     history: LayoutHistory,
@@ -170,11 +171,7 @@ impl ShellState {
         if applied == 0 {
             return;
         }
-        self.forget_titles_of_closed_panes();
-        self.browsers.follow(self.history.layout());
-        self.terminals.follow(self.history.layout());
-        self.terminals.name_into(&self.titles);
-        self.writer.submit(self.history.layout().clone());
+        self.settle();
     }
 
     fn try_apply(
@@ -191,12 +188,6 @@ impl ShellState {
             self.closed.remember(closing);
         }
         applied
-    }
-
-    fn forget_titles_of_closed_panes(&mut self) {
-        let layout = self.history.layout();
-        self.titles.retain(|pane| layout.pane(pane).is_some());
-        self.dirty.retain(|pane| layout.pane(pane).is_some());
     }
 }
 
