@@ -18,14 +18,17 @@ impl TerminalView {
         cx: &mut Context<'_, Self>,
     ) {
         let input = key_input(&event.keystroke);
-        if let Some(shortcut) = shortcut_for(&input) {
-            cx.stop_propagation();
-            self.run_shortcut(shortcut, window, cx);
-            return;
-        }
         if input.key == "escape" && self.search.is_some() {
             cx.stop_propagation();
             self.close_search(window, cx);
+            return;
+        }
+        if !self.focus.is_focused(window) {
+            return;
+        }
+        if let Some(shortcut) = shortcut_for(&input) {
+            cx.stop_propagation();
+            self.run_shortcut(shortcut, window, cx);
             return;
         }
         let Some(bytes) = self.terminal.encode_key(&input) else {

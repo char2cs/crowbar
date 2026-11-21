@@ -9,7 +9,6 @@ use crate::terminal_view::input::pointer::drag_state::DragState;
 use crate::terminal_view::input::pointer::report::Report;
 use crate::terminal_view::input::pointer::report::pointer_report;
 
-const WHEEL_LINES_PER_NOTCH: f32 = 3.0;
 const HALF: f32 = 2.0;
 
 impl TerminalView {
@@ -70,7 +69,7 @@ impl TerminalView {
         };
         let lines = match event.delta {
             ScrollDelta::Pixels(delta) => f32::from(delta.y) / layout.metrics.line_height,
-            ScrollDelta::Lines(delta) => delta.y * WHEEL_LINES_PER_NOTCH,
+            ScrollDelta::Lines(delta) => delta.y,
         };
         let whole = self.wheel.add(lines);
         if whole == 0 {
@@ -167,5 +166,23 @@ mod tests {
             "{:?}",
             typed(&harness)
         );
+    }
+
+    #[gpui::test]
+    fn one_wheel_notch_scrolls_the_lines_the_platform_reports(cx: &mut TestAppContext) {
+        let (harness, cx) = open(cx);
+        feed(&harness, cx, &"line\r\n".repeat(80));
+        let position = cell_position(&harness, cx, 2);
+        let notch = 3.0;
+        cx.simulate_event(ScrollWheelEvent {
+            position,
+            delta: ScrollDelta::Lines(gpui::point(0.0, notch)),
+            modifiers: Modifiers::default(),
+            touch_phase: TouchPhase::Moved,
+        });
+        let offset = harness
+            .view
+            .read_with(cx, |view, _| view.terminal.snapshot().display_offset);
+        assert_eq!(offset, 3);
     }
 }

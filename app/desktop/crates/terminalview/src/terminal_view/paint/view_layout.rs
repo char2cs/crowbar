@@ -4,8 +4,8 @@ use gpui::{Bounds, Pixels, Point, point, px, size};
 use terminal::CellMetrics;
 
 const LEFT_INSET: f32 = 16.0;
-const SCROLLBAR_WIDTH: f32 = 11.0;
-const THUMB_WIDTH: f32 = 5.0;
+const SCROLLBAR_WIDTH: f32 = 14.0;
+const THUMB_WIDTH: f32 = 8.0;
 const HALF: f32 = 2.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -74,12 +74,18 @@ mod tests {
 
     #[test]
     fn the_grid_fits_between_the_inset_and_the_scrollbar() {
-        let bounds = Bounds::new(point(px(100.0), px(50.0)), size(px(427.0), px(400.0)));
+        let bounds = Bounds::new(point(px(100.0), px(50.0)), size(px(430.0), px(400.0)));
         let layout = ViewLayout::new(bounds, (8.0, 16.0), ViewLayout::default_inset());
         assert_eq!((layout.metrics.columns, layout.metrics.lines), (50, 25));
         assert_eq!(layout.origin, point(px(116.0), px(50.0)));
-        assert_eq!(layout.track.size.width, px(11.0));
+        assert_eq!(layout.track.size.width, px(14.0), "xterm 6's scrollbar");
         assert_eq!(layout.track.origin.x, px(516.0));
+        let thumb = layout.thumb_bounds(0.0, 10.0);
+        assert_eq!(
+            (thumb.origin.x, thumb.size.width),
+            (px(519.0), px(8.0)),
+            "the app's 3px inset thumb"
+        );
     }
 
     #[test]

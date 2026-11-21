@@ -95,7 +95,25 @@ mod tests {
     use terminal::{SearchOptions, SearchQuery};
 
     use crate::search_bar::Event;
-    use crate::test_support::{draw, feed, focus, open};
+    use crate::test_support::{draw, feed, focus, open, typed};
+
+    #[gpui::test]
+    fn keys_typed_into_the_find_box_search_and_never_reach_the_program(cx: &mut TestAppContext) {
+        let (harness, cx) = open(cx);
+        feed(&harness, cx, "cat dog cat");
+        focus(&harness, cx);
+        cx.simulate_keystrokes("ctrl-f");
+        draw(cx);
+        cx.simulate_keystrokes("d o g");
+        draw(cx);
+        let query = harness.view.read_with(cx, |view, cx| {
+            view.search
+                .as_ref()
+                .map(|session| session.bar.read(cx).query(cx).text)
+        });
+        assert_eq!(query.as_deref(), Some("dog"));
+        assert_eq!(typed(&harness), "", "nothing went to the shell");
+    }
 
     #[gpui::test]
     fn the_find_shortcut_opens_the_bar_and_escape_closes_it(cx: &mut TestAppContext) {
@@ -126,5 +144,23 @@ mod tests {
                 .view
                 .read_with(cx, |view, _| view.terminal.snapshot().matches.is_empty())
         );
+    }
+
+    #[gpui::test]
+    fn shift_enter_in_the_find_box_steps_back(cx: &mut TestAppContext) {
+        let (harness, cx) = open(cx);
+        feed(&harness, cx, "cat cat cat");
+        focus(&harness, cx);
+        cx.simulate_keystrokes("ctrl-f");
+        draw(cx);
+        cx.simulate_keystrokes("c a t enter enter");
+        let count = |cx: &mut gpui::VisualTestContext| {
+            harness
+                .view
+                .read_with(cx, |view, _| view.terminal.snapshot().current_match)
+        };
+        let forward = count(cx);
+        cx.simulate_keystrokes("shift-enter");
+        assert_ne!(count(cx), forward, "stepped back");
     }
 }

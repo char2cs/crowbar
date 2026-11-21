@@ -67,7 +67,7 @@ mod tests {
             CellMetrics {
                 cell_width: 8.0,
                 line_height: 16.0,
-                columns: 36,
+                columns: 35,
                 lines: 12
             }
         );

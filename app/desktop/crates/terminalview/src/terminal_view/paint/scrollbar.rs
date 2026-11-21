@@ -5,7 +5,7 @@ use terminal::ScrollbarThumb;
 
 use crate::terminal_view::paint::view_layout::ViewLayout;
 
-const THUMB_RADIUS: f32 = 2.5;
+const THUMB_RADIUS: f32 = 4.0;
 
 pub(crate) fn paint_scrollbar(
     thumb: ScrollbarThumb,

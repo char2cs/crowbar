@@ -19,6 +19,7 @@ use terminal::{ScrollbarThumb, Snapshot};
 use crate::settings::base_font;
 use crate::settings::terminal_palette;
 use crate::terminal_view::TerminalView;
+use crate::terminal_view::input::pointer::drag_state::DragState;
 use crate::terminal_view::paint::colors::Colors;
 use crate::terminal_view::paint::cursor::paint_cursor;
 use crate::terminal_view::paint::frame::Frame;
@@ -139,7 +140,8 @@ impl TerminalView {
             colors: &colors,
         };
         self.paint_cursor_cell(layers, window, cx);
-        Self::paint_scrollbar_thumb(&frame, &colors, window);
+        self.paint_scrollbar_thumb(&frame, &colors, window);
+        Self::follow_pointer_while_painted(bounds, window, cx);
         let handler = ElementInputHandler::new(bounds, cx.entity());
         window.handle_input(&self.focus, handler, cx);
     }
@@ -213,10 +215,22 @@ impl TerminalView {
     }
 
     fn paint_scrollbar_thumb(
+        &self,
         frame: &Frame,
         colors: &Colors,
         window: &mut Window,
     ) {
+        let dragging = matches!(self.drag, DragState::ScrollbarThumb { .. });
+        if self.pointer.is_none() && !dragging {
+            return;
+        }
+        let over_track = self
+            .pointer
+            .is_some_and(|pointer| frame.layout.track.contains(&pointer));
+        let color = match (dragging, over_track) {
+            (false, false) => colors.thumb,
+            _ => colors.thumb_hover,
+        };
         let snapshot = &frame.snapshot;
         let track = f32::from(frame.layout.track.size.height);
         let thumb = ScrollbarThumb::new(
@@ -226,7 +240,7 @@ impl TerminalView {
             snapshot.display_offset,
         );
         if let Some(thumb) = thumb {
-            paint_scrollbar(thumb, &frame.layout, colors.thumb, window);
+            paint_scrollbar(thumb, &frame.layout, color, window);
         }
     }
 }

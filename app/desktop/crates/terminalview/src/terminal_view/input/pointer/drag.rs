@@ -1,4 +1,6 @@
-use gpui::{AsyncApp, Context, MouseMoveEvent, WeakEntity, Window};
+use gpui::{
+    AsyncApp, Bounds, Context, DispatchPhase, MouseMoveEvent, Pixels, Point, WeakEntity, Window,
+};
 use terminal::{CellHit, DragEdge, Highlight, MouseAction, ViewPoint};
 
 use crate::terminal_view::TerminalView;
@@ -26,6 +28,48 @@ impl TerminalView {
             },
             DragState::ScrollbarThumb { grab } => self.drag_thumb(event.position, grab, cx),
             DragState::Idle => self.hover(hit.point, event, cx),
+        }
+    }
+
+    pub(crate) fn follow_pointer_while_painted(
+        bounds: Bounds<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let view = cx.entity();
+        window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
+            let moved = (event.clone(), phase);
+            view.update(cx, |this, cx| this.on_window_move(moved, bounds, cx));
+        });
+    }
+
+    fn on_window_move(
+        &mut self,
+        (event, phase): (MouseMoveEvent, DispatchPhase),
+        bounds: Bounds<Pixels>,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if phase != DispatchPhase::Bubble {
+            return;
+        }
+        let inside = Some(event.position).filter(|at| bounds.contains(at));
+        self.follow_pointer(inside, cx);
+    }
+
+    fn follow_pointer(
+        &mut self,
+        pointer: Option<Point<Pixels>>,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let over_track = |at: Option<Point<Pixels>>| {
+            let track = self.layout.map(|layout| layout.track);
+            at.zip(track).is_some_and(|(at, track)| track.contains(&at))
+        };
+        let changed = self.pointer.is_some() != pointer.is_some()
+            || over_track(self.pointer) != over_track(pointer);
+        self.pointer = pointer;
+        if changed {
+            cx.notify();
         }
     }
 
@@ -133,7 +177,27 @@ async fn scroll_loop(
 mod tests {
     use gpui::{Modifiers, TestAppContext};
 
-    use crate::test_support::{cell_position, feed, open, press, release};
+    use crate::test_support::{cell_position, draw, feed, open, press, release};
+
+    #[gpui::test]
+    fn the_scrollbar_follows_the_pointer_in_and_out_of_the_terminal(cx: &mut TestAppContext) {
+        let (harness, cx) = open(cx);
+        draw(cx);
+        let inside = cell_position(&harness, cx, 2);
+        cx.simulate_mouse_move(inside, None, Modifiers::default());
+        draw(cx);
+        assert!(
+            harness.view.read_with(cx, |view, _| view.pointer.is_some()),
+            "shown"
+        );
+        let away = gpui::point(gpui::px(-50.0), gpui::px(-50.0));
+        cx.simulate_mouse_move(away, None, Modifiers::default());
+        draw(cx);
+        assert!(
+            harness.view.read_with(cx, |view, _| view.pointer.is_none()),
+            "hidden"
+        );
+    }
 
     #[gpui::test]
     fn dragging_selects_text_and_a_plain_click_does_not(cx: &mut TestAppContext) {

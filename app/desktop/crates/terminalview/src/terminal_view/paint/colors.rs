@@ -8,6 +8,7 @@ const MATCH_ALPHA: f32 = 0.35;
 const CURRENT_MATCH_ALPHA: f32 = 0.8;
 const THUMB_LIGHTNESS: f32 = 0.44;
 const THUMB_ALPHA: f32 = 0.42;
+const THUMB_HOVER_ALPHA: f32 = 0.58;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Colors {
@@ -17,6 +18,7 @@ pub(crate) struct Colors {
     pub(crate) matched: Hsla,
     pub(crate) current_match: Hsla,
     pub(crate) thumb: Hsla,
+    pub(crate) thumb_hover: Hsla,
     pub(crate) notice_text: Hsla,
 }
 
@@ -31,6 +33,7 @@ impl Colors {
             matched: tokens.primary().opacity(MATCH_ALPHA),
             current_match: tokens.primary().opacity(CURRENT_MATCH_ALPHA),
             thumb: thumb.opacity(THUMB_ALPHA),
+            thumb_hover: thumb.opacity(THUMB_HOVER_ALPHA),
             notice_text: tokens.foreground(),
         }
     }

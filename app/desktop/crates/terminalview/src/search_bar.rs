@@ -1,5 +1,6 @@
 //! The find bar over the terminal's top-right corner.
 
+mod card;
 mod event;
 mod session;
 mod toggle_spec;
@@ -8,22 +9,16 @@ pub(crate) use event::Event;
 pub(crate) use session::Session;
 
 use gpui::{
-    AppContext, Context, Div, Entity, EventEmitter, FontWeight, IntoElement, ParentElement, Render,
-    SharedString, Styled, Subscription, Window, div, px,
+    AppContext, Context, Entity, EventEmitter, InteractiveElement, IntoElement, ParentElement,
+    Render, Styled, Subscription, Window, div, px,
 };
 use terminal::{SearchOptions, SearchQuery, SearchSummary};
-use ui::{
-    Button, ButtonSize, ButtonVariant, IconName, Surface, TextInput, TextInputEvent,
-    TextInputStyle, Theme,
-};
-
-use crate::search_bar::toggle_spec::ToggleSpec;
+use ui::{IconName, Surface, TextInput, TextInputEvent, TextInputStyle, Theme};
 
 const BAR_INSET: f32 = 8.0;
-const INPUT_WIDTH: f32 = 220.0;
-const BAR_GAP: f32 = 4.0;
-const BAR_PADDING: f32 = 6.0;
-const COUNT_WIDTH: f32 = 44.0;
+const CARD_WIDTH: f32 = 320.0;
+const CARD_PADDING: f32 = 6.0;
+const CARD_OPACITY: f32 = 0.95;
 const PLACEHOLDER: &str = "Find in terminal...";
 
 pub(crate) struct SearchBar {
@@ -114,80 +109,6 @@ impl SearchBar {
         cx.notify();
         self.emit_query(cx);
     }
-
-    fn counter(
-        &self,
-        cx: &gpui::App,
-    ) -> SharedString {
-        if self.input.read(cx).text().is_empty() {
-            return SharedString::default();
-        }
-        format!("{}/{}", self.summary.current, self.summary.total).into()
-    }
-
-    fn toggle_button(
-        &self,
-        spec: ToggleSpec,
-        cx: &mut Context<'_, Self>,
-    ) -> Button {
-        let ToggleSpec { id, label, option } = spec;
-        let pressed = self
-            .options
-            .contains(option)
-            .then_some(ButtonVariant::Secondary);
-        let variant = pressed.unwrap_or(ButtonVariant::Ghost);
-        let me = cx.entity();
-        Button::new(id, label)
-            .variant(variant)
-            .size(ButtonSize::Xs)
-            .on_click(move |_, _, app| me.update(app, |bar, cx| bar.toggle(option, cx)))
-    }
-
-    fn event_button(
-        id: &'static str,
-        icon: IconName,
-        event: Event,
-        cx: &mut Context<'_, Self>,
-    ) -> Button {
-        let me = cx.entity();
-        Button::icon_only(id, icon)
-            .variant(ButtonVariant::Ghost)
-            .size(ButtonSize::Xs)
-            .on_click(move |_, _, app| me.update(app, |_, cx| cx.emit(event.clone())))
-    }
-}
-
-impl SearchBar {
-    fn toolbar(
-        &self,
-        cx: &mut Context<'_, Self>,
-    ) -> Div {
-        div()
-            .child(self.toggle_button(ToggleSpec::CASE_SENSITIVE, cx))
-            .child(self.toggle_button(ToggleSpec::WHOLE_WORD, cx))
-            .child(self.toggle_button(ToggleSpec::REGEX, cx))
-            .child(Self::event_button(
-                "search-previous",
-                IconName::CaretUp,
-                Event::Previous,
-                cx,
-            ))
-            .child(Self::event_button(
-                "search-next",
-                IconName::CaretDown,
-                Event::Next,
-                cx,
-            ))
-            .child(Self::event_button(
-                "search-close",
-                IconName::X,
-                Event::Close,
-                cx,
-            ))
-            .flex()
-            .items_center()
-            .gap(px(BAR_GAP))
-    }
 }
 
 impl Render for SearchBar {
@@ -197,30 +118,19 @@ impl Render for SearchBar {
         cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
         let tokens = Theme::of(cx).palette(Surface::Window);
-        let counter = self.counter(cx);
-        let toolbar = self.toolbar(cx);
         div()
             .absolute()
             .top(px(BAR_INSET))
             .right(px(BAR_INSET))
-            .flex()
-            .items_center()
-            .gap(px(BAR_GAP))
-            .p(px(BAR_PADDING))
-            .rounded(ui::radius::LG)
+            .w(px(CARD_WIDTH))
+            .p(px(CARD_PADDING))
+            .rounded(ui::radius::XL)
             .border_1()
             .border_color(tokens.border())
-            .bg(tokens.popover())
-            .child(div().w(px(INPUT_WIDTH)).child(self.input.clone()))
-            .child(
-                div()
-                    .w(px(COUNT_WIDTH))
-                    .text_size(ui::text_size::XS)
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(tokens.muted_foreground())
-                    .child(counter),
-            )
-            .child(toolbar)
+            .bg(tokens.background().opacity(CARD_OPACITY))
+            .capture_key_down(cx.listener(|_, event, _, cx| Self::on_card_key(event, cx)))
+            .child(self.search_row(cx))
+            .child(self.option_row(cx))
     }
 }
 
@@ -248,6 +158,10 @@ mod tests {
             total: 2,
         };
         bar.update(cx, |bar, cx| bar.show_summary(summary, cx));
-        assert!(bar.read_with(cx, SearchBar::counter).is_empty());
+        assert_eq!(
+            bar.read_with(cx, SearchBar::counter),
+            None,
+            "no count while empty"
+        );
     }
 }
