@@ -1,5 +1,5 @@
 use gpui::{Context, DragMoveEvent, MouseUpEvent, Pixels, Point, Window};
-use layout::DragSubject;
+use layout::{DragSubject, TabId};
 use protocol::PaneId;
 use ui::DraggedRow;
 
@@ -31,6 +31,42 @@ impl LayoutView {
         self.hover(&subject, event.event.position, cx);
     }
 
+    /// A view tab dragged out of the tab strip is at `position`, in window coordinates: preview
+    /// where its chats would land.
+    pub fn tab_dragged_over(
+        &mut self,
+        tab: TabId,
+        position: Point<Pixels>,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.hover(&DragSubject::Tab(tab), position, cx);
+    }
+
+    /// The view tab dragged out of the tab strip was released at `position`, in window
+    /// coordinates: ask to move its chats to the place under it, if any. The place is resolved
+    /// at the release, since this view's own mouse-up may already have cleared the preview.
+    pub fn tab_dropped(
+        &mut self,
+        tab: TabId,
+        position: Point<Pixels>,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let subject = DragSubject::Tab(tab);
+        self.hover(&subject, position, cx);
+        self.release(&subject, cx);
+    }
+
+    /// The view tab drag ended without a drop here: clear its preview.
+    pub fn tab_drag_cancelled(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if self.drop.is_dragging() {
+            self.drop.clear();
+            cx.notify();
+        }
+    }
+
     pub(crate) fn hover(
         &mut self,
         subject: &DragSubject,
@@ -40,7 +76,8 @@ impl LayoutView {
         let Some(tab) = &self.tab else {
             return;
         };
-        if !self.bounds.contains(&position) {
+        let own_tab = matches!(subject, DragSubject::Tab(dragged) if *dragged == tab.id());
+        if own_tab || !self.bounds.contains(&position) {
             self.drop.clear();
             cx.notify();
             return;
@@ -145,6 +182,77 @@ mod tests {
             let dragging = dragging_after_hover(&view, &subject, spot, cx);
             assert_eq!(dragging, expected, "dragging at {spot:?}");
         }
+    }
+
+    fn two_tabs() -> layout::Layout {
+        let mut layout = layout_of("a", &[]);
+        let second = layout::Command::AddTab {
+            id: layout::TabId(2),
+            title: "Two".into(),
+        };
+        layout.apply(second).expect("a second tab");
+        let shown = layout::Command::ActivateTab {
+            tab: layout::TabId(1),
+        };
+        layout.apply(shown).expect("tab one shown");
+        layout
+    }
+
+    #[gpui::test]
+    fn a_view_tab_dropped_on_a_pane_asks_to_move_its_chats_beside_it_after_the_mouse_up(
+        cx: &mut TestAppContext
+    ) {
+        let layout = two_tabs();
+        let harness = open(cx, &layout);
+        let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
+        let centre = view.read_with(cx, |view, _| view.bounds.center());
+        view.update(cx, |view, cx| {
+            view.tab_dragged_over(layout::TabId(2), centre, cx);
+        });
+        let none = gpui::Modifiers::none();
+        cx.simulate_mouse_up(centre, gpui::MouseButton::Left, none);
+        view.update(cx, |view, cx| {
+            view.tab_dropped(layout::TabId(2), centre, cx);
+        });
+        let placement = layout::Placement {
+            target: crate::test_support::pane_id("a"),
+            edge: Edge::Right,
+        };
+        let expected = crate::LayoutEvent::DropTab {
+            tab: layout::TabId(2),
+            onto: layout::TabId(1),
+            placement,
+        };
+        assert_eq!(opened.borrow().clone(), vec![expected]);
+    }
+
+    #[gpui::test]
+    fn the_shown_tab_dragged_over_its_own_panes_drops_nothing(cx: &mut TestAppContext) {
+        let layout = two_tabs();
+        let harness = open(cx, &layout);
+        let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
+        let previewed = view.update(cx, |view, cx| {
+            let centre = view.bounds.center();
+            view.tab_dragged_over(layout::TabId(1), centre, cx);
+            let previewed = view.drop.preview(view.clock.now(), ui::Motion::default());
+            view.tab_dropped(layout::TabId(1), centre, cx);
+            previewed
+        });
+        assert_eq!(previewed, None, "no preview over its own panes");
+        assert!(opened.borrow().is_empty(), "no drop");
+    }
+
+    #[gpui::test]
+    fn a_cancelled_view_tab_drag_clears_its_preview(cx: &mut TestAppContext) {
+        let layout = two_tabs();
+        let harness = open(cx, &layout);
+        let (view, cx) = (harness.view, harness.cx);
+        let dragging = view.update(cx, |view, cx| {
+            view.tab_dragged_over(layout::TabId(2), view.bounds.center(), cx);
+            view.tab_drag_cancelled(cx);
+            view.drop.is_dragging()
+        });
+        assert!(!dragging, "the drag is over");
     }
 
     #[gpui::test]

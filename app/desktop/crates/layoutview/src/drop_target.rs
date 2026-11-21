@@ -18,8 +18,7 @@ pub struct DropTarget {
 
 impl DropTarget {
     /// The target under `point` among the pane `slots` of the active tab, or `None` when no
-    /// pane is hit or the drop would do nothing: a pane dropped on itself, or a tab drag, which
-    /// never splits a pane.
+    /// pane is hit or the drop would do nothing, such as a pane dropped on itself.
     #[must_use]
     pub fn resolve(
         subject: &DragSubject,
@@ -28,7 +27,7 @@ impl DropTarget {
         joinable: &[PaneId],
     ) -> Option<Self> {
         let slot = slots.iter().find(|slot| contains(slot.rect, point))?;
-        if own_pane(subject, &slot.pane) || matches!(subject, DragSubject::Tab(_)) {
+        if own_pane(subject, &slot.pane) {
             return None;
         }
         let zone = PaneZone::at(point, slot.rect);
@@ -222,15 +221,17 @@ mod tests {
     }
 
     #[test]
-    fn a_tab_drag_never_targets_a_pane() {
+    fn a_view_tab_targets_the_pane_under_it_like_a_chat() {
         let layout = two_panes();
         let slots = layout.active_tab().expect("tab").layout(CONTENT);
-        let subject = DragSubject::Tab(TabId(1));
-        assert_eq!(
-            DropTarget::resolve(&subject, (100.0, 200.0), &slots, &[]),
-            None,
-            "tab drag"
-        );
+        let subject = DragSubject::Tab(TabId(2));
+        let target = DropTarget::resolve(&subject, (100.0, 200.0), &slots, &[]);
+        let expected = DropTarget {
+            pane: pane_id("a"),
+            edge: Edge::Right,
+            joins: false,
+        };
+        assert_eq!(target, Some(expected), "the centre of a adds on its right");
     }
 
     #[test]

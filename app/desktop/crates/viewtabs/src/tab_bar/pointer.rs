@@ -57,12 +57,8 @@ impl TabBar {
             self.cancel_press(cx);
             return;
         }
-        let (now, motion) = (self.clock.now(), Motion::of(cx));
-        let x = self.content_x(event.position);
-        if let Some(drag) = &mut self.drag {
-            drag.engine.moved(x);
-            drag.follow(event.position, now, motion);
-            cx.notify();
+        if self.drag.is_some() {
+            self.drag_to(event.position, cx);
             return;
         }
         let Some(press) = self
@@ -76,7 +72,7 @@ impl TabBar {
 
     pub(crate) fn released(
         &mut self,
-        _: &MouseUpEvent,
+        event: &MouseUpEvent,
         _: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
@@ -87,11 +83,46 @@ impl TabBar {
             return;
         };
         self.settle_into_slot(&drag, cx);
-        let drop = drag.engine.drop();
         cx.notify();
-        if let Some(command) = drop {
+        if let Some(dropped) = dropped_out(&drag, event.position) {
+            cx.emit(dropped);
+            return;
+        }
+        if let Some(command) = drag.engine.drop() {
             cx.emit(Event::Apply(vec![command]));
         }
+    }
+
+    fn drag_to(
+        &mut self,
+        position: Point<Pixels>,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let (now, motion) = (self.clock.now(), Motion::of(cx));
+        let x = self.content_x(position);
+        if let Some(drag) = &mut self.drag {
+            drag.engine.moved(x);
+            drag.follow(position, now, motion);
+        }
+        let crossing = self.crossing(position);
+        cx.notify();
+        if let Some(crossing) = crossing {
+            cx.emit(crossing);
+        }
+    }
+
+    fn crossing(
+        &mut self,
+        position: Point<Pixels>,
+    ) -> Option<Event> {
+        let outside = !self.row.contains(&position);
+        let drag = self.drag.as_mut()?;
+        let tab = drag.engine.tab()?;
+        if outside {
+            drag.out = true;
+            return Some(Event::DragOut { tab, position });
+        }
+        std::mem::take(&mut drag.out).then_some(Event::DragCancel)
     }
 
     fn activate(
@@ -118,8 +149,12 @@ impl TabBar {
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
-        if self.press.take().is_some() || self.drag.take().is_some() {
+        let drag = self.drag.take();
+        if self.press.take().is_some() || drag.is_some() {
             cx.notify();
+        }
+        if drag.is_some_and(|drag| drag.out) {
+            cx.emit(Event::DragCancel);
         }
     }
 
@@ -157,6 +192,14 @@ impl TabBar {
         let from = drag.engine.ghost_x(x) - slot;
         self.settle = Some(Settle::new(tab, from, self.clock.now(), Motion::of(cx)));
     }
+}
+
+fn dropped_out(
+    drag: &DragSession,
+    position: Point<Pixels>,
+) -> Option<Event> {
+    let tab = drag.engine.tab().filter(|_| drag.out)?;
+    Some(Event::DropOut { tab, position })
 }
 
 #[cfg(test)]
@@ -226,6 +269,60 @@ mod tests {
             Some(point(px(400.0), px(300.0))),
             "the ghost follows the pointer out of the bar"
         );
+    }
+
+    fn left_the_strip(events: &[Event]) -> Vec<Event> {
+        events
+            .iter()
+            .filter(|event| !matches!(event, Event::Apply(_)))
+            .cloned()
+            .collect()
+    }
+
+    #[gpui::test]
+    fn a_tab_dragged_onto_the_panes_is_handed_out_and_dropped_there(cx: &mut TestAppContext) {
+        let harness = open(cx, tabs(), 1);
+        let (cx, events) = (harness.cx, harness.events);
+        let none = Modifiers::none();
+        let below = point(px(400.0), px(300.0));
+        cx.simulate_mouse_down(point(px(350.0), px(21.0)), MouseButton::Left, none);
+        cx.simulate_mouse_move(point(px(370.0), px(21.0)), MouseButton::Left, none);
+        cx.simulate_mouse_move(below, MouseButton::Left, none);
+        cx.simulate_mouse_up(below, MouseButton::Left, none);
+        let tab = TabId(2);
+        let expected = vec![
+            Event::DragOut {
+                tab,
+                position: below,
+            },
+            Event::DropOut {
+                tab,
+                position: below,
+            },
+        ];
+        assert_eq!(left_the_strip(&events.borrow()), expected);
+        assert!(applied(&events.borrow()).is_empty(), "no reorder");
+    }
+
+    #[gpui::test]
+    fn a_tab_dragged_back_into_the_strip_cancels_its_drag_out(cx: &mut TestAppContext) {
+        let harness = open(cx, tabs(), 1);
+        let (cx, events) = (harness.cx, harness.events);
+        let none = Modifiers::none();
+        let below = point(px(400.0), px(300.0));
+        cx.simulate_mouse_down(point(px(350.0), px(21.0)), MouseButton::Left, none);
+        cx.simulate_mouse_move(point(px(370.0), px(21.0)), MouseButton::Left, none);
+        cx.simulate_mouse_move(below, MouseButton::Left, none);
+        cx.simulate_mouse_move(point(px(370.0), px(21.0)), MouseButton::Left, none);
+        cx.simulate_mouse_move(point(px(372.0), px(21.0)), MouseButton::Left, none);
+        let expected = vec![
+            Event::DragOut {
+                tab: TabId(2),
+                position: below,
+            },
+            Event::DragCancel,
+        ];
+        assert_eq!(left_the_strip(&events.borrow()), expected);
     }
 
     #[gpui::test]

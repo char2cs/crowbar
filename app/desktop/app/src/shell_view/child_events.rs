@@ -1,6 +1,6 @@
 use gpui::{App, Context, Entity, MouseDownEvent, Subscription, Window};
 use layout::Command;
-use layoutview::LayoutEvent;
+use layoutview::{LayoutEvent, LayoutView};
 use sidebarview::Sidebar;
 use ui::ToastKind;
 
@@ -103,6 +103,13 @@ impl ShellView {
                 self.sidebar
                     .update(cx, |sidebar, cx| sidebar.toggle(window, cx));
             },
+            viewtabs::Event::DragOut { tab, position } => self.layout.update(cx, |layout, cx| {
+                layout.tab_dragged_over(*tab, *position, cx);
+            }),
+            viewtabs::Event::DropOut { tab, position } => self.layout.update(cx, |layout, cx| {
+                layout.tab_dropped(*tab, *position, cx);
+            }),
+            viewtabs::Event::DragCancel => self.layout.update(cx, LayoutView::tab_drag_cancelled),
             _ => {},
         }
     }
@@ -128,6 +135,11 @@ impl ShellView {
                 tab,
                 placement,
             } => self.state.open_chat_at(chat, (*tab, placement.clone())),
+            LayoutEvent::DropTab {
+                tab,
+                onto,
+                placement,
+            } => self.state.drop_tab(*tab, (*onto, placement.clone())),
             LayoutEvent::NewTab { onto } => return self.new_tab_in(onto, cx),
             LayoutEvent::RenameTab { pane, current } => {
                 return self.ask_rename((pane, current), window, cx);

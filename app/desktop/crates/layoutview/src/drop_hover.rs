@@ -61,6 +61,11 @@ impl DropHover {
                 tab: tab.id(),
                 placement: target.placement(),
             }),
+            DragSubject::Tab(dragged) => Some(LayoutEvent::DropTab {
+                tab: *dragged,
+                onto: tab.id(),
+                placement: target.placement(),
+            }),
             _ => target.command(subject, tab).map(LayoutEvent::Apply),
         }
     }

@@ -19,6 +19,16 @@ pub enum LayoutEvent {
         /// The pane and side the chat lands next to.
         placement: Placement,
     },
+    /// A view tab dragged out of its strip was dropped on a pane of the shown tab: move the
+    /// chats of `tab` into `onto` at `placement`.
+    DropTab {
+        /// The dragged view tab.
+        tab: TabId,
+        /// The shown tab, which receives the chats.
+        onto: TabId,
+        /// The pane and side the chats land next to.
+        placement: Placement,
+    },
     /// A strip tab was pressed, or reached with the arrow keys: focus `pane`, and let the strip
     /// keep the keyboard instead of the page that becomes active.
     StripFocus {

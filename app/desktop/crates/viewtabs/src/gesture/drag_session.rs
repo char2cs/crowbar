@@ -10,6 +10,7 @@ pub(crate) struct DragSession {
     pub(crate) engine: StripDrag,
     pub(crate) pointer: Point<Pixels>,
     pub(crate) grab_y: f32,
+    pub(crate) out: bool,
     slides: Vec<Glide>,
 }
 
@@ -25,6 +26,7 @@ impl DragSession {
             engine,
             pointer,
             grab_y,
+            out: false,
             slides: vec![slide; tabs],
         }
     }
