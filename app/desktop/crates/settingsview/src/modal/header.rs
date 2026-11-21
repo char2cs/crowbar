@@ -95,6 +95,10 @@ mod tests {
                 search.left() - px(16.0),
                 "{width}: {close:?}"
             );
+            assert_eq!(
+                close.size.height, search.size.height,
+                "{width}: buttons grow with inputs"
+            );
         }
     }
 

@@ -3,13 +3,14 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, ClickEvent, Div, ElementId, FocusHandle, FontWeight, Hsla, InteractiveElement,
-    IntoElement, MouseButton, ParentElement, RenderOnce, SharedString, StatefulInteractiveElement,
-    Styled, Window, div, hsla,
+    IntoElement, MouseButton, ParentElement, Pixels, RenderOnce, SharedString,
+    StatefulInteractiveElement, Styled, Window, div, hsla,
 };
 
 use crate::control::button::click_handler::ClickHandler;
 use crate::control::button::colors::Colors;
 use crate::display::Spinner;
+use crate::foundation::ControlScale;
 use crate::foundation::Icon;
 use crate::foundation::IconName;
 use crate::foundation::Pose;
@@ -122,6 +123,7 @@ impl Button {
         &self,
         colors: &Colors,
         background: Hsla,
+        (height, text): (Pixels, Pixels),
     ) -> Div {
         let size = self.size;
         let frame = div()
@@ -130,13 +132,13 @@ impl Button {
             .items_center()
             .justify_center()
             .gap(size.gap())
-            .h(size.height())
+            .h(height)
             .rounded(size.radius())
             .border_1()
             .border_color(colors.border)
             .bg(background)
             .text_color(colors.foreground)
-            .text_size(size.text())
+            .text_size(text)
             .font_weight(FontWeight::MEDIUM)
             .line_height(text_size::LINE_HEIGHT)
             .whitespace_nowrap()
@@ -145,7 +147,7 @@ impl Button {
             row.justify_start()
         });
         match &self.label {
-            None => frame.w(size.height()),
+            None => frame.w(height),
             Some(_) => frame.px(size.padding_x()),
         }
     }
@@ -182,13 +184,13 @@ impl RenderOnce for Button {
             cx,
         );
         let content = self.content_color(&colors);
-        let icon =
-            (self.icon.map(Icon::new)).map(|icon| icon.size(self.size.icon()).color(content));
+        let (height, text, icon_size) = self.size.sized(ControlScale::of(window));
+        let icon = (self.icon.map(Icon::new)).map(|icon| icon.size(icon_size).color(content));
         let spinner = self
             .loading
             .then(|| indicator(&self.id, &colors, self.size));
         let (ring, enabled) = (focus_ring(palette), self.enabled());
-        self.frame(&colors, background)
+        self.frame(&colors, background, (height, text))
             .font_family(theme.ui_family())
             .relative()
             .id(self.id)
