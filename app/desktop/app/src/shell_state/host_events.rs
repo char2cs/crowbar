@@ -84,7 +84,10 @@ impl ShellState {
             HostEvent::HoverChanged { pane, hovered } => outcome.hover.push((pane, hovered)),
             HostEvent::PageFocused { pane } => outcome.focused.push(pane),
             HostEvent::SettingRequested { key, value, .. } => outcome.settings.push((key, value)),
-            HostEvent::OpenExternal { .. } | HostEvent::Reveal { .. } => open_in_system(event),
+            HostEvent::OpenExternal { url } => log_failure(platform::open_external(url.as_str())),
+            HostEvent::Reveal { path } => {
+                log_failure(platform::reveal_in_file_manager(Path::new(path.as_str())));
+            },
             HostEvent::FilesDropped { pane, paths }
                 if dropped_files::opens_files(self.history.layout(), &pane) =>
             {
@@ -93,14 +96,9 @@ impl ShellState {
             HostEvent::StateChanged { .. }
             | HostEvent::StateDiscarded { .. }
             | HostEvent::FilesDropped { .. } => {},
-            event @ (HostEvent::Mounted { .. } | HostEvent::ReviewViewedSet { .. }) => {
-                note_review(event, outcome);
-            },
             HostEvent::BrowserPage { pane, update } => self.note_page(pane, update, outcome),
             HostEvent::PointerMoved { pane, x, y } => outcome.pointer = Some((pane, x, y)),
-            HostEvent::ToastShown { .. } | HostEvent::ToastClosed { .. } => {
-                outcome.toasts.extend(PaneToastChange::of(event));
-            },
+            report => note_report(report, outcome),
         }
     }
 
@@ -177,13 +175,16 @@ impl ShellState {
     }
 }
 
-fn note_review(
+fn note_report(
     event: HostEvent,
     outcome: &mut Outcome,
 ) {
     if let HostEvent::Mounted { pane } = event {
         outcome.mounted.push(pane);
         return;
+    }
+    if !matches!(event, HostEvent::ReviewViewedSet { .. }) {
+        return outcome.toasts.extend(PaneToastChange::of(event));
     }
     let HostEvent::ReviewViewedSet {
         pane,
@@ -197,18 +198,6 @@ fn note_review(
         .into_iter()
         .map(|f| (f.path, viewed.then_some(f.signature)));
     outcome.viewed.push((pane, marks.collect()));
-}
-
-fn open_in_system(event: HostEvent) {
-    match event {
-        HostEvent::OpenExternal { url } => {
-            log_failure(platform::open_external(url.as_str()));
-        },
-        HostEvent::Reveal { path } => {
-            log_failure(platform::reveal_in_file_manager(Path::new(path.as_str())));
-        },
-        _ => {},
-    }
 }
 
 fn log_failure<E: std::fmt::Display>(served: Result<(), E>) {

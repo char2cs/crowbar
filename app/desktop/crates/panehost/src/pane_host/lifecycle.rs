@@ -7,4 +7,5 @@ pub(crate) mod pane_phase;
 pub(crate) mod pane_runtime;
 mod placement;
 mod stage;
+mod toast_frames;
 mod visibility;

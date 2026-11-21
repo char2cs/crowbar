@@ -5,6 +5,7 @@ use protocol::{DisplayText, PaneId, PaneToast};
 pub(crate) enum PaneToastChange {
     Shown(PaneId, PaneToast),
     Closed(PaneId, DisplayText),
+    OpenRefused(PaneId, (Option<DisplayText>, DisplayText)),
 }
 
 impl PaneToastChange {
@@ -12,6 +13,11 @@ impl PaneToastChange {
         match event {
             HostEvent::ToastShown { pane, toast } => Some(Self::Shown(pane, toast)),
             HostEvent::ToastClosed { pane, key } => Some(Self::Closed(pane, key)),
+            HostEvent::OpenRefused {
+                pane,
+                title,
+                message,
+            } => Some(Self::OpenRefused(pane, (title, message))),
             _ => None,
         }
     }

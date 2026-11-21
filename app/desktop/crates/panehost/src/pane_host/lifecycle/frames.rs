@@ -7,6 +7,7 @@ use crate::pane_host::context::setting_event;
 use crate::pane_host::lifecycle::pane_phase::PanePhase;
 use crate::pane_host::lifecycle::pane_runtime::PaneRuntime;
 use crate::pane_host::lifecycle::stage::Stage;
+use crate::pane_host::lifecycle::toast_frames::toast_events;
 use crate::pane_host::reconcile::Keyboard;
 use crate::slot::HostEvent;
 
@@ -106,8 +107,9 @@ impl PaneHost {
                 files,
                 viewed,
             },
-            PaneFrame::Toast(toast) => HostEvent::ToastShown { pane, toast },
-            PaneFrame::ToastClose { key } => HostEvent::ToastClosed { pane, key },
+            frame @ (PaneFrame::Toast(_)
+            | PaneFrame::ToastClose { .. }
+            | PaneFrame::OpenRefused { .. }) => return Ok(toast_events(pane, frame)),
         };
         Ok(vec![event])
     }
@@ -386,6 +388,22 @@ mod tests {
             ),
         ];
         assert_events(cases);
+    }
+
+    #[test]
+    fn a_refused_open_becomes_its_event() {
+        let title = DisplayText::new("File not found").unwrap();
+        let message = DisplayText::new("src/a.ts").unwrap();
+        let frame = PaneFrame::OpenRefused {
+            title: Some(title.clone()),
+            message: message.clone(),
+        };
+        let expected = HostEvent::OpenRefused {
+            pane: PaneId::new("p1").unwrap(),
+            title: Some(title),
+            message,
+        };
+        assert_events(vec![("a refused open", frame, expected)]);
     }
 
     #[test]

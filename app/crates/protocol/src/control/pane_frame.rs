@@ -131,6 +131,16 @@ pub enum PaneFrame {
         /// The absolute path.
         path: FsPath,
     },
+    /// `pane.openRefused`: a pane opened by the user could not read what it was opened on. The
+    /// shell closes the pane and says why, as a toast titled `title` when one is given.
+    #[serde(rename = "pane.openRefused")]
+    OpenRefused {
+        /// What failed, such as "File not found".
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<DisplayText>,
+        /// The detail, such as the file's path.
+        message: DisplayText,
+    },
     /// `shell.toast`: shows a toast in the shell's toast host. A toast already shown under the
     /// same key by this pane is rewritten in place. Nothing is answered.
     #[serde(rename = "shell.toast")]
@@ -156,6 +166,8 @@ mod tests {
             r#"{"kind":"shell.toast","key":"t1","tone":"error","title":"Save the file","description":"disk full","pinned":false}"#,
             r#"{"kind":"shell.toast","key":"t2","tone":"loading","title":"Taking the prompt back…","pinned":true}"#,
             r#"{"kind":"shell.toastClose","key":"t2"}"#,
+            r#"{"kind":"pane.openRefused","title":"File not found","message":"src/a.ts"}"#,
+            r#"{"kind":"pane.openRefused","message":"This project is no longer in your list"}"#,
         ];
         for text in cases {
             let frame: PaneFrame = serde_json::from_str(text).unwrap();

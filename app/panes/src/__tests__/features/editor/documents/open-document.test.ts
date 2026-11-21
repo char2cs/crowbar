@@ -199,7 +199,7 @@ describe('openDocument', () => {
     expect(editors()).toEqual([])
   })
 
-  it('names the remote host a file could not be read from', async () => {
+  it('names the remote host a file could not be read from, to the toast or to the caller that says it', async () => {
     pairRemoteHost('h1', 'Studio Mac')
     loadProjects(projectOn('p1', 'h1'))
     setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-a', owningChatId: 'chat-a' })
@@ -215,6 +215,12 @@ describe('openDocument', () => {
       'Couldn’t reach Studio Mac',
       'Check that it is online in Settings → Hosts.',
     )
+    const onRefused = vi.fn()
+    expect(await openDocument(A, { onRefused })).toBeNull()
+    expect(onRefused).toHaveBeenCalledExactlyOnceWith({
+      title: 'Couldn’t reach Studio Mac',
+      message: 'Check that it is online in Settings → Hosts.',
+    })
   })
 
   it('a host document holds one watch however many opens race for it, and only while open', async () => {

@@ -151,6 +151,16 @@ export class PaneClient {
     this.send({ kind: 'shell.toastClose', key: fitDisplayText(key) })
   }
 
+  /** Tells the shell the pane could not read what the user just opened it on: the shell closes it and says why, as a toast titled `title`. */
+  refuseOpen({ title, message }: { title: string; message: string }): void {
+    if (!message) return this.send({ kind: 'pane.openRefused', message: fitDisplayText(title) })
+    this.send({
+      kind: 'pane.openRefused',
+      title: fitDisplayText(title),
+      message: fitDisplayText(message),
+    })
+  }
+
   /** Asks the shell to open another pane. */
   open(typeId: string, params: PaneParams): void {
     this.send({ kind: 'pane.open', typeId, params })

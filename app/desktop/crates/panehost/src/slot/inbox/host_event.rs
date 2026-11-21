@@ -126,6 +126,16 @@ pub enum HostEvent {
         /// The pane's id for the toast.
         key: DisplayText,
     },
+    /// A pane opened by the user could not read what it was opened on: the shell closes it and
+    /// says why.
+    OpenRefused {
+        /// The pane.
+        pane: PaneId,
+        /// What failed, when the pane names it.
+        title: Option<DisplayText>,
+        /// The detail.
+        message: DisplayText,
+    },
     /// A browser pane's page reported its address, load state or title.
     BrowserPage {
         /// The pane.

@@ -1,5 +1,7 @@
 use gpui::Context;
-use protocol::PaneId;
+use layout::Command;
+use protocol::{DisplayText, PaneId};
+use ui::{ToastContent, ToastKind, ToastLifetime};
 
 use super::ShellView;
 use crate::notices::{pane_of_toast_key, pane_toast_content, pane_toast_key};
@@ -29,7 +31,27 @@ impl ShellView {
             PaneToastChange::Closed(pane, key) => {
                 self.clear_keyed(&pane_toast_key(&pane, key.as_str()), cx);
             },
+            PaneToastChange::OpenRefused(pane, refusal) => self.refuse_open(pane, &refusal, cx),
         }
+    }
+
+    fn refuse_open(
+        &mut self,
+        pane: PaneId,
+        (title, message): &(Option<DisplayText>, DisplayText),
+        cx: &mut Context<'_, Self>,
+    ) {
+        let said = ToastContent::new(ToastKind::Error, message.to_string());
+        let content = match title {
+            Some(title) => said.titled(title.to_string()),
+            None => said,
+        };
+        self.show_keyed(
+            &format!("refused:{pane}"),
+            (content, ToastLifetime::Auto),
+            cx,
+        );
+        self.apply_guarded(vec![Command::ClosePane { pane }], cx);
     }
 
     pub(super) fn drop_toasts_of_closed_panes(
@@ -92,6 +114,20 @@ mod tests {
         );
         let close = r#"{"sdk":1,"kind":"shell.toastClose","key":"t1"}"#;
         assert_eq!(post(&mut opened, close), base, "closed by the pane");
+    }
+
+    #[gpui::test]
+    fn a_refused_open_closes_its_pane_and_says_why(cx: &mut TestAppContext) {
+        let mut opened = open_shell(cx);
+        let base = shown(&mut opened);
+        let refused =
+            r#"{"sdk":1,"kind":"pane.openRefused","title":"File not found","message":"src/a.ts"}"#;
+        assert_eq!(post(&mut opened, refused), base + 1, "the toast stays");
+        let pane = opened.pane.clone();
+        let open = opened.shell.update(&mut opened.window, |shell, _| {
+            shell.state.layout().pane(&pane).is_some()
+        });
+        assert!(!open, "the pane closed");
     }
 
     #[gpui::test]

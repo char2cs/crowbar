@@ -19,7 +19,7 @@ import {
   type EditorContent,
 } from '@/features/panes/types/pane-content'
 import { toast } from '@/features/window/stores/toast-store'
-import { toastHostFailure } from '@/features/hosts/lib/host-failure-notice'
+import { hostFailureRefusal, toastHostFailure } from '@/features/hosts/lib/host-failure-notice'
 import {
   getEditorHost,
   loadEditorHost,
@@ -35,6 +35,8 @@ export interface OpenDocumentOptions {
   paneId?: string
   /** Called with the buffer about to be shown, before anything observes it shown. */
   beforeShow?: (bufferId: string) => void
+  /** Told why a read was refused, in place of the error toast; the caller says it instead. */
+  onRefused?: (reason: DocumentUnavailable) => void
 }
 
 /** The open editor buffer holding `ref`, if any. */
@@ -102,10 +104,19 @@ export function openFailure(target: DocumentTarget, error: unknown): DocumentUna
   return { title: 'Failed to open file', message: name }
 }
 
-function reportOpenFailure(target: DocumentTarget, error: unknown): void {
-  if (toastHostFailure(error)) return
-  const { title, message } = openFailure(target, error)
-  toast.error(title, message)
+function reportOpenFailure(
+  target: DocumentTarget,
+  error: unknown,
+  onRefused: OpenDocumentOptions['onRefused'],
+): void {
+  if (!onRefused && toastHostFailure(error)) return
+  const hostRefusal = onRefused ? hostFailureRefusal(error) : null
+  sayRefused(hostRefusal ?? openFailure(target, error), onRefused)
+}
+
+function sayRefused(reason: DocumentUnavailable, onRefused: OpenDocumentOptions['onRefused']) {
+  if (onRefused) return onRefused(reason)
+  toast.error(reason.title, reason.message)
 }
 
 /** Why a host document whose watch the daemon refused opens nowhere: what a read hit, the OS out
@@ -189,12 +200,15 @@ interface Loaded {
 }
 
 /** Reads `target` with Monaco ready to take it; a failed read is reported and answers null. */
-async function load(target: DocumentTarget): Promise<Loaded | null> {
+async function load(
+  target: DocumentTarget,
+  onRefused: OpenDocumentOptions['onRefused'],
+): Promise<Loaded | null> {
   try {
     const [read, openModel] = await Promise.all([readDocument(target), documentModelOpener()])
     return { read, openModel }
   } catch (error) {
-    reportOpenFailure(target, error)
+    reportOpenFailure(target, error, onRefused)
     return null
   }
 }
@@ -226,11 +240,10 @@ async function openHostDocument(ref: HostRef, opts: OpenDocumentOptions): Promis
     unwatch = await followHostDocument(ref)
   } catch (refusal) {
     const read = await readDocument(ref).catch((error: unknown) => ({ error }))
-    const { title, message } = watchRefusal(ref, read, refusal)
-    toast.error(title, message)
+    sayRefused(watchRefusal(ref, read, refusal), opts.onRefused)
     return null
   }
-  const loaded = await load(ref)
+  const loaded = await load(ref, opts.onRefused)
   // A concurrent open of the same document may have landed, holding its own watch.
   const landed = loaded && findDocumentBuffer(loaded.read.ref)
   if (!loaded || landed) {
@@ -253,7 +266,7 @@ export async function openDocument(
   if (!('absolutePath' in target) && target.authority === 'host') {
     return openHostDocument(target, opts)
   }
-  const loaded = await load(target)
+  const loaded = await load(target, opts.onRefused)
   if (!loaded) return null
   // A concurrent open of the same document, or another spelling of it, may have landed.
   const landed = findDocumentBuffer(loaded.read.ref)

@@ -24,7 +24,11 @@ impl PaneSpec {
         let params = Params::default()
             .with(THREAD_ID, chat)?
             .with(FILE_ID, file_id(path))?;
-        Self::new(EDITOR, params, PaneState::new(json!({ "path": path }))?)
+        Self::new(
+            EDITOR,
+            params,
+            PaneState::new(json!({ "path": path, "fresh": true }))?,
+        )
     }
 
     pub(crate) fn untitled(
@@ -44,7 +48,7 @@ impl PaneSpec {
         let params = Params::default()
             .with(THREAD_ID, chat)?
             .with(FILE_ID, file_id(path))?;
-        let state = PaneState::new(json!({ "path": path, "absolute": true }))?;
+        let state = PaneState::new(json!({ "path": path, "absolute": true, "fresh": true }))?;
         Self::new(EDITOR, params, state)
     }
 }
@@ -86,6 +90,17 @@ mod tests {
         for (name, spec, key, expected) in CASES {
             let state = spec().unwrap().state;
             assert_eq!(state.as_value()[key].to_string(), expected, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_file_opened_now_is_marked_fresh_so_a_refused_read_closes_it() {
+        let specs = [
+            PaneSpec::editor("c1", "src/main.rs"),
+            PaneSpec::host_file("c1", "/home/a.rs"),
+        ];
+        for spec in specs {
+            assert_eq!(spec.unwrap().state.as_value()["fresh"], true);
         }
     }
 

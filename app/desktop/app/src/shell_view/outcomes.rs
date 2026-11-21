@@ -35,10 +35,9 @@ impl ShellView {
             loaded,
             picks,
             settings,
-            pointer: _,
             mounted,
             viewed,
-            toasts: _,
+            ..
         } = outcome;
         self.serve_review_viewed(&mounted, viewed);
         self.store_pane_settings(settings);

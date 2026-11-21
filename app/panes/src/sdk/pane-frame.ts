@@ -9,6 +9,7 @@ export type PaneFrame =
   | { kind: 'pane.setTitle'; title: string }
   | { kind: 'pane.setState'; state: unknown }
   | { kind: 'pane.setDirty'; dirty: boolean }
+  | { kind: 'pane.openRefused'; title?: string; message: string }
   | { kind: 'request'; id: number; method: string; params: unknown }
   | { kind: 'subscribe'; id: number; event: string }
   | { kind: 'unsubscribe'; id: number }

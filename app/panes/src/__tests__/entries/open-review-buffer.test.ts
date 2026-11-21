@@ -61,7 +61,7 @@ describe('openReviewBuffer', () => {
   it.each(cases.map((c, i) => [c.name, c, `ws${i}`] as const))('%s', async (_, c, wsId) => {
     const { panes } = windowPaneStore.getState()
     windowPaneStore.setState({ panes: { ...panes, [ROOT_PANE_ID]: makePane(ROOT_PANE_ID, null) } })
-    await openReviewBuffer(wsId, c.saved)
+    await openReviewBuffer(wsId, c.saved, () => undefined)
     c.reveal(wsId)
     const { view, ...reveal } = c.expected
     const { branchReview } = getOrCreateWorkspaceStore(wsId).getState()

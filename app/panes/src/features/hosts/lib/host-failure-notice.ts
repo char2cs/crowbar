@@ -107,6 +107,13 @@ export function toastUnresolvedHost(unavailable: HostUnavailable | null): void {
   show(unresolvedHostNotice(unavailable))
 }
 
+/** Its host's notice for a failed action when the host is why, as a title over its detail (empty
+ *  when the notice has none), else null. */
+export function hostFailureRefusal(err: unknown): { title: string; message: string } | null {
+  const notice = hostFailureNotice(err)
+  return notice && { title: notice.message, message: notice.description ?? '' }
+}
+
 /** Its host's words for a failed action when the host is why, else null. */
 export function hostFailureWords(err: unknown): string | null {
   return hostFailureNotice(err)?.message ?? null

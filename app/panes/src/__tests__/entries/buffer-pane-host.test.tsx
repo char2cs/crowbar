@@ -21,6 +21,8 @@ vi.mock('@/features/editor/lib/buffer-save', () => ({
   saveBuffer: vi.fn(),
 }))
 
+import type { OpenBuffer } from '@/entries/open-buffer'
+
 const { BufferPaneHost } = await import('@/entries/buffer-pane-host')
 
 afterEach(() => {
@@ -47,6 +49,8 @@ function client() {
     markDirty: vi.fn(),
     markClean: vi.fn(),
     onSave: vi.fn(() => () => undefined),
+    setState: vi.fn(),
+    refuseOpen: vi.fn(),
   }
 }
 
@@ -62,7 +66,8 @@ const cases: Case[] = [
   {
     behaviour: 'opens the saved buffer in the chat workspace',
     tab: withOpenTab,
-    expectation: (_shell, open) => expect(open).toHaveBeenCalledWith('ws1', { path: 'a.ts' }),
+    expectation: (_shell, open) =>
+      expect(open).toHaveBeenCalledWith('ws1', { path: 'a.ts' }, expect.any(Function)),
   },
   {
     behaviour: 'titles the pane with the tab',
@@ -108,7 +113,35 @@ describe('BufferPaneHost feeds', () => {
   })
 })
 
-async function renderHost(shell: Shell, open: () => Promise<string>) {
+describe('BufferPaneHost opening a file the user just opened', () => {
+  const FRESH = { path: 'a.ts', fresh: true }
+  const NOT_FOUND = { title: 'File not found', message: 'a.ts' }
+
+  it('hands a refused read to the shell, which closes the pane', async () => {
+    const shell = client()
+    const open = vi.fn((_ws: string, _saved: unknown, refuse: (r: typeof NOT_FOUND) => void) => {
+      refuse(NOT_FOUND)
+      return Promise.resolve(null)
+    })
+    bufferSession.setState({ chatId: 'c1', saved: FRESH, active: false })
+    await renderHost(shell, open)
+    await waitFor(() => expect(shell.refuseOpen).toHaveBeenCalledWith(NOT_FOUND))
+    expect(shell.setState).not.toHaveBeenCalled()
+  })
+
+  it('once open, saves the file as one to restore with the layout', async () => {
+    const shell = client()
+    bufferSession.setState({ chatId: 'c1', saved: FRESH, active: false })
+    await renderHost(
+      shell,
+      vi.fn(() => Promise.resolve('b1')),
+    )
+    await waitFor(() => expect(shell.setState).toHaveBeenCalledWith({ path: 'a.ts' }))
+    expect(shell.refuseOpen).not.toHaveBeenCalled()
+  })
+})
+
+async function renderHost(shell: Shell, open: OpenBuffer) {
   await act(async () => {
     render(<BufferPaneHost client={shell} open={open} />)
   })

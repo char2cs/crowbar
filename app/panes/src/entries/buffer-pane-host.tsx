@@ -20,7 +20,10 @@ import type { PaneClient } from '@/sdk/pane-client'
 import { bufferSession } from './buffer-session'
 import type { OpenBuffer } from './open-buffer'
 
-type Shell = Pick<PaneClient, 'setTitle' | 'markDirty' | 'markClean' | 'onSave'>
+type Shell = Pick<
+  PaneClient,
+  'setTitle' | 'markDirty' | 'markClean' | 'onSave' | 'setState' | 'refuseOpen'
+>
 
 const WORK = { dirty: 'dirty', clean: 'clean' } as const
 type Work = (typeof WORK)[keyof typeof WORK]
@@ -56,6 +59,23 @@ function useShellReporting(client: Shell, buffer: PaneContent | undefined): void
   )
 }
 
+function settled(saved: unknown): unknown {
+  const openedJustNow = typeof saved === 'object' && saved !== null && 'fresh' in saved
+  if (!openedJustNow) return null
+  const { fresh: _fresh, ...kept } = saved as Record<string, unknown>
+  return kept
+}
+
+async function openInto(client: Shell, open: OpenBuffer, wsId: string, saved: unknown) {
+  let refused = false
+  await open(wsId, saved, (reason) => {
+    refused = true
+    client.refuseOpen(reason)
+  })
+  const kept = settled(saved)
+  if (!refused && kept) client.setState(kept)
+}
+
 function WorkspaceFeeds({ wsId }: { wsId: string }) {
   useWorkspaceEffects(wsId, true)
   return null
@@ -75,8 +95,10 @@ export function BufferPaneHost({ client, open }: { client: Shell; open: OpenBuff
     if (!wsId) return
     setActiveWorkspaceId(wsId)
     if (windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds.length) return
-    open(wsId, saved).catch((error: unknown) => report(error, { action: 'Open the pane' }))
-  }, [wsId, saved, open])
+    openInto(client, open, wsId, saved).catch((error: unknown) =>
+      report(error, { action: 'Open the pane' }),
+    )
+  }, [client, wsId, saved, open])
 
   useShellReporting(client, buffer)
   useSaveKeyboard()
