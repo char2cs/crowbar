@@ -1,6 +1,6 @@
 //! The theme colours the painter uses besides the cell colours.
 
-use gpui::{App, Hsla, hsla};
+use gpui::{App, Hsla, Rgba, hsla};
 use ui::{Surface, Theme};
 
 const SELECTION_ALPHA: f32 = 0.25;
@@ -29,7 +29,7 @@ impl Colors {
         Self {
             pane: tokens.pane_background(),
             foreground: tokens.foreground(),
-            selection: tokens.foreground().opacity(SELECTION_ALPHA),
+            selection: as_xterm_over_its_clear_background(tokens.foreground(), SELECTION_ALPHA),
             matched: tokens.primary().opacity(MATCH_ALPHA),
             current_match: tokens.primary().opacity(CURRENT_MATCH_ALPHA),
             thumb: thumb.opacity(THUMB_ALPHA),
@@ -37,6 +37,20 @@ impl Colors {
             notice_text: tokens.foreground(),
         }
     }
+}
+
+fn as_xterm_over_its_clear_background(
+    color: Hsla,
+    alpha: f32,
+) -> Hsla {
+    let Rgba { r, g, b, .. } = color.to_rgb();
+    Rgba {
+        r: r * alpha,
+        g: g * alpha,
+        b: b * alpha,
+        a: 1.0,
+    }
+    .into()
 }
 
 #[cfg(test)]
@@ -49,8 +63,23 @@ mod tests {
     fn highlights_are_translucent_versions_of_theme_colours(cx: &mut TestAppContext) {
         cx.update(|cx| ui::init(cx).unwrap_or_else(|error| panic!("{error}")));
         let colors = cx.update(|cx| Colors::of(cx));
-        assert_eq!(colors.selection.a, SELECTION_ALPHA);
         assert_eq!(colors.current_match.a, CURRENT_MATCH_ALPHA);
         assert_ne!(colors.pane, colors.foreground);
+    }
+
+    #[gpui::test]
+    fn the_selection_is_a_quarter_of_the_foreground_over_black_as_xterm_draws_it(
+        cx: &mut TestAppContext
+    ) {
+        cx.update(|cx| ui::init(cx).unwrap_or_else(|error| panic!("{error}")));
+        let colors = cx.update(|cx| Colors::of(cx));
+        let (wash, ink) = (colors.selection.to_rgb(), colors.foreground.to_rgb());
+        let scaled = [ink.r, ink.g, ink.b].map(|channel| channel * SELECTION_ALPHA);
+        let drawn = [wash.r, wash.g, wash.b];
+        let close = drawn.iter().zip(scaled).all(|(a, b)| (a - b).abs() < 1e-3);
+        assert!(
+            close && (wash.a - 1.0).abs() < f32::EPSILON,
+            "{drawn:?} vs {scaled:?}"
+        );
     }
 }

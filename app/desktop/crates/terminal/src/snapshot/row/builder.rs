@@ -1,5 +1,7 @@
 //! Builds a drawable [`Row`] from one grid line.
 
+use std::ops::Range;
+
 use alacritty_terminal::grid::Row as GridRow;
 use alacritty_terminal::index::Column;
 use alacritty_terminal::term::cell::{Cell, Flags};
@@ -8,6 +10,7 @@ use crate::snapshot::palette::ColorSource;
 use crate::snapshot::palette::Rgb;
 use crate::snapshot::row::Row;
 use crate::snapshot::row::background_span::BackgroundSpan;
+use crate::snapshot::row::cell_colors::cell_colors;
 use crate::snapshot::row::segment::Segment;
 use crate::snapshot::row::style_flags::StyleFlags;
 use crate::snapshot::row::style_span::StyleSpan;
@@ -17,6 +20,7 @@ const WIDE_COLUMNS: usize = 2;
 
 pub(crate) struct Builder<'a> {
     colors: ColorSource<'a>,
+    selected: Range<usize>,
     row: Row,
     current: Option<Segment>,
 }
@@ -26,9 +30,11 @@ impl<'a> Builder<'a> {
         colors: ColorSource<'a>,
         cells: &GridRow<Cell>,
         columns: usize,
+        selected: Range<usize>,
     ) -> Row {
         let mut builder = Self {
             colors,
+            selected,
             row: Row::default(),
             current: None,
         };
@@ -49,28 +55,21 @@ impl<'a> Builder<'a> {
             return;
         }
         let width = cell_columns(flags);
-        let (foreground, background) = self.colors_of(cell);
+        let (foreground, background) = self.colors_at(column, cell);
         self.push_background(column, width, background);
         self.push_text(column, cell, foreground);
     }
 
-    fn colors_of(
+    fn colors_at(
         &self,
+        column: usize,
         cell: &Cell,
     ) -> (Rgb, Rgb) {
-        let flags = cell.flags;
-        let mut foreground = self.colors.resolve(cell.fg, flags);
-        let mut background = self.colors.resolve(cell.bg, Flags::empty());
-        if flags.contains(Flags::INVERSE) {
-            std::mem::swap(&mut foreground, &mut background);
+        let palette = self.colors.palette;
+        if self.selected.contains(&column) {
+            return (palette.foreground, palette.background);
         }
-        if flags.contains(Flags::DIM) {
-            foreground = foreground.dimmed();
-        }
-        if flags.contains(Flags::HIDDEN) {
-            foreground = background;
-        }
-        (foreground, background)
+        cell_colors(&self.colors, cell)
     }
 
     fn push_background(

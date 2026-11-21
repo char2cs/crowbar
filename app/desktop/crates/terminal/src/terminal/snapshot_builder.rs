@@ -1,5 +1,7 @@
 //! Reads the emulator into a [`Snapshot`].
 
+use std::ops::Range;
+
 use alacritty_terminal::event::EventListener;
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::term::{Term, TermMode};
@@ -9,6 +11,7 @@ use crate::find::SearchState;
 use crate::snapshot::ColorSource;
 use crate::snapshot::CursorCell;
 use crate::snapshot::CursorShape;
+use crate::snapshot::Highlight;
 use crate::snapshot::Palette;
 use crate::snapshot::Snapshot;
 use crate::snapshot::Viewport;
@@ -32,15 +35,6 @@ pub(crate) fn build_snapshot<T: EventListener>(
         palette,
         overrides: term.colors(),
     };
-    let rows = (0..viewport.lines)
-        .map(|row| {
-            Builder::build(
-                colors,
-                &term.grid()[viewport.line_of(row)],
-                viewport.columns,
-            )
-        })
-        .collect();
     let selection = term
         .selection
         .as_ref()
@@ -48,6 +42,16 @@ pub(crate) fn build_snapshot<T: EventListener>(
         .map_or_else(Vec::new, |range| {
             viewport.highlights(range.start, range.end)
         });
+    let rows = (0..viewport.lines)
+        .map(|row| {
+            Builder::build(
+                colors,
+                &term.grid()[viewport.line_of(row)],
+                viewport.columns,
+                selected_columns(&selection, row),
+            )
+        })
+        .collect();
     Snapshot {
         rows,
         cursor: cursor_of(term, &viewport),
@@ -58,6 +62,18 @@ pub(crate) fn build_snapshot<T: EventListener>(
         display_offset: viewport.display_offset,
         history_size: term.history_size(),
     }
+}
+
+fn selected_columns(
+    selection: &[Highlight],
+    row: usize,
+) -> Range<usize> {
+    selection
+        .iter()
+        .find(|highlight| highlight.row == row)
+        .map_or(0..0, |highlight| {
+            highlight.start_column..highlight.end_column
+        })
 }
 
 fn blank_as_space(character: char) -> char {
@@ -97,6 +113,8 @@ mod tests {
     use super::*;
     use crate::snapshot::Rgb;
     use crate::test_support::{emulator_showing, row_text};
+    use alacritty_terminal::index::{Column, Line, Point, Side};
+    use alacritty_terminal::selection::{Selection, SelectionType};
 
     #[test]
     fn the_snapshot_carries_rows_cursor_and_viewport_size() {
@@ -118,5 +136,29 @@ mod tests {
             snapshot.cursor.map(|cell| (cell.row, cell.column)),
             Some((1, 5))
         );
+    }
+
+    #[test]
+    fn selected_cells_draw_in_the_foreground_on_no_background_as_xterm_draws_them() {
+        let mut term = emulator_showing("\x1b[41;32mab\x1b[0m", 10, 2);
+        let at = |column| Point::new(Line(0), Column(column));
+        let mut selection = Selection::new(SelectionType::Simple, at(0), Side::Left);
+        selection.update(at(0), Side::Right);
+        term.selection = Some(selection);
+        let palette = Palette {
+            foreground: Rgb::from_hex(1),
+            background: Rgb::from_hex(2),
+            cursor: Rgb::from_hex(3),
+            ansi: [Rgb::from_hex(4); 16],
+        };
+        let row = &build_snapshot(&term, &palette, None).rows[0];
+        let colors: Vec<Rgb> = row.segments[0]
+            .spans
+            .iter()
+            .map(|span| span.foreground)
+            .collect();
+        assert_eq!(colors, [palette.foreground, Rgb::from_hex(4)]);
+        assert_eq!(row.backgrounds.len(), 1);
+        assert_eq!(row.backgrounds[0].column, 1);
     }
 }

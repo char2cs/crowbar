@@ -5,6 +5,6 @@ mod harness;
 mod pointer_events;
 
 pub(crate) use harness::{
-    cell_position, draw, feed, first_row, focus, open, record_events, sent, typed,
+    Harness, cell_position, draw, feed, first_row, focus, open, record_events, sent, typed,
 };
 pub(crate) use pointer_events::{press, release};

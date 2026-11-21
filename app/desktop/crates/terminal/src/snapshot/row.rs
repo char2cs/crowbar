@@ -2,6 +2,7 @@
 
 mod background_span;
 mod builder;
+mod cell_colors;
 mod segment;
 mod style_flags;
 mod style_span;

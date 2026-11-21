@@ -10,6 +10,7 @@ use crate::terminal_view::input::pointer::report::Report;
 use crate::terminal_view::input::pointer::report::pointer_report;
 
 const HALF: f32 = 2.0;
+const NOTCH_LINES: f32 = 3.0;
 
 impl TerminalView {
     pub(crate) fn scrollbar_thumb(&self) -> Option<ScrollbarThumb> {
@@ -71,16 +72,20 @@ impl TerminalView {
             ScrollDelta::Pixels(delta) => f32::from(delta.y) / layout.metrics.line_height,
             ScrollDelta::Lines(delta) => delta.y,
         };
-        let whole = self.wheel.add(lines);
-        if whole == 0 {
-            return;
-        }
         let modifiers = terminal_modifiers(event.modifiers);
         let route = route_wheel(
             self.terminal.mouse_tracking(),
             self.terminal.screen_buffer(),
             modifiers,
         );
+        let steps = match route {
+            WheelRoute::Scrollback => lines,
+            WheelRoute::ReportToProgram | WheelRoute::ArrowKeys => lines / NOTCH_LINES,
+        };
+        let whole = self.wheel.add(steps);
+        if whole == 0 {
+            return;
+        }
         let point = self
             .hit_at(event.position)
             .map_or_else(ViewPoint::default, |hit| hit.point);
@@ -148,24 +153,44 @@ fn grab_offset(
 mod tests {
     use gpui::{Modifiers, ScrollDelta, ScrollWheelEvent, TestAppContext, TouchPhase};
 
-    use crate::test_support::{cell_position, feed, open, typed};
+    use crate::test_support::{Harness, cell_position, feed, open, typed};
+
+    fn notch(
+        harness: &Harness,
+        cx: &mut gpui::VisualTestContext,
+    ) {
+        let position = cell_position(harness, cx, 2);
+        cx.simulate_event(ScrollWheelEvent {
+            position,
+            delta: ScrollDelta::Lines(gpui::point(0.0, 3.0)),
+            modifiers: Modifiers::default(),
+            touch_phase: TouchPhase::Moved,
+        });
+    }
 
     #[gpui::test]
     fn the_wheel_is_reported_to_programs_that_track_the_mouse(cx: &mut TestAppContext) {
         let (harness, cx) = open(cx);
         feed(&harness, cx, "\x1b[?1000h\x1b[?1006h");
-        let position = cell_position(&harness, cx, 2);
-        cx.simulate_event(ScrollWheelEvent {
-            position,
-            delta: ScrollDelta::Lines(gpui::point(0.0, 1.0)),
-            modifiers: Modifiers::default(),
-            touch_phase: TouchPhase::Moved,
-        });
+        notch(&harness, cx);
         assert!(
             typed(&harness).starts_with("\x1b[<64;"),
             "{:?}",
             typed(&harness)
         );
+    }
+
+    #[gpui::test]
+    fn one_wheel_notch_is_one_report_or_one_arrow_for_a_program_as_xterm_sends(
+        cx: &mut TestAppContext
+    ) {
+        let (harness, cx) = open(cx);
+        feed(&harness, cx, "\x1b[?1049h");
+        notch(&harness, cx);
+        assert_eq!(typed(&harness), "\x1b[A");
+        feed(&harness, cx, "\x1b[?1000h\x1b[?1006h");
+        notch(&harness, cx);
+        assert_eq!(typed(&harness).matches("\x1b[<64;").count(), 1);
     }
 
     #[gpui::test]
