@@ -93,11 +93,10 @@ deny = [
     "zed-reqwest",            # gpui_http_client under gpui
   ] },
   { crate = "ctor", reason = "init magic (M24)", wrappers = [
-    "gpui",        # registers actions at load. Revisit when gpui bumps.
-    "gpui_media",  # gpui
+    "gpui-pre-macos",  # gpui's macOS platform registers its classes at load. Revisit when gpui bumps.
   ] },
   { crate = "inventory", reason = "init magic (M24)", wrappers = [
-    "gpui",  # action and element registry. Revisit when gpui bumps.
+    "gpui-pre",  # action and element registry. Revisit when gpui bumps.
   ] },
   { crate = "linkme", reason = "init magic (M24)" },
   { crate = "failure", reason = "unmaintained; use thiserror" },
