@@ -9,6 +9,7 @@ use gpui::{
 
 use crate::display::Kbd;
 use crate::floating::portal::Portal;
+use crate::floating::tooltip_claim::TooltipClaim;
 use crate::floating::tooltip_side::TooltipSide;
 use crate::foundation::CubicBezier;
 use crate::foundation::Motion;
@@ -139,7 +140,10 @@ impl RenderOnce for Tooltip {
         if shown.running {
             window.request_animation_frame();
         }
-        let placement = self.placement(SLIDE * (1.0 - shown.value));
+        let id = self.id.clone();
+        let placement = self
+            .placement(SLIDE * (1.0 - shown.value))
+            .debug_selector(move || format!("tooltip-{id}"));
         let (text, shortcut, opacity) = (self.text, self.shortcut, shown.value);
         let floating = Portal::here((self.id.clone(), "card"), move |_, _| {
             let card = card((text.clone(), shortcut.clone()), theme, opacity);
@@ -157,6 +161,7 @@ impl RenderOnce for Tooltip {
             .on_hover(note_entry(&hover_state, &entry))
             .on_mouse_move(arm(&hover_state, &entry))
             .capture_any_mouse_down(dismiss(&hover_state))
+            .child(TooltipClaim::reset_per_move())
             .child(self.trigger)
             .when(opacity > 0.0, |d| d.child(placement.child(floating)))
     }
@@ -188,6 +193,11 @@ fn arm_on_move(
     position: Point<Pixels>,
     cx: &mut App,
 ) {
+    if !TooltipClaim::take(cx) {
+        entry.update(cx, |entry, _| *entry = Some(position));
+        state.update(cx, |s, cx| s.set(Pose::Off, cx));
+        return;
+    }
     if !entry.read(cx).is_some_and(|at| at != position) {
         return;
     }
@@ -288,6 +298,30 @@ mod tests {
         assert!(
             cx.debug_bounds("tooltip-card").is_some(),
             "shown once it moves"
+        );
+    }
+
+    #[gpui::test]
+    fn a_tooltip_inside_another_shows_alone_under_the_pointer(cx: &mut TestAppContext) {
+        let cx = open(cx, |_, _| {
+            let close = Tooltip::new("inner", "Close", Button::icon_only("x", IconName::X));
+            let tab = div().w(px(200.0)).flex().justify_end().child(close);
+            Tooltip::new("outer", "Tab", tab)
+        });
+        cx.update(|_, cx| cx.set_global(Motion::reduced()));
+        let x = cx.debug_bounds("probe").unwrap_or_default().right() - px(10.0);
+        for nudge in [0.0, 1.0] {
+            let at = point(x + px(nudge), px(10.0));
+            cx.simulate_mouse_move(at, None, gpui::Modifiers::none());
+            cx.run_until_parked();
+        }
+        assert!(
+            cx.debug_bounds("tooltip-inner").is_some(),
+            "the inner one shows"
+        );
+        assert!(
+            cx.debug_bounds("tooltip-outer").is_none(),
+            "the outer one stays shut"
         );
     }
 

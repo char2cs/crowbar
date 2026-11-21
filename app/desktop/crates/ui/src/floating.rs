@@ -10,6 +10,7 @@ mod popover;
 mod popup;
 mod portal;
 mod tooltip;
+mod tooltip_claim;
 mod tooltip_side;
 mod top_layer;
 
