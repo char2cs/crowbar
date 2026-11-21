@@ -1,6 +1,8 @@
 //! The patches in `app/desktop/vendor/patches/gpui` that only a real X11 window shows (CI's
 //! Xvfb), pinned so that a gpui upgrade which drops one fails here by name.
 
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -11,7 +13,12 @@ use gpui::{
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use ui::{Icon, IconName, IconWeight};
-use x11rb::protocol::xproto::{ConnectionExt as _, ImageFormat as XImageFormat};
+use x11rb::CURRENT_TIME;
+use x11rb::connection::Connection as _;
+use x11rb::protocol::xproto::{
+    ConnectionExt as _, CreateWindowAux, ImageFormat as XImageFormat, InputFocus, WindowClass,
+};
+use x11rb::rust_connection::RustConnection;
 
 const WINDOW_PIXELS: u16 = 200;
 const ICON_SIDE: f32 = 96.0;
@@ -27,6 +34,7 @@ const RED: u32 = 0x00ff_0000;
 const BRIGHT: u8 = 200;
 const DARK: u8 = 60;
 const MIN_RED_PIXELS: usize = 100;
+const CHILD_SIDE: u16 = 10;
 
 struct IconProbe {
     colour: u32,
@@ -58,13 +66,24 @@ struct Seen {
     bold_width: f32,
     upright: FontId,
     italic: FontId,
+    activity_while_a_child_held_the_keyboard: Vec<bool>,
 }
+
+struct ChildFocus {
+    report: Report,
+    seen: Option<Seen>,
+    child_focused: bool,
+}
+
+type Check = Rc<RefCell<ChildFocus>>;
 
 /// One real window under X11 (CI's Xvfb):
 /// - `0001-x11-window-handle`: the window hands out its XCB handle, which web views parent to;
 /// - `0004-svg-inherit-color`: an icon with no colour paints in the text colour around it;
 /// - `0002-variable-weight`: the variable UI face shapes wider at a heavier weight, and an
-///   italic asked of it gets a face of its own (synthesized, the family has no italic).
+///   italic asked of it gets a face of its own (synthesized, the family has no italic);
+/// - `0003-inferior-focus`: the keyboard moving into one of the window's own child windows, as
+///   into a web view, leaves the window active.
 #[test]
 #[ignore = "needs display"]
 fn a_real_window_parents_paints_inherited_icon_colour_and_each_weight() {
@@ -80,6 +99,11 @@ fn a_real_window_parents_paints_inherited_icon_colour_and_each_weight() {
     assert!(seen.red_pixels >= MIN_RED_PIXELS, "{seen:?}");
     assert!(seen.bold_width > seen.regular_width, "{seen:?}");
     assert_ne!(seen.italic, seen.upright, "{seen:?}");
+    assert_eq!(
+        seen.activity_while_a_child_held_the_keyboard,
+        [true],
+        "the window went inactive while its own child window held the keyboard"
+    );
 }
 
 /// `whole-pixel-mono` (gpui-pre-wgpu): a fixed-pitch face advances a whole pixel per glyph, as
@@ -163,18 +187,45 @@ fn open_window(
         window_bounds: Some(WindowBounds::Windowed(bounds)),
         ..WindowOptions::default()
     };
+    let check: Check = Rc::new(RefCell::new(ChildFocus {
+        report: sender,
+        seen: None,
+        child_focused: false,
+    }));
+    let heard = Rc::clone(&check);
     let window = cx
-        .open_window(options, |_, cx| cx.new(|_| IconProbe { colour: RED }))
+        .open_window(options, move |window, cx| new_probe(heard, window, cx))
         .map_err(|error| format!("opening the probe window: {error}"))?;
     window
         .update(cx, |_, window, _| {
-            window.on_next_frame(move |window, cx| capture(sender, deadline, window, cx));
+            window.on_next_frame(move |window, cx| capture(check, deadline, window, cx));
         })
         .map_err(|error| format!("the probe window closed: {error}"))
 }
 
+fn new_probe(
+    heard: Check,
+    window: &mut Window,
+    cx: &mut App,
+) -> gpui::Entity<IconProbe> {
+    let probe = cx.new(|_| IconProbe { colour: RED });
+    probe.update(cx, |_, cx| watch_activation(heard, window, cx));
+    probe
+}
+
+fn watch_activation(
+    heard: Check,
+    window: &mut Window,
+    cx: &mut Context<'_, IconProbe>,
+) {
+    cx.observe_window_activation(window, move |_, window, cx| {
+        on_activation(&heard, window, cx);
+    })
+    .detach();
+}
+
 fn capture(
-    sender: Report,
+    check: Check,
     deadline: Instant,
     window: &mut Window,
     cx: &mut App,
@@ -183,7 +234,7 @@ fn capture(
     let red_pixels = xcb_window.map_or(0, red_pixels);
     if red_pixels < MIN_RED_PIXELS && Instant::now() < deadline {
         window.refresh();
-        window.on_next_frame(move |window, cx| capture(sender, deadline, window, cx));
+        window.on_next_frame(move |window, cx| capture(check, deadline, window, cx));
         return;
     }
     let ui_font = font(ui::font::UI_FAMILY);
@@ -194,9 +245,118 @@ fn capture(
         bold_width: sample_width(window, ui_font.clone().bold()),
         upright: cx.text_system().resolve_font(&ui_font),
         italic: cx.text_system().resolve_font(&ui_font.italic()),
+        activity_while_a_child_held_the_keyboard: Vec::new(),
     };
-    sender.send(Ok(seen)).unwrap_or_default();
+    check.borrow_mut().seen = Some(seen);
+    if let Err(error) = focus_the_window(&check, window) {
+        fail(&check, error, cx);
+    }
+}
+
+fn focus_the_window(
+    check: &Check,
+    window: &Window,
+) -> Result<(), String> {
+    let parent = xcb_window(window).ok_or("the window has no XCB handle")?;
+    let (connection, _) = x11rb::connect(None).map_err(|error| error.to_string())?;
+    let focus = connection
+        .get_input_focus()
+        .map_err(|error| error.to_string())?
+        .reply()
+        .map_err(|error| error.to_string())?;
+    if focus.focus == parent && window.is_window_active() {
+        return focus_a_child(check, parent);
+    }
+    connection
+        .set_input_focus(InputFocus::PARENT, parent, CURRENT_TIME)
+        .map_err(|error| error.to_string())?
+        .check()
+        .map_err(|error| format!("focusing the window: {error}"))?;
+    Ok(())
+}
+
+fn on_activation(
+    check: &Check,
+    window: &Window,
+    cx: &mut App,
+) {
+    let active = window.is_window_active();
+    let Some(parent) = xcb_window(window) else {
+        return;
+    };
+    let mut state = check.borrow_mut();
+    let child_focused = state.child_focused;
+    let Some(seen) = state.seen.as_mut() else {
+        return;
+    };
+    if child_focused {
+        seen.activity_while_a_child_held_the_keyboard.push(active);
+    }
+    drop(state);
+    if !active {
+        return;
+    }
+    if child_focused {
+        return finish(check, cx);
+    }
+    if let Err(error) = focus_a_child(check, parent) {
+        fail(check, error, cx);
+    }
+}
+
+fn finish(
+    check: &Check,
+    cx: &mut App,
+) {
+    let mut state = check.borrow_mut();
+    if let Some(seen) = state.seen.take() {
+        state.report.send(Ok(seen)).unwrap_or_default();
+    }
     cx.quit();
+}
+
+fn fail(
+    check: &Check,
+    error: String,
+    cx: &mut App,
+) {
+    check.borrow().report.send(Err(error)).unwrap_or_default();
+    cx.quit();
+}
+
+/// Gives the keyboard to a child window of `parent` and back, as the shell does to a web view.
+fn focus_a_child(
+    check: &Check,
+    parent: u32,
+) -> Result<(), String> {
+    let (connection, _) = x11rb::connect(None).map_err(|error| error.to_string())?;
+    check.borrow_mut().child_focused = true;
+    hand_the_keyboard_through_a_child(&connection, parent).map_err(|error| error.to_string())
+}
+
+fn hand_the_keyboard_through_a_child(
+    connection: &RustConnection,
+    parent: u32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let child = connection.generate_id()?;
+    connection.create_window(
+        x11rb::COPY_DEPTH_FROM_PARENT,
+        child,
+        parent,
+        0,
+        0,
+        CHILD_SIDE,
+        CHILD_SIDE,
+        0,
+        WindowClass::INPUT_OUTPUT,
+        x11rb::COPY_FROM_PARENT,
+        &CreateWindowAux::new(),
+    )?;
+    connection.map_window(child)?;
+    connection.set_input_focus(InputFocus::PARENT, child, CURRENT_TIME)?;
+    connection.set_input_focus(InputFocus::PARENT, parent, CURRENT_TIME)?;
+    connection.get_input_focus()?.reply()?;
+    Ok(())
 }
 
 fn xcb_window(window: &Window) -> Option<u32> {

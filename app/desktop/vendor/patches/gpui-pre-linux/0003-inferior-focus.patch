@@ -1,0 +1,14 @@
+diff --git a/src/linux/x11/client.rs b/src/linux/x11/client.rs
+--- a/src/linux/x11/client.rs
++++ b/src/linux/x11/client.rs
+@@ -1279,7 +1279,9 @@
+                 let window = self.get_window(event.event)?;
+                 let paired = self.owner_of(event.event).is_some()
+                     || !self.overlays_of(event.event).is_empty();
+-                if !(paired && self.focus_stays_in_pair(event.event)) {
++                // Focus moving into a child window (a native view the window hosts) stays in the window.
++                let into_child = event.detail == xproto::NotifyDetail::INFERIOR;
++                if !into_child && !(paired && self.focus_stays_in_pair(event.event)) {
+                     self.set_pair_active(event.event, false);
+                 }
+                 let mut state = self.0.borrow_mut();

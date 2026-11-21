@@ -29,6 +29,10 @@ Drop it when upstream gpui offers windows above a native child view. Tracking: z
 
 Drop it with `overlay-window`.
 
+`inferior-focus` (`gpui-pre-linux`, `src/linux/x11/client.rs`), applied on top of `owner-capture`: a `FocusOut` whose detail is `NotifyInferior` (the keyboard went into one of the window's child windows, such as a web view the shell hosts) leaves the window active. Upstream deactivates the window, so everything that waits for the window to be looked at (toast expiry, the caret) stalls while a web view holds the keyboard. The window still deactivates when the keyboard leaves it, from itself or from a child.
+
+Drop it when upstream gpui reads the detail of a focus change. Tracking: zed-industries/zed.
+
 ## calloop 0.14.5
 
 `tracing-without-log` (`Cargo.toml`): calloop, reached through `gpui-pre-linux`, asks for tracing's `log` feature, and cargo turns a feature on for every crate that uses tracing. With `log` on, each `tracing` macro also expands to its `log` fallback, which quadruples `clippy::cognitive_complexity` in every function that logs. Nothing in the shell reads `log` records (no `log` logger or bridge is installed), so calloop loses only output nobody received.
