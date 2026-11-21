@@ -5,8 +5,8 @@ mod reset_button;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    App, InteractiveElement as _, IntoElement, ParentElement, StatefulInteractiveElement as _,
-    Styled, Window, div, px,
+    App, FocusHandle, InteractiveElement as _, IntoElement, ParentElement,
+    StatefulInteractiveElement as _, Styled, Window, div, px,
 };
 use settings::{LabelStyle, Row};
 use ui::{HoverFill, ScaledText, Surface, Theme, radius};
@@ -45,25 +45,45 @@ pub(crate) fn row_view(
         .font_family(theme.ui_family())
         .text_size(text_size)
         .when(frame.rows == RowLayout::Stacked, stack);
-    HoverFill::new(
-        element_id("row", row.key().as_str()),
-        palette.muted().opacity(WASH),
-    )
-    .apply(base, (&mut *window, &mut *cx))
-    .on_click(frame.sink.send(Intent::Activate(row.clone())))
-    .child(text_column(frame, row, cx))
-    .child(
-        div()
-            .id(element_id("control", row.key().as_str()))
-            .debug_selector({
-                let key = row.key().as_str().to_owned();
-                move || format!("row-control-{key}")
-            })
-            .flex_none()
-            .when(frame.rows == RowLayout::Stacked, Styled::w_full)
-            .on_click(|_, _, cx| cx.stop_propagation())
-            .child(control_view(frame, row, (window, cx))),
-    )
+    let wash = palette.muted().opacity(WASH);
+    let within = control_focus(row, window, cx).contains_focused(window, cx);
+    HoverFill::new(element_id("row", row.key().as_str()), wash)
+        .apply(base, (&mut *window, &mut *cx))
+        .when(within, |tinted| {
+            let key = row.key().as_str().to_owned();
+            tinted
+                .bg(wash)
+                .debug_selector(move || format!("row-within-{key}"))
+        })
+        .on_click(frame.sink.send(Intent::Activate(row.clone())))
+        .child(text_column(frame, row, cx))
+        .child(control_column(frame, row, (window, cx)))
+}
+
+fn control_column(
+    frame: &Frame<'_>,
+    row: &Row,
+    (window, cx): (&mut Window, &mut App),
+) -> impl IntoElement {
+    let key = row.key().as_str().to_owned();
+    div()
+        .id(element_id("control", row.key().as_str()))
+        .track_focus(&control_focus(row, window, cx))
+        .debug_selector(move || format!("row-control-{key}"))
+        .flex_none()
+        .when(frame.rows == RowLayout::Stacked, Styled::w_full)
+        .on_click(|_, _, cx| cx.stop_propagation())
+        .child(control_view(frame, row, (window, cx)))
+}
+
+fn control_focus(
+    row: &Row,
+    window: &mut Window,
+    cx: &mut App,
+) -> FocusHandle {
+    let key = element_id("within", row.key().as_str());
+    let focus = window.use_keyed_state(key, cx, |_, cx| cx.focus_handle());
+    focus.read(cx).clone()
 }
 
 fn stack(mut base: gpui::Div) -> gpui::Div {
@@ -211,6 +231,20 @@ mod tests {
         let text = cx.debug_bounds(selector).unwrap();
         cx.simulate_click(text.center(), gpui::Modifiers::none());
         cx.run_until_parked();
+    }
+
+    #[gpui::test]
+    fn a_row_keeps_its_wash_while_its_select_holds_focus_after_a_pick(cx: &mut TestAppContext) {
+        let (harness, mut owner, mut top) = crate::test_support::open_floating(cx, "appearance");
+        harness
+            .modal
+            .update_in(&mut owner, |modal, window, cx| modal.focus(window, cx));
+        owner.run_until_parked();
+        assert!(top.debug_bounds("row-within-themeMode").is_none());
+        click_description(&mut top, "row-select-themeMode");
+        click_description(&mut top, "menu-row-1");
+        owner.run_until_parked();
+        assert!(top.debug_bounds("row-within-themeMode").is_some());
     }
 
     #[gpui::test]
