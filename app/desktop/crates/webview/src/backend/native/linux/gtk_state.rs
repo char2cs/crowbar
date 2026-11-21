@@ -117,7 +117,7 @@ impl GtkState {
             page_window,
             parent: window,
         };
-        view_ops::ignore_keys(&live);
+        view_ops::deactivate(&live);
         self.views.insert(id, live);
         Ok(())
     }

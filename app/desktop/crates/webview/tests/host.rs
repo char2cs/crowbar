@@ -28,6 +28,8 @@ type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 const PAGE: &str = "<script>
 addEventListener('keydown', (event) => window.ipc.postMessage('key ' + event.key));
 addEventListener('load', () => window.ipc.postMessage('ready'));
+addEventListener('focus', () => window.ipc.postMessage('has focus ' + document.hasFocus()));
+addEventListener('blur', () => window.ipc.postMessage('has focus ' + document.hasFocus()));
 </script>";
 const PAGE_URL: &str = "crowbar://test/page";
 const PAGE_WAIT: Duration = Duration::from_secs(30);
@@ -212,6 +214,26 @@ fn a_press_on_the_page_is_reported(
         wait_for(&messages, "Pressed", KEY_WAIT),
         Ok(()),
         "the press was not reported"
+    );
+    Ok(())
+}
+
+fn the_page_holding_the_keyboard_has_document_focus(
+    host: &Host,
+    parent: u32,
+) -> TestResult {
+    let (view, messages) = page_in(host, parent)?;
+    view.focus()?;
+    assert_eq!(
+        wait_for(&messages, "has focus true", KEY_WAIT),
+        Ok(()),
+        "the focused page is not focused for the document"
+    );
+    view.focus_parent()?;
+    assert_eq!(
+        wait_for(&messages, "has focus false", KEY_WAIT),
+        Ok(()),
+        "the page kept document focus after the shell took the keyboard"
     );
     Ok(())
 }
@@ -436,6 +458,7 @@ fn native_views_on_x11() -> TestResult {
     })?;
     a_focused_view_takes_keys_while_the_pointer_is_elsewhere(&connection, &screen, &host, parent)?;
     a_press_on_the_page_is_reported(&connection, &screen, &host, parent)?;
+    the_page_holding_the_keyboard_has_document_focus(&host, parent)?;
     the_parent_takes_keys_over_a_page_once_it_holds_the_keyboard(
         &connection,
         &screen,
