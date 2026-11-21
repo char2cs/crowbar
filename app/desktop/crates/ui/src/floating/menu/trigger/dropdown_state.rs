@@ -1,10 +1,11 @@
 //! The open menu of a dropdown, if any.
 
-use gpui::Entity;
+use gpui::{Entity, FocusHandle};
 
 use crate::floating::menu::Menu;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct DropdownState {
     pub(crate) open: Option<Entity<Menu>>,
+    pub(crate) trigger: FocusHandle,
 }

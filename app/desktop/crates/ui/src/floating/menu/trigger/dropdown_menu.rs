@@ -83,14 +83,17 @@ impl RenderOnce for DropdownMenu {
         window: &mut Window,
         cx: &mut App,
     ) -> impl IntoElement {
-        let state = window.use_keyed_state((self.id.clone(), "dropdown"), cx, |_, _| {
-            DropdownState::default()
-        });
+        let state =
+            window.use_keyed_state((self.id.clone(), "dropdown"), cx, |_, cx| DropdownState {
+                open: None,
+                trigger: cx.focus_handle(),
+            });
         let open = state.read(cx).open.clone();
         let (trigger_state, spec) = (state.clone(), self.spec);
         let id = self.id.clone();
         let wrapper = div()
             .id(self.id)
+            .track_focus(&state.read(cx).trigger)
             .relative()
             .child(self.trigger)
             .on_click(move |_, window, cx| toggle(&trigger_state, &spec, window, cx));
@@ -121,7 +124,12 @@ fn toggle(
     }
     let menu = spec.build(window, cx);
     let owner = state.clone();
-    cx.subscribe(&menu, move |_, _: &DismissEvent, cx| close(&owner, cx))
+    window
+        .subscribe(&menu, cx, move |_, _: &DismissEvent, window, cx| {
+            let trigger = owner.read(cx).trigger.clone();
+            window.focus(&trigger, cx);
+            close(&owner, cx);
+        })
         .detach();
     state.update(cx, |state, cx| {
         state.open = Some(menu);
@@ -185,6 +193,49 @@ mod tests {
         cx.run_until_parked();
         cx.simulate_keystrokes("down enter");
         assert_eq!(chosen.get(), 1);
+    }
+
+    fn one_row() -> Vec<MenuItem> {
+        vec![MenuItem::Action(MenuAction::new("Row", |_, _| {}))]
+    }
+
+    fn in_dialog(
+        closed: &Rc<Cell<usize>>,
+        rows: RowStyle,
+    ) -> impl Fn(&mut Window, &mut App) -> crate::Dialog + 'static {
+        let closed = Rc::clone(closed);
+        move |_, _| {
+            let closed = Rc::clone(&closed);
+            let trigger = div()
+                .debug_selector(|| "trigger".to_owned())
+                .w(px(120.0))
+                .h(px(28.0));
+            let menu = DropdownMenu::new("pick", trigger, one_row());
+            let menu = match rows {
+                RowStyle::Option => menu.options_over(Some(0), point(px(0.0), px(0.0))),
+                RowStyle::Plain => menu,
+            };
+            crate::Dialog::new("d")
+                .body(menu)
+                .on_close(move |_, _| closed.set(closed.get() + 1))
+        }
+    }
+
+    #[gpui::test]
+    fn after_a_choice_escape_reaches_the_dialog_around_a_dropdown_or_select(
+        cx: &mut TestAppContext
+    ) {
+        for rows in [RowStyle::Plain, RowStyle::Option] {
+            let closed = Rc::new(Cell::new(0));
+            let cx = open(cx, in_dialog(&closed, rows));
+            let trigger = cx.debug_bounds("trigger").unwrap_or_default();
+            cx.simulate_click(trigger.center(), gpui::Modifiers::none());
+            cx.run_until_parked();
+            cx.simulate_keystrokes("down enter");
+            cx.run_until_parked();
+            cx.simulate_keystrokes("escape");
+            assert_eq!(closed.get(), 1, "{rows:?}");
+        }
     }
 
     #[gpui::test]
