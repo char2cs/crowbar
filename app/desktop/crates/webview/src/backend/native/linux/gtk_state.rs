@@ -387,8 +387,8 @@ mod tests {
         let window = gtk::Window::new(gtk::WindowType::Toplevel);
         let row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         let view = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        let inside = gtk::Entry::new();
-        let outside = gtk::Entry::new();
+        let inside = gtk::Button::new();
+        let outside = gtk::Button::new();
         view.set_can_focus(true);
         view.pack_start(&inside, true, true, 0);
         row.pack_start(&view, true, true, 0);

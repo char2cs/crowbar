@@ -3,13 +3,17 @@
 
 use std::time::Instant;
 
-use x11rb::protocol::xproto::{ConnectionExt as _, Screen};
+use x11rb::protocol::xproto::{ConnectionExt as _, InputFocus, Screen};
 use x11rb::rust_connection::RustConnection;
+use x11rb::{CURRENT_TIME, NONE};
 
 use webview::Visibility;
 
 use super::pixels::{DARK_PAGE, Region, shows_before};
-use super::{KEY_WAIT, KEYCODE_A, PAGE_WAIT, SIDE, TestResult, page_in, type_key, wait_for};
+use super::{
+    INSIDE, KEY_WAIT, KEYCODE_A, PAGE_WAIT, SIDE, TestResult, mapped_parent, page_in, type_key,
+    wait_for,
+};
 
 const WHOLE: Region = (0, 0, SIDE, SIDE);
 
@@ -73,6 +77,20 @@ fn focus_reaches(
     Ok(seen.transpose()?.is_some())
 }
 
+fn activate_after_another_app(
+    connection: &RustConnection,
+    screen: &Screen,
+    parent: u32,
+) -> TestResult<u32> {
+    let other_app = mapped_parent(connection, screen)?;
+    for window in [other_app, parent] {
+        connection.set_input_focus(InputFocus::PARENT, window, CURRENT_TIME)?;
+        let reached = focus_reaches(connection, window, Instant::now() + KEY_WAIT)?;
+        assert!(reached, "window {window} never took the keyboard");
+    }
+    Ok(other_app)
+}
+
 pub(super) fn a_prompt_takes_typing_after_the_keyboard_comes_back(
     connection: &RustConnection,
     screen: &Screen,
@@ -94,11 +112,8 @@ pub(super) fn a_prompt_takes_typing_after_the_keyboard_comes_back(
         Instant::now() + KEY_WAIT,
     )?;
     assert!(shown, "the prompt never showed over the page");
-    view.focus_parent()?;
-    assert!(
-        focus_reaches(connection, parent, Instant::now() + KEY_WAIT)?,
-        "the parent never took the keyboard"
-    );
+    connection.warp_pointer(NONE, parent, 0, 0, 0, 0, INSIDE, INSIDE)?;
+    let other_app = activate_after_another_app(connection, screen, parent)?;
     view.focus()?;
     assert!(
         focus_reaches(connection, page, Instant::now() + KEY_WAIT)?,
@@ -111,6 +126,7 @@ pub(super) fn a_prompt_takes_typing_after_the_keyboard_comes_back(
         Ok(()),
         "the prompt lost the typing once the keyboard came back"
     );
+    connection.destroy_window(other_app)?;
     view.destroy()?;
     Ok(())
 }
