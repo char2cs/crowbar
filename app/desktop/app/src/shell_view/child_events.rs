@@ -125,6 +125,7 @@ impl ShellView {
             LayoutEvent::StripFocus { pane } => {
                 let focus = Command::FocusPane { pane: pane.clone() };
                 self.state.apply_from_strip(vec![focus]);
+                self.source.native().focus_terminal(pane, window, cx);
             },
             LayoutEvent::Announce(text) => {
                 return self.show_notice(NoticeKey::Command, (ToastKind::Info, text.clone()), cx);
@@ -211,7 +212,48 @@ fn save_failure<E: std::fmt::Display>(saved: &Result<(), E>) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use gpui::TestAppContext;
+
     use super::*;
+    use crate::shell_view::tests::open_shell;
+
+    fn is_terminal(
+        layout: &layout::Layout,
+        pane: &protocol::PaneId,
+    ) -> bool {
+        let kind = layout.pane(pane).map(|instance| instance.type_id.as_str());
+        kind == Some(crate::core_panes::TERMINAL)
+    }
+
+    fn terminals(shell: &ShellView) -> Vec<protocol::PaneId> {
+        let layout = shell.state.layout();
+        let tab = layout
+            .active_tab()
+            .map_or_else(Vec::new, layout::Tab::pane_ids);
+        tab.into_iter()
+            .filter(|pane| is_terminal(layout, pane))
+            .collect()
+    }
+
+    #[gpui::test]
+    fn pressing_a_terminal_s_tab_hands_that_terminal_the_keyboard(cx: &mut TestAppContext) {
+        let mut opened = open_shell(cx);
+        let shell = opened.shell.clone();
+        shell.update_in(&mut opened.window, |shell, window, cx| {
+            shell.new_terminal(window, cx);
+            shell.new_terminal(window, cx);
+            window.focus(&shell.focus);
+        });
+        let first = shell.update(&mut opened.window, |shell, _| terminals(shell))[0].clone();
+        shell.update_in(&mut opened.window, |shell, window, cx| {
+            shell.on_layout(&LayoutEvent::StripFocus { pane: first }, window, cx);
+        });
+        opened.window.run_until_parked();
+        let on_shell = shell.update_in(&mut opened.window, |shell, window, _| {
+            shell.focus.is_focused(window)
+        });
+        assert!(!on_shell, "the terminal took the keyboard from the strip");
+    }
 
     #[test]
     fn a_failed_save_says_why_and_a_good_one_says_nothing() {
