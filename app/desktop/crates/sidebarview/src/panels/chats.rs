@@ -245,6 +245,29 @@ mod tests {
         assert_eq!(scrolled_by_the_wheel(cx, lift_a_row), 0.0);
     }
 
+    const FRAMES: usize = 3;
+    const PULL: f32 = 10.0;
+
+    #[gpui::test]
+    fn a_row_held_at_the_edge_keeps_scrolling_the_tree_every_frame(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoShell::rich());
+        cx.simulate_resize(gpui::size(px(1200.0), px(320.0)));
+        sidebar.update(cx, lift_a_row);
+        cx.run_until_parked();
+        sidebar.update_in(cx, |this, window, cx| {
+            this.act(RowAction::Edge(PULL), window, cx);
+        });
+        for _ in 0..FRAMES {
+            cx.update(Window::simulate_next_frame);
+            cx.run_until_parked();
+        }
+        let scrolled = sidebar.update(cx, |this, _| {
+            let project = this.data.active_project().expect("a space");
+            -f32::from(this.scrolls.of_space(&project).offset().y)
+        });
+        assert!(scrolled >= PULL * 2.0, "scrolled {scrolled}");
+    }
+
     #[gpui::test]
     fn the_loading_state_renders_a_skeleton_instead_of_rows(cx: &mut TestAppContext) {
         let (_, sidebar, cx) = open(cx, DemoShell::loading());

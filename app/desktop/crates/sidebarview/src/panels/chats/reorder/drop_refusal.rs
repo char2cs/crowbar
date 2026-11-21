@@ -52,13 +52,13 @@ mod tests {
         let (subject, target) = (RowId::from(subject), RowId::from(target));
         let press = DragPress {
             row: subject.clone(),
-            at: point(px(0.0), px(0.0)),
+            at: point(px(0.0), px(200.0)),
         };
         let over = DragPoint {
             subject: subject.clone(),
             target: target.clone(),
-            bounds: Bounds::new(point(px(0.0), px(0.0)), size(px(200.0), px(36.0))),
-            at: point(px(20.0), px(18.0)),
+            bounds: Bounds::new(point(px(0.0), px(200.0)), size(px(200.0), px(36.0))),
+            at: point(px(20.0), px(218.0)),
         };
         sidebar.update(cx, |this, cx| {
             this.press_row(press);

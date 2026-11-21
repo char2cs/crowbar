@@ -93,6 +93,18 @@ impl Sidebar {
         self.send(command, cx);
     }
 
+    pub(crate) fn pull_edge(
+        &mut self,
+        pull: f32,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if (pull - self.drag.pull).abs() < f32::EPSILON {
+            return;
+        }
+        self.drag.pull = pull;
+        cx.notify();
+    }
+
     pub(crate) fn scroll_edge(
         &mut self,
         window: &mut Window,
@@ -154,10 +166,14 @@ impl Sidebar {
     }
 
     fn hint_for(
-        &self,
+        &mut self,
         point: &DragPoint,
     ) -> Option<DropHint> {
         let project = self.data.active_project()?;
+        let viewport = self.scrolls.of_space(&project).bounds();
+        if !viewport.contains(&point.at) {
+            return None;
+        }
         let folded = |row: &RowId| self.tree.folded().any(|id| id == row);
         DropHint::resolve(&self.data.tree(&project).rows, point, folded)
     }
@@ -170,23 +186,35 @@ mod tests {
     use super::*;
     use crate::test_support::prelude::*;
 
-    fn over(
-        subject: &str,
-        target: &str,
-        (x, y): (f32, f32),
+    const ROW_TOP: f32 = 200.0;
+    const BELOW_THE_TREE: f32 = 790.0;
+
+    fn over_at(
+        rows: (&str, &str),
+        top: f32,
+        at: (f32, f32),
     ) -> DragPoint {
+        let ((subject, target), (x, y)) = (rows, at);
         DragPoint {
             subject: RowId::from(subject),
             target: RowId::from(target),
-            bounds: Bounds::new(point(px(0.0), px(0.0)), size(px(200.0), px(36.0))),
-            at: point(px(x), px(y)),
+            bounds: Bounds::new(point(px(0.0), px(top)), size(px(200.0), px(36.0))),
+            at: point(px(x), px(top + y)),
         }
+    }
+
+    fn over(
+        subject: &str,
+        target: &str,
+        at: (f32, f32),
+    ) -> DragPoint {
+        over_at((subject, target), ROW_TOP, at)
     }
 
     fn press(row: &str) -> DragPress {
         DragPress {
             row: RowId::from(row),
-            at: point(px(0.0), px(0.0)),
+            at: point(px(0.0), px(ROW_TOP)),
         }
     }
 
@@ -254,6 +282,18 @@ mod tests {
             this.release_drag(cx);
             assert!(this.drag.lifted.is_none(), "dropped elsewhere");
             assert!(this.drag.press.is_none(), "press forgotten");
+        });
+    }
+
+    #[gpui::test]
+    fn a_row_scrolled_out_of_the_tree_is_no_drop_target(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoShell::rich());
+        sidebar.update(cx, |this, cx| {
+            this.press_row(press("working"));
+            this.drag_over(&over("working", "folder", (20.0, 18.0)), cx);
+            let hidden = over_at(("working", "folder"), BELOW_THE_TREE, (20.0, 4.0));
+            this.drag_over(&hidden, cx);
+            assert_eq!(this.drag.hint, None);
         });
     }
 

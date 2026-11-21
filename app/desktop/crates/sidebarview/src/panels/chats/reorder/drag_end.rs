@@ -53,13 +53,13 @@ mod tests {
     ) {
         let press = DragPress {
             row: RowId::from("working"),
-            at: point(px(0.0), px(0.0)),
+            at: point(px(0.0), px(200.0)),
         };
         let over = DragPoint {
             subject: RowId::from("working"),
             target: RowId::from("folder"),
-            bounds: Bounds::new(point(px(0.0), px(0.0)), size(px(200.0), px(36.0))),
-            at: point(px(20.0), px(18.0)),
+            bounds: Bounds::new(point(px(0.0), px(200.0)), size(px(200.0), px(36.0))),
+            at: point(px(20.0), px(218.0)),
         };
         sidebar.update(cx, |this, cx| {
             this.press_row(press);
