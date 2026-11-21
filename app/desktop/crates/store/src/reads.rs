@@ -6,6 +6,7 @@ mod file_rows;
 pub(crate) mod files;
 mod merge;
 mod merge_inputs;
+pub(crate) mod read_only;
 pub(crate) mod space_icons;
 
 pub(crate) use files::followed_workspace;

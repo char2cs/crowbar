@@ -9,9 +9,11 @@ use crate::titles::Titles;
 
 mod branch_review;
 mod pane_detach;
+mod read_only;
 
 pub(crate) type ChatGlyphs = std::rc::Rc<dyn Fn(&str) -> Option<String>>;
 pub(crate) type ChatReviews = std::rc::Rc<dyn Fn(&str) -> bool>;
+pub(crate) type ChatLocks = std::rc::Rc<dyn Fn(&str) -> bool>;
 
 pub(crate) struct ShellPaneSource {
     titles: Titles,
@@ -21,6 +23,7 @@ pub(crate) struct ShellPaneSource {
     dirty: DirtyPanes,
     glyphs: ChatGlyphs,
     reviews: ChatReviews,
+    locks: ChatLocks,
 }
 
 impl ShellPaneSource {
@@ -38,6 +41,7 @@ impl ShellPaneSource {
             dirty: DirtyPanes::default(),
             glyphs: std::rc::Rc::new(|_| None),
             reviews: std::rc::Rc::new(|_| false),
+            locks: std::rc::Rc::new(|_| false),
         }
     }
 
@@ -129,6 +133,9 @@ impl ideshell::TabLooks for ShellPaneSource {
             crate::tab_looks::chat_of(instance).and_then(|chat| (self.glyphs)(chat))
         {
             look = look.drawn(artwork);
+        }
+        if self.locked(instance) {
+            look = look.read_only();
         }
         if self.dirty.contains(&instance.pane_id) {
             return look.unsaved();

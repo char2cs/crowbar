@@ -1,4 +1,4 @@
-use ideshell::{TabKeep, TabLook};
+use ideshell::{TabAccess, TabKeep, TabLook};
 use layout::PaneInstance;
 use ui::IconName;
 
@@ -22,6 +22,7 @@ pub(crate) fn tab_look(
         dirty: false,
         renamable: instance.type_id.as_str() == TERMINAL,
         keep: TabKeep::Kept,
+        access: TabAccess::Writable,
     };
     match file_path(instance) {
         Some(path) => look.at_path(path),
@@ -31,6 +32,13 @@ pub(crate) fn tab_look(
 
 pub(crate) fn chat_of(instance: &PaneInstance) -> Option<&str> {
     if instance.type_id.as_str() != CHAT {
+        return None;
+    }
+    instance.params.get(THREAD_ID)
+}
+
+pub(crate) fn file_chat_of(instance: &PaneInstance) -> Option<&str> {
+    if instance.type_id.as_str() != EDITOR {
         return None;
     }
     instance.params.get(THREAD_ID)

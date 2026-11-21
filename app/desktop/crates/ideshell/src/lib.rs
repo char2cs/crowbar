@@ -13,6 +13,7 @@ pub use tabbar::overflow_entry::OverflowEntry;
 pub use tabbar::pane_strip::{PaneStrip, STRIP_HEIGHT};
 pub use tabbar::path_action::PathAction;
 pub use tabbar::strip_tab::StripTab;
+pub use tabbar::tab_access::TabAccess;
 pub use tabbar::tab_actions::{StripKeys, TabAction, TabActions, TabMove};
 pub use tabbar::tab_end::TabEnd;
 pub use tabbar::tab_keep::TabKeep;

@@ -1,6 +1,7 @@
 use gpui::SharedString;
 use ui::IconName;
 
+use crate::tabbar::tab_access::TabAccess;
 use crate::tabbar::tab_keep::TabKeep;
 
 /// The label and glyph of a pane's tab in a strip.
@@ -21,6 +22,8 @@ pub struct TabLook {
     pub renamable: bool,
     /// Whether the tab is a preview or kept.
     pub keep: TabKeep,
+    /// Whether the tab's file can be written.
+    pub access: TabAccess,
 }
 
 impl TabLook {
@@ -34,6 +37,7 @@ impl TabLook {
             dirty: false,
             renamable: false,
             keep: TabKeep::Kept,
+            access: TabAccess::Writable,
         }
     }
 
@@ -68,6 +72,13 @@ impl TabLook {
     #[must_use]
     pub fn previewed(mut self) -> Self {
         self.keep = TabKeep::Preview;
+        self
+    }
+
+    /// The same tab, whose file's branch is locked.
+    #[must_use]
+    pub fn read_only(mut self) -> Self {
+        self.access = TabAccess::ReadOnly;
         self
     }
 

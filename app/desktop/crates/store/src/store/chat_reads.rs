@@ -32,6 +32,16 @@ impl Store {
             .read(|state| crate::reads::branch_review::of(state, chat))
     }
 
+    /// Whether `chat`'s files are read-only: its workspace is locked, as develop's
+    /// `useWorkspaceReadOnly`; an unknown chat's are not.
+    pub fn chat_read_only(
+        &self,
+        chat: &str,
+    ) -> bool {
+        self.hub
+            .read(|state| crate::reads::read_only::of(state, chat))
+    }
+
     /// The project `chat` belongs to; `None` when it is not loaded or has none.
     pub fn chat_project(
         &self,

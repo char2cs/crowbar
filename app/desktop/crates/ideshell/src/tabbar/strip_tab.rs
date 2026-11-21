@@ -10,12 +10,14 @@ use ui::{ContextMenu, Icon, MenuItem, Palette, Placement, Surface, Theme, Toolti
 
 use crate::tabbar::close_button::CloseButton;
 use crate::tabbar::marks::Marks;
+use crate::tabbar::tab_access::TabAccess;
 use crate::tabbar::tab_actions::{TabAction, TabActions};
 use crate::tabbar::tab_end::TabEnd;
 use crate::tabbar::tab_frame::{HEIGHT, group_of};
 use crate::tabbar::tab_keep::TabKeep;
 use crate::tabbar::tab_look::TabLook;
 use crate::tabbar::tab_state::TabState;
+use crate::tabbar::tab_trail::after_label;
 
 const MAX_WIDTH: f32 = 200.0;
 const PAD_LEFT: f32 = 10.0;
@@ -23,7 +25,7 @@ const PAD_RIGHT: f32 = 32.0;
 const GAP: f32 = 6.0;
 const ICON: f32 = 14.0;
 const LABEL_SIZE: f32 = 13.0;
-const DOT: f32 = 8.0;
+const READ_ONLY_TIP: &str = "Read-only: this branch is locked";
 
 /// One editor tab of the tab bar.
 #[derive(IntoElement)]
@@ -69,7 +71,7 @@ impl StripTab {
             remove,
             keep,
         } = self.actions;
-        let (label, icon, dirty) = (self.look.label.clone(), self.look.icon, self.look.dirty);
+        let (icon, dirty) = (self.look.icon, self.look.dirty);
         let marks = Marks {
             unsaved: dirty && self.state == TabState::Active,
             ringed: self.ringed,
@@ -81,14 +83,14 @@ impl StripTab {
         let tab = carry(tab)
             .child(Icon::new(icon).size(px(ICON)).color(ink))
             .child(label_of(&self.look))
-            .children((dirty && self.state == TabState::Idle).then(|| unsaved_dot(palette)))
+            .children(after_label(&self.look, self.state, palette))
             .child(CloseButton {
                 name: name.clone(),
                 state: self.state,
                 end: self.end,
                 action: close,
             });
-        let tip = tooltip_text(&label, self.look.path.as_deref());
+        let tip = tooltip_text(&self.look);
         div()
             .flex_none()
             .child(with_menu(&name, (tip, tab), self.menu))
@@ -129,14 +131,13 @@ fn tip_id(name: &str) -> ElementId {
     ElementId::from(SharedString::from(format!("strip-tip-{name}")))
 }
 
-fn tooltip_text(
-    label: &str,
-    path: Option<&str>,
-) -> SharedString {
-    match path {
-        Some(path) => format!("{label}\n{path}").into(),
-        None => label.to_owned().into(),
-    }
+fn tooltip_text(look: &TabLook) -> SharedString {
+    let locked = (look.access == TabAccess::ReadOnly).then_some(READ_ONLY_TIP);
+    let lines: Vec<&str> = [Some(look.label.as_ref()), look.path.as_deref(), locked]
+        .into_iter()
+        .flatten()
+        .collect();
+    lines.join("\n").into()
 }
 
 fn with_menu(
@@ -146,15 +147,6 @@ fn with_menu(
 ) -> ContextMenu {
     let tipped = Tooltip::new(tip_id(name), tip, tab).side(TooltipSide::Bottom);
     ContextMenu::new(group_of(name), tipped, menu).placement(Placement::BelowCentre)
-}
-
-fn unsaved_dot(palette: &Palette) -> Div {
-    div()
-        .flex_none()
-        .size(px(DOT))
-        .rounded_full()
-        .bg(palette.primary())
-        .debug_selector(|| "strip-tab-dot".into())
 }
 
 fn label_of(look: &TabLook) -> Div {
@@ -342,7 +334,15 @@ mod tests {
 
     fn dot_shown(
         cx: &mut TestAppContext,
+        shown: (TabLook, TabState),
+    ) -> bool {
+        shown_has(cx, shown, "strip-tab-dot")
+    }
+
+    fn shown_has(
+        cx: &mut TestAppContext,
         (look, state): (TabLook, TabState),
+        selector: &'static str,
     ) -> bool {
         cx.update(|cx| {
             cx.set_global(Theme::default());
@@ -350,7 +350,14 @@ mod tests {
         });
         let (_, cx) = cx.add_window_view(move |_, _| Shown { look, state });
         cx.run_until_parked();
-        cx.debug_bounds("strip-tab-dot").is_some()
+        cx.debug_bounds(selector).is_some()
+    }
+
+    fn lock_shown(
+        cx: &mut TestAppContext,
+        look: TabLook,
+    ) -> bool {
+        shown_has(cx, (look, TabState::Active), "strip-tab-lock")
     }
 
     #[gpui::test]
@@ -369,18 +376,26 @@ mod tests {
     }
 
     #[test]
-    fn the_tooltip_names_the_tab_and_adds_the_file_on_a_second_line() {
+    fn the_tooltip_names_the_tab_then_its_file_then_its_lock() {
+        let file = TabLook::plain("main.rs").at_path("src/main.rs");
         let cases = [
+            ("a file", file.clone(), "main.rs\nsrc/main.rs"),
+            ("no file", TabLook::plain("Terminal"), "Terminal"),
             (
-                "a file",
-                "main.rs",
-                Some("src/main.rs"),
-                "main.rs\nsrc/main.rs",
+                "a locked file",
+                file.read_only(),
+                "main.rs\nsrc/main.rs\nRead-only: this branch is locked",
             ),
-            ("no file", "Terminal", None, "Terminal"),
         ];
-        for (name, label, path, expected) in cases {
-            assert_eq!(tooltip_text(label, path).as_ref(), expected, "{name}");
+        for (name, look, expected) in cases {
+            assert_eq!(tooltip_text(&look).as_ref(), expected, "{name}");
         }
+    }
+
+    #[gpui::test]
+    fn only_a_read_only_tab_carries_the_lock(cx: &mut TestAppContext) {
+        let locked = TabLook::plain("File").read_only();
+        assert!(lock_shown(cx, locked), "locked branch");
+        assert!(!lock_shown(cx, TabLook::plain("File")), "writable");
     }
 }
