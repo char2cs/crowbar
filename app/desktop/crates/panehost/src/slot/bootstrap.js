@@ -32,6 +32,9 @@
     const pressed = chord(event);
     const hit = bindings.find((binding) => binding.keys === pressed);
     if (!hit) return;
+    // A page-first binding (Escape on a drawer, Mod+F on the Files tree) yields to a page that
+    // handled the key, as develop's own handlers check defaultPrevented.
+    if (hit.precedence === 'page' && event.defaultPrevented) return;
     event.preventDefault();
     crowbar.post(JSON.stringify({ sdk: 1, kind: 'command.run', command: hit.command }));
   });

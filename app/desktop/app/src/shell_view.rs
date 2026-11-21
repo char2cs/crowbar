@@ -179,6 +179,7 @@ impl ShellView {
         self.attach_agent_peer();
         self.refresh(cx);
         self.watch_keymap();
+        self.forward_bindings(window, cx);
         self.watch_appearance(cx);
         self.watch_pane_settings();
     }

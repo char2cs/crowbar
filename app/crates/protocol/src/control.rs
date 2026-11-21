@@ -11,7 +11,7 @@ mod shell_frame;
 
 pub use call::{ErrorCode, EventName, MethodName, RequestId, RpcError, RpcOutcome, RpcResponse};
 pub use config::{
-    KeyBinding, KeyChord, MAX_SETTING_VALUES, MAX_THEME_TOKENS, PANE_SETTING_KEYS,
+    KeyBinding, KeyChord, MAX_SETTING_VALUES, MAX_THEME_TOKENS, PANE_SETTING_KEYS, Precedence,
     SETTINGS_FRAME_VERSION, SettingKey, SettingValues, ThemeTokens,
 };
 pub(crate) use envelope::Envelope;

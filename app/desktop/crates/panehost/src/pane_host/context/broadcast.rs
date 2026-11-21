@@ -6,7 +6,8 @@ use crate::pane_host::PaneHost;
 use crate::pane_host::reconcile::Failures;
 
 impl PaneHost {
-    /// Replaces the active keybindings and pushes them to mounted panes.
+    /// Replaces the active keybindings and pushes them to mounted panes. Unchanged bindings send
+    /// nothing.
     ///
     /// # Errors
     /// [`Error::WebView`](crate::error::Error::WebView) when a pane cannot be reached.
@@ -14,6 +15,9 @@ impl PaneHost {
         &mut self,
         bindings: Vec<KeyBinding>,
     ) -> Result<()> {
+        if self.keybindings == bindings {
+            return Ok(());
+        }
         self.keybindings = bindings;
         let frame = ShellFrame::Keybindings {
             bindings: self.keybindings.clone(),
@@ -95,9 +99,16 @@ mod tests {
         register(&mut f, "p1", "core.chat");
         assert!(
             frames_sent(&f.mock).contains(&ShellFrame::Keybindings {
-                bindings: vec![binding]
+                bindings: vec![binding.clone()]
             }),
             "sent on mount"
+        );
+        let before = frames_sent(&f.mock).len();
+        f.host.set_keybindings(vec![binding]).unwrap();
+        assert_eq!(
+            frames_sent(&f.mock).len(),
+            before,
+            "the same bindings again send nothing"
         );
     }
 }

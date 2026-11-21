@@ -120,7 +120,7 @@ impl ShellView {
             ShellRequest::Closing(choice) => self.choose_closing(choice, window, cx),
             ShellRequest::SelectProject(slot) => self.select_project(slot),
             ShellRequest::ResumeClosing => self.resume_closing(window, cx),
-            ShellRequest::KeymapChanged => self.on_keymap_changed(cx),
+            ShellRequest::KeymapChanged => self.on_keymap_changed(window, cx),
             ShellRequest::AppearanceChanged => self.apply_appearance(cx),
             ShellRequest::PaneSettingsChanged => self.push_pane_settings(),
             ShellRequest::NewTabChoice { pane, action } => {
@@ -134,6 +134,7 @@ impl ShellView {
                 self.on_terminal_session((&pane, report), cx);
             },
             ShellRequest::Link { pane, url, choice } => self.choose_link((&pane, url, choice), cx),
+            ShellRequest::Contextual(command) => self.run_contextual(command, window, cx),
         }
     }
 

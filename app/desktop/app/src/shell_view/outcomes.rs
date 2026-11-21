@@ -87,6 +87,12 @@ impl ShellView {
         {
             send(&self.requests, ShellRequest::SelectProject(slot));
         }
+        for command in commands
+            .iter()
+            .filter_map(|id| keymap::ContextualCommand::parse(id.as_str()))
+        {
+            send(&self.requests, ShellRequest::Contextual(command));
+        }
     }
 
     fn queue_command(

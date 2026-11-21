@@ -12,6 +12,7 @@ mod removal;
 mod row_action;
 pub(crate) mod scale;
 mod separator;
+mod surfaces;
 
 pub(crate) use clock::Clock;
 pub use event::Event;

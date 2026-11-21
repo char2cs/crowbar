@@ -12,6 +12,8 @@ pub(crate) enum ShellRequest {
     DataChanged,
     Outcome(store::Outcome),
     Command(keymap::ShellCommand),
+    /// A page forwarded a chord that applies only while its surface shows.
+    Contextual(keymap::ContextualCommand),
     /// The stored keybinding overrides changed.
     KeymapChanged,
     /// A setting the panes follow changed.

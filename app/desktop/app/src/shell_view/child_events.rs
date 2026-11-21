@@ -42,6 +42,12 @@ impl ShellView {
             cx.observe_overlay_keys(window, |this, window, cx| {
                 this.return_keyboard(window, cx);
             }),
+            cx.observe_in(&built.sidebar, window, |this, _, window, cx| {
+                this.forward_bindings(window, cx);
+            }),
+            cx.observe_window_bounds(window, |this, window, cx| {
+                this.forward_bindings(window, cx);
+            }),
         ]
     }
 

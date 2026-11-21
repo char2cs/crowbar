@@ -56,21 +56,28 @@ mod tests {
     type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
     #[cfg(target_os = "linux")]
-    const PAGE: &str = "<input id=composer><script>
+    const PAGE: &str = "<input id=composer><div id=menu tabindex=0></div><script>
 composer.addEventListener('keydown', (event) => event.stopPropagation());
+menu.addEventListener('keydown', (event) => event.preventDefault());
 addEventListener('load', () => window.ipc.postMessage('ready'));
 </script>";
     #[cfg(target_os = "linux")]
     const BINDINGS: &str = "__crowbarReceive(JSON.stringify({ kind: 'keybindings', bindings: [
   { keys: 'mod+b', command: 'navigation.toggleSidebar' },
   { keys: 'mod+t', command: 'tabs.new' },
+  { keys: 'mod+j', command: 'tabs.newTerminal' },
+  { keys: 'mod+f', command: 'files.search', precedence: 'page' },
+  { keys: 'escape', command: 'sidebar.dismissDrawer', precedence: 'page' },
 ] }))";
     #[cfg(target_os = "linux")]
     const PRESSES: &str = "
-const press = (target, key) => target.dispatchEvent(
-  new KeyboardEvent('keydown', { key, ctrlKey: true, bubbles: true, cancelable: true }));
+const press = (target, key, ctrlKey = true) => target.dispatchEvent(
+  new KeyboardEvent('keydown', { key, ctrlKey, bubbles: true, cancelable: true }));
 press(composer, 'b');
 press(document.body, 't');
+press(menu, 'j');
+press(menu, 'f');
+press(document.body, 'Escape', false);
 window.ipc.postMessage('done');";
     #[cfg(target_os = "linux")]
     const WAIT: Duration = Duration::from_secs(30);
@@ -129,6 +136,28 @@ window.ipc.postMessage('done');";
     }
 
     #[cfg(target_os = "linux")]
+    fn assert_ran_only_what_the_page_left_alone(heard: &[String]) {
+        let ran = |command: &str| heard.iter().any(|message| message.contains(command));
+        assert!(
+            !ran("navigation.toggleSidebar"),
+            "the shell took the composer's key: {heard:?}"
+        );
+        assert!(ran("tabs.new"), "the shell missed a free chord: {heard:?}");
+        assert!(
+            ran("tabs.newTerminal"),
+            "a shell-first chord yielded to a prevented key: {heard:?}"
+        );
+        assert!(
+            !ran("files.search"),
+            "a page-first chord ran over a prevented key: {heard:?}"
+        );
+        assert!(
+            ran("sidebar.dismissDrawer"),
+            "a page-first chord the page left alone did not run: {heard:?}"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
     #[test]
     #[ignore = "needs display"]
     fn a_page_that_handles_a_chord_keeps_it_from_the_shell() -> TestResult {
@@ -161,12 +190,7 @@ window.ipc.postMessage('done');";
         view.eval(BINDINGS)?;
         view.eval(PRESSES)?;
         let heard = heard_until(&messages, "done");
-        let ran = |command: &str| heard.iter().any(|message| message.contains(command));
-        assert!(
-            !ran("navigation.toggleSidebar"),
-            "the shell took the composer's key: {heard:?}"
-        );
-        assert!(ran("tabs.new"), "the shell missed a free chord: {heard:?}");
+        assert_ran_only_what_the_page_left_alone(&heard);
         Ok(())
     }
 }

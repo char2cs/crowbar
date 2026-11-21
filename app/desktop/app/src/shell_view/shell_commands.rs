@@ -29,7 +29,7 @@ impl ShellView {
     ) {
         let stroke = keystroke_of(&event.keystroke);
         let Some(command) = self.keymap.resolve(&stroke) else {
-            return self.switch_project_on(&stroke, cx);
+            return self.on_unbound_key(&stroke, window, cx);
         };
         cx.stop_propagation();
         self.run_shell_command(command, window, cx);
@@ -70,7 +70,7 @@ impl ShellView {
         }
     }
 
-    fn switch_project_on(
+    pub(super) fn switch_project_on(
         &self,
         stroke: &Keystroke,
         cx: &mut Context<'_, Self>,

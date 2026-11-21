@@ -5,12 +5,16 @@
 //! serves itself, and [`Keymap::forwarded`] lists the chords a pane must forward as `command.run`
 //! (the page script prevents the default and posts the command id), so `mod+t` works whichever
 //! side has focus.
-//! Chords every pane keeps for itself (editor save, zoom) are never forwarded.
+//! Chords every pane keeps for itself (editor save, zoom) are never forwarded. A
+//! [`ContextualCommand`] is forwarded only while its surface shows, and yields to a page that
+//! handled the key.
 
+mod contextual_command;
 mod keymap;
 mod project_slot;
 mod shell_command;
 
+pub use contextual_command::ContextualCommand;
 pub use keymap::Keymap;
 pub use project_slot::{project_slot_of_command, project_slot_of_stroke};
 pub use shell_command::ShellCommand;

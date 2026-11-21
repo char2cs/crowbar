@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use protocol::{CommandId, KeyBinding, KeyChord};
 
+use crate::contextual_command::ContextualCommand;
 use crate::project_slot::project_bindings;
 use crate::shell_command::ShellCommand;
 use chord::Keystroke;
@@ -59,9 +60,13 @@ impl Keymap {
         self.bound.get(&stroke.chord()?).copied()
     }
 
-    /// The bindings a pane forwards to the shell as `command.run`.
+    /// The bindings a pane forwards to the shell as `command.run`, with the `live` contextual
+    /// commands whose surface shows now.
     #[must_use]
-    pub fn forwarded(&self) -> Vec<KeyBinding> {
+    pub fn forwarded(
+        &self,
+        live: &[ContextualCommand],
+    ) -> Vec<KeyBinding> {
         self.bound
             .iter()
             .filter_map(|(chord, command)| {
@@ -70,6 +75,7 @@ impl Keymap {
                 Some(KeyBinding::new(keys, id))
             })
             .chain(project_bindings())
+            .chain(live.iter().filter_map(|command| command.binding()))
             .collect()
     }
 }
@@ -100,7 +106,7 @@ mod tests {
         id: &str,
     ) -> bool {
         keymap
-            .forwarded()
+            .forwarded(&[])
             .iter()
             .any(|binding| binding.command().as_str() == id)
     }
@@ -170,11 +176,20 @@ mod tests {
 
     #[test]
     fn forwarded_bindings_cover_the_bound_shell_commands_and_the_project_slots() {
-        let bindings = Keymap::with_overrides([("tabs.new", "")]).forwarded();
+        let keymap = Keymap::with_overrides([("tabs.new", "")]);
+        let bindings = keymap.forwarded(&[]);
         let commands: Vec<&str> = bindings.iter().map(|b| b.command().as_str()).collect();
         assert!(commands.contains(&"tabs.closeActive"));
         assert!(!commands.contains(&"tabs.new"));
         assert!(commands.contains(&"navigation.selectProject.1"));
+        assert!(!commands.contains(&"files.search"), "no surface shows");
+        let live = keymap.forwarded(&[ContextualCommand::SearchFiles]);
+        let search = live.iter().find(|b| b.command().as_str() == "files.search");
+        assert_eq!(
+            search.map(KeyBinding::precedence),
+            Some(protocol::Precedence::Page),
+            "a showing surface forwards its chord page-first"
+        );
         assert!(bindings.iter().all(|b| !b.keys().as_str().contains(' ')));
     }
 }

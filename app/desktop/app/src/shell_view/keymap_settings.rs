@@ -1,5 +1,6 @@
-use gpui::Context;
-use keymap::Keymap;
+use chord::Keystroke;
+use gpui::{App, Context, Window};
+use keymap::{ContextualCommand, Keymap};
 use settings::{
     Change, Follow as _, KEYBINDING_OVERRIDES, KEYBINDING_PRESET, Key, Read as _, Value,
     preset_overrides,
@@ -52,14 +53,80 @@ impl ShellView {
             backend.get(&Key::new(KEYBINDING_OVERRIDES)).as_ref(),
             backend.get(&Key::new(KEYBINDING_PRESET)).as_ref(),
         );
-        self.state.set_keybindings(self.keymap.forwarded());
+    }
+
+    fn live_contextual(
+        &self,
+        window: &Window,
+        cx: &App,
+    ) -> Vec<ContextualCommand> {
+        let sidebar = self.sidebar.read(cx);
+        [
+            (
+                ContextualCommand::DismissDrawer,
+                sidebar.is_drawer_open(window),
+            ),
+            (ContextualCommand::SearchFiles, sidebar.shows_files(window)),
+        ]
+        .into_iter()
+        .filter_map(|(command, live)| live.then_some(command))
+        .collect()
+    }
+
+    pub(super) fn forward_bindings(
+        &mut self,
+        window: &Window,
+        cx: &App,
+    ) {
+        let live = self.live_contextual(window, cx);
+        self.state.set_keybindings(self.keymap.forwarded(&live));
+    }
+
+    pub(super) fn run_contextual(
+        &mut self,
+        command: ContextualCommand,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if !self.live_contextual(window, cx).contains(&command) {
+            return;
+        }
+        match command {
+            ContextualCommand::DismissDrawer => {
+                self.sidebar
+                    .update(cx, sidebarview::Sidebar::dismiss_drawer);
+            },
+            ContextualCommand::SearchFiles => {
+                self.sidebar
+                    .update(cx, |sidebar, cx| sidebar.search_files(window, cx));
+                self.state.keep_keyboard_in_shell();
+                self.sync(cx);
+            },
+        }
+    }
+
+    pub(super) fn on_unbound_key(
+        &mut self,
+        stroke: &Keystroke,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let Some(command) = ContextualCommand::of_stroke(stroke) else {
+            return self.switch_project_on(stroke, cx);
+        };
+        if self.live_contextual(window, cx).contains(&command) {
+            cx.stop_propagation();
+            self.run_contextual(command, window, cx);
+        }
     }
 
     pub(super) fn on_keymap_changed(
         &mut self,
+        window: &Window,
         cx: &mut Context<'_, Self>,
     ) {
         self.reload_keymap();
+        self.forward_bindings(window, cx);
         cx.notify();
     }
 }
