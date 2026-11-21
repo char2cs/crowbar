@@ -8,7 +8,7 @@ use gpui::{
     App, InteractiveElement as _, IntoElement, ParentElement, StatefulInteractiveElement as _,
     Styled, Window, div, px,
 };
-use settings::Row;
+use settings::{LabelStyle, Row};
 use ui::{HoverFill, ScaledText, Surface, Theme, radius};
 
 use crate::frame::Frame;
@@ -97,11 +97,6 @@ fn label_line(
     row: &Row,
     cx: &App,
 ) -> gpui::AnyElement {
-    let palette = Theme::of(cx).palette(Surface::Window);
-    let (size, line) = match frame.rows {
-        RowLayout::Inline => LABEL_TEXT,
-        RowLayout::Stacked => STACKED_LABEL_TEXT,
-    };
     let key = row.key().as_str().to_owned();
     div()
         .flex()
@@ -109,15 +104,33 @@ fn label_line(
         .gap(spacing::SNUG)
         .h(px(LABEL_LINE))
         .child(
-            div()
+            label_text(frame.rows, row.label_style(), cx)
                 .debug_selector(move || format!("row-label-{key}"))
-                .text_size(px(size))
-                .line_height(px(line))
-                .text_color(palette.foreground())
                 .child(row.label().to_owned()),
         )
         .child(reset_button(frame, row, cx))
         .into_any_element()
+}
+
+fn label_text(
+    rows: RowLayout,
+    style: LabelStyle,
+    cx: &App,
+) -> gpui::Div {
+    let palette = Theme::of(cx).palette(Surface::Window);
+    let (size, line) = match (style, rows) {
+        (LabelStyle::Caption, _) => {
+            return div()
+                .line_height(gpui::relative(TEXT_LEADING))
+                .text_color(palette.muted_foreground());
+        },
+        (LabelStyle::Label, RowLayout::Inline) => LABEL_TEXT,
+        (LabelStyle::Label, RowLayout::Stacked) => STACKED_LABEL_TEXT,
+    };
+    div()
+        .text_size(px(size))
+        .line_height(px(line))
+        .text_color(palette.foreground())
 }
 
 #[cfg(test)]
@@ -159,6 +172,21 @@ mod tests {
         assert_eq!(before.size.height, gpui::px(16.0));
         assert_eq!(after.size, before.size);
         assert!(grown.size.height > text.size.height, "{text:?} {grown:?}");
+    }
+
+    #[gpui::test]
+    fn the_keymap_preset_is_named_by_a_caption_that_scales_with_the_ui(cx: &mut TestAppContext) {
+        let (_, cx) = open(cx, "keybindings");
+        cx.update(|_, cx| ui::Theme::of(cx).with_ui_font_size(24.0).install(cx));
+        cx.run_until_parked();
+        let caption = cx
+            .debug_bounds("row-label-keybindingPreset")
+            .unwrap_or_default();
+        assert_eq!(
+            caption.size.height.round(),
+            gpui::px(29.0),
+            "12px x 1.6 on 1.5 leading"
+        );
     }
 
     #[gpui::test]

@@ -16,7 +16,7 @@ pub use condition::Condition;
 pub use control::{ChoiceSource, Control, ControlWidth, Issue, Nudge, NumberRange, Validator};
 pub use page::Page;
 pub use page_id::PageId;
-pub use row::Row;
+pub use row::{LabelStyle, Row};
 pub(crate) use scope::Scope;
 pub use search_entry::SearchEntry;
 

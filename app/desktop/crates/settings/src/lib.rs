@@ -28,8 +28,8 @@ pub use records::{
 pub use schema::{Action, Block, ButtonFace, ButtonSpec};
 pub use schema::{ChoiceSource, Condition, Confirm, Control, ControlWidth};
 pub use schema::{
-    Heading, Issue, ListBlock, Nudge, NumberRange, Page, PageId, Row, Schema, SearchEntry, Section,
-    Validator,
+    Heading, Issue, LabelStyle, ListBlock, Nudge, NumberRange, Page, PageId, Row, Schema,
+    SearchEntry, Section, Validator,
 };
 pub use state::Effect;
 pub use state::{Prompt, RailMove, State};

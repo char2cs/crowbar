@@ -112,7 +112,8 @@ fn preset() -> Section {
                 ),
             )
             .default_value(DEFAULT_PRESET)
-            .without_reset(),
+            .without_reset()
+            .captioned(),
         )
         .noted(PRESET_NOTE)
 }

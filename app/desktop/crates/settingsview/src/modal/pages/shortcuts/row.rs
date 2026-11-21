@@ -270,7 +270,7 @@ fn reset_button(
     command: &str,
 ) -> impl IntoElement {
     Button::new(element_id("reset-chord", command), RESET)
-        .variant(ButtonVariant::Ghost)
+        .variant(ButtonVariant::Row)
         .size(ButtonSize::Xs)
         .on_click(frame.sink.send(Intent::ClearChord(command.to_owned())))
 }

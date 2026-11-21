@@ -1,7 +1,9 @@
 //! One setting in a section.
 
+mod label_style;
 mod reset_offer;
 
+pub use label_style::LabelStyle;
 pub(crate) use reset_offer::ResetOffer;
 
 use crate::schema::condition::Condition;
@@ -20,6 +22,7 @@ pub struct Row {
     pub(crate) default: Option<Value>,
     pub(crate) when: Option<Condition>,
     pub(crate) reset: ResetOffer,
+    pub(crate) label_style: LabelStyle,
 }
 
 impl Row {
@@ -44,6 +47,7 @@ impl Row {
             default: None,
             when: None,
             reset: ResetOffer::Offered,
+            label_style: LabelStyle::Label,
         }
     }
 
@@ -84,6 +88,13 @@ impl Row {
         self
     }
 
+    /// Draws the label as a muted caption instead of a form label.
+    #[must_use]
+    pub fn captioned(mut self) -> Self {
+        self.label_style = LabelStyle::Caption;
+        self
+    }
+
     /// Shows the row only while `condition` holds.
     #[must_use]
     pub fn when(
@@ -103,6 +114,11 @@ impl Row {
     pub fn label(&self) -> &str {
         &self.label
     }
+
+    /// How the label is drawn.
+    pub fn label_style(&self) -> LabelStyle {
+        self.label_style
+    }
 }
 
 #[cfg(test)]
@@ -121,5 +137,7 @@ mod tests {
         assert_eq!(row.invalid_description.as_deref(), Some("Bad"));
         assert_eq!(row.default, Some(Value::Number(2.0)));
         assert!(row.when.is_some());
+        assert_eq!(row.label_style(), LabelStyle::Label);
+        assert_eq!(row.captioned().label_style(), LabelStyle::Caption);
     }
 }
