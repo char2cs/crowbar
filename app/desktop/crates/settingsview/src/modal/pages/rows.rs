@@ -20,8 +20,11 @@ use crate::modal::pages::rows::controls::control_view;
 use crate::modal::pages::rows::reset_button::reset_button;
 
 const LABEL_LINE: f32 = 20.0;
-const TEXT_LINE: f32 = 18.0;
+const TEXT_LEADING: f32 = 1.5;
 const WASH: f32 = 0.5;
+// SPEC: app/panes/src/components/ui/label.tsx: `sm:text-sm/4` outranks `ui-text-sm`; 14px at any UI size.
+const LABEL_TEXT: (f32, f32) = (14.0, 16.0);
+const STACKED_LABEL_TEXT: (f32, f32) = (16.0, 18.0);
 
 pub(crate) fn row_view(
     frame: &Frame<'_>,
@@ -76,7 +79,7 @@ fn text_column(
     let palette = Theme::of(cx).palette(Surface::Window);
     let description = frame.state.description(row).map(|text| {
         div()
-            .line_height(px(TEXT_LINE))
+            .line_height(gpui::relative(TEXT_LEADING))
             .text_color(palette.muted_foreground())
             .child(text.to_owned())
     });
@@ -95,6 +98,11 @@ fn label_line(
     cx: &App,
 ) -> gpui::AnyElement {
     let palette = Theme::of(cx).palette(Surface::Window);
+    let (size, line) = match frame.rows {
+        RowLayout::Inline => LABEL_TEXT,
+        RowLayout::Stacked => STACKED_LABEL_TEXT,
+    };
+    let key = row.key().as_str().to_owned();
     div()
         .flex()
         .items_center()
@@ -102,6 +110,9 @@ fn label_line(
         .h(px(LABEL_LINE))
         .child(
             div()
+                .debug_selector(move || format!("row-label-{key}"))
+                .text_size(px(size))
+                .line_height(px(line))
                 .text_color(palette.foreground())
                 .child(row.label().to_owned()),
         )
@@ -134,6 +145,20 @@ mod tests {
             (gpui::px(32.0), gpui::px(32.0)),
             "controls at base size"
         );
+    }
+
+    #[gpui::test]
+    fn a_label_keeps_its_14px_text_while_the_ui_font_size_grows(cx: &mut TestAppContext) {
+        let (_, cx) = open(cx, "appearance");
+        let before = cx.debug_bounds("row-label-themeMode").unwrap_or_default();
+        let text = cx.debug_bounds("row-text-themeMode").unwrap_or_default();
+        cx.update(|_, cx| ui::Theme::of(cx).with_ui_font_size(24.0).install(cx));
+        cx.run_until_parked();
+        let after = cx.debug_bounds("row-label-themeMode").unwrap_or_default();
+        let grown = cx.debug_bounds("row-text-themeMode").unwrap_or_default();
+        assert_eq!(before.size.height, gpui::px(16.0));
+        assert_eq!(after.size, before.size);
+        assert!(grown.size.height > text.size.height, "{text:?} {grown:?}");
     }
 
     #[gpui::test]
