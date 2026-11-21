@@ -268,7 +268,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn pressing_a_tab_of_an_unfocused_group_focuses_that_tab_and_nothing_else(
+    fn clicking_a_tab_of_an_unfocused_group_focuses_that_tab_and_nothing_else(
         cx: &mut TestAppContext
     ) {
         let mut layout = stacked_layout();
@@ -281,6 +281,7 @@ mod tests {
         let size = view.read_with(cx, |view, _| view.bounds.size);
         let tab = point(size.width * 0.5 + px(74.0), px(20.0));
         cx.simulate_mouse_down(tab, MouseButton::Left, Modifiers::none());
+        cx.simulate_mouse_up(tab, MouseButton::Left, Modifiers::none());
         assert_eq!(
             opened.borrow().as_slice(),
             &[LayoutEvent::StripFocus { pane: pane_id("b") }],
