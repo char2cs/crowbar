@@ -13,6 +13,7 @@ pub use tabbar::path_action::PathAction;
 pub use tabbar::strip_tab::StripTab;
 pub use tabbar::tab_actions::{StripKeys, TabAction, TabActions, TabDrop};
 pub use tabbar::tab_end::TabEnd;
+pub use tabbar::tab_keep::TabKeep;
 pub use tabbar::tab_look::TabLook;
 pub use tabbar::tab_looks::TabLooks;
 pub use tabbar::tab_state::TabState;

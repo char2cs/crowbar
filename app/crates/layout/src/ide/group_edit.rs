@@ -55,6 +55,9 @@ impl PaneGroup {
             return;
         };
         self.tabs.remove(position);
+        if self.preview.as_ref() == Some(pane) {
+            self.preview = None;
+        }
         if position < self.pinned {
             self.pinned -= 1;
         }
@@ -99,6 +102,7 @@ impl PaneGroup {
             .tabs
             .iter_mut()
             .chain(&mut self.active)
+            .chain(&mut self.preview)
             .chain(&mut self.chat);
         for member in members {
             *member = exchanged(member);
@@ -117,8 +121,13 @@ impl PaneGroup {
             .chat
             .as_ref()
             .is_none_or(|chat| !self.tabs.contains(chat));
+        let preview_ok = self
+            .preview
+            .as_ref()
+            .is_none_or(|preview| self.tabs.contains(preview));
         sorted.len() == self.tabs.len()
             && active_ok
+            && preview_ok
             && chat_apart
             && !self.is_empty()
             && self.pinned <= self.tabs.len()

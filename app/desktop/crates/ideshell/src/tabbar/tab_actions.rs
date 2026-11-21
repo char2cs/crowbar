@@ -20,6 +20,8 @@ pub struct TabActions {
     pub remove: TabAction,
     /// A drop on it moves the dragged tab there.
     pub drop: TabDrop,
+    /// A double click keeps it as an ordinary tab; only a preview tab has one.
+    pub keep: Option<TabAction>,
 }
 
 ui::opaque_debug!(TabActions);

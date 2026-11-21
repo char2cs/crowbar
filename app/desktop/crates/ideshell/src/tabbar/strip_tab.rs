@@ -19,6 +19,7 @@ use crate::tabbar::tab_actions::{TabAction, TabActions, TabDrop};
 use crate::tabbar::tab_dragging::TabDragging;
 use crate::tabbar::tab_end::TabEnd;
 use crate::tabbar::tab_frame::{HEIGHT, group_of};
+use crate::tabbar::tab_keep::TabKeep;
 use crate::tabbar::tab_look::TabLook;
 use crate::tabbar::tab_state::TabState;
 
@@ -65,6 +66,7 @@ impl RenderOnce for StripTab {
             close,
             remove,
             drop,
+            keep,
         } = self.actions;
         let (label, icon, dirty) = (self.look.label.clone(), self.look.icon, self.look.dirty);
         let dragging = dragging_of(self.pane, (label.clone(), drop), palette);
@@ -73,12 +75,12 @@ impl RenderOnce for StripTab {
             ringed: self.ringed,
         };
         let tab = framed(&name, self.state, marks, &theme)
-            .on_mouse_down(MouseButton::Left, press(select))
-            .on_mouse_down(MouseButton::Middle, press(remove));
+            .on_mouse_down(MouseButton::Left, press(select, keep))
+            .on_mouse_down(MouseButton::Middle, press(remove, None));
         let ink = self.state.ink(palette);
         let tab = draggable(tab, dragging)
             .child(Icon::new(icon).size(px(ICON)).color(ink))
-            .child(label_of(label.clone()))
+            .child(label_of(&self.look))
             .children((dirty && self.state == TabState::Idle).then(|| unsaved_dot(palette)))
             .child(CloseButton {
                 name: name.clone(),
@@ -119,10 +121,15 @@ fn framed(
         .font_family(theme.ui_family())
 }
 
-fn press(action: TabAction) -> impl Fn(&MouseDownEvent, &mut Window, &mut App) {
-    move |_, window, cx| {
+fn press(
+    action: TabAction,
+    keep: Option<TabAction>,
+) -> impl Fn(&MouseDownEvent, &mut Window, &mut App) {
+    let keep: TabAction = keep.unwrap_or_else(|| Rc::new(|_, _| {}));
+    move |event, window, cx| {
         cx.stop_propagation();
         action(window, cx);
+        let _kept = (event.click_count >= 2).then(|| keep(window, cx));
     }
 }
 
@@ -163,12 +170,13 @@ fn unsaved_dot(palette: &Palette) -> gpui::Div {
         .debug_selector(|| "strip-tab-dot".into())
 }
 
-fn label_of(text: SharedString) -> gpui::Div {
+fn label_of(look: &TabLook) -> gpui::Div {
     div()
         .min_w_0()
         .overflow_hidden()
         .text_ellipsis()
-        .child(text)
+        .when(look.keep == TabKeep::Preview, Styled::italic)
+        .child(look.label.clone())
 }
 
 fn draggable(
@@ -255,6 +263,7 @@ mod tests {
             close: Rc::clone(&nothing),
             remove: nothing,
             drop,
+            keep: None,
         }
     }
 
@@ -285,6 +294,62 @@ mod tests {
         let at = point(px(20.0), px(HEIGHT / 2.0));
         cx.simulate_mouse_down(at, MouseButton::Left, Modifiers::none());
         assert_eq!(selects.get(), 1, "one select");
+    }
+
+    struct Kept {
+        keeps: Rc<Cell<u32>>,
+    }
+
+    impl Render for Kept {
+        fn render(
+            &mut self,
+            _: &mut Window,
+            _: &mut Context<'_, Self>,
+        ) -> impl IntoElement {
+            let keeps = Rc::clone(&self.keeps);
+            let keep: TabAction = Rc::new(move |_, _| keeps.set(keeps.get() + 1));
+            let actions = TabActions {
+                keep: Some(keep),
+                ..counting(Rc::new(Cell::new(0)))
+            };
+            div().size_full().child(tab_with(actions))
+        }
+    }
+
+    fn click(
+        cx: &mut gpui::VisualTestContext,
+        click_count: usize,
+    ) {
+        let position = point(px(20.0), px(HEIGHT / 2.0));
+        let down = MouseDownEvent {
+            button: MouseButton::Left,
+            position,
+            modifiers: Modifiers::none(),
+            click_count,
+            first_mouse: false,
+        };
+        let up = gpui::MouseUpEvent {
+            button: MouseButton::Left,
+            position,
+            modifiers: Modifiers::none(),
+            click_count,
+        };
+        cx.simulate_event(down);
+        cx.simulate_event(up);
+    }
+
+    #[gpui::test]
+    fn a_double_click_keeps_a_preview_tab_and_a_single_one_does_not(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            cx.set_global(Theme::default());
+            cx.set_global(Motion::default());
+        });
+        let keeps = Rc::new(Cell::new(0));
+        let host = Rc::clone(&keeps);
+        let (_, cx) = cx.add_window_view(move |_, _| Kept { keeps: host });
+        click(cx, 1);
+        click(cx, 2);
+        assert_eq!(keeps.get(), 1, "kept once, on the second click");
     }
 
     struct Shown {

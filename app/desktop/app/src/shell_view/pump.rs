@@ -154,7 +154,7 @@ impl ShellView {
                 let hosts = settings::PageId::from(crate::settings_modal::HOSTS_PAGE);
                 self.show_settings_page(Some(hosts), window, cx);
             },
-            Ok(SidebarAction::OpenFile(path)) => self.open_workspace_file(&path, cx),
+            Ok(SidebarAction::OpenFile(path)) => self.preview_workspace_file(&path, cx),
             Ok(SidebarAction::OpenReview(path)) => self.open_review_at(&path, cx),
             Ok(SidebarAction::ImportRepo) => self.choose_repo_folder(window, cx),
             Ok(SidebarAction::ChooseSpaceFolder(host)) => self.choose_space_folder(&host, cx),

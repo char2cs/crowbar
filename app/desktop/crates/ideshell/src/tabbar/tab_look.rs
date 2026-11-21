@@ -1,6 +1,8 @@
 use gpui::SharedString;
 use ui::IconName;
 
+use crate::tabbar::tab_keep::TabKeep;
+
 /// The label and glyph of a pane's tab in a strip.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TabLook {
@@ -17,6 +19,8 @@ pub struct TabLook {
     pub dirty: bool,
     /// Whether the tab menu offers to rename the tab.
     pub renamable: bool,
+    /// Whether the tab is a preview or kept.
+    pub keep: TabKeep,
 }
 
 impl TabLook {
@@ -29,6 +33,7 @@ impl TabLook {
             path: None,
             dirty: false,
             renamable: false,
+            keep: TabKeep::Kept,
         }
     }
 
@@ -56,6 +61,13 @@ impl TabLook {
     #[must_use]
     pub fn renamable(mut self) -> Self {
         self.renamable = true;
+        self
+    }
+
+    /// The same tab marked as a preview.
+    #[must_use]
+    pub fn previewed(mut self) -> Self {
+        self.keep = TabKeep::Preview;
         self
     }
 

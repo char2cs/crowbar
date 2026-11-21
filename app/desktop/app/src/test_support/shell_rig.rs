@@ -50,7 +50,12 @@ fn visible(shell: &ShellState) -> Vec<VisiblePane> {
 
 pub(crate) fn synced_chat(rig: &mut ShellRig) -> PaneId {
     open_chat(&mut rig.shell, "t1");
+    resync(rig);
+    rig.shell.layout().active_tab().unwrap().pane_ids()[0].clone()
+}
+
+/// Drives every visible pane of the rig's layout, as a frame does.
+pub(crate) fn resync(rig: &mut ShellRig) {
     let visible = visible(&rig.shell);
     rig.shell.sync(ParentWindow::X11(9), visible);
-    rig.shell.layout().active_tab().unwrap().pane_ids()[0].clone()
 }

@@ -3,6 +3,7 @@ use crate::error::Result;
 use crate::ide::close_panes;
 use crate::ide::group_commands;
 use crate::ide::pin_commands;
+use crate::ide::preview_commands;
 use crate::ide::view_commands;
 use crate::layout::Layout;
 use crate::pane_commands;
@@ -35,6 +36,9 @@ impl Layout {
                 .map(none_removed),
             Command::ResetSplit { tab, path } => {
                 tab_commands::equalize(self, tab, &path).map(none_removed)
+            },
+            marking @ (Command::PreviewPane { .. } | Command::KeepPane { .. }) => {
+                preview_commands::execute(self, marking).map(none_removed)
             },
             Command::SetEditorView { pane, view } => {
                 view_commands::set_editor_view(self, &pane, view).map(none_removed)

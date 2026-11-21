@@ -262,6 +262,7 @@ mod tests {
             close: Rc::clone(&nothing),
             remove: nothing,
             drop,
+            keep: None,
         };
         StripTab {
             pane: PaneId::new(name).expect("valid"),

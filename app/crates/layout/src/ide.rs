@@ -11,6 +11,7 @@ pub(crate) mod pane_group;
 pub(crate) mod pin_commands;
 mod pins;
 pub(crate) mod presentation;
+pub(crate) mod preview_commands;
 pub(crate) mod sidebar_side;
 pub(crate) mod strip_step;
 mod tab_chat;

@@ -18,6 +18,8 @@ pub struct PaneGroup {
     pub(crate) pinned: usize,
     pub(crate) editor_open: bool,
     pub(crate) chat_selected: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) preview: Option<PaneId>,
 }
 
 impl PaneGroup {
@@ -32,6 +34,7 @@ impl PaneGroup {
             pinned: 0,
             editor_open: false,
             chat_selected: true,
+            preview: None,
         }
     }
 
@@ -43,6 +46,7 @@ impl PaneGroup {
             pinned: 0,
             editor_open: true,
             chat_selected: false,
+            preview: None,
         }
     }
 

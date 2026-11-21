@@ -30,6 +30,7 @@ mod host_settings;
 mod navigation_target;
 mod opening;
 mod page_step;
+mod preview;
 mod renaming;
 mod review_reveal;
 mod tab_drop;

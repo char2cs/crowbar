@@ -19,5 +19,5 @@ pub(crate) use memory_preferences::MemoryPreferences;
 pub(crate) use mock_host::mock_host;
 pub(crate) use no_daemon::NoDaemon;
 pub(crate) use settled::settled;
-pub(crate) use shell_rig::{ShellRig, open_chat, shell_rig, synced_chat};
+pub(crate) use shell_rig::{ShellRig, open_chat, resync, shell_rig, synced_chat};
 pub(crate) use terminal_layout::terminal_layout;

@@ -52,7 +52,7 @@ impl LayoutView {
         cx: &mut Context<'_, Self>,
     ) -> StripTab {
         let pane = seat.pane;
-        let look = self.look_of(pane);
+        let look = look_in(group, pane, self.look_of(pane));
         StripTab {
             pane: pane.clone(),
             look,
@@ -75,6 +75,7 @@ impl LayoutView {
             close: Self::end_action(group, seat.pane, &remove, cx),
             remove,
             drop: Self::drop_action(group.active_tab().unwrap_or(seat.pane), seat.index, cx),
+            keep: Self::keep_action(group, seat.pane, cx),
         }
     }
 
@@ -158,6 +159,17 @@ pub(crate) fn state_in(
         return TabState::Active;
     }
     TabState::Idle
+}
+
+fn look_in(
+    group: &PaneGroup,
+    pane: &PaneId,
+    look: TabLook,
+) -> TabLook {
+    if group.preview() != Some(pane) {
+        return look;
+    }
+    look.previewed()
 }
 
 #[cfg(test)]

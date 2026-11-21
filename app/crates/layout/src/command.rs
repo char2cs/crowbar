@@ -114,6 +114,18 @@ pub enum Command {
         /// Whether the editor view shows.
         view: EditorView,
     },
+    /// Makes an editor tab its group's preview, as develop's file tree opens a file with a
+    /// single click; the group's previous preview becomes an ordinary tab.
+    PreviewPane {
+        /// The editor tab.
+        pane: PaneId,
+    },
+    /// Keeps a pane as an ordinary tab, as develop does on a double-click or a first edit: no
+    /// editor tab anywhere stays a preview.
+    KeepPane {
+        /// The pane that was kept.
+        pane: PaneId,
+    },
     /// Focuses a pane, shows it in its group and activates its tab.
     FocusPane {
         /// The pane to focus.
@@ -191,6 +203,8 @@ impl Command {
             self,
             Self::ActivateTab { .. }
                 | Self::FocusPane { .. }
+                | Self::PreviewPane { .. }
+                | Self::KeepPane { .. }
                 | Self::ResizeSplit { .. }
                 | Self::ResetSplit { .. }
                 | Self::SetPaneState { .. }

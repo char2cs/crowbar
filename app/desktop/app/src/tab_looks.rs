@@ -1,4 +1,4 @@
-use ideshell::TabLook;
+use ideshell::{TabKeep, TabLook};
 use layout::PaneInstance;
 use ui::IconName;
 
@@ -21,6 +21,7 @@ pub(crate) fn tab_look(
         path: None,
         dirty: false,
         renamable: instance.type_id.as_str() == TERMINAL,
+        keep: TabKeep::Kept,
     };
     match file_path(instance) {
         Some(path) => look.at_path(path),

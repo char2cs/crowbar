@@ -93,6 +93,16 @@ impl SplitNode {
         }
     }
 
+    pub(crate) fn clear_previews(&mut self) {
+        match self {
+            Self::Leaf(group) => group.preview = None,
+            Self::Split { first, second, .. } => {
+                first.clear_previews();
+                second.clear_previews();
+            },
+        }
+    }
+
     pub(crate) fn leaf_count(&self) -> usize {
         match self {
             Self::Leaf(_) => 1,

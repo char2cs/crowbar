@@ -21,6 +21,19 @@ impl LayoutView {
         Rc::new(move |_, cx| tell(&view, unpin.clone(), cx))
     }
 
+    pub(crate) fn keep_action(
+        group: &PaneGroup,
+        pane: &PaneId,
+        cx: &mut Context<'_, Self>,
+    ) -> Option<TabAction> {
+        if group.preview() != Some(pane) {
+            return None;
+        }
+        let (view, pane) = (cx.entity(), pane.clone());
+        let keep = LayoutEvent::Apply(Command::KeepPane { pane });
+        Some(Rc::new(move |_, cx| tell(&view, keep.clone(), cx)))
+    }
+
     pub(crate) fn add_action(
         onto: &PaneId,
         cx: &mut Context<'_, Self>,

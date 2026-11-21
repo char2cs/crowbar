@@ -6,6 +6,8 @@ use ideshell::PathAction;
 use super::ShellView;
 use crate::pane_spec::PaneSpec;
 
+const A_FILE: &str = "a file";
+
 impl ShellView {
     pub(in crate::shell_view) fn reveal_workspace_path(
         &self,
@@ -62,10 +64,25 @@ impl ShellView {
         path: &str,
         cx: &mut Context<'_, Self>,
     ) {
-        let Some(chat) = self.chat_for("a file") else {
+        let Some(chat) = self.chat_for(A_FILE) else {
             return;
         };
         self.open_spec(PaneSpec::editor(&chat, path), cx);
+    }
+
+    pub(in crate::shell_view) fn preview_workspace_file(
+        &mut self,
+        path: &str,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let Some(chat) = self.chat_for(A_FILE) else {
+            return;
+        };
+        match PaneSpec::editor(&chat, path) {
+            Ok(spec) => self.state.preview_spec(spec),
+            Err(error) => tracing::warn!(%error, "the file could not be described"),
+        }
+        self.refresh(cx);
     }
 
     pub(in crate::shell_view) fn open_file_from_disk(
@@ -73,7 +90,7 @@ impl ShellView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        let Some(chat) = self.chat_for("a file") else {
+        let Some(chat) = self.chat_for(A_FILE) else {
             return;
         };
         let picked = cx.prompt_for_paths(PathPromptOptions {
