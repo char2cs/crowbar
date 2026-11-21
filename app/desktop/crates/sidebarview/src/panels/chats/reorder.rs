@@ -1,5 +1,6 @@
 //! The sidebar's side of a row drag: arming, hovering, dropping.
 
+mod drag_end;
 mod drag_line;
 mod drag_state;
 mod drop_hint;
@@ -67,7 +68,16 @@ impl Sidebar {
     ) {
         let hint = self.drag.hint.clone().filter(|hint| hint.row == target);
         let lifted = self.drag.is_lifted(&subject);
+        let pressed = self
+            .drag
+            .press
+            .as_ref()
+            .is_some_and(|press| press.row == subject);
         self.end_drag(cx);
+        let clicked_in_place = !lifted && pressed && subject == target;
+        if clicked_in_place {
+            return self.open_row(subject, cx);
+        }
         let Some(hint) = hint.filter(|_| lifted) else {
             return;
         };
@@ -201,6 +211,22 @@ mod tests {
             this.drop_on((RowId::from("working"), RowId::from("folder")), cx);
         });
         assert_eq!(recorder.sent(), vec![]);
+    }
+
+    #[gpui::test]
+    fn a_release_below_the_threshold_on_the_pressed_row_is_a_click_that_opens_it(
+        cx: &mut TestAppContext
+    ) {
+        let (recorder, sidebar, cx) = open(cx, DemoShell::rich());
+        sidebar.update(cx, |this, cx| {
+            this.press_row(press("working"));
+            this.drag_over(&over("working", "working", (5.0, 0.0)), cx);
+            this.drop_on((RowId::from("working"), RowId::from("working")), cx);
+        });
+        assert_eq!(
+            recorder.sent(),
+            vec![Command::OpenRow(RowId::from("working"))]
+        );
     }
 
     #[gpui::test]

@@ -44,10 +44,7 @@ impl Render for Sidebar {
             .size_full()
             .bg(palette.chrome_bg())
             .when(self.drag.lifted.is_some(), Styled::cursor_grabbing)
-            .on_mouse_move(cx.listener(|this, event, window, cx| {
-                this.move_resize(event, cx);
-                this.track_peek(event.position, window, cx);
-            }))
+            .on_mouse_move(cx.listener(Self::track_pointer))
             .on_mouse_up(
                 MouseButton::Left,
                 cx.listener(|this, _, _, cx| this.release_pointer(cx)),
