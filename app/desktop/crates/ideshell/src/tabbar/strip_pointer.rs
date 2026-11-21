@@ -1,7 +1,10 @@
-//! Ending a tab drag wherever the pointer is released, as develop's sortable bar lands a tab on
-//! its closest slot even when the release is outside the bar.
+//! A tab drag follows the pointer anywhere in the window and ends wherever it is released, as
+//! develop's sortable bar lands a tab on its closest slot even when the release is outside the bar.
 
-use gpui::{App, DispatchPhase, Entity, IntoElement, MouseUpEvent, Styled, Window, canvas};
+use gpui::{
+    App, DispatchPhase, Entity, IntoElement, MouseMoveEvent, MouseUpEvent, Pixels, Point, Styled,
+    Window, canvas,
+};
 
 use crate::tabbar::strip_state::StripState;
 use crate::tabbar::tab_actions::TabMove;
@@ -29,24 +32,43 @@ fn listen(
     if landing.0.read(cx).drag.is_none() {
         return;
     }
-    window.on_mouse_event(move |_: &MouseUpEvent, phase, window, cx| {
-        land(&landing, phase, window, cx);
+    let following = landing.0.clone();
+    window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
+        follow(&following, (event.position, phase), cx);
     });
+    window.on_mouse_event(move |event: &MouseUpEvent, phase, window, cx| {
+        land(&landing, (event.position, phase), window, cx);
+    });
+}
+
+fn follow(
+    state: &Entity<StripState>,
+    (pointer, phase): (Point<Pixels>, DispatchPhase),
+    cx: &mut App,
+) {
+    if phase != DispatchPhase::Capture {
+        return;
+    }
+    let changed = state.update(cx, |state, _| state.dragged(pointer));
+    if changed {
+        state.update(cx, |_, cx| cx.notify());
+    }
 }
 
 fn land(
     landing: &Landing,
-    phase: DispatchPhase,
+    release: (Point<Pixels>, DispatchPhase),
     window: &mut Window,
     cx: &mut App,
 ) {
+    let (pointer, phase) = release;
     if phase != DispatchPhase::Capture {
         return;
     }
     let (state, reorder) = landing;
     let landed = state.update(cx, |state, cx| {
         cx.notify();
-        state.land()
+        state.land(pointer)
     });
     if let Some((pane, index)) = landed {
         reorder(&pane, index, window, cx);
@@ -88,7 +110,7 @@ mod tests {
 
     fn released(
         cx: &mut TestAppContext,
-        drag: StripDrag,
+        (drag, released_at): (StripDrag, Point<Pixels>),
     ) -> (Vec<usize>, bool) {
         let state = cx.update(|cx| cx.new(StripState::new));
         state.update(cx, |state, _| state.drag = Some(drag));
@@ -99,24 +121,32 @@ mod tests {
             moves: bar.1,
         });
         cx.run_until_parked();
-        let far = point(px(500.0), px(300.0));
-        cx.simulate_mouse_up(far, MouseButton::Left, Modifiers::none());
+        cx.simulate_mouse_up(released_at, MouseButton::Left, Modifiers::none());
         let ended = state.read_with(cx, |state, _| state.drag.is_none());
         (moves.take(), ended)
     }
 
     #[gpui::test]
     fn a_release_anywhere_lands_a_lifted_tab_and_ends_every_drag(cx: &mut TestAppContext) {
+        let below_the_bar = |x: f32| point(px(x), px(300.0));
         let cases = [
             (
                 "lifted past the last tab",
                 dragged(0, &[6.0, 260.0]),
+                310.0,
                 vec![2],
             ),
-            ("never lifted", dragged(0, &[4.0]), vec![]),
+            ("never lifted", dragged(0, &[4.0]), 54.0, vec![]),
+            (
+                "lifted only by the release itself",
+                dragged(0, &[3.0]),
+                310.0,
+                vec![2],
+            ),
         ];
-        for (name, drag, expected) in cases {
-            assert_eq!(released(cx, drag), (expected, true), "{name}");
+        for (name, drag, x, expected) in cases {
+            let ended = released(cx, (drag, below_the_bar(x)));
+            assert_eq!(ended, (expected, true), "{name}");
         }
     }
 }

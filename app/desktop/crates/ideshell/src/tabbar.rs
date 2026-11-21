@@ -10,7 +10,7 @@ pub(crate) mod pane_strip;
 pub(crate) mod path_action;
 pub(crate) mod review_button;
 pub(crate) mod strip_drag;
-pub(crate) mod strip_release;
+pub(crate) mod strip_pointer;
 pub(crate) mod strip_seat;
 pub(crate) mod strip_state;
 pub(crate) mod strip_tab;

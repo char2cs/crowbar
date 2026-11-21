@@ -10,7 +10,7 @@ use crate::tabbar::chat_tab::ChatTab;
 use crate::tabbar::input_mode::InputMode;
 use crate::tabbar::overflow_entry::OverflowEntry;
 use crate::tabbar::review_button::review_button;
-use crate::tabbar::strip_release;
+use crate::tabbar::strip_pointer;
 use crate::tabbar::strip_state::StripState;
 use crate::tabbar::strip_tab::StripTab;
 use crate::tabbar::tab_actions::{StripKeys, TabAction, TabMove};
@@ -72,7 +72,7 @@ impl RenderOnce for PaneStrip {
         let mode = StripState::shown_mode(&state, &focus, (window, cx));
         let keys = self.keys;
         let (measuring, typing, pressing) = (state.clone(), state.clone(), state.clone());
-        let landing = strip_release::probe(state.clone(), self.reorder);
+        let landing = strip_pointer::probe(state.clone(), self.reorder);
         let tabs = (!self.tabs.is_empty()).then(|| {
             scroller(name, &scroll)
                 .children(self.chat_tab)
@@ -384,7 +384,7 @@ mod tests {
 
     fn dragging(
         cx: &mut TestAppContext,
-        by: f32,
+        steps: &[f32],
     ) -> Vec<(String, usize)> {
         let moves = Moves::default();
         let cx = opened_with(cx, (3, 0, 1200.0), Rc::clone(&moves));
@@ -393,25 +393,34 @@ mod tests {
             .unwrap_or_default()
             .center();
         let left = gpui::MouseButton::Left;
+        let at = |step: f32| gpui::point(start.x + px(step), start.y);
         cx.simulate_mouse_down(start, left, Modifiers::none());
-        for step in [by / 2.0, by] {
-            let at = gpui::point(start.x + px(step), start.y);
-            cx.simulate_mouse_move(at, Some(left), Modifiers::none());
+        for step in steps {
+            cx.simulate_mouse_move(at(*step), Some(left), Modifiers::none());
         }
-        let end = gpui::point(start.x + px(by), start.y);
-        cx.simulate_mouse_up(end, left, Modifiers::none());
+        let end = steps.last().copied().unwrap_or_default();
+        cx.simulate_mouse_up(at(end), left, Modifiers::none());
         moves.take()
     }
 
-    #[gpui::test]
-    fn a_tab_dragged_past_its_neighbours_lands_in_their_place(cx: &mut TestAppContext) {
-        let moved = dragging(cx, 420.0);
-        assert_eq!(moved, [("t0".to_owned(), 2)], "past t1 and t2");
-    }
+    type Case = (&'static str, &'static [f32], Vec<(String, usize)>);
 
     #[gpui::test]
-    fn a_press_that_moves_less_than_six_pixels_moves_no_tab(cx: &mut TestAppContext) {
-        assert_eq!(dragging(cx, 4.0), [], "still a press");
+    fn a_tab_dragged_along_its_bar_lands_on_the_closest_slot(cx: &mut TestAppContext) {
+        let past_both = vec![("t0".to_owned(), 2)];
+        let cases: [Case; 4] = [
+            ("past t1 and t2", &[210.0, 420.0], past_both.clone()),
+            (
+                "one fast move over t1, never hovering it",
+                &[3.0, 420.0],
+                past_both.clone(),
+            ),
+            ("a single jump past both", &[420.0], past_both),
+            ("less than six pixels is still a press", &[2.0, 4.0], vec![]),
+        ];
+        for (name, steps, expected) in cases {
+            assert_eq!(dragging(cx, steps), expected, "{name}");
+        }
     }
 
     #[gpui::test]

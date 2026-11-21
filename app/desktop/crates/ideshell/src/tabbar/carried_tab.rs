@@ -1,7 +1,7 @@
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    App, AppContext as _, Div, DragMoveEvent, Entity, InteractiveElement, IntoElement,
-    MouseDownEvent, RenderOnce, SharedString, Stateful, StatefulInteractiveElement, Styled, Window,
+    App, AppContext as _, Div, Entity, InteractiveElement, IntoElement, MouseDownEvent, RenderOnce,
+    SharedString, Stateful, StatefulInteractiveElement, Styled, Window,
 };
 use ui::DragGhost;
 
@@ -79,14 +79,11 @@ fn wire(
     seat: StripSeat,
     label: SharedString,
 ) -> Stateful<Div> {
-    let (pressing, moving) = (seat.strip.clone(), seat.clone());
+    let pressing = seat.strip.clone();
     frame
         .capture_any_mouse_down(move |event, _, cx| press(&pressing, event, cx))
         .on_drag(key_of(&seat), move |_, _, _, cx| {
             lift(&seat, label.clone(), cx)
-        })
-        .on_drag_move(move |event: &DragMoveEvent<TabDrag>, _, cx| {
-            follow(&moving, event, cx);
         })
 }
 
@@ -115,23 +112,6 @@ fn lift(
     let pill = cx.new(|_| DragGhost::new(label, GHOST_WIDTH));
     let strip = seat.strip.clone();
     cx.new(|_| TabGhost { pill, strip })
-}
-
-fn follow(
-    seat: &StripSeat,
-    event: &DragMoveEvent<TabDrag>,
-    cx: &mut App,
-) {
-    if *event.drag(cx) != key_of(seat) {
-        return;
-    }
-    let (slot, pointer) = ((seat.index, event.bounds), event.event.position);
-    let changed = seat
-        .strip
-        .update(cx, |state, _| state.dragged(slot, pointer));
-    if changed {
-        seat.strip.update(cx, |_, cx| cx.notify());
-    }
 }
 
 #[cfg(test)]

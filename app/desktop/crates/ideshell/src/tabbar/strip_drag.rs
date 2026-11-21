@@ -1,4 +1,4 @@
-use gpui::{Bounds, Pixels, Point};
+use gpui::{Pixels, Point};
 use protocol::PaneId;
 
 const ACTIVATION: f32 = 6.0;
@@ -10,14 +10,14 @@ pub(crate) struct StripDrag {
     press: Point<Pixels>,
     armed: bool,
     target: usize,
-    centres: Vec<Option<Pixels>>,
+    centres: Vec<Pixels>,
 }
 
 impl StripDrag {
     pub(crate) fn new(
         (pane, from): (PaneId, usize),
         press: Point<Pixels>,
-        tabs: usize,
+        centres: Vec<Pixels>,
     ) -> Self {
         Self {
             pane,
@@ -25,18 +25,14 @@ impl StripDrag {
             press,
             armed: false,
             target: from,
-            centres: vec![None; tabs],
+            centres,
         }
     }
 
     pub(crate) fn moved(
         &mut self,
-        (index, bounds): (usize, Bounds<Pixels>),
         pointer: Point<Pixels>,
     ) -> bool {
-        if let Some(centre) = self.centres.get_mut(index) {
-            centre.get_or_insert(bounds.center().x);
-        }
         let before = (self.armed, self.target);
         self.armed |= (pointer - self.press).magnitude() >= f64::from(ACTIVATION);
         if self.armed {
@@ -49,16 +45,15 @@ impl StripDrag {
         &self,
         shift: Pixels,
     ) -> usize {
-        let Some(Some(start)) = self.centres.get(self.from) else {
+        let Some(start) = self.centres.get(self.from) else {
             return self.target;
         };
         let centre = *start + shift;
-        let distance = |slot: &Pixels| f32::from((*slot - centre).abs());
+        let distance = |slot: Pixels| f32::from((slot - centre).abs());
         self.centres
             .iter()
             .enumerate()
-            .filter_map(|(index, slot)| slot.map(|slot| (index, slot)))
-            .min_by(|a, b| distance(&a.1).total_cmp(&distance(&b.1)))
+            .min_by(|a, b| distance(*a.1).total_cmp(&distance(*b.1)))
             .map_or(self.target, |(index, _)| index)
     }
 

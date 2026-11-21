@@ -1,4 +1,4 @@
-use gpui::{App, Bounds, Context, Entity, FocusHandle, Pixels, Point, ScrollHandle, Window, px};
+use gpui::{App, Context, Entity, FocusHandle, Pixels, Point, ScrollHandle, Window, px};
 use protocol::PaneId;
 
 use crate::tabbar::input_mode::InputMode;
@@ -64,21 +64,29 @@ impl StripState {
         tab: (PaneId, usize),
         tabs: usize,
     ) {
-        self.drag = Some(StripDrag::new(tab, self.pressed, tabs));
+        let children = self.scroll.children_count();
+        let lead = children.saturating_sub(tabs);
+        let centres = (lead..children)
+            .filter_map(|child| self.scroll.bounds_for_item(child))
+            .map(|bounds| bounds.center().x)
+            .collect();
+        self.drag = Some(StripDrag::new(tab, self.pressed, centres));
     }
 
     pub(crate) fn dragged(
         &mut self,
-        tab: (usize, Bounds<Pixels>),
         pointer: Point<Pixels>,
     ) -> bool {
-        self.drag
-            .as_mut()
-            .is_some_and(|drag| drag.moved(tab, pointer))
+        self.drag.as_mut().is_some_and(|drag| drag.moved(pointer))
     }
 
-    pub(crate) fn land(&mut self) -> Option<(PaneId, usize)> {
-        self.drag.take().and_then(|drag| drag.landing())
+    pub(crate) fn land(
+        &mut self,
+        pointer: Point<Pixels>,
+    ) -> Option<(PaneId, usize)> {
+        let mut drag = self.drag.take()?;
+        drag.moved(pointer);
+        drag.landing()
     }
     pub(crate) fn follow(
         &mut self,
