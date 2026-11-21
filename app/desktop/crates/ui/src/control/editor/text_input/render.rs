@@ -52,8 +52,8 @@ impl Render for TextInput {
             .text_color(palette.foreground())
             .text_size(text)
             .line_height(text_size::LINE_HEIGHT)
-            .font_family(theme.ui_family())
-            .when(self.style == TextInputStyle::Bare, |d| {
+            .font_family(self.style.family(theme))
+            .when(self.style.bare(), |d| {
                 d.font_weight(gpui::FontWeight::MEDIUM)
             })
             .shadow(shadows)
@@ -95,7 +95,7 @@ impl TextInput {
         frame: crate::control::editor::field::Chrome,
         window: &Window,
     ) -> (gpui::Hsla, gpui::Hsla, Vec<gpui::BoxShadow>) {
-        if self.style == TextInputStyle::Bare {
+        if self.style.bare() {
             let clear = gpui::hsla(0.0, 0.0, 0.0, 0.0);
             return (clear, clear, Vec::new());
         }

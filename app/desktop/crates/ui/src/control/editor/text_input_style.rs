@@ -30,6 +30,8 @@ pub enum TextInputStyle {
     Stepper,
     /// Frameless 13px medium field that replaces a row label while it is renamed.
     Bare,
+    /// [`Self::Bare`] in the mono family, for a branch name.
+    BareMono,
 }
 
 impl TextInputStyle {
@@ -39,7 +41,7 @@ impl TextInputStyle {
             Self::Standard => STANDARD_HEIGHT,
             Self::Compact => COMPACT_HEIGHT,
             Self::Stepper => STEPPER_HEIGHT,
-            Self::Bare => BARE_HEIGHT,
+            Self::Bare | Self::BareMono => BARE_HEIGHT,
         })
     }
 
@@ -48,14 +50,14 @@ impl TextInputStyle {
             Self::Standard => STANDARD_PADDING,
             Self::Compact => COMPACT_PADDING,
             Self::Stepper => STEPPER_PADDING,
-            Self::Bare => 0.0,
+            Self::Bare | Self::BareMono => 0.0,
         })
     }
 
     pub(crate) fn radius(self) -> Pixels {
         match self {
             Self::Stepper => radius::MD,
-            Self::Bare => px(0.0),
+            Self::Bare | Self::BareMono => px(0.0),
             Self::Standard | Self::Compact => radius::LG,
         }
     }
@@ -67,7 +69,7 @@ impl TextInputStyle {
     ) -> (Pixels, Pixels) {
         match self {
             Self::Standard | Self::Compact => (self.height() + point.growth(), point.text()),
-            Self::Stepper | Self::Bare => (self.height(), self.text(theme)),
+            Self::Stepper | Self::Bare | Self::BareMono => (self.height(), self.text(theme)),
         }
     }
 
@@ -76,10 +78,24 @@ impl TextInputStyle {
         theme: Theme,
     ) -> Pixels {
         match self {
-            Self::Bare => px(BARE_TEXT),
+            Self::Bare | Self::BareMono => px(BARE_TEXT),
             Self::Stepper => ScaledText::Sm.size(&theme),
             Self::Standard | Self::Compact => text_size::SM,
         }
+    }
+
+    pub(crate) fn family(
+        self,
+        theme: Theme,
+    ) -> &'static str {
+        if self == Self::BareMono {
+            return theme.mono_family();
+        }
+        theme.ui_family()
+    }
+
+    pub(crate) fn bare(self) -> bool {
+        matches!(self, Self::Bare | Self::BareMono)
     }
 
     pub(crate) fn centered(self) -> bool {
@@ -118,6 +134,17 @@ mod tests {
         for &(style, height) in CASES {
             assert_eq!(style.height(), px(height), "{style:?}");
         }
+    }
+
+    #[test]
+    fn the_bare_mono_field_draws_in_the_mono_family_and_the_others_in_the_ui_family() {
+        let theme = Theme::default();
+        assert_eq!(TextInputStyle::BareMono.family(theme), theme.mono_family());
+        assert_eq!(TextInputStyle::Bare.family(theme), theme.ui_family());
+        assert_eq!(
+            TextInputStyle::BareMono.height(),
+            TextInputStyle::Bare.height()
+        );
     }
 
     #[test]

@@ -1,6 +1,7 @@
 //! Inline rename, make-a-branch and fork-name inputs.
 
 mod field;
+mod field_look;
 mod naming;
 mod outcome;
 
@@ -8,7 +9,7 @@ pub(crate) use field::Field;
 
 use gpui::{AppContext as _, Context, Focusable as _, Subscription, Window};
 use sidebar::{Command, Editing, Error, Expansion, FileKind, NewEntry, PathText, RowId};
-use ui::{Surface, TextInput, TextInputEvent, TextInputStyle};
+use ui::{Surface, TextInput, TextInputEvent};
 
 use crate::panels::edit::outcome::Outcome;
 use crate::sidebar::Sidebar;
@@ -86,10 +87,11 @@ impl Sidebar {
         cx: &mut Context<'_, Self>,
     ) {
         let (row, initial, placeholder) = seed;
+        let look = field_look::of(self.tree.editing());
         let field = cx.new(|cx| {
             TextInput::new(placeholder.to_owned(), cx)
                 .on(Surface::Chrome)
-                .style(TextInputStyle::Bare)
+                .style(look)
         });
         field.update(cx, |field, cx| field.set_text(initial, cx));
         field.update(cx, |field, cx| field.focus(window, cx));
