@@ -2,7 +2,7 @@
 
 use gpui::{FocusHandle, IntoElement, SharedString};
 
-use super::{Dialog, DialogSize, DialogStyle, IconName};
+use super::{Dialog, DialogSize, DialogStyle, HeaderFlow, IconName};
 
 impl Dialog {
     /// Sets the heading.
@@ -12,6 +12,26 @@ impl Dialog {
         title: impl Into<SharedString>,
     ) -> Self {
         self.header = self.header.title(Some(title.into()));
+        self
+    }
+
+    /// Sets an element as the heading, in place of a title.
+    #[must_use]
+    pub fn heading(
+        mut self,
+        heading: impl IntoElement,
+    ) -> Self {
+        self.header = self.header.heading(Some(heading.into_any_element()));
+        self
+    }
+
+    /// Chooses how the header lays out its heading, actions and close button.
+    #[must_use]
+    pub fn header_flow(
+        mut self,
+        flow: HeaderFlow,
+    ) -> Self {
+        self.header = self.header.flow(flow);
         self
     }
 

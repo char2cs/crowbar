@@ -45,6 +45,7 @@ pub struct Dialog {
 }
 
 mod actions;
+mod app_header;
 mod close_button;
 mod description;
 mod dialog_extent;
@@ -52,6 +53,7 @@ mod dialog_size;
 mod dialog_style;
 mod focus;
 mod header;
+mod header_flow;
 mod heading;
 mod veil;
 
@@ -59,6 +61,7 @@ pub(crate) use actions::bindings;
 pub use dialog_extent::DialogExtent;
 pub use dialog_size::DialogSize;
 pub use dialog_style::DialogStyle;
+pub use header_flow::HeaderFlow;
 
 impl Dialog {
     /// An empty dialog; render it at the root of the window while it is open.

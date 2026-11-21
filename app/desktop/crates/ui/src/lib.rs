@@ -23,8 +23,8 @@ pub use display::{
 pub use error::Error;
 pub use floating::{
     Backdrop, ContextMenu, Dialog, DialogExtent, DialogSize, DialogStyle, DragGhost, DropdownMenu,
-    Menu, MenuAction, MenuItem, Placement, Popover, Portal, Select, Tooltip, TooltipSide, TopLayer,
-    click_away, popup_at,
+    HeaderFlow, Menu, MenuAction, MenuItem, Placement, Popover, Portal, Select, Tooltip,
+    TooltipSide, TopLayer, click_away, popup_at,
 };
 pub use foundation::{
     Appearance, CaretBlink, CubicBezier, Glide, HoverFill, Icon, IconName, IconWeight,

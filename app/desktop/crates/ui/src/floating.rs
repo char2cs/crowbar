@@ -15,7 +15,7 @@ mod top_layer;
 
 pub use backdrop::Backdrop;
 pub(crate) use dialog::bindings as dialog_bindings;
-pub use dialog::{Dialog, DialogExtent, DialogSize, DialogStyle};
+pub use dialog::{Dialog, DialogExtent, DialogSize, DialogStyle, HeaderFlow};
 pub use drag_ghost::DragGhost;
 pub(crate) use menu::bindings as menu_bindings;
 pub use menu::{ContextMenu, DropdownMenu, Menu, MenuAction, MenuItem, Select};

@@ -10,7 +10,6 @@ pub use modal_config::ModalConfig;
 use std::rc::Rc;
 
 use chord::Primary;
-use gpui::prelude::FluentBuilder as _;
 use gpui::{
     App, AppContext as _, AsyncApp, Context, Entity, FocusHandle, IntoElement, ParentElement,
     Render, ScrollHandle, WeakEntity, Window, div,
@@ -30,10 +29,9 @@ use crate::intent::Sink;
 use crate::lift::Lift;
 use crate::modal::notice_view;
 use crate::modal::prompt_view;
-use crate::modal::{extent, header_actions, is_narrow};
+use crate::modal::{extent, headed, search_field};
 
 const SEARCH_PLACEHOLDER: &str = "Search settings...";
-const TITLE: &str = "Settings";
 
 /// The settings modal view. Render it as the root of a window or as an overlay; it draws its own scrim.
 pub struct SettingsModal {
@@ -200,11 +198,9 @@ impl Render for SettingsModal {
             rows: RowLayout::of(window),
         };
         let content = body(&frame, (window, cx));
-        let actions = header_actions(&frame, &self.search, (window, cx));
-        let dialog = Dialog::new("settings")
-            .when(!is_narrow(window), |dialog| dialog.title(TITLE))
+        let dialog = headed(Dialog::new("settings"), &frame, (window, cx))
             .flush(extent(window))
-            .header_actions(actions)
+            .header_actions(search_field(&self.search, window))
             .body(content)
             .on_close(move |window, cx| closer.deliver(Intent::Close, (window, cx)));
         div()

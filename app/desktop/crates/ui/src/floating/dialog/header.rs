@@ -1,6 +1,5 @@
 //! Header strip of a dialog: icon, title, extra controls and the close button.
 
-use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, ElementId, FocusHandle, IntoElement, ParentElement, RenderOnce, SharedString,
     Styled, Window, div, px,
@@ -8,8 +7,8 @@ use gpui::{
 
 use crate::floating::dialog::close_button::close_button;
 use crate::floating::dialog::dialog_style::DialogStyle;
+use crate::floating::dialog::header_flow::HeaderFlow;
 use crate::foundation::CloseHandler;
-use crate::foundation::Icon;
 use crate::foundation::IconName;
 use crate::foundation::Surface;
 use crate::foundation::Theme;
@@ -19,12 +18,14 @@ use crate::foundation::tokens::spacing;
 #[derive(IntoElement)]
 pub(crate) struct Header {
     id: ElementId,
-    title: Option<SharedString>,
-    icon: Option<IconName>,
-    actions: Option<AnyElement>,
+    pub(crate) title: Option<SharedString>,
+    pub(crate) icon: Option<IconName>,
+    pub(crate) actions: Option<AnyElement>,
+    pub(crate) heading: Option<AnyElement>,
+    pub(crate) flow: HeaderFlow,
     on_close: Option<CloseHandler>,
     pub(crate) close_focus: Option<FocusHandle>,
-    ruled: bool,
+    pub(crate) ruled: bool,
     style: DialogStyle,
 }
 
@@ -35,6 +36,8 @@ impl Header {
             title: None,
             icon: None,
             actions: None,
+            heading: None,
+            flow: HeaderFlow::default(),
             on_close: None,
             close_focus: None,
             ruled: true,
@@ -88,13 +91,16 @@ impl Header {
     }
 
     pub(crate) fn is_empty(&self) -> bool {
-        self.title.is_none() && self.icon.is_none() && self.actions.is_none()
+        self.title.is_none()
+            && self.icon.is_none()
+            && self.heading.is_none()
+            && self.actions.is_none()
     }
 }
 
 impl RenderOnce for Header {
     fn render(
-        self,
+        mut self,
         _window: &mut Window,
         cx: &mut App,
     ) -> impl IntoElement {
@@ -102,10 +108,12 @@ impl RenderOnce for Header {
         let palette = theme.palette(Surface::Window);
         let style = self.style;
         let (px_x, px_y) = style.header_padding();
-        let headed = self.title.is_some() || self.icon.is_some();
-        let title = self.title.map(|title| title_text(title, style, &theme));
-        let close = close_button(self.id, self.on_close, style);
-        let close = match self.close_focus {
+        let title = self
+            .title
+            .take()
+            .map(|title| title_text(title, style, &theme));
+        let close = close_button(self.id.clone(), self.on_close.take(), style);
+        let close = match self.close_focus.take() {
             Some(focus) => close.focus_handle(focus),
             None => close,
         };
@@ -113,21 +121,7 @@ impl RenderOnce for Header {
         match style {
             DialogStyle::Plain => corner_close(frame.children(title), close),
             DialogStyle::Alert => frame.pb(px(0.0)).children(title),
-            DialogStyle::App => frame
-                .items_center()
-                .gap(spacing::STEP_2)
-                .when(self.ruled, |d| {
-                    d.border_b_1().border_color(palette.border())
-                })
-                .children(
-                    self.icon
-                        .map(|icon| Icon::new(icon).color(palette.muted_foreground())),
-                )
-                .children(title)
-                .when_some(self.actions, |d, actions| {
-                    d.child(actions_slot(actions).when(headed, |slot| slot.ml(spacing::STEP_2)))
-                })
-                .child(div().ml_auto().child(close)),
+            DialogStyle::App => self.app(frame, (title, close.into_any_element()), palette),
         }
     }
 }
@@ -155,16 +149,6 @@ fn title_text(
         .text_size(style.title_size())
         .line_height(style.title_line())
         .child(title)
-}
-
-fn actions_slot(actions: AnyElement) -> gpui::Div {
-    div()
-        .flex_1()
-        .min_w_0()
-        .flex()
-        .items_center()
-        .gap(spacing::STEP_2)
-        .child(actions)
 }
 
 opaque_debug!(Header);
