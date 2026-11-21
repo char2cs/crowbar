@@ -1,5 +1,6 @@
 //! Layout and painting of the grid.
 
+mod cell_size;
 pub(crate) mod colors;
 pub(crate) mod cursor;
 mod frame;
@@ -20,6 +21,7 @@ use crate::settings::base_font;
 use crate::settings::terminal_palette;
 use crate::terminal_view::TerminalView;
 use crate::terminal_view::input::pointer::drag_state::DragState;
+use crate::terminal_view::paint::cell_size::cell_size;
 use crate::terminal_view::paint::colors::Colors;
 use crate::terminal_view::paint::cursor::paint_cursor;
 use crate::terminal_view::paint::frame::Frame;
@@ -44,12 +46,9 @@ impl TerminalView {
         let advance = text_system
             .advance(font_id, size, MEASURE_GLYPH)
             .map_or(self.settings.font_size, |advance| f32::from(advance.width));
-        let natural =
-            f32::from(text_system.ascent(font_id, size) - text_system.descent(font_id, size));
-        (
-            advance + self.settings.letter_spacing,
-            (natural * self.settings.line_height).ceil(),
-        )
+        let ascent = f32::from(text_system.ascent(font_id, size));
+        let descent = -f32::from(text_system.descent(font_id, size));
+        cell_size((advance, ascent, descent), &self.settings)
     }
 
     fn shaping(
