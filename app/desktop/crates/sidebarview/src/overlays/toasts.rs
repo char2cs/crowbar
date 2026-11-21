@@ -1,8 +1,8 @@
 //! Showing toasts at the bottom of the sidebar column.
 
-use gpui::{AnyElement, App, Context, IntoElement, ParentElement, Styled, div};
-use sidebar::DockSide;
-use ui::{Portal, ToastContent, ToastLifetime, ToastPlacement, ToastSide};
+use gpui::{AnyElement, App, Context, Entity, IntoElement, ParentElement, Styled, div};
+use sidebar::{DockSide, Panel, Visibility};
+use ui::{Portal, ToastContent, ToastLifetime, ToastPlacement, ToastQueue, ToastSide};
 
 use crate::sidebar::Sidebar;
 
@@ -34,11 +34,19 @@ impl Sidebar {
         self.toasts.update(cx, |queue, cx| queue.clear(key, cx));
     }
 
+    /// The window's one toast queue: docked at the bottom of the column while the sidebar is
+    /// open, floating at the window corner on the dock edge while it is hidden, where the shell
+    /// draws it.
+    pub fn toast_queue(&self) -> Entity<ToastQueue> {
+        self.toasts.clone()
+    }
+
     pub(crate) fn toast_layer(
         &self,
         cx: &App,
     ) -> Option<AnyElement> {
-        if self.toasts.read(cx).is_empty() {
+        let queue = self.toasts.read(cx);
+        if queue.is_empty() || !matches!(queue.placement(), ToastPlacement::Docked(_)) {
             return None;
         }
         let toasts = self.toasts.clone();
@@ -54,8 +62,12 @@ impl Sidebar {
         }
     }
 
-    pub(crate) fn docked_toasts(side: DockSide) -> ToastPlacement {
-        ToastPlacement::Docked(Self::toast_side(side))
+    pub(crate) fn toast_placement(panel: Panel) -> ToastPlacement {
+        let side = Self::toast_side(panel.side());
+        if panel.visibility() == Visibility::Open {
+            return ToastPlacement::Docked(side);
+        }
+        ToastPlacement::Floating(side)
     }
 }
 
@@ -72,7 +84,7 @@ mod tests {
     const FADE: Duration = Duration::from_millis(200);
 
     fn shown(
-        sidebar: &gpui::Entity<Sidebar>,
+        sidebar: &Entity<Sidebar>,
         cx: &mut gpui::VisualTestContext,
     ) -> usize {
         let queue = sidebar.read_with(cx, |this, _| this.toasts.clone());
@@ -129,7 +141,27 @@ mod tests {
         sidebar.update(cx, |this, cx| this.dock_to(DockSide::Right, cx));
         let queue = sidebar.read_with(cx, |this, _| this.toasts.clone());
         let placement = queue.read_with(cx, |queue, _| queue.placement());
-        assert_eq!(placement, Sidebar::docked_toasts(DockSide::Right));
+        assert_eq!(placement, ToastPlacement::Docked(ToastSide::Right));
+    }
+
+    #[gpui::test]
+    fn hiding_the_sidebar_floats_its_toasts_at_the_window_corner_and_keeps_them(
+        cx: &mut TestAppContext
+    ) {
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
+        sidebar.update_in(cx, |this, window, cx| {
+            this.toast(info("Saved"), (None, ToastLifetime::Pinned), cx);
+            this.toggle(window, cx);
+        });
+        let queue = sidebar.read_with(cx, |this, _| this.toast_queue());
+        let placement = queue.read_with(cx, |queue, _| queue.placement());
+        assert_eq!(placement, ToastPlacement::Floating(ToastSide::Left));
+        assert_eq!(shown(&sidebar, cx), 1, "kept");
+        let drawn = sidebar.read_with(cx, |this, cx| this.toast_layer(cx).is_some());
+        assert!(!drawn, "the shell draws a floating column");
+        sidebar.update_in(cx, Sidebar::toggle);
+        let placement = queue.read_with(cx, |queue, _| queue.placement());
+        assert_eq!(placement, ToastPlacement::Docked(ToastSide::Left));
     }
 
     #[test]
@@ -140,11 +172,6 @@ mod tests {
         ];
         for (side, toast) in CASES {
             assert_eq!(Sidebar::toast_side(side), toast, "{side:?}");
-            assert_eq!(
-                Sidebar::docked_toasts(side),
-                ToastPlacement::Docked(toast),
-                "{side:?}"
-            );
         }
     }
 

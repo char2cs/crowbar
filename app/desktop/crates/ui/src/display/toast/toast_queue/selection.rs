@@ -42,6 +42,8 @@ mod tests {
                 updates: 0,
                 leaving: false,
                 timer: None,
+                due: None,
+                left: None,
             })
             .collect()
     }

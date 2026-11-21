@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use gpui::{
-    Context, Div, Entity, FocusHandle, InteractiveElement, IntoElement, ParentElement, Render,
+    App, Context, Div, Entity, FocusHandle, InteractiveElement, IntoElement, ParentElement, Render,
     Styled, Subscription, Window, div,
 };
 use keymap::Keymap;
@@ -191,17 +191,19 @@ impl ShellView {
         &self,
         cx: &mut Context<'_, Self>,
     ) -> Option<Portal> {
-        let shown =
-            self.modal_open() || self.readout.view.is_some() || !self.notices.read(cx).is_empty();
+        let shown = self.modal_open() || self.readout.view.is_some() || self.floats_toasts(cx);
         if !shown {
             return None;
         }
         let shell = cx.entity();
-        let portal = Portal::cover("shell-layers", move |_, cx| shell.read(cx).layers());
+        let portal = Portal::cover("shell-layers", move |_, cx| shell.read(cx).layers(cx));
         Some(portal.priority(layer::MODAL))
     }
 
-    fn layers(&self) -> Div {
+    fn layers(
+        &self,
+        cx: &App,
+    ) -> Div {
         div()
             .relative()
             .size_full()
@@ -215,7 +217,7 @@ impl ShellView {
             .children(layer(self.unsaved.as_ref()))
             .children(layer(self.startup.as_ref()))
             .children(self.readout.view.clone())
-            .child(self.notices.clone())
+            .children(self.floats_toasts(cx).then(|| self.notices.clone()))
     }
 
     fn chrome(
@@ -351,15 +353,15 @@ mod tests {
         assert!(pinned, "{inset:?}");
     }
 
-    struct Opened {
-        shell: Entity<ShellView>,
-        window: gpui::VisualTestContext,
+    pub(super) struct Opened {
+        pub(super) shell: Entity<ShellView>,
+        pub(super) window: gpui::VisualTestContext,
         top: gpui::VisualTestContext,
         mock: Rc<webview::MockPlatform>,
         pane: protocol::PaneId,
     }
 
-    fn open_shell(cx: &mut TestAppContext) -> Opened {
+    pub(super) fn open_shell(cx: &mut TestAppContext) -> Opened {
         cx.update(|cx| ui::init(cx).expect("ui installs"));
         let mut rig = crate::test_support::shell_rig();
         let pane = crate::test_support::synced_chat(&mut rig);

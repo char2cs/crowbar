@@ -4,13 +4,14 @@ use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    Context, Div, Entity, InteractiveElement as _, IntoElement, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, ParentElement as _, Render, Stateful, Styled as _, Window, div,
-    px,
+    App, Context, Div, Entity, InteractiveElement as _, IntoElement, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, ParentElement as _, Render, Stateful,
+    StatefulInteractiveElement as _, Styled as _, Window, div, px,
 };
 
 use crate::display::toast::toast_queue::toast_id::ToastId;
 use crate::foundation::CloseHandler;
+use crate::foundation::Pose;
 
 use crate::display::toast::Toast;
 use crate::display::toast::toast_queue::ToastQueue;
@@ -81,6 +82,18 @@ fn card(
         .child(toast)
 }
 
+fn follow_pointer(queue: Entity<ToastQueue>) -> impl Fn(&bool, &mut Window, &mut App) + 'static {
+    move |hovered, _, cx| point(&queue, Pose::from(*hovered), cx)
+}
+
+fn point(
+    queue: &Entity<ToastQueue>,
+    pointer: Pose,
+    cx: &mut App,
+) {
+    queue.update(cx, |queue, cx| queue.follow_pointer(pointer, cx));
+}
+
 impl Render for ToastQueue {
     fn render(
         &mut self,
@@ -91,7 +104,10 @@ impl Render for ToastQueue {
             .into_iter()
             .map(|entry| card(entry, cx))
             .collect();
-        column(self.placement).children(shown)
+        column(self.placement)
+            .id("toast-column")
+            .on_hover(follow_pointer(cx.entity()))
+            .children(shown)
     }
 }
 

@@ -60,7 +60,6 @@ mod new_tab_action;
 mod new_tab_panes;
 mod new_tab_view;
 mod notice_key;
-mod notices;
 mod open_all;
 mod open_chats;
 mod outcome;

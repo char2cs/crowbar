@@ -17,6 +17,7 @@ pub struct ToastQueue {
     pub(crate) entries: Vec<Entry>,
     pub(crate) placement: ToastPlacement,
     pub(crate) swipe: Option<Swipe>,
+    pub(crate) held: bool,
     next: u64,
 }
 
@@ -49,6 +50,7 @@ impl ToastQueue {
             entries: Vec::new(),
             placement,
             swipe: None,
+            held: false,
             next: 0,
         }
     }
@@ -115,7 +117,7 @@ impl ToastQueue {
         } = content;
         let id = ToastId(self.next);
         self.next += 1;
-        let timer = Self::expiry(id, lifetime.timeout(kind), cx);
+        let (timer, due, left) = self.expiry(id, lifetime.timeout(kind), cx);
         self.entries.insert(
             0,
             Entry {
@@ -128,6 +130,8 @@ impl ToastQueue {
                 updates: 0,
                 leaving: false,
                 timer,
+                due,
+                left,
             },
         );
         self.evict_overflow(cx);
@@ -158,6 +162,7 @@ impl ToastQueue {
             title,
             message,
         } = content;
+        let (timer, due, left) = self.expiry(id, lifetime.timeout(kind), cx);
         let Some(entry) = self.entries.iter_mut().find(|entry| entry.id == id) else {
             return;
         };
@@ -166,7 +171,7 @@ impl ToastQueue {
         entry.message = message;
         entry.lifetime = lifetime;
         entry.updates += 1;
-        entry.timer = Self::expiry(id, lifetime.timeout(kind), cx);
+        (entry.timer, entry.due, entry.left) = (timer, due, left);
         cx.notify();
     }
 

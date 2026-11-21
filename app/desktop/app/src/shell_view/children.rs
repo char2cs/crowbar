@@ -8,7 +8,6 @@ use ptysession::TerminalSessions;
 use sidebar::Preferences;
 use sidebarview::Sidebar;
 use startup::MonotonicClock;
-use ui::ToastQueue;
 use viewtabs::TabBar;
 
 use super::built::Built;
@@ -19,7 +18,6 @@ use crate::browser_bars::BrowserBars;
 use crate::chat_terminals::ChatTerminals;
 use crate::daemon_link::DaemonLink;
 use crate::native_panes::NativePanes;
-use crate::notices::floating_at;
 use crate::shell_pane_source::ShellPaneSource;
 use crate::shell_request::ShellRequest;
 use crate::sidebar_requests::SidebarRequests;
@@ -128,14 +126,6 @@ fn preferences_or_default(loaded: Result<Preferences, sidebar::Error>) -> Prefer
     })
 }
 
-fn build_notices<V: 'static>(
-    sidebar: &Entity<Sidebar>,
-    cx: &mut Context<'_, V>,
-) -> Entity<ToastQueue> {
-    let side = sidebar.read(cx).preferences().side;
-    cx.new(|_| ToastQueue::new(floating_at(side)))
-}
-
 pub(super) fn build_children<V: 'static>(
     parts: &crate::shell_parts::ShellParts,
     requests: &async_channel::Sender<ShellRequest>,
@@ -162,7 +152,7 @@ pub(super) fn build_children<V: 'static>(
         cx,
     );
     let startup = build_startup(requests, cx);
-    let notices = build_notices(&sidebar, cx);
+    let notices = sidebar.read(cx).toast_queue();
     Built {
         data,
         data_queued,

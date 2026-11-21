@@ -1,17 +1,94 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gpui::{Context, Task};
 
 use crate::display::toast::toast_queue::ToastQueue;
+use crate::display::toast::toast_queue::entry::Entry;
 use crate::display::toast::toast_queue::toast_id::ToastId;
+use crate::foundation::Pose;
+
+pub(crate) type Expiry = (Option<Task<()>>, Option<Instant>, Option<Duration>);
 
 impl ToastQueue {
     pub(crate) fn expiry(
+        &self,
         id: ToastId,
         timeout: Option<Duration>,
         cx: &mut Context<'_, Self>,
-    ) -> Option<Task<()>> {
-        timeout.map(|delay| Self::after(delay, id, cx, Self::dismiss))
+    ) -> Expiry {
+        let Some(delay) = timeout else {
+            return (None, None, None);
+        };
+        if self.held {
+            return (None, None, Some(delay));
+        }
+        let due = cx.background_executor().now() + delay;
+        (
+            Some(Self::after(delay, id, cx, Self::dismiss)),
+            Some(due),
+            None,
+        )
+    }
+
+    /// Stops every toast's expiry while the pointer rests on the column, keeping the time each
+    /// has left.
+    pub fn hold(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if self.held {
+            return;
+        }
+        self.held = true;
+        let now = cx.background_executor().now();
+        self.entries
+            .iter_mut()
+            .filter(|entry| !entry.leaving)
+            .for_each(|entry| pause(entry, now));
+    }
+
+    /// Holds the expiry while `pointer` rests on the column, and releases it when it leaves.
+    pub fn follow_pointer(
+        &mut self,
+        pointer: Pose,
+        cx: &mut Context<'_, Self>,
+    ) {
+        match pointer {
+            Pose::On => self.hold(cx),
+            Pose::Off => self.release(cx),
+        }
+    }
+
+    /// Restarts every held toast's expiry with the time it had left.
+    pub fn release(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if !self.held {
+            return;
+        }
+        self.held = false;
+        let waiting: Vec<(ToastId, Duration)> = self
+            .entries
+            .iter_mut()
+            .filter(|entry| !entry.leaving)
+            .filter_map(|entry| entry.left.take().map(|left| (entry.id, left)))
+            .collect();
+        for (id, left) in waiting {
+            let expiry = self.expiry(id, Some(left), cx);
+            self.set_expiry(id, expiry);
+        }
+    }
+
+    fn set_expiry(
+        &mut self,
+        id: ToastId,
+        expiry: Expiry,
+    ) {
+        let Some(entry) = self.entries.iter_mut().find(|entry| entry.id == id) else {
+            return;
+        };
+        (entry.timer, entry.due, entry.left) = expiry;
     }
 
     pub(crate) fn after(
@@ -27,6 +104,17 @@ impl ToastQueue {
     }
 }
 
+fn pause(
+    entry: &mut Entry,
+    now: Instant,
+) {
+    let Some(due) = entry.due.take() else {
+        return;
+    };
+    entry.left = Some(due.saturating_duration_since(now));
+    entry.timer = None;
+}
+
 fn note_dropped<Failure: std::fmt::Display>(update: Result<(), Failure>) {
     if let Err(error) = update {
         tracing::debug!(%error, "toast queue dropped before its timer fired");
@@ -40,6 +128,7 @@ mod tests {
     use gpui::TestAppContext;
 
     use crate::display::toast::test_support::{advance, push, queue};
+    use crate::display::toast::toast_queue::ToastQueue;
     use crate::display::toast::toast_queue::toast_id::ToastId;
     use crate::display::toast::toast_queue::toast_lifetime::ToastLifetime;
     use crate::foundation::tokens::timing;
@@ -63,5 +152,31 @@ mod tests {
         assert_eq!(left, [ToastId(1)]);
         advance(cx, Duration::from_secs(600));
         assert_eq!(queue.read_with(cx, |queue, _| queue.len()), 1);
+    }
+
+    #[gpui::test]
+    fn a_held_queue_keeps_its_toasts_and_releasing_it_resumes_the_time_they_had_left(
+        cx: &mut TestAppContext
+    ) {
+        let queue = queue(cx);
+        push(&queue, ToastLifetime::Auto, cx);
+        advance(cx, Duration::from_secs(3));
+        queue.update(cx, ToastQueue::hold);
+        push(&queue, ToastLifetime::Auto, cx);
+        advance(cx, Duration::from_secs(60));
+        assert_eq!(queue.read_with(cx, |queue, _| queue.len()), 2, "held");
+        queue.update(cx, ToastQueue::release);
+        advance(cx, Duration::from_secs(2) + timing::SLOW);
+        assert_eq!(
+            queue.read_with(cx, |queue, _| queue.len()),
+            1,
+            "the first had 2 s left"
+        );
+        advance(cx, Duration::from_secs(3));
+        assert_eq!(
+            queue.read_with(cx, |queue, _| queue.len()),
+            0,
+            "the second had all 5 s"
+        );
     }
 }

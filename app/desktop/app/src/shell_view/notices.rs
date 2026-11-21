@@ -1,11 +1,9 @@
-use gpui::{Context, Window};
-use sidebar::Visibility;
-use ui::{ToastContent, ToastKind, ToastLifetime};
+use gpui::{App, Context, Window};
+use ui::{ToastContent, ToastKind, ToastLifetime, ToastPlacement};
 
 use super::ShellView;
 use crate::daemon_notice::{DaemonNotice, daemon_notice};
 use crate::notice_key::NoticeKey;
-use crate::notices::floating_at;
 use crate::save_report::SaveReport;
 
 impl ShellView {
@@ -54,26 +52,17 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) {
         let content = ToastContent::new(kind, text);
-        let lifetime = key.lifetime();
-        let preferences = self.sidebar.read(cx).preferences();
-        if shows_in_sidebar(preferences.visibility) {
-            self.toast_in_sidebar(key, (content, lifetime), cx);
-            return;
-        }
-        self.notices.update(cx, |queue, cx| {
-            queue.show(key.slug(), (content, lifetime), cx);
-        });
+        self.show_keyed(key.slug(), (content, key.lifetime()), cx);
     }
 
-    fn toast_in_sidebar(
+    pub(super) fn show_keyed(
         &self,
-        key: NoticeKey,
+        key: &str,
         (content, lifetime): (ToastContent, ToastLifetime),
         cx: &mut Context<'_, Self>,
     ) {
-        let slug = Some(key.slug());
-        self.sidebar.update(cx, |sidebar, cx| {
-            sidebar.toast(content, (slug, lifetime), cx);
+        self.notices.update(cx, |queue, cx| {
+            queue.show(key.to_owned(), (content, lifetime), cx);
         });
     }
 
@@ -82,36 +71,56 @@ impl ShellView {
         key: NoticeKey,
         cx: &mut Context<'_, Self>,
     ) {
-        self.sidebar
-            .update(cx, |sidebar, cx| sidebar.clear_toast(key.slug(), cx));
-        self.notices
-            .update(cx, |queue, cx| queue.clear(key.slug(), cx));
+        self.clear_keyed(key.slug(), cx);
     }
 
-    pub(super) fn place_notices(
-        &mut self,
+    pub(super) fn clear_keyed(
+        &self,
+        key: &str,
         cx: &mut Context<'_, Self>,
     ) {
-        let side = self.sidebar.read(cx).preferences().side;
-        self.notices
-            .update(cx, |queue, cx| queue.set_placement(floating_at(side), cx));
+        self.notices.update(cx, |queue, cx| queue.clear(key, cx));
     }
-}
 
-const fn shows_in_sidebar(visibility: Visibility) -> bool {
-    matches!(visibility, Visibility::Open)
+    pub(super) fn floats_toasts(
+        &self,
+        cx: &App,
+    ) -> bool {
+        let queue = self.notices.read(cx);
+        !queue.is_empty() && matches!(queue.placement(), ToastPlacement::Floating(_))
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use gpui::TestAppContext;
 
-    #[test]
-    fn notices_go_to_the_sidebar_only_while_it_is_open() {
-        const CASES: &[(Visibility, bool)] =
-            &[(Visibility::Open, true), (Visibility::Closed, false)];
-        for (visibility, inside) in CASES {
-            assert_eq!(shows_in_sidebar(*visibility), *inside, "{visibility:?}");
-        }
+    use crate::notice_key::NoticeKey;
+    use crate::shell_view::tests::open_shell;
+
+    #[gpui::test]
+    fn a_notice_outlives_hiding_the_sidebar_and_floats_over_the_window_meanwhile(
+        cx: &mut TestAppContext
+    ) {
+        let mut opened = open_shell(cx);
+        let floats = opened
+            .shell
+            .update_in(&mut opened.window, |shell, window, cx| {
+                let text = (
+                    "The layout could not be saved".to_owned(),
+                    NoticeKey::Storage,
+                );
+                shell.show_notice(text.1, (ui::ToastKind::Error, text.0), cx);
+                let docked = shell.floats_toasts(cx);
+                shell
+                    .sidebar
+                    .update(cx, |sidebar, cx| sidebar.toggle(window, cx));
+                (docked, shell.floats_toasts(cx))
+            });
+        assert_eq!(
+            floats,
+            (false, true),
+            "docked in the open sidebar, then floating"
+        );
     }
 }

@@ -170,7 +170,6 @@ impl ShellView {
                 self.show_notice(NoticeKey::Preferences, (ToastKind::Error, text), cx);
             },
         }
-        self.place_notices(cx);
         self.refresh(cx);
     }
 

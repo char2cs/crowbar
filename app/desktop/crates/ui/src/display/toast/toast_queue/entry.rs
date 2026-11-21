@@ -1,5 +1,7 @@
 //! One toast held by a queue.
 
+use std::time::{Duration, Instant};
+
 use gpui::{SharedString, Task};
 
 use crate::display::toast::toast_kind::ToastKind;
@@ -16,6 +18,8 @@ pub(crate) struct Entry {
     pub(crate) updates: u32,
     pub(crate) leaving: bool,
     pub(crate) timer: Option<Task<()>>,
+    pub(crate) due: Option<Instant>,
+    pub(crate) left: Option<Duration>,
 }
 
 impl Entry {
@@ -39,6 +43,8 @@ mod tests {
             updates: 0,
             leaving: false,
             timer: None,
+            due: None,
+            left: None,
         }
     }
 

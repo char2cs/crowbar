@@ -86,7 +86,7 @@ impl Sidebar {
         setup: (Preferences, &mut Context<'_, Self>),
     ) -> Self {
         let (preferences, cx) = setup;
-        let dock = preferences.panel().side();
+        let placement = Self::toast_placement(preferences.panel());
         let clock: Rc<dyn Clock> = Rc::new(system_clock());
         Self {
             data,
@@ -111,7 +111,7 @@ impl Sidebar {
             question: None,
             merge: MergeDraft::new(cx, Self::commit_changes),
             search: None,
-            toasts: cx.new(|_| ToastQueue::new(Self::docked_toasts(dock))),
+            toasts: cx.new(|_| ToastQueue::new(placement)),
             drag: DragState::default(),
             row_bounds: RowBounds::default(),
             open_chats: OpenChats::default(),
@@ -166,9 +166,6 @@ impl Sidebar {
         cx: &mut Context<'_, Self>,
     ) {
         self.panel.dock_to(side);
-        self.toasts.update(cx, |queue, cx| {
-            queue.set_placement(Self::docked_toasts(side), cx);
-        });
         self.changed(cx);
     }
 
@@ -189,6 +186,9 @@ impl Sidebar {
         &self,
         cx: &mut Context<'_, Self>,
     ) {
+        let placement = Self::toast_placement(self.panel);
+        self.toasts
+            .update(cx, |queue, cx| queue.set_placement(placement, cx));
         cx.emit(Event::PreferencesChanged);
         cx.notify();
     }
