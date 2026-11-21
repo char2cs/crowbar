@@ -25,7 +25,7 @@ export function bootPane(typeId: string): BootedPane {
   if (!channel || !container) throw new Error(`the ${typeId} pane runs inside the Crowbar shell`)
 
   ensureStartupAppearanceApplied()
-  paintPaneSurface(document.body)
+  paintPaneSurface(document.body, typeId)
   enableMapSet()
   installGlobalReporting()
   followWorkspaceScopes()
