@@ -185,6 +185,7 @@ fn start(
     if let Err(error) = ui::init(cx) {
         return quit_after(cx, &error, "could not install the design system");
     }
+    editorview::init(cx);
     cx.bind_keys(settingsview::bindings());
     window_vibrancy::install(window_vibrancy::of_platform(), cx);
     app_menu::install(cx);

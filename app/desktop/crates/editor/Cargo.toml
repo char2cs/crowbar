@@ -1,0 +1,12 @@
+[package]
+name = "editor"
+description = "The Crowbar editor's documents without GPUI: languages by path and why a document did not open."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

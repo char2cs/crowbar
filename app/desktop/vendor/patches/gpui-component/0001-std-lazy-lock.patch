@@ -1,0 +1,25 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -326,9 +326,6 @@
+ [dependencies.num-traits]
+ version = "0.2"
+ 
+-[dependencies.once_cell]
+-version = "1.19.0"
+-
+ [dependencies.paste]
+ version = "1"
+ 
+--- a/src/theme/color.rs
++++ b/src/theme/color.rs
+@@ -345,8 +345,8 @@
+     }
+ }
+ 
+-pub(crate) static DEFAULT_COLORS: once_cell::sync::Lazy<ShadcnColors> =
+-    once_cell::sync::Lazy::new(|| {
++pub(crate) static DEFAULT_COLORS: std::sync::LazyLock<ShadcnColors> =
++    std::sync::LazyLock::new(|| {
+         serde_json::from_str(include_str!("./default-colors.json"))
+             .expect("failed to parse default-colors.json")
+     });

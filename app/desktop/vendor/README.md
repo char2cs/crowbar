@@ -39,6 +39,14 @@ Drop it when upstream gpui reads the detail of a focus change. Tracking: zed-ind
 
 Drop it when calloop leaves the feature to its users. Tracking: Smithay/calloop.
 
+## gpui-base 0.10.0 and gpui-component 0.10.0
+
+The editor engine (`gpui-base`: `InputBaseState`, the rope, tree-sitter highlighting) and the `Editor` element over it (`gpui-component`), reached through `gpui-kit` 0.10.0 (`editorview`). A fix to either lands here as a series rather than waiting for a release; both pin `gpui-pre =0.3.12`, the version vendored above.
+
+`std-lazy-lock` (`gpui-component`, `Cargo.toml`, `src/theme/color.rs`): the default colour table is a `std::sync::LazyLock` instead of a `once_cell` `Lazy`, and the `once_cell` dependency goes, as `deny.toml` bans `once_cell` (M24) for any new parent. Drop it when upstream moves to std.
+
+Drop the vendored copies when the editor needs no patch of its own and upstream keeps pace with gpui-pre.
+
 ## Updating
 
 `update.sh <dir>` rebuilds a vendored directory from its pin, trim list and series; `update.sh --check` rebuilds every one in a scratch tree and fails on any difference (CI runs it in `rust-lint`). To change a patch, edit the vendored copy, regenerate the patch with `diff -u` against a fresh `update.sh` build that stops before it, and run `--check`. To move to a new release, change its line in `upstream.txt` (the sha256 is the `cksum` in the crates.io index), fix or drop the patches that no longer apply, run `update.sh <dir>`, bump the version in `app/Cargo.toml` and refresh `app/Cargo.lock` with `cargo update -p <crate>`.

@@ -263,7 +263,7 @@ The Monaco pane stays in place until slice 7 retires it. No feature flag is adde
   - `a_clean_document_takes_the_disk_text_in_one_undo_step`;
   - `a_dirty_document_keeps_its_edits_and_warns_once`.
 - Rows: ED-017, 095, 096.
-- Legacy: drafts in the panes' IndexedDB are not imported (decision D7).
+- Legacy: the drafts in the panes' IndexedDB are imported once into `editor::Drafts`, then deleted (decision D7).
 
 ### S4: settings and look
 - `editorview::Settings` from every editor key.

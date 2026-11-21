@@ -19,6 +19,7 @@ daemonapi      L1     logic
 webview        L1     logic
 sidebar        L1     logic
 settings       L1     logic
+editor         L1     logic
 panehost       L2     logic
 store          L2     logic
 ptysession     L2     logic
@@ -26,6 +27,7 @@ ideshell       L2     gpui
 sidebarview    L3     gpui
 settingsview   L3     gpui
 terminalview   L3     gpui
+editorview     L3     gpui
 layoutview     L3     gpui
 viewtabs       L3     gpui
 browserbar     L3     gpui

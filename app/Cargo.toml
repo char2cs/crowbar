@@ -45,10 +45,28 @@ diagnostics = { path = "desktop/crates/diagnostics" }
 terminal = { path = "desktop/crates/terminal" }
 terminalview = { path = "desktop/crates/terminalview" }
 ptysession = { path = "desktop/crates/ptysession" }
+editor = { path = "desktop/crates/editor" }
+editorview = { path = "desktop/crates/editorview" }
 
 async-channel = "2"
 gdkx11 = "0.18"
 gpui = { package = "gpui-pre", version = "=0.3.12" }
+gpui-kit = { version = "=0.10.0", default-features = false, features = [
+    "component",
+    "tree-sitter-bash",
+    "tree-sitter-css",
+    "tree-sitter-diff",
+    "tree-sitter-go",
+    "tree-sitter-html",
+    "tree-sitter-javascript",
+    "tree-sitter-markdown",
+    "tree-sitter-python",
+    "tree-sitter-rust",
+    "tree-sitter-toml",
+    "tree-sitter-typescript",
+    "tree-sitter-yaml",
+] }
+gpui_wgpu = { package = "gpui-pre-wgpu", version = "=0.3.12" }
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", default-features = false, features = ["font-kit", "wayland", "x11"] }
 gtk = "0.18"
 image = { version = "0.25", default-features = false }
@@ -118,6 +136,8 @@ await_holding_refcell_ref = "deny"
 
 [patch.crates-io]
 calloop = { path = "desktop/vendor/calloop" }
+gpui-base = { path = "desktop/vendor/gpui-base" }
+gpui-component = { path = "desktop/vendor/gpui-component" }
 gpui-pre = { path = "desktop/vendor/gpui-pre" }
 gpui-pre-linux = { path = "desktop/vendor/gpui-pre-linux" }
 gpui-pre-macos = { path = "desktop/vendor/gpui-pre-macos" }
