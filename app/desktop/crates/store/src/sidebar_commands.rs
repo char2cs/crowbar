@@ -134,10 +134,12 @@ impl SidebarCommands {
         &self,
         command: &Command,
     ) -> Result<(), Error> {
-        self.run(
-            self.hub
-                .read(|state| planner::plan((state, self.files.as_ref()), command)),
-        )
+        let (plan, title) = self.hub.read(|state| {
+            let plan = planner::plan((state, self.files.as_ref()), command);
+            (plan, crate::plan::failure_title(state, command))
+        });
+        let plan = plan.map_err(|error| refusal(title, &error))?;
+        self.run(Ok(plan))
     }
 
     fn run(
@@ -150,6 +152,17 @@ impl SidebarCommands {
             .spawn(async move { runner::run(&hub, plan, &outcome).await });
         Ok(())
     }
+}
+
+fn refusal(
+    title: Option<String>,
+    error: &PlanError,
+) -> Error {
+    let reason = error.to_string();
+    let Some(title) = title else {
+        return Error::Refused { reason };
+    };
+    Error::Failed { title, reason }
 }
 
 impl Sink for SidebarCommands {
@@ -341,5 +354,10 @@ mod tests {
             Command::OpenFile("a".into()),
         ];
         assert_all_refused(&commands, cases);
+        let failed = commands.dispatch(Command::Lock(RowId::from("ghost")));
+        assert!(
+            matches!(&failed, Err(Error::Failed { title, .. }) if title == "Failed to update lock"),
+            "a command develop titles is refused under its title: {failed:?}"
+        );
     }
 }

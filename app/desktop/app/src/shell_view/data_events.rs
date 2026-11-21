@@ -11,6 +11,7 @@ use crate::byte_source::ByteSource;
 use crate::core_panes::{chat_params, chat_type};
 use crate::logged::{closed_view, logged};
 use crate::notice_key::NoticeKey;
+use crate::notices::failure_notice;
 use crate::settings_modal::{open_settings, settings_config};
 
 type Picked<E, C> = Result<Result<Option<Vec<PathBuf>>, E>, C>;
@@ -81,6 +82,11 @@ impl ShellView {
             DataOutcome::Failed(reason) => {
                 tracing::warn!(%reason, "a command failed");
                 self.show_notice(NoticeKey::Command, (ToastKind::Error, reason), cx);
+            },
+            DataOutcome::Refused { title, reason } => {
+                tracing::warn!(%title, %reason, "a command failed");
+                let (key, notice) = failure_notice(title, reason);
+                self.show_keyed(&key, notice, cx);
             },
             DataOutcome::WorkAtRisk { row, at_risk } => {
                 self.sidebar

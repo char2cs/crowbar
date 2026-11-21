@@ -21,7 +21,8 @@ pub(crate) fn plan(
     command: &Command,
 ) -> Result<Plan, PlanError> {
     let id = daemonapi::Uuid::random().to_string();
-    match command {
+    let failure = crate::plan::failure_title(state, command);
+    let plan = match command {
         Command::NewThread(_)
         | Command::NewTerminalThread(_)
         | Command::Thread(_)
@@ -33,7 +34,8 @@ pub(crate) fn plan(
         | Command::CreateSpaceWithIcon { .. } => creation((state, files), command, &id)
             .map(|plan| plan.landing_on(landing::of(state, command))),
         other => edit((state, files), other),
-    }
+    };
+    plan.map(|plan| plan.failing_as(failure))
 }
 
 fn creation(
@@ -143,6 +145,12 @@ mod tests {
     fn plan_of(command: &Command) -> Result<Plan, PlanError> {
         let (state, _) = state();
         plan((&state, &FakeFiles::default()), command)
+    }
+
+    #[test]
+    fn a_plan_carries_the_title_its_failure_is_shown_under() {
+        let lock = plan_of(&Command::Lock(RowId::from("b"))).unwrap();
+        assert_eq!(lock.failure.as_deref(), Some("Failed to update lock"));
     }
 
     #[test]

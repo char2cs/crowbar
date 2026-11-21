@@ -39,7 +39,10 @@ async fn say_content(
 ) {
     let said = match client.read::<DocumentBody>(route).await {
         Ok(body) => Outcome::CopyText(body.content),
-        Err(error) => Outcome::Failed(error.to_string()),
+        Err(error) => Outcome::Refused {
+            title: "Copy the file content".to_owned(),
+            reason: error.to_string(),
+        },
     };
     outcome(said);
 }
@@ -47,11 +50,12 @@ async fn say_content(
 impl SidebarCommands {
     fn change_files(
         &self,
+        failure: Option<&str>,
         make: impl FnOnce(&FileTarget) -> (Call, String),
     ) -> Result<(), Error> {
         let target = self.hub.read(file_target::of).map_err(Error::from)?;
         let (call, directory) = make(&target);
-        let plan = Plan::of(&target.host, vec![call]);
+        let plan = Plan::of(&target.host, vec![call]).failing_as(failure.map(str::to_owned));
         let (hub, outcome) = (Arc::clone(&self.hub), Arc::clone(&self.outcome));
         let client = self.hub.read(|state| state.client_of_chat(&target.chat));
         let reload = ReloadTarget {
@@ -69,7 +73,7 @@ impl SidebarCommands {
         path: &str,
         entry: NewEntry,
     ) -> Result<(), Error> {
-        self.change_files(|target| {
+        self.change_files(None, |target| {
             let body = json!({PATH_KEY: path, "type": entry.kind()});
             (Call::post(files_route(target)).json(body), parent_of(path))
         })
@@ -77,10 +81,10 @@ impl SidebarCommands {
 
     pub(crate) fn duplicate_file(
         &self,
-        source: &str,
-        destination: &str,
+        (source, destination): (&str, &str),
+        failure: &str,
     ) -> Result<(), Error> {
-        self.change_files(|target| {
+        self.change_files(Some(failure), |target| {
             let body = json!({"sourcePath": source, "destPath": destination});
             let route = format!("{}/copy", files_route(target));
             (Call::post(route).json(body), parent_of(destination))
@@ -92,7 +96,7 @@ impl SidebarCommands {
         path: &str,
         new_path: &str,
     ) -> Result<(), Error> {
-        self.change_files(|target| {
+        self.change_files(Some("Rename failed"), |target| {
             let body = json!({PATH_KEY: path, "newPath": new_path});
             (
                 Call::patch(files_route(target)).json(body),
@@ -105,7 +109,7 @@ impl SidebarCommands {
         &self,
         path: &str,
     ) -> Result<(), Error> {
-        self.change_files(|target| {
+        self.change_files(None, |target| {
             let body = json!({PATH_KEY: path});
             (
                 Call::delete(files_route(target)).json(body),
@@ -187,7 +191,9 @@ mod tests {
         commands
             .create_entry("src/new", NewEntry::Directory)
             .unwrap();
-        commands.duplicate_file("src/a", "src/b").unwrap();
+        commands
+            .duplicate_file(("src/a", "src/b"), "Duplicate failed")
+            .unwrap();
         commands.rename_file("src/b", "src/c").unwrap();
         commands.delete_file("src/c").unwrap();
         let made = until_seen(&daemon, "POST", files).await;
@@ -204,7 +210,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_files_content_reaches_the_shell_and_a_refusal_is_said() {
+    async fn a_files_content_reaches_the_shell_and_a_refusal_is_said_under_its_title() {
         let (commands, daemon, said) = commands();
         daemon.ok(
             "GET",
@@ -218,6 +224,20 @@ mod tests {
         );
         commands.copy_file_content("missing").unwrap();
         let heard = until_said(&said, 2).await;
-        assert!(matches!(heard[1], Outcome::Failed(_)));
+        assert!(
+            matches!(&heard[1], Outcome::Refused { title, .. } if title == "Copy the file content")
+        );
+        daemon.answer(
+            ("PATCH", "/v0/chats/hc/files"),
+            409,
+            r#"{"success":false,"error":"src/c is taken"}"#,
+        );
+        daemon.ok("GET", "/v0/chats/hc/files/tree?path=src", "[]");
+        commands.rename_file("src/b", "src/c").unwrap();
+        let refused = Outcome::Refused {
+            title: "Rename failed".into(),
+            reason: "src/c is taken".into(),
+        };
+        assert_eq!(until_said(&said, 3).await[2], refused);
     }
 }

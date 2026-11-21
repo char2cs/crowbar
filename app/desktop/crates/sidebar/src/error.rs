@@ -12,6 +12,15 @@ pub enum Error {
         /// The text for the user.
         reason: String,
     },
+    /// The data source declined a command it names, such as "Failed to rename chat"; shown as a
+    /// toast with that title over the reason.
+    #[error("sidebar: {title}: {reason}")]
+    Failed {
+        /// What failed.
+        title: String,
+        /// The text for the user.
+        reason: String,
+    },
     /// The preferences file could not be read.
     #[error("sidebar: read preferences {path}: {source}")]
     ReadPreferences {

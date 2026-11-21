@@ -2,14 +2,15 @@
 
 use gpui::{Context, Pixels, Point, Window};
 use sidebar::{
-    Command, Error, FileDialog, FileProperties, Intent, MenuContext, ProjectId, Row, RowId,
+    Command, FileDialog, FileProperties, Intent, MenuContext, ProjectId, Row, RowId,
     TerminalThreads,
 };
-use ui::{ToastContent, ToastKind, ToastLifetime};
+use ui::ToastLifetime;
 
 use crate::panels::foot_menu;
 use crate::panels::row_menu;
 use crate::sidebar::Sidebar;
+use crate::sidebar::refusal::refusal_toast;
 use crate::sidebar::row_action::RowAction;
 
 impl Sidebar {
@@ -117,24 +118,14 @@ impl Sidebar {
         command: Command,
         cx: &mut Context<'_, Self>,
     ) -> bool {
-        match self.sink.dispatch(command) {
-            Ok(()) => {
-                cx.notify();
-                true
-            },
-            Err(Error::Refused { reason }) => {
-                self.toast(
-                    ToastContent::new(ToastKind::Error, reason),
-                    (None, ToastLifetime::Auto),
-                    cx,
-                );
-                false
-            },
-            Err(error) => {
-                tracing::warn!(%error, "sidebar command failed");
-                false
-            },
+        let Err(error) = self.sink.dispatch(command) else {
+            cx.notify();
+            return true;
+        };
+        if let Some(content) = refusal_toast(error) {
+            self.toast(content, (None, ToastLifetime::Auto), cx);
         }
+        false
     }
 
     pub(crate) fn row(

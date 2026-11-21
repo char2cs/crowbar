@@ -94,14 +94,16 @@ impl SidebarCommands {
         Some(match command {
             Command::CreateFile { path } => self.create_new(path, NewEntry::File),
             Command::CreateDirectory { path } => self.create_new(path, NewEntry::Directory),
-            Command::DuplicateFile { path } => self.duplicate_file(path, &self.free_copy_of(path)),
+            Command::DuplicateFile { path } => {
+                self.duplicate_file((path, &self.free_copy_of(path)), "Duplicate failed")
+            },
             Command::RenameFile { path, new_path } => self
                 .require_free(new_path)
                 .and_then(|()| self.rename_file(path, new_path)),
             Command::DeleteFile { path } => self.delete_file(path),
             Command::CopyFile { path, destination } => self
                 .require_free(destination)
-                .and_then(|()| self.duplicate_file(path, destination)),
+                .and_then(|()| self.duplicate_file((path, destination), "Paste failed")),
             Command::CopyFileContent { path } => self.copy_file_content(path),
             Command::RefreshDirectory { path } => self.refresh_directory(path),
             Command::CollapseDirectory { path } => {

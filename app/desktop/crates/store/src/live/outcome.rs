@@ -27,6 +27,14 @@ pub enum Outcome {
     },
     /// The daemon refused or could not be reached; the reason is fit to show.
     Failed(String),
+    /// A command failed: shown as a toast titled for the command, such as "Failed to rename
+    /// chat", over the daemon's reason.
+    Refused {
+        /// What failed.
+        title: String,
+        /// Why, fit to show.
+        reason: String,
+    },
     /// The daemon refused to delete `row` because work on it exists nowhere else: the shell asks
     /// again, naming `at_risk`, before the delete is sent with consent to lose it.
     WorkAtRisk {

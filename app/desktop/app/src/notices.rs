@@ -27,6 +27,15 @@ pub(crate) fn pane_toast_content(toast: &PaneToast) -> (ToastContent, ToastLifet
     (content, ToastLifetime::Auto)
 }
 
+pub(crate) fn failure_notice(
+    title: String,
+    reason: String,
+) -> (String, (ToastContent, ToastLifetime)) {
+    let key = format!("failed:{title}");
+    let content = ToastContent::new(ToastKind::Error, reason).titled(title);
+    (key, (content, ToastLifetime::Auto))
+}
+
 const fn kind_of(tone: ToastTone) -> ToastKind {
     match tone {
         ToastTone::Info => ToastKind::Info,
@@ -64,6 +73,18 @@ mod tests {
         for (given, expected) in cases {
             assert_eq!(pane_toast_content(&given), expected, "{given:?}");
         }
+    }
+
+    #[test]
+    fn a_failure_is_titled_for_its_command_and_keyed_so_different_ones_stack() {
+        let (key, (content, lifetime)) = failure_notice("Paste failed".into(), "busy".into());
+        assert_eq!(
+            content,
+            ToastContent::new(ToastKind::Error, "busy").titled("Paste failed")
+        );
+        assert_eq!(lifetime, ToastLifetime::Auto);
+        let (other, _) = failure_notice("Rename failed".into(), "busy".into());
+        assert_ne!(key, other);
     }
 
     #[test]

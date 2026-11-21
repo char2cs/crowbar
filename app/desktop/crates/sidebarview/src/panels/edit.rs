@@ -145,7 +145,9 @@ impl Sidebar {
         let command = self.edit_command(&edit.row, name);
         match self.sink.dispatch(command) {
             Ok(()) => self.close_edit(cx),
-            Err(Error::Refused { reason }) => self.refuse_edit(reason, cx),
+            Err(Error::Refused { reason } | Error::Failed { reason, .. }) => {
+                self.refuse_edit(reason, cx);
+            },
             Err(error) => self.refuse_edit(error.to_string(), cx),
         }
     }

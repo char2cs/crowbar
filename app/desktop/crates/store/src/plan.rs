@@ -4,6 +4,7 @@ mod after;
 pub(crate) mod agent;
 pub(crate) mod create;
 mod edit;
+mod failure_title;
 mod icon;
 mod merge;
 pub(crate) mod planner;
@@ -12,6 +13,7 @@ pub(crate) mod removal;
 pub(crate) mod runner;
 
 pub(crate) use agent::running;
+pub(crate) use failure_title::failure_title;
 
 use daemonapi::Call;
 
@@ -31,6 +33,7 @@ pub(crate) struct Plan {
     pub(crate) landing: Surface,
     pub(crate) committing: bool,
     pub(crate) removal: Option<Removal>,
+    pub(crate) failure: Option<String>,
 }
 
 impl Plan {
@@ -48,6 +51,7 @@ impl Plan {
             landing: Surface::Default,
             committing: false,
             removal: None,
+            failure: None,
         }
     }
 
@@ -75,6 +79,15 @@ impl Plan {
         removal: Removal,
     ) -> Self {
         self.removal = Some(removal);
+        self
+    }
+
+    #[must_use]
+    pub(crate) fn failing_as(
+        mut self,
+        title: Option<String>,
+    ) -> Self {
+        self.failure = title;
         self
     }
 

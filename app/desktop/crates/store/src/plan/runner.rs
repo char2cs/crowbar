@@ -27,7 +27,6 @@ pub(crate) async fn run(
         hub.edit(|state| state.drop_local(id));
         return;
     }
-    let row_id = plan.pending.as_ref().map(|row| row.id.clone());
     if let Some(row) = plan.pending.clone() {
         hub.edit(|state| state.add_local(row));
     }
@@ -37,7 +36,7 @@ pub(crate) async fn run(
     match (carry_out(hub, &plan).await, &plan.removal) {
         (Ok(answer), _) => finish(hub, (plan.after, &answer), outcome).await,
         (Err(error), Some(removal)) => outcome(removal.refused(&error)),
-        (Err(reason), None) => fail(hub, row_id.as_deref(), outcome, &reason.to_string()),
+        (Err(reason), None) => fail(hub, &plan, outcome, reason.to_string()),
     }
     if plan.committing {
         hub.edit(|state| state.panels.committing = false);
@@ -137,14 +136,17 @@ async fn finish(
 
 fn fail(
     hub: &Hub,
-    row: Option<&str>,
+    plan: &Plan,
     outcome: &OutcomeSink,
-    reason: &str,
+    reason: String,
 ) {
-    if let Some(id) = row {
-        hub.edit(|state| state.fail_local(id, reason));
+    if let Some(row) = &plan.pending {
+        hub.edit(|state| state.fail_local(&row.id, &reason));
     }
-    outcome(Outcome::Failed(reason.to_owned()));
+    let Some(title) = plan.failure.clone() else {
+        return outcome(Outcome::Failed(reason));
+    };
+    outcome(Outcome::Refused { title, reason });
 }
 
 #[cfg(test)]
@@ -256,6 +258,25 @@ mod tests {
         );
     }
 
+    async fn a_titled_command_fails_under_its_title_over_the_daemons_reason() {
+        let (state, daemon) = state();
+        daemon.answer(
+            ("POST", "/v0/projects/p/home/chats"),
+            409,
+            r#"{"success":false,"error":"workspace is busy"}"#,
+        );
+        let hub = Hub::new(state, Arc::new(|| {}));
+        let plan = Plan::of("local", vec![Call::post("/v0/projects/p/home/chats")])
+            .failing_as(Some("New thread failed".into()));
+        let (outcome, seen) = sink();
+        run(&hub, plan, &outcome).await;
+        let refused = Outcome::Refused {
+            title: "New thread failed".into(),
+            reason: "workspace is busy".into(),
+        };
+        assert_eq!(*seen.lock().unwrap(), [refused]);
+    }
+
     async fn no_enabled_agent_stops_before_any_create_and_a_drop_plan_only_forgets() {
         let (state, daemon) = state();
         daemon.ok("GET", "/v0/settings/chat/providers", "[]");
@@ -319,7 +340,7 @@ mod tests {
 
     type Case = fn() -> std::pin::Pin<Box<dyn Future<Output = ()>>>;
 
-    const CASES: [Case; 7] = [
+    const CASES: [Case; 8] = [
         || Box::pin(a_create_picks_an_agent_sends_its_call_and_opens_the_chat()),
         || {
             Box::pin(
@@ -327,6 +348,7 @@ mod tests {
             )
         },
         || Box::pin(a_refusal_stays_on_the_pending_row_and_reaches_the_shell()),
+        || Box::pin(a_titled_command_fails_under_its_title_over_the_daemons_reason()),
         || Box::pin(no_enabled_agent_stops_before_any_create_and_a_drop_plan_only_forgets()),
         || Box::pin(selecting_a_created_space_makes_it_active()),
         || Box::pin(a_commit_is_marked_while_it_runs_and_unmarked_when_it_ends_either_way()),
