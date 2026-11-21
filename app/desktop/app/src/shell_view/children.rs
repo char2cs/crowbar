@@ -5,7 +5,7 @@ use std::sync::atomic::AtomicBool;
 use gpui::{AppContext as _, Context, Entity};
 use layoutview::LayoutView;
 use ptysession::TerminalSessions;
-use sidebar::Preferences;
+use sidebar::{FilesSource as _, Preferences};
 use sidebarview::Sidebar;
 use startup::MonotonicClock;
 use viewtabs::TabBar;
@@ -70,7 +70,8 @@ pub(super) fn build_panes<V: 'static>(
         .marking(state.dirty())
         .drawing(glyphs_of(data))
         .reviewing(Rc::new(move |chat| reviews.chat_reviews_branch(chat)))
-        .locking(Rc::new(move |chat| locks.chat_read_only(chat)));
+        .locking(Rc::new(move |chat| locks.chat_read_only(chat)))
+        .iconing(icons_of(data));
     let source = Rc::new(source);
     let view_source = Rc::clone(&source);
     let layout = cx.new(|_| LayoutView::new(view_source));
@@ -83,6 +84,11 @@ pub(super) fn build_panes<V: 'static>(
         workspace,
         source,
     }
+}
+
+fn icons_of(data: &Rc<store::Store>) -> crate::shell_pane_source::FileIcons {
+    let view = data.view();
+    Rc::new(move || view.file_tree_view().icons)
 }
 
 fn glyphs_of(data: &Rc<store::Store>) -> crate::shell_pane_source::ChatGlyphs {

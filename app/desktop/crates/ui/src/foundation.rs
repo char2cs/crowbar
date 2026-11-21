@@ -18,7 +18,9 @@ pub use caret_blink::CaretBlink;
 pub(crate) use close_handler::CloseHandler;
 pub(crate) use control_scale::ControlScale;
 pub(crate) use direction::Direction;
-pub use icon::{Icon, IconName, IconWeight, MaterialIcon, ProviderGlyph, Wordmark, assets};
+pub use icon::{
+    Icon, IconName, IconWeight, MaterialIcon, MaterialTable, ProviderGlyph, Wordmark, assets,
+};
 pub(crate) use index_handler::IndexHandler;
 pub(crate) use motion::Keyframes;
 pub use motion::{CubicBezier, Glide, HoverFill, Motion, Pose};

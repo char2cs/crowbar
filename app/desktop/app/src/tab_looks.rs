@@ -44,6 +44,10 @@ pub(crate) fn file_chat_of(instance: &PaneInstance) -> Option<&str> {
     instance.params.get(THREAD_ID)
 }
 
+pub(crate) fn is_file(instance: &PaneInstance) -> bool {
+    instance.type_id.as_str() == EDITOR
+}
+
 fn file_path(instance: &PaneInstance) -> Option<String> {
     if instance.type_id.as_str() != EDITOR {
         return None;

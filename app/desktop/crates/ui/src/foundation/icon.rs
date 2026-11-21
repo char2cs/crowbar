@@ -16,6 +16,7 @@ pub use assets::assets;
 pub use icon_name::IconName;
 pub use icon_weight::IconWeight;
 pub use material_icon::MaterialIcon;
+pub use material_table::MaterialTable;
 pub use provider_glyph::ProviderGlyph;
 pub use wordmark::Wordmark;
 

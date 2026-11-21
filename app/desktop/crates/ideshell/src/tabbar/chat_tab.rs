@@ -3,15 +3,15 @@ use gpui::{
     ParentElement, RenderOnce, SharedString, Styled, Window, div, px,
 };
 use protocol::PaneId;
-use ui::{Icon, IconName, ProviderGlyph, Surface, Theme};
+use ui::{IconName, Surface, Theme};
 
 use crate::tabbar::tab_actions::TabAction;
 use crate::tabbar::tab_frame::HEIGHT;
+use crate::tabbar::tab_glyph::tab_glyph;
 use crate::tabbar::tab_state::TabState;
 
 const PAD_X: f32 = 10.0;
 const GAP: f32 = 6.0;
-const GLYPH: f32 = 14.0;
 const LABEL_SIZE: f32 = 13.0;
 const TITLE_MAX: f32 = 160.0;
 
@@ -69,25 +69,9 @@ impl RenderOnce for ChatTab {
                 cx.stop_propagation();
                 select(window, cx);
             })
-            .child(glyph(self.icon, self.artwork, self.state.ink(palette)))
+            .child(tab_glyph(self.icon, self.artwork, self.state.ink(palette)))
             .child(title)
     }
-}
-
-fn glyph(
-    icon: IconName,
-    artwork: Option<SharedString>,
-    ink: gpui::Hsla,
-) -> gpui::AnyElement {
-    let Some(artwork) = artwork else {
-        return Icon::new(icon)
-            .size(px(GLYPH))
-            .color(ink)
-            .into_any_element();
-    };
-    ProviderGlyph::new(artwork, ink)
-        .size(px(GLYPH))
-        .into_any_element()
 }
 
 fn title_of(label: SharedString) -> gpui::Div {

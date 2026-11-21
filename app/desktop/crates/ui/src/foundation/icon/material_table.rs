@@ -2,16 +2,20 @@ use gpui::{App, Global};
 
 use crate::foundation::icon::material_entry::MaterialEntry;
 use crate::foundation::icon::material_icon::MaterialIcon;
+use crate::foundation::opaque_debug;
 
 const TABLE: &str = include_str!("../../../assets/file-icons/material-icons.tsv");
 const NO_ICON: MaterialIcon = MaterialIcon { name: "", svg: "" };
 
-pub(crate) struct MaterialTable {
+/// develop's file-name-to-icon table, parsed from the bundled material-file-icons list.
+pub struct MaterialTable {
     fallback: MaterialIcon,
     entries: Vec<MaterialEntry>,
 }
 
 impl Global for MaterialTable {}
+
+opaque_debug!(MaterialTable);
 
 impl Default for MaterialTable {
     fn default() -> Self {
@@ -30,12 +34,20 @@ impl MaterialIcon {
         file_name: &str,
         cx: &mut App,
     ) -> Self {
-        cx.default_global::<MaterialTable>()
-            .find(&file_name.to_lowercase())
+        cx.default_global::<MaterialTable>().icon_of(file_name)
     }
 }
 
 impl MaterialTable {
+    /// The icon of `file_name`, as [`MaterialIcon::of`] finds it.
+    #[must_use]
+    pub fn icon_of(
+        &self,
+        file_name: &str,
+    ) -> MaterialIcon {
+        self.find(&file_name.to_lowercase())
+    }
+
     pub(crate) fn find(
         &self,
         lowered: &str,

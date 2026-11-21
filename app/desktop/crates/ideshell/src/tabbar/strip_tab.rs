@@ -6,7 +6,7 @@ use gpui::{
 use protocol::PaneId;
 use std::rc::Rc;
 
-use ui::{ContextMenu, Icon, MenuItem, Palette, Placement, Surface, Theme, Tooltip, TooltipSide};
+use ui::{ContextMenu, MenuItem, Palette, Placement, Surface, Theme, Tooltip, TooltipSide};
 
 use crate::tabbar::close_button::CloseButton;
 use crate::tabbar::marks::Marks;
@@ -14,6 +14,7 @@ use crate::tabbar::tab_access::TabAccess;
 use crate::tabbar::tab_actions::{TabAction, TabActions};
 use crate::tabbar::tab_end::TabEnd;
 use crate::tabbar::tab_frame::{HEIGHT, group_of};
+use crate::tabbar::tab_glyph::tab_glyph;
 use crate::tabbar::tab_keep::TabKeep;
 use crate::tabbar::tab_look::TabLook;
 use crate::tabbar::tab_state::TabState;
@@ -23,7 +24,6 @@ const MAX_WIDTH: f32 = 200.0;
 const PAD_LEFT: f32 = 10.0;
 const PAD_RIGHT: f32 = 32.0;
 const GAP: f32 = 6.0;
-const ICON: f32 = 14.0;
 const LABEL_SIZE: f32 = 13.0;
 const READ_ONLY_TIP: &str = "Read-only: this branch is locked";
 
@@ -71,7 +71,7 @@ impl StripTab {
             remove,
             keep,
         } = self.actions;
-        let (icon, dirty) = (self.look.icon, self.look.dirty);
+        let dirty = self.look.dirty;
         let marks = Marks {
             unsaved: dirty && self.state == TabState::Active,
             ringed: self.ringed,
@@ -79,9 +79,12 @@ impl StripTab {
         let tab = framed(&name, self.state, marks, &theme)
             .on_mouse_down(MouseButton::Left, press(select, keep))
             .on_mouse_down(MouseButton::Middle, press(remove, None));
-        let ink = self.state.ink(palette);
         let tab = carry(tab)
-            .child(Icon::new(icon).size(px(ICON)).color(ink))
+            .child(tab_glyph(
+                self.look.icon,
+                self.look.artwork.clone(),
+                palette.muted_foreground(),
+            ))
             .child(label_of(&self.look))
             .children(after_label(&self.look, self.state, palette))
             .child(CloseButton {

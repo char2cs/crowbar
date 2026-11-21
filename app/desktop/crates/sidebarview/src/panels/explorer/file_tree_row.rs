@@ -1,6 +1,7 @@
 //! A 26px row of the Files and Changes panels.
 
 pub(crate) mod badges;
+pub(crate) mod file_glyph;
 mod glyph;
 mod tree_guides;
 pub(crate) mod tree_look;
@@ -25,6 +26,7 @@ use crate::panels::explorer::file_tree_entry::FileTreeEntry;
 use crate::panels::explorer::file_tree_row::badges::{
     count_gap, counts_view, labelled, letter_badge, status_color,
 };
+pub use crate::panels::explorer::file_tree_row::file_glyph::FileGlyph;
 pub(crate) use crate::panels::explorer::file_tree_row::glyph::glyph;
 pub(crate) use crate::panels::explorer::file_tree_row::tree_guides::tree_guides;
 use crate::panels::explorer::search::highlight;

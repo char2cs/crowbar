@@ -20,6 +20,7 @@ pub(crate) mod tab_drag;
 pub(crate) mod tab_end;
 pub(crate) mod tab_frame;
 pub(crate) mod tab_ghost;
+pub(crate) mod tab_glyph;
 pub(crate) mod tab_keep;
 pub(crate) mod tab_look;
 pub(crate) mod tab_looks;
