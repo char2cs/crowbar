@@ -67,7 +67,7 @@ fn work_of(
 }
 
 pub(crate) fn merge_box(state: &State) -> Option<MergeBox> {
-    let workspace = followed_workspace(state)?;
+    let workspace = followed_workspace(state).filter(|workspace| !workspace.is_default)?;
     let parent = parent_branch(state, workspace);
     let uncommitted: Vec<String> = state.panels.statuses.keys().cloned().collect();
     let inputs = MergeInputs {

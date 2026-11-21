@@ -223,7 +223,7 @@ mod tests {
     }
 
     fn a_branch_with_summary_files_is_not_empty_though_its_record_counts_none(state: &mut State) {
-        state.panels.follow(Some("rdo".into()));
+        state.panels.follow(Some("bo".into()));
         state.panels.changes.files = vec![sidebar::ChangedFile {
             path: "src/pricing.ts".into(),
             status: sidebar::GitStatus::Modified,
