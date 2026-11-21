@@ -33,8 +33,8 @@ fn listen(
         return;
     }
     let following = landing.0.clone();
-    window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
-        follow(&following, (event.position, phase), cx);
+    window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
+        follow(&following, (event.position, phase), window, cx);
     });
     window.on_mouse_event(move |event: &MouseUpEvent, phase, window, cx| {
         land(&landing, (event.position, phase), window, cx);
@@ -43,15 +43,20 @@ fn listen(
 
 fn follow(
     state: &Entity<StripState>,
-    (pointer, phase): (Point<Pixels>, DispatchPhase),
+    moved: (Point<Pixels>, DispatchPhase),
+    window: &mut Window,
     cx: &mut App,
 ) {
+    let (pointer, phase) = moved;
     if phase != DispatchPhase::Capture {
         return;
     }
     let changed = state.update(cx, |state, _| state.dragged(pointer));
     if changed {
         state.update(cx, |_, cx| cx.notify());
+    }
+    if let Some(choose) = state.update(cx, |state, _| state.chosen_once_armed()) {
+        choose(window, cx);
     }
 }
 
@@ -66,10 +71,13 @@ fn land(
         return;
     }
     let (state, reorder) = landing;
-    let landed = state.update(cx, |state, cx| {
+    let (landed, chosen) = state.update(cx, |state, cx| {
         cx.notify();
-        state.land(pointer)
+        (state.land(pointer), state.chosen.take())
     });
+    if let Some(choose) = chosen {
+        choose(window, cx);
+    }
     if let Some((pane, index)) = landed {
         reorder(&pane, index, window, cx);
     }

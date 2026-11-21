@@ -1,7 +1,8 @@
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    App, CursorStyle, Div, ElementId, FontWeight, InteractiveElement, IntoElement, MouseButton,
-    MouseDownEvent, ParentElement, RenderOnce, SharedString, Stateful, Styled, Window, div, px,
+    App, ClickEvent, CursorStyle, Div, ElementId, FontWeight, InteractiveElement, IntoElement,
+    MouseButton, MouseDownEvent, ParentElement, RenderOnce, SharedString, Stateful,
+    StatefulInteractiveElement, Styled, Window, div, px,
 };
 use protocol::PaneId;
 use std::rc::Rc;
@@ -77,8 +78,9 @@ impl StripTab {
             ringed: self.ringed,
         };
         let tab = framed(&name, self.state, marks, &theme)
-            .on_mouse_down(MouseButton::Left, press(select, keep))
-            .on_mouse_down(MouseButton::Middle, press(remove, None));
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(choose(select, keep))
+            .on_mouse_down(MouseButton::Middle, press(remove));
         let tab = carry(tab)
             .child(tab_glyph(
                 self.look.icon,
@@ -113,15 +115,21 @@ fn framed(
         .font_family(theme.ui_family())
 }
 
-fn press(
-    action: TabAction,
-    keep: Option<TabAction>,
-) -> impl Fn(&MouseDownEvent, &mut Window, &mut App) {
-    let keep: TabAction = keep.unwrap_or_else(|| Rc::new(|_, _| {}));
-    move |event, window, cx| {
+fn press(action: TabAction) -> impl Fn(&MouseDownEvent, &mut Window, &mut App) {
+    move |_, window, cx| {
         cx.stop_propagation();
         action(window, cx);
-        let _kept = (event.click_count >= 2).then(|| keep(window, cx));
+    }
+}
+
+fn choose(
+    action: TabAction,
+    keep: Option<TabAction>,
+) -> impl Fn(&ClickEvent, &mut Window, &mut App) {
+    let keep: TabAction = keep.unwrap_or_else(|| Rc::new(|_, _| {}));
+    move |event, window, cx| {
+        action(window, cx);
+        let _kept = (event.click_count() >= 2).then(|| keep(window, cx));
     }
 }
 
@@ -246,7 +254,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn pressing_a_strip_tab_selects_it(cx: &mut TestAppContext) {
+    fn a_strip_tab_is_selected_on_release_not_on_press(cx: &mut TestAppContext) {
         cx.update(|cx| {
             cx.set_global(Theme::default());
             cx.set_global(Motion::default());
@@ -256,7 +264,13 @@ mod tests {
         let (_, cx) = cx.add_window_view(move |_, _| Host { selects: host });
         let at = point(px(20.0), px(HEIGHT / 2.0));
         cx.simulate_mouse_down(at, MouseButton::Left, Modifiers::none());
-        assert_eq!(selects.get(), 1, "one select");
+        let pressed = selects.get();
+        cx.simulate_mouse_up(at, MouseButton::Left, Modifiers::none());
+        assert_eq!(
+            (pressed, selects.get()),
+            (0, 1),
+            "selected once, on release"
+        );
     }
 
     struct Kept {

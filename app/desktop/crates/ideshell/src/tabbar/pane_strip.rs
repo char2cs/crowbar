@@ -298,15 +298,39 @@ mod tests {
 
     type Moves = Rc<std::cell::RefCell<Vec<(String, usize)>>>;
 
+    const CHOSEN: usize = usize::MAX;
+
+    fn chosen(
+        tab: StripTab,
+        moves: &Moves,
+    ) -> StripTab {
+        let (moves, name) = (Rc::clone(moves), tab.pane.as_str().to_owned());
+        let select: TabAction =
+            Rc::new(move |_, _| moves.borrow_mut().push((name.clone(), CHOSEN)));
+        let TabActions {
+            close,
+            remove,
+            keep,
+            ..
+        } = tab.actions;
+        let actions = TabActions {
+            select,
+            close,
+            remove,
+            keep,
+        };
+        StripTab { actions, ..tab }
+    }
+
     fn strip_of(
         tabs: usize,
         shown: usize,
         moves: &Moves,
     ) -> PaneStrip {
         let nothing: TabAction = Rc::new(|_, _| {});
-        let moves = Rc::clone(moves);
+        let moved = Rc::clone(moves);
         let reorder: TabMove = Rc::new(move |pane, index, _, _| {
-            moves.borrow_mut().push((pane.as_str().to_owned(), index));
+            moved.borrow_mut().push((pane.as_str().to_owned(), index));
         });
         let names: Vec<String> = (0..tabs).map(|index| format!("t{index}")).collect();
         let toggle = SplitToggle {
@@ -318,7 +342,10 @@ mod tests {
             key: PaneId::new("t0").expect("valid"),
             toggle,
             chat_tab: (tabs > 0).then(|| chat_tab(&nothing)),
-            tabs: names.iter().map(|name| loose_tab(name)).collect(),
+            tabs: names
+                .iter()
+                .map(|name| chosen(loose_tab(name), moves))
+                .collect(),
             shown,
             reorder,
             add: nothing,
@@ -406,8 +433,10 @@ mod tests {
     type Case = (&'static str, &'static [f32], Vec<(String, usize)>);
 
     #[gpui::test]
-    fn a_tab_dragged_along_its_bar_lands_on_the_closest_slot(cx: &mut TestAppContext) {
-        let past_both = vec![("t0".to_owned(), 2)];
+    fn a_tab_dragged_along_its_bar_is_chosen_then_lands_on_the_closest_slot(
+        cx: &mut TestAppContext
+    ) {
+        let past_both = vec![("t0".to_owned(), CHOSEN), ("t0".to_owned(), 2)];
         let cases: [Case; 4] = [
             ("past t1 and t2", &[210.0, 420.0], past_both.clone()),
             (
@@ -416,7 +445,11 @@ mod tests {
                 past_both.clone(),
             ),
             ("a single jump past both", &[420.0], past_both),
-            ("less than six pixels is still a press", &[2.0, 4.0], vec![]),
+            (
+                "less than six pixels is a click: chosen on release",
+                &[2.0, 4.0],
+                vec![("t0".to_owned(), CHOSEN)],
+            ),
         ];
         for (name, steps, expected) in cases {
             assert_eq!(dragging(cx, steps), expected, "{name}");
