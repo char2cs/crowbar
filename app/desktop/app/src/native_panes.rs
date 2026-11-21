@@ -46,13 +46,14 @@ impl NativePanes {
         self.terminals.apply(settings, cx);
     }
 
-    pub(crate) fn focus_terminal(
+    pub(crate) fn focus(
         &self,
         pane: &PaneId,
         window: &mut Window,
         cx: &mut App,
     ) {
         self.terminals.focus(pane, window, cx);
+        self.editors.focus(pane, window, cx);
     }
 
     pub(crate) fn is_native(

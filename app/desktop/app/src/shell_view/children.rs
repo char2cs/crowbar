@@ -63,8 +63,7 @@ pub(super) fn build_panes<V: 'static>(
         (*requests).clone(),
     );
     let new_tab = crate::new_tab_panes::NewTabPanes::new((*requests).clone());
-    let documents: Rc<dyn crate::document_source::DocumentSource> = Rc::new(data.documents());
-    let editors = crate::editor_panes::EditorPanes::new(documents, (*requests).clone());
+    let editors = editors_of(data, requests);
     let panes = NativePanes::new(terminals, new_tab, editors);
     let source = ShellPaneSource::new(state.titles(), state.serials(), bars, panes);
     let (reviews, locks) = (Rc::clone(data), Rc::clone(data));
@@ -86,6 +85,19 @@ pub(super) fn build_panes<V: 'static>(
         workspace,
         source,
     }
+}
+
+fn editors_of(
+    data: &Rc<store::Store>,
+    requests: &async_channel::Sender<ShellRequest>,
+) -> crate::editor_panes::EditorPanes {
+    let documents: Rc<dyn crate::document_source::DocumentSource> = Rc::new(data.documents());
+    let locks = Rc::clone(data);
+    crate::editor_panes::EditorPanes::new(
+        documents,
+        Rc::new(move |chat| locks.chat_read_only(chat)),
+        requests.clone(),
+    )
 }
 
 fn icons_of(data: &Rc<store::Store>) -> crate::shell_pane_source::FileIcons {

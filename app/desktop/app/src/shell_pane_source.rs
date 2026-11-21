@@ -14,7 +14,7 @@ mod read_only;
 
 pub(crate) type ChatGlyphs = std::rc::Rc<dyn Fn(&str) -> Option<String>>;
 pub(crate) type ChatReviews = std::rc::Rc<dyn Fn(&str) -> bool>;
-pub(crate) type ChatLocks = std::rc::Rc<dyn Fn(&str) -> bool>;
+pub(crate) use crate::chat_locks::ChatLocks;
 pub(crate) type FileIcons = std::rc::Rc<dyn Fn() -> sidebar::IconTheme>;
 
 pub(crate) struct ShellPaneSource {

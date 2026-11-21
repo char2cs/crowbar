@@ -106,6 +106,7 @@ fn refused(status: u16) -> FileError {
 pub(crate) fn idle_editors() -> EditorPanes {
     EditorPanes::new(
         Rc::new(FakeDocuments::default()),
+        Rc::new(|_| false),
         async_channel::unbounded().0,
     )
 }

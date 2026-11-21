@@ -13,6 +13,7 @@ autobenches = false
 editor.workspace = true
 gpui.workspace = true
 gpui-kit.workspace = true
+tracing.workspace = true
 ui.workspace = true
 
 [dev-dependencies]

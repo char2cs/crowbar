@@ -9,8 +9,6 @@ use crate::editor_panes::Landing;
 use crate::request_queue::send;
 use crate::shell_request::ShellRequest;
 
-const SAVE_FAILED: &str = "Failed to save file";
-
 impl ShellView {
     pub(super) fn on_document(
         &mut self,
@@ -32,6 +30,10 @@ impl ShellView {
                 self.dirty_changed(cx);
             },
             DocumentRequest::Save { pane } => self.source.native().editors().save(&pane, cx),
+            DocumentRequest::Paused { pane } if self.autosaves() => {
+                self.source.native().editors().autosave(&pane, cx);
+            },
+            DocumentRequest::Paused { .. } => {},
             DocumentRequest::Saved { pane, text } => {
                 self.source.native().editors().saved(&pane, &text, cx);
             },
@@ -66,7 +68,8 @@ impl ShellView {
         reason: String,
         cx: &mut Context<'_, Self>,
     ) {
-        let said = ToastContent::new(ToastKind::Error, reason).titled(SAVE_FAILED.to_owned());
+        let (title, message) = crate::save_refusal::words(reason);
+        let said = ToastContent::new(ToastKind::Error, message).titled(title.to_owned());
         self.show_keyed(&format!("save:{pane}"), (said, ToastLifetime::Auto), cx);
     }
 

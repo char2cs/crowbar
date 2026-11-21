@@ -1,7 +1,7 @@
 use gpui::{
     App, AppContext as _, Context, Entity, EventEmitter, FocusHandle, Focusable,
     InteractiveElement as _, IntoElement, ParentElement as _, Render, Styled as _, Subscription,
-    Window, div,
+    Task, Window, div,
 };
 use gpui_kit::base::input::{InputEvent, Rope};
 use gpui_kit::component::input::{Editor, EditorState, Position};
@@ -9,6 +9,8 @@ use gpui_kit::component::input::{Editor, EditorState, Position};
 use crate::save_key::{CONTEXT, Save};
 use crate::toolbar::Toolbar;
 use crate::{Access, Caret, EditorEvent, Opening};
+
+mod quiet;
 
 /// One pane's editor: the gpui-kit `Editor` drawn over the document text it holds, under the
 /// toolbar of its file.
@@ -18,6 +20,7 @@ pub struct EditorView {
     toolbar: Option<Toolbar>,
     saved: Rope,
     reported_dirty: bool,
+    quiet: Option<Task<()>>,
     _caret_moves: Subscription,
     _edits: Subscription,
 }
@@ -58,6 +61,7 @@ impl EditorView {
             toolbar,
             saved,
             reported_dirty: false,
+            quiet: None,
             _caret_moves: caret_moves,
             _edits: edits,
         }
@@ -88,9 +92,11 @@ impl EditorView {
         event: &InputEvent,
         cx: &mut Context<'_, Self>,
     ) {
-        if matches!(event, InputEvent::Change) {
-            self.report_dirty(cx);
+        if !matches!(event, InputEvent::Change) {
+            return;
         }
+        self.report_dirty(cx);
+        self.quiet = Some(cx.spawn(async move |view, cx| Self::wait_quiet(view, cx).await));
     }
 
     fn report_dirty(
@@ -196,7 +202,7 @@ mod tests {
 
     use super::*;
 
-    fn opened<'cx>(
+    pub(super) fn opened<'cx>(
         (text, line): (&str, Option<u32>),
         access: Access,
         cx: &'cx mut TestAppContext,
@@ -212,7 +218,7 @@ mod tests {
         cx.add_window_view(|window, cx| EditorView::new(opening, window, cx))
     }
 
-    fn listened(
+    pub(super) fn listened(
         view: &Entity<EditorView>,
         window: &mut gpui::VisualTestContext,
     ) -> std::rc::Rc<std::cell::RefCell<Vec<EditorEvent>>> {

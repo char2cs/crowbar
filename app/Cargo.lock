@@ -1913,6 +1913,7 @@ dependencies = [
  "gpui-kit",
  "gpui-pre",
  "gpui-pre-wgpu",
+ "tracing",
  "ui",
 ]
 

@@ -146,7 +146,7 @@ impl ShellView {
             LayoutEvent::StripFocus { pane } => {
                 let focus = Command::FocusPane { pane: pane.clone() };
                 self.state.apply_from_strip(vec![focus]);
-                self.source.native().focus_terminal(pane, window, cx);
+                self.source.native().focus(pane, window, cx);
             },
             LayoutEvent::Announce(text) => {
                 return self.show_notice(NoticeKey::Command, (ToastKind::Info, text.clone()), cx);

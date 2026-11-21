@@ -29,7 +29,7 @@ impl ShellView {
         let layout = self.state.layout();
         let opened = layout.active_tab().and_then(layout::Tab::focused).cloned();
         if let Some(pane) = opened {
-            self.source.native().focus_terminal(&pane, window, cx);
+            self.source.native().focus(&pane, window, cx);
         }
     }
 

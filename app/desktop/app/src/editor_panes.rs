@@ -2,29 +2,35 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
+use editorview::Access;
 use gpui::{AnyElement, App, Window};
 use layout::{Layout, Tab};
 use protocol::PaneId;
 
-use crate::document_source::{DocumentSource, answer_into, save_failed, saved_into};
-use crate::request_queue::send;
+use crate::chat_locks::ChatLocks;
+use crate::document_source::{DocumentSource, answer_into};
 use crate::shell_request::ShellRequest;
 
 mod arrival;
 mod editor_target;
+mod focusing;
 mod followed;
+mod keyboard;
 mod landing;
 mod pane_phase;
 mod retry;
+mod saving;
 mod unavailable_panel;
 
 pub(crate) use editor_target::EditorTarget;
 use followed::Followed;
+use keyboard::Keyboard;
 pub(crate) use landing::Landing;
 use pane_phase::PanePhase;
 
 pub(crate) struct EditorPanes {
     documents: Rc<dyn DocumentSource>,
+    locks: ChatLocks,
     panes: RefCell<BTreeMap<PaneId, Followed>>,
     requests: async_channel::Sender<ShellRequest>,
 }
@@ -32,10 +38,12 @@ pub(crate) struct EditorPanes {
 impl EditorPanes {
     pub(crate) fn new(
         documents: Rc<dyn DocumentSource>,
+        locks: ChatLocks,
         requests: async_channel::Sender<ShellRequest>,
     ) -> Self {
         Self {
             documents,
+            locks,
             panes: RefCell::default(),
             requests,
         }
@@ -58,12 +66,17 @@ impl EditorPanes {
             .flat_map(Tab::pane_ids)
             .filter_map(|pane| Some((pane.clone(), EditorTarget::of(layout.pane(&pane)?)?)))
             .collect();
+        let focused = layout.active_tab().and_then(Tab::focused);
         let mut panes = self.panes.borrow_mut();
         panes.retain(|pane, followed| open.get(pane).is_some_and(|target| followed.shows(target)));
         for (pane, target) in open {
+            let access = self.access_of(&target);
+            let keyboard = focused
+                .filter(|focused| **focused == pane && access == Access::Editable)
+                .map_or(Keyboard::Leave, |_| Keyboard::Take);
             panes
                 .entry(pane)
-                .or_insert_with(|| Followed::arrive(target));
+                .or_insert_with(|| Followed::arrive(target, (keyboard, access)));
         }
         drop(panes);
         self.read_waiting();
@@ -105,41 +118,14 @@ impl EditorPanes {
         Some(followed.drawn((pane, &self.requests), window, cx))
     }
 
-    pub(crate) fn save(
+    fn access_of(
         &self,
-        pane: &PaneId,
-        cx: &App,
-    ) {
-        let panes = self.panes.borrow();
-        let Some(followed) = panes.get(pane) else {
-            return;
-        };
-        let (Some(view), Some(file)) = (followed.view(), &followed.target.file) else {
-            return;
-        };
-        let text = view.read(cx).text(cx);
-        let done = saved_into(self.requests.clone(), pane.clone(), text.clone());
-        let target = (followed.target.chat.as_str(), file);
-        if let Err(error) = self.documents.write(target, &text, done) {
-            send(&self.requests, save_failed(pane.clone(), &error));
+        target: &EditorTarget,
+    ) -> Access {
+        if (self.locks)(&target.chat) {
+            return Access::ReadOnly;
         }
-    }
-
-    pub(crate) fn saved(
-        &self,
-        pane: &PaneId,
-        text: &str,
-        cx: &mut App,
-    ) {
-        let view = self
-            .panes
-            .borrow()
-            .get(pane)
-            .and_then(Followed::view)
-            .cloned();
-        if let Some(view) = view {
-            view.update(cx, |view, cx| view.mark_saved(text, cx));
-        }
+        Access::Editable
     }
 
     fn unavailable_target(
@@ -185,7 +171,7 @@ impl EditorPanes {
 
 #[cfg(test)]
 mod tests {
-    use gpui::TestAppContext;
+    use gpui::{Entity, Focusable as _, IntoElement as _, TestAppContext};
     use layout::{Command, PaneInstance, TabId};
     use protocol::{PaneState, PaneTypeId, Params};
     use serde_json::json;
@@ -195,11 +181,11 @@ mod tests {
     use crate::document_request::DocumentRequest;
     use crate::test_support::FakeDocuments;
 
-    const PANE: &str = "f1";
-    const PATH: &str = "src/pricing.ts";
-    const TEXT: &str = "export const price = 1\n";
+    pub(super) const PANE: &str = "f1";
+    pub(super) const PATH: &str = "src/pricing.ts";
+    pub(super) const TEXT: &str = "export const price = 1\n";
 
-    fn layout_with(state: serde_json::Value) -> Layout {
+    pub(super) fn layout_with(state: serde_json::Value) -> Layout {
         let mut layout = Layout::default();
         let instance = PaneInstance {
             pane_id: PaneId::new(PANE).unwrap(),
@@ -224,15 +210,22 @@ mod tests {
         layout
     }
 
-    fn panes_over(
+    pub(super) fn panes_over(
         documents: &Rc<FakeDocuments>
-    ) -> (EditorPanes, async_channel::Receiver<ShellRequest>) {
-        let (requests, heard) = async_channel::unbounded();
-        let source: Rc<dyn DocumentSource> = Rc::<FakeDocuments>::clone(documents);
-        (EditorPanes::new(source, requests), heard)
+    ) -> (Rc<EditorPanes>, async_channel::Receiver<ShellRequest>) {
+        panes_locked(documents, Rc::new(|_| false))
     }
 
-    fn landed(
+    fn panes_locked(
+        documents: &Rc<FakeDocuments>,
+        locks: ChatLocks,
+    ) -> (Rc<EditorPanes>, async_channel::Receiver<ShellRequest>) {
+        let (requests, heard) = async_channel::unbounded();
+        let source: Rc<dyn DocumentSource> = Rc::<FakeDocuments>::clone(documents);
+        (Rc::new(EditorPanes::new(source, locks, requests)), heard)
+    }
+
+    pub(super) fn landed(
         panes: &EditorPanes,
         heard: &async_channel::Receiver<ShellRequest>,
     ) -> Landing {
@@ -307,8 +300,43 @@ mod tests {
         assert_eq!(landed(&panes, &heard), Landing::Shown);
     }
 
+    struct Drawn(Rc<EditorPanes>);
+
+    impl gpui::Render for Drawn {
+        fn render(
+            &mut self,
+            window: &mut Window,
+            cx: &mut gpui::Context<'_, Self>,
+        ) -> impl gpui::IntoElement {
+            let pane = PaneId::new(PANE).unwrap();
+            self.0
+                .content(&pane, window, cx)
+                .unwrap_or_else(|| gpui::Empty.into_any_element())
+        }
+    }
+
+    pub(super) fn shown_in<'cx>(
+        panes: &Rc<EditorPanes>,
+        cx: &'cx mut TestAppContext,
+    ) -> (
+        Entity<editorview::EditorView>,
+        &'cx mut gpui::VisualTestContext,
+    ) {
+        let drawn = Rc::clone(panes);
+        let (_root, window) = cx.add_window_view(|_, _| Drawn(drawn));
+        window.run_until_parked();
+        let pane = PaneId::new(PANE).unwrap();
+        let view = panes
+            .panes
+            .borrow()
+            .get(&pane)
+            .and_then(Followed::view)
+            .cloned();
+        (view.expect("the document is shown"), window)
+    }
+
     #[gpui::test]
-    fn a_save_writes_the_shown_text_and_tells_the_shell_it_reached_the_file(
+    fn a_file_of_a_locked_workspace_ignores_typing_and_does_not_take_the_keyboard(
         cx: &mut TestAppContext
     ) {
         cx.update(|cx| ui::init(cx).unwrap());
@@ -316,18 +344,21 @@ mod tests {
         let documents = Rc::new(FakeDocuments::default());
         documents.loading("c1");
         documents.holding(PATH, TEXT);
-        let (panes, heard) = panes_over(&documents);
+        let (panes, heard) = panes_locked(&documents, Rc::new(|chat| chat == "c1"));
         panes.follow(&layout_with(json!({"path": PATH})));
         assert_eq!(landed(&panes, &heard), Landing::Shown);
-        let (_root, window) = cx.add_window_view(|_, _| gpui::Empty);
-        let pane = PaneId::new(PANE).unwrap();
-        window.update(|window, cx| panes.content(&pane, window, cx));
-        window.update(|_, cx| panes.save(&pane, cx));
-        assert_eq!(documents.writes(), [(PATH.to_owned(), TEXT.to_owned())]);
-        let saved = ShellRequest::Document(DocumentRequest::Saved {
-            pane,
-            text: TEXT.to_owned(),
-        });
-        assert_eq!(heard.try_recv().unwrap(), saved);
+        let (view, window) = shown_in(&panes, cx);
+        let has_keys = window.update(|window, cx| view.focus_handle(cx).is_focused(window));
+        assert!(
+            !has_keys,
+            "a read-only file does not take the keyboard as it opens"
+        );
+        window.update(|window, cx| window.focus(&view.focus_handle(cx), cx));
+        window.simulate_input("x");
+        assert_eq!(
+            window.read(|cx| view.read(cx).text(cx)),
+            TEXT,
+            "typing ignored"
+        );
     }
 }

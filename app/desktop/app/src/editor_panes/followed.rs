@@ -1,5 +1,5 @@
 use editorview::{EditorEvent, EditorView};
-use gpui::{AnyElement, App, AppContext as _, Entity, IntoElement as _, Window};
+use gpui::{AnyElement, App, AppContext as _, Entity, Focusable as _, IntoElement as _, Window};
 use protocol::PaneId;
 
 use crate::document_request::DocumentRequest;
@@ -8,6 +8,7 @@ use crate::shell_request::ShellRequest;
 
 use super::arrival::Arrival;
 use super::editor_target::EditorTarget;
+use super::keyboard::Keyboard;
 use super::landing::Landing;
 use super::pane_phase::PanePhase;
 use super::retry::Retry;
@@ -16,15 +17,25 @@ use super::unavailable_panel;
 pub(super) struct Followed {
     pub(super) target: EditorTarget,
     pub(super) phase: PanePhase,
+    pub(super) keyboard: Keyboard,
+    access: editorview::Access,
 }
 
 impl Followed {
-    pub(super) fn arrive(target: EditorTarget) -> Self {
+    pub(super) fn arrive(
+        target: EditorTarget,
+        (keyboard, access): (Keyboard, editorview::Access),
+    ) -> Self {
         let phase = match target.file {
             Some(_) => PanePhase::Waiting,
             None => PanePhase::Read(String::new()),
         };
-        Self { target, phase }
+        Self {
+            target,
+            phase,
+            keyboard,
+            access,
+        }
     }
 
     pub(super) fn shows(
@@ -59,6 +70,20 @@ impl Followed {
         }
     }
 
+    fn take_keyboard(
+        &mut self,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let PanePhase::Shown(view) = &self.phase else {
+            return;
+        };
+        if self.keyboard == Keyboard::Take {
+            window.focus(&view.focus_handle(cx), cx);
+            self.keyboard = Keyboard::Leave;
+        }
+    }
+
     pub(super) fn view(&self) -> Option<&Entity<EditorView>> {
         match &self.phase {
             PanePhase::Shown(view) => Some(view),
@@ -73,9 +98,10 @@ impl Followed {
         cx: &mut App,
     ) -> AnyElement {
         if let PanePhase::Read(text) = &mut self.phase {
-            let opening = opening(&self.target, std::mem::take(text));
+            let opening = opening(&self.target, std::mem::take(text), self.access);
             self.phase = PanePhase::Shown(shown(opening, teller(pane, requests), window, cx));
         }
+        self.take_keyboard(window, cx);
         let (requests, retry) = (
             requests.clone(),
             ShellRequest::Document(DocumentRequest::Retry { pane: pane.clone() }),
@@ -126,18 +152,20 @@ fn told(
             ShellRequest::Document(DocumentRequest::Dirty { pane, dirty })
         },
         EditorEvent::SaveRequested => ShellRequest::Document(DocumentRequest::Save { pane }),
+        EditorEvent::EditsPaused => ShellRequest::Document(DocumentRequest::Paused { pane }),
     }
 }
 
 fn opening(
     target: &EditorTarget,
     text: String,
+    access: editorview::Access,
 ) -> editorview::Opening {
     editorview::Opening {
         text,
         path: target.file.as_ref().map(|file| file.as_str().to_owned()),
         line: target.line,
-        access: editorview::Access::Editable,
+        access,
     }
 }
 
@@ -178,7 +206,10 @@ mod tests {
             (PanePhase::Unavailable(failure()), "retrying"),
         ];
         for (phase, expected) in cases {
-            let mut followed = Followed::arrive(target(Some("a.ts")));
+            let mut followed = Followed::arrive(
+                target(Some("a.ts")),
+                (Keyboard::Leave, editorview::Access::Editable),
+            );
             followed.phase = phase;
             followed.reading();
             assert_eq!(phase_name(&followed.phase), expected);
@@ -187,9 +218,15 @@ mod tests {
 
     #[test]
     fn an_untitled_pane_has_its_empty_text_at_once_and_follows_only_its_own_file() {
-        let untitled = Followed::arrive(target(None));
+        let untitled = Followed::arrive(
+            target(None),
+            (Keyboard::Leave, editorview::Access::Editable),
+        );
         assert_eq!(phase_name(&untitled.phase), "read");
-        let workspace = Followed::arrive(target(Some("a.ts")));
+        let workspace = Followed::arrive(
+            target(Some("a.ts")),
+            (Keyboard::Leave, editorview::Access::Editable),
+        );
         assert!(workspace.shows(&target(Some("a.ts"))));
         assert!(
             !workspace.shows(&target(Some("b.ts"))),

@@ -5,6 +5,7 @@ use crate::pane_settings::{follows, value_of, values_of};
 use crate::shell_request::ShellRequest;
 
 const MAX_OPEN_TABS: &str = "maxOpenTabs";
+const AUTO_SAVE: &str = "autoSave";
 
 fn notify_when_a_followed_setting_moves(
     requests: &async_channel::Sender<ShellRequest>,
@@ -56,6 +57,13 @@ impl ShellView {
         for (key, json) in writes {
             store_one(&backend, &key, &json);
         }
+    }
+
+    pub(super) fn autosaves(&mut self) -> bool {
+        self.settings_backend()
+            .and_then(|backend| backend.get(&settings::Key::new(AUTO_SAVE)))
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
     }
 
     pub(super) fn push_pane_settings(&mut self) {

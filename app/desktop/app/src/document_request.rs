@@ -11,6 +11,8 @@ pub(crate) enum DocumentRequest {
     Dirty { pane: protocol::PaneId, dirty: bool },
     /// A file pane asked to save (ctrl+s, or the close prompt's Save).
     Save { pane: protocol::PaneId },
+    /// A file pane's edits paused while it differs from its file: autosave's moment.
+    Paused { pane: protocol::PaneId },
     /// A file pane's text reached its file.
     Saved {
         pane: protocol::PaneId,

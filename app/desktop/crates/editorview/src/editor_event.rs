@@ -5,4 +5,7 @@ pub enum EditorEvent {
     DirtyChanged(bool),
     /// The user asked to save (ctrl+s).
     SaveRequested,
+    /// Edits paused for the quiet period while the text differs from the saved text: the
+    /// moment develop writes a draft and, with Auto Save on, saves.
+    EditsPaused,
 }
