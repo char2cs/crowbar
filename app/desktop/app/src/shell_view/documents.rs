@@ -1,0 +1,156 @@
+use gpui::Context;
+use protocol::{DisplayText, PaneId};
+
+use ui::{ToastContent, ToastKind, ToastLifetime};
+
+use super::ShellView;
+use crate::document_request::DocumentRequest;
+use crate::editor_panes::Landing;
+use crate::request_queue::send;
+use crate::shell_request::ShellRequest;
+
+const SAVE_FAILED: &str = "Failed to save file";
+
+impl ShellView {
+    pub(super) fn on_document(
+        &mut self,
+        request: DocumentRequest,
+        cx: &mut Context<'_, Self>,
+    ) {
+        match request {
+            DocumentRequest::Read { pane, read } => self.land_document((&pane, read), cx),
+            DocumentRequest::Retry { pane } => {
+                self.source.native().editors().retry(&pane);
+                self.layout.update(cx, |_, cx| cx.notify());
+            },
+            DocumentRequest::Dirty { pane, dirty: true } => {
+                self.state.mark_dirty(pane);
+                self.dirty_changed(cx);
+            },
+            DocumentRequest::Dirty { pane, dirty: false } => {
+                self.state.clear_dirty(&pane);
+                self.dirty_changed(cx);
+            },
+            DocumentRequest::Save { pane } => self.source.native().editors().save(&pane, cx),
+            DocumentRequest::Saved { pane, text } => {
+                self.source.native().editors().saved(&pane, &text, cx);
+            },
+            DocumentRequest::SaveFailed { pane, reason } => self.refuse_save(&pane, reason, cx),
+        }
+    }
+
+    pub(super) fn land_document(
+        &mut self,
+        (pane, read): (&PaneId, Result<String, editor::OpenFailure>),
+        cx: &mut Context<'_, Self>,
+    ) {
+        match self.source.native().editors().land(pane, read) {
+            Landing::Shown => self.state.settle_file_pane(pane),
+            Landing::Refused(failure) => return self.refuse_read(pane, &failure, cx),
+            Landing::Quiet => {},
+        }
+        self.layout.update(cx, |_, cx| cx.notify());
+    }
+
+    fn dirty_changed(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
+        send(&self.requests, ShellRequest::ResumeClosing);
+        self.refresh(cx);
+    }
+
+    fn refuse_save(
+        &mut self,
+        pane: &PaneId,
+        reason: String,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let said = ToastContent::new(ToastKind::Error, reason).titled(SAVE_FAILED.to_owned());
+        self.show_keyed(&format!("save:{pane}"), (said, ToastLifetime::Auto), cx);
+    }
+
+    fn refuse_read(
+        &mut self,
+        pane: &PaneId,
+        failure: &editor::OpenFailure,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let said = DisplayText::new(failure.title()).and_then(|title| {
+            DisplayText::new(failure.message()).map(|message| (Some(title), message))
+        });
+        match said {
+            Ok(said) => self.refuse_open(pane, &said, cx),
+            Err(error) => {
+                tracing::warn!(%error, %pane, "a refused read has no words to say why");
+                self.state.withdraw_open(pane);
+                self.refresh(cx);
+            },
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui::TestAppContext;
+
+    use super::*;
+    use crate::shell_view::tests::{Opened, open_shell};
+
+    const PATH: &str = "src/pricing.ts";
+
+    fn opened_file(opened: &mut Opened) -> PaneId {
+        opened.shell.update(&mut opened.window, |shell, cx| {
+            shell.open_workspace_file(PATH, cx);
+            let layout = shell.state.layout();
+            let focused = layout.active_tab().and_then(layout::Tab::focused);
+            focused.cloned().expect("the file pane has focus")
+        })
+    }
+
+    fn toasts(opened: &mut Opened) -> usize {
+        opened.window.executor().advance_clock(ui::timing::SLOW);
+        opened.window.run_until_parked();
+        opened
+            .shell
+            .update(&mut opened.window, |shell, cx| shell.notices.read(cx).len())
+    }
+
+    fn pane_state(
+        opened: &mut Opened,
+        pane: &PaneId,
+    ) -> Option<serde_json::Value> {
+        opened.shell.update(&mut opened.window, |shell, _| {
+            let instance = shell.state.layout().pane(pane);
+            instance.map(|instance| instance.state.as_value().clone())
+        })
+    }
+
+    fn land(
+        opened: &mut Opened,
+        pane: &PaneId,
+        read: Result<String, editor::OpenFailure>,
+    ) {
+        let reading = (pane, read);
+        opened.shell.update(&mut opened.window, |shell, cx| {
+            shell.land_document(reading, cx);
+        });
+    }
+
+    #[gpui::test]
+    fn a_fresh_file_that_reads_is_kept_and_one_that_cannot_closes_and_says_why(
+        cx: &mut TestAppContext
+    ) {
+        let refused = editor::OpenFailure::of(PATH, 413, None);
+        let kept = serde_json::json!({"path": PATH});
+        let cases = [(Ok("a".to_owned()), Some(kept), 0), (Err(refused), None, 1)];
+        for (read, expected, said) in cases {
+            let mut opened = open_shell(cx);
+            let pane = opened_file(&mut opened);
+            let before = toasts(&mut opened);
+            land(&mut opened, &pane, read);
+            assert_eq!(toasts(&mut opened) - before, said, "toasts");
+            assert_eq!(pane_state(&mut opened, &pane), expected);
+        }
+    }
+}

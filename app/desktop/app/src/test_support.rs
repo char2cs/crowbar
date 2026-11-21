@@ -1,5 +1,6 @@
 mod daemon_link;
 mod daemon_options;
+mod fake_documents;
 mod fixed_clock;
 mod idle_terminals;
 mod memory_files;
@@ -12,6 +13,7 @@ mod terminal_layout;
 
 pub(crate) use daemon_link::link_without_daemon;
 pub(crate) use daemon_options::options_without_a_daemon;
+pub(crate) use fake_documents::{FakeDocuments, idle_editors};
 pub(crate) use fixed_clock::FixedClock;
 pub(crate) use idle_terminals::{heard_terminals, idle_terminals, idle_terminals_into};
 pub(crate) use memory_files::{LAYOUT_PATH, MemoryFiles};

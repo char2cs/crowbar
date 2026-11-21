@@ -63,7 +63,9 @@ pub(super) fn build_panes<V: 'static>(
         (*requests).clone(),
     );
     let new_tab = crate::new_tab_panes::NewTabPanes::new((*requests).clone());
-    let panes = NativePanes::new(terminals, new_tab);
+    let documents: Rc<dyn crate::document_source::DocumentSource> = Rc::new(data.documents());
+    let editors = crate::editor_panes::EditorPanes::new(documents, (*requests).clone());
+    let panes = NativePanes::new(terminals, new_tab, editors);
     let source = ShellPaneSource::new(state.titles(), state.serials(), bars, panes);
     let (reviews, locks) = (Rc::clone(data), Rc::clone(data));
     let source = source

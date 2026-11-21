@@ -46,6 +46,7 @@ impl ShellView {
             backend.deliver_pending();
         }
         self.sidebar.update(cx, |_, cx| cx.notify());
+        self.source.native().editors().data_changed();
         self.update_landing(cx);
         self.follow_backend(cx);
         self.push_tabs(cx);

@@ -1,6 +1,7 @@
 use gpui::{AnyElement, App, IntoElement as _, Window, div};
 use protocol::PaneId;
 
+use crate::editor_panes::EditorPanes;
 use crate::new_tab_panes::NewTabPanes;
 use crate::terminal_panes::TerminalPanes;
 use crate::titles::Titles;
@@ -8,17 +9,24 @@ use crate::titles::Titles;
 pub(crate) struct NativePanes {
     terminals: TerminalPanes,
     new_tabs: NewTabPanes,
+    editors: EditorPanes,
 }
 
 impl NativePanes {
     pub(crate) fn new(
         terminals: TerminalPanes,
         new_tabs: NewTabPanes,
+        editors: EditorPanes,
     ) -> Self {
         Self {
             terminals,
             new_tabs,
+            editors,
         }
+    }
+
+    pub(crate) fn editors(&self) -> &EditorPanes {
+        &self.editors
     }
 
     pub(crate) fn follow(
@@ -27,6 +35,7 @@ impl NativePanes {
         titles: &Titles,
     ) {
         self.new_tabs.follow(layout, titles);
+        self.editors.follow(layout);
     }
 
     pub(crate) fn apply_terminal_settings(
@@ -50,7 +59,9 @@ impl NativePanes {
         &self,
         pane: &PaneId,
     ) -> bool {
-        self.terminals.is_terminal(pane) || self.new_tabs.contains(pane)
+        self.terminals.is_terminal(pane)
+            || self.new_tabs.contains(pane)
+            || self.editors.contains(pane)
     }
 
     pub(crate) fn empty_editor(
@@ -73,6 +84,9 @@ impl NativePanes {
         if let Some(page) = self.new_tabs.view(pane, cx) {
             return page.into_any_element();
         }
+        if let Some(editor) = self.editors.content(pane, window, cx) {
+            return editor;
+        }
         match self.terminals.view(pane, window, cx) {
             Some(view) => view.into_any_element(),
             None => div().into_any_element(),
@@ -90,6 +104,7 @@ mod tests {
         NativePanes::new(
             idle_terminals(TerminalIds::default()),
             NewTabPanes::new(async_channel::unbounded().0),
+            crate::test_support::idle_editors(),
         )
     }
 

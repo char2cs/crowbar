@@ -15,6 +15,21 @@ impl ShellState {
         }
     }
 
+    pub(crate) fn mark_dirty(
+        &mut self,
+        pane: PaneId,
+    ) {
+        self.keep_if_preview(&pane);
+        self.dirty.mark(pane);
+    }
+
+    pub(crate) fn clear_dirty(
+        &mut self,
+        pane: &PaneId,
+    ) {
+        self.dirty.clear(pane);
+    }
+
     pub(super) fn keep_if_preview(
         &mut self,
         pane: &PaneId,

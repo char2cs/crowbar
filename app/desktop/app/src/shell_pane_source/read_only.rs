@@ -58,6 +58,7 @@ mod tests {
             NativePanes::new(
                 idle_terminals(TerminalIds::default()),
                 NewTabPanes::new(async_channel::unbounded().0),
+                crate::test_support::idle_editors(),
             ),
         )
         .locking(std::rc::Rc::new(|chat| chat == "locked"))

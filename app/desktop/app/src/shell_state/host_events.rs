@@ -70,12 +70,11 @@ impl ShellState {
                 outcome.titles_changed = true;
             },
             HostEvent::DirtyChanged { pane, dirty: true } => {
-                self.keep_if_preview(&pane);
-                self.dirty.mark(pane);
+                self.mark_dirty(pane);
                 outcome.dirty_changed = true;
             },
             HostEvent::DirtyChanged { pane, dirty: false } => {
-                self.dirty.clear(&pane);
+                self.clear_dirty(&pane);
                 outcome.dirty_changed = true;
             },
             HostEvent::OpenRequested { from, open } => {

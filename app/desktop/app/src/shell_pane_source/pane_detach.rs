@@ -45,6 +45,7 @@ mod tests {
         let native = NativePanes::new(
             idle_terminals(TerminalIds::default()),
             NewTabPanes::new(async_channel::unbounded().0),
+            crate::test_support::idle_editors(),
         );
         let serials = Serials::above(&layout::Layout::default());
         ShellPaneSource::new(titles, serials, bars, native)

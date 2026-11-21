@@ -1,0 +1,138 @@
+use layout::PaneInstance;
+use protocol::{DocumentPath, PaneState};
+use serde_json::Value;
+
+use super::arrival::Arrival;
+use crate::core_panes::EDITOR;
+
+const THREAD_ID: &str = "threadId";
+const PATH: &str = "path";
+const ABSOLUTE: &str = "absolute";
+const UNTITLED: &str = "untitled";
+const FRESH: &str = "fresh";
+const LINE: &str = "line";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct EditorTarget {
+    pub(crate) chat: String,
+    pub(crate) file: Option<DocumentPath>,
+    pub(crate) arrival: Arrival,
+    pub(crate) line: Option<u32>,
+}
+
+impl EditorTarget {
+    pub(crate) fn of(instance: &PaneInstance) -> Option<Self> {
+        if instance.type_id.as_str() != EDITOR {
+            return None;
+        }
+        let chat = instance.params.get(THREAD_ID)?.to_owned();
+        let state = instance.state.as_value();
+        let arrival = match state.get(FRESH).and_then(Value::as_bool) {
+            Some(true) => Arrival::Fresh,
+            _ => Arrival::Restored,
+        };
+        let line = state
+            .get(LINE)
+            .and_then(Value::as_u64)
+            .filter(|line| *line > 0);
+        let line = line.and_then(|line| u32::try_from(line).ok());
+        let target = Self {
+            chat,
+            file: match state.get(UNTITLED).and_then(Value::as_bool) {
+                Some(true) => None,
+                _ => Some(file_of(state)?),
+            },
+            arrival,
+            line,
+        };
+        Some(target)
+    }
+
+    pub(crate) fn settled(state: &PaneState) -> Option<PaneState> {
+        let value = state.as_value();
+        let marked = value.get(FRESH).is_some() || value.get(LINE).is_some();
+        if !marked {
+            return None;
+        }
+        let mut kept = value.as_object()?.clone();
+        kept.remove(FRESH);
+        kept.remove(LINE);
+        PaneState::new(Value::Object(kept)).ok()
+    }
+}
+
+fn file_of(state: &Value) -> Option<DocumentPath> {
+    let path = state.get(PATH).and_then(Value::as_str)?;
+    let absolute = state.get(ABSOLUTE).and_then(Value::as_bool) == Some(true);
+    let file = DocumentPath::new(path).ok()?;
+    let host_mismatch = absolute != file.is_host();
+    (!host_mismatch).then_some(file)
+}
+
+#[cfg(test)]
+mod tests {
+    use protocol::{PaneId, PaneTypeId, Params};
+    use serde_json::json;
+
+    use super::*;
+
+    fn instance(state: Value) -> PaneInstance {
+        PaneInstance {
+            pane_id: PaneId::new("p1").unwrap(),
+            type_id: PaneTypeId::new(EDITOR).unwrap(),
+            params: Params::default().with(THREAD_ID, "c1").unwrap(),
+            state: PaneState::new(state).unwrap(),
+        }
+    }
+
+    type Case = (Value, Option<(Option<&'static str>, Arrival, Option<u32>)>);
+
+    fn cases() -> [Case; 5] {
+        [
+            (
+                json!({"path": "src/a.ts", "fresh": true, "line": 4}),
+                Some((Some("src/a.ts"), Arrival::Fresh, Some(4))),
+            ),
+            (
+                json!({"path": "src/a.ts"}),
+                Some((Some("src/a.ts"), Arrival::Restored, None)),
+            ),
+            (
+                json!({"path": "/etc/hosts", "absolute": true}),
+                Some((Some("/etc/hosts"), Arrival::Restored, None)),
+            ),
+            (
+                json!({"untitled": true}),
+                Some((None, Arrival::Restored, None)),
+            ),
+            (json!({}), None),
+        ]
+    }
+
+    fn seen(target: EditorTarget) -> (Option<String>, Arrival, Option<u32>) {
+        let file = target.file.map(|file| file.as_str().to_owned());
+        (file, target.arrival, target.line)
+    }
+
+    #[test]
+    fn a_file_pane_names_its_chat_file_and_how_it_arrived() {
+        for (state, expected) in cases() {
+            let seen = EditorTarget::of(&instance(state.clone())).map(seen);
+            let expected =
+                expected.map(|(file, arrival, line)| (file.map(str::to_owned), arrival, line));
+            assert_eq!(seen, expected, "{state}");
+        }
+    }
+
+    #[test]
+    fn a_shown_file_drops_its_open_marks_once() {
+        let state = PaneState::new(json!({"path": "a.ts", "fresh": true, "line": 2})).unwrap();
+        let settled = EditorTarget::settled(&state).unwrap();
+        assert_eq!(settled.as_value(), &json!({"path": "a.ts"}));
+        assert_eq!(
+            EditorTarget::settled(&settled),
+            None,
+            "nothing left to drop"
+        );
+    }
+}

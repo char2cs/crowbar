@@ -34,7 +34,7 @@ impl ShellView {
         }
     }
 
-    fn refuse_open(
+    pub(super) fn refuse_open(
         &mut self,
         pane: &PaneId,
         (title, message): &(Option<DisplayText>, DisplayText),

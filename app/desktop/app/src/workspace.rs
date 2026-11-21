@@ -114,6 +114,7 @@ mod tests {
             crate::native_panes::NativePanes::new(
                 idle_terminals(TerminalIds::default()),
                 crate::new_tab_panes::NewTabPanes::new(async_channel::unbounded().0),
+                crate::test_support::idle_editors(),
             ),
         ))
     }

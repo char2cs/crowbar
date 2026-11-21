@@ -25,6 +25,7 @@ mod child_events;
 mod children;
 mod closing;
 mod data_events;
+mod documents;
 mod evictions;
 mod file_actions;
 mod file_tree_flag;
@@ -395,6 +396,7 @@ mod tests {
     pub(super) fn open_shell_unsettled(cx: &mut TestAppContext) -> Opened {
         cx.executor().allow_parking();
         cx.update(|cx| ui::init(cx).expect("ui installs"));
+        cx.update(editorview::init);
         let mut rig = crate::test_support::shell_rig();
         let pane = crate::test_support::synced_chat(&mut rig);
         let preferences = Arc::new(crate::test_support::MemoryPreferences::default());

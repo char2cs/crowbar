@@ -7,6 +7,7 @@ use crate::close_choice::CloseChoice;
 use crate::close_guard::dirty_among;
 use crate::close_step::CloseStep;
 use crate::closing::Closing;
+use crate::document_request::DocumentRequest;
 use crate::pending_close::PendingClose;
 use crate::request_queue::send;
 use crate::shell_request::ShellRequest;
@@ -143,6 +144,12 @@ impl ShellView {
         &self,
         pane: &PaneId,
     ) {
+        if self.source.native().editors().contains(pane) {
+            return send(
+                &self.requests,
+                ShellRequest::Document(DocumentRequest::Save { pane: pane.clone() }),
+            );
+        }
         if let Err(error) = self.state.host().send(pane, &ShellFrame::Save) {
             tracing::warn!(%error, %pane, "asking a pane to save failed");
         }

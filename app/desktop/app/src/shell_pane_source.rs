@@ -221,6 +221,7 @@ mod tests {
             NativePanes::new(
                 idle_terminals(TerminalIds::default()),
                 NewTabPanes::new(async_channel::unbounded().0),
+                crate::test_support::idle_editors(),
             ),
         )
         .drawing(std::rc::Rc::new(|chat| {
@@ -257,6 +258,7 @@ mod tests {
             NativePanes::new(
                 idle_terminals(TerminalIds::default()),
                 NewTabPanes::new(async_channel::unbounded().0),
+                crate::test_support::idle_editors(),
             ),
         )
         .marking(dirty.clone());
