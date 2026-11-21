@@ -25,7 +25,7 @@ impl ShellView {
                 let items = self.link_rows(pane, &url);
                 self.open_link_menu((items, position), window, cx);
             },
-            Event::OpenFile { path, .. } => self.open_printed_file(pane, &path, cx),
+            Event::OpenFile { path, line } => self.open_printed_file(pane, (&path, line), cx),
             Event::Exited(_) => self.close_terminal(pane, cx),
             _ => {},
         }

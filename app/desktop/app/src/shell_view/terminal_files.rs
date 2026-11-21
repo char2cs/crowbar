@@ -10,6 +10,7 @@ use crate::pane_spec::PaneSpec;
 use crate::terminal_owner::TerminalOwner;
 
 const CANNOT_OPEN: &str = "Cannot open file";
+const LINE: &str = "line";
 
 impl ShellView {
     pub(super) fn terminal_chat(
@@ -25,7 +26,7 @@ impl ShellView {
     pub(super) fn open_printed_file(
         &mut self,
         pane: &PaneId,
-        printed: &str,
+        (printed, line): (&str, Option<u32>),
         cx: &mut Context<'_, Self>,
     ) {
         let chat = self.terminal_chat(pane);
@@ -47,13 +48,13 @@ impl ShellView {
         let target = FileTarget::of(&absolute, (workspace.as_deref(), remote.as_deref()));
         self.state
             .apply(vec![Command::FocusPane { pane: pane.clone() }]);
-        self.open_target(chat, target, cx);
+        self.open_target(chat, (target, line), cx);
     }
 
     fn open_target(
         &mut self,
         chat: Option<String>,
-        target: FileTarget,
+        (target, line): (FileTarget, Option<u32>),
         cx: &mut Context<'_, Self>,
     ) {
         let chat = chat.or_else(|| self.chat_for("a file"));
@@ -62,9 +63,11 @@ impl ShellView {
         };
         match target {
             FileTarget::Workspace(relative) => {
-                self.open_spec(PaneSpec::editor(&chat, &relative), cx);
+                self.open_spec(at_line(PaneSpec::editor(&chat, &relative), line), cx);
             },
-            FileTarget::Host(absolute) => self.open_spec(PaneSpec::host_file(&chat, &absolute), cx),
+            FileTarget::Host(absolute) => {
+                self.open_spec(at_line(PaneSpec::host_file(&chat, &absolute), line), cx);
+            },
             FileTarget::Outside(absolute) => {
                 let detail = format!("{absolute} is outside the current workspace.");
                 self.cannot_open(detail, cx);
@@ -82,6 +85,23 @@ impl ShellView {
     }
 }
 
+fn at_line(
+    spec: crate::error::Result<PaneSpec>,
+    line: Option<u32>,
+) -> crate::error::Result<PaneSpec> {
+    let spec = spec?;
+    let Some(line) = line else {
+        return Ok(spec);
+    };
+    let mut fields = spec.state.as_value().clone();
+    let Some(object) = fields.as_object_mut() else {
+        return Ok(spec);
+    };
+    object.insert(LINE.to_owned(), serde_json::Value::from(line));
+    let state = protocol::PaneState::new(fields)?;
+    Ok(PaneSpec { state, ..spec })
+}
+
 #[cfg(test)]
 mod tests {
     use gpui::TestAppContext;
@@ -91,12 +111,18 @@ mod tests {
     use crate::shell_view::test_support::{panes_of, tell, with_terminal};
 
     #[gpui::test]
-    fn an_absolute_path_opens_as_a_file_of_this_computer(cx: &mut TestAppContext) {
+    fn an_absolute_path_opens_as_a_file_of_this_computer_at_its_line(cx: &mut TestAppContext) {
         let (mut opened, terminal) = with_terminal(cx);
         let path = "/etc/hosts".to_owned();
         tell(
             &mut opened,
-            (&terminal, Event::OpenFile { path, line: None }),
+            (
+                &terminal,
+                Event::OpenFile {
+                    path,
+                    line: Some(3),
+                },
+            ),
         );
         let editors = opened.shell.update(&mut opened.window, |shell, _| {
             let editors = panes_of(shell, EDITOR);
@@ -108,7 +134,9 @@ mod tests {
         });
         assert_eq!(
             editors,
-            [serde_json::json!({ "path": "/etc/hosts", "absolute": true })]
+            [
+                serde_json::json!({ "path": "/etc/hosts", "absolute": true, "fresh": true, "line": 3 })
+            ]
         );
     }
 
