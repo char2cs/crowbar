@@ -33,6 +33,14 @@ Drop it with `overlay-window`.
 
 Drop it when upstream gpui reads the detail of a focus change. Tracking: zed-industries/zed.
 
+`physical-key`, applied on top of `inferior-focus`, gives each keystroke the key's position as well as the character it typed, as DOM `KeyboardEvent.code` does: develop matches ctrl+shift+digit by `Digit1`…`Digit9`, but on X11 shift+2 types `@` and upstream drops the shift.
+
+- `gpui-pre`, `src/platform/keystroke.rs`, `src/window.rs`, `src/app/visual_test_context.rs`: `Keystroke.physical: Option<PhysicalKey { code, modifiers }>`, skipped by serde; `code` is the unshifted US-layout name of the key position and `modifiers` holds every modifier, shift included.
+- `gpui-pre-linux`, `src/linux/platform.rs`, `src/linux/wayland/client.rs`: xkb fills it from the keycode through `us_unshifted_key`.
+- `gpui-pre-macos`, `src/events.rs`: left `None` for now; the key code (`kVK_ANSI_*`) gives the position there.
+
+Drop it when upstream gpui reports the physical key. Tracking: zed-industries/zed.
+
 ## calloop 0.14.5
 
 `tracing-without-log` (`Cargo.toml`): calloop, reached through `gpui-pre-linux`, asks for tracing's `log` feature, and cargo turns a feature on for every crate that uses tracing. With `log` on, each `tracing` macro also expands to its `log` fallback, which quadruples `clippy::cognitive_complexity` in every function that logs. Nothing in the shell reads `log` records (no `log` logger or bridge is installed), so calloop loses only output nobody received.
