@@ -1,8 +1,10 @@
-use layout::Layout;
+use layout::{Layout, PaneGroup};
 
 pub(crate) fn focused_chat(layout: &Layout) -> Option<String> {
     let tab = layout.active_tab()?;
-    let pane = layout.pane(tab.focused()?)?;
+    let focused = tab.focused()?;
+    let chat = tab.group_of(focused).and_then(PaneGroup::chat);
+    let pane = layout.pane(chat.unwrap_or(focused))?;
     pane.params.get("threadId").map(str::to_owned)
 }
 
@@ -12,7 +14,7 @@ mod tests {
     use protocol::{PaneId, PaneState, Params};
 
     use super::*;
-    use crate::core_panes::{chat_params, chat_type};
+    use crate::core_panes::chat_type;
 
     fn open(
         layout: &mut Layout,
@@ -38,11 +40,24 @@ mod tests {
     }
 
     #[test]
-    fn the_focused_pane_names_the_chat() {
-        let mut layout = Layout::default();
-        assert_eq!(focused_chat(&layout), None, "nothing open");
-        open(&mut layout, chat_params("c7").unwrap());
-        assert_eq!(focused_chat(&layout).as_deref(), Some("c7"));
+    fn the_focused_pane_names_its_groups_chat() {
+        let mut rig = crate::test_support::shell_rig();
+        assert_eq!(focused_chat(rig.shell.layout()), None, "nothing open");
+        crate::test_support::open_chat(&mut rig.shell, "c7");
+        assert_eq!(focused_chat(rig.shell.layout()).as_deref(), Some("c7"));
+        let browser = crate::pane_spec::PaneSpec::browser("b1").unwrap();
+        rig.shell.open_spec(browser);
+        let layout = rig.shell.layout();
+        let focused = layout.active_tab().and_then(layout::Tab::focused);
+        let browser_focused = focused
+            .and_then(|pane| layout.pane(pane))
+            .is_some_and(|pane| pane.params.get("browserId") == Some("b1"));
+        assert!(browser_focused, "the browser takes the focus");
+        assert_eq!(
+            focused_chat(layout).as_deref(),
+            Some("c7"),
+            "a browser beside it"
+        );
     }
 
     #[test]
