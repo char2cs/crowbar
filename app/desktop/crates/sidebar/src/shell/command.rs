@@ -122,8 +122,10 @@ pub enum Command {
         /// Before, after or into.
         mode: DropMode,
     },
-    /// Open a file of the Files panel.
+    /// Open a file of the Files panel as a kept tab (Enter, a double click, the menu's Open).
     OpenFile(String),
+    /// Show a file of the Files panel in its group's preview tab (a single click).
+    PreviewFile(String),
     /// Open the branch review of the focused workspace on this file, as a click on a Changes
     /// file does; an open review is focused and shows it.
     OpenReview {

@@ -153,6 +153,7 @@ impl Store {
                 | Command::ChooseSpaceFolder(_)
                 | Command::ImportBranches(_)
                 | Command::OpenFile(_)
+                | Command::PreviewFile(_)
                 | Command::OpenReview { .. }
                 | Command::RevealFile { .. }
                 | Command::OpenAllFiles { .. }

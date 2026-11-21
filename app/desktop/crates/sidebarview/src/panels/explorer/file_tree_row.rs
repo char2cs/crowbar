@@ -57,7 +57,6 @@ impl RenderOnce for FileTreeRow {
         let palette = Theme::of(cx).palette(Surface::Chrome);
         let entry = self.entry;
         let id = ElementId::from(SharedString::from(format!("file-{}", entry.path)));
-        let action = RowAction::Intent(Intent::Send(command(&entry)));
         let letter = entry.status.letter().map(|l| letter_badge(l, mono));
         let menu = file_menu(&entry, &self.scope, &self.handler);
         let matched = matched_range(&entry.name, &self.look);
@@ -83,7 +82,7 @@ impl RenderOnce for FileTreeRow {
                 &self.handler,
                 file_drop::drop_directory(&entry),
             ))
-            .on_click(select_then(&self.handler, (entry.path.clone(), action)));
+            .on_click(select_then(&self.handler, entry.clone()));
         if self.input.is_some() {
             return row.into_any_element();
         }
@@ -146,17 +145,15 @@ fn name_cell(
 
 fn select_then(
     handler: &RowHandler,
-    (path, action): (String, RowAction),
+    entry: FileTreeEntry,
 ) -> impl Fn(&ClickEvent, &mut Window, &mut App) + 'static {
     let handler = std::rc::Rc::clone(handler);
-    move |_, window, cx| {
+    move |event, window, cx| {
         cx.stop_propagation();
-        handler(
-            RowAction::Intent(Intent::SelectFile(path.clone())),
-            window,
-            cx,
-        );
-        handler(action.clone(), window, cx);
+        let selected = RowAction::Intent(Intent::SelectFile(entry.path.clone()));
+        handler(selected, window, cx);
+        let sent = command(&entry, event.click_count());
+        handler(RowAction::Intent(Intent::Send(sent)), window, cx);
     }
 }
 
@@ -189,10 +186,14 @@ fn faded(status: GitStatus) -> f32 {
     }
 }
 
-fn command(entry: &FileTreeEntry) -> Command {
+fn command(
+    entry: &FileTreeEntry,
+    clicks: usize,
+) -> Command {
     match entry.kind {
         FileKind::Directory(_) => Command::ToggleDirectory(entry.path.clone()),
-        FileKind::File => Command::OpenFile(entry.path.clone()),
+        FileKind::File if clicks > 1 => Command::OpenFile(entry.path.clone()),
+        FileKind::File => Command::PreviewFile(entry.path.clone()),
     }
 }
 
@@ -284,13 +285,17 @@ mod tests {
     }
 
     #[test]
-    fn a_directory_toggles_and_a_file_opens() {
+    fn a_directory_toggles_and_a_file_previews_on_a_click_and_opens_on_a_double_click() {
         assert_eq!(
-            command(&entry(FileKind::Directory(Expansion::Collapsed), "src")),
+            command(&entry(FileKind::Directory(Expansion::Collapsed), "src"), 1),
             Command::ToggleDirectory("src".into())
         );
         assert_eq!(
-            command(&entry(FileKind::File, "a.rs")),
+            command(&entry(FileKind::File, "a.rs"), 1),
+            Command::PreviewFile("a.rs".into())
+        );
+        assert_eq!(
+            command(&entry(FileKind::File, "a.rs"), 2),
             Command::OpenFile("a.rs".into())
         );
     }

@@ -9,6 +9,7 @@ pub(crate) enum SidebarAction {
     OpenSettings,
     OpenHosts,
     OpenFile(String),
+    PreviewFile(String),
     OpenReview(String),
     ImportRepo,
     ChooseSpaceFolder(String),
@@ -27,6 +28,7 @@ pub(crate) fn action_for(command: &sidebar::Command) -> Result<SidebarAction> {
         sidebar::Command::OpenSettings => Ok(SidebarAction::OpenSettings),
         sidebar::Command::OpenHostSettings(_) => Ok(SidebarAction::OpenHosts),
         sidebar::Command::OpenFile(path) => Ok(SidebarAction::OpenFile(path.clone())),
+        sidebar::Command::PreviewFile(path) => Ok(SidebarAction::PreviewFile(path.clone())),
         sidebar::Command::OpenReview { path } => Ok(SidebarAction::OpenReview(path.clone())),
         sidebar::Command::ImportRepo => Ok(SidebarAction::ImportRepo),
         sidebar::Command::ChooseSpaceFolder(host) => {
@@ -54,6 +56,17 @@ mod tests {
         let path = String::from("src/a.rs");
         let action = SidebarAction::OpenReview(path.clone());
         (Command::OpenReview { path }, action)
+    }
+
+    fn file_cases() -> [(Command, SidebarAction); 2] {
+        let path = || String::from("src/a.rs");
+        [
+            (Command::OpenFile(path()), SidebarAction::OpenFile(path())),
+            (
+                Command::PreviewFile(path()),
+                SidebarAction::PreviewFile(path()),
+            ),
+        ]
     }
 
     fn cases() -> Vec<(Command, SidebarAction)> {
@@ -97,7 +110,7 @@ mod tests {
 
     #[test]
     fn sidebar_commands_become_the_actions_the_shell_carries_out() {
-        for (command, expected) in cases() {
+        for (command, expected) in cases().into_iter().chain(file_cases()) {
             assert_eq!(action_for(&command).unwrap(), expected, "{command:?}");
         }
     }
