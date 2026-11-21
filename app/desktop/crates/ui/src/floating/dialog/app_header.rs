@@ -43,7 +43,10 @@ impl Header {
             .min_w_0()
             .children(icon)
             .children(title)
-            .children(self.heading);
+            .children(self.heading)
+            .when(self.flow == HeaderFlow::Grid, |lead| {
+                lead.min_h(self.controls)
+            });
         let actions = self
             .actions
             .map(|actions| actions_slot(actions).when(headed, |slot| slot.ml(spacing::STEP_2)));

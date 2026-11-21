@@ -8,6 +8,7 @@ use crate::control::editor::field::chrome;
 use crate::control::editor::text_input::TextInput;
 use crate::control::editor::text_input::line_element::LineElement;
 use crate::control::editor::text_input_style::TextInputStyle;
+use crate::foundation::ControlScale;
 use crate::foundation::Icon;
 use crate::foundation::IconName;
 use crate::foundation::Theme;
@@ -32,6 +33,7 @@ impl Render for TextInput {
         );
         let (fill, border, shadows) = self.finish(palette, frame, window);
         let field = self.field(cx);
+        let (height, text) = self.style.sized(theme, ControlScale::of(window));
         let left = self
             .leading
             .map_or(self.style.padding(), |_| px(ICON_CLEARANCE));
@@ -40,7 +42,7 @@ impl Render for TextInput {
             .flex()
             .items_center()
             .w_full()
-            .h(self.style.height())
+            .h(height)
             .pl(left)
             .pr(self.style.padding())
             .rounded(self.style.radius())
@@ -48,7 +50,7 @@ impl Render for TextInput {
             .border_color(border)
             .bg(fill)
             .text_color(palette.foreground())
-            .text_size(self.style.text(theme))
+            .text_size(text)
             .line_height(text_size::LINE_HEIGHT)
             .font_family(theme.ui_family())
             .when(self.style == TextInputStyle::Bare, |d| {

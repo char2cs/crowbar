@@ -18,7 +18,7 @@ const NARROW_SHARE: (f32, f32) = (1.0, 0.86);
 const WIDE_SHARE: (f32, f32) = (0.9, 0.74);
 
 fn viewport_width(window: &Window) -> f32 {
-    f32::from(window.viewport_size().width)
+    ui::app_window_width(window)
 }
 
 pub(crate) fn extent(window: &Window) -> DialogExtent {
@@ -80,21 +80,22 @@ mod tests {
     #[gpui::test]
     fn under_720px_the_close_drops_under_the_picker_left_of_the_search(cx: &mut TestAppContext) {
         let (_, cx) = open(cx, "appearance");
-        cx.simulate_resize(gpui::size(px(640.0), px(480.0)));
-        cx.run_until_parked();
-        let picker = cx.debug_bounds("settings-page-picker").unwrap_or_default();
-        let search = cx.debug_bounds("settings-search").unwrap_or_default();
-        let close = cx.debug_bounds("dialog-close").unwrap_or_default();
-        assert_eq!(
-            close.top(),
-            picker.bottom() + px(8.0),
-            "{close:?} {picker:?}"
-        );
-        assert_eq!(
-            close.right(),
-            search.left() - px(16.0),
-            "{close:?} {search:?}"
-        );
+        for width in [640.0, 600.0] {
+            cx.simulate_resize(gpui::size(px(width), px(480.0)));
+            cx.run_until_parked();
+            let search = cx.debug_bounds("settings-search").unwrap_or_default();
+            let close = cx.debug_bounds("dialog-close").unwrap_or_default();
+            assert_eq!(
+                close.top(),
+                search.bottom() + px(8.0),
+                "{width}: {close:?} {search:?}"
+            );
+            assert_eq!(
+                close.right(),
+                search.left() - px(16.0),
+                "{width}: {close:?}"
+            );
+        }
     }
 
     #[gpui::test]

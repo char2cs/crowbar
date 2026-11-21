@@ -2,6 +2,7 @@
 
 use gpui::{Pixels, px};
 
+use crate::foundation::ControlScale;
 use crate::foundation::ScaledText;
 use crate::foundation::Theme;
 use crate::foundation::tokens::radius;
@@ -59,7 +60,18 @@ impl TextInputStyle {
         }
     }
 
-    pub(crate) fn text(
+    pub(crate) fn sized(
+        self,
+        theme: Theme,
+        point: ControlScale,
+    ) -> (Pixels, Pixels) {
+        match self {
+            Self::Standard | Self::Compact => (self.height() + point.growth(), point.text()),
+            Self::Stepper | Self::Bare => (self.height(), self.text(theme)),
+        }
+    }
+
+    fn text(
         self,
         theme: Theme,
     ) -> Pixels {

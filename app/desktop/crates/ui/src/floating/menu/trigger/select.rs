@@ -13,6 +13,7 @@ use crate::floating::menu::menu_item::MenuItem;
 use crate::floating::menu::trigger::dropdown_menu::DropdownMenu;
 use crate::floating::menu::{OPTION_CHECK, OPTION_GAP, OPTION_HEIGHT, OPTION_START};
 use crate::foundation::Appearance;
+use crate::foundation::ControlScale;
 use crate::foundation::Icon;
 use crate::foundation::IconName;
 use crate::foundation::IndexHandler;
@@ -24,7 +25,6 @@ use crate::foundation::tokens::opacity;
 use crate::foundation::tokens::radius;
 use crate::foundation::tokens::shadow;
 use crate::foundation::tokens::spacing;
-use crate::foundation::tokens::text_size;
 
 const DEFAULT_WIDTH: f32 = 144.0;
 const STANDARD_HEIGHT: f32 = 32.0;
@@ -95,6 +95,7 @@ impl Select {
     fn trigger(
         &self,
         theme: Theme,
+        breakpoint: ControlScale,
     ) -> gpui::Stateful<gpui::Div> {
         let palette = theme.palette(self.surface);
         let fill = match theme.appearance() {
@@ -102,8 +103,9 @@ impl Select {
             Appearance::Dark => palette.input().opacity(opacity::DARK_INPUT),
         };
         let (label, color) = self.shown(palette);
-        let caret =
-            Icon::new(IconName::CaretUpDown).color(palette.foreground().opacity(CARET_OPACITY));
+        let caret = Icon::new(IconName::CaretUpDown)
+            .size(breakpoint.icon())
+            .color(palette.foreground().opacity(CARET_OPACITY));
         div()
             .id((self.id.clone(), "trigger"))
             .flex()
@@ -113,13 +115,13 @@ impl Select {
             .when(self.fills, Styled::w_full)
             .when(!self.fills, |trigger| trigger.w(self.width))
             .min_w(px(DEFAULT_WIDTH))
-            .min_h(self.height)
+            .min_h(self.height + breakpoint.growth())
             .px(spacing::STEP_2_5)
             .rounded(radius::LG)
             .border_1()
             .border_color(palette.input())
             .bg(fill)
-            .text_size(text_size::SM)
+            .text_size(breakpoint.text())
             .font_family(theme.ui_family())
             .font_weight(FontWeight::NORMAL)
             .text_color(color)
@@ -183,10 +185,13 @@ fn forward(
     }
 }
 
-fn over_chosen(chosen: usize) -> Point<Pixels> {
-    let rows = OPTION_HEIGHT * index_f32(chosen);
+fn over_chosen(
+    chosen: usize,
+    (trigger, row): (Pixels, Pixels),
+) -> Point<Pixels> {
+    let rows = row * index_f32(chosen);
     let x = spacing::STEP_2_5 - (MENU_EDGE + OPTION_START + OPTION_CHECK + OPTION_GAP);
-    point(x, -(MENU_EDGE + rows))
+    point(x, (trigger - row) / 2.0 - (MENU_EDGE + rows))
 }
 
 fn index_f32(index: usize) -> f32 {
@@ -196,10 +201,13 @@ fn index_f32(index: usize) -> f32 {
 impl RenderOnce for Select {
     fn render(
         self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut App,
     ) -> impl IntoElement {
-        let trigger = self.trigger(*Theme::of(cx));
+        let breakpoint = ControlScale::of(window);
+        let trigger = self.trigger(*Theme::of(cx), breakpoint);
+        let growth = breakpoint.growth();
+        let heights = (self.height + growth, OPTION_HEIGHT + growth);
         let items: Vec<MenuItem> = self
             .options
             .iter()
@@ -209,7 +217,7 @@ impl RenderOnce for Select {
         let chosen = self.selected.unwrap_or(0);
         DropdownMenu::new(self.id, trigger, items)
             .min_width(self.width + OPTION_REACH)
-            .options_over(self.selected, over_chosen(chosen))
+            .options_over(self.selected, over_chosen(chosen, heights))
     }
 }
 

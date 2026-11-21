@@ -10,6 +10,7 @@ use gpui::{
 use crate::floating::menu::menu_item::MenuAction;
 use crate::floating::menu::row::colors;
 use crate::floating::menu::row_handlers::RowHandlers;
+use crate::foundation::ControlScale;
 use crate::foundation::Icon;
 use crate::foundation::IconName;
 use crate::foundation::IconWeight;
@@ -18,7 +19,6 @@ use crate::foundation::Surface;
 use crate::foundation::Theme;
 use crate::foundation::opaque_debug;
 use crate::foundation::tokens::radius;
-use crate::foundation::tokens::text_size;
 
 pub(crate) const HEIGHT: Pixels = px(28.0);
 pub(crate) const START: Pixels = px(8.0);
@@ -54,9 +54,10 @@ impl OptionRow {
 impl RenderOnce for OptionRow {
     fn render(
         self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut App,
     ) -> impl IntoElement {
+        let point = ControlScale::of(window);
         let theme = *Theme::of(cx);
         let palette = theme.palette(Surface::Window);
         let action = &self.action;
@@ -68,31 +69,31 @@ impl RenderOnce for OptionRow {
             .flex()
             .items_center()
             .gap(GAP)
-            .h(HEIGHT)
+            .h(HEIGHT + point.growth())
             .pl(START)
             .pr(END)
             .rounded(radius::SM)
             .bg(fill)
             .text_color(text)
-            .text_size(text_size::SM)
+            .text_size(point.text())
             .when(action.disabled, |d| d.opacity(DISABLED_OPACITY))
             .when(!action.disabled, |d| {
                 d.cursor_pointer()
                     .on_mouse_move(move |_, window, cx| (handlers.hover)(index, window, cx))
                     .on_click(move |_, window, cx| (handlers.choose)(index, window, cx))
             })
-            .child(check_slot(action, text))
+            .child(check_slot(action, (text, point.icon())))
             .child(label(index, action))
     }
 }
 
 fn check_slot(
     action: &MenuAction,
-    color: Hsla,
+    (color, size): (Hsla, Pixels),
 ) -> Div {
     let check = Icon::new(IconName::Check)
         .weight(IconWeight::Bold)
-        .size(CHECK)
+        .size(size)
         .color(color);
     div()
         .flex_none()

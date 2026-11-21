@@ -128,6 +128,13 @@ mod tests {
         let control = cx.debug_bounds("row-select-themeMode").unwrap();
         assert!(control.top() >= text.bottom(), "{text:?} {control:?}");
         assert_eq!(control.size.width, text.size.width);
+        let search = cx.debug_bounds("settings-search").unwrap();
+        let base = (control.size.height, search.size.height);
+        assert_eq!(
+            base,
+            (gpui::px(32.0), gpui::px(32.0)),
+            "controls at base size"
+        );
     }
 
     #[gpui::test]

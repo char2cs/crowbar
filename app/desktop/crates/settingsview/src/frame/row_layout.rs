@@ -1,8 +1,7 @@
 //! Whether setting rows put the control beside their text or under it.
 
 use gpui::Window;
-
-const STACK_BELOW: f32 = 640.0;
+use ui::Breakpoint;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RowLayout {
@@ -12,14 +11,14 @@ pub(crate) enum RowLayout {
 
 impl RowLayout {
     pub(crate) fn of(window: &Window) -> Self {
-        Self::for_width(f32::from(window.viewport_size().width))
+        Self::for_width(ui::app_window_width(window))
     }
 
     fn for_width(width: f32) -> Self {
-        if width < STACK_BELOW {
-            return Self::Stacked;
+        if Breakpoint::cleared_by(width).contains(&Breakpoint::Sm) {
+            return Self::Inline;
         }
-        Self::Inline
+        Self::Stacked
     }
 }
 

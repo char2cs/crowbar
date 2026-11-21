@@ -26,7 +26,7 @@ pub(crate) fn rail(
         items.push(rail_item(frame, page, (&mut *window, &mut *cx)).into_any_element());
     }
     let empty = items.is_empty().then(|| empty_view(cx));
-    let narrow = f32::from(window.viewport_size().width) < NARROW;
+    let narrow = ui::app_window_width(window) < NARROW;
     div()
         .flex_none()
         .w(px(WIDTH))

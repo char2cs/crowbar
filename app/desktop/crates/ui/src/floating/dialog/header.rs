@@ -1,14 +1,16 @@
 //! Header strip of a dialog: icon, title, extra controls and the close button.
 
 use gpui::{
-    AnyElement, App, ElementId, FocusHandle, IntoElement, ParentElement, RenderOnce, SharedString,
-    Styled, Window, div, px,
+    AnyElement, App, ElementId, FocusHandle, IntoElement, ParentElement, Pixels, RenderOnce,
+    SharedString, Styled, Window, div, px,
 };
 
+use crate::control::TextInputStyle;
 use crate::floating::dialog::close_button::close_button;
 use crate::floating::dialog::dialog_style::DialogStyle;
 use crate::floating::dialog::header_flow::HeaderFlow;
 use crate::foundation::CloseHandler;
+use crate::foundation::ControlScale;
 use crate::foundation::IconName;
 use crate::foundation::Surface;
 use crate::foundation::Theme;
@@ -23,6 +25,7 @@ pub(crate) struct Header {
     pub(crate) actions: Option<AnyElement>,
     pub(crate) heading: Option<AnyElement>,
     pub(crate) flow: HeaderFlow,
+    pub(crate) controls: Pixels,
     on_close: Option<CloseHandler>,
     pub(crate) close_focus: Option<FocusHandle>,
     pub(crate) ruled: bool,
@@ -38,6 +41,7 @@ impl Header {
             actions: None,
             heading: None,
             flow: HeaderFlow::default(),
+            controls: Pixels::ZERO,
             on_close: None,
             close_focus: None,
             ruled: true,
@@ -101,9 +105,10 @@ impl Header {
 impl RenderOnce for Header {
     fn render(
         mut self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut App,
     ) -> impl IntoElement {
+        self.controls = TextInputStyle::Compact.height() + ControlScale::of(window).growth();
         let theme = *Theme::of(cx);
         let palette = theme.palette(Surface::Window);
         let style = self.style;
