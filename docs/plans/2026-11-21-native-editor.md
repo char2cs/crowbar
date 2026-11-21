@@ -1,6 +1,6 @@
 # Native editor: gpui-kit `Editor` in place of the Monaco pane
 
-Status: PLAN, for the owner. No code yet.
+Status: APPROVED 2026-11-21 with the decisions in section 7. S0, S1 and S2 are being built on `lane-nated`.
 
 ## Goal
 The shell's code editor becomes the native gpui-kit `Editor` (`gpui_kit::component::input::{Editor, EditorState}`, gpui-kit 0.10.0, Apache-2.0). It replaces Monaco, which today runs inside the `core.editor` web pane (`app/panes/src/entries/editor.tsx`). The review/diff view stays React. Parity is develop's editor behaviour and look (`origin/develop:web/src/features/editor`), not Monaco internals.
@@ -28,7 +28,7 @@ Key: **C** covered, **P** partly covered, **M** missing (needs a shell-side buil
 | `tabSize`, insert spaces, no indent detection | 2, spaces | C: `set_tab_size(TabSize{tab_size, hard_tabs:false})` | Shell side |
 | `wordWrap` on/off | off | C: `set_soft_wrap` (gpui-kit's default is **on**; the shell must turn it off) | Shell side |
 | `lineNumbers` on/off | on | C: `set_line_number` | Shell side |
-| `showMinimap` (also in the toolbar preferences menu) | off | **M**: no minimap | Patch, or decision D4 |
+| `showMinimap` (also in the toolbar preferences menu) | off | **M**: no minimap | Dropped (D4): setting and menu item deleted in S7 |
 | `renderWhitespace` none/boundary/trailing/all (the settings catalog has 4 values; Monaco also has `selection`) | none | P: only a bool, `set_show_whitespaces` | Patch: a mode enum |
 | `renderIndentGuides` + active indent guide | on | P: `set_indent_guides`; no active-guide highlight | Patch (active guide) |
 | `semanticHighlighting` (LSP semantic tokens) | on | C: `semantic_tokens_provider` | Slice 6 |
@@ -62,7 +62,7 @@ Key: **C** covered, **P** partly covered, **M** missing (needs a shell-side buil
 | Toolbar "Find in file" button (ED-058) | n/a | Toolbar opens the shell widget |
 | Go to line ctrl+g: quick input "line:col", jumps and centres (ED-065) | P: `set_cursor_position` scrolls to the caret; no centring (`scroll_to` is `pub(crate)`) | Shell quick input; a patch adds a centred reveal |
 | Quick outline ctrl+shift+o (document symbols, ED-066) | **M** | Shell picker over the LSP `documentSymbol` route |
-| F1 / ctrl+shift+p Monaco palette (ED-054: no visible difference recorded) | none | Re-check the row: develop's Monaco palette is reachable, so either build a small command list or record that it is dropped (decision D5) |
+| F1 / ctrl+shift+p Monaco palette (ED-054) | none | Dropped (D5) |
 | mod+a selects all (ED-041) | C | Must win over the shell keymap in the `Input` context |
 | Cursor chip "line:col", 10 Hz while dragging; the chip of a non-active split's buffer (ED-038/039) | C: `cursor_position()`, `InputEvent` | Toolbar chip; no throttle needed (a native redraw is cheap) |
 | Jump list (back/forward over positions, `jump-list-store.ts`) | n/a | Shell: per pane, in `editorview` |
@@ -268,7 +268,7 @@ The Monaco pane stays in place until slice 7 retires it. No feature flag is adde
 ### S4: settings and look
 - `editorview::Settings` from every editor key.
 - The theme projection and highlight theme built from develop's tokens and Shiki colours; a transparent background.
-- Whitespace modes, minimap and the active indent guide (patches or D4); selection-occurrence and caret-word highlights (shell decorations); scrollbars at rest; the toolbar preferences menu; the language picker; editor zoom.
+- Whitespace modes and the active indent guide (patches); selection-occurrence and caret-word highlights (shell decorations); scrollbars at rest; the toolbar preferences menu; the language picker; editor zoom.
 - Red tests:
   - `settings_push_font_size_line_height_and_wrap_to_every_open_editor`;
   - `the_highlight_theme_follows_a_light_dark_switch`;
@@ -315,7 +315,7 @@ The Monaco pane stays in place until slice 7 retires it. No feature flag is adde
 A reachability check run for this plan (imports from `entries/{chat,review,console}.tsx` with the review host cut off from `editor-pane.tsx`) shows 61 files that only the editor entry reaches. Most of the rest of `features/editor` (documents, LSP, buffer-save) is still reached from chat, through `window-pane-store`'s editor slices (`chat-lifecycle.ts` → `editor-tab-actions.ts` → `editor-host.ts` → `buffer-save.ts`). knip will flag it once those slices go.
 
 ## 6. Risks
-- **Engine patches** to gpui-base/gpui-component, kept as `patches/` and dropped as upstream gains them:
+- **Engine patches** to gpui-base/gpui-component, kept as `patches/` and dropped as upstream gains them (the minimap is no longer one, D4):
   1. Text version + saved-version undo (dirty);
   2. `replace_all` keeping selections and scroll;
   3. Centred reveal;
@@ -324,7 +324,6 @@ A reachability check run for this plan (imports from `entries/{chat,review,conso
   6. All-selections getter;
   7. Signature-help provider and popover;
   8. Whitespace modes + active indent guide;
-  9. Minimap (large, decision D4).
 
   Each needs a test in `editorview` that pins it (as the gpui-upgrade A1 rule). Upstreaming 1-6 to longbridge is preferred; they are small.
 - **Performance:** the engine says "up to about 50K lines", and develop's daemon refuses only above its size limit (ED-011's 30 MB file).
@@ -349,13 +348,13 @@ A reachability check run for this plan (imports from `entries/{chat,review,conso
   - `notify` comes in through gpui-component and is unused by the shell. `cargo machete` sees it only as transitive, so it is acceptable.
 - **gpui-pre moves:** gpui-kit pins `=0.3.12`. A later gpui-pre bump needs a matching gpui-kit release, or a re-port of our vendored gpui-component/base onto the new gpui (owner memory: "latest GPUI always; re-port patches").
 
-## 7. Decisions for the owner
-- **D1** Markdown rich view and the markdown/HTML previews stay React in a web pane, with the native editor as the source view. Recommended: yes. The alternative is a native WYSIWYG, which is out of reach.
-- **D2** Slices 1+2 land as one switch, or S1 (read-only) may land alone with editing still missing for a while. Recommended: land S1+S2 together; no feature flag.
-- **D3** Highlight colours are matched per token class from develop's theme rather than scope-exact Shiki. Recommended: accept.
-- **D4** Minimap: patch gpui-base, or drop it. It is off by default in develop, but it is a setting and a menu item. Recommended: patch, after S6.
-- **D5** Monaco's F1 command palette (ED-054): rebuild or drop.
-- **D6** gpui-component's global `Theme` as a derived projection of the shell theme, written by one adapter: confirm this is not a "second copy".
-- **D7** Unsaved drafts in today's pane IndexedDB (rust-shell users) and in develop's Tauri webview: import them through the legacy-data-import path, or drop them.
-- **D8** Very large files beyond the engine's ~50K-line comfort: cap with a refusal state, or fix the engine.
-- **D9** Vendor gpui-base + gpui-component (recommended) or keep them as crates.io pins until the first patch.
+## 7. Decisions (settled 2026-11-21)
+- **D1** The markdown rich view and the markdown/HTML previews stay React in a web pane; the native editor is the source view. (Owner.)
+- **D2** S1 and S2 land as one switch of `core.editor` to native; no feature flag. (Coordinator.)
+- **D3** Highlight colours are matched per token class from develop's theme, not scope-exact Shiki. (Owner.)
+- **D4** The minimap is dropped. Its setting (`showMinimap`) and its toolbar preferences item are deleted in S7, and ED-024 is marked "dropped by owner, 2026-11-21". No minimap patch. (Owner.)
+- **D5** Monaco's F1 / ctrl+shift+p palette is dropped. ED-054 is marked "dropped by owner, 2026-11-21" in S7. (Owner.)
+- **D6** gpui-component's global `Theme` is a derived projection of the shell theme, written only by `editorview::theme::install`. (Coordinator.)
+- **D7** The old drafts are imported once, then deleted: S3 reads the pane IndexedDB `editor-drafts` store (and develop's, through the legacy-data-import path) into `editor::Drafts`, then removes the source. (Owner.)
+- **D8** S1 adds the open-and-type bench at 10K, 50K and 200K lines. The cap-or-fix choice is made from its numbers. (Coordinator.)
+- **D9** gpui-base and gpui-component (and gpui-kit, if a patch needs it) are vendored in S0 through `vendor/update.sh`, with `update.sh --check` passing. (Coordinator.)
