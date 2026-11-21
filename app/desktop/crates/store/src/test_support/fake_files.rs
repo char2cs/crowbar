@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 
 use crate::live::Files;
 
@@ -10,6 +10,7 @@ use crate::live::Files;
 pub(crate) struct FakeFiles {
     files: Mutex<BTreeMap<PathBuf, Vec<u8>>>,
     refuse_writes: Mutex<bool>,
+    hold: (Mutex<bool>, Condvar),
 }
 
 fn held<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -44,6 +45,28 @@ impl FakeFiles {
     pub(crate) fn refuse_writes(&self) {
         *held(&self.refuse_writes) = true;
     }
+
+    /// Makes every write wait, as a slow disk does, until [`Self::release_writes`].
+    pub(crate) fn hold_writes(&self) {
+        *held(&self.hold.0) = true;
+    }
+
+    /// Lets held writes finish.
+    pub(crate) fn release_writes(&self) {
+        *held(&self.hold.0) = false;
+        self.hold.1.notify_all();
+    }
+
+    fn wait_while_held(&self) {
+        let mut holding = held(&self.hold.0);
+        while *holding {
+            holding = self
+                .hold
+                .1
+                .wait(holding)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+    }
 }
 
 impl Files for FakeFiles {
@@ -62,6 +85,7 @@ impl Files for FakeFiles {
         path: &Path,
         bytes: &[u8],
     ) -> io::Result<()> {
+        self.wait_while_held();
         if *held(&self.refuse_writes) {
             return Err(io::Error::from(io::ErrorKind::PermissionDenied));
         }

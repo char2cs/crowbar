@@ -161,6 +161,19 @@ impl ShellView {
         self.settings_backend.clone()
     }
 
+    pub(super) fn flush_settings_on_quit(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let quit = cx.on_app_quit(|this, _| {
+            this.settings_backend
+                .iter()
+                .for_each(SettingsAdapter::flush);
+            std::future::ready(())
+        });
+        self.subscriptions.push(quit);
+    }
+
     fn open_settings_backend(&self) -> Option<SettingsAdapter> {
         let (signal, _) = crate::data_signal::callbacks(&self.requests, &self.data_queued);
         let file = self.preferences_path.with_file_name("settings.json");

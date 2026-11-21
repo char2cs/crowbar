@@ -1,6 +1,5 @@
 //! The default permission level: stored by the daemon, so a refusal puts the old value back.
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use daemonapi::Call;
@@ -10,12 +9,6 @@ use crate::store::settings_core::agents::permission_key::{PERMISSION, PERMISSION
 use crate::store::settings_core::{SettingsCore, locked};
 
 impl SettingsCore {
-    pub(crate) fn local_values(&self) -> BTreeMap<String, Value> {
-        let mut values = locked(&self.values).clone();
-        values.remove(PERMISSION);
-        values
-    }
-
     pub(crate) fn restore(
         &self,
         key: &str,
@@ -65,7 +58,7 @@ mod tests {
         let rig = SettingsRig::open(&[LEVEL_GUARDED, AGENTS]);
         rig.agents_ready().await;
         let key = Key::new(PERMISSION);
-        rig.core.set(&key, Value::Text("full-auto".into())).unwrap();
+        rig.core.set(&key, Value::Text("full-auto".into()));
         let reverted = Change::Setting(key.clone(), Value::Text("guarded".into()));
         let changes = rig.changes_until(|all| all.contains(&reverted)).await;
         assert!(changes.contains(&reverted));

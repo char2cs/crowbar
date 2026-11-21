@@ -8,6 +8,7 @@ mod loadable;
 pub(crate) mod parts;
 mod reads;
 mod settings_adapter;
+mod settings_writer;
 mod system_fonts;
 
 pub(crate) use json_file::JsonFile;
@@ -30,6 +31,7 @@ use crate::live::Roster;
 use crate::live::{Outcome, OutcomeSink};
 use crate::store::settings_core::agents::descriptor_report::DescriptorReport;
 use crate::store::settings_core::agents::permission_key::PERMISSION;
+use crate::store::settings_core::settings_writer::SettingsWriter;
 use crate::store::settings_core::system_fonts::choices as font_choices;
 
 pub(crate) const AGENTS: &str = "agents";
@@ -41,7 +43,7 @@ const ADD_HOST: &str = "hosts.add";
 const CLEAR_BROWSING_DATA: &str = "browser.clearData";
 
 pub(crate) struct SettingsCore {
-    pub(crate) file: JsonFile,
+    writer: SettingsWriter,
     pub(crate) values: Mutex<BTreeMap<String, Value>>,
     pub(crate) agents: Mutex<Loadable<Vec<Provider>>>,
     pub(crate) descriptors: Mutex<Loadable<Vec<DescriptorReport>>>,
@@ -73,12 +75,14 @@ pub(crate) fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 impl SettingsCore {
     pub(crate) fn open(wiring: Parts) -> Result<Arc<Self>, crate::error::Error> {
         let values = wiring.file.load()?;
+        let writer = SettingsWriter::start(wiring.file, Arc::clone(&wiring.outcome))
+            .map_err(crate::error::Error::Writer)?;
         let roster = Roster::new(
             (wiring.fleet, wiring.desk),
             (Arc::clone(&wiring.outcome), Arc::clone(&wiring.signal)),
         );
         let core = Arc::new(Self {
-            file: wiring.file,
+            writer,
             values: Mutex::new(values),
             agents: Mutex::new(Loadable::Loading),
             descriptors: Mutex::new(Loadable::Loading),
@@ -141,21 +145,33 @@ impl SettingsCore {
         self: &Arc<Self>,
         key: &Key,
         value: Value,
-    ) -> Result<(), Error> {
+    ) {
         let level = value.as_text().unwrap_or_default().to_owned();
         let announced = value.clone();
-        let previous = locked(&self.values).insert(key.as_str().to_owned(), value);
+        let previous = self.store(key, value);
         if key.as_str() == PERMISSION {
-            self.send_permission(previous, level);
-            return Ok(());
-        }
-        let saved = self.file.save(&self.local_values());
-        if let Err(error) = saved {
-            self.restore(key.as_str(), previous);
-            return Err(Error::Unavailable(error.to_string()));
+            return self.send_permission(previous, level);
         }
         self.push(Change::Setting(key.clone(), announced));
-        Ok(())
+    }
+
+    fn store(
+        &self,
+        key: &Key,
+        value: Value,
+    ) -> Option<Value> {
+        let mut values = locked(&self.values);
+        let previous = values.insert(key.as_str().to_owned(), value);
+        if key.as_str() != PERMISSION {
+            let mut local = values.clone();
+            local.remove(PERMISSION);
+            self.writer.submit(local);
+        }
+        previous
+    }
+
+    pub(crate) fn flush(&self) {
+        self.writer.flush();
     }
 
     pub(crate) fn invoke(
@@ -178,19 +194,36 @@ mod tests {
     use super::*;
     use crate::test_support::{AGENTS, LEVEL_GUARDED, SETTINGS_PATH, SettingsRig};
 
+    const DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
+
+    fn set_themes_on_a_thread(core: &Arc<SettingsCore>) -> std::sync::mpsc::Receiver<()> {
+        let core = Arc::clone(core);
+        let (done, finished) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            core.set(&Key::new("theme"), Value::Text("dark".into()));
+            core.set(&Key::new("theme"), Value::Text("light".into()));
+            done.send(()).unwrap_or_default();
+        });
+        finished
+    }
+
     #[tokio::test]
-    async fn shell_settings_persist_to_the_file_and_are_announced() {
+    async fn a_setting_is_read_and_announced_at_once_while_the_disk_is_slow_and_the_last_one_is_saved()
+     {
         let rig = SettingsRig::open(&[LEVEL_GUARDED, AGENTS]);
         rig.agents_ready().await;
-        rig.core
-            .set(&Key::new("theme"), Value::Text("dark".into()))
-            .unwrap();
+        rig.files.hold_writes();
+        let returned = set_themes_on_a_thread(&rig.core).recv_timeout(DEADLINE);
+        let read = rig.core.get(&Key::new("theme"));
+        rig.files.release_writes();
+        assert!(returned.is_ok(), "setting a value waited on the disk");
+        assert_eq!(read, Some(Value::Text("light".into())));
+        assert!(rig.announced("theme", "light"));
+        rig.core.flush();
         let saved = rig.files.text(std::path::Path::new(SETTINGS_PATH)).unwrap();
-        assert!(saved.contains("dark") && !saved.contains(PERMISSION));
-        assert!(rig.announced("theme", "dark"));
-        assert_eq!(
-            rig.core.get(&Key::new("theme")),
-            Some(Value::Text("dark".into()))
+        assert!(
+            saved.contains("light") && !saved.contains("dark") && !saved.contains(PERMISSION),
+            "{saved}"
         );
     }
 
