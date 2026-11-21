@@ -29,11 +29,11 @@ pub(crate) fn rail(
     let narrow = f32::from(window.viewport_size().width) < NARROW;
     div()
         .flex_none()
-        .when(narrow, Styled::hidden)
         .w(px(WIDTH))
         .h_full()
         .flex()
         .flex_col()
+        .when(narrow, Styled::hidden)
         .gap(spacing::HAIRLINE)
         .p(spacing::COMFORTABLE)
         .id("settings-rail")

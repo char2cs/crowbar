@@ -102,6 +102,7 @@ impl RenderOnce for Header {
         let palette = theme.palette(Surface::Window);
         let style = self.style;
         let (px_x, px_y) = style.header_padding();
+        let headed = self.title.is_some() || self.icon.is_some();
         let title = self.title.map(|title| title_text(title, style, &theme));
         let close = close_button(self.id, self.on_close, style);
         let close = match self.close_focus {
@@ -123,7 +124,9 @@ impl RenderOnce for Header {
                         .map(|icon| Icon::new(icon).color(palette.muted_foreground())),
                 )
                 .children(title)
-                .when_some(self.actions, |d, actions| d.child(actions_slot(actions)))
+                .when_some(self.actions, |d, actions| {
+                    d.child(actions_slot(actions).when(headed, |slot| slot.ml(spacing::STEP_2)))
+                })
                 .child(div().ml_auto().child(close)),
         }
     }
@@ -154,9 +157,10 @@ fn title_text(
         .child(title)
 }
 
-fn actions_slot(actions: AnyElement) -> impl IntoElement {
+fn actions_slot(actions: AnyElement) -> gpui::Div {
     div()
-        .ml(spacing::STEP_2)
+        .flex_1()
+        .min_w_0()
         .flex()
         .items_center()
         .gap(spacing::STEP_2)

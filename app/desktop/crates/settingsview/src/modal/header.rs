@@ -1,7 +1,11 @@
 //! The dialog frame: its size and the search field in the header.
 
-use gpui::{Entity, IntoElement, ParentElement, Styled, Window, div, px};
+use gpui::{App, Entity, IntoElement, ParentElement, Styled, Window, div, px};
 use ui::{DialogExtent, TextInput};
+
+use crate::frame::Frame;
+use crate::frame::spacing;
+use crate::modal::page_picker::page_picker;
 
 const NARROW: f32 = 720.0;
 const NARROWEST: f32 = 520.0;
@@ -39,13 +43,28 @@ fn search_width(width: f32) -> f32 {
     SEARCH_WIDTH
 }
 
-pub(crate) fn search_field(
+pub(crate) fn is_narrow(window: &Window) -> bool {
+    viewport_width(window) < NARROW
+}
+
+pub(crate) fn header_actions(
+    frame: &Frame<'_>,
     input: &Entity<TextInput>,
-    window: &Window,
+    (window, cx): (&Window, &App),
 ) -> impl IntoElement {
-    div()
+    let search = div()
         .w(px(search_width(viewport_width(window))))
-        .child(input.clone())
+        .child(input.clone());
+    let picker = is_narrow(window).then(|| page_picker(frame, cx));
+    div()
+        .flex()
+        .flex_1()
+        .min_w_0()
+        .items_center()
+        .justify_between()
+        .gap(spacing::COMFORTABLE)
+        .children(picker)
+        .child(search)
 }
 
 #[cfg(test)]

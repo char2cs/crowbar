@@ -10,6 +10,7 @@ pub use modal_config::ModalConfig;
 use std::rc::Rc;
 
 use chord::Primary;
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     App, AppContext as _, AsyncApp, Context, Entity, FocusHandle, IntoElement, ParentElement,
     Render, ScrollHandle, WeakEntity, Window, div,
@@ -28,7 +29,7 @@ use crate::intent::Sink;
 use crate::lift::Lift;
 use crate::modal::notice_view;
 use crate::modal::prompt_view;
-use crate::modal::{extent, search_field};
+use crate::modal::{extent, header_actions, is_narrow};
 
 const SEARCH_PLACEHOLDER: &str = "Search settings...";
 const TITLE: &str = "Settings";
@@ -197,10 +198,11 @@ impl Render for SettingsModal {
             lift: self.lift.as_ref(),
         };
         let content = body(&frame, (window, cx));
+        let actions = header_actions(&frame, &self.search, (window, cx));
         let dialog = Dialog::new("settings")
-            .title(TITLE)
+            .when(!is_narrow(window), |dialog| dialog.title(TITLE))
             .flush(extent(window))
-            .header_actions(search_field(&self.search, window))
+            .header_actions(actions)
             .body(content)
             .on_close(move |window, cx| closer.deliver(Intent::Close, (window, cx)));
         div()

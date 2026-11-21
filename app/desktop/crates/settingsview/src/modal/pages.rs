@@ -9,12 +9,15 @@ mod section_view;
 pub(crate) mod shortcuts;
 mod title_block;
 
-use gpui::{AnyElement, App, IntoElement, ParentElement, ScrollHandle, Styled, Window, div};
+use gpui::{
+    AnyElement, App, IntoElement, ParentElement, Pixels, ScrollHandle, Styled, Window, div,
+};
 use settings::Block;
 use ui::ScrollArea;
 
 use crate::frame::Frame;
 use crate::frame::spacing;
+use crate::modal::is_narrow;
 use crate::modal::pages::block_view::block_view;
 
 pub(crate) fn content(
@@ -23,7 +26,9 @@ pub(crate) fn content(
     (window, cx): (&mut Window, &mut App),
 ) -> impl IntoElement {
     let inner = match frame.state.page() {
-        Some(page) => blocks(frame, page.blocks(), (window, cx)).into_any_element(),
+        Some(page) => blocks(frame, page.blocks(), (window, cx))
+            .p(page_padding(window))
+            .into_any_element(),
         None => div().into_any_element(),
     };
     div()
@@ -37,7 +42,7 @@ fn blocks(
     frame: &Frame<'_>,
     blocks: &[Block],
     (window, cx): (&mut Window, &mut App),
-) -> impl IntoElement {
+) -> gpui::Div {
     let drawn: Vec<AnyElement> = blocks
         .iter()
         .enumerate()
@@ -47,8 +52,14 @@ fn blocks(
         .flex()
         .flex_col()
         .gap(spacing::GENEROUS)
-        .p(spacing::ROOMY)
         .children(drawn)
+}
+
+fn page_padding(window: &Window) -> Pixels {
+    if is_narrow(window) {
+        return spacing::COMFORTABLE;
+    }
+    spacing::ROOMY
 }
 
 #[cfg(test)]
