@@ -162,7 +162,7 @@ impl ShellView {
             return;
         }
         let preferences = self.sidebar.read(cx).preferences();
-        let saved = preferences.save(&self.preferences_path);
+        let saved = self.ports.preferences.save(&preferences);
         match save_failure(&saved) {
             None => self.clear_notice(NoticeKey::Preferences, cx),
             Some(text) => {

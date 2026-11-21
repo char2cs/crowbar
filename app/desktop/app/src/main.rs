@@ -78,6 +78,7 @@ mod picking_panes;
 mod pixels;
 mod plan;
 mod ports;
+mod preferences_store;
 mod project_slot;
 mod prompt_event;
 mod readout_dock;
@@ -137,6 +138,7 @@ use diagnostics::LogPaths;
 use gpui::{App, AppContext as _, Application, Entity, Window};
 
 use crate::adapters::disk_files::DiskFiles;
+use crate::adapters::disk_preferences::DiskPreferences;
 use crate::adapters::system_clock::SystemClock;
 use crate::app_options::AppOptions;
 use crate::daemon_link::DaemonLink;
@@ -198,10 +200,14 @@ fn start(
     cx.activate(true);
 }
 
-fn system_ports() -> Ports {
+fn system_ports(preferences_path: PathBuf) -> Ports {
+    let preferences = DiskPreferences {
+        path: preferences_path,
+    };
     Ports {
         clock: Arc::new(SystemClock::default()),
         bytes: Arc::new(DiskFiles::default()),
+        preferences: Arc::new(preferences),
     }
 }
 
@@ -224,8 +230,8 @@ fn main() -> anyhow::Result<()> {
     let parts = ShellParts {
         state,
         link,
+        ports: system_ports(preferences_path.clone()),
         preferences_path,
-        ports: system_ports(),
     };
     Application::new()
         .with_assets(ui::assets())

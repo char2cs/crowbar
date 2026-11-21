@@ -317,6 +317,7 @@ impl Render for ShellView {
 
 #[cfg(test)]
 mod tests {
+    use crate::preferences_store::PreferencesStore as _;
     use gpui::{AppContext as _, TestAppContext};
 
     use super::*;
@@ -359,20 +360,23 @@ mod tests {
         top: gpui::VisualTestContext,
         mock: Rc<webview::MockPlatform>,
         pane: protocol::PaneId,
+        preferences: Arc<crate::test_support::MemoryPreferences>,
     }
 
     pub(super) fn open_shell(cx: &mut TestAppContext) -> Opened {
         cx.update(|cx| ui::init(cx).expect("ui installs"));
         let mut rig = crate::test_support::shell_rig();
         let pane = crate::test_support::synced_chat(&mut rig);
+        let preferences = Arc::new(crate::test_support::MemoryPreferences::default());
         let ports = Ports {
             clock: Arc::new(crate::test_support::FixedClock::at(0)),
             bytes: Arc::new(crate::test_support::MemoryFiles::default()),
+            preferences: Arc::<crate::test_support::MemoryPreferences>::clone(&preferences),
         };
         let parts = ShellParts {
             state: rig.shell,
             link: Rc::new(crate::test_support::link_without_daemon()),
-            preferences_path: PathBuf::from("/nonexistent/sidebar.json"),
+            preferences_path: PathBuf::from("/state/sidebar.json"),
             ports,
         };
         let window = cx.add_window(move |window, cx| ShellView::new(parts, window, cx));
@@ -389,7 +393,23 @@ mod tests {
             top: gpui::VisualTestContext::from_window(top, cx),
             mock: rig.mock,
             pane,
+            preferences,
         }
+    }
+
+    #[gpui::test]
+    fn hiding_the_sidebar_is_kept_by_the_shells_own_preferences_store(cx: &mut TestAppContext) {
+        let mut opened = open_shell(cx);
+        opened
+            .shell
+            .update_in(&mut opened.window, |shell, window, cx| {
+                shell
+                    .sidebar
+                    .update(cx, |sidebar, cx| sidebar.toggle(window, cx));
+            });
+        opened.window.run_until_parked();
+        let kept = opened.preferences.load().unwrap().panel().visibility();
+        assert_eq!(kept, sidebar::Visibility::Closed);
     }
 
     fn hidden_views(mock: &webview::MockPlatform) -> usize {

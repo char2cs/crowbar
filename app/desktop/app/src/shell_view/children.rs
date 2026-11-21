@@ -92,7 +92,7 @@ pub(super) fn build_sidebar<V: 'static>(
         requests: wiring.requests.clone(),
         data: wiring.data.commands(),
     });
-    let preferences = preferences_or_default(Preferences::load(wiring.preferences_path));
+    let preferences = preferences_or_default(wiring.preferences.load());
     let workspace = wiring.workspace.clone();
     cx.new(|cx| {
         Sidebar::new(
@@ -146,7 +146,7 @@ pub(super) fn build_children<V: 'static>(
         &SidebarWiring {
             requests,
             data: &data,
-            preferences_path: parts.preferences_path.as_path(),
+            preferences: parts.ports.preferences.as_ref(),
             workspace: &panes.workspace,
         },
         cx,
