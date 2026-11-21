@@ -137,7 +137,9 @@ impl Sidebar {
         let handle = self.scrolls.of_space(&project.id);
         let edge_handler = Rc::clone(&handler);
         let id = SharedString::from(format!("space-scroll-{}", project.id.as_str()));
+        let lock = self.drag.lifted.is_some().then(wheel_lock);
         div()
+            .relative()
             .flex_none()
             .w(px(width))
             .h_full()
@@ -148,8 +150,17 @@ impl Sidebar {
                 edge_handler(RowAction::Edge(pull), window, cx);
             })
             .child(ScrollArea::new(id, &handle, list))
+            .children(lock)
             .into_any_element()
     }
+}
+
+fn wheel_lock() -> AnyElement {
+    div()
+        .absolute()
+        .inset_0()
+        .on_scroll(|_, _, cx| cx.stop_propagation())
+        .into_any_element()
 }
 
 #[cfg(test)]
@@ -186,6 +197,52 @@ mod tests {
             sidebar.read_with(cx, |this, _| this.data.active_project()),
             Some(other)
         );
+    }
+
+    type Setup = fn(&mut Sidebar, &mut Context<'_, Sidebar>);
+
+    fn untouched(
+        _: &mut Sidebar,
+        _: &mut Context<'_, Sidebar>,
+    ) {
+    }
+
+    fn lift_a_row(
+        this: &mut Sidebar,
+        cx: &mut Context<'_, Sidebar>,
+    ) {
+        let held = (RowId::from("working"), RowId::from("folder"));
+        this.preview_drag((held.0, held.1, sidebar::DropMode::Into), cx);
+    }
+
+    fn scrolled_by_the_wheel(
+        cx: &mut TestAppContext,
+        setup: Setup,
+    ) -> f32 {
+        let (_, sidebar, cx) = open(cx, DemoShell::rich());
+        cx.simulate_resize(gpui::size(px(1200.0), px(320.0)));
+        sidebar.update(cx, setup);
+        cx.run_until_parked();
+        cx.simulate_event(gpui::ScrollEvent {
+            position: point(px(100.0), px(240.0)),
+            delta: gpui::ScrollDelta::Pixels(point(px(0.0), px(-60.0))),
+            ..gpui::ScrollEvent::default()
+        });
+        cx.run_until_parked();
+        sidebar.update(cx, |this, _| {
+            let project = this.data.active_project().expect("a space");
+            -f32::from(this.scrolls.of_space(&project).offset().y)
+        })
+    }
+
+    #[gpui::test]
+    fn the_wheel_scrolls_the_tree(cx: &mut TestAppContext) {
+        assert!(scrolled_by_the_wheel(cx, untouched) > 0.0);
+    }
+
+    #[gpui::test]
+    fn the_wheel_leaves_the_tree_still_while_a_row_is_dragged(cx: &mut TestAppContext) {
+        assert_eq!(scrolled_by_the_wheel(cx, lift_a_row), 0.0);
     }
 
     #[gpui::test]
