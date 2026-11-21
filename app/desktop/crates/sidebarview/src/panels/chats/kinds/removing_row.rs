@@ -108,7 +108,7 @@ fn glyph(
         .justify_center()
         .size(ICON_LARGE);
     match RowGlyph::of(row, Expansion::Expanded) {
-        RowGlyph::Icon(name, weight) => {
+        RowGlyph::Icon(name, weight, _) => {
             frame.child(Icon::new(name).weight(weight).color(palette.foreground()))
         },
         RowGlyph::Spinner | RowGlyph::Mark => frame.child(Icon::new(IconName::ChatsCircle)),

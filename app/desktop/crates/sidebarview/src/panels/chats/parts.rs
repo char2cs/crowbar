@@ -14,7 +14,7 @@ mod row_shell;
 mod row_verb;
 mod trailing;
 
-pub use chat_glyph::ChatGlyph;
+pub use chat_glyph::{ChatGlyph, GlyphTone};
 pub(crate) use cluster_spec::ClusterSpec;
 pub(crate) use row_bounds::RowBounds;
 pub(crate) use row_cluster::cluster;

@@ -8,7 +8,7 @@ mod row_menu;
 mod tree_rows;
 
 pub(crate) use foot_menu::foot_menu;
-pub use parts::ChatGlyph;
+pub use parts::{ChatGlyph, GlyphTone};
 pub(crate) use parts::{RowBounds, RowInput, Trailing, input_view, ringed, row_focus};
 pub(crate) use reorder::DragState;
 pub(crate) use row_menu::row_menu;

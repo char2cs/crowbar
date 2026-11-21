@@ -191,10 +191,14 @@ fn glyph_box(
                     .map(|mark| mark_view(mark, px(HEADER_GLYPH), palette)),
             )
             .into_any_element(),
-        RowGlyph::Icon(name, weight) => frame
-            .size(px(GLYPH))
-            .child(Icon::new(name).weight(weight).size(px(GLYPH)))
-            .into_any_element(),
+        RowGlyph::Icon(name, weight, tone) => {
+            let icon = Icon::new(name).weight(weight).size(px(GLYPH));
+            let icon = match tone.color() {
+                Some(color) => icon.color(color),
+                None => icon,
+            };
+            frame.size(px(GLYPH)).child(icon).into_any_element()
+        },
     }
 }
 
