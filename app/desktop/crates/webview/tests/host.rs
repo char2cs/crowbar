@@ -16,8 +16,8 @@ use x11rb::connection::Connection as _;
 use x11rb::protocol::Event;
 use x11rb::protocol::xproto::{
     BUTTON_PRESS_EVENT, BUTTON_RELEASE_EVENT, ChangeWindowAttributesAux, ClientMessageEvent,
-    ConnectionExt as _, CreateWindowAux, EventMask, KEY_PRESS_EVENT, KEY_RELEASE_EVENT, PropMode,
-    Screen, WindowClass,
+    ConnectionExt as _, CreateWindowAux, EventMask, InputFocus, KEY_PRESS_EVENT, KEY_RELEASE_EVENT,
+    PropMode, Screen, WindowClass,
 };
 use x11rb::protocol::xtest::ConnectionExt as _;
 use x11rb::rust_connection::RustConnection;
@@ -219,6 +219,8 @@ fn a_press_on_the_page_is_reported(
 }
 
 fn the_page_holding_the_keyboard_has_document_focus(
+    connection: &RustConnection,
+    screen: &Screen,
     host: &Host,
     parent: u32,
 ) -> TestResult {
@@ -234,6 +236,16 @@ fn the_page_holding_the_keyboard_has_document_focus(
         wait_for(&messages, "has focus false", KEY_WAIT),
         Ok(()),
         "the page kept document focus after the shell took the keyboard"
+    );
+    view.focus()?;
+    wait_for(&messages, "has focus true", KEY_WAIT)?;
+    let other_app = mapped_parent(connection, screen)?;
+    connection.set_input_focus(InputFocus::PARENT, other_app, CURRENT_TIME)?;
+    connection.flush()?;
+    assert_eq!(
+        wait_for(&messages, "has focus false", KEY_WAIT),
+        Ok(()),
+        "the page kept document focus after another window took the keyboard"
     );
     Ok(())
 }
@@ -458,7 +470,7 @@ fn native_views_on_x11() -> TestResult {
     })?;
     a_focused_view_takes_keys_while_the_pointer_is_elsewhere(&connection, &screen, &host, parent)?;
     a_press_on_the_page_is_reported(&connection, &screen, &host, parent)?;
-    the_page_holding_the_keyboard_has_document_focus(&host, parent)?;
+    the_page_holding_the_keyboard_has_document_focus(&connection, &screen, &host, parent)?;
     the_parent_takes_keys_over_a_page_once_it_holds_the_keyboard(
         &connection,
         &screen,

@@ -44,4 +44,14 @@ pub enum Error {
         #[source]
         source: x11rb::errors::ReplyError,
     },
+    /// The X server would not report a window's keyboard focus.
+    #[cfg(target_os = "linux")]
+    #[error("cannot follow the keyboard focus of X window {window:#x}: {source}")]
+    Follow {
+        /// The window to follow.
+        window: u32,
+        /// The failure.
+        #[source]
+        source: x11rb::errors::ReplyError,
+    },
 }

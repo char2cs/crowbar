@@ -1,10 +1,16 @@
+use std::os::fd::{AsRawFd, RawFd};
+
 use x11rb::CURRENT_TIME;
+use x11rb::connection::Connection as _;
 use x11rb::cookie::VoidCookie;
 use x11rb::errors::ReplyError;
-use x11rb::protocol::xproto::{ConnectionExt as _, InputFocus as RevertTo};
+use x11rb::protocol::xproto::{
+    ChangeWindowAttributesAux, ConnectionExt as _, EventMask, InputFocus as RevertTo,
+};
 use x11rb::rust_connection::RustConnection;
 
 use crate::error::Error;
+use crate::linux::focus_change::FocusChange;
 
 /// The X server's keyboard focus, moved over a connection of its own.
 ///
@@ -41,12 +47,50 @@ impl InputFocus {
             .and_then(VoidCookie::check)
             .map_err(|source| Error::Focus { window, source })
     }
+
+    /// Reports through [`Self::changes`] when `window` gains or loses the keyboard, whoever
+    /// moves it: this client, the window manager or another application.
+    ///
+    /// # Errors
+    /// [`Error::Follow`] when the window is gone or the connection broke.
+    pub fn follow(
+        &self,
+        window: u32,
+    ) -> Result<(), Error> {
+        let events = ChangeWindowAttributesAux::new().event_mask(EventMask::FOCUS_CHANGE);
+        self.connection
+            .change_window_attributes(window, &events)
+            .map_err(ReplyError::from)
+            .and_then(VoidCookie::check)
+            .map_err(|source| Error::Follow { window, source })
+    }
+
+    /// The focus changes of followed windows that have arrived, oldest first, without waiting.
+    /// Read them when [`AsRawFd::as_raw_fd`] turns readable and after [`Self::give_to`], which
+    /// queues the changes it causes.
+    #[must_use]
+    pub fn changes(&self) -> Vec<FocusChange> {
+        std::iter::from_fn(|| {
+            self.connection
+                .poll_for_event()
+                .inspect_err(|error| tracing::warn!(%error, "the X focus connection broke"))
+                .ok()
+                .flatten()
+        })
+        .filter_map(|event| FocusChange::of(&event))
+        .collect()
+    }
+}
+
+impl AsRawFd for InputFocus {
+    fn as_raw_fd(&self) -> RawFd {
+        self.connection.stream().as_raw_fd()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use x11rb::COPY_DEPTH_FROM_PARENT;
-    use x11rb::connection::Connection as _;
     use x11rb::protocol::xproto::{CreateWindowAux, WindowClass};
 
     use super::*;
@@ -80,25 +124,69 @@ mod tests {
         connection.get_input_focus().unwrap().reply().unwrap().focus
     }
 
-    #[test]
-    #[ignore = "needs display"]
-    fn the_keyboard_goes_to_a_viewable_window_and_back_to_its_parent_when_it_hides() {
-        let (connection, screen) = RustConnection::connect(None).unwrap();
-        let root = connection.setup().roots[screen].root;
-        let parent = window_in(&connection, root);
-        let child = window_in(&connection, parent);
-        let unmapped = window_in(&connection, parent);
+    fn the_keyboard_goes_to_a_viewable_window_and_back_to_its_parent_when_it_hides(
+        connection: &RustConnection,
+        root: u32,
+    ) {
+        let parent = window_in(connection, root);
+        let child = window_in(connection, parent);
+        let unmapped = window_in(connection, parent);
         connection.map_window(parent).unwrap();
         connection.map_window(child).unwrap();
         connection.flush().unwrap();
         let focus = InputFocus::connect().unwrap();
         focus.give_to(child).unwrap();
-        assert_eq!(holder(&connection), child, "a mapped child takes it");
+        assert_eq!(holder(connection), child, "a mapped child takes it");
         connection.unmap_window(child).unwrap();
-        assert_eq!(holder(&connection), parent, "it falls back to the parent");
+        assert_eq!(holder(connection), parent, "it falls back to the parent");
         assert!(
             matches!(focus.give_to(unmapped), Err(Error::Focus { window, .. }) if window == unmapped),
             "an unmapped window is refused"
         );
+    }
+
+    fn a_followed_window_reports_the_keyboard_coming_and_going(
+        connection: &RustConnection,
+        root: u32,
+    ) {
+        let parent = window_in(connection, root);
+        let child = window_in(connection, parent);
+        let elsewhere = window_in(connection, root);
+        for window in [parent, child, elsewhere] {
+            connection.map_window(window).unwrap();
+        }
+        connection.flush().unwrap();
+        let focus = InputFocus::connect().unwrap();
+        focus.give_to(parent).unwrap();
+        focus.follow(child).unwrap();
+        let (gained, lost) = (FocusChange::Gained(child), FocusChange::Lost(child));
+        focus.give_to(child).unwrap();
+        assert_eq!(focus.changes(), [gained], "given to it");
+        focus.give_to(parent).unwrap();
+        assert_eq!(focus.changes(), [lost], "back to its parent");
+        focus.give_to(child).unwrap();
+        connection
+            .set_input_focus(RevertTo::PARENT, elsewhere, CURRENT_TIME)
+            .unwrap()
+            .check()
+            .unwrap();
+        focus.give_to(child).unwrap();
+        assert_eq!(
+            focus.changes(),
+            [gained, lost, gained],
+            "taken by another client and given back"
+        );
+    }
+
+    #[test]
+    #[ignore = "needs display"]
+    fn the_keyboard_moves_between_windows_and_its_moves_are_heard() {
+        let (connection, screen) = RustConnection::connect(None).unwrap();
+        let root = connection.setup().roots[screen].root;
+        the_keyboard_goes_to_a_viewable_window_and_back_to_its_parent_when_it_hides(
+            &connection,
+            root,
+        );
+        a_followed_window_reports_the_keyboard_coming_and_going(&connection, root);
     }
 }

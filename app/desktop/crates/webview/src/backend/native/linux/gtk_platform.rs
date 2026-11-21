@@ -1,3 +1,4 @@
+use std::os::fd::{AsRawFd as _, RawFd};
 use std::sync::mpsc;
 use std::thread;
 
@@ -5,12 +6,12 @@ use gtk::glib;
 use platform::InputFocus;
 
 use crate::backend::host_config::HostConfig;
+use crate::backend::native::linux::gtk_platform::channels::{Channels, Job};
 use crate::backend::native::linux::gtk_state::GtkState;
 use crate::backend::platform::Platform;
 use crate::error::{Error, Result};
 
-type Job = Box<dyn FnOnce(&mut GtkState) + Send>;
-type Ready = mpsc::Sender<Result<()>>;
+mod channels;
 
 #[derive(Debug)]
 pub(crate) struct GtkPlatform {
@@ -23,9 +24,14 @@ impl GtkPlatform {
         let (jobs, inbox) = async_channel::unbounded::<Job>();
         let (ready_tx, ready_rx) = mpsc::channel();
         let (stopped_tx, stopped) = mpsc::channel();
+        let channels = Channels {
+            inbox,
+            jobs: jobs.clone(),
+            ready: ready_tx,
+        };
         thread::Builder::new()
             .name("crowbar-gtk".into())
-            .spawn(move || run_gtk_thread(config, (&inbox, &ready_tx), &stopped_tx))
+            .spawn(move || run_gtk_thread(config, &channels, &stopped_tx))
             .map_err(|error| Error::PlatformThread(error.to_string()))?;
         ready_rx.recv().map_err(|error| {
             tracing::debug!(%error, "the platform thread stopped before it was ready");
@@ -96,12 +102,37 @@ async fn run_jobs(
     }
 }
 
+// PLATFORM: linux the window manager and other clients move the X focus at any time; the server's focus events tell when a page gained or lost it.
+fn watch_focus(
+    fd: RawFd,
+    jobs: async_channel::Sender<Job>,
+) {
+    glib::unix_fd_add_local(fd, glib::IOCondition::IN, move |_, _| {
+        post_follow_focus(fd, &jobs)
+    });
+}
+
+fn post_follow_focus(
+    fd: RawFd,
+    jobs: &async_channel::Sender<Job>,
+) -> glib::ControlFlow {
+    let rearm = jobs.clone();
+    let job: Job = Box::new(move |state| {
+        state.follow_focus();
+        watch_focus(fd, rearm);
+    });
+    if jobs.try_send(job).is_err() {
+        tracing::debug!("the X focus changed after the platform thread stopped");
+    }
+    glib::ControlFlow::Break
+}
+
 fn run_gtk_thread(
     config: HostConfig,
-    (inbox, ready): (&async_channel::Receiver<Job>, &Ready),
+    channels: &Channels,
     stopped: &mpsc::Sender<()>,
 ) {
-    if !serve(config, inbox, ready) {
+    if !serve(config, channels) {
         return;
     }
     stopped.send(()).unwrap_or_default();
@@ -110,9 +141,9 @@ fn run_gtk_thread(
 
 fn serve(
     config: HostConfig,
-    inbox: &async_channel::Receiver<Job>,
-    ready: &mpsc::Sender<Result<()>>,
+    channels: &Channels,
 ) -> bool {
+    let ready = &channels.ready;
     if let Err(error) = gtk::init() {
         report_init_failure(ready, &error);
         return false;
@@ -124,7 +155,8 @@ fn serve(
             return false;
         },
     };
-    let inbox = inbox.clone();
+    watch_focus(keyboard.as_raw_fd(), channels.jobs.clone());
+    let inbox = channels.inbox.clone();
     let mut state = GtkState::new(config, keyboard);
     glib::MainContext::default().spawn_local(async move {
         run_jobs(&inbox, &mut state).await;

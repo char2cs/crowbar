@@ -13,9 +13,11 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use gtk::gdk;
+use gtk::glib::prelude::ObjectExt as _;
 use gtk::glib::{Cast as _, Propagation};
 use gtk::prelude::WidgetExt as _;
-use platform::{InputFocus, XlibParent};
+use platform::{FocusChange, InputFocus, XlibParent};
 use protocol::ExtensionId;
 use wry::{WebContext, WebView, WebViewBuilder, WebViewBuilderExtUnix, WebViewExtUnix};
 
@@ -33,6 +35,8 @@ use crate::view::ParentWindow;
 use crate::view::{PageEvent, PageHandler};
 
 const BROWSER_DIR: &str = "browser";
+const FOCUS_IN: &str = "focus-in-event";
+const FOCUS_OUT: &str = "focus-out-event";
 const NO_PAGE_WINDOW: &str = "the web view got no X11 window of its own";
 
 fn page_window_of(view: &WebView) -> Result<u32> {
@@ -61,6 +65,18 @@ fn report_pointer(
         on_page(PageEvent::PointerMoved { x, y });
         Propagation::Proceed
     });
+}
+
+// PLATFORM: linux the page's GtkWindow wraps a foreign X window, so GDK never hears its focus change; without an active window WebKit draws no focus, caret or active selection.
+fn show_focus(
+    live: &LiveView,
+    signal: &str,
+) {
+    let Some(toplevel) = live.view.webview().toplevel() else {
+        return;
+    };
+    let event = gdk::Event::new(gdk::EventType::FocusChange);
+    toplevel.emit_by_name::<bool>(signal, &[&event]);
 }
 
 pub(crate) struct GtkState {
@@ -109,6 +125,7 @@ impl GtkState {
             .build_as_child(&XlibParent::new(window))?;
         let wanted = to_rect(config.bounds);
         let page_window = page_window_of(&view)?;
+        self.keyboard.follow(page_window)?;
         report_pointer(&view, config.on_page.clone());
         let live = LiveView {
             view,
@@ -141,6 +158,19 @@ impl GtkState {
             .remove(&id)
             .map(drop)
             .ok_or(Error::UnknownWebView(id))
+    }
+
+    pub(crate) fn follow_focus(&self) {
+        for change in self.keyboard.changes() {
+            let (window, signal) = match change {
+                FocusChange::Gained(window) => (window, FOCUS_IN),
+                FocusChange::Lost(window) => (window, FOCUS_OUT),
+            };
+            self.views
+                .values()
+                .filter(|live| live.page_window == window)
+                .for_each(|live| show_focus(live, signal));
+        }
     }
 
     pub(crate) fn live(

@@ -22,7 +22,7 @@ mod platform;
 
 pub use error::Error;
 #[cfg(target_os = "linux")]
-pub use linux::{InputFocus, XlibParent, force_x11};
+pub use linux::{FocusChange, InputFocus, XlibParent, force_x11};
 #[cfg(target_os = "macos")]
 pub use macos::AppkitParent;
 pub use platform::{follow_link, open_external, open_path, reveal_in_file_manager};

@@ -2,7 +2,6 @@ use std::sync::mpsc;
 
 use gtk::gdk;
 use gtk::gdk::EventMask;
-use gtk::glib::prelude::ObjectExt as _;
 use gtk::prelude::WidgetExt as _;
 use webkit2gtk::{SnapshotOptions, SnapshotRegion, WebViewExt as _};
 use wry::WebViewExtUnix;
@@ -18,34 +17,20 @@ use crate::view::Id;
 use crate::view::Snapshot;
 use crate::view::Visibility;
 
-const FOCUS_IN: &str = "focus-in-event";
-const FOCUS_OUT: &str = "focus-out-event";
 const KEYS: EventMask = EventMask::KEY_PRESS_MASK.union(EventMask::KEY_RELEASE_MASK);
 
 // PLATFORM: linux X hands a key to the deepest window under the pointer that selects keys while the pointer lies inside the focus window, so only the page holding the keyboard selects them.
-// PLATFORM: linux the page's GtkWindow wraps a foreign X window, so GDK never hears its focus change; without an active window WebKit draws no focus, caret or active selection.
-fn mark(
+fn select_keys(
     live: &LiveView,
     keys: impl FnOnce(EventMask) -> EventMask,
-    signal: &str,
 ) {
-    let page = live.view.webview();
-    if let Some(window) = page.window() {
+    if let Some(window) = live.view.webview().window() {
         window.set_events(keys(window.events()));
     }
-    let Some(toplevel) = page.toplevel() else {
-        return;
-    };
-    let event = gdk::Event::new(gdk::EventType::FocusChange);
-    toplevel.emit_by_name::<bool>(signal, &[&event]);
-}
-
-fn activate(live: &LiveView) {
-    mark(live, |events| events | KEYS, FOCUS_IN);
 }
 
 pub(crate) fn deactivate(live: &LiveView) {
-    mark(live, |events| events - KEYS, FOCUS_OUT);
+    select_keys(live, |events| events - KEYS);
 }
 
 fn answer(
@@ -112,11 +97,13 @@ impl GtkState {
             .iter()
             .filter(|(other, _)| **other != id)
             .for_each(|(_, other)| deactivate(other));
-        activate(live);
+        select_keys(live, |events| events | KEYS);
         live.view.focus()?;
         // PLATFORM: linux X serves each client connection on its own, so GDK's queued map of the page window must reach the server before the focus request on ours.
         gdk::Display::default().iter().for_each(gdk::Display::sync);
-        Ok(self.keyboard.give_to(live.page_window)?)
+        self.keyboard.give_to(live.page_window)?;
+        self.follow_focus();
+        Ok(())
     }
 
     pub(crate) fn focus_parent(
@@ -125,7 +112,9 @@ impl GtkState {
     ) -> Result<()> {
         let parent = self.live(id)?.parent;
         self.views.values().for_each(deactivate);
-        Ok(self.keyboard.give_to(parent)?)
+        self.keyboard.give_to(parent)?;
+        self.follow_focus();
+        Ok(())
     }
 
     pub(crate) fn snapshot(
