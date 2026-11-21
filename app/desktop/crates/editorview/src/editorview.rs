@@ -1,9 +1,12 @@
-use gpui::App;
+use gpui::{App, KeyBinding};
 
-/// Registers what the gpui-kit editor needs before any `EditorView` is drawn: its theme global
-/// and the key bindings of its `Input` context.
+use crate::save_key::{CHORD, CONTEXT, Save};
+
+/// Registers what the gpui-kit editor needs before any `EditorView` is drawn: its theme global,
+/// the key bindings of its `Input` context, and ctrl+s to save.
 pub fn init(cx: &mut App) {
     gpui_kit::component::init(cx);
+    cx.bind_keys([KeyBinding::new(CHORD, Save, Some(CONTEXT))]);
 }
 
 #[cfg(test)]

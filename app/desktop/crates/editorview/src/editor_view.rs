@@ -1,11 +1,14 @@
 use gpui::{
-    App, AppContext as _, Context, Entity, FocusHandle, Focusable, IntoElement, ParentElement as _,
-    Render, Styled as _, Subscription, Window, div,
+    App, AppContext as _, Context, Entity, EventEmitter, FocusHandle, Focusable,
+    InteractiveElement as _, IntoElement, ParentElement as _, Render, Styled as _, Subscription,
+    Window, div,
 };
+use gpui_kit::base::input::{InputEvent, Rope};
 use gpui_kit::component::input::{Editor, EditorState, Position};
 
+use crate::save_key::{CONTEXT, Save};
 use crate::toolbar::Toolbar;
-use crate::{Access, Caret, Opening};
+use crate::{Access, Caret, EditorEvent, Opening};
 
 /// One pane's editor: the gpui-kit `Editor` drawn over the document text it holds, under the
 /// toolbar of its file.
@@ -13,7 +16,10 @@ pub struct EditorView {
     state: Entity<EditorState>,
     access: Access,
     toolbar: Option<Toolbar>,
+    saved: Rope,
+    reported_dirty: bool,
     _caret_moves: Subscription,
+    _edits: Subscription,
 }
 
 impl EditorView {
@@ -33,6 +39,7 @@ impl EditorView {
         let language = toolbar
             .as_ref()
             .map_or(editor::Language::of_path(""), Toolbar::language);
+        let saved = Rope::from(text.as_str());
         let state = cx.new(|cx| {
             EditorState::new(window, cx)
                 .language(crate::highlight_name::of(language))
@@ -44,12 +51,58 @@ impl EditorView {
             reveal(&state, line, (window, cx));
         }
         let caret_moves = cx.observe(&state, |_, _, cx| cx.notify());
+        let edits = cx.subscribe(&state, Self::on_input);
         Self {
             state,
             access,
             toolbar,
+            saved,
+            reported_dirty: false,
             _caret_moves: caret_moves,
+            _edits: edits,
         }
+    }
+
+    /// Whether the text differs from the text last saved (or opened).
+    #[must_use]
+    pub fn is_dirty(
+        &self,
+        cx: &App,
+    ) -> bool {
+        self.state.read(cx).text() != &self.saved
+    }
+
+    /// `text` is now on disk: the view is clean again while it still holds that text.
+    pub fn mark_saved(
+        &mut self,
+        text: &str,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.saved = Rope::from(text);
+        self.report_dirty(cx);
+    }
+
+    fn on_input(
+        &mut self,
+        _: Entity<EditorState>,
+        event: &InputEvent,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if matches!(event, InputEvent::Change) {
+            self.report_dirty(cx);
+        }
+    }
+
+    fn report_dirty(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let dirty = self.is_dirty(cx);
+        if dirty == self.reported_dirty {
+            return;
+        }
+        self.reported_dirty = dirty;
+        cx.emit(EditorEvent::DirtyChanged(dirty));
     }
 
     /// The text the view holds now.
@@ -87,6 +140,8 @@ impl std::fmt::Debug for EditorView {
     }
 }
 
+impl EventEmitter<EditorEvent> for EditorView {}
+
 impl Focusable for EditorView {
     fn focus_handle(
         &self,
@@ -108,12 +163,19 @@ impl Render for EditorView {
             .toolbar
             .as_ref()
             .map(|toolbar| toolbar.element(caret, cx));
-        div().size_full().flex().flex_col().children(toolbar).child(
-            div()
-                .flex_1()
-                .min_h_0()
-                .child(Editor::new(&self.state).readonly(read_only)),
-        )
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .key_context(CONTEXT)
+            .on_action(cx.listener(|_, _: &Save, _, cx| cx.emit(EditorEvent::SaveRequested)))
+            .children(toolbar)
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .child(Editor::new(&self.state).readonly(read_only)),
+            )
     }
 }
 
@@ -150,6 +212,22 @@ mod tests {
         cx.add_window_view(|window, cx| EditorView::new(opening, window, cx))
     }
 
+    fn listened(
+        view: &Entity<EditorView>,
+        window: &mut gpui::VisualTestContext,
+    ) -> std::rc::Rc<std::cell::RefCell<Vec<EditorEvent>>> {
+        let heard = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let log = std::rc::Rc::clone(&heard);
+        let record = move |_: Entity<EditorView>, event: &EditorEvent, _: &mut App| {
+            log.borrow_mut().push(*event);
+        };
+        window.update(|window, cx| {
+            window.focus(&view.focus_handle(cx), cx);
+            cx.subscribe(view, record).detach();
+        });
+        heard
+    }
+
     #[gpui::test]
     fn a_view_holds_the_text_it_was_given(cx: &mut TestAppContext) {
         let (view, cx) = opened(("a\nb", None), Access::ReadOnly, cx);
@@ -177,5 +255,24 @@ mod tests {
                 "{access:?}"
             );
         }
+    }
+
+    #[gpui::test]
+    fn typing_marks_the_view_dirty_saving_cleans_it_and_ctrl_s_asks_to_save(
+        cx: &mut TestAppContext
+    ) {
+        let (view, window) = opened(("a", None), Access::Editable, cx);
+        let heard = listened(&view, window);
+        window.simulate_input("x");
+        assert!(view.read_with(window, EditorView::is_dirty), "typed");
+        window.update(|_, cx| view.update(cx, |view, cx| view.mark_saved("xa", cx)));
+        assert!(!view.read_with(window, EditorView::is_dirty), "saved");
+        window.simulate_keystrokes("secondary-s");
+        let expected = [
+            EditorEvent::DirtyChanged(true),
+            EditorEvent::DirtyChanged(false),
+            EditorEvent::SaveRequested,
+        ];
+        assert_eq!(*heard.borrow(), expected);
     }
 }
