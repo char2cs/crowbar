@@ -1,8 +1,14 @@
 //! gpui-kit's global theme as a projection of the shell's theme, which stays its owner (D6).
 
+mod highlight;
+
 use gpui::{App, Hsla};
 use gpui_kit::component::{Theme as KitTheme, ThemeMode as KitMode};
-use ui::{Appearance, Theme};
+use std::sync::Arc;
+
+use gpui_kit::component::highlighter::HighlightThemeStyle;
+use highlight::highlight_style;
+use ui::{Appearance, Surface, Theme};
 
 pub(crate) fn follow_shell(cx: &mut App) {
     cx.observe_global::<Theme>(install).detach();
@@ -27,6 +33,21 @@ fn install(cx: &mut App) {
         Appearance::Dark => KitMode::Dark,
     };
     KitTheme::change(mode, None, cx);
+    match highlight_style(Theme::of(cx).palette(Surface::Window)) {
+        Ok(style) => paint_with(style, cx),
+        Err(error) => tracing::warn!("editor highlight colours: {error}"),
+    }
+}
+
+fn paint_with(
+    style: HighlightThemeStyle,
+    cx: &mut App,
+) {
+    KitTheme::update(cx, |theme| {
+        let mut highlight = (*theme.highlight_theme).clone();
+        highlight.style = style;
+        theme.highlight_theme = Arc::new(highlight);
+    });
 }
 
 #[cfg(test)]
@@ -38,6 +59,25 @@ mod tests {
 
     fn drawn_dark(theme: &KitTheme) -> (bool, bool) {
         (theme.is_dark(), theme.highlight_theme.appearance.is_dark())
+    }
+
+    fn painted_and_projected(cx: &App) -> (HighlightThemeStyle, HighlightThemeStyle) {
+        let palette = Theme::of(cx).palette(Surface::Window);
+        let painted = KitTheme::global(cx).highlight_theme.style.clone();
+        (painted, highlight_style(palette).unwrap())
+    }
+
+    #[gpui::test]
+    fn the_editor_paints_develop_s_token_colours_in_either_mode(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            Theme::default().install(cx);
+            crate::init(cx);
+        });
+        for mode in [ThemeMode::Dark, ThemeMode::Light] {
+            cx.update(|cx| Theme::default().with_mode(mode).install(cx));
+            let (painted, expected) = cx.read(painted_and_projected);
+            assert_eq!(painted, expected, "{mode:?}");
+        }
     }
 
     #[gpui::test]
