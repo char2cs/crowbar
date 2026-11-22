@@ -339,6 +339,9 @@ A reachability check run for this plan (imports from `entries/{chat,review,conso
   - The gpui-kit ctrl-y redo and ctrl-h replace are kept only where develop has them.
 - **Theme global:** gpui-component's `Theme` is global per `App`. Any other gpui-component widget that is pulled in would follow it too. Only `Editor` is used, which keeps the surface small.
 - **Highlight parity:** tree-sitter captures are not Shiki TextMate scopes, so some token colours will differ (D3).
+  - Known differences, accepted under D3 (2026-11-22):
+    - Built-in types (`string`, `number`) take the type colour; develop's Monarch tokenizer paints them as keywords. gpui-kit's `SyntaxColors` has no `type.builtin` slot, so the capture falls back to `type`. Follow-up: a vendor patch to the TypeScript highlight query.
+    - Properties take develop's property colour, which develop shows only once its language server runs. Tree-sitter uses one capture for TypeScript members and JSON keys.
 - **macOS compile:**
   - gpui-base and gpui-component have `cfg(target_os = "macos")` code (objc2 text content type, keybindings, CoreText via `core-text` in gpui-component).
   - S0 runs `cargo check -p crowbar --target x86_64-apple-darwin` with the gpui-upgrade notes (no-op `CC`, `runtime_shaders`). No verification until macOS is in scope.
