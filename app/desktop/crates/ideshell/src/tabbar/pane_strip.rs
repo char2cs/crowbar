@@ -458,7 +458,7 @@ mod tests {
 
     #[gpui::test]
     fn a_lifted_tab_s_preview_takes_the_tab_s_size(cx: &mut TestAppContext) {
-        let cx = opened_with(cx, (3, 0, 1200.0), Moves::default());
+        let cx = opened_with(cx, (1, 0, 1200.0), Moves::default());
         let tab = cx.debug_bounds("strip-tab-frame-t0").unwrap_or_default();
         let left = gpui::MouseButton::Left;
         cx.simulate_mouse_down(tab.center(), left, Modifiers::none());

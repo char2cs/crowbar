@@ -6,6 +6,8 @@ use crate::tabbar::strip_drag::StripDrag;
 use crate::tabbar::tab_actions::TabAction;
 
 const OVERFLOW_SLACK: f32 = 1.0;
+const ADD_BUTTON_AFTER_TABS: usize = 1;
+
 pub(crate) struct StripState {
     pub(crate) scroll: ScrollHandle,
     pub(crate) focus: FocusHandle,
@@ -67,9 +69,8 @@ impl StripState {
         tab: (PaneId, usize),
         tabs: usize,
     ) {
-        let children = self.scroll.children_count();
-        let lead = children.saturating_sub(tabs);
-        let centres = (lead..children)
+        let lead = self.first_tab(tabs);
+        let centres = (lead..lead + tabs)
             .filter_map(|child| self.scroll.bounds_for_item(child))
             .map(|bounds| bounds.center().x)
             .collect();
@@ -80,10 +81,17 @@ impl StripState {
         &self,
         (index, tabs): (usize, usize),
     ) -> Option<Size<Pixels>> {
-        let lead = self.scroll.children_count().saturating_sub(tabs);
+        let child = self.first_tab(tabs) + index;
+        self.scroll.bounds_for_item(child).map(|bounds| bounds.size)
+    }
+
+    fn first_tab(
+        &self,
+        tabs: usize,
+    ) -> usize {
         self.scroll
-            .bounds_for_item(lead + index)
-            .map(|bounds| bounds.size)
+            .children_count()
+            .saturating_sub(tabs + ADD_BUTTON_AFTER_TABS)
     }
 
     pub(crate) fn dragged(
