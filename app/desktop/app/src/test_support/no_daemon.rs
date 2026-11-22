@@ -1,10 +1,8 @@
-use std::sync::mpsc;
-
 use protocol::{DaemonRequest, DaemonTransport, RelayEndpoint, RelayScope, Responder};
 
 pub(crate) struct NoDaemon {
     answer: fn() -> protocol::Error,
-    heard: Option<mpsc::Sender<String>>,
+    heard: Option<async_channel::Sender<String>>,
 }
 
 impl NoDaemon {
@@ -16,7 +14,7 @@ impl NoDaemon {
     }
 
     /// Times out like [`NoDaemon::timing_out`], telling `heard` each request as "METHOD target".
-    pub(crate) fn telling(heard: mpsc::Sender<String>) -> Self {
+    pub(crate) fn telling(heard: async_channel::Sender<String>) -> Self {
         Self {
             heard: Some(heard),
             ..Self::timing_out()
@@ -36,7 +34,7 @@ impl DaemonTransport for NoDaemon {
                 request.method().as_str(),
                 request.target().as_str()
             );
-            heard.send(line).unwrap_or_default();
+            heard.try_send(line).unwrap_or_default();
         }
         respond(Err((self.answer)()));
     }

@@ -1,9 +1,9 @@
 use std::rc::Rc;
-use std::sync::{Arc, OnceLock, mpsc};
+use std::sync::{Arc, OnceLock};
 
 use protocol::HostId;
 use ptysession::TerminalSessions;
-use tokio::runtime::Runtime;
+use tokio::runtime::{Builder, Runtime};
 
 use super::NoDaemon;
 use crate::chat_hosts::ChatHosts;
@@ -11,9 +11,10 @@ use crate::shell_request::ShellRequest;
 use crate::terminal_ids::TerminalIds;
 use crate::terminal_panes::TerminalPanes;
 
-static RUNTIME: OnceLock<Runtime> = OnceLock::new();
+static UNDRIVEN: OnceLock<Runtime> = OnceLock::new();
 
-/// Terminal panes whose sessions can never connect.
+/// Terminal panes whose sessions never start: no thread drives their runtime, so nothing
+/// wakes or drops a gpui task off the test's thread.
 pub(crate) fn idle_terminals(ids: TerminalIds) -> TerminalPanes {
     TerminalPanes::new(
         ids,
@@ -30,13 +31,16 @@ pub(crate) fn idle_terminals_into(
     TerminalPanes::new(ids, (idle_sessions(), no_chats()), requests)
 }
 
-/// Terminal panes telling `heard` each request their sessions make of the daemon.
+/// Terminal panes telling `heard` each request their sessions make of the daemon. Their
+/// sessions run only while the test blocks on the returned runtime, on the test's own thread.
 pub(crate) fn heard_terminals(
     ids: TerminalIds,
-    heard: mpsc::Sender<String>,
-) -> TerminalPanes {
-    let sessions = sessions_on(NoDaemon::telling(heard));
-    TerminalPanes::new(ids, (sessions, no_chats()), async_channel::unbounded().0)
+    heard: async_channel::Sender<String>,
+) -> (TerminalPanes, Runtime) {
+    let runtime = current_thread();
+    let sessions = sessions_on(NoDaemon::telling(heard), &runtime);
+    let panes = TerminalPanes::new(ids, (sessions, no_chats()), async_channel::unbounded().0);
+    (panes, runtime)
 }
 
 fn no_chats() -> ChatHosts {
@@ -44,11 +48,17 @@ fn no_chats() -> ChatHosts {
 }
 
 fn idle_sessions() -> TerminalSessions {
-    sessions_on(NoDaemon::timing_out())
+    sessions_on(NoDaemon::timing_out(), UNDRIVEN.get_or_init(current_thread))
 }
 
-fn sessions_on(daemon: NoDaemon) -> TerminalSessions {
-    let runtime = RUNTIME.get_or_init(|| Runtime::new().unwrap());
+fn current_thread() -> Runtime {
+    Builder::new_current_thread().enable_all().build().unwrap()
+}
+
+fn sessions_on(
+    daemon: NoDaemon,
+    runtime: &Runtime,
+) -> TerminalSessions {
     let host = HostId::new("local").unwrap();
     TerminalSessions::new(
         Arc::new(daemon),

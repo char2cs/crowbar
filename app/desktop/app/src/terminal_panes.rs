@@ -119,8 +119,6 @@ mod tests {
     use super::*;
     use crate::test_support::{heard_terminals, idle_terminals, terminal_layout};
 
-    const DAEMON_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
-
     fn panes_for(layout: &Layout) -> TerminalPanes {
         let ids = TerminalIds::default();
         ids.follow(layout);
@@ -163,12 +161,12 @@ mod tests {
         cx.update(|cx| ui::init(cx).unwrap());
         let ids = TerminalIds::default();
         ids.follow(&terminal_layout(Some("c1")));
-        let (heard, requests) = std::sync::mpsc::channel();
-        let panes = heard_terminals(ids, heard);
+        let (heard, requests) = async_channel::unbounded();
+        let (panes, sessions) = heard_terminals(ids, heard);
         let (_root, cx) = cx.add_window_view(|_, _| gpui::Empty);
         let pane = PaneId::new("t1").unwrap();
         cx.update(|window, cx| panes.view(&pane, window, cx));
-        let first = requests.recv_timeout(DAEMON_WAIT).unwrap();
+        let first = sessions.block_on(requests.recv()).unwrap();
         let created = ptysession::SessionPaths::chat("c1").unwrap();
         assert_eq!(
             first,
