@@ -52,6 +52,10 @@ Drop it with `overlay-window`.
 
 Drop it when upstream gpui offers letter spacing. Tracking: zed-industries/zed.
 
+`webkit-wheel-step` (`gpui-pre`, `src/elements/div.rs`), applied on top of `letter-spacing`: on Linux a wheel click (three lines from the X11 and Wayland platforms) scrolls a div `pow(h, 2/3)` pixels, rounded down, for a window `h` high, as WebKitGTK's `Scrollbar::pixelsPerLineStep` scrolls develop's pages (86px at 800, 71px at 600, measured on the rig). Upstream scrolls three line heights (78px). Precise (pixel) deltas, the terminal and the editor keep their own rules; other platforms keep upstream's.
+
+Drop it when the shell no longer needs to scroll as WebKitGTK does.
+
 ## calloop 0.14.5
 
 `tracing-without-log` (`Cargo.toml`): calloop, reached through `gpui-pre-linux`, asks for tracing's `log` feature, and cargo turns a feature on for every crate that uses tracing. With `log` on, each `tracing` macro also expands to its `log` fallback, which quadruples `clippy::cognitive_complexity` in every function that logs. Nothing in the shell reads `log` records (no `log` logger or bridge is installed), so calloop loses only output nobody received.

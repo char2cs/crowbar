@@ -1,0 +1,33 @@
+--- a/src/elements/div.rs
++++ b/src/elements/div.rs
+@@ -3394,7 +3394,7 @@ impl Interactivity {
+             let overflow = style.overflow;
+             let allow_concurrent_scroll = style.allow_concurrent_scroll;
+             let restrict_scroll_to_axis = style.restrict_scroll_to_axis;
+-            let line_height = window.line_height();
++            let line_height = wheel_line_step(window);
+             let hitbox = hitbox.clone();
+             let current_view = window.current_view();
+             window.on_mouse_event(move |event: &ScrollEvent, phase, window, cx| {
+@@ -5791,3 +5791,21 @@ mod tests {
+         assert_eq!(bounds("cell-2").origin.x, px(300.));
+     }
+ }
++
++
++// The X11 and Wayland platforms report a wheel click as this many lines.
++#[cfg(any(target_os = "linux", target_os = "freebsd"))]
++const WHEEL_CLICK_LINES: f32 = 3.0;
++
++/// The pixels a wheel line scrolls. On Linux a click scrolls `pow(h, 2/3)` pixels of a window `h`
++/// high, as WebKitGTK's `Scrollbar::pixelsPerLineStep` does; elsewhere one line is the line height.
++#[cfg(any(target_os = "linux", target_os = "freebsd"))]
++fn wheel_line_step(window: &Window) -> Pixels {
++    let height = f32::from(window.viewport_size().height);
++    px(height.powf(2.0 / 3.0).floor() / WHEEL_CLICK_LINES)
++}
++
++#[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
++fn wheel_line_step(window: &Window) -> Pixels {
++    window.line_height()
++}
