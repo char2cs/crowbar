@@ -194,7 +194,7 @@ impl Render for EditorView {
                 div()
                     .flex_1()
                     .min_h_0()
-                    .child(Editor::new(&self.state).readonly(read_only)),
+                    .child(Editor::new(&self.state).readonly(read_only).size_full()),
             )
     }
 }
@@ -312,5 +312,15 @@ mod tests {
         assert_eq!(language(window), Some("TypeScript"), "src/a.ts");
         window.update(|_, cx| view.update(cx, |view, cx| view.rebind("notes.md", cx)));
         assert_eq!(language(window), Some("Markdown"));
+    }
+
+    #[gpui::test]
+    fn the_editor_fills_its_pane_below_the_toolbar(cx: &mut TestAppContext) {
+        let text = "line\n".repeat(200);
+        let (view, window) = opened((&text, None), Access::Editable, cx);
+        window.run_until_parked();
+        let rows = window.read(|cx| view.read(cx).state.read(cx).visible_row_range());
+        let shown = rows.map_or(0, |rows| rows.len());
+        assert!(shown > 10, "only {shown} rows show");
     }
 }
