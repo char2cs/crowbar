@@ -11,6 +11,7 @@ use crate::theme::ink;
 use crate::toolbar::Toolbar;
 use crate::{Access, Caret, EditorEvent, Opening};
 
+mod access_change;
 mod quiet;
 
 /// One pane's editor: the gpui-kit `Editor` drawn over the document text it holds, under the

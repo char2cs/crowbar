@@ -75,6 +75,17 @@ impl Followed {
         }
     }
 
+    pub(super) fn set_access(
+        &mut self,
+        access: editorview::Access,
+        cx: &mut App,
+    ) {
+        self.access = access;
+        if let Some(view) = self.view() {
+            view.update(cx, |view, cx| view.set_access(access, cx));
+        }
+    }
+
     fn take_keyboard(
         &mut self,
         window: &mut Window,

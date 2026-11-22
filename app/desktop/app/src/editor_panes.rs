@@ -17,6 +17,7 @@ mod focusing;
 mod followed;
 mod keyboard;
 mod landing;
+mod locking;
 mod pane_phase;
 mod retry;
 mod saving;
@@ -83,8 +84,12 @@ impl EditorPanes {
         self.read_waiting();
     }
 
-    pub(crate) fn data_changed(&self) {
+    pub(crate) fn data_changed(
+        &self,
+        cx: &mut App,
+    ) {
         self.read_waiting();
+        self.follow_locks(cx);
     }
 
     pub(crate) fn retry(
@@ -217,7 +222,7 @@ mod tests {
         panes_locked(documents, Rc::new(|_| false))
     }
 
-    fn panes_locked(
+    pub(super) fn panes_locked(
         documents: &Rc<FakeDocuments>,
         locks: ChatLocks,
     ) -> (Rc<EditorPanes>, async_channel::Receiver<ShellRequest>) {
@@ -275,7 +280,7 @@ mod tests {
         panes.follow(&layout_with(json!({"path": PATH})));
         assert!(documents.reads().is_empty(), "no daemon to read from yet");
         documents.loading("c1");
-        panes.data_changed();
+        cx.update(|cx| panes.data_changed(cx));
         assert_eq!(landed(&panes, &heard), Landing::Shown);
         let (_root, cx) = cx.add_window_view(|_, _| gpui::Empty);
         let pane = PaneId::new(PANE).unwrap();
