@@ -10,6 +10,7 @@ use ui::{
     FlickerSpinner, Icon, IconName, IconWeight, Palette, Surface, Theme, radius, shadow, text_size,
 };
 
+use crate::pill::member_glyph::MemberGlyph;
 use crate::pill::member_kind::MemberKind;
 use crate::pill::member_view::MemberView;
 use crate::pill::shell_look::ShellLook;
@@ -156,19 +157,28 @@ fn spinner_glyph(spinner_id: ElementId) -> AnyElement {
 }
 
 fn resting_glyph(
-    kind: MemberKind,
-    color: Hsla,
+    member: &MemberView,
+    text: Hsla,
 ) -> AnyElement {
+    let glyph = member.glyph.unwrap_or_else(|| kind_glyph(member.kind));
+    Icon::new(glyph.icon)
+        .weight(glyph.weight)
+        .size(px(GLYPH))
+        .color(glyph.color.unwrap_or(text))
+        .into_any_element()
+}
+
+fn kind_glyph(kind: MemberKind) -> MemberGlyph {
     let icon = match kind {
         MemberKind::Chat => IconName::ChatsCircle,
         MemberKind::Terminal => IconName::Terminal,
         MemberKind::NewTab => IconName::Plus,
     };
-    Icon::new(icon)
-        .weight(IconWeight::Regular)
-        .size(px(GLYPH))
-        .color(color)
-        .into_any_element()
+    MemberGlyph {
+        icon,
+        weight: IconWeight::Regular,
+        color: None,
+    }
 }
 
 fn member_row(
@@ -184,7 +194,7 @@ fn member_row(
     let spinner = member
         .working
         .then(|| ElementId::from((id.clone(), format!("spin{index}"))));
-    let resting = (count == 1).then(|| resting_glyph(member.kind, text));
+    let resting = (count == 1).then(|| resting_glyph(&member, text));
     let glyph = spinner.map(spinner_glyph).or(resting);
     div()
         .relative()
@@ -285,6 +295,7 @@ mod tests {
                     provisional: false,
                     working: false,
                     kind: MemberKind::Chat,
+                    glyph: None,
                 });
             div().flex().child(TabShell {
                 id: ElementId::from("pill"),

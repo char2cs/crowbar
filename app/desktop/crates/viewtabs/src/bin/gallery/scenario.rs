@@ -34,6 +34,7 @@ pub(crate) fn member(pane: &PaneId) -> MemberView {
         provisional: pane.as_str() == "p1",
         working: pane.as_str() == "p3",
         kind: viewtabs::MemberKind::Chat,
+        glyph: None,
     }
 }
 

@@ -164,6 +164,7 @@ mod tests {
                 provisional: false,
                 working: false,
                 kind: crate::pill::MemberKind::Chat,
+                glyph: None,
             })
             .collect();
         TabView {

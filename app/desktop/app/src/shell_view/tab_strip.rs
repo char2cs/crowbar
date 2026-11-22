@@ -3,7 +3,7 @@ use layout::Tab;
 use protocol::PaneId;
 use settings::{Key, Read as _};
 use sidebar::{Activity, Row, Titling};
-use viewtabs::{MemberKind, MemberView, TabView};
+use viewtabs::{MemberGlyph, MemberKind, MemberView, TabView};
 
 use super::ShellView;
 use crate::chat_label::{LOADING_CHAT, NEW_CHAT};
@@ -88,6 +88,7 @@ fn member(
         provisional: title.is_none(),
         working,
         kind,
+        glyph: None,
     }
 }
 
@@ -100,6 +101,7 @@ fn chat_member(
     row: Option<Row>,
 ) -> MemberView {
     let working = row.as_ref().is_some_and(is_working);
+    let glyph = row.as_ref().map(sidebar_glyph);
     let (label, provisional) = row.map_or((LOADING_CHAT.into(), true), |row| {
         (row.label, row.titling == Titling::Provisional)
     });
@@ -109,6 +111,16 @@ fn chat_member(
         provisional,
         working,
         kind: MemberKind::Chat,
+        glyph,
+    }
+}
+
+fn sidebar_glyph(row: &Row) -> MemberGlyph {
+    let glyph = sidebarview::ChatGlyph::of(row);
+    MemberGlyph {
+        icon: glyph.icon,
+        weight: glyph.weight,
+        color: glyph.tone.color(),
     }
 }
 
@@ -279,6 +291,24 @@ mod tests {
                 "{known:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_chat_member_leads_with_its_sidebar_glyph() {
+        let pane = PaneId::new("p7").unwrap();
+        let layout = layout_holding(&pane, CHAT, thread("c1"));
+        let titles = Titles::default();
+        let locked = |_: &str| {
+            let mut held = row("main", Titling::Final, Activity::Idle);
+            held.lock = sidebar::Lock::Locked;
+            Some(held)
+        };
+        let glyph = member((&titles, &layout), &locked, &pane).glyph;
+        assert_eq!(
+            glyph.map(|glyph| glyph.icon),
+            Some(ui::IconName::Lock),
+            "a locked workspace's chat shows the lock, as develop's view tab does"
+        );
     }
 
     #[test]

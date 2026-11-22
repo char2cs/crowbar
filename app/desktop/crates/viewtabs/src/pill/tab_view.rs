@@ -68,6 +68,7 @@ mod tests {
             provisional: false,
             working: false,
             kind: crate::pill::member_kind::MemberKind::Chat,
+            glyph: None,
         }
     }
 
