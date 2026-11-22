@@ -8,6 +8,7 @@ mod editorview;
 mod highlight_name;
 mod opening;
 mod save_key;
+mod theme;
 mod toolbar;
 
 pub use access::Access;

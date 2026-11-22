@@ -7,6 +7,7 @@ use gpui_kit::base::input::{InputEvent, Rope};
 use gpui_kit::component::input::{Editor, EditorState, Position};
 
 use crate::save_key::{CONTEXT, Save};
+use crate::theme::ink;
 use crate::toolbar::Toolbar;
 use crate::{Access, Caret, EditorEvent, Opening};
 
@@ -194,6 +195,7 @@ impl Render for EditorView {
                 div()
                     .flex_1()
                     .min_h_0()
+                    .text_color(ink(cx))
                     .child(Editor::new(&self.state).readonly(read_only).size_full()),
             )
     }
