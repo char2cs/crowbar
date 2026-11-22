@@ -201,7 +201,8 @@ impl ShellView {
         let Some(backend) = self.settings_backend() else {
             return;
         };
-        let opened = settings_config(self.requests.clone(), &backend, page)
+        let back = window.focused(cx);
+        let opened = settings_config(self.requests.clone(), &backend, (page, back))
             .map(|config| open_settings(config, window, cx));
         self.settings = logged(opened, "could not open settings");
         if let Some(modal) = &self.settings {

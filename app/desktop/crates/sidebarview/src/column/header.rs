@@ -43,16 +43,20 @@ impl Sidebar {
                 d.flex_row_reverse().pr(SPACE_LG).pl(SPACE_MD)
             })
             .children(traffic_light_spacer(side))
-            .child(Self::settings_button(cx))
+            .child(self.settings_button(cx))
             .child(div().flex().flex_1().justify_center().children(picker))
             .child(self.toggle_button(cx))
             .into_any_element()
     }
 
-    fn settings_button(cx: &mut Context<'_, Self>) -> IconButton {
+    fn settings_button(
+        &self,
+        cx: &mut Context<'_, Self>,
+    ) -> IconButton {
         let action = RowAction::Intent(Intent::Send(Command::OpenSettings));
         IconButton::new("sidebar-settings", IconName::Gear)
             .tooltip("Settings")
+            .focus(&self.settings_focus)
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.act(action.clone(), window, cx);
             }))

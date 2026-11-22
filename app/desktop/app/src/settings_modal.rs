@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use gpui::{App, AppContext as _, Context, Entity, Window};
+use gpui::{App, AppContext as _, Context, Entity, FocusHandle, Window};
 use settings::{PageId, default_schema};
 use settingsview::{ModalConfig, SettingsModal};
 use store::SettingsAdapter;
@@ -10,8 +10,14 @@ use crate::shell_request::ShellRequest;
 
 pub(crate) const HOSTS_PAGE: &str = "hosts";
 
-fn request_close(requests: &async_channel::Sender<ShellRequest>) {
-    if requests.try_send(ShellRequest::CloseSettings).is_err() {
+fn request_close(
+    requests: &async_channel::Sender<ShellRequest>,
+    back: Option<FocusHandle>,
+) {
+    if requests
+        .try_send(ShellRequest::CloseSettings(back))
+        .is_err()
+    {
         tracing::warn!("the shell is closing; the settings modal stays open");
     }
 }
@@ -19,12 +25,12 @@ fn request_close(requests: &async_channel::Sender<ShellRequest>) {
 pub(crate) fn settings_config(
     requests: async_channel::Sender<ShellRequest>,
     backend: &SettingsAdapter,
-    page: Option<PageId>,
+    (page, back): (Option<PageId>, Option<FocusHandle>),
 ) -> Result<ModalConfig> {
     let schema = default_schema().map_err(|e| Error::Settings(e.to_string()))?;
     let backend = Rc::new(backend.clone());
     let config = ModalConfig::new(schema, Rc::clone(&backend) as _, backend)
-        .on_close(move |_: &mut Window, _: &mut App| request_close(&requests));
+        .on_close(move |_: &mut Window, _: &mut App| request_close(&requests, back.clone()));
     Ok(match page {
         Some(page) => config.page(page),
         None => config,
@@ -45,14 +51,14 @@ mod tests {
 
     fn a_live_shell_is_asked_exactly_once() -> bool {
         let (requests, queue) = async_channel::unbounded();
-        request_close(&requests);
-        queue.try_recv() == Ok(ShellRequest::CloseSettings) && queue.try_recv().is_err()
+        request_close(&requests, None);
+        queue.try_recv() == Ok(ShellRequest::CloseSettings(None)) && queue.try_recv().is_err()
     }
 
     fn a_gone_shell_is_left_alone() -> bool {
         let (requests, queue) = async_channel::unbounded();
         drop(queue);
-        request_close(&requests);
+        request_close(&requests, None);
         requests.is_closed()
     }
 

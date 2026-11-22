@@ -1,10 +1,11 @@
 //! The square ghost buttons of the sidebar header and switcher.
 
 use gpui::{
-    App, ClickEvent, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    Pixels, RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
+    AnyElement, App, ClickEvent, ElementId, FocusHandle, InteractiveElement, IntoElement,
+    MouseButton, ParentElement, Pixels, RenderOnce, SharedString, StatefulInteractiveElement,
+    Styled, Window, div, prelude::FluentBuilder as _, px,
 };
-use ui::{HoverFill, Icon, IconName, Surface, Theme, Tooltip, radius};
+use ui::{HoverFill, Icon, IconName, Surface, Theme, Tooltip, focus_ring, radius};
 
 use crate::column::header::tile_shape::TileShape;
 
@@ -20,6 +21,7 @@ pub(crate) struct IconButton {
     tooltip: Option<SharedString>,
     shape: TileShape,
     on_click: Option<ClickHandler>,
+    focus: Option<FocusHandle>,
 }
 
 impl IconButton {
@@ -33,6 +35,7 @@ impl IconButton {
             tooltip: None,
             shape: TileShape::Small,
             on_click: None,
+            focus: None,
         }
     }
 
@@ -41,6 +44,14 @@ impl IconButton {
         text: impl Into<SharedString>,
     ) -> Self {
         self.tooltip = Some(text.into());
+        self
+    }
+
+    pub(crate) fn focus(
+        mut self,
+        focus: &FocusHandle,
+    ) -> Self {
+        self.focus = Some(focus.clone());
         self
     }
 
@@ -89,21 +100,49 @@ impl RenderOnce for IconButton {
                     .size(px(ICON))
                     .color(palette.muted_foreground()),
             );
-        let id = self.id.clone();
+        let (id, ring, focus) = (self.id.clone(), focus_ring(palette), self.focus);
+        let pressed = focus.clone();
         let button = HoverFill::new(self.id, palette.sidebar_element_hover())
             .apply(base, (window, cx))
-            .on_mouse_down(MouseButton::Left, |_, window, cx| {
+            .when_some(focus.as_ref(), |button, focus| {
+                button
+                    .track_focus(focus)
+                    .focus_visible(move |style| style.shadow(ring))
+            })
+            .on_mouse_down(MouseButton::Left, move |_, window, cx| {
                 window.prevent_default();
                 cx.stop_propagation();
+                take_keyboard(pressed.as_ref(), window, cx);
             });
         let button = match self.on_click {
             Some(handler) => button.on_click(handler),
             None => button,
         };
-        match self.tooltip {
-            Some(text) => Tooltip::new((id, "tip"), text, button).into_any_element(),
-            None => button.into_any_element(),
-        }
+        let Some(text) = self.tooltip else {
+            return button.into_any_element();
+        };
+        tipped(Tooltip::new((id, "tip"), text, button), focus.as_ref())
+    }
+}
+
+fn tipped(
+    tooltip: Tooltip,
+    focus: Option<&FocusHandle>,
+) -> AnyElement {
+    match focus {
+        Some(focus) => tooltip.focused_by(focus).into_any_element(),
+        None => tooltip.into_any_element(),
+    }
+}
+
+// PLATFORM: linux WebKitGTK focuses a pressed button, so develop's gear keeps the keyboard after a click.
+fn take_keyboard(
+    focus: Option<&FocusHandle>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    if let Some(focus) = focus {
+        window.focus(focus, cx);
     }
 }
 
@@ -131,6 +170,34 @@ mod tests {
             IconButton::new("button", IconName::Plus)
                 .on_click(move |_, _, _| clicks.set(clicks.get() + 1))
         }
+    }
+
+    struct Focusing {
+        focus: FocusHandle,
+    }
+
+    impl Render for Focusing {
+        fn render(
+            &mut self,
+            _: &mut Window,
+            _: &mut Context<'_, Self>,
+        ) -> impl IntoElement {
+            IconButton::new("button", IconName::Gear).focus(&self.focus)
+        }
+    }
+
+    #[gpui::test]
+    fn a_press_puts_the_keyboard_on_a_focusable_button(cx: &mut TestAppContext) {
+        cx.update(|cx| ui::init(cx).expect("ui installs"));
+        let (view, cx) = cx.add_window_view(|_, cx| Focusing {
+            focus: cx.focus_handle(),
+        });
+        cx.simulate_click(point(px(4.0), px(4.0)), gpui::Modifiers::none());
+        let focused = view.update_in(cx, |view, window, _| view.focus.is_focused(window));
+        assert!(
+            focused,
+            "the button holds the keyboard, as WebKit's does after a click"
+        );
     }
 
     #[gpui::test]

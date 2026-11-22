@@ -112,9 +112,9 @@ impl ShellView {
             },
             ShellRequest::DataChanged => self.on_data_changed(cx),
             ShellRequest::Outcome(outcome) => self.on_data_outcome(outcome, window, cx),
-            ShellRequest::CloseSettings => {
+            ShellRequest::CloseSettings(back) => {
                 self.settings = None;
-                window.focus(&self.focus, cx);
+                window.focus(back.as_ref().unwrap_or(&self.focus), cx);
                 cx.notify();
             },
             ShellRequest::Closing(choice) => self.choose_closing(choice, window, cx),
@@ -232,6 +232,20 @@ mod tests {
         _: &mut Context<'_, Collector>,
     ) {
         view.seen.push(item);
+    }
+
+    #[gpui::test]
+    fn closing_settings_gives_the_keyboard_back_to_what_held_it(cx: &mut TestAppContext) {
+        let mut opened = crate::shell_view::tests::open_shell(cx);
+        let gear = opened.window.update(|_, cx| cx.focus_handle());
+        let back = Some(gear.clone());
+        let on_gear = opened
+            .shell
+            .update_in(&mut opened.window, |shell, window, cx| {
+                shell.handle(ShellRequest::CloseSettings(back), window, cx);
+                gear.is_focused(window)
+            });
+        assert!(on_gear, "the keyboard went back to the gear");
     }
 
     #[gpui::test]

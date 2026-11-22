@@ -3,8 +3,8 @@
 use gpui::StatefulInteractiveElement as _;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, ElementId, InteractiveElement, IntoElement, ParentElement, Pixels, Point,
-    RenderOnce, SharedString, Styled, Window, anchored, div, px,
+    AnyElement, App, ElementId, FocusHandle, InteractiveElement, IntoElement, ParentElement,
+    Pixels, Point, RenderOnce, SharedString, Styled, Window, anchored, div, px,
 };
 
 use crate::display::Kbd;
@@ -41,6 +41,7 @@ pub struct Tooltip {
     shortcut: Option<SharedString>,
     side: TooltipSide,
     trigger: AnyElement,
+    focus: Option<FocusHandle>,
 }
 
 impl Tooltip {
@@ -56,6 +57,7 @@ impl Tooltip {
             shortcut: None,
             side: TooltipSide::default(),
             trigger: trigger.into_any_element(),
+            focus: None,
         }
     }
 
@@ -66,6 +68,17 @@ impl Tooltip {
         keys: impl Into<SharedString>,
     ) -> Self {
         self.shortcut = Some(keys.into());
+        self
+    }
+
+    /// Also shows the card while `focus` holds keyboard focus that the keyboard put there, as a
+    /// focused button's tooltip does in develop.
+    #[must_use]
+    pub fn focused_by(
+        mut self,
+        focus: &FocusHandle,
+    ) -> Self {
+        self.focus = Some(focus.clone());
         self
     }
 
@@ -123,6 +136,19 @@ impl Tooltip {
     }
 }
 
+impl Tooltip {
+    fn keyboard_focused(
+        &self,
+        window: &Window,
+    ) -> bool {
+        let focused = self
+            .focus
+            .as_ref()
+            .is_some_and(|focus| focus.is_focused(window));
+        focused && window.last_input_was_keyboard()
+    }
+}
+
 impl RenderOnce for Tooltip {
     fn render(
         self,
@@ -130,6 +156,7 @@ impl RenderOnce for Tooltip {
         cx: &mut App,
     ) -> impl IntoElement {
         let theme = *Theme::of(cx);
+        let keyboard_focused = self.keyboard_focused(window);
         let hover_state = hover::track(&self.id, Pose::Off, window, cx);
         let entry =
             window.use_keyed_state((self.id.clone(), "entry"), cx, |_, _| None::<Point<Pixels>>);
@@ -140,11 +167,12 @@ impl RenderOnce for Tooltip {
         if shown.running {
             window.request_animation_frame();
         }
+        let opacity = shown.value.max(f32::from(u8::from(keyboard_focused)));
         let id = self.id.clone();
         let placement = self
-            .placement(SLIDE * (1.0 - shown.value))
+            .placement(SLIDE * (1.0 - opacity))
             .debug_selector(move || format!("tooltip-{id}"));
-        let (text, shortcut, opacity) = (self.text, self.shortcut, shown.value);
+        let (text, shortcut) = (self.text, self.shortcut);
         let floating = Portal::here((self.id.clone(), "card"), move |_, _| {
             let card = card((text.clone(), shortcut.clone()), theme, opacity);
             div().w_full().flex().justify_center().child(
@@ -322,6 +350,29 @@ mod tests {
         assert!(
             cx.debug_bounds("tooltip-outer").is_none(),
             "the outer one stays shut"
+        );
+    }
+
+    #[gpui::test]
+    fn a_trigger_focused_from_the_keyboard_shows_its_card(cx: &mut TestAppContext) {
+        let focus = cx.update(|cx| cx.focus_handle());
+        let held = focus.clone();
+        let cx = open(cx, move |_, _| {
+            let gear = Button::icon_only("b", IconName::Gear).focus_handle(held.clone());
+            Tooltip::new("t", "Settings", gear).focused_by(&held)
+        });
+        cx.update(|_, cx| cx.set_global(Motion::reduced()));
+        cx.update(|window, cx| window.focus(&focus, cx));
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("tooltip-card").is_none(),
+            "no card before a key is pressed"
+        );
+        cx.simulate_keystrokes("shift");
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("tooltip-card").is_some(),
+            "shown while keyboard focus rests on it"
         );
     }
 

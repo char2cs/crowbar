@@ -2,7 +2,8 @@
 pub(crate) enum ShellRequest {
     Sidebar(sidebar::Command),
     Startup(startup::Command),
-    CloseSettings,
+    /// The settings modal closed; the keyboard goes back to what held it when it opened.
+    CloseSettings(Option<gpui::FocusHandle>),
     /// A pane reported its unsaved work again.
     ResumeClosing,
     /// A `mod+shift+<digit>` press selected the project in this slot (1 to 9).

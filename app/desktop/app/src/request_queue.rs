@@ -17,10 +17,10 @@ mod tests {
     #[test]
     fn a_sent_request_reaches_the_queue() {
         let (requests, queue) = async_channel::unbounded();
-        send(&requests, ShellRequest::CloseSettings);
+        send(&requests, ShellRequest::CloseSettings(None));
         assert_eq!(
             queue.try_recv(),
-            Ok(ShellRequest::CloseSettings),
+            Ok(ShellRequest::CloseSettings(None)),
             "delivered"
         );
     }
@@ -29,7 +29,7 @@ mod tests {
     fn a_request_to_a_closed_shell_is_dropped_without_failing() {
         let (requests, queue) = async_channel::unbounded();
         drop(queue);
-        send(&requests, ShellRequest::CloseSettings);
+        send(&requests, ShellRequest::CloseSettings(None));
         assert!(requests.is_closed(), "nobody is listening");
     }
 }
