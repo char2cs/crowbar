@@ -21,6 +21,7 @@ use crate::foundation::opaque_debug;
 use crate::foundation::tokens::radius;
 use crate::foundation::tokens::spacing;
 use crate::foundation::tokens::text_size;
+use crate::foundation::tokens::tracking;
 
 const DISABLED_OPACITY: f32 = 0.5;
 const DESTRUCTIVE_TINT_LIGHT: f32 = 0.1;
@@ -85,6 +86,7 @@ fn hint(
             .ml_auto()
             .pl(spacing::STEP_3)
             .text_size(text_size::XS)
+            .letter_spacing(tracking::at(tracking::WIDEST, text_size::XS))
             .text_color(palette.muted_foreground().opacity(SHORTCUT_OPACITY))
             .child(keys),
     )
@@ -213,5 +215,35 @@ mod tests {
         let light = colors(&danger, Pose::On, palette, Appearance::Light).0;
         let dark = colors(&danger, Pose::On, palette, Appearance::Dark).0;
         assert!(dark.a > light.a);
+    }
+
+    const KEYS: &str = "Ctrl+Shift+N";
+    /// Tailwind `tracking-widest`, in em.
+    const WIDEST: f32 = 0.1;
+
+    fn hint_width(
+        cx: &mut gpui::TestAppContext,
+        spacing: Option<f32>,
+    ) -> f32 {
+        let bounds = crate::test_support::probe::measure(cx, move |_, cx| {
+            let palette = Theme::of(cx).palette(Surface::Window);
+            let action = plain().shortcut(KEYS);
+            let hint = hint(&action, palette).unwrap_or_else(div);
+            match spacing {
+                Some(spacing) => hint.letter_spacing(gpui::px(spacing)),
+                None => hint,
+            }
+        });
+        f32::from(bounds.size.width)
+    }
+
+    #[gpui::test]
+    fn a_shortcut_hint_is_set_widest_as_develop_does(cx: &mut gpui::TestAppContext) {
+        let widest = hint_width(cx, None);
+        let loose = hint_width(cx, Some(0.0));
+        let glyphs = f32::from(u16::try_from(KEYS.chars().count()).expect("a short hint"));
+        let wider = widest - loose;
+        let expected = glyphs * WIDEST * f32::from(text_size::XS);
+        assert!((wider - expected).abs() < 1.0, "{wider} vs {expected}");
     }
 }

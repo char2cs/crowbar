@@ -62,6 +62,7 @@ fn shape_preedit(
         background_color: None,
         underline: Some(underline),
         strikethrough: None,
+        letter_spacing: Pixels::ZERO,
     };
     window.text_system().shape_line(
         SharedString::from(text.to_owned()),

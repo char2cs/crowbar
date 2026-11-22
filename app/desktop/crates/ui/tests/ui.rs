@@ -22,6 +22,8 @@ const ELLIPSIS: char = '…';
 const ROW_WIDTH: f32 = 120.0;
 const PROBE_SIDE: f32 = 40.0;
 const INSIDE: f32 = 10.0;
+const SPACED: &str = "Crowbar Seed";
+const LETTER_SPACING: f32 = 2.0;
 
 /// `0003-svg-image-bgra`: SVG artwork is decoded in the renderer's BGRA order like every image.
 #[gpui::test]
@@ -97,4 +99,41 @@ fn leaving_the_window_ends_the_hover(cx: &mut TestAppContext) {
         modifiers: Modifiers::none(),
     });
     assert!(!hovered.get(), "the pointer left the window");
+}
+
+struct SpacedLines(Rc<RefCell<Vec<TextLayout>>>);
+
+impl Render for SpacedLines {
+    fn render(
+        &mut self,
+        _: &mut Window,
+        _: &mut Context<'_, Self>,
+    ) -> impl IntoElement {
+        let plain = StyledText::new(SPACED);
+        let spaced = StyledText::new(SPACED);
+        *self.0.borrow_mut() = vec![plain.layout().clone(), spaced.layout().clone()];
+        div()
+            .flex()
+            .flex_col()
+            .items_start()
+            .child(plain)
+            .child(div().letter_spacing(px(LETTER_SPACING)).child(spaced))
+    }
+}
+
+/// `letter-spacing`: a text with letter spacing grows by the spacing after each glyph, as CSS
+/// `letter-spacing` lays it out (develop's `tracking-*`).
+#[gpui::test]
+fn letter_spacing_adds_its_space_after_every_glyph(cx: &mut TestAppContext) {
+    let layouts = Rc::new(RefCell::new(Vec::new()));
+    let (_, cx) = cx.add_window_view(|_, _| SpacedLines(Rc::clone(&layouts)));
+    cx.run_until_parked();
+    let widths: Vec<f32> = layouts
+        .borrow()
+        .iter()
+        .map(|layout| f32::from(layout.bounds().size.width))
+        .collect();
+    let glyphs = f32::from(u16::try_from(SPACED.chars().count()).expect("a short sample"));
+    assert_eq!(widths.len(), 2);
+    assert_eq!(widths[1] - widths[0], glyphs * LETTER_SPACING, "{widths:?}");
 }

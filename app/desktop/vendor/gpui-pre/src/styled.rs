@@ -540,6 +540,13 @@ pub trait Styled: Sized {
         self
     }
 
+    /// Sets the space added after every glyph of the text, as CSS `letter-spacing`.
+    /// [Docs](https://tailwindcss.com/docs/letter-spacing)
+    fn letter_spacing(mut self, spacing: impl Into<crate::Pixels>) -> Self {
+        self.text_style().letter_spacing = Some(spacing.into());
+        self
+    }
+
     /// Sets the text size to 'extra small'.
     /// [Docs](https://tailwindcss.com/docs/font-size#setting-the-font-size)
     fn text_xs(mut self) -> Self {

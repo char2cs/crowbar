@@ -480,6 +480,9 @@ pub struct TextStyle {
 
     /// The number of lines to display before truncating the text
     pub line_clamp: Option<usize>,
+
+    /// Space added after every glyph, as CSS `letter-spacing` (negative tightens)
+    pub letter_spacing: Pixels,
 }
 
 impl Default for TextStyle {
@@ -501,6 +504,7 @@ impl Default for TextStyle {
             text_overflow: None,
             text_align: TextAlign::default(),
             line_clamp: None,
+            letter_spacing: Pixels::ZERO,
         }
     }
 }
@@ -570,6 +574,7 @@ impl TextStyle {
             background_color: self.background_color,
             underline: self.underline,
             strikethrough: self.strikethrough,
+            letter_spacing: self.letter_spacing,
         }
     }
 }

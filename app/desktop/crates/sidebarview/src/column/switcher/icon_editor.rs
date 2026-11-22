@@ -11,8 +11,8 @@ use gpui::{
 };
 use sidebar::SpaceIcon;
 use ui::{
-    Button, ButtonSize, ButtonVariant, Icon, IconName, Surface, TextInput, TextInputStyle, Theme,
-    radius,
+    Button, ButtonSize, ButtonVariant, Icon, IconName, Palette, Surface, TextInput, TextInputStyle,
+    Theme, radius, tracking,
 };
 
 use crate::sidebar::scale::{ICON_LARGE, SPACE_MD, SPACE_SM, TEXT_CAPTION};
@@ -102,7 +102,7 @@ fn first_image(paths: &[PathBuf]) -> Option<SpaceIcon> {
 
 fn preview(
     icon: &SpaceIcon,
-    palette: &ui::Palette,
+    palette: &Palette,
 ) -> Div {
     let frame = div()
         .flex()
@@ -180,6 +180,15 @@ impl IconEditor {
     }
 }
 
+fn section_label(palette: &Palette) -> Div {
+    div()
+        .text_size(TEXT_CAPTION)
+        .font_weight(FontWeight::SEMIBOLD)
+        .letter_spacing(tracking::at(tracking::WIDER, TEXT_CAPTION))
+        .text_color(palette.muted_foreground())
+        .child(LABEL)
+}
+
 impl Render for IconEditor {
     fn render(
         &mut self,
@@ -192,13 +201,7 @@ impl Render for IconEditor {
             .flex_col()
             .gap(SPACE_MD)
             .w(px(WIDTH))
-            .child(
-                div()
-                    .text_size(TEXT_CAPTION)
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(palette.muted_foreground())
-                    .child(LABEL),
-            )
+            .child(section_label(palette))
             .child(preview(&self.current, palette))
             .child(Self::action_row(cx))
             .children(self.typing_row(cx))
@@ -241,6 +244,38 @@ mod tests {
         assert_eq!(
             editor.read_with(cx, |this, _| this.current.clone()),
             SpaceIcon::Default
+        );
+    }
+    /// Tailwind `tracking-wider`, in em.
+    const WIDER: f32 = 0.05;
+
+    fn label_width(
+        cx: &mut TestAppContext,
+        spacing: Option<f32>,
+    ) -> f32 {
+        let window = crate::test_support::mount(cx, move |_, cx| {
+            let label = section_label(Theme::of(cx).palette(Surface::Window));
+            let label = match spacing {
+                Some(spacing) => label.letter_spacing(px(spacing)),
+                None => label,
+            };
+            div().flex().child(
+                gpui::InteractiveElement::debug_selector(div().flex_none(), || "label".into())
+                    .child(label),
+            )
+        });
+        f32::from(window.debug_bounds("label").unwrap_or_default().size.width)
+    }
+
+    #[gpui::test]
+    fn the_section_label_is_set_wider_as_develop_does(cx: &mut TestAppContext) {
+        let wider = label_width(cx, None);
+        let loose = label_width(cx, Some(0.0));
+        let glyphs = f32::from(u16::try_from(LABEL.chars().count()).expect("a short label"));
+        let expected = glyphs * WIDER * f32::from(TEXT_CAPTION);
+        assert!(
+            (wider - loose - expected).abs() < 1.0,
+            "{wider} - {loose} vs {expected}"
         );
     }
 }

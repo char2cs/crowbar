@@ -93,6 +93,7 @@ impl<S: LineSurface> LineElement<S> {
             background_color: None,
             underline: None,
             strikethrough: None,
+            letter_spacing: Pixels::ZERO,
         };
         let marked = input.marked_range().filter(|_| !empty);
         let runs = runs_for(shown.len(), marked, &base);

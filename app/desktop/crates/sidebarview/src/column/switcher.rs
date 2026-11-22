@@ -12,7 +12,7 @@ use gpui::{
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
 use sidebar::{Command, Intent, Project};
-use ui::{HoverFill, Palette, Placement, Popover, Surface, Theme, Tooltip, radius};
+use ui::{HoverFill, Palette, Placement, Popover, Surface, Theme, Tooltip, radius, tracking};
 
 use crate::column::switcher::edit_pencil::{GROUP, edit_pencil};
 
@@ -138,6 +138,7 @@ fn name_cell(
         .truncate()
         .font_family(family)
         .text_size(px(NAME_SIZE))
+        .letter_spacing(tracking::at(tracking::TIGHT, px(NAME_SIZE)))
         .line_height(px(NAME_LINE))
         .font_weight(FontWeight::NORMAL)
         .text_color(palette.foreground())
@@ -204,9 +205,62 @@ fn active_block(
 
 #[cfg(test)]
 mod tests {
-    use sidebar::Intent;
+    use gpui::{InteractiveElement as _, ParentElement as _, Styled as _, div};
+    use sidebar::{HostId, Intent, Mark, Project};
+    use ui::{Surface, Theme};
 
+    use super::{NAME_SIZE, name_cell};
+    use crate::test_support::mount;
     use crate::test_support::prelude::*;
+
+    const SEED: &str = "Crowbar Seed";
+    /// Tailwind `tracking-tight`, in em.
+    const TIGHT: f32 = -0.025;
+
+    fn name_width(
+        cx: &mut TestAppContext,
+        spacing: Option<f32>,
+    ) -> f32 {
+        let seed = Project {
+            id: ProjectId::from("seed"),
+            name: SEED.to_owned(),
+            mark: Mark::Fallback,
+            host: HostId::from("local"),
+        };
+        let window = mount(cx, move |_, cx| {
+            let theme = Theme::of(cx);
+            let cell = name_cell(
+                &seed,
+                theme.heading_family(),
+                theme.palette(Surface::Chrome),
+            );
+            let cell = match spacing {
+                Some(spacing) => cell.letter_spacing(px(spacing)),
+                None => cell,
+            };
+            div().flex().child(
+                div()
+                    .flex_none()
+                    .debug_selector(|| "switcher-name".into())
+                    .child(cell),
+            )
+        });
+        let bounds = window.debug_bounds("switcher-name").unwrap_or_default();
+        f32::from(bounds.size.width)
+    }
+
+    #[gpui::test]
+    fn the_space_name_is_set_tight_as_develop_does(cx: &mut TestAppContext) {
+        let tight = name_width(cx, None);
+        let loose = name_width(cx, Some(0.0));
+        let glyphs = f32::from(u16::try_from(SEED.chars().count()).expect("a short name"));
+        let narrower = loose - tight;
+        let expected = glyphs * -TIGHT * NAME_SIZE;
+        assert!(
+            (narrower - expected).abs() < 1.0,
+            "{narrower} vs {expected}"
+        );
+    }
 
     #[gpui::test]
     fn several_spaces_render_the_other_marks(cx: &mut TestAppContext) {

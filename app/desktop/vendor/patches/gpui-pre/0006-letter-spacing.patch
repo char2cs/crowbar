@@ -1,0 +1,188 @@
+--- a/examples/input.rs
++++ b/examples/input.rs
+@@ -531,6 +531,7 @@ impl Element for TextElement {
+             background_color: None,
+             underline: None,
+             strikethrough: None,
++            letter_spacing: gpui::Pixels::ZERO,
+         };
+         let runs = if let Some(marked_range) = input.marked_range.as_ref() {
+             vec![
+--- a/examples/view_example/example_editor.rs
++++ b/examples/view_example/example_editor.rs
+@@ -417,6 +417,7 @@ impl Element for EditorText {
+                 background_color: None,
+                 underline: None,
+                 strikethrough: None,
++                letter_spacing: gpui::Pixels::ZERO,
+             };
+             vec![
+                 window
+@@ -435,6 +436,7 @@ impl Element for EditorText {
+                         background_color: None,
+                         underline: None,
+                         strikethrough: None,
++                        letter_spacing: gpui::Pixels::ZERO,
+                     };
+                     window
+                         .text_system()
+--- a/src/style.rs
++++ b/src/style.rs
+@@ -480,6 +480,9 @@ pub struct TextStyle {
+ 
+     /// The number of lines to display before truncating the text
+     pub line_clamp: Option<usize>,
++
++    /// Space added after every glyph, as CSS `letter-spacing` (negative tightens)
++    pub letter_spacing: Pixels,
+ }
+ 
+ impl Default for TextStyle {
+@@ -501,6 +504,7 @@ impl Default for TextStyle {
+             text_overflow: None,
+             text_align: TextAlign::default(),
+             line_clamp: None,
++            letter_spacing: Pixels::ZERO,
+         }
+     }
+ }
+@@ -570,6 +574,7 @@ impl TextStyle {
+             background_color: self.background_color,
+             underline: self.underline,
+             strikethrough: self.strikethrough,
++            letter_spacing: self.letter_spacing,
+         }
+     }
+ }
+--- a/src/styled.rs
++++ b/src/styled.rs
+@@ -540,6 +540,13 @@ pub trait Styled: Sized {
+         self
+     }
+ 
++    /// Sets the space added after every glyph of the text, as CSS `letter-spacing`.
++    /// [Docs](https://tailwindcss.com/docs/letter-spacing)
++    fn letter_spacing(mut self, spacing: impl Into<crate::Pixels>) -> Self {
++        self.text_style().letter_spacing = Some(spacing.into());
++        self
++    }
++
+     /// Sets the text size to 'extra small'.
+     /// [Docs](https://tailwindcss.com/docs/font-size#setting-the-font-size)
+     fn text_xs(mut self) -> Self {
+--- a/src/text_system.rs
++++ b/src/text_system.rs
+@@ -423,6 +423,7 @@ impl TextSystem {
+                 &[FontRun {
+                     len: buffer.len(),
+                     font_id,
++                    letter_spacing: Pixels::ZERO,
+                 }],
+             )
+             .width
+@@ -763,6 +764,7 @@ impl WindowTextSystem {
+                 let font_id = self.resolve_font(&run.font);
+                 if let Some(font_run) = font_runs.last_mut()
+                     && font_id == font_run.font_id
++                    && font_run.letter_spacing == run.letter_spacing
+                     && !decoration_changed
+                 {
+                     font_run.len += run_len_within_line;
+@@ -770,6 +772,7 @@ impl WindowTextSystem {
+                     font_runs.push(FontRun {
+                         len: run_len_within_line,
+                         font_id,
++                        letter_spacing: run.letter_spacing,
+                     });
+                 }
+ 
+@@ -877,6 +880,7 @@ impl WindowTextSystem {
+             let font_id = self.resolve_font(&run.font);
+             if let Some(font_run) = font_runs.last_mut()
+                 && font_id == font_run.font_id
++                && font_run.letter_spacing == run.letter_spacing
+                 && !decoration_changed
+             {
+                 font_run.len += run.len;
+@@ -884,6 +888,7 @@ impl WindowTextSystem {
+                 font_runs.push(FontRun {
+                     len: run.len,
+                     font_id,
++                    letter_spacing: run.letter_spacing,
+                 });
+             }
+         }
+@@ -911,6 +916,7 @@ impl WindowTextSystem {
+                 &[FontRun {
+                     len: buffer.len(),
+                     font_id,
++                    letter_spacing: Pixels::ZERO,
+                 }],
+                 None,
+             )
+@@ -1080,6 +1086,8 @@ pub struct TextRun {
+     pub underline: Option<UnderlineStyle>,
+     /// The strikethrough style (if any)
+     pub strikethrough: Option<StrikethroughStyle>,
++    /// Space added after every glyph, as CSS `letter-spacing`
++    pub letter_spacing: Pixels,
+ }
+ 
+ #[cfg(all(target_os = "macos", test))]
+--- a/src/text_system/line_layout.rs
++++ b/src/text_system/line_layout.rs
+@@ -708,6 +708,7 @@ impl LineLayoutCache {
+             let mut layout = self
+                 .platform_text_system
+                 .layout_line(&text, font_size, runs);
++            apply_letter_spacing_to_layout(&mut layout, runs);
+ 
+             if let Some(force_width) = force_width {
+                 apply_force_width_to_layout(&mut layout, force_width);
+@@ -745,6 +746,37 @@ impl LineLayoutCache {
+     }
+ }
+ 
++// CSS `letter-spacing`: every glyph after the first moves by the spacing of the glyphs before it,
++// and the line grows by all of it, the last glyph's included, as browsers lay it out.
++fn apply_letter_spacing_to_layout(layout: &mut LineLayout, runs: &[FontRun]) {
++    if runs.iter().all(|run| run.letter_spacing == Pixels::ZERO) {
++        return;
++    }
++    let mut glyphs: Vec<&mut ShapedGlyph> = layout
++        .runs
++        .iter_mut()
++        .flat_map(|run| run.glyphs.iter_mut())
++        .collect();
++    glyphs.sort_by_key(|glyph| glyph.index);
++    let mut shift = Pixels::ZERO;
++    for glyph in glyphs {
++        glyph.position.x += shift;
++        shift += spacing_at(runs, glyph.index);
++    }
++    layout.width += shift;
++}
++
++fn spacing_at(runs: &[FontRun], index: usize) -> Pixels {
++    let mut end = 0;
++    for run in runs {
++        end += run.len;
++        if index < end {
++            return run.letter_spacing;
++        }
++    }
++    Pixels::ZERO
++}
++
+ // Combining marks (e.g. Thai vowel signs, Arabic diacritics) are shaped by
+ // HarfBuzz at the same x position as their base character. The force-width
+ // loop must not advance the cell counter for these zero-advance glyphs,
+@@ -781,6 +813,8 @@ fn apply_force_width_to_layout(layout: &mut LineLayout, force_width: Pixels) {
+ pub struct FontRun {
+     pub len: usize,
+     pub font_id: FontId,
++    /// Space added after every glyph of the run, as CSS `letter-spacing`.
++    pub letter_spacing: Pixels,
+ }
+ 
+ trait AsCacheKeyRef {

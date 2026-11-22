@@ -708,6 +708,7 @@ impl LineLayoutCache {
             let mut layout = self
                 .platform_text_system
                 .layout_line(&text, font_size, runs);
+            apply_letter_spacing_to_layout(&mut layout, runs);
 
             if let Some(force_width) = force_width {
                 apply_force_width_to_layout(&mut layout, force_width);
@@ -743,6 +744,37 @@ impl LineLayoutCache {
             .store(font_generation, Ordering::Release);
         font_generation
     }
+}
+
+// CSS `letter-spacing`: every glyph after the first moves by the spacing of the glyphs before it,
+// and the line grows by all of it, the last glyph's included, as browsers lay it out.
+fn apply_letter_spacing_to_layout(layout: &mut LineLayout, runs: &[FontRun]) {
+    if runs.iter().all(|run| run.letter_spacing == Pixels::ZERO) {
+        return;
+    }
+    let mut glyphs: Vec<&mut ShapedGlyph> = layout
+        .runs
+        .iter_mut()
+        .flat_map(|run| run.glyphs.iter_mut())
+        .collect();
+    glyphs.sort_by_key(|glyph| glyph.index);
+    let mut shift = Pixels::ZERO;
+    for glyph in glyphs {
+        glyph.position.x += shift;
+        shift += spacing_at(runs, glyph.index);
+    }
+    layout.width += shift;
+}
+
+fn spacing_at(runs: &[FontRun], index: usize) -> Pixels {
+    let mut end = 0;
+    for run in runs {
+        end += run.len;
+        if index < end {
+            return run.letter_spacing;
+        }
+    }
+    Pixels::ZERO
 }
 
 // Combining marks (e.g. Thai vowel signs, Arabic diacritics) are shaped by
@@ -781,6 +813,8 @@ fn apply_force_width_to_layout(layout: &mut LineLayout, force_width: Pixels) {
 pub struct FontRun {
     pub len: usize,
     pub font_id: FontId,
+    /// Space added after every glyph of the run, as CSS `letter-spacing`.
+    pub letter_spacing: Pixels,
 }
 
 trait AsCacheKeyRef {

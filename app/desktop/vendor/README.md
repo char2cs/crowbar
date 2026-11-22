@@ -45,6 +45,13 @@ Drop it when upstream gpui reports the physical key. Tracking: zed-industries/ze
 
 Drop it with `overlay-window`.
 
+`letter-spacing`, applied on top of `overlay-focus-owner`, spaces text as CSS `letter-spacing` does (develop's `tracking-*`): every glyph after the first moves by the spacing of the glyphs before it, and the line grows by all of it, the last glyph's included. Upstream gpui has no letter spacing, so the sidebar's 19px space name set `tracking-tight` was 5px wider than develop's.
+
+- `gpui-pre`, `src/style.rs`, `src/styled.rs`, `src/text_system.rs`, `src/text_system/line_layout.rs`: `TextStyle::letter_spacing`, `Styled::letter_spacing`, `TextRun::letter_spacing` and `FontRun::letter_spacing` carry the spacing; runs with different spacing do not merge, and `LineLayoutCache::layout_line` applies it after the platform shapes the line, so wrapping and truncation measure the spaced width. `LineWrapper`'s per-character widths do not include it.
+- `gpui-pre-wgpu` (`0003`), `gpui-base` (`0001`), `gpui-component` (`0002`), and the `TextRun` literals in `gpui-pre`'s examples: the new field on their `TextRun` and `FontRun` literals, at zero; the wgpu text system keeps a run's spacing when it clips runs to a line.
+
+Drop it when upstream gpui offers letter spacing. Tracking: zed-industries/zed.
+
 ## calloop 0.14.5
 
 `tracing-without-log` (`Cargo.toml`): calloop, reached through `gpui-pre-linux`, asks for tracing's `log` feature, and cargo turns a feature on for every crate that uses tracing. With `log` on, each `tracing` macro also expands to its `log` fallback, which quadruples `clippy::cognitive_complexity` in every function that logs. Nothing in the shell reads `log` records (no `log` logger or bridge is installed), so calloop loses only output nobody received.

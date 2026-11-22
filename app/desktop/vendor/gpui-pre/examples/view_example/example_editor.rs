@@ -417,6 +417,7 @@ impl Element for EditorText {
                 background_color: None,
                 underline: None,
                 strikethrough: None,
+                letter_spacing: gpui::Pixels::ZERO,
             };
             vec![
                 window
@@ -435,6 +436,7 @@ impl Element for EditorText {
                         background_color: None,
                         underline: None,
                         strikethrough: None,
+                        letter_spacing: gpui::Pixels::ZERO,
                     };
                     window
                         .text_system()

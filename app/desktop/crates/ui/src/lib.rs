@@ -31,5 +31,5 @@ pub use foundation::{
     MaterialIcon, MaterialTable, Motion, Palette, Pose, ProviderGlyph, ScaledText, Surface, Theme,
     ThemeId, ThemeMode, Vibrancy, Wordmark, app_window_width, assets, focus_ring,
 };
-pub use foundation::{font, layer, radius, shadow, spacing, text_size, timing};
+pub use foundation::{font, layer, radius, shadow, spacing, text_size, timing, tracking};
 pub use ui::init;

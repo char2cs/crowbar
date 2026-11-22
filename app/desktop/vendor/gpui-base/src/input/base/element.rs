@@ -1506,6 +1506,7 @@ impl<M: InputModeKind> TextElement<M> {
                     background_color: None,
                     underline: None,
                     strikethrough: None,
+                    letter_spacing: gpui::Pixels::ZERO,
                 }],
                 None,
             );
@@ -1562,6 +1563,7 @@ impl<M: InputModeKind> TextElement<M> {
                 background_color: None,
                 underline: None,
                 strikethrough: None,
+                letter_spacing: gpui::Pixels::ZERO,
             }],
             None,
         );
@@ -1577,6 +1579,7 @@ impl<M: InputModeKind> TextElement<M> {
                 background_color: None,
                 underline: None,
                 strikethrough: None,
+                letter_spacing: gpui::Pixels::ZERO,
             }],
             None,
         );
@@ -1634,6 +1637,7 @@ impl<M: InputModeKind> TextElement<M> {
                 background_color: None,
                 underline: None,
                 strikethrough: None,
+                letter_spacing: gpui::Pixels::ZERO,
             };
             Some(
                 window
@@ -1657,6 +1661,7 @@ impl<M: InputModeKind> TextElement<M> {
                     background_color: None,
                     underline: None,
                     strikethrough: None,
+                    letter_spacing: gpui::Pixels::ZERO,
                 };
                 // Use space for empty lines so they take up height
                 let shaped_text = if text.is_empty() { " ".into() } else { text };
@@ -3338,6 +3343,7 @@ impl<M: InputModeKind> Element for TextElement<M> {
             background_color: None,
             underline: None,
             strikethrough: None,
+            letter_spacing: gpui::Pixels::ZERO,
         };
         let marked_run = TextRun {
             len: 0,
@@ -3350,6 +3356,7 @@ impl<M: InputModeKind> Element for TextElement<M> {
                 wavy: false,
             }),
             strikethrough: None,
+            letter_spacing: gpui::Pixels::ZERO,
         };
 
         let ime_marked_range = ime_marked_display_range(
@@ -3455,6 +3462,7 @@ impl<M: InputModeKind> Element for TextElement<M> {
                             background_color: None,
                             underline: None,
                             strikethrough: None,
+                            letter_spacing: gpui::Pixels::ZERO,
                         }],
                         wrap_width,
                     );
@@ -3626,6 +3634,7 @@ impl<M: InputModeKind> Element for TextElement<M> {
                 background_color: None,
                 underline: None,
                 strikethrough: None,
+                letter_spacing: gpui::Pixels::ZERO,
             }];
             let current_line_runs = vec![TextRun {
                 len: line_number_len,
@@ -3634,6 +3643,7 @@ impl<M: InputModeKind> Element for TextElement<M> {
                 background_color: None,
                 underline: None,
                 strikethrough: None,
+                letter_spacing: gpui::Pixels::ZERO,
             }];
 
             // build line numbers
@@ -6569,6 +6579,7 @@ mod tests {
             background_color: None,
             underline: None,
             strikethrough: None,
+            letter_spacing: gpui::Pixels::ZERO,
         };
 
         // use hello this-is-test
@@ -6715,6 +6726,7 @@ mod tests {
             background_color: None,
             underline: None,
             strikethrough: None,
+            letter_spacing: gpui::Pixels::ZERO,
         };
 
         let runs = vec![
@@ -6753,6 +6765,7 @@ mod tests {
             background_color: None,
             underline: None,
             strikethrough: None,
+            letter_spacing: gpui::Pixels::ZERO,
         };
         let runs = |lens: &[usize]| {
             lens.iter()
@@ -6832,6 +6845,7 @@ mod tests {
             background_color: None,
             underline: None,
             strikethrough: None,
+            letter_spacing: gpui::Pixels::ZERO,
         };
 
         let runs = vec![

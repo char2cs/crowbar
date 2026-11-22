@@ -412,6 +412,7 @@ fn text_width(
         background_color: None,
         underline: None,
         strikethrough: None,
+        letter_spacing: gpui::Pixels::ZERO,
     };
     let layout = window
         .text_system()

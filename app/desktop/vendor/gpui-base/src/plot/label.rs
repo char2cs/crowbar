@@ -35,6 +35,7 @@ fn label_run(
         background_color: None,
         underline: None,
         strikethrough: None,
+        letter_spacing: gpui::Pixels::ZERO,
     }
 }
 

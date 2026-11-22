@@ -70,6 +70,7 @@ impl<S: WrappedSurface> Shape<S> {
             background_color: None,
             underline: None,
             strikethrough: None,
+            letter_spacing: Pixels::ZERO,
         };
         let marked = area.marked_range().filter(|_| !area.content().is_empty());
         let runs = runs_for(text.len(), marked, &base);
