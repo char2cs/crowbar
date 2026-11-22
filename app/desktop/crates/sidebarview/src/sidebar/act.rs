@@ -3,7 +3,7 @@
 use gpui::TaskExt as _;
 use gpui::{Context, Pixels, Point, Window};
 use sidebar::{
-    Command, FileDialog, FileProperties, Intent, MenuContext, ProjectId, Row, RowId,
+    Command, Deadline, FileDialog, FileProperties, Intent, MenuContext, ProjectId, Row, RowId,
     TerminalThreads,
 };
 use ui::ToastLifetime;
@@ -198,7 +198,13 @@ impl Sidebar {
             .collect();
         self.tree.request_removal(row, self.clock.now());
         self.schedule_removals(cx);
-        if self.tree.removals().tray().get(id).is_some() {
+        let counting = self
+            .tree
+            .removals()
+            .tray()
+            .get(id)
+            .is_some_and(|hold| matches!(hold.deadline, Deadline::At(_)));
+        if counting {
             cx.emit(crate::Event::Held(held));
         }
     }
@@ -289,6 +295,26 @@ mod tests {
             RowId::from("child"),
         ])];
         assert_eq!(*held.borrow(), expected);
+    }
+
+    #[gpui::test]
+    fn a_repository_asking_to_be_deleted_closes_nothing(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
+        let events = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let seen = std::rc::Rc::clone(&events);
+        let record =
+            move |_, event: &crate::Event, _: &mut gpui::App| seen.borrow_mut().push(event.clone());
+        let _subscription = cx.update(|_, cx| cx.subscribe(&sidebar, record));
+        sidebar.update_in(cx, |this, window, cx| {
+            this.apply(Intent::RequestRemoval(RowId::from("demo")), window, cx);
+        });
+        let asking = sidebar.read_with(cx, |this, _| this.tree.removals().confirmation().is_some());
+        assert!(asking, "the dialog asks");
+        assert_eq!(
+            *events.borrow(),
+            Vec::new(),
+            "no view closes before the answer"
+        );
     }
 
     #[gpui::test]

@@ -1,6 +1,7 @@
 //! What the projects scope of one host currently says.
 
 mod chat_record;
+mod departures;
 mod folder_record;
 mod operation_record;
 mod pending_move;
@@ -52,6 +53,7 @@ pub(crate) struct Entities {
     unread: Vec<String>,
     fresh: Option<HashSet<String>>,
     synced: bool,
+    departed: Vec<String>,
 }
 
 impl Entities {
@@ -164,7 +166,7 @@ impl Entities {
             PROJECT => self.projects.remove(id),
             REPO => self.repos.remove(id),
             WORKSPACE => self.workspaces.remove(id),
-            CHAT => self.chats.remove(id),
+            CHAT => self.forget_chat(id),
             FOLDER => self.folders.remove(id),
             OPERATION => self.operations.remove(id),
             PRESENCE => self.presence.remove(id),
@@ -197,7 +199,7 @@ impl Entities {
         self.workspaces.retain(|id, row| {
             held(WORKSPACE, id) || unreadable(&row.repo_id) || unreadable(&row.project_id)
         });
-        self.chats.retain(|id, row| {
+        self.prune_chats(|id, row| {
             held(CHAT, id) || unreadable(&row.repo_id) || unreadable(&row.project_id)
         });
         self.folders.retain(|id, row| {

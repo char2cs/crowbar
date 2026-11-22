@@ -202,7 +202,15 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) {
         let chats: Vec<String> = rows.iter().map(|row| row.as_str().to_owned()).collect();
-        let panes = crate::open_chats::panes_showing(self.state.layout(), &chats);
+        self.close_chats(&chats, cx);
+    }
+
+    pub(super) fn close_chats(
+        &mut self,
+        chats: &[String],
+        cx: &mut Context<'_, Self>,
+    ) {
+        let panes = crate::open_chats::panes_showing(self.state.layout(), chats);
         if panes.is_empty() {
             return;
         }

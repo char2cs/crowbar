@@ -46,6 +46,8 @@ impl ShellView {
             backend.deliver_pending();
         }
         self.sidebar.update(cx, |_, cx| cx.notify());
+        let departed = self.data.take_departed_chats();
+        self.close_chats(&departed, cx);
         self.source.native().editors().data_changed();
         self.update_landing(cx);
         self.follow_backend(cx);

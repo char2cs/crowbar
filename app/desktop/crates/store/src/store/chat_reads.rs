@@ -60,6 +60,18 @@ impl Store {
             .read(|state| crate::live::workspace_root::remote_host_of(state, chat))
     }
 
+    /// The chats the daemon deleted since the last call, each named once, so the views showing
+    /// them close as develop's `forgetChat` closes them.
+    pub fn take_departed_chats(&self) -> Vec<String> {
+        self.hub.quietly(|state| {
+            state
+                .hosts
+                .iter_mut()
+                .flat_map(|slot| slot.store.take_departed())
+                .collect()
+        })
+    }
+
     /// The id of the host `chat` runs on; `None` when it is not loaded.
     pub fn chat_host(
         &self,
