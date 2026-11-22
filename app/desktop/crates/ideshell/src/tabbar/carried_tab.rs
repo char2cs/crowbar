@@ -1,11 +1,11 @@
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     App, AppContext as _, Div, Entity, InteractiveElement, IntoElement, MouseDownEvent, RenderOnce,
-    SharedString, Stateful, StatefulInteractiveElement, Styled, Window,
+    Stateful, StatefulInteractiveElement, Styled, Window,
 };
 use std::rc::Rc;
 
-use ui::DragGhost;
+use ui::TabPreview;
 
 use crate::tabbar::strip_seat::StripSeat;
 use crate::tabbar::strip_state::StripState;
@@ -14,7 +14,6 @@ use crate::tabbar::tab_actions::TabAction;
 use crate::tabbar::tab_drag::TabDrag;
 use crate::tabbar::tab_ghost::TabGhost;
 
-const GHOST_WIDTH: f32 = 160.0;
 const LIFTED_OPACITY: f32 = 0.4;
 
 #[derive(IntoElement)]
@@ -71,7 +70,7 @@ impl RenderOnce for CarriedTab {
             .drag
             .as_ref()
             .is_some_and(|drag| drag.lifts(seat.index));
-        let picked = (tab.look.label.clone(), Rc::clone(&tab.actions.select));
+        let picked = (tab.look.drag_preview(), Rc::clone(&tab.actions.select));
         tab.element(cx, move |frame| wire(frame, seat, picked))
             .when(lifted, |tab| tab.opacity(LIFTED_OPACITY))
     }
@@ -80,7 +79,7 @@ impl RenderOnce for CarriedTab {
 fn wire(
     frame: Stateful<Div>,
     seat: StripSeat,
-    picked: (SharedString, TabAction),
+    picked: (TabPreview, TabAction),
 ) -> Stateful<Div> {
     let pressing = seat.strip.clone();
     frame
@@ -106,7 +105,7 @@ fn press(
 
 fn lift(
     seat: &StripSeat,
-    (label, select): (SharedString, TabAction),
+    (preview, select): (TabPreview, TabAction),
     cx: &mut App,
 ) -> Entity<TabGhost> {
     let tab = (seat.pane.clone(), seat.index);
@@ -114,7 +113,7 @@ fn lift(
         state.begin(tab, seat.tabs);
         state.chosen = Some(select);
     });
-    let pill = cx.new(|_| DragGhost::new(label, GHOST_WIDTH));
+    let pill = cx.new(|_| preview);
     let strip = seat.strip.clone();
     cx.new(|_| TabGhost { pill, strip })
 }
@@ -128,6 +127,9 @@ mod tests {
 
     use super::*;
     use crate::tabbar::tab_actions::{TabAction, TabActions};
+
+    /// The fixed 160px pill the strip lifted before it took develop's preview.
+    const WIDE_PILL: f32 = 160.0;
     use crate::tabbar::tab_end::TabEnd;
     use crate::tabbar::tab_look::TabLook;
     use crate::tabbar::tab_state::TabState;
@@ -164,6 +166,41 @@ mod tests {
             .iter()
             .map(|carried| carried.seat.pane.as_str().to_owned())
             .collect()
+    }
+
+    #[gpui::test]
+    fn a_lifted_tab_shows_develops_compact_preview(cx: &mut TestAppContext) {
+        cx.update(|cx| ui::init(cx).expect("ui init"));
+        let strip = cx.update(|cx| cx.new(StripState::new));
+        let seats = cx.update(|cx| CarriedTab::seated(vec![tab("a.rs")], &strip, cx));
+        let seat = seats.into_iter().next().map(|carried| carried.seat);
+        let seat = seat.expect("one seat");
+        let select: TabAction = Rc::new(|_, _| {});
+        let ghost = cx.update(|cx| lift(&seat, (TabPreview::new("a.rs"), select), cx));
+        strip.update(cx, |state, _| state.drag = Some(dragged(0, &[8.0])));
+        let (_, cx) = cx.add_window_view(move |_, _| GhostHost(ghost.clone()));
+        let bounds = cx.debug_bounds("drag-ghost").unwrap_or_default();
+        let (width, height) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
+        assert!(
+            width > 0.0 && width < WIDE_PILL,
+            "fits its name: {bounds:?}"
+        );
+        assert!(
+            (26.0..=27.0).contains(&height),
+            "an 11px line, py-1 and a 1px outline: {bounds:?}"
+        );
+    }
+
+    struct GhostHost(Entity<TabGhost>);
+
+    impl gpui::Render for GhostHost {
+        fn render(
+            &mut self,
+            _: &mut Window,
+            _: &mut gpui::Context<'_, Self>,
+        ) -> impl IntoElement {
+            gpui::ParentElement::child(gpui::div(), self.0.clone())
+        }
     }
 
     #[gpui::test]

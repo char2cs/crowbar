@@ -1,11 +1,11 @@
 use gpui::{Context, Entity, IntoElement, ParentElement, Render, Window, div};
-use ui::DragGhost;
+use ui::TabPreview;
 
 use crate::tabbar::strip_drag::StripDrag;
 use crate::tabbar::strip_state::StripState;
 
 pub(crate) struct TabGhost {
-    pub(crate) pill: Entity<DragGhost>,
+    pub(crate) pill: Entity<TabPreview>,
     pub(crate) strip: Entity<StripState>,
 }
 
@@ -43,7 +43,7 @@ mod tests {
         let strip = cx.update(|cx| cx.new(StripState::new));
         let held = strip.clone();
         let (_, cx) = cx.add_window_view(move |_, cx| TabGhost {
-            pill: cx.new(|_| DragGhost::new("main.rs", 160.0)),
+            pill: cx.new(|_| TabPreview::new("main.rs")),
             strip: held,
         });
         let mut shown = Vec::new();

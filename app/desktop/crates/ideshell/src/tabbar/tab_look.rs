@@ -1,5 +1,5 @@
 use gpui::SharedString;
-use ui::IconName;
+use ui::{IconName, TabPreview};
 
 use crate::tabbar::tab_access::TabAccess;
 use crate::tabbar::tab_keep::TabKeep;
@@ -87,6 +87,16 @@ impl TabLook {
     pub fn unsaved(mut self) -> Self {
         self.dirty = true;
         self
+    }
+
+    /// The preview lifted under the pointer while the tab is dragged.
+    #[must_use]
+    pub fn drag_preview(&self) -> TabPreview {
+        let preview = TabPreview::new(self.label.clone());
+        if !self.dirty {
+            return preview;
+        }
+        preview.unsaved()
     }
 }
 
