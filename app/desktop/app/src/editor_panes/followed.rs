@@ -167,7 +167,7 @@ fn opening(
 ) -> editorview::Opening {
     editorview::Opening {
         text,
-        path: target.file.as_ref().map(|file| file.as_str().to_owned()),
+        path: target.label.clone(),
         line: target.line,
         access,
     }
@@ -183,6 +183,7 @@ mod tests {
         EditorTarget {
             chat: "c1".into(),
             file: file.map(|path| DocumentPath::new(path).unwrap()),
+            label: file.unwrap_or("untitled:Untitled-1").to_owned(),
             arrival: Arrival::Restored,
             line: None,
         }

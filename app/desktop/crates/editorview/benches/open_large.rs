@@ -34,7 +34,7 @@ fn opened(
 ) -> (Entity<EditorView>, &mut VisualTestContext) {
     let opening = Opening {
         text: source(lines),
-        path: Some("src/large.ts".to_owned()),
+        path: "src/large.ts".to_owned(),
         line: Some(lines),
         access: Access::Editable,
     };

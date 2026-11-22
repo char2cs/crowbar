@@ -3,9 +3,9 @@
 pub struct Opening {
     /// The document's text.
     pub text: String,
-    /// The path the toolbar's breadcrumb shows and the language comes from; `None` for an
-    /// untitled document, which shows no toolbar.
-    pub path: Option<String>,
+    /// The path the toolbar's breadcrumb shows and the language comes from, or an untitled
+    /// document's `untitled:` name.
+    pub path: String,
     /// The 1-based line to reveal, as a terminal's `path:line` link asks; `None` for the top.
     pub line: Option<u32>,
     /// Whether typing edits it.

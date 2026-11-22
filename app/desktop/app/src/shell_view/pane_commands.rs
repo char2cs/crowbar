@@ -51,7 +51,8 @@ impl ShellView {
             return;
         };
         let id = self.state.serials().next_pane();
-        self.open_spec(PaneSpec::untitled(&chat, &id), cx);
+        let name = self.state.free_untitled_name();
+        self.open_spec(PaneSpec::untitled(&chat, (&id, &name)), cx);
     }
 
     pub(super) fn open_review(

@@ -18,7 +18,7 @@ mod quiet;
 pub struct EditorView {
     state: Entity<EditorState>,
     access: Access,
-    toolbar: Option<Toolbar>,
+    toolbar: Toolbar,
     saved: Rope,
     reported_dirty: bool,
     quiet: Option<Task<()>>,
@@ -39,10 +39,8 @@ impl EditorView {
             line,
             access,
         } = opening;
-        let toolbar = path.as_deref().map(Toolbar::of);
-        let language = toolbar
-            .as_ref()
-            .map_or(editor::Language::of_path(""), Toolbar::language);
+        let toolbar = Toolbar::of(&path);
+        let language = toolbar.language();
         let saved = Rope::from(text.as_str());
         let state = cx.new(|cx| {
             EditorState::new(window, cx)
@@ -87,7 +85,7 @@ impl EditorView {
         let language = crate::highlight_name::of(toolbar.language());
         self.state
             .update(cx, |state, cx| state.set_highlighter(language, cx));
-        self.toolbar = Some(toolbar);
+        self.toolbar = toolbar;
         cx.notify();
     }
 
@@ -180,17 +178,14 @@ impl Render for EditorView {
     ) -> impl IntoElement {
         let read_only = self.access == Access::ReadOnly;
         let caret = self.caret(cx);
-        let toolbar = self
-            .toolbar
-            .as_ref()
-            .map(|toolbar| toolbar.element(caret, cx));
+        let toolbar = self.toolbar.element(caret, cx);
         div()
             .size_full()
             .flex()
             .flex_col()
             .key_context(CONTEXT)
             .on_action(cx.listener(|_, _: &Save, _, cx| cx.emit(EditorEvent::SaveRequested)))
-            .children(toolbar)
+            .child(toolbar)
             .child(
                 div()
                     .flex_1()
@@ -227,7 +222,7 @@ mod tests {
         cx.update(crate::init);
         let opening = Opening {
             text: text.to_owned(),
-            path: Some("src/a.ts".to_owned()),
+            path: "src/a.ts".to_owned(),
             line,
             access,
         };
@@ -237,9 +232,8 @@ mod tests {
     fn language_of(
         view: &Entity<EditorView>,
         cx: &App,
-    ) -> Option<&'static str> {
-        let toolbar = view.read(cx).toolbar.as_ref();
-        toolbar.map(|toolbar| toolbar.language().display_name())
+    ) -> &'static str {
+        view.read(cx).toolbar.language().display_name()
     }
 
     pub(super) fn listened(
@@ -256,6 +250,20 @@ mod tests {
             cx.subscribe(view, record).detach();
         });
         heard
+    }
+
+    #[gpui::test]
+    fn an_untitled_view_shows_its_name_as_plain_text(cx: &mut TestAppContext) {
+        cx.update(|cx| ui::init(cx).unwrap());
+        cx.update(crate::init);
+        let opening = Opening {
+            text: String::new(),
+            path: "untitled:Untitled-1".to_owned(),
+            line: None,
+            access: Access::Editable,
+        };
+        let (view, cx) = cx.add_window_view(|window, cx| EditorView::new(opening, window, cx));
+        assert_eq!(cx.read(|cx| language_of(&view, cx)), "Plain Text");
     }
 
     #[gpui::test]
@@ -311,9 +319,9 @@ mod tests {
         let (view, window) = opened(("a", None), Access::Editable, cx);
         let language =
             |window: &mut gpui::VisualTestContext| window.read(|cx| language_of(&view, cx));
-        assert_eq!(language(window), Some("TypeScript"), "src/a.ts");
+        assert_eq!(language(window), "TypeScript", "src/a.ts");
         window.update(|_, cx| view.update(cx, |view, cx| view.rebind("notes.md", cx)));
-        assert_eq!(language(window), Some("Markdown"));
+        assert_eq!(language(window), "Markdown");
     }
 
     #[gpui::test]

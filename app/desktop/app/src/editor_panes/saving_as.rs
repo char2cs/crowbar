@@ -56,6 +56,7 @@ impl EditorPanes {
             return;
         };
         followed.target.file = Some(saved.path.clone());
+        saved.path.as_str().clone_into(&mut followed.target.label);
         followed.target.arrival = Arrival::Restored;
         followed.told = followed
             .view()

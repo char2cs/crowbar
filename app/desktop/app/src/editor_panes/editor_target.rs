@@ -4,6 +4,7 @@ use serde_json::Value;
 
 use super::arrival::Arrival;
 use crate::core_panes::EDITOR;
+use crate::tab_looks;
 
 const THREAD_ID: &str = "threadId";
 const PATH: &str = "path";
@@ -11,11 +12,14 @@ const ABSOLUTE: &str = "absolute";
 const UNTITLED: &str = "untitled";
 const FRESH: &str = "fresh";
 const LINE: &str = "line";
+const NAME: &str = "name";
+const UNTITLED_SCHEME: &str = "untitled:";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct EditorTarget {
     pub(crate) chat: String,
     pub(crate) file: Option<DocumentPath>,
+    pub(crate) label: String,
     pub(crate) arrival: Arrival,
     pub(crate) line: Option<u32>,
 }
@@ -36,16 +40,22 @@ impl EditorTarget {
             .and_then(Value::as_u64)
             .filter(|line| *line > 0);
         let line = line.and_then(|line| u32::try_from(line).ok());
-        let target = Self {
+        let file = match state.get(UNTITLED).and_then(Value::as_bool) {
+            Some(true) => None,
+            _ => Some(file_of(state)?),
+        };
+        let label = label_of(file.as_ref(), state);
+        Some(Self {
             chat,
-            file: match state.get(UNTITLED).and_then(Value::as_bool) {
-                Some(true) => None,
-                _ => Some(file_of(state)?),
-            },
+            file,
+            label,
             arrival,
             line,
-        };
-        Some(target)
+        })
+    }
+
+    pub(crate) fn untitled_label(name: &str) -> String {
+        format!("{UNTITLED_SCHEME}{name}")
     }
 
     pub(crate) fn settled(state: &PaneState) -> Option<PaneState> {
@@ -59,6 +69,20 @@ impl EditorTarget {
         kept.remove(LINE);
         PaneState::new(Value::Object(kept)).ok()
     }
+}
+
+fn label_of(
+    file: Option<&DocumentPath>,
+    state: &Value,
+) -> String {
+    if let Some(file) = file {
+        return file.as_str().to_owned();
+    }
+    let name = state
+        .get(NAME)
+        .and_then(Value::as_str)
+        .unwrap_or(tab_looks::UNTITLED);
+    EditorTarget::untitled_label(name)
 }
 
 fn file_of(state: &Value) -> Option<DocumentPath> {
@@ -121,6 +145,22 @@ mod tests {
             let expected =
                 expected.map(|(file, arrival, line)| (file.map(str::to_owned), arrival, line));
             assert_eq!(seen, expected, "{state}");
+        }
+    }
+
+    #[test]
+    fn a_file_is_labelled_by_its_path_and_an_untitled_one_by_its_name() {
+        let cases = [
+            (json!({"path": "src/a.ts"}), "src/a.ts"),
+            (
+                json!({"untitled": true, "name": "Untitled-2"}),
+                "untitled:Untitled-2",
+            ),
+            (json!({"untitled": true}), "untitled:Untitled"),
+        ];
+        for (state, expected) in cases {
+            let target = EditorTarget::of(&instance(state.clone())).unwrap();
+            assert_eq!(target.label, expected, "{state}");
         }
     }
 

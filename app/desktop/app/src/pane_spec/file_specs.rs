@@ -33,12 +33,13 @@ impl PaneSpec {
 
     pub(crate) fn untitled(
         chat: &str,
-        id: &str,
+        (id, name): (&str, &str),
     ) -> Result<Self> {
         let params = Params::default()
             .with(THREAD_ID, chat)?
             .with(FILE_ID, format!("u{id}"))?;
-        Self::new(EDITOR, params, PaneState::new(json!({ "untitled": true }))?)
+        let state = PaneState::new(json!({ "untitled": true, "name": name }))?;
+        Self::new(EDITOR, params, state)
     }
 
     pub(crate) fn host_file(
@@ -73,7 +74,7 @@ mod tests {
         ),
         (
             "untitled",
-            || PaneSpec::untitled("c1", "p4"),
+            || PaneSpec::untitled("c1", ("p4", "Untitled-1")),
             "untitled",
             "true",
         ),
@@ -115,7 +116,7 @@ mod tests {
 
     #[test]
     fn untitled_and_picked_files_are_told_apart_from_workspace_files() {
-        let untitled = PaneSpec::untitled("c1", "p4").unwrap();
+        let untitled = PaneSpec::untitled("c1", ("p4", "Untitled-1")).unwrap();
         let picked = PaneSpec::host_file("c1", "/home/a.rs").unwrap();
         assert_ne!(untitled.params, picked.params, "ids");
     }

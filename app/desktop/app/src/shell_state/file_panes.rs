@@ -4,6 +4,7 @@ use protocol::{DocumentPath, PaneId};
 use super::ShellState;
 use crate::editor_panes::EditorTarget;
 use crate::pane_spec::PaneSpec;
+use crate::tab_looks;
 
 impl ShellState {
     pub(crate) fn settle_file_pane(
@@ -56,6 +57,26 @@ impl ShellState {
         Some(shown)
     }
 
+    pub(crate) fn free_untitled_name(&self) -> String {
+        let layout = self.history.layout();
+        let taken: Vec<String> = layout
+            .tabs()
+            .iter()
+            .flat_map(|tab| {
+                tab.pane_ids()
+                    .into_iter()
+                    .filter_map(|id| tab.pane(&id).cloned())
+            })
+            .filter_map(|instance| EditorTarget::of(&instance))
+            .filter(|target| target.file.is_none())
+            .map(|target| target.label)
+            .collect();
+        let name = |n: usize| format!("{}-{n}", tab_looks::UNTITLED);
+        let free = |n: &usize| !taken.contains(&EditorTarget::untitled_label(&name(*n)));
+        let n = (1..=taken.len()).find(free).unwrap_or(taken.len() + 1);
+        name(n)
+    }
+
     fn fresh_pane(&self) -> Option<PaneId> {
         match PaneId::new(self.serials.next_pane()) {
             Ok(pane) => Some(pane),
@@ -104,9 +125,34 @@ mod tests {
             .collect()
     }
 
+    fn open_untitled(
+        rig: &mut crate::test_support::ShellRig,
+        names: &[&str],
+    ) {
+        for (index, name) in names.iter().enumerate() {
+            let id = format!("p{index}");
+            let spec = PaneSpec::untitled("c1", (&id, name)).unwrap();
+            rig.shell.open_spec(spec);
+        }
+    }
+
+    #[test]
+    fn a_new_untitled_file_takes_the_lowest_number_no_open_one_holds() {
+        let cases: [(&[&str], &str); 3] = [
+            (&[], "Untitled-1"),
+            (&["Untitled-1", "Untitled-2"], "Untitled-3"),
+            (&["Untitled-1", "Untitled-3"], "Untitled-2"),
+        ];
+        for (open, expected) in cases {
+            let mut rig = shell_rig();
+            open_untitled(&mut rig, open);
+            assert_eq!(rig.shell.free_untitled_name(), expected, "{open:?}");
+        }
+    }
+
     #[test]
     fn an_untitled_tab_saved_as_a_file_becomes_that_file_in_its_place() {
-        let untitled = r#"{"untitled":true}"#;
+        let untitled = r#"{"untitled":true,"name":"Untitled-1"}"#;
         let cases = [
             (
                 "a new file",
@@ -121,7 +167,8 @@ mod tests {
         ];
         for (name, target, expected) in cases {
             let mut rig = shell_rig();
-            rig.shell.open_spec(PaneSpec::untitled("c1", "p4").unwrap());
+            rig.shell
+                .open_spec(PaneSpec::untitled("c1", ("p4", "Untitled-1")).unwrap());
             rig.shell
                 .open_spec(PaneSpec::editor("c1", "src/b.ts").unwrap());
             let pane = rig.shell.layout().tabs()[0].pane_ids()[0].clone();
