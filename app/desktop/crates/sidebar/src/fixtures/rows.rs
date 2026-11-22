@@ -1,5 +1,6 @@
 //! The rows of the demo data: the reference capture and a richer tree.
 
+use crate::fixtures::DemoShell;
 use crate::shell::Activity;
 use crate::shell::AvatarTint;
 use crate::shell::Lock;
@@ -95,6 +96,13 @@ pub(crate) fn rich_rows() -> Vec<Row> {
     );
     rows.extend([working, folder, child]);
     rows
+}
+
+impl DemoShell {
+    /// A profile with no space yet: no projects, one host and an empty tree.
+    pub fn empty() -> Self {
+        Self::with_rows(Vec::new(), (0, 1))
+    }
 }
 
 #[cfg(test)]

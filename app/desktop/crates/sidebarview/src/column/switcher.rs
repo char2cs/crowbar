@@ -30,17 +30,20 @@ const MARK: f32 = 20.0;
 const NAME_SIZE: f32 = 19.0;
 const NAME_LINE: f32 = 24.0;
 const OTHER_MARK_ALPHA: f32 = 0.8;
+const SELECTOR: &str = "sidebar-switcher";
 
 impl Sidebar {
     pub(crate) fn switcher(
         &mut self,
         window: &mut Window,
         cx: &mut Context<'_, Self>,
-    ) -> Option<AnyElement> {
+    ) -> AnyElement {
         let palette = Theme::of(cx).palette(Surface::Chrome);
         let projects = self.data.projects();
-        let active = self.data.active_project()?;
-        let current = projects.iter().find(|project| project.id == active)?;
+        let active = self.data.active_project();
+        let current = projects
+            .iter()
+            .find(|project| Some(&project.id) == active.as_ref());
         let glide = hover_glide::track("switcher", &self.clock, window, cx);
         let reveal = match projects.len() {
             0 | 1 => 1.0,
@@ -48,33 +51,41 @@ impl Sidebar {
         };
         let others: Vec<AnyElement> = projects
             .iter()
-            .filter(|project| project.id != current.id)
+            .filter(|project| Some(&project.id) != current.map(|current| &current.id))
             .map(|project| Self::other_mark(project, palette, window, cx))
             .collect();
-        let family = Theme::of(cx).heading_family();
+        let slot = add_slot(Self::add_button(cx), reveal);
+        let (block, trailing) = match current {
+            Some(current) => (self.named_block(current, slot, cx), None),
+            None => (div().flex_1().min_w_0(), Some(slot)),
+        };
+        div()
+            .id("switcher")
+            .debug_selector(|| SELECTOR.into())
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(SPACE_MD)
+            .h(px(SWITCHER_HEIGHT))
+            .px(SPACE_LG)
+            .overflow_hidden()
+            .on_hover(hover_glide::listener(&glide))
+            .child(block)
+            .children(trailing)
+            .children(others)
+            .into_any_element()
+    }
+
+    fn named_block(
+        &mut self,
+        current: &Project,
+        slot: Div,
+        cx: &mut Context<'_, Self>,
+    ) -> Div {
+        let theme = *Theme::of(cx);
         self.sync_space_icon(cx);
         let editor = self.offers_space_icon().then(|| self.icon_editor.clone());
-        let block = active_block(
-            current,
-            (Self::add_button(cx), editor),
-            (reveal, family),
-            palette,
-        );
-        Some(
-            div()
-                .id("switcher")
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap(SPACE_MD)
-                .h(px(SWITCHER_HEIGHT))
-                .px(SPACE_LG)
-                .overflow_hidden()
-                .on_hover(hover_glide::listener(&glide))
-                .child(block)
-                .children(others)
-                .into_any_element(),
-        )
+        active_block(current, (slot, editor), theme)
     }
 
     fn add_button(cx: &mut Context<'_, Self>) -> IconButton {
@@ -167,13 +178,25 @@ fn editable_tile(
     .into_any_element()
 }
 
+fn add_slot(
+    add: IconButton,
+    reveal: f32,
+) -> Div {
+    div()
+        .flex_none()
+        .overflow_hidden()
+        .w(px(TILE * reveal))
+        .ml(px(TILE_PULL * (1.0 - reveal)))
+        .opacity(reveal)
+        .child(add)
+}
+
 fn active_block(
     current: &Project,
-    controls: (IconButton, Option<Entity<IconEditor>>),
-    look: (f32, &'static str),
-    palette: &Palette,
+    (slot, editor): (Div, Option<Entity<IconEditor>>),
+    theme: Theme,
 ) -> Div {
-    let ((add, editor), (reveal, family)) = (controls, look);
+    let (family, palette) = (theme.heading_family(), theme.palette(Surface::Chrome));
     let mark = mark_view(&current.mark, px(MARK), palette);
     let tile = div()
         .flex()
@@ -185,13 +208,6 @@ fn active_block(
         .rounded(radius::MD);
     let tile = editable_tile(tile, mark, editor);
     let name = name_cell(current, family, palette);
-    let slot = div()
-        .flex_none()
-        .overflow_hidden()
-        .w(px(TILE * reveal))
-        .ml(px(TILE_PULL * (1.0 - reveal)))
-        .opacity(reveal)
-        .child(add);
     div()
         .flex()
         .flex_1()
@@ -259,6 +275,18 @@ mod tests {
         assert!(
             (narrower - expected).abs() < 1.0,
             "{narrower} vs {expected}"
+        );
+    }
+
+    #[gpui::test]
+    fn an_empty_profile_still_offers_the_add_button(cx: &mut TestAppContext) {
+        let (_, _, cx) = open(cx, DemoShell::empty());
+        cx.run_until_parked();
+        let row = cx.debug_bounds(super::SELECTOR).unwrap_or_default();
+        assert_eq!(
+            row.size.height,
+            px(super::SWITCHER_HEIGHT),
+            "develop keeps the switcher row with its + when no space exists"
         );
     }
 

@@ -49,7 +49,7 @@ impl Sidebar {
             .text_color(palette.foreground())
             .font_family(family)
             .child(header)
-            .children(switcher)
+            .child(switcher)
             .child(bar)
             .child(div().flex_1().min_h_0().child(panel))
             .child(div().flex_none().h(px(FOOT_HEIGHT)))

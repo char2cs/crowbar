@@ -48,12 +48,7 @@ impl Render for ProjectsFailed {
             .justify_center()
             .gap(px(GAP))
             .p(px(PADDING))
-            .child(
-                div()
-                    .text_size(px(GLYPH_TEXT))
-                    .opacity(GLYPH_OPACITY)
-                    .child(GLYPH),
-            )
+            .child(warning(palette))
             .child(
                 div()
                     .text_size(px(TITLE_TEXT))
@@ -68,6 +63,14 @@ impl Render for ProjectsFailed {
                     .child(retry),
             )
     }
+}
+
+fn warning(palette: &Palette) -> gpui::Div {
+    div()
+        .text_size(px(GLYPH_TEXT))
+        .text_color(palette.foreground())
+        .opacity(GLYPH_OPACITY)
+        .child(GLYPH)
 }
 
 fn ground(palette: &Palette) -> Hsla {
@@ -104,5 +107,18 @@ mod tests {
             palette.chrome_bg(),
             "develop's landing is a transparent column over the body's chrome ground"
         );
+    }
+
+    #[test]
+    fn the_warning_glyph_is_drawn_in_the_text_colour_at_half_strength() {
+        let palette = Theme::default().palette(Surface::Window);
+        let mut glyph = warning(palette);
+        let style = glyph.style();
+        assert_eq!(
+            style.text.color,
+            Some(palette.foreground()),
+            "develop's ⚠ inherits the foreground"
+        );
+        assert_eq!(style.opacity, Some(GLYPH_OPACITY));
     }
 }
