@@ -3,6 +3,7 @@ use protocol::{DocumentPath, PaneId};
 
 use super::EditorPanes;
 use super::arrival::Arrival;
+use super::followed::listen;
 use crate::document_source::{save_failed, saved_as_into};
 use crate::request_queue::send;
 use crate::saved_file::SavedFile;
@@ -56,6 +57,9 @@ impl EditorPanes {
         };
         followed.target.file = Some(saved.path.clone());
         followed.target.arrival = Arrival::Restored;
+        followed.told = followed
+            .view()
+            .map(|view| listen(view, (&file_pane, &self.requests), cx));
         if let Some(view) = followed.view().cloned() {
             view.update(cx, |view, cx| view.rebind(saved.path.as_str(), cx));
             view.update(cx, |view, cx| view.mark_saved(&saved.text, cx));
@@ -84,6 +88,17 @@ mod tests {
     use crate::shell_request::ShellRequest;
     use crate::test_support::FakeDocuments;
 
+    fn saved_as_told(
+        heard: &async_channel::Receiver<ShellRequest>,
+        (pane, saved): (&PaneId, &SavedFile),
+    ) -> bool {
+        let expected = ShellRequest::Document(DocumentRequest::SavedAs {
+            pane: pane.clone(),
+            saved: saved.clone(),
+        });
+        std::iter::from_fn(|| heard.try_recv().ok()).any(|told| told == expected)
+    }
+
     #[gpui::test]
     fn an_untitled_pane_saved_as_a_file_writes_its_text_and_then_shows_that_file_clean(
         cx: &mut TestAppContext
@@ -106,12 +121,10 @@ mod tests {
             path,
             text: "hi".to_owned(),
         };
-        let expected = ShellRequest::Document(DocumentRequest::SavedAs {
-            pane: pane.clone(),
-            saved: saved.clone(),
-        });
-        let told: Vec<ShellRequest> = std::iter::from_fn(|| heard.try_recv().ok()).collect();
-        assert!(told.contains(&expected), "{told:?}");
+        assert!(
+            saved_as_told(&heard, (&pane, &saved)),
+            "told it was saved as"
+        );
         let file_pane = PaneId::new("f2").unwrap();
         window.update(|_, cx| panes.rebind((&pane, file_pane.clone()), &saved, cx));
         assert!(
@@ -119,9 +132,14 @@ mod tests {
             "rebound"
         );
         assert_eq!(panes.untitled_chat(&file_pane), None, "a file now");
-        assert!(
-            !view.read_with(window, editorview::EditorView::is_dirty),
-            "clean"
+        let clean = ShellRequest::Document(DocumentRequest::Dirty {
+            pane: file_pane,
+            dirty: false,
+        });
+        assert_eq!(
+            heard.try_recv().ok(),
+            Some(clean),
+            "clean, told as the file pane"
         );
     }
 }

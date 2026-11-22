@@ -5,4 +5,5 @@ pub(crate) struct PromptWords {
     pub(crate) cancel_id: &'static str,
     pub(crate) confirm_id: &'static str,
     pub(crate) confirm: &'static str,
+    pub(crate) prefill: crate::prefill::Prefill,
 }

@@ -89,6 +89,7 @@ mod picking_panes;
 mod pixels;
 mod ports;
 mod preferences_store;
+mod prefill;
 mod project_slot;
 mod prompt_event;
 mod prompt_words;

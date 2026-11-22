@@ -1,5 +1,8 @@
 use editorview::{EditorEvent, EditorView};
-use gpui::{AnyElement, App, AppContext as _, Entity, Focusable as _, IntoElement as _, Window};
+use gpui::{
+    AnyElement, App, AppContext as _, Entity, Focusable as _, IntoElement as _, Subscription,
+    Window,
+};
 use protocol::PaneId;
 
 use crate::document_request::DocumentRequest;
@@ -19,6 +22,7 @@ pub(super) struct Followed {
     pub(super) phase: PanePhase,
     pub(super) keyboard: Keyboard,
     access: editorview::Access,
+    pub(super) told: Option<Subscription>,
 }
 
 impl Followed {
@@ -35,6 +39,7 @@ impl Followed {
             phase,
             keyboard,
             access,
+            told: None,
         }
     }
 
@@ -99,7 +104,9 @@ impl Followed {
     ) -> AnyElement {
         if let PanePhase::Read(text) = &mut self.phase {
             let opening = opening(&self.target, std::mem::take(text), self.access);
-            self.phase = PanePhase::Shown(shown(opening, teller(pane, requests), window, cx));
+            let view = cx.new(|cx| EditorView::new(opening, window, cx));
+            self.told = Some(listen(&view, (pane, requests), cx));
+            self.phase = PanePhase::Shown(view);
         }
         self.take_keyboard(window, cx);
         let (requests, retry) = (
@@ -122,16 +129,13 @@ impl Followed {
     }
 }
 
-fn shown(
-    opening: editorview::Opening,
-    tell: impl Fn(EditorEvent) + 'static,
-    window: &mut Window,
+pub(super) fn listen(
+    view: &Entity<EditorView>,
+    (pane, requests): (&PaneId, &Requests),
     cx: &mut App,
-) -> Entity<EditorView> {
-    let view = cx.new(|cx| EditorView::new(opening, window, cx));
-    cx.subscribe(&view, move |_, event: &EditorEvent, _| tell(*event))
-        .detach();
-    view
+) -> Subscription {
+    let tell = teller(pane, requests);
+    cx.subscribe(view, move |_, event: &EditorEvent, _| tell(*event))
 }
 
 fn teller(

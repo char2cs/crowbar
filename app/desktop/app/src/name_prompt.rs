@@ -5,6 +5,7 @@ use gpui::{
 use ui::{Button, ButtonVariant, Dialog, DialogSize, Surface, TextInput, TextInputEvent};
 
 use crate::name_event::NameEvent;
+use crate::prefill::Prefill;
 use crate::prompt_words::PromptWords;
 
 const BUTTON_GAP: f32 = 8.0;
@@ -16,6 +17,7 @@ pub(crate) const RENAME: PromptWords = PromptWords {
     cancel_id: "rename-prompt-cancel",
     confirm_id: "rename-prompt-confirm",
     confirm: "Rename",
+    prefill: Prefill::CaretAtEnd,
 };
 
 pub(crate) const SAVE_AS: PromptWords = PromptWords {
@@ -24,6 +26,7 @@ pub(crate) const SAVE_AS: PromptWords = PromptWords {
     cancel_id: "save-as-prompt-cancel",
     confirm_id: "save-as-prompt-confirm",
     confirm: "OK",
+    prefill: Prefill::Selected,
 };
 
 pub(crate) struct NamePrompt {
@@ -42,6 +45,9 @@ impl NamePrompt {
     ) -> Self {
         let field = cx.new(|cx| TextInput::new(PLACEHOLDER, cx).on(Surface::Window));
         field.update(cx, |field, cx| field.set_text(current, cx));
+        if words.prefill == Prefill::Selected {
+            field.update(cx, TextInput::select_all);
+        }
         field.update(cx, |field, cx| field.focus(window, cx));
         let watch = cx.subscribe(&field, |this, _, event: &TextInputEvent, cx| match event {
             TextInputEvent::Submitted => this.confirm(cx),
@@ -150,5 +156,18 @@ mod tests {
         let (prompt, heard) = prompt(cx, "zsh");
         prompt.update(cx, |_, cx| NamePrompt::dismiss(cx));
         assert_eq!(*heard.borrow(), [NameEvent::Dismissed]);
+    }
+
+    #[gpui::test]
+    fn typing_replaces_a_selected_prefill_and_follows_one_left_at_its_end(cx: &mut TestAppContext) {
+        cx.update(|cx| cx.set_global(ui::Theme::default()));
+        let cases = [(RENAME, "Terminalx"), (SAVE_AS, "x")];
+        for (words, expected) in cases {
+            let (prompt, window) =
+                cx.add_window_view(|window, cx| NamePrompt::new(("Terminal", words), window, cx));
+            window.simulate_input("x");
+            let typed = window.read(|cx| prompt.read(cx).field.read(cx).text().to_owned());
+            assert_eq!(typed, expected, "{}", words.title);
+        }
     }
 }
