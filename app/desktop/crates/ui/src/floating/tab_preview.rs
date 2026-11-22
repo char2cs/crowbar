@@ -1,8 +1,9 @@
 //! The lifted editor tab under the pointer while it is dragged (develop's `TabDragPreview`).
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    App, Context, InteractiveElement, IntoElement, ParentElement, Render, SharedString, Styled,
-    Window, div, px, relative,
+    App, Context, InteractiveElement, IntoElement, ParentElement, Pixels, Render, SharedString,
+    Size, Styled, Window, div, px, relative,
 };
 
 use crate::floating::Portal;
@@ -20,12 +21,14 @@ const LINE: f32 = 1.5;
 const SHADOW_ALPHA: f32 = 0.15;
 const DIRTY_DOT: &str = "•";
 
-/// An editor tab's drag preview: the lifted control surface, `rounded-lg`, `px-2 py-1`, as wide as
-/// its `ui-text-xs` name (at most 200px), with the unsaved dot after it. Return it from `on_drag`.
+/// An editor tab's drag preview: the lifted control surface, `rounded-lg`, `px-2 py-1`, its
+/// `ui-text-xs` name (at most 200px) with the unsaved dot after it, as large as the tab it lifts
+/// or else as its name. Return it from `on_drag`.
 #[derive(Clone)]
 pub struct TabPreview {
     name: SharedString,
     unsaved: bool,
+    size: Option<Size<Pixels>>,
 }
 
 impl TabPreview {
@@ -34,7 +37,18 @@ impl TabPreview {
         Self {
             name: name.into(),
             unsaved: false,
+            size: None,
         }
+    }
+
+    /// Takes the size of the tab it lifts, as develop's drag overlay takes its source's.
+    #[must_use]
+    pub fn sized(
+        mut self,
+        size: Size<Pixels>,
+    ) -> Self {
+        self.size = Some(size);
+        self
     }
 
     /// Shows the unsaved dot after the name.
@@ -72,7 +86,7 @@ fn preview(
         .flex()
         .max_w(px(LABEL_MAX))
         .overflow_hidden()
-        .text_color(palette.foreground())
+        .text_color(palette.control_foreground())
         .child(div().truncate().child(tab.name.clone()))
         .children(dot);
     let pill = div()
@@ -90,6 +104,7 @@ fn preview(
         .font_family(theme.ui_family())
         .text_size(ScaledText::Xs.size(&theme))
         .line_height(relative(LINE))
+        .when_some(tab.size, |pill, size| pill.w(size.width).h(size.height))
         .child(label);
     div().flex().child(pill)
 }

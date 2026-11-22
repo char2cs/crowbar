@@ -457,6 +457,25 @@ mod tests {
     }
 
     #[gpui::test]
+    fn a_lifted_tab_s_preview_takes_the_tab_s_size(cx: &mut TestAppContext) {
+        let cx = opened_with(cx, (3, 0, 1200.0), Moves::default());
+        let tab = cx.debug_bounds("strip-tab-frame-t0").unwrap_or_default();
+        let left = gpui::MouseButton::Left;
+        cx.simulate_mouse_down(tab.center(), left, Modifiers::none());
+        let held = gpui::point(tab.center().x + px(40.0), tab.center().y + px(80.0));
+        let nudge = gpui::point(tab.center().x + px(10.0), tab.center().y);
+        cx.simulate_mouse_move(nudge, Some(left), Modifiers::none());
+        cx.simulate_mouse_move(held, Some(left), Modifiers::none());
+        cx.run_until_parked();
+        let ghost = cx.debug_bounds("drag-ghost").unwrap_or_default();
+        cx.simulate_mouse_up(held, left, Modifiers::none());
+        assert_eq!(
+            ghost.size, tab.size,
+            "develop's overlay copies its source's size"
+        );
+    }
+
+    #[gpui::test]
     fn the_more_tabs_caret_appears_only_when_the_tabs_outgrow_the_row(cx: &mut TestAppContext) {
         let crowded = opened(cx, (12, 300.0)).debug_bounds("strip-more").is_some();
         assert!(crowded, "twelve tabs do not fit in 300 px");

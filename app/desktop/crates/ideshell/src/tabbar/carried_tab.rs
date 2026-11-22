@@ -113,6 +113,11 @@ fn lift(
         state.begin(tab, seat.tabs);
         state.chosen = Some(select);
     });
+    let size = seat.strip.read(cx).tab_size((seat.index, seat.tabs));
+    let preview = match size {
+        Some(size) => preview.sized(size),
+        None => preview,
+    };
     let pill = cx.new(|_| preview);
     let strip = seat.strip.clone();
     cx.new(|_| TabGhost { pill, strip })
