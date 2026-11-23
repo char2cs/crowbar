@@ -1,0 +1,52 @@
+--- a/src/input/base/state.rs
++++ b/src/input/base/state.rs
+@@ -1337,6 +1337,49 @@
+         cx.notify();
+     }
+ 
++    /// Replace the entire text as one undo step, keeping every selection at its
++    /// line and column (clamped to the new text) and the scroll where it was.
++    ///
++    /// Use this for text that changed outside the editor, such as the file on
++    /// disk, as Monaco's `pushEditOperations` with the selections set back does.
++    pub fn replace_all_keeping_selections(
++        &mut self,
++        text: impl Into<SharedString>,
++        window: &mut Window,
++        cx: &mut Context<Self>,
++    ) {
++        let kept: Vec<(CursorSelection, Position, Position)> = self
++            .selections
++            .iter()
++            .map(|selection| {
++                let start = self.text.offset_to_position(selection.start);
++                let end = self.text.offset_to_position(selection.end);
++                (*selection, start, end)
++            })
++            .collect();
++        let scroll = self.scroll_handle.offset();
++        self.replace_text(text, window, cx);
++        let lines = self.text.lines_len();
++        let restored = kept
++            .into_iter()
++            .map(|(mut selection, start, end)| {
++                selection.start = self.offset_within(&start, lines);
++                selection.end = self.offset_within(&end, lines);
++                selection
++            })
++            .collect();
++        self.restore_selections(Some(restored));
++        self.deferred_scroll_offset = Some(scroll);
++        cx.notify();
++    }
++
++    fn offset_within(&self, position: &Position, lines: usize) -> usize {
++        if position.line as usize >= lines {
++            return self.text.len();
++        }
++        self.text.position_to_offset(position)
++    }
++
+     /// Perform `f` with the user-facing edit restrictions lifted.
+     ///
+     /// The `disabled` and `readonly` modes only reject the changes made by the

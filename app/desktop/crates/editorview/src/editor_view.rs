@@ -9,9 +9,10 @@ use gpui_kit::component::input::{Editor, EditorState, Position};
 use crate::save_key::{CONTEXT, Save};
 use crate::theme::ink;
 use crate::toolbar::Toolbar;
-use crate::{Access, Caret, EditorEvent, Opening};
+use crate::{Access, Caret, EditorEvent, Opening, SaveMark};
 
 mod access_change;
+mod disk_text;
 mod quiet;
 
 /// One pane's editor: the gpui-kit `Editor` drawn over the document text it holds, under the
@@ -21,6 +22,8 @@ pub struct EditorView {
     access: Access,
     toolbar: Toolbar,
     saved: Rope,
+    save_mark: SaveMark,
+    disk_conflict: bool,
     reported_dirty: bool,
     quiet: Option<Task<()>>,
     _caret_moves: Subscription,
@@ -60,6 +63,8 @@ impl EditorView {
             access,
             toolbar,
             saved,
+            save_mark: SaveMark::default(),
+            disk_conflict: false,
             reported_dirty: false,
             quiet: None,
             _caret_moves: caret_moves,
@@ -97,7 +102,11 @@ impl EditorView {
         cx: &mut Context<'_, Self>,
     ) {
         self.saved = Rope::from(text);
+        self.save_mark = disk_text::next_mark(self.save_mark);
         self.report_dirty(cx);
+        if !self.reported_dirty {
+            self.disk_conflict = false;
+        }
     }
 
     fn on_input(
