@@ -15,6 +15,7 @@ mod caret_follower;
 mod chat_hosts;
 mod chat_label;
 mod chat_locks;
+mod chat_workspaces;
 mod chrome;
 mod clock;
 mod close_choice;

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use gpui::{AsyncApp, Context, PathPromptOptions, WeakEntity, Window};
+use gpui::{AsyncApp, ClipboardItem, Context, PathPromptOptions, WeakEntity, Window};
 use std::sync::atomic::Ordering;
 use store::{Outcome as DataOutcome, SettingsAdapter};
 use ui::ToastKind;
@@ -74,9 +74,7 @@ impl ShellView {
             DataOutcome::PickDescriptor => self.pick_descriptor(cx),
             DataOutcome::PairHost => self.show_pairing(window, cx),
             DataOutcome::ClearBrowsingData => self.clear_browsing_data(cx),
-            DataOutcome::CopyText(text) => {
-                cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
-            },
+            DataOutcome::CopyText(text) => cx.write_to_clipboard(ClipboardItem::new_string(text)),
             DataOutcome::NameRow { row, name } => self.sidebar.update(cx, |sidebar, cx| {
                 sidebar.name_new_row((row, &name), window, cx);
             }),
@@ -98,6 +96,9 @@ impl ShellView {
             },
             DataOutcome::ReviewViewed { workspace, viewed } => {
                 self.push_review_viewed(&workspace, &viewed);
+            },
+            disk @ (DataOutcome::FileChanged { .. } | DataOutcome::FilesSynced { .. }) => {
+                self.disk_changed(disk, cx);
             },
             DataOutcome::RemovalRefused { row, reason } => {
                 tracing::warn!(%reason, "a delete was refused");

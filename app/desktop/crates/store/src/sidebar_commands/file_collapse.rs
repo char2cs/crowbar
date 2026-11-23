@@ -47,7 +47,7 @@ mod tests {
         let transport: Arc<dyn protocol::DaemonTransport> = Arc::<FakeDaemon>::clone(&daemon);
         let hub = Hub::new(state, Arc::new(|| {}));
         SidebarCommands {
-            fleet: Fleet::new(&Handle::current(), &hub, &transport),
+            fleet: Fleet::new(&Handle::current(), &hub, (&transport, Arc::new(|_| {}))),
             hub,
             handle: Handle::current(),
             outcome: Arc::new(|_| {}),

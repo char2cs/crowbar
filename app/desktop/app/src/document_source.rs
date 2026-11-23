@@ -73,6 +73,20 @@ pub(crate) fn saved_into(
     })
 }
 
+pub(crate) fn disk_into(
+    requests: async_channel::Sender<ShellRequest>,
+    pane: PaneId,
+    since: editorview::SaveMark,
+) -> FileDone<String> {
+    Box::new(move |result| match result {
+        Ok(text) => send(
+            &requests,
+            ShellRequest::Document(DocumentRequest::DiskRead { pane, text, since }),
+        ),
+        Err(error) => tracing::debug!(%error, %pane, "a file changed on disk and did not read"),
+    })
+}
+
 fn failure_of(
     file: &DocumentPath,
     error: &FileError,

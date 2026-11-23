@@ -103,7 +103,7 @@ impl Store {
         state.icons = IconCache::in_dir(desk.notes.directory().join("space-icons"));
         state.viewed = ViewedFiles::in_dir(&desk.notes.directory());
         let hub = Hub::new(state, signal);
-        let fleet = Fleet::new(handle, &hub, transport);
+        let fleet = Fleet::new(handle, &hub, (transport, Arc::clone(&outcome)));
         followed
             .into_iter()
             .zip(dials)

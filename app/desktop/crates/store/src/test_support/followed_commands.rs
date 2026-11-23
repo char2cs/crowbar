@@ -18,7 +18,7 @@ pub(crate) fn followed_commands(
     let transport: Arc<dyn protocol::DaemonTransport> = Arc::<FakeDaemon>::clone(&daemon);
     let hub = Hub::new(state, Arc::new(|| {}));
     let commands = SidebarCommands {
-        fleet: Fleet::new(&Handle::current(), &hub, &transport),
+        fleet: Fleet::new(&Handle::current(), &hub, (&transport, Arc::new(|_| {}))),
         hub,
         handle: Handle::current(),
         outcome,

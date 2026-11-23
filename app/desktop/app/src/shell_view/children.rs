@@ -92,10 +92,13 @@ fn editors_of(
     requests: &async_channel::Sender<ShellRequest>,
 ) -> crate::editor_panes::EditorPanes {
     let documents: Rc<dyn crate::document_source::DocumentSource> = Rc::new(data.documents());
-    let locks = Rc::clone(data);
+    let (locks, workspaces) = (Rc::clone(data), Rc::clone(data));
     crate::editor_panes::EditorPanes::new(
         documents,
-        Rc::new(move |chat| locks.chat_read_only(chat)),
+        (
+            Rc::new(move |chat| locks.chat_read_only(chat)),
+            Rc::new(move |chat| workspaces.chat_workspace(chat)),
+        ),
         requests.clone(),
     )
 }

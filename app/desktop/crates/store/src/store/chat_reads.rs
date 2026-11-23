@@ -42,6 +42,21 @@ impl Store {
             .read(|state| crate::live::chat_project::of(state, chat))
     }
 
+    /// The workspace `chat` works in; `None` when it is not loaded or has none.
+    pub fn chat_workspace(
+        &self,
+        chat: &str,
+    ) -> Option<String> {
+        self.hub.read(|state| {
+            state
+                .hosts
+                .iter()
+                .find_map(|slot| slot.store.chats.get(chat))
+                .map(|record| record.workspace_id.clone())
+                .filter(|workspace| !workspace.is_empty())
+        })
+    }
+
     /// The folder `chat` works in, on whichever computer holds it; `None` when it is not loaded.
     pub fn chat_root(
         &self,
@@ -106,11 +121,13 @@ mod tests {
     async fn a_loaded_chat_reads_its_project_and_its_tab_row() {
         let data = local_store(1);
         let frame = Frame::decode(
-            r#"{"t":"entity","scope":"projects","kind":"chat","id":"c","v":1,"data":{"id":"c","projectId":"p","working":true}}"#,
+            r#"{"t":"entity","scope":"projects","kind":"chat","id":"c","v":1,"data":{"id":"c","projectId":"p","workspaceId":"w","working":true}}"#,
         )
         .unwrap();
         data.hub.edit(|state| state.apply("local", frame));
         assert_eq!(data.chat_project("c").as_deref(), Some("p"));
+        assert_eq!(data.chat_workspace("c").as_deref(), Some("w"));
+        assert_eq!(data.chat_workspace("gone"), None);
         let row = data.chat_row("c").unwrap();
         assert_eq!(row.activity, sidebar::Activity::Working, "its turn runs");
         assert!(

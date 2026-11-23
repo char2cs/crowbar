@@ -23,6 +23,12 @@ pub(crate) enum DocumentRequest {
         pane: protocol::PaneId,
         saved: crate::saved_file::SavedFile,
     },
+    /// A file pane's file changed on disk and was read again, under the save mark it had then.
+    DiskRead {
+        pane: protocol::PaneId,
+        text: String,
+        since: editorview::SaveMark,
+    },
     /// A file pane's save failed, with the daemon's reason.
     SaveFailed {
         pane: protocol::PaneId,

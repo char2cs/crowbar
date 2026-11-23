@@ -13,6 +13,8 @@ use crate::live::fleet::host_stream::files_wire::{
     listed_of, load_all, reload_git_when_told, send, wanted_scope,
 };
 use crate::live::state::Hub;
+use crate::live::{Outcome, OutcomeSink};
+
 const FILE_CHANGE: &str = "file_change";
 const ROOT: &str = "";
 const RESYNC: &str = "resync";
@@ -23,12 +25,14 @@ pub(crate) struct FilesHold {
     held: Option<String>,
     git: Arc<Notify>,
     reloader: JoinHandle<()>,
+    outcome: OutcomeSink,
 }
 
 impl FilesHold {
     pub(crate) fn new(
         hub: &Arc<Hub>,
         host: &str,
+        outcome: OutcomeSink,
     ) -> Self {
         let git = Arc::new(Notify::new());
         let reloader = tokio::spawn(reload_git_when_told(Arc::clone(hub), Arc::clone(&git)));
@@ -38,6 +42,7 @@ impl FilesHold {
             held: None,
             git,
             reloader,
+            outcome,
         }
     }
 
@@ -103,6 +108,29 @@ impl FilesHold {
 
     fn synced(&self) {
         self.relist(vec![ROOT.to_owned()]);
+        if let Some(workspace) = self.workspace() {
+            (self.outcome)(Outcome::FilesSynced { workspace });
+        }
+    }
+
+    fn workspace(&self) -> Option<String> {
+        let held = self.held.as_deref()?;
+        held.split_once(':')
+            .map(|(_, workspace)| workspace.to_owned())
+    }
+
+    fn tell_changed(
+        &self,
+        change: &FileChange,
+    ) {
+        if !change.changes_text() {
+            return;
+        }
+        let Some(workspace) = self.workspace() else {
+            return;
+        };
+        let path = change.path.clone();
+        (self.outcome)(Outcome::FileChanged { workspace, path });
     }
 
     fn signal(
@@ -116,6 +144,7 @@ impl FilesHold {
         let change = data
             .and_then(|data| serde_json::from_value::<FileChange>(data).ok())
             .unwrap_or_default();
+        self.tell_changed(&change);
         self.relist(change.folders());
         self.git.notify_one();
     }
@@ -139,10 +168,13 @@ impl Drop for FilesHold {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::live::Outcome;
     use crate::test_support::state;
 
     const HELD: &str = r#"{"t":"closed","scope":"files:hw","reason":"resync"}"#;
     const OTHER: &str = r#"{"t":"synced","scope":"files:elsewhere"}"#;
+
+    fn unheard(_: Outcome) {}
 
     fn quiet_hub() -> Arc<Hub> {
         Hub::new(state().0, Arc::new(|| {}))
@@ -161,11 +193,51 @@ mod tests {
         std::iter::from_fn(|| sent.try_recv().ok()).collect()
     }
 
+    fn told(
+        files: &FilesHold,
+        frames: &[&str],
+        outgoing: &mpsc::UnboundedSender<String>,
+    ) {
+        for frame in frames {
+            files.hear(&Frame::decode(frame).unwrap(), outgoing);
+        }
+    }
+
+    #[tokio::test]
+    async fn an_edit_or_new_file_on_disk_and_each_resync_reach_the_shell() {
+        let hub = quiet_hub();
+        let heard = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let log = Arc::clone(&heard);
+        let outcome: OutcomeSink = Arc::new(move |outcome| log.lock().unwrap().push(outcome));
+        let (outgoing, _sent) = mpsc::unbounded_channel();
+        let mut files = Some(FilesHold::new(&hub, "local", outcome));
+        hub.edit(|state| state.panels.follow(Some("hc".into())));
+        FilesHold::sync_held(&mut files, &outgoing);
+        let frames = [
+            r#"{"t":"signal","scope":"files:hw","kind":"file_change","data":{"type":"modified","path":"src/a.ts"}}"#,
+            r#"{"t":"signal","scope":"files:hw","kind":"file_change","data":{"type":"created","path":"b.ts"}}"#,
+            r#"{"t":"signal","scope":"files:hw","kind":"file_change","data":{"type":"deleted","path":"c.ts"}}"#,
+            r#"{"t":"synced","scope":"files:hw"}"#,
+        ];
+        told(files.as_ref().unwrap(), &frames, &outgoing);
+        let changed = |path: &str| Outcome::FileChanged {
+            workspace: "hw".into(),
+            path: path.into(),
+        };
+        let synced = Outcome::FilesSynced {
+            workspace: "hw".into(),
+        };
+        assert_eq!(
+            *heard.lock().unwrap(),
+            [changed("src/a.ts"), changed("b.ts"), synced]
+        );
+    }
+
     #[tokio::test]
     async fn the_hold_follows_the_followed_chat_and_hears_only_its_own_scope() {
         let hub = quiet_hub();
         let (outgoing, sent) = mpsc::unbounded_channel();
-        let mut files = Some(FilesHold::new(&hub, "local"));
+        let mut files = Some(FilesHold::new(&hub, "local", Arc::new(unheard)));
         hub.edit(|state| state.panels.follow(Some("hc".into())));
         FilesHold::sync_held(&mut files, &outgoing);
         FilesHold::sync_held(&mut files, &outgoing);

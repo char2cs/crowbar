@@ -109,7 +109,11 @@ mod tests {
         let (state, daemon) = state();
         let transport: Arc<dyn protocol::DaemonTransport> = daemon;
         let hub = crate::live::Hub::new(state, Arc::new(|| {}));
-        let fleet = crate::live::Fleet::new(&tokio::runtime::Handle::current(), &hub, &transport);
+        let fleet = crate::live::Fleet::new(
+            &tokio::runtime::Handle::current(),
+            &hub,
+            (&transport, Arc::new(|_| {})),
+        );
         let book = Arc::new(book);
         let desk = HostDesk {
             book: Arc::<FakeBook>::clone(&book) as Arc<dyn HostBook>,

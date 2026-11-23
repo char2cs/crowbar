@@ -57,6 +57,20 @@ pub enum Outcome {
         /// Path to the signature each file had when it was marked.
         viewed: BTreeMap<String, String>,
     },
+    /// A file of the followed workspace was written or created on disk: an editor showing it
+    /// reads it again, as develop's `syncBufferWithDisk` does.
+    FileChanged {
+        /// The workspace the file is in.
+        workspace: String,
+        /// The file, relative to the workspace.
+        path: String,
+    },
+    /// The followed workspace's file watch was armed again: changes may have been missed, so
+    /// every editor showing one of its files reads it again.
+    FilesSynced {
+        /// The workspace.
+        workspace: String,
+    },
     /// The delete of `row` was refused or failed: the row shows again and `reason`, fit to show,
     /// says why.
     RemovalRefused {

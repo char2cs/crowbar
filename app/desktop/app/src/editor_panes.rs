@@ -8,10 +8,12 @@ use layout::{Layout, Tab};
 use protocol::PaneId;
 
 use crate::chat_locks::ChatLocks;
+use crate::chat_workspaces::ChatWorkspaces;
 use crate::document_source::{DocumentSource, answer_into};
 use crate::shell_request::ShellRequest;
 
 mod arrival;
+mod disk;
 mod editor_target;
 mod focusing;
 mod followed;
@@ -33,6 +35,7 @@ use pane_phase::PanePhase;
 pub(crate) struct EditorPanes {
     documents: Rc<dyn DocumentSource>,
     locks: ChatLocks,
+    workspaces: ChatWorkspaces,
     panes: RefCell<BTreeMap<PaneId, Followed>>,
     requests: async_channel::Sender<ShellRequest>,
 }
@@ -40,12 +43,13 @@ pub(crate) struct EditorPanes {
 impl EditorPanes {
     pub(crate) fn new(
         documents: Rc<dyn DocumentSource>,
-        locks: ChatLocks,
+        (locks, workspaces): (ChatLocks, ChatWorkspaces),
         requests: async_channel::Sender<ShellRequest>,
     ) -> Self {
         Self {
             documents,
             locks,
+            workspaces,
             panes: RefCell::default(),
             requests,
         }
@@ -228,7 +232,11 @@ mod tests {
     ) -> (Rc<EditorPanes>, async_channel::Receiver<ShellRequest>) {
         let (requests, heard) = async_channel::unbounded();
         let source: Rc<dyn DocumentSource> = Rc::<FakeDocuments>::clone(documents);
-        (Rc::new(EditorPanes::new(source, locks, requests)), heard)
+        let workspaces: ChatWorkspaces = Rc::new(|chat| (chat == "c1").then(|| "w1".to_owned()));
+        (
+            Rc::new(EditorPanes::new(source, (locks, workspaces), requests)),
+            heard,
+        )
     }
 
     pub(super) fn landed(

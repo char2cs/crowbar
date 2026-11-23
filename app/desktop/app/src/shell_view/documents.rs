@@ -4,6 +4,9 @@ use protocol::{DisplayText, PaneId};
 use ui::{ToastContent, ToastKind, ToastLifetime};
 
 use super::ShellView;
+
+const CHANGED_ON_DISK: &str =
+    "Your unsaved changes are kept. Saving will overwrite the on-disk version.";
 use crate::document_request::DocumentRequest;
 use crate::editor_panes::Landing;
 use crate::request_queue::send;
@@ -37,7 +40,46 @@ impl ShellView {
                 self.source.native().editors().saved(&pane, &text, cx);
             },
             DocumentRequest::SaveFailed { pane, reason } => self.refuse_save(&pane, reason, cx),
+            DocumentRequest::DiskRead { pane, text, since } => {
+                self.take_disk((&pane, (&text, since)), window, cx);
+            },
         }
+    }
+
+    pub(super) fn disk_changed(
+        &self,
+        outcome: store::Outcome,
+        cx: &Context<'_, Self>,
+    ) {
+        let editors = self.source.native().editors();
+        match outcome {
+            store::Outcome::FileChanged { workspace, path } => {
+                editors.disk_changed((&workspace, Some(&path)), cx);
+            },
+            store::Outcome::FilesSynced { workspace } => {
+                editors.disk_changed((&workspace, None), cx);
+            },
+            _ => {},
+        }
+    }
+
+    fn take_disk(
+        &mut self,
+        read: (&PaneId, (&str, editorview::SaveMark)),
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let pane = read.0;
+        let editors = self.source.native().editors();
+        if editors.take_disk(read, window, cx) != editorview::DiskTake::Conflicted {
+            return;
+        }
+        let Some(name) = editors.file_name(pane) else {
+            return;
+        };
+        let said = ToastContent::new(ToastKind::Warning, CHANGED_ON_DISK)
+            .titled(format!("{name} changed on disk"));
+        self.show_keyed(&format!("disk:{pane}"), (said, ToastLifetime::Auto), cx);
     }
 
     pub(super) fn land_document(

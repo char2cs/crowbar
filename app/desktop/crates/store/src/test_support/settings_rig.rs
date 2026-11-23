@@ -68,7 +68,7 @@ impl SettingsRig {
         let wiring = Parts {
             file: JsonFile::new(SETTINGS_PATH.into(), Arc::<FakeFiles>::clone(&files)),
             local: hub.read(|state| state.hosts[0].client.clone()),
-            fleet: Fleet::new(&Handle::current(), &hub, &transport),
+            fleet: Fleet::new(&Handle::current(), &hub, (&transport, Arc::new(|_| {}))),
             desk: super::desk(),
             hub,
             handle: Handle::current(),

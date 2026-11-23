@@ -16,6 +16,7 @@ use daemonapi::{Connection, Dial, Frame};
 use serde_json::json;
 use tokio::sync::mpsc;
 
+use crate::live::OutcomeSink;
 use crate::live::fleet::host_stream::backoff::Backoff;
 use crate::live::fleet::host_stream::ended::Ended;
 use crate::live::fleet::host_stream::files_hold::FilesHold;
@@ -34,6 +35,7 @@ pub(crate) struct HostStream {
     pub(crate) host: String,
     pub(crate) dial: Arc<dyn Dial>,
     pub(crate) client: daemonapi::Client,
+    pub(crate) outcome: OutcomeSink,
 }
 
 impl HostStream {
@@ -178,7 +180,11 @@ impl HostStream {
         self.set_link(LinkState::Live);
         self.apply(frame);
         self.subscribe(outgoing);
-        let held = files.insert(FilesHold::new(&self.hub, &self.host));
+        let held = files.insert(FilesHold::new(
+            &self.hub,
+            &self.host,
+            Arc::clone(&self.outcome),
+        ));
         held.sync(outgoing);
         self.learn_providers();
     }
@@ -300,6 +306,7 @@ mod tests {
             host: "local".into(),
             dial: Arc::new(Script(Mutex::new(connections.into()))),
             client,
+            outcome: Arc::new(|_| {}),
         };
         tokio::spawn(stream.run(inbox));
         Rig {

@@ -154,7 +154,7 @@ mod tests {
         let (state, daemon) = state();
         let transport: Arc<dyn protocol::DaemonTransport> = Arc::<FakeDaemon>::clone(&daemon);
         let hub = Hub::new(state, Arc::new(|| {}));
-        let fleet = Fleet::new(&Handle::current(), &hub, &transport);
+        let fleet = Fleet::new(&Handle::current(), &hub, (&transport, Arc::new(|_| {})));
         let desk = desk_in(&book);
         let spec = HostSpec {
             id: "lab".into(),
