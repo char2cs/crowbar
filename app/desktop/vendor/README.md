@@ -60,6 +60,10 @@ Drop it when the shell no longer needs to scroll as WebKitGTK does.
 
 Drop it when upstream has a shadow accessor.
 
+`overlay-input-modality` (`gpui-pre`, `src/window.rs`), applied on top of `painted-shadows`: an owner and its overlays share one input modality, as one page has one in the browser. Upstream keeps it per window, so the Escape typed in the Settings dialog, which floats in the top layer, left the main window counting the mouse as its last input, and the gear the keyboard went back to drew neither its focus ring nor its tooltip. A change of modality redraws the owner and all its overlays.
+
+Drop it with `overlay-window`.
+
 ## calloop 0.14.5
 
 `tracing-without-log` (`Cargo.toml`): calloop, reached through `gpui-pre-linux`, asks for tracing's `log` feature, and cargo turns a feature on for every crate that uses tracing. With `log` on, each `tracing` macro also expands to its `log` fallback, which quadruples `clippy::cognitive_complexity` in every function that logs. Nothing in the shell reads `log` records (no `log` logger or bridge is installed), so calloop loses only output nobody received.

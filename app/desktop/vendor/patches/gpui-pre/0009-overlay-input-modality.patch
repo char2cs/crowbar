@@ -1,0 +1,83 @@
+--- a/src/window.rs
++++ b/src/window.rs
+@@ -1285,7 +1285,9 @@
+     pub(crate) input_rate_tracker: Rc<RefCell<InputRateTracker>>,
+     #[cfg(feature = "profiler")]
+     pub(crate) window_profiler: profiler::WindowProfiler,
+-    last_input_modality: InputModality,
++    /// Shared by an owner and its overlays: they are one page to the user, so a key typed in an
++    /// overlay counts as keyboard input for the owner's focus ring too.
++    last_input_modality: Rc<Cell<InputModality>>,
+     touch_gestures: TouchGestureRecognizer,
+     touch_prediction_enabled: bool,
+     long_press_timer: Option<Task<()>>,
+@@ -2424,7 +2426,12 @@
+             input_rate_tracker,
+             #[cfg(feature = "profiler")]
+             window_profiler: profiler::WindowProfiler::new(handle.window_id())?,
+-            last_input_modality: InputModality::Mouse,
++            last_input_modality: overlay_of
++                .and_then(|owner| cx.windows.get(owner.window_id())?.as_ref())
++                .map_or_else(
++                    || Rc::new(Cell::new(InputModality::Mouse)),
++                    |owner| Rc::clone(&owner.last_input_modality),
++                ),
+             touch_gestures: TouchGestureRecognizer::new(
+                 cx.platform
+                     .gestures()
+@@ -3790,12 +3797,12 @@
+     /// Returns true if the last input event was keyboard-based (key press, tab navigation, etc.)
+     /// This is used for focus-visible styling to show focus indicators only for keyboard navigation.
+     pub fn last_input_was_keyboard(&self) -> bool {
+-        self.last_input_modality == InputModality::Keyboard
++        self.last_input_modality.get() == InputModality::Keyboard
+     }
+ 
+     /// Returns whether the last input event came from a touch screen.
+     pub fn last_input_was_touch(&self) -> bool {
+-        self.last_input_modality == InputModality::Touch
++        self.last_input_modality.get() == InputModality::Touch
+     }
+ 
+     /// The current state of the keyboard's capslock
+@@ -6181,15 +6188,16 @@
+         // Track input modality for focus-visible styling and hover suppression.
+         // Hover is suppressed during keyboard modality so that keyboard navigation
+         // doesn't show hover highlights on the item under the mouse cursor.
+-        let old_modality = self.last_input_modality;
+-        self.last_input_modality = match &event {
++        let old_modality = self.last_input_modality.get();
++        let modality = match &event {
+             PlatformInput::KeyDown(_) => InputModality::Keyboard,
+             PlatformInput::MouseMove(_) | PlatformInput::MouseDown(_) => InputModality::Mouse,
+             PlatformInput::Touch(_) => InputModality::Touch,
+-            _ => self.last_input_modality,
++            _ => old_modality,
+         };
+-        if self.last_input_modality != old_modality {
+-            self.refresh();
++        if modality != old_modality {
++            self.last_input_modality.set(modality);
++            self.refresh_modality_sharers(cx);
+         }
+ 
+         // Handlers may set this to false by calling `stop_propagation`.
+@@ -6528,6 +6536,18 @@
+         });
+     }
+ 
++    /// Redraws this window and every window sharing its input modality: its owner and the
++    /// owner's overlays.
++    fn refresh_modality_sharers(&mut self, cx: &mut App) {
++        self.refresh();
++        let owner = self.overlay_of.unwrap_or(self.handle);
++        for window in cx.windows.values_mut().flatten() {
++            if window.handle == owner || window.overlay_of == Some(owner) {
++                window.refresh();
++            }
++        }
++    }
++
+     /// Keeps a key typed after the focus moved and before a frame rendered the new focus, when
+     /// an overlay of this window could be the one to render it: a key typed right after a menu
+     /// opens, before the overlay's first frame, reaches the menu. Returns whether it was kept.

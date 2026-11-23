@@ -248,8 +248,9 @@ mod tests {
 
     use super::*;
     use crate::control::Button;
+    use crate::floating::Portal;
     use crate::foundation::IconName;
-    use crate::test_support::probe::{measure, open, open_floating};
+    use crate::test_support::probe::{measure, open, open_floating, settle};
 
     #[gpui::test]
     fn wrapping_does_not_change_the_trigger_size(cx: &mut TestAppContext) {
@@ -373,6 +374,33 @@ mod tests {
         assert!(
             cx.debug_bounds("tooltip-card").is_some(),
             "shown while keyboard focus rests on it"
+        );
+    }
+
+    #[gpui::test]
+    fn a_key_typed_in_the_top_layer_shows_the_card_of_a_trigger_it_focuses(
+        cx: &mut TestAppContext
+    ) {
+        let (gear, field) = cx.update(|cx| (cx.focus_handle(), cx.focus_handle()));
+        let (held, inner) = (gear.clone(), field.clone());
+        let (mut owner, mut top) = open_floating(cx, move |_, _| {
+            let trigger = Button::icon_only("b", IconName::Gear).focus_handle(held.clone());
+            let inner = inner.clone();
+            let dialog = Portal::here("d", move |_, _| div().size(px(10.0)).track_focus(&inner));
+            div()
+                .child(Tooltip::new("t", "Settings", trigger).focused_by(&held))
+                .child(dialog)
+        });
+        owner.update(|_, cx| cx.set_global(Motion::reduced()));
+        top.update(|window, cx| window.focus(&field, cx));
+        settle(&mut top);
+        top.simulate_keystrokes("escape");
+        owner.update(|window, cx| window.focus(&gear, cx));
+        settle(&mut owner);
+        settle(&mut top);
+        assert!(
+            top.debug_bounds("tooltip-card").is_some(),
+            "the escape that left the dialog was a key for the window beneath"
         );
     }
 
