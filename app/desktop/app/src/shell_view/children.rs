@@ -25,8 +25,6 @@ use crate::startup_requests::StartupRequests;
 use crate::terminal_panes::TerminalPanes;
 use crate::workspace::Workspace;
 
-const DRAFTS_FILE: &str = "editor-drafts.json";
-
 pub(super) fn start_data(
     link: &DaemonLink,
     requests: &async_channel::Sender<ShellRequest>,
@@ -168,7 +166,9 @@ pub(super) fn build_children<V: 'static>(
 ) -> Built {
     let link = &*parts.link;
     let (data, data_queued) = start_data(link, requests);
-    let drafts = parts.preferences_path.with_file_name(DRAFTS_FILE);
+    let drafts = parts
+        .preferences_path
+        .with_file_name(crate::editor_panes::DRAFTS_FILE);
     let panes = build_panes(
         &PaneWiring {
             state: &parts.state,

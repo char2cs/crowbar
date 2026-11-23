@@ -28,6 +28,8 @@ mod saving_as;
 mod unavailable_panel;
 
 pub(crate) use chat_reads::ChatReads;
+
+pub(crate) const DRAFTS_FILE: &str = "editor-drafts.json";
 pub(crate) use editor_target::EditorTarget;
 use followed::Followed;
 use keyboard::Keyboard;

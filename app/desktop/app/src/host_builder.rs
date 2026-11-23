@@ -9,6 +9,8 @@ use crate::app_options::AppOptions;
 use crate::core_panes::register_core_panes;
 use crate::error::Result;
 
+pub(crate) const WEBVIEW_DIR: &str = "webview";
+
 const SCHEME: &str = "crowbar";
 
 pub(crate) fn build_host(
@@ -27,7 +29,7 @@ pub(crate) fn build_host(
     let webviews = webview::Host::native(HostConfig {
         scheme: SCHEME.into(),
         protocol: Arc::new(protocol),
-        data_dir: Some(options.state_dir().join("webview")),
+        data_dir: Some(options.state_dir().join(WEBVIEW_DIR)),
     })?;
     webviews.follow_caret(caret)?;
     let config = panehost::Config {

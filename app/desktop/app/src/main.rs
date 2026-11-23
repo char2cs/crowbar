@@ -56,6 +56,7 @@ mod launched;
 mod layout_files;
 mod layout_store;
 mod layout_writer;
+mod legacy_drafts;
 mod legacy_settings;
 mod link_choice;
 mod link_menu;
@@ -235,6 +236,7 @@ fn main() -> anyhow::Result<()> {
         env!("CARGO_PKG_VERSION"),
     )?;
     legacy_settings::import_old_settings(std::env::var_os("HOME").map(PathBuf::from), &options);
+    legacy_drafts::import_old_drafts(std::env::var_os("HOME").map(PathBuf::from), &options);
     let link = Rc::new(DaemonLink::start(&options)?);
     let (caret, caret_changes) = caret_follower::channel();
     let host = build_host(&options, (link.transport(), caret), Path::is_file)?;
