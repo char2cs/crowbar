@@ -1,5 +1,5 @@
 import { openDB } from 'idb'
-import type { IDBPDatabase } from 'idb'
+import type { IDBPDatabase, IDBPTransaction, StoreNames } from 'idb'
 import type { CrowbarDB } from './schemas'
 
 let _db: IDBPDatabase<CrowbarDB> | null = null
@@ -142,6 +142,15 @@ async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
 }
 
 /** Only for testing — resets the module-level singleton so tests get a fresh database. */
+/** Runs `write` in `tx` and settles once the transaction commits. A transaction the database
+ *  aborts rejects `done` however the writes fail, so `done` is awaited with them, never after. */
+export async function commit<Stores extends ArrayLike<StoreNames<CrowbarDB>>>(
+  tx: IDBPTransaction<CrowbarDB, Stores, 'readwrite'>,
+  write: () => Promise<unknown>,
+): Promise<void> {
+  await Promise.all([tx.done, (async () => write())()])
+}
+
 export function resetDB(): void {
   _db = null
   _opening = null

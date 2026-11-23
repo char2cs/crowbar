@@ -1,9 +1,9 @@
-import { getDB } from '@/lib/persistence/idb'
+import { commit, getDB } from '@/lib/persistence/idb'
 import { ItemMap } from '@/features/agent/stores/lib/item-map'
 import type { ChatFeed, TranscriptItem } from '@/features/agent/stores/lib/transcript-items'
 
 /** Bump when ChatFeed's folded shape changes: an entry of another schema is dropped on read. */
-const FEED_SCHEMA = 1
+const FEED_SCHEMA = 2
 /** Newest top-level items kept per chat, and chats kept in all (least recently saved go first). */
 const MAX_ITEMS = 500
 const MAX_CHATS = 100
@@ -42,7 +42,8 @@ function cutAt(feed: ChatFeed): number {
 /** The newest top-level items with what hangs off them, and the cursor to resume at. */
 function snapshot(feed: ChatFeed): { rows: Rows; cursor: FeedCursor } {
   const order = feed.order.slice(cutAt(feed))
-  const keep = new Set(order)
+  // The facts list shells and live subagents by id wherever they sit, so they are kept by id.
+  const keep = new Set([...order, ...feed.facts.shells, ...feed.facts.liveSubagents])
   const cards = new Set<string>()
   for (const [scope, card] of Object.entries(feed.facts.subagentScopes)) {
     if (keep.has(card)) cards.add(scope)
@@ -116,18 +117,19 @@ async function drain() {
   const db = await getDB()
   const tx = db.transaction('chat-feeds', 'readwrite')
   const savedAt = Date.now()
-  await Promise.all(
-    batch.map(({ hostId, chatId, feed }) => {
-      const { rows, cursor } = snapshot(feed)
-      return tx.store.put({ hostId, chatId, schema: FEED_SCHEMA, rows, cursor, savedAt })
-    }),
-  )
-  let excess = (await tx.store.count()) - MAX_CHATS
-  for (let at = await tx.store.index('savedAt').openCursor(); at && excess > 0; excess--) {
-    await at.delete()
-    at = await at.continue()
-  }
-  await tx.done
+  await commit(tx, async () => {
+    await Promise.all(
+      batch.map(({ hostId, chatId, feed }) => {
+        const { rows, cursor } = snapshot(feed)
+        return tx.store.put({ hostId, chatId, schema: FEED_SCHEMA, rows, cursor, savedAt })
+      }),
+    )
+    let excess = (await tx.store.count()) - MAX_CHATS
+    for (let at = await tx.store.index('savedAt').openCursor(); at && excess > 0; excess--) {
+      await at.delete()
+      at = await at.continue()
+    }
+  })
 }
 
 /** Queues the feed to be written behind the next microtask; saves meanwhile coalesce to the latest. */
@@ -172,8 +174,10 @@ export function forgetChatFeeds(chatId: string): Promise<void> {
   return enqueue(async () => {
     const db = await getDB()
     const tx = db.transaction('chat-feeds', 'readwrite')
-    const keys = await tx.store.index('chatId').getAllKeys(chatId)
-    await Promise.all([...keys.map((k) => tx.store.delete(k)), tx.done])
+    await commit(tx, async () => {
+      const keys = await tx.store.index('chatId').getAllKeys(chatId)
+      await Promise.all(keys.map((k) => tx.store.delete(k)))
+    })
   })
 }
 
