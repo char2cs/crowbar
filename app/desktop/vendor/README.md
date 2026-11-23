@@ -59,7 +59,7 @@ The editor engine (`gpui-base`: `InputBaseState`, the rope, tree-sitter highligh
 
 `std-lazy-lock` (`gpui-component`, `Cargo.toml`, `src/theme/color.rs`): the default colour table is a `std::sync::LazyLock` instead of a `once_cell` `Lazy`, and the `once_cell` dependency goes, as `deny.toml` bans `once_cell` (M24) for any new parent. Drop it when upstream moves to std.
 
-`replace-keeping-selections` (`gpui-base`, `src/input/base/state.rs`): `InputBaseState::replace_all_keeping_selections` replaces the whole text as one undo step and puts every selection back at its line and column, clamped to the new text, with the scroll where it was, as develop's editor does when a clean file changes on disk (Monaco's `pushEditOperations` with the selections set back). Upstream's `replace_all` clears the selection and scrolls to the top, and `set_value` also drops the undo history. Drop it when upstream keeps the selections.
+`replace-keeping-selections` (`gpui-base`, `src/input/base/state.rs`): `InputBaseState::replace_all_keeping_selections` replaces the whole text as one undo step and puts every selection back at its line and column, clamped to the new text, with the scroll where it was and the new text highlighted again on the next render (as `replace_all` does), as develop's editor does when a clean file changes on disk (Monaco's `pushEditOperations` with the selections set back). Upstream's `replace_all` clears the selection and scrolls to the top, and `set_value` also drops the undo history. Drop it when upstream keeps the selections.
 
 Drop the vendored copies when the editor needs no patch of its own and upstream keeps pace with gpui-pre.
 

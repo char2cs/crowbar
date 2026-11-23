@@ -1,6 +1,6 @@
 --- a/src/input/base/state.rs
 +++ b/src/input/base/state.rs
-@@ -1337,6 +1337,49 @@
+@@ -1337,6 +1337,50 @@
          cx.notify();
      }
  
@@ -36,6 +36,7 @@
 +            })
 +            .collect();
 +        self.restore_selections(Some(restored));
++        self.reset_lsp_state();
 +        self.deferred_scroll_offset = Some(scroll);
 +        cx.notify();
 +    }

@@ -1369,6 +1369,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             })
             .collect();
         self.restore_selections(Some(restored));
+        self.reset_lsp_state();
         self.deferred_scroll_offset = Some(scroll);
         cx.notify();
     }
