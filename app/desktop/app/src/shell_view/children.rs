@@ -25,6 +25,8 @@ use crate::startup_requests::StartupRequests;
 use crate::terminal_panes::TerminalPanes;
 use crate::workspace::Workspace;
 
+const DRAFTS_FILE: &str = "editor-drafts.json";
+
 pub(super) fn start_data(
     link: &DaemonLink,
     requests: &async_channel::Sender<ShellRequest>,
@@ -55,6 +57,7 @@ pub(super) fn build_panes<V: 'static>(
         link,
         data,
         requests,
+        drafts,
     } = wiring;
     let bars = BrowserBars::new(state.browsers(), (*requests).clone());
     let terminals = TerminalPanes::new(
@@ -63,7 +66,7 @@ pub(super) fn build_panes<V: 'static>(
         (*requests).clone(),
     );
     let new_tab = crate::new_tab_panes::NewTabPanes::new((*requests).clone());
-    let editors = editors_of(data, requests);
+    let editors = editors_of((data, drafts), requests);
     let panes = NativePanes::new(terminals, new_tab, editors);
     let source = ShellPaneSource::new(state.titles(), state.serials(), bars, panes);
     let (reviews, locks) = (Rc::clone(data), Rc::clone(data));
@@ -88,19 +91,21 @@ pub(super) fn build_panes<V: 'static>(
 }
 
 fn editors_of(
-    data: &Rc<store::Store>,
+    (data, drafts): (&Rc<store::Store>, &std::path::Path),
     requests: &async_channel::Sender<ShellRequest>,
 ) -> crate::editor_panes::EditorPanes {
     let documents: Rc<dyn crate::document_source::DocumentSource> = Rc::new(data.documents());
     let (locks, workspaces) = (Rc::clone(data), Rc::clone(data));
-    crate::editor_panes::EditorPanes::new(
-        documents,
-        (
-            Rc::new(move |chat| locks.chat_read_only(chat)),
-            Rc::new(move |chat| workspaces.chat_workspace(chat)),
-        ),
-        requests.clone(),
-    )
+    let chats = crate::editor_panes::ChatReads {
+        locks: Rc::new(move |chat| locks.chat_read_only(chat)),
+        workspaces: Rc::new(move |chat| workspaces.chat_workspace(chat)),
+    };
+    let file = editor::DiskDraftFile::at(drafts.to_path_buf());
+    let (drafts, unread) = editor::Drafts::open(Box::new(file));
+    if let Some(error) = unread {
+        tracing::warn!(%error, "the unsaved drafts of the last run could not be read");
+    }
+    crate::editor_panes::EditorPanes::new(documents, chats, drafts, requests.clone())
 }
 
 fn icons_of(data: &Rc<store::Store>) -> crate::shell_pane_source::FileIcons {
@@ -163,12 +168,14 @@ pub(super) fn build_children<V: 'static>(
 ) -> Built {
     let link = &*parts.link;
     let (data, data_queued) = start_data(link, requests);
+    let drafts = parts.preferences_path.with_file_name(DRAFTS_FILE);
     let panes = build_panes(
         &PaneWiring {
             state: &parts.state,
             link,
             data: &data,
             requests,
+            drafts: &drafts,
         },
         cx,
     );

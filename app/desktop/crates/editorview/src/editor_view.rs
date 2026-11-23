@@ -42,10 +42,12 @@ impl EditorView {
             path,
             line,
             access,
+            saved,
         } = opening;
         let toolbar = Toolbar::of(&path);
         let language = toolbar.language();
-        let saved = Rope::from(text.as_str());
+        let saved = Rope::from(saved.as_deref().unwrap_or(&text));
+        let reported_dirty = saved != text.as_str();
         let state = cx.new(|cx| {
             EditorState::new(window, cx)
                 .language(crate::highlight_name::of(language))
@@ -65,7 +67,7 @@ impl EditorView {
             saved,
             save_mark: SaveMark::default(),
             disk_conflict: false,
-            reported_dirty: false,
+            reported_dirty,
             quiet: None,
             _caret_moves: caret_moves,
             _edits: edits,
@@ -235,6 +237,7 @@ mod tests {
             path: "src/a.ts".to_owned(),
             line,
             access,
+            saved: None,
         };
         cx.add_window_view(|window, cx| EditorView::new(opening, window, cx))
     }
@@ -271,6 +274,7 @@ mod tests {
             path: "untitled:Untitled-1".to_owned(),
             line: None,
             access: Access::Editable,
+            saved: None,
         };
         let (view, cx) = cx.add_window_view(|window, cx| EditorView::new(opening, window, cx));
         assert_eq!(cx.read(|cx| language_of(&view, cx)), "Plain Text");
@@ -322,6 +326,33 @@ mod tests {
             EditorEvent::SaveRequested,
         ];
         assert_eq!(*heard.borrow(), expected);
+    }
+
+    #[gpui::test]
+    fn a_view_opened_on_a_draft_is_dirty_and_undoes_nothing_back_to_its_file(
+        cx: &mut TestAppContext
+    ) {
+        cx.update(|cx| ui::init(cx).unwrap());
+        cx.update(crate::init);
+        let opening = Opening {
+            text: "draft".to_owned(),
+            path: "src/a.ts".to_owned(),
+            line: None,
+            access: Access::Editable,
+            saved: Some("disk".to_owned()),
+        };
+        let (view, window) = cx.add_window_view(|window, cx| EditorView::new(opening, window, cx));
+        let heard = listened(&view, window);
+        assert!(view.read_with(window, EditorView::is_dirty), "opened dirty");
+        window.simulate_keystrokes("ctrl-z");
+        assert_eq!(
+            view.read_with(window, EditorView::text),
+            "draft",
+            "nothing to undo"
+        );
+        window.update(|_, cx| view.update(cx, |view, cx| view.mark_saved("draft", cx)));
+        assert_eq!(view.read_with(window, |view, _| view.saved_text()), "draft");
+        assert_eq!(*heard.borrow(), [EditorEvent::DirtyChanged(false)]);
     }
 
     #[gpui::test]

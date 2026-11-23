@@ -10,4 +10,7 @@ pub struct Opening {
     pub line: Option<u32>,
     /// Whether typing edits it.
     pub access: crate::Access,
+    /// What the file held when `text` is an unsaved draft of it: the view opens dirty. `None`
+    /// when `text` is the file's own.
+    pub saved: Option<String>,
 }

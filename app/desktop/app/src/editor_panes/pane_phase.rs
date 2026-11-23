@@ -6,7 +6,7 @@ pub(crate) enum PanePhase {
     /// The read is out.
     Reading,
     /// The text arrived; the view is made when the pane is first drawn.
-    Read(String),
+    Read(super::landed::Landed),
     /// The document shows.
     Shown(Entity<editorview::EditorView>),
     /// The document could not be read; the pane says why and offers to try again.

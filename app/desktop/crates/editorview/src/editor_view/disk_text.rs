@@ -11,6 +11,12 @@ impl EditorView {
         self.save_mark
     }
 
+    /// The text last saved (or opened) that dirtiness is measured against.
+    #[must_use]
+    pub fn saved_text(&self) -> String {
+        self.saved.to_string()
+    }
+
     /// Text read from disk under `since`: a clean view takes it as saved, in one undo step that
     /// keeps the carets; a dirty one keeps its edits and is flagged once, when disk holds
     /// neither its saved text nor its own, as develop's `takeDiskText`.

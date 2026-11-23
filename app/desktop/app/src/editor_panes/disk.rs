@@ -76,7 +76,7 @@ impl EditorPanes {
         let named = path.is_none_or(|path| file.as_str() == path);
         named
             && !file.is_host()
-            && (self.workspaces)(&followed.target.chat).as_deref() == Some(workspace)
+            && (self.chats.workspaces)(&followed.target.chat).as_deref() == Some(workspace)
     }
 }
 

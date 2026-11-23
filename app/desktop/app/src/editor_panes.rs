@@ -7,17 +7,18 @@ use gpui::{AnyElement, App, Window};
 use layout::{Layout, Tab};
 use protocol::PaneId;
 
-use crate::chat_locks::ChatLocks;
-use crate::chat_workspaces::ChatWorkspaces;
 use crate::document_source::{DocumentSource, answer_into};
 use crate::shell_request::ShellRequest;
 
 mod arrival;
+mod chat_reads;
 mod disk;
+mod drafting;
 mod editor_target;
 mod focusing;
 mod followed;
 mod keyboard;
+mod landed;
 mod landing;
 mod locking;
 mod pane_phase;
@@ -26,6 +27,7 @@ mod saving;
 mod saving_as;
 mod unavailable_panel;
 
+pub(crate) use chat_reads::ChatReads;
 pub(crate) use editor_target::EditorTarget;
 use followed::Followed;
 use keyboard::Keyboard;
@@ -34,8 +36,8 @@ use pane_phase::PanePhase;
 
 pub(crate) struct EditorPanes {
     documents: Rc<dyn DocumentSource>,
-    locks: ChatLocks,
-    workspaces: ChatWorkspaces,
+    chats: ChatReads,
+    drafts: RefCell<editor::Drafts>,
     panes: RefCell<BTreeMap<PaneId, Followed>>,
     requests: async_channel::Sender<ShellRequest>,
 }
@@ -43,13 +45,14 @@ pub(crate) struct EditorPanes {
 impl EditorPanes {
     pub(crate) fn new(
         documents: Rc<dyn DocumentSource>,
-        (locks, workspaces): (ChatLocks, ChatWorkspaces),
+        chats: ChatReads,
+        drafts: editor::Drafts,
         requests: async_channel::Sender<ShellRequest>,
     ) -> Self {
         Self {
             documents,
-            locks,
-            workspaces,
+            chats,
+            drafts: RefCell::new(drafts),
             panes: RefCell::default(),
             requests,
         }
@@ -74,6 +77,13 @@ impl EditorPanes {
             .collect();
         let focused = layout.active_tab().and_then(Tab::focused);
         let mut panes = self.panes.borrow_mut();
+        let gone: Vec<EditorTarget> = panes
+            .iter()
+            .filter(|(pane, followed)| {
+                !open.get(*pane).is_some_and(|target| followed.shows(target))
+            })
+            .map(|(_, followed)| followed.target.clone())
+            .collect();
         panes.retain(|pane, followed| open.get(pane).is_some_and(|target| followed.shows(target)));
         for (pane, target) in open {
             let access = self.access_of(&target);
@@ -85,6 +95,7 @@ impl EditorPanes {
                 .or_insert_with(|| Followed::arrive(target, (keyboard, access)));
         }
         drop(panes);
+        self.forget_drafts(&gone);
         self.read_waiting();
     }
 
@@ -112,9 +123,11 @@ impl EditorPanes {
         read: Result<String, editor::OpenFailure>,
     ) -> Landing {
         let mut panes = self.panes.borrow_mut();
-        panes
-            .get_mut(pane)
-            .map_or(Landing::Quiet, |followed| followed.land(read))
+        let Some(followed) = panes.get_mut(pane) else {
+            return Landing::Quiet;
+        };
+        let landed = read.map(|disk| self.landed(&followed.target, disk));
+        followed.land(landed)
     }
 
     pub(crate) fn content(
@@ -132,7 +145,7 @@ impl EditorPanes {
         &self,
         target: &EditorTarget,
     ) -> Access {
-        if (self.locks)(&target.chat) {
+        if (self.chats.locks)(&target.chat) {
             return Access::ReadOnly;
         }
         Access::Editable
@@ -187,6 +200,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::chat_locks::ChatLocks;
     use crate::core_panes::EDITOR;
     use crate::document_request::DocumentRequest;
     use crate::test_support::FakeDocuments;
@@ -232,9 +246,12 @@ mod tests {
     ) -> (Rc<EditorPanes>, async_channel::Receiver<ShellRequest>) {
         let (requests, heard) = async_channel::unbounded();
         let source: Rc<dyn DocumentSource> = Rc::<FakeDocuments>::clone(documents);
-        let workspaces: ChatWorkspaces = Rc::new(|chat| (chat == "c1").then(|| "w1".to_owned()));
+        let workspaces: crate::chat_workspaces::ChatWorkspaces =
+            Rc::new(|chat| (chat == "c1").then(|| "w1".to_owned()));
+        let chats = ChatReads { locks, workspaces };
+        let drafts = crate::test_support::memory_drafts(&documents.drafts());
         (
-            Rc::new(EditorPanes::new(source, (locks, workspaces), requests)),
+            Rc::new(EditorPanes::new(source, chats, drafts, requests)),
             heard,
         )
     }
@@ -327,6 +344,40 @@ mod tests {
                 .content(&pane, window, cx)
                 .unwrap_or_else(|| gpui::Empty.into_any_element())
         }
+    }
+
+    pub(super) struct Opened<'cx> {
+        pub(super) panes: Rc<EditorPanes>,
+        pub(super) heard: async_channel::Receiver<ShellRequest>,
+        pub(super) view: Entity<editorview::EditorView>,
+        pub(super) window: &'cx mut gpui::VisualTestContext,
+    }
+
+    pub(super) fn opened<'cx>(
+        documents: &Rc<FakeDocuments>,
+        cx: &'cx mut TestAppContext,
+    ) -> Opened<'cx> {
+        let (panes, heard) = panes_over(documents);
+        panes.follow(&layout_with(json!({"path": PATH})));
+        landed(&panes, &heard);
+        let (view, window) = shown_in(&panes, cx);
+        window.update(|window, cx| window.focus(&view.focus_handle(cx), cx));
+        Opened {
+            panes,
+            heard,
+            view,
+            window,
+        }
+    }
+
+    pub(super) fn typed_and_kept(
+        documents: &Rc<FakeDocuments>,
+        cx: &mut TestAppContext,
+    ) -> Rc<EditorPanes> {
+        let Opened { panes, window, .. } = opened(documents, cx);
+        window.simulate_input("x");
+        window.update(|_, cx| panes.keep_draft(&PaneId::new(PANE).unwrap(), cx));
+        panes
     }
 
     pub(super) fn shown_in<'cx>(

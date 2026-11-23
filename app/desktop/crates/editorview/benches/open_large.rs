@@ -37,6 +37,7 @@ fn opened(
         path: "src/large.ts".to_owned(),
         line: Some(lines),
         access: Access::Editable,
+        saved: None,
     };
     let opened = cx.add_window_view(|window, cx| EditorView::new(opening, window, cx));
     opened.1.run_until_parked();

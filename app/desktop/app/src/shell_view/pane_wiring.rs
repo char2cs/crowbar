@@ -9,4 +9,5 @@ pub(super) struct PaneWiring<'a> {
     pub(super) link: &'a DaemonLink,
     pub(super) data: &'a Rc<store::Store>,
     pub(super) requests: &'a async_channel::Sender<ShellRequest>,
+    pub(super) drafts: &'a std::path::Path,
 }

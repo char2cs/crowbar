@@ -18,6 +18,7 @@ pub(crate) struct FakeDocuments {
     files: RefCell<BTreeMap<String, Answer>>,
     reads: RefCell<Vec<String>>,
     writes: RefCell<Vec<(String, String)>>,
+    drafts: super::MemoryDraftFile,
 }
 
 impl FakeDocuments {
@@ -52,6 +53,10 @@ impl FakeDocuments {
 
     pub(crate) fn writes(&self) -> Vec<(String, String)> {
         self.writes.borrow().clone()
+    }
+
+    pub(crate) fn drafts(&self) -> super::MemoryDraftFile {
+        self.drafts.clone()
     }
 }
 
@@ -104,9 +109,15 @@ fn refused(status: u16) -> FileError {
 
 /// File panes whose chats never load, for tests that have no files to show.
 pub(crate) fn idle_editors() -> EditorPanes {
+    let chats = crate::editor_panes::ChatReads {
+        locks: Rc::new(|_| false),
+        workspaces: Rc::new(|_| None),
+    };
+    let drafts = super::memory_drafts(&super::MemoryDraftFile::default());
     EditorPanes::new(
         Rc::new(FakeDocuments::default()),
-        (Rc::new(|_| false), Rc::new(|_| None)),
+        chats,
+        drafts,
         async_channel::unbounded().0,
     )
 }

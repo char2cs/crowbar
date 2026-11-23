@@ -12,6 +12,7 @@ use crate::shell_request::ShellRequest;
 use super::arrival::Arrival;
 use super::editor_target::EditorTarget;
 use super::keyboard::Keyboard;
+use super::landed::Landed;
 use super::landing::Landing;
 use super::pane_phase::PanePhase;
 use super::retry::Retry;
@@ -32,7 +33,7 @@ impl Followed {
     ) -> Self {
         let phase = match target.file {
             Some(_) => PanePhase::Waiting,
-            None => PanePhase::Read(String::new()),
+            None => PanePhase::Read(Landed::default()),
         };
         Self {
             target,
@@ -59,12 +60,12 @@ impl Followed {
 
     pub(super) fn land(
         &mut self,
-        read: Result<String, editor::OpenFailure>,
+        read: Result<Landed, editor::OpenFailure>,
     ) -> Landing {
         let fresh = self.target.arrival == Arrival::Fresh;
         match read {
-            Ok(text) => {
-                self.phase = PanePhase::Read(text);
+            Ok(landed) => {
+                self.phase = PanePhase::Read(landed);
                 Landing::Shown
             },
             Err(failure) if fresh => Landing::Refused(failure),
@@ -107,16 +108,28 @@ impl Followed {
         }
     }
 
+    fn show(
+        &self,
+        landed: &Landed,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Entity<EditorView> {
+        let opening = landed.opening(&self.target, self.access);
+        cx.new(|cx| EditorView::new(opening, window, cx))
+    }
+
     pub(super) fn drawn(
         &mut self,
         (pane, requests): (&PaneId, &Requests),
         window: &mut Window,
         cx: &mut App,
     ) -> AnyElement {
-        if let PanePhase::Read(text) = &mut self.phase {
-            let opening = opening(&self.target, std::mem::take(text), self.access);
-            let view = cx.new(|cx| EditorView::new(opening, window, cx));
+        if let PanePhase::Read(landed) = &mut self.phase {
+            let landed = std::mem::take(landed);
+            let view = self.show(&landed, window, cx);
             self.told = Some(listen(&view, (pane, requests), cx));
+            let since = view.read(cx).save_mark();
+            landed.restored(since, (pane, requests));
             self.phase = PanePhase::Shown(view);
         }
         self.take_keyboard(window, cx);
@@ -168,19 +181,6 @@ fn told(
         },
         EditorEvent::SaveRequested => ShellRequest::Document(DocumentRequest::Save { pane }),
         EditorEvent::EditsPaused => ShellRequest::Document(DocumentRequest::Paused { pane }),
-    }
-}
-
-fn opening(
-    target: &EditorTarget,
-    text: String,
-    access: editorview::Access,
-) -> editorview::Opening {
-    editorview::Opening {
-        text,
-        path: target.label.clone(),
-        line: target.line,
-        access,
     }
 }
 

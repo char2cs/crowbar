@@ -27,15 +27,13 @@ impl ShellView {
                 self.dirty_changed(cx);
             },
             DocumentRequest::Dirty { pane, dirty: false } => {
+                self.source.native().editors().discard_draft(&pane);
                 self.state.clear_dirty(&pane);
                 self.dirty_changed(cx);
             },
             DocumentRequest::Save { pane } => self.save_document(&pane, window, cx),
             DocumentRequest::SavedAs { pane, saved } => self.adopt_saved_as(&pane, &saved, cx),
-            DocumentRequest::Paused { pane } if self.autosaves() => {
-                self.source.native().editors().autosave(&pane, cx);
-            },
-            DocumentRequest::Paused { .. } => {},
+            DocumentRequest::Paused { pane } => self.edits_paused(&pane, cx),
             DocumentRequest::Saved { pane, text } => {
                 self.source.native().editors().saved(&pane, &text, cx);
             },
@@ -80,6 +78,17 @@ impl ShellView {
         let said = ToastContent::new(ToastKind::Warning, CHANGED_ON_DISK)
             .titled(format!("{name} changed on disk"));
         self.show_keyed(&format!("disk:{pane}"), (said, ToastLifetime::Auto), cx);
+    }
+
+    fn edits_paused(
+        &mut self,
+        pane: &PaneId,
+        cx: &Context<'_, Self>,
+    ) {
+        self.source.native().editors().keep_draft(pane, cx);
+        if self.autosaves() {
+            self.source.native().editors().autosave(pane, cx);
+        }
     }
 
     pub(super) fn land_document(
