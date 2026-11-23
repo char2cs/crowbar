@@ -2,7 +2,7 @@ use serde_json::Value;
 
 use crate::script::page_calls::op_body;
 
-const REPORT: &str = include_str!("../../../../panes/src/features/browser/lib/agent-report.js");
+const REPORT: &str = include_str!("agent_report.js");
 
 /// The script that runs one DOM op of the page scripts (`snapshot`, `click`, `type`, `press_key`,
 /// `scroll`, `wait`, `resolve`) for an agent. The page answers the request `id` through
