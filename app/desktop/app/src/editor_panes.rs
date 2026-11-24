@@ -23,6 +23,7 @@ mod landing;
 mod locking;
 mod pane_phase;
 mod pane_view;
+mod reloading;
 mod retry;
 mod saving;
 mod saving_as;

@@ -29,6 +29,13 @@ pub(crate) enum DocumentRequest {
         text: String,
         since: editorview::SaveMark,
     },
+    /// A file pane's file was read again because the user asked to reload it, under the save
+    /// mark it had then.
+    Reloaded {
+        pane: protocol::PaneId,
+        text: String,
+        since: editorview::SaveMark,
+    },
     /// A file pane's file was gone when it was read again, under the save mark it had then.
     DiskMissing {
         pane: protocol::PaneId,

@@ -161,6 +161,7 @@ impl ShellView {
             } => self.state.drop_tab(*tab, (*onto, placement.clone())),
             LayoutEvent::NewTab { onto } => return self.new_tab_in(onto, cx),
             LayoutEvent::ReviewBranch { onto } => return self.review_in(onto, cx),
+            LayoutEvent::ReloadTab { pane } => return self.reload_tab(pane, cx),
             LayoutEvent::RenameTab { pane, current } => {
                 return self.ask_rename((pane, current), window, cx);
             },

@@ -49,6 +49,11 @@ pub enum LayoutEvent {
         /// The tab's present name.
         current: String,
     },
+    /// A tab menu row asked to read the file of `pane` from disk again.
+    ReloadTab {
+        /// The tab's pane.
+        pane: PaneId,
+    },
     /// Something the user should be told, such as why a key did nothing.
     Announce(String),
     /// The "+" button of a strip was pressed: open a New Tab page as a new tab of the group

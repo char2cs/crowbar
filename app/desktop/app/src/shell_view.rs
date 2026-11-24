@@ -46,6 +46,7 @@ mod pick_effect;
 mod picking;
 mod pump;
 mod readout;
+mod reloading;
 mod remote_folder;
 mod renaming;
 mod review_viewed;
@@ -92,7 +93,7 @@ pub(crate) struct ShellView {
     pairing: Option<Entity<pairing::View>>,
     first_run: Option<(crate::landing::Landing, Entity<oobe::View>)>,
     window_title: String,
-    unsaved: Option<Entity<crate::unsaved_dialog::UnsavedDialog>>,
+    question: Option<gpui::AnyView>,
     pending_close: Option<crate::pending_close::PendingClose>,
     source: Rc<ShellPaneSource>,
     focus: FocusHandle,
@@ -151,7 +152,7 @@ impl ShellView {
             name_prompt: None,
             pairing: None,
             first_run: None,
-            unsaved: None,
+            question: None,
             window_title: crate::window_memory::WINDOW_TITLE.to_owned(),
             pending_close: None,
             focus,
@@ -207,7 +208,7 @@ impl ShellView {
             || self.name_prompt.is_some()
             || self.pairing.is_some()
             || self.first_run.is_some()
-            || self.unsaved.is_some()
+            || self.question.is_some()
     }
 
     fn floating(
@@ -240,7 +241,11 @@ impl ShellView {
             .children(layer(self.name_prompt.as_ref().map(|(_, prompt)| prompt)))
             .children(layer(self.first_run.as_ref().map(|(_, oobe)| oobe)))
             .children(layer(self.pairing.as_ref()))
-            .children(layer(self.unsaved.as_ref()))
+            .children(
+                self.question
+                    .clone()
+                    .map(|view| div().absolute().inset_0().child(view)),
+            )
             .children(layer(
                 Some(&self.startup).filter(|gate| gate.read(cx).covers()),
             ))

@@ -37,6 +37,9 @@ impl ShellView {
             DocumentRequest::DiskRead { pane, text, since } => {
                 self.take_disk((&pane, (&text, since)), window, cx);
             },
+            DocumentRequest::Reloaded { pane, text, since } => {
+                self.take_reloaded((&pane, (&text, since)), window, cx);
+            },
             DocumentRequest::DiskMissing {
                 pane,
                 failure,

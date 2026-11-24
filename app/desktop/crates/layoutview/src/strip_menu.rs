@@ -35,7 +35,7 @@ impl LayoutView {
             MenuItem::Action(self.move_action(pane, &view)),
             MenuItem::Separator,
         ]);
-        items.extend(path_rows(look.path.as_deref(), &view));
+        items.extend(path_rows((pane, look.path.as_deref()), &view));
         items.extend([
             MenuItem::Action(single_close(pane, &view)),
             MenuItem::Action(closing("Close Others", CloseScope::Others)),
@@ -117,7 +117,7 @@ fn rename_row(
 }
 
 fn path_rows(
-    path: Option<&str>,
+    (pane, path): (&PaneId, Option<&str>),
     view: &gpui::Entity<LayoutView>,
 ) -> Vec<MenuItem> {
     let Some(path) = path else {
@@ -129,7 +129,9 @@ fn path_rows(
         .map(|(action, event)| emitting(action.label(), event, view).icon(action.icon()))
         .map(MenuItem::Action)
         .collect();
-    rows.push(MenuItem::Separator);
+    let reload = LayoutEvent::ReloadTab { pane: pane.clone() };
+    let reload = emitting("Reload", reload, view).icon(IconName::ArrowCounterClockwise);
+    rows.extend([MenuItem::Action(reload), MenuItem::Separator]);
     rows
 }
 
@@ -271,6 +273,13 @@ mod tests {
             let heard = chosen_path_row(cx, row.keys);
             assert_eq!(heard, [row.event()], "{}", row.name);
         }
+    }
+
+    #[gpui::test]
+    fn a_file_tab_offers_reload_after_its_path_actions(cx: &mut TestAppContext) {
+        let heard = chosen_path_row(cx, "down down down down down down down enter");
+        let reload = LayoutEvent::ReloadTab { pane: pane_id("b") };
+        assert_eq!(heard, [reload]);
     }
 
     #[gpui::test]

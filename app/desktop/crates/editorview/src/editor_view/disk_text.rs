@@ -41,6 +41,20 @@ impl EditorView {
         DiskTake::Conflicted
     }
 
+    /// Text read from disk for a reload the user asked for under `since`: the view shows it as
+    /// saved in one undo step, dropping its edits, unless a save landed after the read began.
+    pub fn take_reloaded_text(
+        &mut self,
+        (disk, since): (&str, SaveMark),
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> DiskTake {
+        if since != self.save_mark {
+            return DiskTake::Kept;
+        }
+        self.adopt(disk, window, cx)
+    }
+
     fn take_clean(
         &mut self,
         disk: &str,
@@ -50,6 +64,15 @@ impl EditorView {
         if self.saved == disk {
             return DiskTake::Kept;
         }
+        self.adopt(disk, window, cx)
+    }
+
+    fn adopt(
+        &mut self,
+        disk: &str,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> DiskTake {
         self.saved = Rope::from(disk);
         self.save_mark = next_mark(self.save_mark);
         self.disk_conflict = false;
@@ -79,6 +102,16 @@ mod tests {
     ) -> DiskTake {
         view.update_in(window, |view, window, cx| {
             view.take_disk_text((disk, since), window, cx)
+        })
+    }
+
+    fn reload(
+        view: &gpui::Entity<EditorView>,
+        since: SaveMark,
+        window: &mut gpui::VisualTestContext,
+    ) -> DiskTake {
+        view.update_in(window, |view, window, cx| {
+            view.take_reloaded_text(("a", since), window, cx)
         })
     }
 
@@ -128,6 +161,21 @@ mod tests {
             assert_eq!(take(&view, (disk, since), window), expected, "{disk}");
             assert_eq!(view.read_with(window, EditorView::text), "xa", "{disk}");
         }
+    }
+
+    #[gpui::test]
+    fn a_reload_drops_the_edits_for_the_disk_text_unless_a_save_landed_first(
+        cx: &mut TestAppContext
+    ) {
+        let (view, window) = opened(("a", None), Access::Editable, cx);
+        listened(&view, window);
+        window.simulate_input("x");
+        let since = mark(&view, window);
+        let stale = SaveMark(since.0.wrapping_add(1));
+        assert_eq!(reload(&view, stale, window), DiskTake::Kept, "stale");
+        assert_eq!(reload(&view, since, window), DiskTake::Taken, "taken");
+        assert_eq!(view.read_with(window, EditorView::text), "a");
+        assert!(!view.read_with(window, EditorView::is_dirty), "clean");
     }
 
     #[gpui::test]

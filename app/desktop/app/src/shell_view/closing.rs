@@ -70,7 +70,7 @@ impl ShellView {
                 this.on_unsaved_choice(source, *choice, cx);
             }),
         );
-        self.unsaved = Some(dialog);
+        self.question = Some(dialog.into());
         self.pending_close = Some(pending);
         cx.notify();
     }
@@ -90,7 +90,7 @@ impl ShellView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        self.unsaved = None;
+        self.question = None;
         let Some(pending) = self.pending_close.take() else {
             return cx.notify();
         };

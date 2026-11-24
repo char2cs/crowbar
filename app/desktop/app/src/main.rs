@@ -103,6 +103,7 @@ mod readout_snapshot;
 mod readout_state;
 mod readout_view;
 mod reconnect_count;
+mod reload_dialog;
 mod request_queue;
 mod reveal_target;
 mod review_panes;

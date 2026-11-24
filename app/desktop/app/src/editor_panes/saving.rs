@@ -49,13 +49,7 @@ impl EditorPanes {
         pane: &PaneId,
         cx: &App,
     ) {
-        let dirty = self
-            .panes
-            .borrow()
-            .get(pane)
-            .and_then(Followed::view)
-            .is_some_and(|view| view.read(cx).is_dirty(cx));
-        if dirty {
+        if self.is_dirty(pane, cx) {
             self.save(pane, cx);
         }
     }
