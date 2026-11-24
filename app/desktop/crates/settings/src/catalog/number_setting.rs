@@ -3,11 +3,13 @@
 use crate::schema::Control;
 use crate::schema::ControlWidth;
 use crate::schema::NumberRange;
+use crate::schema::OnLoad;
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct NumberSetting {
     range: (f64, f64, f64),
     pub(super) default: f64,
+    on_load: OnLoad,
 }
 
 impl NumberSetting {
@@ -15,12 +17,31 @@ impl NumberSetting {
         range: (f64, f64, f64),
         default: f64,
     ) -> Self {
-        Self { range, default }
+        Self {
+            range,
+            default,
+            on_load: OnLoad::Kept,
+        }
+    }
+
+    pub(super) const fn normalized(
+        range: (f64, f64, f64),
+        default: f64,
+    ) -> Self {
+        Self::new(range, default).loaded_as(OnLoad::Normalized)
+    }
+
+    pub(super) const fn loaded_as(
+        mut self,
+        on_load: OnLoad,
+    ) -> Self {
+        self.on_load = on_load;
+        self
     }
 
     fn number_range(self) -> NumberRange {
         let (min, max, step) = self.range;
-        NumberRange::new(min, max, step)
+        NumberRange::new(min, max, step).loaded_as(self.on_load)
     }
 
     pub(super) fn plain(

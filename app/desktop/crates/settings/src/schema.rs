@@ -13,7 +13,9 @@ mod search_entry;
 pub use block::{Block, Heading, ListBlock, Section};
 pub use button_spec::{Action, ButtonFace, ButtonSpec, Confirm};
 pub use condition::Condition;
-pub use control::{ChoiceSource, Control, ControlWidth, Issue, Nudge, NumberRange, Validator};
+pub use control::{
+    ChoiceSource, Control, ControlWidth, Issue, LegacyNumber, Nudge, NumberRange, OnLoad, Validator,
+};
 pub use page::Page;
 pub use page_id::PageId;
 pub use row::{LabelStyle, Row};

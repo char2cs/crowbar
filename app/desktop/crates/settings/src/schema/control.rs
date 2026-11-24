@@ -3,16 +3,20 @@
 mod choice_source;
 mod control_width;
 mod issue;
+mod legacy_number;
 mod nudge;
 mod number_range;
+mod on_load;
 mod text;
 mod validator;
 
 pub use choice_source::ChoiceSource;
 pub use control_width::ControlWidth;
 pub use issue::Issue;
+pub use legacy_number::LegacyNumber;
 pub use nudge::Nudge;
 pub use number_range::NumberRange;
+pub use on_load::OnLoad;
 pub use validator::Validator;
 
 use crate::schema::button_spec::ButtonSpec;

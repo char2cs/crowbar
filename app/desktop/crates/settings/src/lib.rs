@@ -15,7 +15,7 @@ mod values;
 
 pub use catalog::{
     AGENT_RECORDS, DESCRIPTOR_RECORDS, HOST_RECORDS, KEYBINDING_OVERRIDES, KEYBINDING_PRESET,
-    SESSION_RECORDS, default_schema, preset_overrides,
+    LEGACY_TERMINAL_LINE_HEIGHT, SESSION_RECORDS, default_schema, preset_overrides,
 };
 pub use keys::Capture;
 pub use keys::ChordSource;
@@ -28,8 +28,8 @@ pub use records::{
 pub use schema::{Action, Block, ButtonFace, ButtonSpec};
 pub use schema::{ChoiceSource, Condition, Confirm, Control, ControlWidth};
 pub use schema::{
-    Heading, Issue, LabelStyle, ListBlock, Nudge, NumberRange, Page, PageId, Row, Schema,
-    SearchEntry, Section, Validator,
+    Heading, Issue, LabelStyle, LegacyNumber, ListBlock, Nudge, NumberRange, OnLoad, Page, PageId,
+    Row, Schema, SearchEntry, Section, Validator,
 };
 pub use state::Effect;
 pub use state::{Prompt, RailMove, State};

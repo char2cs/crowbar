@@ -86,22 +86,56 @@ mod tests {
         assert!(!state.resettable(&row));
     }
 
+    fn stored_as(
+        key: &str,
+        stored: Option<f64>,
+    ) -> Values {
+        stored.map_or_else(Values::default, |number| {
+            Values::default().with(key, number)
+        })
+    }
+
     #[test]
-    fn a_stored_line_height_shows_as_develop_loads_it() {
+    fn a_stored_number_shows_as_develop_loads_it() {
+        let schema = crate::default_schema().unwrap();
+        let cases = [
+            ("editorLineHeight", None, "1.4"),
+            ("editorLineHeight", Some(1.43), "1.4"),
+            ("editorLineHeight", Some(14.0), "2"),
+            ("uiFontSize", Some(99.0), "24"),
+            ("markdownFontSize", Some(30.0), "24"),
+            ("fileTreeIndentSize", Some(40.0), "32"),
+            ("browserZoom", Some(999.0), "300"),
+            ("terminalLineHeight", Some(1.43), "1.4"),
+            ("terminalLineHeight", Some(5.0), "5"),
+            ("terminalLineHeight", Some(1.2), "1"),
+            ("terminalLetterSpacing", Some(9.0), "9"),
+        ];
+        for (key, stored, shown) in cases {
+            let row = schema
+                .rows()
+                .find(|row| row.key().as_str() == key)
+                .cloned()
+                .unwrap();
+            let values = stored_as(key, stored);
+            let snapshot = crate::values::Snapshot::new(values);
+            let state = crate::State::new(schema.clone(), snapshot, None, chord::Primary::Control);
+            assert_eq!(state.field_text(&row), shown, "{key} {stored:?}");
+        }
+    }
+
+    #[test]
+    fn a_retired_default_reads_as_the_default_and_offers_no_reset() {
         let schema = crate::default_schema().unwrap();
         let row = schema
             .rows()
-            .find(|row| row.key().as_str() == "editorLineHeight")
+            .find(|row| row.key().as_str() == "terminalLineHeight")
             .cloned()
             .unwrap();
-        let stored_as = |number: f64| Values::default().with("editorLineHeight", number);
-        let cases = [(None, "1.4"), (Some(1.43), "1.4"), (Some(14.0), "2")];
-        for (stored, shown) in cases {
-            let values = stored.map_or_else(Values::default, stored_as);
-            let snapshot = crate::values::Snapshot::new(values);
-            let state = crate::State::new(schema.clone(), snapshot, None, chord::Primary::Control);
-            assert_eq!(state.field_text(&row), shown, "{stored:?}");
-        }
+        let values = Values::default().with("terminalLineHeight", 1.2);
+        let snapshot = crate::values::Snapshot::new(values);
+        let state = crate::State::new(schema, snapshot, None, chord::Primary::Control);
+        assert!(!state.resettable(&row));
     }
 
     #[test]

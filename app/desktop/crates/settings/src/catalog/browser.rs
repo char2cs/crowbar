@@ -15,7 +15,7 @@ use crate::schema::Validator;
 
 const CLEAR_DATA: &str = "browser.clearData";
 
-const PAGE_ZOOM: NumberSetting = NumberSetting::new((50.0, 300.0, 10.0), 100.0);
+const PAGE_ZOOM: NumberSetting = NumberSetting::normalized((50.0, 300.0, 10.0), 100.0);
 
 pub(super) fn page() -> Page {
     Page::new("browser", "Browser", "globe")

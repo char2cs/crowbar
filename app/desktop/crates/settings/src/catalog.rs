@@ -25,6 +25,8 @@ pub const DESCRIPTOR_RECORDS: &str = agents::DESCRIPTORS;
 pub const SESSION_RECORDS: &str = sessions::SESSIONS;
 /// Source name of the hosts list.
 pub const HOST_RECORDS: &str = hosts::HOSTS;
+/// The terminal line height develop once defaulted to, read on load as today's default.
+pub const LEGACY_TERMINAL_LINE_HEIGHT: crate::schema::LegacyNumber = terminal::LEGACY_LINE_HEIGHT;
 /// The setting that stores custom keybindings.
 pub const KEYBINDING_OVERRIDES: &str = keybindings::OVERRIDES;
 /// The setting that stores the active keybinding preset.

@@ -9,13 +9,23 @@ impl Control {
         &self,
         value: Option<&Value>,
     ) -> String {
-        match (self, value) {
-            (Self::Number { range, .. }, Some(Value::Number(number))) => {
-                range.format(range.loaded(*number))
-            },
-            (Self::Text { .. }, Some(Value::Text(text))) => text.clone(),
+        match (self, value.map(|value| self.loaded(value))) {
+            (Self::Number { range, .. }, Some(Value::Number(number))) => range.format(number),
+            (Self::Text { .. }, Some(Value::Text(text))) => text,
             (Self::TextList { .. }, Some(Value::List(items))) => items.join(", "),
             _ => String::new(),
+        }
+    }
+
+    pub(crate) fn loaded(
+        &self,
+        value: &Value,
+    ) -> Value {
+        match (self, value) {
+            (Self::Number { range, .. }, Value::Number(number)) => {
+                Value::Number(range.loaded(*number))
+            },
+            _ => value.clone(),
         }
     }
 

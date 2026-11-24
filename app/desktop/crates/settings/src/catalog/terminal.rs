@@ -4,6 +4,8 @@ use super::number_setting::NumberSetting;
 use super::rows::row;
 use crate::schema::Control;
 use crate::schema::ControlWidth;
+use crate::schema::LegacyNumber;
+use crate::schema::OnLoad;
 use crate::schema::Page;
 use crate::schema::Section;
 use crate::values::Value;
@@ -11,7 +13,12 @@ use crate::values::Value;
 const FONT_HINT: &str = "Note: Selected font must be installed on your system to work correctly. If icons are missing, try installing a Nerd Font.";
 
 const FONT_SIZE: NumberSetting = NumberSetting::new((8.0, 32.0, 1.0), 14.0);
-const LINE_HEIGHT: NumberSetting = NumberSetting::new((1.0, 2.0, 0.1), 1.0);
+pub(super) const LEGACY_LINE_HEIGHT: LegacyNumber = LegacyNumber {
+    retired: 1.2,
+    current: 1.0,
+};
+const LINE_HEIGHT: NumberSetting = NumberSetting::new((1.0, 2.0, 0.1), LEGACY_LINE_HEIGHT.current)
+    .loaded_as(OnLoad::Replaced(LEGACY_LINE_HEIGHT));
 const LETTER_SPACING: NumberSetting = NumberSetting::new((-5.0, 5.0, 0.1), 0.0);
 const SCROLLBACK: NumberSetting = NumberSetting::new((1000.0, 100_000.0, 1000.0), 10_000.0);
 const CURSOR_WIDTH: NumberSetting = NumberSetting::new((1.0, 6.0, 1.0), 2.0);

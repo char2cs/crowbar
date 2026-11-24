@@ -10,10 +10,10 @@ use crate::schema::Section;
 use crate::values::Value;
 
 const FONT_SIZE: NumberSetting = NumberSetting::new((8.0, 32.0, 1.0), 14.0);
-const LINE_HEIGHT: NumberSetting = NumberSetting::new((1.0, 2.0, 0.1), 1.4);
+const LINE_HEIGHT: NumberSetting = NumberSetting::normalized((1.0, 2.0, 0.1), 1.4);
 const TAB_SIZE: NumberSetting = NumberSetting::new((1.0, 8.0, 1.0), 2.0);
 const MAX_OPEN_TABS: NumberSetting = NumberSetting::new((1.0, 100.0, 1.0), 100.0);
-const MARKDOWN_FONT_SIZE: NumberSetting = NumberSetting::new((12.0, 24.0, 1.0), 16.0);
+const MARKDOWN_FONT_SIZE: NumberSetting = NumberSetting::normalized((12.0, 24.0, 1.0), 16.0);
 
 pub(super) fn page() -> Page {
     Page::new("editor", "Editor", "code-block")
