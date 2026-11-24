@@ -114,6 +114,10 @@ The editor engine (`gpui-base`: `InputBaseState`, the rope, tree-sitter highligh
 
 `typescript-builtin-keyword` (`gpui-component`, `src/highlighter/languages/typescript/highlights.scm`): a predefined type (`string`, `number`, `void`, `any`…) is a `@keyword`, as develop's Monaco grammar lists them among TypeScript's keywords and paints them `--syntax-keyword`. Upstream captures them as `@type.builtin`, which the shell paints as a type. Keep it while the editor matches develop's Monaco colours.
 
+`monaco-gutter` (`gpui-base`, `src/input/base/element.rs`), applied on top of `whitespace-modes`: the line-number column reserves five digit cells (Monaco's `lineNumbersMinChars`), the fold strip is 16px (Monaco's folding decoration) and no margin follows it, so the text column starts where develop's Monaco puts it. Upstream reserves three digits, an 18px strip and a 6px margin. Keep it while the editor matches develop's gutter.
+
+`code-editor-no-left-inset` (`gpui-component`, `src/input/input.rs`): a code editor's line numbers start at its left edge, as Monaco's do with no glyph margin. Upstream insets them by the size tier's horizontal padding (up to 6px). Keep it with `monaco-gutter`.
+
 Drop the vendored copies when the editor needs no patch of its own and upstream keeps pace with gpui-pre.
 
 ## Updating

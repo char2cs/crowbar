@@ -615,7 +615,7 @@ impl RenderOnce for Input {
                     right: self.size.input_px(),
                     bottom: self.size.input_py(),
                     left: if state.presentation(cx).is_code_editor() {
-                        self.size.input_px().min(px(6.))
+                        px(0.)
                     } else {
                         self.size.input_px()
                     },

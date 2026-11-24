@@ -270,6 +270,9 @@ mod tests {
     use super::test_support::{listened, opened};
     use super::*;
 
+    const MONACO_LINE_NUMBER_CHARS: f32 = 5.;
+    const MONACO_FOLD_STRIP: gpui::Pixels = px(16.);
+
     fn language_of(
         view: &Entity<EditorView>,
         cx: &App,
@@ -378,6 +381,20 @@ mod tests {
         let rows = window.read(|cx| view.read(cx).state.read(cx).visible_row_range());
         let shown = rows.map_or(0, |rows| rows.len());
         assert!(shown > 10, "only {shown} rows show");
+    }
+
+    #[gpui::test]
+    fn the_text_starts_after_five_digit_cells_and_the_fold_strip_as_monaco_s_does(
+        cx: &mut TestAppContext
+    ) {
+        let (view, window) = opened(("0\nb", None), Access::Editable, cx);
+        window.run_until_parked();
+        let first = window.read(|cx| view.read(cx).state.read(cx).range_to_bounds(&(0..1)));
+        let (first, body) = (first.unwrap(), window.debug_bounds(BODY).unwrap());
+        let digits = first.size.width * MONACO_LINE_NUMBER_CHARS;
+        let offset = f32::from(first.left() - body.left());
+        let expected = f32::from(digits + MONACO_FOLD_STRIP);
+        assert!((offset - expected).abs() < 0.01, "{offset} != {expected}");
     }
 
     #[gpui::test]
