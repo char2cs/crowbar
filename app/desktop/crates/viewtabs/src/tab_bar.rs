@@ -4,6 +4,7 @@ mod ghost;
 mod incoming;
 mod menu;
 mod pointer;
+mod preview;
 mod render;
 mod sidebar_glyph;
 mod sidebar_state;

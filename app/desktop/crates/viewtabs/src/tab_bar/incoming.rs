@@ -122,10 +122,7 @@ impl TabBar {
         let DragSubject::Pane(pane) = subject else {
             return None;
         };
-        self.tabs
-            .iter()
-            .flat_map(|tab| &tab.members)
-            .find(|member| &member.pane == pane)
+        self.member(pane)
     }
 
     fn line_x(
