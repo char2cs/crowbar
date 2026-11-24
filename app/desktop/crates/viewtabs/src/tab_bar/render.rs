@@ -10,7 +10,7 @@ use layout::{Command, DragSubject, TabId};
 use ui::{Motion, Surface, Theme};
 
 use crate::event::Event;
-use crate::gesture::TabDrop;
+use crate::gesture::{DragSession, TabDrop};
 use crate::pill::ShellLook;
 use crate::pill::{CloseAction, TabShell};
 use crate::strip_metrics::{
@@ -160,10 +160,11 @@ impl TabBar {
             return div().into_any_element();
         };
         let look = self.look_of(index);
-        let hidden = self
+        let source = self
             .drag
             .as_ref()
-            .is_some_and(|drag| drag.engine.tab() == Some(tab.id));
+            .filter(|drag| drag.engine.tab() == Some(tab.id))
+            .map(DragSession::source_opacity);
         div()
             .id(("slot", index))
             .relative()
@@ -171,7 +172,7 @@ impl TabBar {
             .flex_none()
             .w(px(width))
             .px(px(SHELL_MARGIN))
-            .when(hidden, Styled::invisible)
+            .when_some(source, Styled::opacity)
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, event, _, cx| this.pressed(index, event, cx)),

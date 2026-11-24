@@ -3,7 +3,7 @@ use gpui::{
 };
 use ui::{Portal, layer};
 
-use crate::gesture::StripDrag;
+use crate::gesture::band;
 use crate::pill::{MemberView, ShellLook, TabShell};
 use crate::strip_metrics::{ROW_HEIGHT, SHELL_MARGIN, TAB_HEIGHT};
 use crate::tab_bar::TabBar;
@@ -20,8 +20,8 @@ impl TabBar {
         let row_top = (ROW_HEIGHT - TAB_HEIGHT) / 2.0;
         let pointer_y = f32::from(drag.pointer.y - self.row.origin.y);
         let grab_y = drag.grab_y + row_top;
-        let top = StripDrag::ghost_y(pointer_y, row_top, grab_y);
-        let pull = StripDrag::pull(pointer_y, row_top, grab_y);
+        let top = band::ghost_y(pointer_y, row_top, grab_y);
+        let pull = band::pull(pointer_y, row_top, grab_y);
         let x = drag.engine.eased_x(self.content_x(drag.pointer), pull);
         let left = x
             + f32::from(self.scroll.offset().x)

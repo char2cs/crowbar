@@ -100,11 +100,11 @@ impl TabBar {
     ) {
         let (now, motion) = (self.clock.now(), Motion::of(cx));
         let x = self.content_x(position);
+        let crossing = self.crossing(position);
         if let Some(drag) = &mut self.drag {
-            drag.engine.moved(x);
+            drag.aim(x);
             drag.follow(position, now, motion);
         }
-        let crossing = self.crossing(position);
         cx.notify();
         if let Some(crossing) = crossing {
             cx.emit(crossing);
@@ -302,6 +302,25 @@ mod tests {
         ];
         assert_eq!(left_the_strip(&events.borrow()), expected);
         assert!(applied(&events.borrow()).is_empty(), "no reorder");
+    }
+
+    #[gpui::test]
+    fn a_tab_dragged_onto_the_panes_stays_faded_in_its_own_slot(cx: &mut TestAppContext) {
+        let harness = open(cx, tabs(), 1);
+        let (bar, cx) = (harness.bar, harness.cx);
+        let none = Modifiers::none();
+        cx.simulate_mouse_down(point(px(108.0), px(21.0)), MouseButton::Left, none);
+        cx.simulate_mouse_move(point(px(130.0), px(21.0)), MouseButton::Left, none);
+        cx.simulate_mouse_move(point(px(600.0), px(300.0)), MouseButton::Left, none);
+        let source = bar.read_with(cx, |bar, _| {
+            let drag = bar.drag.as_ref()?;
+            Some((drag.source_opacity(), drag.engine.target()))
+        });
+        assert_eq!(
+            source,
+            Some((0.4, 0)),
+            "faded where it sat, with its neighbours back in place"
+        );
     }
 
     #[gpui::test]

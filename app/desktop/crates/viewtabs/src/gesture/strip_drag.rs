@@ -3,7 +3,6 @@ use layout::{Command, TabId};
 use crate::span::Span;
 
 const HYSTERESIS: f32 = 6.0;
-const BAND_MARGIN: f32 = 32.0;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct StripDrag {
@@ -59,26 +58,6 @@ impl StripDrag {
         pinned + (x - self.grab - pinned) * pull
     }
 
-    #[must_use]
-    pub(crate) fn pull(
-        pointer_y: f32,
-        row_top: f32,
-        grab_y: f32,
-    ) -> f32 {
-        let delta = pointer_y - grab_y - row_top;
-        (delta.abs() / BAND_MARGIN).clamp(0.0, 1.0)
-    }
-
-    #[must_use]
-    pub(crate) fn ghost_y(
-        pointer_y: f32,
-        row_top: f32,
-        grab_y: f32,
-    ) -> f32 {
-        let delta = pointer_y - grab_y - row_top;
-        row_top + delta * Self::pull(pointer_y, row_top, grab_y)
-    }
-
     pub(crate) fn moved(
         &mut self,
         x: f32,
@@ -86,6 +65,10 @@ impl StripDrag {
         let ghost = self.ghost_x(x);
         let width = self.width();
         while self.step(ghost, width) {}
+    }
+
+    pub(crate) fn home(&mut self) {
+        self.target = self.dragged;
     }
 
     #[must_use]
@@ -332,21 +315,5 @@ mod tests {
         assert_eq!(drag.eased_x(-500.0, 0.0), 0.0, "pinned over the tabs");
         assert_eq!(drag.eased_x(-500.0, 1.0), -530.0, "free past the margin");
         assert_eq!(drag.eased_x(-500.0, 0.5), -265.0, "halfway eased");
-    }
-
-    #[test]
-    fn the_ghost_is_pinned_to_the_row_near_it_and_free_far_from_it() {
-        assert_eq!(
-            StripDrag::ghost_y(26.0, 5.0, 21.0),
-            5.0,
-            "level with the row"
-        );
-        let eased = StripDrag::ghost_y(26.0 + 16.0, 5.0, 21.0);
-        assert!(eased > 5.0 && eased < 21.0, "halfway eased: {eased}");
-        assert_eq!(
-            StripDrag::ghost_y(26.0 + 200.0, 5.0, 21.0),
-            205.0,
-            "free beyond the margin"
-        );
     }
 }
