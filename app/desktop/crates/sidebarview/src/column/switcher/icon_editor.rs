@@ -184,7 +184,7 @@ impl IconEditor {
         let reset = Button::new("icon-reset", "Reset to default")
             .icon(IconName::Trash)
             .size(ButtonSize::Xs)
-            .variant(ButtonVariant::Muted)
+            .variant(ButtonVariant::Faint)
             .grow()
             .on_click(cx.listener(|this, _, _, cx| this.choose(SpaceIcon::Default, cx)));
         (self.current != SpaceIcon::Default).then(|| div().flex().child(reset))

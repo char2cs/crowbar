@@ -13,6 +13,7 @@ use crate::foundation::tokens::shadow;
 const HOVER_FILL: f32 = 0.9;
 const GLOW: f32 = 0.24;
 const PRESSED_FILL: f32 = 0.8;
+const FAINT_INK: f32 = 0.6;
 
 #[derive(Debug, Clone)]
 pub(crate) struct Colors {
@@ -21,6 +22,7 @@ pub(crate) struct Colors {
     pub(crate) pressed_background: Hsla,
     pub(crate) border: Hsla,
     pub(crate) foreground: Hsla,
+    pub(crate) hover_foreground: Hsla,
     pub(crate) shadow: Vec<BoxShadow>,
 }
 
@@ -39,6 +41,16 @@ impl Colors {
         (window, cx): (&mut Window, &App),
     ) -> Hsla {
         hover::color(hover, self.background..self.hover_background, window, cx)
+    }
+
+    pub(crate) fn inked(
+        mut self,
+        hover: &Entity<ToggleState>,
+        (window, cx): (&mut Window, &App),
+    ) -> Self {
+        let ink = self.foreground..self.hover_foreground;
+        self.foreground = hover::color(hover, ink, window, cx);
+        self
     }
 
     pub(crate) fn pressed(&self) -> impl FnOnce(StyleRefinement) -> StyleRefinement + use<> {
@@ -67,10 +79,17 @@ impl Colors {
                 pressed_background: palette.accent(),
                 border: transparent(),
                 foreground: palette.foreground(),
+                hover_foreground: palette.foreground(),
                 shadow: Vec::new(),
             },
             ButtonVariant::Muted | ButtonVariant::Row => Self {
                 foreground: palette.muted_foreground(),
+                hover_foreground: palette.muted_foreground(),
+                ..Self::resolve(ButtonVariant::Ghost, palette, appearance)
+            },
+            ButtonVariant::Faint => Self {
+                foreground: palette.muted_foreground().opacity(FAINT_INK),
+                hover_foreground: palette.destructive(),
                 ..Self::resolve(ButtonVariant::Ghost, palette, appearance)
             },
         }
@@ -96,6 +115,7 @@ impl Colors {
             pressed_background: fill.opacity(HOVER_FILL),
             border: fill,
             foreground,
+            hover_foreground: foreground,
             shadow: Vec::new(),
         }
     }
@@ -117,6 +137,7 @@ impl Colors {
             pressed_background: hover_background,
             border: palette.input(),
             foreground: palette.foreground(),
+            hover_foreground: palette.foreground(),
             shadow: shadow::xs(opacity::PERCENT_5),
         }
     }
@@ -204,5 +225,17 @@ mod tests {
             assert_eq!(colors.hover_background, palette.accent(), "{variant:?}");
             assert_eq!(colors.foreground, ink, "{variant:?}");
         }
+    }
+
+    #[test]
+    fn a_faint_ghost_inks_muted_at_sixty_percent_and_turns_destructive_under_the_pointer() {
+        let (palette, appearance) = palette(ThemeMode::Dark);
+        let faint = Colors::resolve(ButtonVariant::Faint, palette, appearance);
+        let inks = (faint.foreground, faint.hover_foreground);
+        let want = (
+            palette.muted_foreground().opacity(0.6),
+            palette.destructive(),
+        );
+        assert_eq!(inks, want);
     }
 }

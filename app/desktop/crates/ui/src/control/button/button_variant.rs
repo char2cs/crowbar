@@ -17,6 +17,9 @@ pub enum ButtonVariant {
     Ghost,
     /// A ghost in muted ink, as a ghost given `text-muted-foreground` is.
     Muted,
+    /// A ghost in faint muted ink that turns destructive under the pointer, as develop's "Reset to
+    /// default" is.
+    Faint,
     /// A [`ButtonVariant::Muted`] with its content at the start, as the actions listed on a blank
     /// page are.
     Row,

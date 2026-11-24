@@ -185,6 +185,7 @@ impl RenderOnce for Button {
         let colors = Colors::resolve(self.variant, palette, theme.appearance());
         let (ring, enabled) = (focus_ring(palette), self.enabled());
         let hover = hover::track(&self.id, Pose::Off, window, cx);
+        let colors = colors.inked(&hover, (window, &*cx));
         let background = colors.fill(&hover, (window, cx));
         let content = self.content_color(&colors);
         let (height, text, icon_size) = self.size.sized(ControlScale::of(window));
