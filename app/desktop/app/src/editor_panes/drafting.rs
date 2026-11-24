@@ -85,6 +85,28 @@ impl EditorPanes {
         }
     }
 
+    pub(super) fn forget_released(
+        &self,
+        gone: &[EditorTarget],
+    ) {
+        let held = self.held_uris();
+        let released: Vec<EditorTarget> = gone
+            .iter()
+            .filter(|target| self.uri_of(target).is_none_or(|uri| !held.contains(&uri)))
+            .cloned()
+            .collect();
+        self.forget_drafts(&released);
+    }
+
+    fn held_uris(&self) -> BTreeSet<String> {
+        self.panes
+            .borrow()
+            .values()
+            .filter(|followed| followed.target.preview.is_none())
+            .filter_map(|followed| self.uri_of(&followed.target))
+            .collect()
+    }
+
     fn draft_over(
         &self,
         target: &EditorTarget,
@@ -195,6 +217,41 @@ mod tests {
         let (panes, _heard) = panes_over(&documents);
         panes.follow(&layout::Layout::default());
         assert!(!kept(&documents), "no tab holds it");
+    }
+
+    fn two_panes_on(path: &str) -> layout::Layout {
+        let mut layout = layout_in("c1", json!({"path": path}));
+        let instance = layout::PaneInstance {
+            pane_id: PaneId::new("f2").unwrap(),
+            type_id: protocol::PaneTypeId::new(crate::core_panes::EDITOR).unwrap(),
+            params: protocol::Params::default().with("threadId", "c2").unwrap(),
+            state: protocol::PaneState::new(json!({"path": path})).unwrap(),
+        };
+        let open = layout::Command::OpenPane {
+            tab: layout::TabId(1),
+            instance,
+            placement: None,
+        };
+        layout.apply(open).unwrap();
+        layout
+    }
+
+    #[gpui::test]
+    fn closing_one_of_two_panes_on_a_file_keeps_its_draft(cx: &mut TestAppContext) {
+        cx.update(|cx| ui::init(cx).unwrap());
+        cx.update(editorview::init);
+        let documents = Rc::new(FakeDocuments::default());
+        documents.loading("c1");
+        documents.loading("c2");
+        documents.holding(PATH, TEXT);
+        let panes = typed_and_kept(&documents, cx);
+        assert!(kept(&documents), "typed");
+        panes.follow(&two_panes_on(PATH));
+        assert!(kept(&documents), "a second pane opens on it");
+        panes.follow(&layout_in("c1", json!({"path": PATH})));
+        assert!(kept(&documents), "the other pane still shows the file");
+        panes.follow(&layout::Layout::default());
+        assert!(!kept(&documents), "no pane shows it");
     }
 
     #[gpui::test]

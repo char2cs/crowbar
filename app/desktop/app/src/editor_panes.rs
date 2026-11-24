@@ -113,7 +113,7 @@ impl EditorPanes {
             panes.insert(pane, Followed::arrive(target, (keyboard, access), server));
         }
         drop(panes);
-        self.forget_drafts(&gone);
+        self.forget_released(&gone);
         self.read_waiting();
         self.sweep_drafts();
     }
