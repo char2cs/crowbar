@@ -43,14 +43,6 @@ impl FontKey {
     }
 }
 
-/// What a family is loaded for: a primary face must have Latin letters, a fallback face (an
-/// emoji or symbol font) need not.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FaceRole {
-    Primary,
-    Fallback,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct LoadedFontKey {
     database_id: cosmic_text::fontdb::ID,
@@ -212,17 +204,18 @@ impl PlatformTextSystem for CosmicTextSystem {
         let candidates = if let Some(font_ids) = state.font_ids_by_family_cache.get(&key) {
             font_ids.as_slice()
         } else {
-            let font_ids = state.load_family(
-                &font.family,
-                &font.features,
-                font.fallbacks.as_ref(),
-                FaceRole::Primary,
-            )?;
+            let font_ids =
+                state.load_family(&font.family, &font.features, font.fallbacks.as_ref())?;
             state.font_ids_by_family_cache.insert(key.clone(), font_ids);
             state.font_ids_by_family_cache[&key].as_ref()
         };
 
-        let ix = find_best_match(font, candidates, &state)?;
+        let candidates: SmallVec<[FontId; 4]> = candidates
+            .iter()
+            .copied()
+            .filter(|font_id| state.can_be_primary(*font_id))
+            .collect();
+        let ix = find_best_match(font, &candidates, &state)?;
         let base = candidates[ix];
         let upright = state
             .font_system
@@ -369,7 +362,6 @@ impl CosmicTextSystemState {
         name: &str,
         features: &FontFeatures,
         fallbacks: Option<&FontFallbacks>,
-        role: FaceRole,
     ) -> Result<SmallVec<[FontId; 4]>> {
         let loaded_font_key = FontKey::new(
             SharedString::from(name.to_owned()),
@@ -392,8 +384,7 @@ impl CosmicTextSystemState {
                     let fb_ids = if let Some(cached) = self.font_ids_by_family_cache.get(&fb_key) {
                         cached.clone()
                     } else {
-                        let loaded =
-                            self.load_family(fallback_name, features, None, FaceRole::Fallback)?;
+                        let loaded = self.load_family(fallback_name, features, None)?;
                         self.font_ids_by_family_cache
                             .insert(fb_key.clone(), loaded.clone());
                         loaded
@@ -442,27 +433,6 @@ impl CosmicTextSystemState {
                 .get_font(database_id, cosmic_text::Weight::NORMAL)
                 .context("Could not load font")?;
 
-            // HACK: To let the storybook run and render Windows caption icons. We should actually do better font fallback.
-            let allowed_bad_font_names = [
-                "SegoeFluentIcons", // NOTE: Segoe fluent icons postscript name is inconsistent
-                "Segoe Fluent Icons",
-            ];
-
-            // This only decides whether a face can be a primary font. The
-            // editor measures layout with the width of 'm' and would panic
-            // without it.
-            //
-            // Don't remove the face from the font database. Arabic, Devanagari
-            // and emoji fonts often have no Latin glyphs, and they are exactly
-            // what cosmic-text falls back to when the primary font lacks a
-            // glyph.
-            if role == FaceRole::Primary
-                && font.as_swash().charmap().map('m') == 0
-                && !allowed_bad_font_names.contains(&postscript_name.as_str())
-            {
-                continue;
-            };
-
             let font_id = FontId(self.loaded_fonts.len());
             loaded_font_ids.push(font_id);
             self.loaded_fonts.push(LoadedFont {
@@ -477,6 +447,22 @@ impl CosmicTextSystemState {
         }
 
         Ok(loaded_font_ids)
+    }
+
+    /// Whether a loaded face can be a primary font. The editor measures layout with the width
+    /// of 'm' and would panic without it. Faces without Latin letters still load: an emoji or
+    /// symbol family named in a font's fallbacks draws exactly what the primary lacks.
+    fn can_be_primary(&self, font_id: FontId) -> bool {
+        // HACK: To let the storybook run and render Windows caption icons.
+        let allowed_bad_font_names = [
+            "SegoeFluentIcons", // NOTE: Segoe fluent icons postscript name is inconsistent
+            "Segoe Fluent Icons",
+        ];
+        let font = &self.loaded_font(font_id).font;
+        let named_allowed = self.font_system.db().face(font.id()).is_some_and(|face| {
+            allowed_bad_font_names.contains(&face.post_script_name.as_str())
+        });
+        font.as_swash().charmap().map('m') != 0 || named_allowed
     }
 
     /// The `FontId` that draws the face `base` at `weight`: variable faces get one entry per

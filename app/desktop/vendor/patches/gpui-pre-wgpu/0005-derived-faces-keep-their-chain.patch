@@ -1,6 +1,6 @@
 --- a/src/cosmic_text_system.rs
 +++ b/src/cosmic_text_system.rs
-@@ -522,6 +522,7 @@
+@@ -508,6 +508,7 @@
                  && font.weight == derived.weight
                  && font.fake_italic == derived.fake_italic
                  && font.features == derived.features

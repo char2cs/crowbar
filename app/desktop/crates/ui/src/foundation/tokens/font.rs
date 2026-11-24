@@ -80,14 +80,18 @@ mod tests {
     const SNOWMAN: char = '\u{2603}';
 
     #[cfg(target_os = "linux")]
-    type Chain = &'static [&'static str];
+    type Families = &'static [&'static str];
 
     #[cfg(target_os = "linux")]
-    const DRAWN_BEFORE: [(&str, Option<Chain>); 2] = [
-        ("a fallback family without Latin letters", None),
+    const DRAWN_BEFORE: [(&str, Families); 3] = [
+        ("a fallback family without Latin letters", &[]),
         (
             "after a mono label drew the family without fallbacks",
-            Some(&[]),
+            &[MONO_FAMILY],
+        ),
+        (
+            "after the fallback family was asked for as a primary font",
+            &[HEADING_FAMILY, UI_FAMILY],
         ),
     ];
 
@@ -107,10 +111,12 @@ mod tests {
     }
 
     #[cfg(target_os = "linux")]
-    fn fixture_system_after(earlier: Option<&[&str]>) -> gpui_wgpu::CosmicTextSystem {
+    fn fixture_system_after(earlier: Families) -> gpui_wgpu::CosmicTextSystem {
+        use gpui::PlatformTextSystem as _;
+
         let system = fixture_system();
-        if let Some(chain) = earlier {
-            ascent_of_snowman_face(&system, chain);
+        for family in earlier {
+            let _resolved = system.font_id(&gpui::font(*family));
         }
         system
     }
