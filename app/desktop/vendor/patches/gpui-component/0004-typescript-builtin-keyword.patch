@@ -1,0 +1,11 @@
+--- a/src/highlighter/languages/typescript/highlights.scm
++++ b/src/highlighter/languages/typescript/highlights.scm
+@@ -209,7 +209,7 @@
+ 
+ 
+ (type_identifier) @type
+-(predefined_type) @type.builtin
++(predefined_type) @keyword
+ 
+ ((identifier) @type
+  (#match? @type "^[A-Z]"))

@@ -209,7 +209,7 @@
 
 
 (type_identifier) @type
-(predefined_type) @type.builtin
+(predefined_type) @keyword
 
 ((identifier) @type
  (#match? @type "^[A-Z]"))

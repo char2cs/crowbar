@@ -95,6 +95,7 @@ palette! {
     syntax_attribute => "--syntax-attribute",
     syntax_boolean => "--syntax-boolean",
     syntax_regex => "--syntax-regex",
+    syntax_variable => "--syntax-variable",
 }
 
 impl Palette {

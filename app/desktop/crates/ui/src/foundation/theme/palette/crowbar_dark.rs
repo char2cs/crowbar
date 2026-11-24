@@ -70,4 +70,5 @@ pub(super) const PALETTE: Palette = Palette {
     syntax_attribute: hex(0xe079_5fff),
     syntax_boolean: hex(0xe079_5fff),
     syntax_regex: hex(0x88b5_c6ff),
+    syntax_variable: hex(0xc8a7_dbff),
 };

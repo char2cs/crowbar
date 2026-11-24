@@ -108,6 +108,8 @@ The editor engine (`gpui-base`: `InputBaseState`, the rope, tree-sitter highligh
 
 `monaco-markdown-classes` (`gpui-component`, `src/highlighter/languages/markdown/highlights.scm`): a Markdown heading is one `@title` from its `#` marker on, a setext heading only by its underline, and a quote marker is a `@comment`, as develop's Monaco grammar tokenizes them (a whole heading line and a setext underline as `keyword`, `>` as `comment`); the shell's highlight theme then paints `@title` as a keyword. Upstream follows nvim-treesitter: the marker is punctuation and the heading text a title. Keep it while the editor matches develop's Monaco colours.
 
+`typescript-builtin-keyword` (`gpui-component`, `src/highlighter/languages/typescript/highlights.scm`): a predefined type (`string`, `number`, `void`, `any`…) is a `@keyword`, as develop's Monaco grammar lists them among TypeScript's keywords and paints them `--syntax-keyword`. Upstream captures them as `@type.builtin`, which the shell paints as a type. Keep it while the editor matches develop's Monaco colours.
+
 Drop the vendored copies when the editor needs no patch of its own and upstream keeps pace with gpui-pre.
 
 ## Updating

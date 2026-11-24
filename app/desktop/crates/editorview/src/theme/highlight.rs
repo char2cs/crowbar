@@ -2,7 +2,8 @@
 //!
 //! Markdown takes the classes develop's Monaco grammar gives it, not the `--syntax-markdown-*`
 //! tokens, which develop's editor never reads: headings and list markers are keywords, link
-//! targets and code blocks strings, and bold and italic keep the text colour.
+//! targets and code blocks strings, inline code a variable, and bold and italic keep the text
+//! colour.
 
 use gpui_kit::component::highlighter::HighlightThemeStyle;
 use serde_json::{Map, Value, json};
@@ -44,6 +45,7 @@ fn syntax(palette: &Palette) -> Map<String, Value> {
         ("title", palette.syntax_keyword()),
         ("link_uri", palette.syntax_string()),
         ("text.literal", palette.syntax_string()),
+        ("text.code.span", palette.syntax_variable()),
         ("punctuation.list_marker", palette.syntax_keyword()),
     ];
     let painted = classes
@@ -114,7 +116,14 @@ mod tests {
         text: &str,
         palette: &Palette,
     ) -> Vec<(std::ops::Range<usize>, HighlightStyle)> {
-        let mut highlighter = SyntaxHighlighter::new("markdown");
+        styles_of(("markdown", text), palette)
+    }
+
+    fn styles_of(
+        (language, text): (&str, &str),
+        palette: &Palette,
+    ) -> Vec<(std::ops::Range<usize>, HighlightStyle)> {
+        let mut highlighter = SyntaxHighlighter::new(language);
         highlighter.update(None, &Rope::from(text), None);
         let painted = Painted(highlight_style(palette).unwrap());
         highlighter.styles(&(0..text.len()), &painted)
@@ -166,5 +175,32 @@ mod tests {
             (italic.color, italic.font_style),
             (None, Some(FontStyle::Italic))
         );
+    }
+
+    #[test]
+    fn a_typescript_builtin_type_and_markdown_inline_code_take_develop_s_classes() {
+        let cases = [
+            (
+                ("typescript", "let a: string = b\n"),
+                7,
+                Palette::syntax_keyword as Token,
+            ),
+            (("markdown", "a `code` b\n"), 4, Palette::syntax_variable),
+            (("markdown", "a `code` b\n"), 2, Palette::syntax_variable),
+        ];
+        let modes = [ThemeMode::Dark, ThemeMode::Light];
+        for (mode, (source, offset, token)) in modes
+            .into_iter()
+            .flat_map(|mode| cases.map(|case| (mode, case)))
+        {
+            let palette = Theme::default().with_mode(mode).palette(Surface::Window);
+            let styles = styles_of(source, palette);
+            let color = style_at(&styles, offset).color;
+            assert_eq!(
+                color,
+                Some(token(palette)),
+                "{mode:?} {source:?} at {offset}"
+            );
+        }
     }
 }
