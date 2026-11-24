@@ -1,6 +1,8 @@
 #[cfg(target_os = "linux")]
 mod adapters;
 #[cfg(target_os = "linux")]
+mod file_chooser;
+#[cfg(target_os = "linux")]
 mod live_view;
 #[cfg(target_os = "linux")]
 mod page_focus;
@@ -135,6 +137,7 @@ impl GtkState {
         if let Some(color) = config.background {
             view_ops::paint_background(&view, color);
         }
+        file_chooser::choose_over(&view.webview(), window);
         let wanted = to_rect(config.bounds);
         let window_of_page = view
             .webview()
@@ -461,5 +464,6 @@ mod tests {
         a_view_shows_the_background_it_is_given();
         a_page_request_body_reaches_the_protocol_handler();
         only_focus_inside_the_view_lays_it_out();
+        file_chooser::tests::the_chooser_is_transient_for_the_shell_window();
     }
 }
