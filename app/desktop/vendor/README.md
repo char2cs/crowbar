@@ -80,6 +80,10 @@ Drop it with `overlay-window`.
 
 Drop it with `overlay-window`.
 
+`overlay-opened-with-owner` (`gpui-pre`, `src/window.rs`), applied on top of `opaque-ink`: an overlay no longer looks its owner up when it is created; `Window::share_input_modality` takes the owner's modality from whoever opens it. The shell opens its top layer while the main window is built, before that window's first frame, and the app cannot hand out a window it is building, so the lookup found nothing and the two kept separate modalities. Opened after the first frame instead, the top layer came up a second or more after the window on a slow host, and a cover the first frame showed painted under the native web views meanwhile.
+
+Drop it with `overlay-window`.
+
 ## calloop 0.14.5
 
 `tracing-without-log` (`Cargo.toml`): calloop, reached through `gpui-pre-linux`, asks for tracing's `log` feature, and cargo turns a feature on for every crate that uses tracing. With `log` on, each `tracing` macro also expands to its `log` fallback, which quadruples `clippy::cognitive_complexity` in every function that logs. Nothing in the shell reads `log` records (no `log` logger or bridge is installed), so calloop loses only output nobody received.

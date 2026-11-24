@@ -202,16 +202,17 @@ fn start(
     app_menu::install(cx);
     let memory = WindowMemory::new(&options.state_dir().join("window.json"));
     let window_options = memory.options(cx);
+    let mut top_layer = None;
     let opened = cx.open_window(window_options, |window, cx| {
+        top_layer = Some(ui::TopLayer::open(window, cx));
         let view = cx.new(|cx| ShellView::new(parts, window, cx));
         remember_close(&memory, window, cx, &view);
         view
     });
-    let main = match opened {
-        Ok(main) => main,
-        Err(error) => return quit_after(cx, &error, "could not open the window"),
-    };
-    if let Err(error) = ui::TopLayer::open(main.into(), cx) {
+    if let Err(error) = opened {
+        return quit_after(cx, &error, "could not open the window");
+    }
+    if let Some(Err(error)) = top_layer {
         return quit_after(cx, &error, "could not open the window's top layer");
     }
     cx.activate(true);

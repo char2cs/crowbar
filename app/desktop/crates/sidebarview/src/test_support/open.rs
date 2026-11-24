@@ -60,7 +60,8 @@ pub(crate) fn open_floating(
     let window = VisualTestContext::from_window(owner, cx);
     window.simulate_resize(size(px(1200.0), px(800.0)));
     let top = cx
-        .update(|cx| ui::TopLayer::open(owner, cx))
+        .update(|cx| owner.update(cx, |_, window, cx| ui::TopLayer::open(window, cx)))
+        .expect("the sidebar window")
         .expect("the top layer opens");
     cx.run_until_parked();
     Floating {

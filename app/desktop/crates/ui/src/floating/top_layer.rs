@@ -36,31 +36,32 @@ impl TopLayer {
     /// owner's content area, that only takes the pointer where a floating element is and the
     /// keyboard while one of them is focused. It closes with its owner.
     ///
+    /// Open it while the owner is built, before the owner's first frame, so that what that
+    /// frame floats is in the top layer from the start rather than painted in place under the
+    /// owner's native views.
+    ///
     /// # Errors
     ///
-    /// Returns [`Error::TopLayer`] when `owner` is gone or the platform cannot open the window.
+    /// Returns [`Error::TopLayer`] when the platform cannot open the window.
     pub fn open(
-        owner: AnyWindowHandle,
+        owner: &mut Window,
         cx: &mut App,
     ) -> Result<AnyWindowHandle, Error> {
-        let bounds = owner
-            .update(cx, |_, window, _| window.bounds())
-            .map_err(Error::TopLayer)?;
+        let owner_handle = owner.window_handle();
         let layers = Rc::new(Layers::default());
         let root = Rc::clone(&layers);
+        let shared: &Window = owner;
         let window = cx
-            .open_window(options(owner, bounds), move |_, cx| {
+            .open_window(options(owner_handle, shared.bounds()), move |window, cx| {
+                window.share_input_modality(shared);
                 cx.new(|_| Self { layers: root })
             })
             .map_err(Error::TopLayer)?;
         let window: AnyWindowHandle = window.into();
         layers.attach(window);
-        let owner_id = owner.window_id();
-        Registry::insert(owner_id, layers, cx);
-        owner
-            .update(cx, |_, window, _| window.refresh())
-            .map_err(Error::TopLayer)?;
-        cx.on_window_closed(move |cx, _| close_with_owner(owner, window, cx))
+        Registry::insert(owner_handle.window_id(), layers, cx);
+        owner.refresh();
+        cx.on_window_closed(move |cx, _| close_with_owner(owner_handle, window, cx))
             .detach();
         Ok(window)
     }

@@ -84,7 +84,8 @@ mod tests {
         cx.update(|cx| ui::init(cx).expect("ui installs"));
         let owner: gpui::AnyWindowHandle = cx.add_window(|_, _| Source).into();
         let top = cx
-            .update(|cx| ui::TopLayer::open(owner, cx))
+            .update(|cx| owner.update(cx, |_, window, cx| ui::TopLayer::open(window, cx)))
+            .expect("the source window")
             .expect("the top layer opens");
         let (mut owner, mut top) = (
             gpui::VisualTestContext::from_window(owner, cx),

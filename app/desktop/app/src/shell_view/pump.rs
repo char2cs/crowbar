@@ -87,6 +87,17 @@ impl ShellView {
         window.dispatch_event(PlatformInput::MouseMove(moved), cx);
     }
 
+    pub(super) fn feed_known_phases(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let phases = self.link.phases();
+        while let Ok(input) = phases.try_recv() {
+            self.feed_startup(input, window, cx);
+        }
+    }
+
     fn feed_startup(
         &mut self,
         input: startup::Input,

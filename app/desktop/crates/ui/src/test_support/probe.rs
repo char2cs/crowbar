@@ -66,8 +66,15 @@ pub(crate) fn open_floating<E: IntoElement>(
         cx.bind_keys(crate::control::text_input_bindings());
     });
     let build: Build = Rc::new(move |window, cx| build(window, cx).into_any_element());
-    let owner: AnyWindowHandle = cx.add_window(move |_, _| Probe { build }).into();
-    let top = cx.update(|cx| crate::floating::TopLayer::open(owner, cx));
+    let top = Rc::new(std::cell::RefCell::new(None));
+    let slot = Rc::clone(&top);
+    let owner: AnyWindowHandle = cx
+        .add_window(move |window, cx| {
+            slot.replace(Some(crate::floating::TopLayer::open(window, cx)));
+            Probe { build }
+        })
+        .into();
+    let top = top.take().expect("the owner was built");
     let top = top.unwrap_or_else(|error| panic!("open the top layer: {error}"));
     cx.run_until_parked();
     (

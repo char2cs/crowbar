@@ -7,6 +7,15 @@ pub(crate) struct Redraw {
     pub(crate) floating: bool,
 }
 
+pub(crate) fn show_at_once(
+    window: AnyWindowHandle,
+    cx: &mut App,
+) {
+    if let Err(error) = window.update(cx, |_, window, cx| window.set_overlay_shown(true, cx)) {
+        tracing::debug!(%error, "the top layer is drawing; its redraw shows it");
+    }
+}
+
 impl Redraw {
     pub(crate) fn on(
         self,
@@ -139,6 +148,66 @@ mod tests {
         assert_eq!(
             drawn, 1,
             "the cut must cover the frame's pixels when they land"
+        );
+    }
+
+    struct Floats;
+
+    impl gpui::Render for Floats {
+        fn render(
+            &mut self,
+            _: &mut Window,
+            _: &mut gpui::Context<'_, Self>,
+        ) -> impl gpui::IntoElement {
+            div().child(Portal::cover("cover", |_, _| div().size_full()))
+        }
+    }
+
+    fn open_with_top_layer(
+        slot: Rc<Cell<Option<AnyWindowHandle>>>,
+        cx: &mut App,
+    ) -> gpui::private::anyhow::Result<gpui::WindowHandle<Floats>> {
+        cx.open_window(gpui::WindowOptions::default(), move |window, cx| {
+            build_floating(&slot, window, cx)
+        })
+    }
+
+    fn build_floating(
+        slot: &Cell<Option<AnyWindowHandle>>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> gpui::Entity<Floats> {
+        slot.set(crate::floating::TopLayer::open(window, cx).ok());
+        gpui::AppContext::new(cx, |_| Floats)
+    }
+
+    #[gpui::test]
+    fn a_top_layer_opened_with_its_owner_floats_its_first_frame_and_shares_its_input(
+        cx: &mut TestAppContext
+    ) {
+        cx.update(|cx| cx.set_global(crate::foundation::Theme::default()));
+        let top = Rc::new(Cell::new(None));
+        let slot = Rc::clone(&top);
+        let owner = cx.update(|cx| open_with_top_layer(slot, cx));
+        assert!(
+            top.get().is_some(),
+            "the top layer opens while its owner is built"
+        );
+        let (Ok(owner), Some(top)) = (owner, top.get()) else {
+            return;
+        };
+        let owner: AnyWindowHandle = owner.into();
+        cx.run_until_parked();
+        let mut top = VisualTestContext::from_window(top, cx);
+        assert!(
+            top.update(|window, _| window.is_overlay_shown()),
+            "the cover floats"
+        );
+        top.simulate_keystrokes("a");
+        let mut owner = VisualTestContext::from_window(owner, cx);
+        assert!(
+            owner.update(|window, _| window.last_input_was_keyboard()),
+            "a key in the top layer is keyboard input for the owner"
         );
     }
 }

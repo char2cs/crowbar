@@ -2435,17 +2435,10 @@ impl Window {
             input_rate_tracker,
             #[cfg(feature = "profiler")]
             window_profiler: profiler::WindowProfiler::new(handle.window_id())?,
-            last_input_modality: overlay_of
-                .and_then(|owner| cx.windows.get(owner.window_id())?.as_ref())
-                .map_or_else(
-                    || {
-                        Rc::new(Cell::new(Modalities {
-                            input: InputModality::Mouse,
-                            press: InputModality::Mouse,
-                        }))
-                    },
-                    |owner| Rc::clone(&owner.last_input_modality),
-                ),
+            last_input_modality: Rc::new(Cell::new(Modalities {
+                input: InputModality::Mouse,
+                press: InputModality::Mouse,
+            })),
             touch_gestures: TouchGestureRecognizer::new(
                 cx.platform
                     .gestures()
@@ -3905,6 +3898,13 @@ impl Window {
     /// Returns whether the last input event came from a touch screen.
     pub fn last_input_was_touch(&self) -> bool {
         self.last_input_modality.get().input == InputModality::Touch
+    }
+
+    /// For an overlay window: takes its input modality from `owner`, so that the two count as
+    /// one page. The overlay is opened while its owner is being built or updated, when the app
+    /// cannot hand it the owner, so whoever opens it shares the owner it holds.
+    pub fn share_input_modality(&mut self, owner: &Window) {
+        self.last_input_modality = Rc::clone(&owner.last_input_modality);
     }
 
     /// The current state of the keyboard's capslock

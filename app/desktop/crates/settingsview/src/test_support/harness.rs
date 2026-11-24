@@ -90,7 +90,10 @@ pub(crate) fn open_floating(
         .update(cx, |layers, _, _| layers.modal.clone())
         .unwrap();
     let owner: AnyWindowHandle = window.into();
-    let top = cx.update(|cx| ui::TopLayer::open(owner, cx)).unwrap();
+    let top = cx
+        .update(|cx| owner.update(cx, |_, window, cx| ui::TopLayer::open(window, cx)))
+        .unwrap()
+        .unwrap();
     cx.run_until_parked();
     let harness = Harness {
         modal,

@@ -183,6 +183,7 @@ impl ShellView {
         window.focus(&self.focus, cx);
         self.system_fonts = crate::installed_fonts::installed(cx);
         self.announce_start(cx);
+        self.feed_known_phases(window, cx);
         self.spawn_tasks(queue, window, cx);
         self.attach_agent_peer();
         self.refresh(cx);
@@ -400,7 +401,14 @@ mod tests {
         opened
     }
 
-    pub(super) fn open_shell_unsettled(cx: &mut TestAppContext) -> Opened {
+    struct Rig {
+        parts: ShellParts,
+        mock: Rc<webview::MockPlatform>,
+        pane: protocol::PaneId,
+        preferences: Arc<crate::test_support::MemoryPreferences>,
+    }
+
+    fn shell_rig(cx: &mut TestAppContext) -> Rig {
         cx.executor().allow_parking();
         cx.update(|cx| ui::init(cx).expect("ui installs"));
         cx.update(editorview::init);
@@ -418,11 +426,27 @@ mod tests {
             preferences_path: PathBuf::from("/state/sidebar.json"),
             ports,
         };
+        Rig {
+            parts,
+            mock: rig.mock,
+            pane,
+            preferences,
+        }
+    }
+
+    pub(super) fn open_shell_unsettled(cx: &mut TestAppContext) -> Opened {
+        let Rig {
+            parts,
+            mock,
+            pane,
+            preferences,
+        } = shell_rig(cx);
         let window = cx.add_window(move |window, cx| ShellView::new(parts, window, cx));
         let shell = window.entity(cx).expect("the shell view");
         let owner: gpui::AnyWindowHandle = window.into();
         let top = cx
-            .update(|cx| ui::TopLayer::open(owner, cx))
+            .update(|cx| owner.update(cx, |_, window, cx| ui::TopLayer::open(window, cx)))
+            .expect("the shell window")
             .expect("the top layer opens");
         let window = gpui::VisualTestContext::from_window(owner, cx);
         window.run_until_parked();
@@ -430,10 +454,22 @@ mod tests {
             shell,
             window,
             top: gpui::VisualTestContext::from_window(top, cx),
-            mock: rig.mock,
+            mock,
             pane,
             preferences,
         }
+    }
+
+    #[gpui::test]
+    fn a_halt_known_before_the_window_opens_covers_its_first_frame(cx: &mut TestAppContext) {
+        let parts = shell_rig(cx).parts;
+        let window = cx.add_window(move |window, cx| ShellView::new(parts, window, cx));
+        let covers = window.update(cx, |shell, _, cx| shell.startup.read(cx).covers());
+        assert_eq!(
+            covers.ok(),
+            Some(true),
+            "the launch failed before the window"
+        );
     }
 
     #[gpui::test]
