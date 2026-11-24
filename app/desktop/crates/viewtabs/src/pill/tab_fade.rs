@@ -1,3 +1,4 @@
+use gpui::prelude::FluentBuilder as _;
 use gpui::{Hsla, InteractiveElement, IntoElement, SharedString, Styled, div, px};
 use ui::{Palette, radius};
 
@@ -36,7 +37,9 @@ pub(crate) fn fade(
         .w(px(FADE_REACH))
         .rounded_r(radius::FULL)
         .bg(fading_into(rest))
-        .group_hover(group.clone(), move |style| style.bg(fading_into(hovered)))
+        .when(rest != hovered, |fade| {
+            fade.group_hover(group.clone(), move |style| style.bg(fading_into(hovered)))
+        })
 }
 
 fn fading_into(fill: Hsla) -> gpui::Background {

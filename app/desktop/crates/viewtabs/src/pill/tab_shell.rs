@@ -55,7 +55,9 @@ impl RenderOnce for TabShell {
             })
             .collect();
         shell(self.id.clone(), self.width, look, &palette)
-            .group(group.clone())
+            .when(look != ShellLook::Lifted, |shell| {
+                shell.group(group.clone())
+            })
             .font_family(Theme::of(cx).ui_family())
             .children(members)
             .children(close_of(
@@ -82,15 +84,15 @@ fn shell(
         .h(px(TAB_HEIGHT))
         .rounded(radius::FULL)
         .border_1()
-        .border_color(gpui::transparent_black())
-        .cursor(CursorStyle::PointingHand);
+        .border_color(gpui::transparent_black());
     match look {
-        ShellLook::Idle => base.hover(|style| {
+        ShellLook::Idle => base.cursor(CursorStyle::PointingHand).hover(|style| {
             style
                 .bg(palette.sidebar_element_hover())
                 .shadow(shadow::xs(IDLE_SHADOW))
         }),
         ShellLook::Active => base
+            .cursor(CursorStyle::PointingHand)
             .m(px(-OUTLINE))
             .w(px(width + 2.0 * OUTLINE))
             .h(px(TAB_HEIGHT + 2.0 * OUTLINE))
@@ -104,6 +106,7 @@ fn shell(
             .border_color(palette.border())
             .shadow(shadow::md(LIFTED_SHADOW)),
         ShellLook::MergeTarget => base
+            .cursor(CursorStyle::PointingHand)
             .bg(palette.sidebar_drop_nest())
             .border_color(palette.sidebar_drop_nest_edge()),
     }

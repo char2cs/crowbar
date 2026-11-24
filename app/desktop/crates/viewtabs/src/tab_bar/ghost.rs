@@ -79,4 +79,25 @@ mod tests {
         let ghost = floating.top.debug_bounds("tab-ghost");
         assert!(ghost.is_some(), "the ghost is in the top layer");
     }
+
+    #[gpui::test]
+    fn the_lifted_tab_takes_no_pointer_input_so_a_drop_under_it_lands(cx: &mut TestAppContext) {
+        let tabs = vec![view(1, &["a"]), view(2, &["b"])];
+        let mut floating = open_floating(cx, tabs, 1);
+        let window = &mut floating.window;
+        let none = Modifiers::none();
+        window.simulate_mouse_down(point(px(108.0), px(21.0)), MouseButton::Left, none);
+        window.simulate_mouse_move(point(px(130.0), px(21.0)), MouseButton::Left, none);
+        window.simulate_mouse_move(point(px(400.0), px(300.0)), MouseButton::Left, none);
+        window.run_until_parked();
+        assert!(floating.top.debug_bounds("tab-ghost").is_some(), "lifted");
+        let region = floating
+            .top
+            .update(|window, _| window.input_region().to_vec());
+        assert_eq!(
+            region,
+            Vec::new(),
+            "nothing in the top layer catches the pointer"
+        );
+    }
 }
