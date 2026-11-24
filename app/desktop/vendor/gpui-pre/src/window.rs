@@ -2509,23 +2509,56 @@ const OPAQUE_ALPHA: f32 = 0.999;
 /// The most keys a window keeps for a focused element that has not been rendered yet.
 const MAX_HELD_KEYS: usize = 32;
 
-/// The parts of `scene` painted opaque, in logical pixels: opaque solid fills, glyphs, images,
-/// paths, underlines and surfaces, each clipped to its content mask.
+/// The parts of `scene` painted opaque, in logical pixels: opaque solid fills and paths, opaque
+/// glyphs, images and underlines, and surfaces, each clipped to its content mask. Translucent ink,
+/// such as a toast's text while it fades, is left out like a translucent fill.
+fn opaque(background: &Background) -> bool {
+    background.tag == BackgroundTag::Solid && background.solid.a >= OPAQUE_ALPHA
+}
+
 fn content_region(scene: &Scene, scale_factor: f32) -> Vec<Bounds<Pixels>> {
-    let opaque_fills = scene.quads.iter().filter(|quad| {
-        quad.background.tag == BackgroundTag::Solid && quad.background.solid.a >= OPAQUE_ALPHA
-    });
+    let opaque_fills = scene.quads.iter().filter(|quad| opaque(&quad.background));
     let painted = opaque_fills
         .flat_map(|quad| {
             rounded_rows(quad.bounds, &quad.corner_radii)
                 .into_iter()
                 .map(|row| (row, quad.content_mask.bounds))
         })
-        .chain(scene.monochrome_sprites.iter().map(|s| (s.bounds, s.content_mask.bounds)))
-        .chain(scene.subpixel_sprites.iter().map(|s| (s.bounds, s.content_mask.bounds)))
-        .chain(scene.polychrome_sprites.iter().map(|s| (s.bounds, s.content_mask.bounds)))
-        .chain(scene.paths.iter().map(|p| (p.bounds, p.content_mask.bounds)))
-        .chain(scene.underlines.iter().map(|u| (u.bounds, u.content_mask.bounds)))
+        .chain(
+            scene
+                .monochrome_sprites
+                .iter()
+                .filter(|s| s.color.a >= OPAQUE_ALPHA)
+                .map(|s| (s.bounds, s.content_mask.bounds)),
+        )
+        .chain(
+            scene
+                .subpixel_sprites
+                .iter()
+                .filter(|s| s.color.a >= OPAQUE_ALPHA)
+                .map(|s| (s.bounds, s.content_mask.bounds)),
+        )
+        .chain(
+            scene
+                .polychrome_sprites
+                .iter()
+                .filter(|s| s.opacity >= OPAQUE_ALPHA)
+                .map(|s| (s.bounds, s.content_mask.bounds)),
+        )
+        .chain(
+            scene
+                .paths
+                .iter()
+                .filter(|p| opaque(&p.color))
+                .map(|p| (p.bounds, p.content_mask.bounds)),
+        )
+        .chain(
+            scene
+                .underlines
+                .iter()
+                .filter(|u| u.color.a >= OPAQUE_ALPHA)
+                .map(|u| (u.bounds, u.content_mask.bounds)),
+        )
         .chain(scene.surfaces.iter().map(|s| (s.bounds, s.content_mask.bounds)));
     let to_logical = |bounds: Bounds<ScaledPixels>| {
         Bounds::new(

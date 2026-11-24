@@ -249,4 +249,26 @@ mod tests {
         });
         assert!(cx.debug_bounds("floated").is_some());
     }
+
+    fn underline(alpha: f32) -> impl IntoElement {
+        let style = gpui::UnderlineStyle {
+            thickness: px(2.0),
+            color: Some(gpui::hsla(0.0, 0.0, 1.0, alpha)),
+            wavy: false,
+        };
+        let paint = move |bounds: Bounds<Pixels>, (), window: &mut Window, _: &mut App| {
+            window.paint_underline(bounds.origin, bounds.size.width, &style);
+        };
+        canvas(|_, _, _| {}, paint).w(px(30.0)).h(px(10.0))
+    }
+
+    #[gpui::test]
+    fn translucent_ink_is_left_out_of_the_top_layer_s_content(cx: &mut TestAppContext) {
+        for (alpha, shows) in [(1.0, true), (0.5, false)] {
+            let ink = move |_: &mut Window, _: &mut App| underline(alpha);
+            let (_, mut top) = open_floating(cx, move |_, _| trigger(Portal::here("p", ink)));
+            let content = top.update(|window, _| window.content_region().to_vec());
+            assert_eq!(!content.is_empty(), shows, "alpha {alpha}: {content:?}");
+        }
+    }
 }

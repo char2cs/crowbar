@@ -76,6 +76,10 @@ Drop it with `overlay-window`.
 
 Drop it with `overlay-window`.
 
+`opaque-ink` (`gpui-pre`, `src/window.rs`), applied on top of `rounded-content`: an overlay's content region counts glyphs, images, paths and underlines only when they paint opaque, as it already did for fills. A toast fading out drops its translucent card from the region but kept its text, so bare X11 showed the text's boxes as black blocks.
+
+Drop it with `overlay-window`.
+
 ## calloop 0.14.5
 
 `tracing-without-log` (`Cargo.toml`): calloop, reached through `gpui-pre-linux`, asks for tracing's `log` feature, and cargo turns a feature on for every crate that uses tracing. With `log` on, each `tracing` macro also expands to its `log` fallback, which quadruples `clippy::cognitive_complexity` in every function that logs. Nothing in the shell reads `log` records (no `log` logger or bridge is installed), so calloop loses only output nobody received.
