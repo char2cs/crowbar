@@ -1,0 +1,51 @@
+diff --git a/src/linux/x11/overlay.rs b/src/linux/x11/overlay.rs
+--- a/src/linux/x11/overlay.rs
++++ b/src/linux/x11/overlay.rs
+@@ -347,17 +347,18 @@ pub(crate) fn stays_in_pair(
+ }
+ 
+ /// Whether the pointer at `root` (root coordinates, device pixels) is over a part of the overlay
+-/// that takes input, so that leaving the owner for it is not leaving the pair.
++/// that takes input, so that leaving the owner for it is not leaving the pair: its input region,
++/// and without a compositor what it paints, since a window manager's frame is cut to that shape
++/// and takes the pointer there.
+ pub(crate) fn holds_pointer(link: &OverlayLink, root: Point<i32>) -> bool {
+-    let x = root.x - link.window.origin.x;
+-    let y = root.y - link.window.origin.y;
+-    link.region.iter().any(|rect| {
+-        let (left, top) = (i32::from(rect.x), i32::from(rect.y));
+-        x >= left
+-            && y >= top
+-            && x < left + i32::from(rect.width)
+-            && y < top + i32::from(rect.height)
+-    })
++    let at = point(root.x - link.window.origin.x, root.y - link.window.origin.y);
++    let painted = (!link.composited).then_some(&link.content);
++    link.region.iter().chain(painted.into_iter().flatten()).any(|rect| contains(rect, at))
++}
++
++fn contains(rect: &xproto::Rectangle, at: Point<i32>) -> bool {
++    let (left, top) = (i32::from(rect.x), i32::from(rect.y));
++    at.x >= left && at.y >= top && at.x < left + i32::from(rect.width) && at.y < top + i32::from(rect.height)
+ }
+ 
+ /// Whether a window manager reparented `window` into a frame, rather than leaving it a child of
+@@ -500,6 +501,18 @@ mod tests {
+         assert!(!holds_pointer(&held, point(110, 70)), "an empty region takes nothing");
+     }
+ 
++    #[test]
++    fn without_a_compositor_what_the_overlay_paints_holds_the_pointer() {
++        let mut held = link(1, false);
++        held.window = rect(100, 50, 400, 300);
++        held.content = vec![rectangle(10, 20, 30, 40)];
++        held.composited = false;
++        assert!(holds_pointer(&held, point(110, 70)), "its frame is cut to the content");
++        assert!(!holds_pointer(&held, point(140, 70)), "just past the content");
++        held.composited = true;
++        assert!(!holds_pointer(&held, point(110, 70)), "a compositor passes it through");
++    }
++
+     fn rectangle(x: i16, y: i16, width: u16, height: u16) -> xproto::Rectangle {
+         xproto::Rectangle { x, y, width, height }
+     }
