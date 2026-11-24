@@ -8,11 +8,13 @@ use crate::serials::Serials;
 use crate::titles::Titles;
 
 mod branch_review;
+mod chat_name;
 mod file_icon;
 mod pane_detach;
 mod read_only;
 
 pub(crate) type ChatGlyphs = std::rc::Rc<dyn Fn(&str) -> Option<String>>;
+pub(crate) type ChatNames = std::rc::Rc<dyn Fn(&str) -> Option<String>>;
 pub(crate) type ChatReviews = std::rc::Rc<dyn Fn(&str) -> bool>;
 pub(crate) use crate::chat_locks::ChatLocks;
 pub(crate) type FileIcons = std::rc::Rc<dyn Fn() -> sidebar::IconTheme>;
@@ -25,6 +27,7 @@ pub(crate) struct ShellPaneSource {
     native: NativePanes,
     dirty: DirtyPanes,
     glyphs: ChatGlyphs,
+    names: ChatNames,
     reviews: ChatReviews,
     locks: ChatLocks,
     icons: (FileIcons, std::rc::Rc<ui::MaterialTable>),
@@ -45,6 +48,7 @@ impl ShellPaneSource {
             native,
             dirty: DirtyPanes::default(),
             glyphs: std::rc::Rc::new(|_| None),
+            names: std::rc::Rc::new(|_| None),
             reviews: std::rc::Rc::new(|_| false),
             locks: std::rc::Rc::new(|_| false),
             icons: (
@@ -134,10 +138,11 @@ impl ideshell::TabLooks for ShellPaneSource {
         &self,
         instance: &layout::PaneInstance,
     ) -> ideshell::TabLook {
-        let title = self
-            .titles
-            .get(&instance.pane_id)
-            .map(|title| title.to_string());
+        let title = self.chat_name(instance).or_else(|| {
+            self.titles
+                .get(&instance.pane_id)
+                .map(|title| title.to_string())
+        });
         let mut look = self.file_icon(
             instance,
             crate::tab_looks::tab_look(instance, title.as_deref()),

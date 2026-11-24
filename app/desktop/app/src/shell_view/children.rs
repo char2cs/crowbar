@@ -54,6 +54,7 @@ pub(super) fn build_panes<V: 'static>(
     let source = source
         .marking(state.dirty())
         .drawing(glyphs_of(data))
+        .naming(names_of(data))
         .reviewing(Rc::new(move |chat| reviews.chat_reviews_branch(chat)))
         .locking(Rc::new(move |chat| locks.chat_read_only(chat)))
         .iconing(icons_of(data));
@@ -99,6 +100,11 @@ fn editors_of(
 fn icons_of(data: &Rc<store::Store>) -> crate::shell_pane_source::FileIcons {
     let view = data.view();
     Rc::new(move || view.file_tree_view().icons)
+}
+
+fn names_of(data: &Rc<store::Store>) -> crate::shell_pane_source::ChatNames {
+    let data = Rc::clone(data);
+    Rc::new(move |chat| data.chat_row(chat).map(|row| row.label))
 }
 
 fn glyphs_of(data: &Rc<store::Store>) -> crate::shell_pane_source::ChatGlyphs {
