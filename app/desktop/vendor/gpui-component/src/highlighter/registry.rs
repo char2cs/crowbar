@@ -144,6 +144,9 @@ pub struct SyntaxColors {
     pub punctuation: Option<ThemeStyle>,
     #[serde(rename = "punctuation.bracket")]
     pub punctuation_bracket: Option<ThemeStyle>,
+    /// A closing bracket that closes nothing, as Monaco's `unexpectedBracket`.
+    #[serde(rename = "punctuation.bracket.unexpected")]
+    pub punctuation_bracket_unexpected: Option<ThemeStyle>,
     #[serde(rename = "punctuation.delimiter")]
     pub punctuation_delimiter: Option<ThemeStyle>,
     #[serde(rename = "punctuation.list_marker")]
@@ -272,6 +275,7 @@ impl SyntaxColors {
             "property" => self.property,
             "punctuation" => self.punctuation,
             "punctuation.bracket" => self.punctuation_bracket,
+            "punctuation.bracket.unexpected" => self.punctuation_bracket_unexpected,
             "punctuation.delimiter" => self.punctuation_delimiter,
             "punctuation.list_marker" => self.punctuation_list_marker,
             "punctuation.special" => self.punctuation_special,

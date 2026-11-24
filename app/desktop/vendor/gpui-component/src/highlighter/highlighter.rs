@@ -54,6 +54,9 @@ pub struct SyntaxHighlighter {
     /// Parsed injection trees.
     /// These are built once in update() and queried multiple times in match_styles().
     injection_layers: Vec<InjectionLayer>,
+
+    /// The closing brackets that close nothing, in offset order, found once per update.
+    unexpected_brackets: Vec<usize>,
 }
 
 /// A parsed injection layer.
@@ -410,6 +413,7 @@ impl SyntaxHighlighter {
             parser: Parser::new(),
             tree: None,
             injection_layers: Vec::new(),
+            unexpected_brackets: Vec::new(),
         }
     }
 
@@ -533,6 +537,7 @@ impl SyntaxHighlighter {
             parser,
             tree: None,
             injection_layers: Vec::new(),
+            unexpected_brackets: Vec::new(),
         })
     }
 
@@ -675,6 +680,7 @@ impl SyntaxHighlighter {
             // Restore the old tree so highlighting continues with stale data.
             self.tree = Some(old_tree);
             self.text = text.clone();
+            self.find_unexpected_brackets();
             return false;
         }
 
@@ -682,6 +688,7 @@ impl SyntaxHighlighter {
         self.tree = Some(new_tree.clone());
         self.text = text.clone();
         self.parse_injection_layers(&new_tree);
+        self.find_unexpected_brackets();
         true
     }
 
@@ -1001,6 +1008,7 @@ impl SyntaxHighlighter {
 
         self.tree = Some(tree);
         self.injection_layers = injection_layers;
+        self.find_unexpected_brackets();
     }
 
     /// Parse injection layers after the main tree is updated.
@@ -1215,7 +1223,11 @@ impl SyntaxHighlighter {
         }
 
         let bracket = theme.style(BRACKET_CAPTURE).unwrap_or_default();
-        styles.extend(brackets.into_iter().map(|range| (range, bracket)));
+        let unexpected = theme.style(UNEXPECTED_CAPTURE).unwrap_or(bracket);
+        styles.extend(brackets.into_iter().map(|(offset, _)| {
+            let closes_nothing = self.unexpected_brackets.binary_search(&offset).is_ok();
+            (offset..offset + 1, if closes_nothing { unexpected } else { bracket })
+        }));
 
         // If the matched styles is empty, return a default range.
         if styles.len() == 0 {
@@ -1236,6 +1248,8 @@ impl SyntaxHighlighter {
 
 /// The capture Monaco's bracket pair colorization paints every bracket with.
 const BRACKET_CAPTURE: &str = "punctuation.bracket";
+/// The capture Monaco paints a closing bracket that closes nothing with.
+const UNEXPECTED_CAPTURE: &str = "punctuation.bracket.unexpected";
 const BRACKETS: &[u8] = b"()[]{}";
 /// Captures whose brackets Monaco leaves alone: its strings, comments and
 /// markdown's code blocks and link targets.
@@ -1248,12 +1262,25 @@ impl SyntaxHighlighter {
         &self,
         range: &Range<usize>,
         highlights: &[HighlightItem],
-    ) -> Vec<Range<usize>> {
-        let quiet: Vec<&Range<usize>> = highlights
+    ) -> Vec<(usize, u8)> {
+        let mut quiet: Vec<Range<usize>> = highlights
             .iter()
             .filter(|item| UNBRACKETED.iter().any(|name| item.name.starts_with(name)))
-            .map(|item| &item.range)
+            .map(|item| item.range.clone())
             .collect();
+        // Disjoint and sorted, so each bracket is one binary search over a whole text.
+        quiet.sort_unstable_by_key(|range| range.start);
+        let quiet = quiet.into_iter().fold(Vec::<Range<usize>>::new(), |mut merged, range| {
+            match merged.last_mut() {
+                Some(last) if range.start <= last.end => last.end = last.end.max(range.end),
+                _ => merged.push(range),
+            }
+            merged
+        });
+        let is_quiet = |offset: usize| {
+            let after = quiet.partition_point(|range| range.start <= offset);
+            after > 0 && quiet[after - 1].contains(&offset)
+        };
         let end = range.end.min(self.text.len());
         let start = range.start.min(end);
         self.text
@@ -1261,10 +1288,40 @@ impl SyntaxHighlighter {
             .bytes()
             .enumerate()
             .filter(|(_, byte)| BRACKETS.contains(byte))
-            .map(|(index, _)| start + index)
-            .filter(|offset| !quiet.iter().any(|quiet| quiet.contains(offset)))
-            .map(|offset| offset..offset + 1)
+            .map(|(index, byte)| (start + index, byte))
+            .filter(|(offset, _)| !is_quiet(*offset))
             .collect()
+    }
+
+    /// Match the whole text's brackets as Monaco's bracket pair parser does:
+    /// a closing bracket closes the nearest open one of its kind, and any left
+    /// open inside it, and one with no open bracket of its kind closes nothing.
+    fn find_unexpected_brackets(&mut self) {
+        let whole = 0..self.text.len();
+        let highlights = self.match_styles(whole.clone());
+        let mut open: Vec<u8> = Vec::new();
+        let mut unexpected = Vec::new();
+        for (offset, byte) in self.bracket_ranges(&whole, &highlights) {
+            let Some(opener) = opener_of(byte) else {
+                open.push(byte);
+                continue;
+            };
+            match open.iter().rposition(|open| *open == opener) {
+                Some(at) => open.truncate(at),
+                None => unexpected.push(offset),
+            }
+        }
+        self.unexpected_brackets = unexpected;
+    }
+}
+
+/// The opening bracket a closing one closes, or `None` for an opening bracket.
+fn opener_of(byte: u8) -> Option<u8> {
+    match byte {
+        b')' => Some(b'('),
+        b']' => Some(b'['),
+        b'}' => Some(b'{'),
+        _ => None,
     }
 }
 
