@@ -11,6 +11,7 @@ mod goto_line;
 mod highlight_name;
 mod keys;
 mod language_server;
+mod lsp_completion;
 mod lsp_error;
 mod lsp_hover;
 mod lsp_link;

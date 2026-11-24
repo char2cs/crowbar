@@ -1,5 +1,5 @@
 use gpui::{KeyBinding, actions};
-use gpui_kit::base::input::{Redo, Replace, Search};
+use gpui_kit::base::input::{Redo, Replace, Search, ShowCompletions};
 
 use crate::save_key::CONTEXT;
 
@@ -38,6 +38,8 @@ const PREVIOUS_IN_FIELD: &str = "shift-enter";
 const CLOSE_FIND: &str = "escape";
 // SPEC: https://github.com/microsoft/vscode/blob/main/src/vs/editor/standalone/browser/quickAccess/standaloneGotoLineQuickAccess.ts
 const GO_TO_LINE: &str = "ctrl-g";
+// SPEC: https://github.com/microsoft/vscode/blob/main/src/vs/editor/contrib/suggest/browser/suggestController.ts
+const SHOW_COMPLETIONS: &str = "ctrl-space";
 
 const INPUT_CONTEXT: &str = "Input";
 
@@ -121,6 +123,7 @@ pub(crate) fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new(chords::REPLACE_ALL, ReplaceAll, context),
         KeyBinding::new(CLOSE_FIND, CloseFind, context),
         KeyBinding::new(GO_TO_LINE, GoToLine, context),
+        KeyBinding::new(SHOW_COMPLETIONS, ShowCompletions, context),
     ]
 }
 

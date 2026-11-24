@@ -4,12 +4,13 @@ use gpui::Context;
 
 use super::EditorView;
 use crate::LanguageServer;
+use crate::lsp_completion::LspCompletion;
 use crate::lsp_hover::LspHover;
 use crate::lsp_link::LspLink;
 
 impl EditorView {
     /// Tells `server` about the document this view shows, from now until the view goes, and
-    /// asks it for hovers, as develop's editor does for a workspace file.
+    /// asks it for hovers and completions, as develop's editor does for a workspace file.
     pub fn attach_language_server(
         &mut self,
         server: Rc<dyn LanguageServer>,
@@ -19,8 +20,12 @@ impl EditorView {
         let hover = LspHover {
             link: Rc::clone(&link),
         };
+        let completion = LspCompletion {
+            link: Rc::clone(&link),
+        };
         self.state.update(cx, |state, _| {
             state.lsp_mut().hover_provider = Some(Rc::new(hover));
+            state.lsp_mut().completion_provider = Some(Rc::new(completion));
         });
         cx.on_release(|view, cx| view.lsp_close(cx)).detach();
         self.lsp = Some(link);
@@ -78,7 +83,7 @@ mod tests {
         cx: &mut TestAppContext
     ) {
         let (view, window, server) = served(("src/a.ts", "a"), cx);
-        window.simulate_input("x");
+        window.simulate_input(" ");
         window.executor().advance_clock(Duration::from_millis(399));
         assert_eq!(server.verbs(), ["didOpen"], "still typing");
         window.executor().advance_clock(Duration::from_millis(1));
@@ -94,7 +99,7 @@ mod tests {
         );
         assert_eq!(
             server.bodies()[1],
-            json!({"path": "src/a.ts", "text": "xa"})
+            json!({"path": "src/a.ts", "text": " a"})
         );
     }
 }

@@ -190,3 +190,42 @@ pub(crate) fn hover_at(
     window.run_until_parked();
     answer.borrow_mut().take().flatten()
 }
+
+/// The items the view's completion provider answers at `offset` of its text.
+pub(crate) fn completions_at(
+    view: &Entity<EditorView>,
+    offset: usize,
+    window: &mut VisualTestContext,
+) -> Vec<lsp_types::CompletionItem> {
+    let asked = window.update(|window, cx| ask_completions(view, offset, window, cx));
+    let Some(asked) = asked else {
+        return Vec::new();
+    };
+    let answer = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let slot = std::rc::Rc::clone(&answer);
+    window
+        .spawn(async move |_| *slot.borrow_mut() = asked.await.ok())
+        .detach();
+    window.run_until_parked();
+    match answer.take() {
+        Some(lsp_types::CompletionResponse::Array(items)) => items,
+        Some(lsp_types::CompletionResponse::List(list)) => list.items,
+        None => Vec::new(),
+    }
+}
+
+fn ask_completions(
+    view: &Entity<EditorView>,
+    offset: usize,
+    window: &mut Window,
+    cx: &mut App,
+) -> Option<gpui::Task<gpui::Result<lsp_types::CompletionResponse>>> {
+    let state = view.read(cx).state.clone();
+    let text = state.read(cx).text().clone();
+    let provider = state.read(cx).lsp().completion_provider.clone()?;
+    let context = lsp_types::CompletionContext {
+        trigger_kind: lsp_types::CompletionTriggerKind::INVOKED,
+        trigger_character: None,
+    };
+    Some(provider.completions(&text, offset, context, window, cx))
+}

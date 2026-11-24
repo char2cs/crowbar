@@ -55,7 +55,7 @@ mod tests {
     ) {
         let (view, window, server) = served(("src/a.ts", "let a = 1\nlet b = a"), cx);
         server.answer("hover", json!({"contents": "const a: 1"}));
-        window.simulate_input("x");
+        window.simulate_input(" ");
         let hover = hover_at(&view, 19, window);
         assert_eq!(server.verbs(), ["didOpen", "didChange", "hover"]);
         let position = json!({"path": "src/a.ts", "position": {"line": 1, "character": 8}});

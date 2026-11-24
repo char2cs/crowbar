@@ -93,7 +93,7 @@ impl LspLink {
     }
 
     pub(crate) fn request(
-        &self,
+        self: &Rc<Self>,
         verb: &'static str,
         fields: Map<String, Value>,
         cx: &mut App,
@@ -101,13 +101,12 @@ impl LspLink {
         let Some(path) = self.path.borrow().clone() else {
             return Task::ready(Ok(Value::Null));
         };
-        let flushed = self.flush(cx);
         let mut body = fields;
         body.insert(PATH.to_owned(), Value::String(path));
-        let server = Rc::clone(&self.server);
+        let link = Rc::clone(self);
         cx.spawn(async move |cx| {
-            flushed.await;
-            cx.update(|cx| server.post(verb, Value::Object(body), cx))
+            cx.update(|cx| link.flush(cx)).await;
+            cx.update(|cx| link.server.post(verb, Value::Object(body), cx))
                 .await
         })
     }
