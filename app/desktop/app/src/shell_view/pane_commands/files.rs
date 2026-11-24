@@ -32,6 +32,9 @@ impl ShellView {
         relative: &str,
         cx: &mut Context<'_, Self>,
     ) {
+        if PathAction::is_virtual(relative) {
+            return Self::act_on_virtual_path(action, relative, cx);
+        }
         match action {
             PathAction::CopyRelativePath => {
                 cx.write_to_clipboard(ClipboardItem::new_string(relative.to_owned()));
@@ -43,6 +46,17 @@ impl ShellView {
                 self.open_terminal_at(folder, cx);
             },
             _ => {},
+        }
+    }
+
+    fn act_on_virtual_path(
+        action: PathAction,
+        path: &str,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let copies = matches!(action, PathAction::CopyPath | PathAction::CopyRelativePath);
+        if copies {
+            cx.write_to_clipboard(ClipboardItem::new_string(path.to_owned()));
         }
     }
 

@@ -9,6 +9,7 @@ pub(crate) const UNTITLED: &str = "Untitled";
 const THREAD_ID: &str = "threadId";
 const PREVIEW: &str = "preview";
 const PREVIEW_SUFFIX: &str = ":preview";
+const TERMINAL_SCHEME: &str = "terminal://";
 
 pub(crate) fn tab_look(
     instance: &PaneInstance,
@@ -26,7 +27,7 @@ pub(crate) fn tab_look(
         keep: TabKeep::Kept,
         access: TabAccess::Writable,
     };
-    match file_path(instance) {
+    match file_path(instance).or_else(|| terminal_path(instance)) {
         Some(path) => look.at_path(path),
         None => look,
     }
@@ -48,6 +49,12 @@ pub(crate) fn file_chat_of(instance: &PaneInstance) -> Option<&str> {
 
 pub(crate) fn is_file(instance: &PaneInstance) -> bool {
     instance.type_id.as_str() == EDITOR
+}
+
+// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/panes/stores/slices/new-buffer.ts
+fn terminal_path(instance: &PaneInstance) -> Option<String> {
+    (instance.type_id.as_str() == TERMINAL)
+        .then(|| format!("{TERMINAL_SCHEME}{}", instance.pane_id.as_str()))
 }
 
 fn file_path(instance: &PaneInstance) -> Option<String> {
@@ -208,7 +215,7 @@ mod tests {
     }
 
     #[test]
-    fn only_a_saved_file_names_its_path_for_the_tab_menu() {
+    fn a_saved_file_and_a_terminal_name_their_path_for_the_tab_menu() {
         let cases = [
             (
                 "a file",
@@ -217,7 +224,13 @@ mod tests {
                 Some("src/main.rs"),
             ),
             ("an untitled file", EDITOR, r#"{"untitled": true}"#, None),
-            ("a terminal", TERMINAL, r#"{"path": "x"}"#, None),
+            (
+                "a terminal",
+                TERMINAL,
+                r#"{"path": "x"}"#,
+                Some("terminal://p1"),
+            ),
+            ("a browser", BROWSER, "null", None),
         ];
         for (name, kind, state, expected) in cases {
             let state = serde_json::from_str(state).unwrap();

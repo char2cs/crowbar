@@ -30,63 +30,15 @@ impl LayoutView {
         let look = self.look_of(pane);
         let mut items = vec![MenuItem::Action(pin_action(group, pane, &view))];
         items.extend(rename_row(pane, &look, &view));
-        items.extend([
-            MenuItem::Separator,
-            MenuItem::Action(self.move_action(pane, &view)),
-            MenuItem::Separator,
-        ]);
+        items.push(MenuItem::Separator);
         items.extend(path_rows((pane, look.path.as_deref()), &view));
         items.extend([
             MenuItem::Action(single_close(pane, &view)),
             MenuItem::Action(closing("Close Others", CloseScope::Others)),
-            MenuItem::Action(closing("Close to the Right", CloseScope::ToRight)),
+            MenuItem::Action(closing("Close to Right", CloseScope::ToRight)),
             MenuItem::Action(closing("Close All", CloseScope::All)),
         ]);
         items.into()
-    }
-
-    fn move_action(
-        &self,
-        pane: &PaneId,
-        view: &gpui::Entity<Self>,
-    ) -> MenuAction {
-        let targets = self.other_groups(pane);
-        if targets.is_empty() {
-            return inert("Move to Group");
-        }
-        let rows: Vec<MenuItem> = targets
-            .into_iter()
-            .map(|target| MenuItem::Action(self.move_to(pane, &target, view)))
-            .collect();
-        MenuAction::submenu("Move to Group", rows)
-    }
-
-    fn move_to(
-        &self,
-        pane: &PaneId,
-        target: &PaneId,
-        view: &gpui::Entity<Self>,
-    ) -> MenuAction {
-        let label = self.look_of(target).label;
-        let command = Command::MoveToGroup {
-            pane: pane.clone(),
-            onto: target.clone(),
-            index: None,
-        };
-        applying(label, command, view)
-    }
-    fn other_groups(
-        &self,
-        pane: &PaneId,
-    ) -> Vec<PaneId> {
-        let Some(tab) = &self.tab else {
-            return Vec::new();
-        };
-        tab.leaves(self.local())
-            .into_iter()
-            .filter(|(_, group)| !group.contains(pane))
-            .filter_map(|(_, group)| group.shown().cloned())
-            .collect()
     }
 }
 
@@ -123,15 +75,18 @@ fn path_rows(
     let Some(path) = path else {
         return Vec::new();
     };
-    let mut rows: Vec<MenuItem> = PathAction::ALL
-        .into_iter()
-        .map(|action| (action, LayoutEvent::tab_path(action, path)))
+    let mut rows: Vec<MenuItem> = PathAction::offered_for(path)
+        .iter()
+        .map(|action| (*action, LayoutEvent::tab_path(*action, path)))
         .map(|(action, event)| emitting(action.label(), event, view).icon(action.icon()))
         .map(MenuItem::Action)
         .collect();
-    let reload = LayoutEvent::ReloadTab { pane: pane.clone() };
-    let reload = emitting("Reload", reload, view).icon(IconName::ArrowCounterClockwise);
-    rows.extend([MenuItem::Action(reload), MenuItem::Separator]);
+    if !PathAction::is_virtual(path) {
+        let reload = LayoutEvent::ReloadTab { pane: pane.clone() };
+        let reload = emitting("Reload", reload, view).icon(IconName::ArrowCounterClockwise);
+        rows.push(MenuItem::Action(reload));
+    }
+    rows.push(MenuItem::Separator);
     rows
 }
 
@@ -150,14 +105,9 @@ fn close_item(
     panes: Vec<PaneId>,
     view: &gpui::Entity<LayoutView>,
 ) -> MenuAction {
-    if panes.is_empty() {
-        return inert(label);
-    }
     applying(label, Command::ClosePanes { panes }, view)
 }
-fn inert(label: &'static str) -> MenuAction {
-    MenuAction::new(label, |_, _| {}).disabled()
-}
+
 fn applying(
     label: impl Into<SharedString>,
     command: Command,
@@ -227,22 +177,22 @@ mod tests {
     const PATH_ROWS: &[Row] = &[
         Row {
             name: "copy path",
-            keys: "down down down enter",
+            keys: "down down enter",
             action: PathAction::CopyPath,
         },
         Row {
             name: "copy relative path",
-            keys: "down down down down enter",
+            keys: "down down down enter",
             action: PathAction::CopyRelativePath,
         },
         Row {
             name: "reveal",
-            keys: "down down down down down enter",
+            keys: "down down down down enter",
             action: PathAction::Reveal,
         },
         Row {
             name: "open in terminal",
-            keys: "down down down down down down enter",
+            keys: "down down down down down enter",
             action: PathAction::OpenInTerminal,
         },
     ];
@@ -277,7 +227,7 @@ mod tests {
 
     #[gpui::test]
     fn a_file_tab_offers_reload_after_its_path_actions(cx: &mut TestAppContext) {
-        let heard = chosen_path_row(cx, "down down down down down down down enter");
+        let heard = chosen_path_row(cx, "down down down down down down enter");
         let reload = LayoutEvent::ReloadTab { pane: pane_id("b") };
         assert_eq!(heard, [reload]);
     }
@@ -299,6 +249,26 @@ mod tests {
             current: "zsh".into(),
         };
         assert_eq!(opened.take(), [event], "rename");
+    }
+
+    #[gpui::test]
+    fn a_terminal_tab_offers_its_path_rows_and_then_close(cx: &mut TestAppContext) {
+        let look = TabLook::plain("zsh").renamable().at_path("terminal://b");
+        let source = FakeSource::starting_at_first_tab().looking(pane_id("b"), look);
+        let harness = open_with(cx, &stacked_layout(), source);
+        let (view, cx, commands) = (harness.view, harness.cx, harness.commands);
+        let size = view.read_with(cx, |view, _| view.bounds.size);
+        let tab = point(size.width * 0.5 + px(74.0), px(20.0));
+        cx.simulate_mouse_down(tab, MouseButton::Right, Modifiers::none());
+        cx.run_until_parked();
+        cx.simulate_keystrokes("down down down down down down enter");
+        cx.run_until_parked();
+        let close = Command::ClosePane { pane: pane_id("b") };
+        assert_eq!(
+            commands.borrow().as_slice(),
+            [close],
+            "pin, rename, copy path, copy relative path and reveal come before close"
+        );
     }
 
     struct Opened {
@@ -347,20 +317,6 @@ mod tests {
                 panes: vec![pane_id("c")]
             }],
             "others"
-        );
-    }
-
-    #[gpui::test]
-    fn moving_to_a_group_offers_the_other_groups_by_their_shown_tab(cx: &mut TestAppContext) {
-        let chosen = choose(cx, &stacked_layout(), "down down right enter");
-        assert_eq!(
-            chosen,
-            [Command::MoveToGroup {
-                pane: pane_id("b"),
-                onto: pane_id("a"),
-                index: None,
-            }],
-            "into a's group"
         );
     }
 }
