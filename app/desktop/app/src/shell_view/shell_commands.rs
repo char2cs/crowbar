@@ -67,6 +67,7 @@ impl ShellView {
             ShellCommand::FocusPaneRight => self.focus_towards(Direction::Right, cx),
             ShellCommand::FocusPaneUp => self.focus_towards(Direction::Up, cx),
             ShellCommand::FocusPaneDown => self.focus_towards(Direction::Down, cx),
+            ShellCommand::SaveAll => self.request_saves(&self.state.dirty().all()),
             ShellCommand::ZoomChatIn | ShellCommand::ZoomChatOut | ShellCommand::ZoomChatReset => {
                 self.state.zoom_chat(command);
             },

@@ -131,7 +131,7 @@ impl ShellView {
         cx.notify();
     }
 
-    fn request_saves(
+    pub(super) fn request_saves(
         &self,
         panes: &[PaneId],
     ) {
@@ -161,6 +161,24 @@ mod tests {
     use protocol::PaneTitle;
 
     use super::*;
+
+    fn saves_asked(mock: &webview::MockPlatform) -> usize {
+        let asks = |call: &&webview::Call| matches!(call, webview::Call::Eval { script, .. } if script.contains("pane.save"));
+        mock.calls().iter().filter(asks).count()
+    }
+
+    #[gpui::test]
+    fn ctrl_shift_s_asks_every_unsaved_pane_to_save(cx: &mut gpui::TestAppContext) {
+        let mut opened = crate::shell_view::tests::open_shell(cx);
+        let pane = opened.pane.clone();
+        opened
+            .shell
+            .update(&mut opened.window, |shell, _| shell.state.mark_dirty(pane));
+        let before = saves_asked(&opened.mock);
+        opened.window.simulate_keystrokes("ctrl-shift-s");
+        opened.window.run_until_parked();
+        assert_eq!(saves_asked(&opened.mock) - before, 1, "the dirty chat page");
+    }
 
     #[test]
     fn a_pane_is_named_by_its_title_or_by_its_id_before_it_has_one() {
