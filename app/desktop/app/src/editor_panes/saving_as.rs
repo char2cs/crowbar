@@ -59,6 +59,7 @@ impl EditorPanes {
         followed.target.file = Some(saved.path.clone());
         saved.path.as_str().clone_into(&mut followed.target.label);
         followed.target.arrival = Arrival::Restored;
+        followed.view = followed.target.view();
         followed.told = followed
             .view()
             .map(|view| listen(view, (&file_pane, &self.requests), cx));
@@ -195,6 +196,40 @@ mod tests {
             Some(clean),
             "clean, told as the file pane"
         );
+    }
+
+    fn kind_once_saved_as(
+        path: &str,
+        cx: &mut TestAppContext,
+    ) -> Option<panehost::PaneKind> {
+        let documents = Rc::new(FakeDocuments::default());
+        documents.loading("c1");
+        let (panes, _heard) = panes_over(&documents);
+        panes.follow(&layout_with(json!({"untitled": true})));
+        let (_view, window) = shown_in(&panes, cx);
+        let path = DocumentPath::new(path).unwrap();
+        let saved = SavedFile {
+            path,
+            text: "hi".to_owned(),
+        };
+        let (pane, file_pane) = (PaneId::new(PANE).unwrap(), PaneId::new("f2").unwrap());
+        window.update(|_, cx| panes.rebind((&pane, file_pane.clone()), &saved, cx));
+        panes.kind_of(&file_pane)
+    }
+
+    #[gpui::test]
+    fn an_untitled_pane_saved_as_markdown_shows_its_rich_view_as_develop_s_tab_does(
+        cx: &mut TestAppContext
+    ) {
+        cx.update(|cx| ui::init(cx).unwrap());
+        cx.update(editorview::init);
+        let cases = [
+            ("notes.md", panehost::PaneKind::Web),
+            (PATH, panehost::PaneKind::Native),
+        ];
+        for (path, kind) in cases {
+            assert_eq!(kind_once_saved_as(path, cx), Some(kind), "{path}");
+        }
     }
 
     #[gpui::test]
