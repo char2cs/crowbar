@@ -1,22 +1,20 @@
 use std::time::Instant;
 
 use gpui::{
-    AnyElement, App, Context, Hsla, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
+    AnyElement, App, Context, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
     ParentElement, Render, Styled, Window, canvas, div, px,
 };
-use layout::{Axis, DragSubject, Rect, Sash as ModelSash};
+use layout::{Axis, DragSubject, Sash as ModelSash};
 use protocol::PaneId;
 use ui::{DraggedRow, Motion, Portal, Sash, SashDrag, Surface, Theme, Wordmark};
 
+use crate::drop_preview::drop_preview;
 use crate::layout_view::LayoutView;
 use crate::pane_cell::pane_box;
 use crate::pane_frame::PaneFrame;
 use crate::pane_handle::PaneHandle;
 use ideshell::STRIP_HEIGHT;
 
-const PREVIEW_BORDER: f32 = 2.0;
-const PREVIEW_FILL: f32 = 0.14;
-const PREVIEW_RING: f32 = 0.25;
 const LOGO_SHARE: f32 = 0.14;
 const LOGO_MIN_WIDTH: f32 = 96.0;
 const LOGO_MAX_WIDTH: f32 = 148.0;
@@ -154,7 +152,9 @@ impl LayoutView {
     ) -> Option<AnyElement> {
         let rect = self.drop.preview(self.clock.now(), Motion::of(cx))?;
         let accent = Theme::of(cx).palette(Surface::Window).secondary();
-        let preview = Portal::here("drop-preview", move |_, _| preview_box(rect, accent));
+        let preview = Portal::here("drop-preview", move |window, cx| {
+            drop_preview(rect, accent, window, cx)
+        });
         Some(div().absolute().inset_0().child(preview).into_any_element())
     }
 }
@@ -164,30 +164,6 @@ fn ui_axis(axis: Axis) -> ui::Axis {
         Axis::Horizontal => ui::Axis::Horizontal,
         Axis::Vertical => ui::Axis::Vertical,
     }
-}
-
-fn preview_box(
-    rect: Rect,
-    accent: Hsla,
-) -> gpui::Div {
-    div()
-        .debug_selector(|| "drop-preview".into())
-        .absolute()
-        .left(px(rect.x))
-        .top(px(rect.y))
-        .w(px(rect.width))
-        .h(px(rect.height))
-        .rounded(ui::radius::LG)
-        .border(px(PREVIEW_BORDER))
-        .border_color(accent)
-        .bg(accent.opacity(PREVIEW_FILL))
-        .shadow(vec![gpui::BoxShadow {
-            color: accent.opacity(PREVIEW_RING),
-            offset: gpui::point(px(0.0), px(0.0)),
-            blur_radius: px(0.0),
-            spread_radius: px(1.0),
-            inset: false,
-        }])
 }
 
 #[cfg(test)]

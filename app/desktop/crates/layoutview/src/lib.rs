@@ -16,6 +16,7 @@ mod clock;
 mod corners;
 mod drop_hit;
 mod drop_hover;
+mod drop_preview;
 mod drop_target;
 mod edge_contact;
 mod handle_button;
