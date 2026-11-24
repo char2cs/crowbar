@@ -1,5 +1,10 @@
-use gpui::{Context, EventEmitter, IntoElement, ParentElement, Render, Styled, Window, div};
-use ui::{Button, ButtonVariant, Dialog, DialogSize, Surface, Theme};
+use std::ops::Range;
+
+use gpui::{
+    Context, EventEmitter, FontWeight, HighlightStyle, IntoElement, ParentElement, Render, Styled,
+    StyledText, Window, div,
+};
+use ui::{Button, ButtonVariant, Dialog, DialogSize, IconName, Surface, Theme};
 
 use crate::close_choice::CloseChoice;
 
@@ -8,6 +13,7 @@ const LISTED_NAMES: usize = 5;
 
 pub(crate) struct UnsavedDialog {
     message: String,
+    named: Option<Range<usize>>,
 }
 
 const ASK: &str = "Do you want to save before closing?";
@@ -35,12 +41,20 @@ pub(crate) fn message_for(names: &[String]) -> String {
     }
 }
 
+pub(crate) fn named_in(names: &[String]) -> Option<Range<usize>> {
+    match names {
+        [only] => Some(0..only.len()),
+        _ => None,
+    }
+}
+
 impl EventEmitter<CloseChoice> for UnsavedDialog {}
 
 impl UnsavedDialog {
     pub(crate) fn new(names: &[String]) -> Self {
         Self {
             message: message_for(names),
+            named: named_in(names),
         }
     }
 }
@@ -61,14 +75,17 @@ impl Render for UnsavedDialog {
             .on_click(choose(CloseChoice::Discard));
         let save = Button::new("unsaved-save", "Save").on_click(choose(CloseChoice::Save));
         let dialog = cx.entity();
+        let medium = HighlightStyle {
+            font_weight: Some(FontWeight::MEDIUM),
+            ..HighlightStyle::default()
+        };
+        let named = self.named.clone().map(|range| (range, medium));
+        let message = StyledText::new(self.message.clone()).with_highlights(named);
         Dialog::new("unsaved-changes")
             .title("Unsaved Changes")
+            .icon(IconName::Warning)
             .size(DialogSize::Sm)
-            .body(
-                div()
-                    .text_color(palette.foreground())
-                    .child(self.message.clone()),
-            )
+            .body(div().text_color(palette.foreground()).child(message))
             .footer(
                 div()
                     .flex()
@@ -104,6 +121,21 @@ mod tests {
         ];
         for (list, expected) in cases {
             assert_eq!(message_for(&list), expected);
+        }
+    }
+
+    #[test]
+    fn a_single_file_s_name_is_set_in_medium_weight_as_develop_s_dialog_sets_it() {
+        let names = |list: &[&str]| list.iter().map(ToString::to_string).collect::<Vec<_>>();
+        let cases = [
+            (names(&["pricing.ts"]), Some("pricing.ts")),
+            (names(&["a.rs", "b.rs"]), None),
+            (names(&[]), None),
+        ];
+        for (list, expected) in cases {
+            let message = message_for(&list);
+            let named = named_in(&list).and_then(|range| message.get(range));
+            assert_eq!(named, expected, "{list:?}");
         }
     }
 }
