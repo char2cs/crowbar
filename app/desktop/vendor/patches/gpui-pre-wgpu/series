@@ -2,3 +2,4 @@
 0002-whole-pixel-mono.patch
 0003-letter-spacing.patch
 0004-fallback-faces-without-latin.patch
+0005-derived-faces-keep-their-chain.patch

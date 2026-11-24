@@ -77,36 +77,78 @@ mod tests {
     }
 
     #[cfg(target_os = "linux")]
-    fn font_of_q_falling_back_to(fallback: &str) -> gpui::FontId {
+    const SNOWMAN: char = '\u{2603}';
+
+    #[cfg(target_os = "linux")]
+    type Chain = &'static [&'static str];
+
+    #[cfg(target_os = "linux")]
+    const DRAWN_BEFORE: [(&str, Option<Chain>); 2] = [
+        ("a fallback family without Latin letters", None),
+        (
+            "after a mono label drew the family without fallbacks",
+            Some(&[]),
+        ),
+    ];
+
+    #[cfg(target_os = "linux")]
+    fn fixture_system() -> gpui_wgpu::CosmicTextSystem {
         use gpui::PlatformTextSystem as _;
 
         let system = gpui_wgpu::CosmicTextSystem::new_without_system_fonts(MONO_FAMILY);
         let fixtures: [&'static [u8]; 3] = [
             include_bytes!("../../../assets/fonts/fixtures/geist-mono-no-q.ttf"),
-            include_bytes!("../../../assets/fonts/fixtures/cal-sans-ui-only-q.ttf"),
-            include_bytes!("../../../assets/fonts/fixtures/instrument-serif-only-q.ttf"),
+            include_bytes!("../../../assets/fonts/fixtures/cal-sans-ui-only-snowman.ttf"),
+            include_bytes!("../../../assets/fonts/fixtures/instrument-serif-only-snowman.ttf"),
         ];
         let fonts = fixtures.iter().map(|bytes| Cow::Borrowed(*bytes)).collect();
         system.add_fonts(fonts).expect("fixture fonts");
+        system
+    }
+
+    #[cfg(target_os = "linux")]
+    fn fixture_system_after(earlier: Option<&[&str]>) -> gpui_wgpu::CosmicTextSystem {
+        let system = fixture_system();
+        if let Some(chain) = earlier {
+            ascent_of_snowman_face(&system, chain);
+        }
+        system
+    }
+
+    #[cfg(target_os = "linux")]
+    fn ascent_of_snowman_face(
+        system: &gpui_wgpu::CosmicTextSystem,
+        fallbacks: &[&str],
+    ) -> f32 {
+        use gpui::PlatformTextSystem as _;
+
         let mut font = gpui::font(MONO_FAMILY);
-        font.fallbacks = Some(FontFallbacks::from_fonts(vec![fallback.to_owned()]));
+        let chain: Vec<String> = fallbacks
+            .iter()
+            .map(|family| (*family).to_owned())
+            .collect();
+        font.fallbacks = (!chain.is_empty()).then(|| FontFallbacks::from_fonts(chain));
         let primary = system.font_id(&font).expect("the primary face");
         let run = gpui::FontRun {
-            len: 1,
+            len: SNOWMAN.len_utf8(),
             font_id: primary,
             letter_spacing: gpui::px(0.0),
         };
-        let line = system.layout_line("Q", gpui::px(16.0), &[run]);
-        line.runs.first().map(|run| run.font_id).expect("one run")
+        let line = system.layout_line(&SNOWMAN.to_string(), gpui::px(16.0), &[run]);
+        let face = line.runs.first().map(|run| run.font_id).expect("one run");
+        system.font_metrics(face).ascent
     }
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn a_fallback_family_without_latin_letters_draws_what_it_covers() {
-        assert_ne!(
-            font_of_q_falling_back_to(HEADING_FAMILY),
-            font_of_q_falling_back_to(UI_FAMILY),
-            "each chain draws Q from its own fallback, as an emoji font draws its emoji"
-        );
+    fn each_fallback_chain_draws_from_its_own_families() {
+        for (case, earlier) in DRAWN_BEFORE {
+            let system = fixture_system_after(earlier);
+            assert_ne!(
+                ascent_of_snowman_face(&system, &[HEADING_FAMILY]),
+                ascent_of_snowman_face(&system, &[UI_FAMILY]),
+                "{case}: each chain draws the snowman from its own fallback, as the terminal's draws its emoji"
+            );
+        }
     }
 }

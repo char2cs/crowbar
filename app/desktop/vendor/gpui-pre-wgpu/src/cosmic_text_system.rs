@@ -522,6 +522,7 @@ impl CosmicTextSystemState {
                 && font.weight == derived.weight
                 && font.fake_italic == derived.fake_italic
                 && font.features == derived.features
+                && font.user_fallback_chain == derived.user_fallback_chain
         }) {
             return FontId(ix);
         }
