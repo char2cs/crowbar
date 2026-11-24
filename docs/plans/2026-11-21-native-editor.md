@@ -286,6 +286,11 @@ The Monaco pane stays in place until slice 7 retires it. No feature flag is adde
   - `ctrl_shift_bracket_folds_the_block_without_horizontal_scroll`;
   - `clicking_a_folder_segment_lists_its_entries_and_a_file_opens_as_preview`.
 - Rows: ED-042, 043, 044, 045, 046, 053, 054, 055, 056, 057, 058, 059, 060, 061, 062, 063, 064, 065, 069, 070, 071.
+- As built (rig, 2026-11-24): find, find next, replace, go to line, ctrl+d, alt+Down and ctrl+/ (left to the app's chat/terminal chord) behave as develop's. Known differences, each a row still failing:
+  - no selection-occurrence highlight and no find-state strip after ctrl+d; the selection colour is not develop's `--editor-selection` (ED-043);
+  - the replace row has no preserve-case toggle (ED-063);
+  - the go-to-line hint row is not drawn as Monaco's focused list row and is not cut with an ellipsis; no sticky-scroll header (ED-065);
+  - indent guides and bracket-pair highlight are absent (S4).
 
 ### S6: LSP
 - `LspPort` over `store::documents`: didOpen, didChange, didSave and didClose; completion; hover; signature help (patch); definition (`ShowDocumentHandler` → `OpenDocument`, the outside-workspace toast); references and rename (shell UI + `apply_lsp_edits` per document, opening documents as needed through the registry); code actions; symbols; semantic tokens; formatting + format on save; diagnostics from the stream signal; the LSP chip and menu; the query failure toast.
