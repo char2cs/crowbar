@@ -1,0 +1,67 @@
+--- a/src/input/base/state.rs
++++ b/src/input/base/state.rs
+@@ -13580,6 +13580,49 @@
+         true
+     }
+ 
++    /// The ranges that can fold, from the highlighter, in line order.
++    pub fn fold_candidates(&self) -> &[crate::input::FoldRange] {
++        self.display_map.fold_candidates()
++    }
++
++    /// Fold or unfold the candidate that starts at `start_line`; a line that starts no
++    /// candidate changes nothing.
++    pub fn set_folded(&mut self, start_line: usize, folded: bool, cx: &mut Context<Self>) {
++        if !self.display_map.is_fold_candidate(start_line) {
++            return;
++        }
++        self.display_map.set_folded(start_line, folded);
++        cx.notify();
++    }
++
++    /// Every selection as a UTF-8 byte range, in document order.
++    pub fn selection_ranges(&self) -> Vec<Range<usize>> {
++        let mut ranges: Vec<Range<usize>> =
++            self.selections.iter().map(|selection| (*selection).into()).collect();
++        ranges.sort_by_key(|range| range.start);
++        ranges
++    }
++
++    /// Scroll so the line holding `offset` sits in the middle of the viewport, as Monaco's
++    /// `revealPositionInCenter` does; the column is scrolled into view as a caret move does.
++    pub fn reveal_centered(&mut self, offset: usize, cx: &mut Context<Self>) {
++        self.scroll_to(offset, None, cx);
++        let (Some(layout), Some(bounds)) = (self.last_layout.as_ref(), self.last_bounds.as_ref())
++        else {
++            return;
++        };
++        let x = self.deferred_scroll_offset.map_or(px(0.), |offset| offset.x);
++        let line_height = layout.line_height;
++        let row = self
++            .display_map
++            .offset_to_display_row(offset, self.line_end_affinity_at(offset));
++        let centre = line_height * row - (bounds.size.height - line_height) / 2.;
++        let safe_y_min = (-self.scroll_size.height + self.input_bounds.size.height).min(px(0.));
++        let y = (-centre).clamp(safe_y_min, px(0.));
++        self.deferred_scroll_offset = Some(point(x, y));
++        cx.notify();
++    }
++
+     /// Horizontal offset from the content area's left edge to unscrolled source text.
+     ///
+     /// Includes the laid-out gap, line numbers, folding controls, and gutter
+--- a/src/input/editor/display_map/display_map.rs
++++ b/src/input/editor/display_map/display_map.rs
+@@ -158,6 +158,12 @@
+         self.fold_map.is_fold_candidate(start_line)
+     }
+ 
++    /// Every range that can fold, in line order
++    #[inline]
++    pub fn fold_candidates(&self) -> &[FoldRange] {
++        self.fold_map.fold_candidates()
++    }
++
+     /// Get all currently folded ranges
+     #[inline]
+     pub fn folded_ranges(&self) -> &[FoldRange] {

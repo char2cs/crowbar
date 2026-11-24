@@ -84,6 +84,8 @@ The editor engine (`gpui-base`: `InputBaseState`, the rope, tree-sitter highligh
 
 `replace-keeping-selections` (`gpui-base`, `src/input/base/state.rs`): `InputBaseState::replace_all_keeping_selections` replaces the whole text as one undo step and puts every selection back at its line and column, clamped to the new text, with the scroll where it was and the new text highlighted again on the next render (as `replace_all` does), as develop's editor does when a clean file changes on disk (Monaco's `pushEditOperations` with the selections set back). Upstream's `replace_all` clears the selection and scrolls to the top, and `set_value` also drops the undo history. Drop it when upstream keeps the selections.
 
+`editor-commands` (`gpui-base`, `src/input/base/state.rs`, `src/input/editor/display_map/display_map.rs`), applied on top of `letter-spacing`: the engine API the shell's editor chords need, as develop's Monaco has them. `selection_ranges` lists every selection (ctrl+d and the line commands act on all of them); `fold_candidates` and `set_folded` fold one range by its start line (ctrl+shift+[ and ], fold all), where upstream folds only from a gutter click; `reveal_centered` scrolls a position to the middle of the viewport as Monaco's `revealPositionInCenter` does (go to line, find), where upstream only scrolls it into view. Drop each method when upstream offers it.
+
 Drop the vendored copies when the editor needs no patch of its own and upstream keeps pace with gpui-pre.
 
 ## Updating
