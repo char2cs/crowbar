@@ -1,14 +1,15 @@
 use std::ops::Range;
 
 use gpui::{
-    Context, EventEmitter, FontWeight, HighlightStyle, IntoElement, ParentElement, Render, Styled,
-    StyledText, Window, div,
+    Context, EventEmitter, FontWeight, HighlightStyle, InteractiveElement as _, IntoElement,
+    ParentElement, Render, Styled, StyledText, Window, div,
 };
 use ui::{Button, ButtonVariant, Dialog, DialogSize, IconName, Surface, Theme};
 
 use crate::close_choice::CloseChoice;
 
 const BUTTON_GAP: f32 = 8.0;
+const MESSAGE_SELECTOR: &str = "unsaved-message";
 const LISTED_NAMES: usize = 5;
 
 pub(crate) struct UnsavedDialog {
@@ -85,7 +86,14 @@ impl Render for UnsavedDialog {
             .title("Unsaved Changes")
             .icon(IconName::Warning)
             .size(DialogSize::Sm)
-            .body(div().text_color(palette.foreground()).child(message))
+            .body(
+                div()
+                    .debug_selector(|| MESSAGE_SELECTOR.to_owned())
+                    .text_size(ui::text_size::SM)
+                    .line_height(ui::text_size::LINE_HEIGHT)
+                    .text_color(palette.foreground())
+                    .child(message),
+            )
             .footer(
                 div()
                     .flex()
@@ -100,6 +108,8 @@ impl Render for UnsavedDialog {
 
 #[cfg(test)]
 mod tests {
+    use gpui::TestAppContext;
+
     use super::*;
 
     #[test]
@@ -122,6 +132,22 @@ mod tests {
         for (list, expected) in cases {
             assert_eq!(message_for(&list), expected);
         }
+    }
+
+    #[gpui::test]
+    fn the_question_is_set_in_develop_s_text_sm_lines(cx: &mut TestAppContext) {
+        cx.update(|cx| cx.set_global(Theme::default()));
+        let names = ["README.md".to_owned()];
+        let (_, window) = cx.add_window_view(|_, _| UnsavedDialog::new(&names));
+        window.run_until_parked();
+        let height = window
+            .debug_bounds(MESSAGE_SELECTOR)
+            .map(|bounds| bounds.size.height);
+        let lines = height.map(|height| height / ui::text_size::LINE_HEIGHT);
+        assert!(
+            lines.is_some_and(|lines| lines >= 1.0 && lines.fract() == 0.0),
+            "{height:?}"
+        );
     }
 
     #[test]
