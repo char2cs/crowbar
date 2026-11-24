@@ -144,7 +144,7 @@ mod tests {
     #[gpui::test]
     fn dragging_over_a_pane_resolves_the_target_and_a_preview(cx: &mut TestAppContext) {
         let layout = layout_of("a", &[("b", "a", Edge::Right)]);
-        let slots = layout.active_tab().expect("tab").layout(CONTENT);
+        let slots = layout.showing("").expect("tab").layout(CONTENT);
         let subject = DragSubject::Open(chat("c"));
         let mut hover = DropHover::default();
         let hit = hit_at(&subject, (410.0, 200.0), &slots);
@@ -164,7 +164,7 @@ mod tests {
     #[gpui::test]
     fn leaving_every_pane_drops_the_target_but_the_drag_goes_on(cx: &mut TestAppContext) {
         let layout = layout_of("a", &[("b", "a", Edge::Right)]);
-        let slots = layout.active_tab().expect("tab").layout(CONTENT);
+        let slots = layout.showing("").expect("tab").layout(CONTENT);
         let subject = DragSubject::Open(chat("c"));
         let mut hover = DropHover::default();
         let on = hit_at(&subject, (410.0, 200.0), &slots);
@@ -184,7 +184,7 @@ mod tests {
     #[gpui::test]
     fn releasing_a_chat_row_over_a_pane_asks_to_open_the_chat_there(cx: &mut TestAppContext) {
         let layout = layout_of("a", &[("b", "a", Edge::Right)]);
-        let tab = layout.active_tab().expect("tab");
+        let tab = layout.showing("").expect("tab");
         let slots = tab.layout(CONTENT);
         let subject = DragSubject::Chat("t1".into());
         let mut hover = DropHover::default();
@@ -209,7 +209,7 @@ mod tests {
     #[gpui::test]
     fn the_chat_hovered_last_is_the_one_a_release_opens(cx: &mut TestAppContext) {
         let layout = layout_of("a", &[("b", "a", Edge::Right)]);
-        let tab = layout.active_tab().expect("tab");
+        let tab = layout.showing("").expect("tab");
         let slots = tab.layout(CONTENT);
         let subject = DragSubject::Chat("t1".into());
         let mut hover = DropHover::default();
@@ -226,7 +226,7 @@ mod tests {
     #[test]
     fn releasing_over_no_pane_asks_for_nothing() {
         let layout = layout_of("a", &[("b", "a", Edge::Right)]);
-        let tab = layout.active_tab().expect("tab");
+        let tab = layout.showing("").expect("tab");
         let subject = DragSubject::Chat("t1".into());
         assert_eq!(DropHover::default().event(&subject, tab), None, "no target");
     }
@@ -234,7 +234,7 @@ mod tests {
     #[gpui::test]
     fn clear_ends_the_drag(cx: &mut TestAppContext) {
         let layout = layout_of("a", &[]);
-        let slots = layout.active_tab().expect("tab").layout(CONTENT);
+        let slots = layout.showing("").expect("tab").layout(CONTENT);
         let subject = DragSubject::Open(chat("c"));
         let mut hover = DropHover::default();
         let hit = hit_at(&subject, (10.0, 200.0), &slots);

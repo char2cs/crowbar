@@ -68,7 +68,7 @@ impl ShellView {
         };
         let (chrome, _) = self.chrome(cx);
         let visible = visible_panes(
-            self.state.layout().active_tab(),
+            self.state.layout().showing(""),
             area,
             (chrome, self.source.as_ref()),
         );

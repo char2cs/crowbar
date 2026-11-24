@@ -322,6 +322,7 @@ mod tests {
             layout::Command::AddTab {
                 id: layout::TabId(2),
                 title: String::new(),
+                space: layout::SpaceId::default(),
             },
             layout::Command::OpenPane {
                 tab: layout::TabId(2),

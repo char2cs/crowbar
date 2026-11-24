@@ -140,6 +140,14 @@ mod tests {
 
     type Seed = (u64, &'static str, &'static str, Params, PaneState);
 
+    fn empty_tab(id: TabId) -> Command {
+        Command::AddTab {
+            id,
+            title: String::new(),
+            space: layout::SpaceId::default(),
+        }
+    }
+
     fn open(
         layout: &mut Layout,
         seed: Seed,
@@ -147,8 +155,7 @@ mod tests {
         let (tab, name, type_id, params, state) = seed;
         let tab = TabId(tab);
         if layout.tab(tab).is_none() {
-            let title = String::new();
-            layout.apply(Command::AddTab { id: tab, title }).unwrap();
+            layout.apply(empty_tab(tab)).unwrap();
         }
         let instance = PaneInstance {
             pane_id: PaneId::new(name).unwrap(),

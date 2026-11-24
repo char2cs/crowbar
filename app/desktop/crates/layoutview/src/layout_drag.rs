@@ -189,6 +189,7 @@ mod tests {
         let second = layout::Command::AddTab {
             id: layout::TabId(2),
             title: "Two".into(),
+            space: layout::SpaceId::default(),
         };
         layout.apply(second).expect("a second tab");
         let shown = layout::Command::ActivateTab {

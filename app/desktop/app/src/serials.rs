@@ -121,7 +121,13 @@ mod tests {
         }
         let tab = TabId(7);
         let title = "t".into();
-        layout.apply(Command::AddTab { id: tab, title }).unwrap();
+        layout
+            .apply(Command::AddTab {
+                id: tab,
+                title,
+                space: layout::SpaceId::default(),
+            })
+            .unwrap();
         for id in ids {
             layout.apply(open_command(tab, id)).unwrap();
         }

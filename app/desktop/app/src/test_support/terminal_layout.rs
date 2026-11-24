@@ -9,6 +9,7 @@ pub(crate) fn terminal_layout(chat: Option<&str>) -> Layout {
     let add = Command::AddTab {
         id: tab,
         title: String::new(),
+        space: layout::SpaceId::default(),
     };
     layout.apply(add).unwrap();
     let params = chat.map_or_else(Params::default, |chat| {

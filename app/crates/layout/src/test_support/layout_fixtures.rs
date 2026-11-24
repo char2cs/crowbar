@@ -43,6 +43,7 @@ pub(crate) fn add(tab: u64) -> Command {
     Command::AddTab {
         id: TabId(tab),
         title: format!("tab {tab}"),
+        space: crate::SpaceId::default(),
     }
 }
 
@@ -83,6 +84,7 @@ pub(crate) fn stacked(names: &[&str]) -> Layout {
         .apply(Command::AddTab {
             id: TabId(1),
             title: "t".into(),
+            space: crate::SpaceId::default(),
         })
         .unwrap();
     layout.apply(open(1, instance(names[0]))).unwrap();

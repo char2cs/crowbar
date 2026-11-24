@@ -271,7 +271,7 @@ impl ShellView {
         let titles = self.state.titles();
         let layout = self.state.layout();
         self.source.native().follow(layout, &titles);
-        let tab = layout.active_tab().cloned();
+        let tab = layout.showing("").cloned();
         self.data.focus_chat(focused_chat(layout).as_deref());
         self.data.watch_chats(crate::open_chats::tab_chats(layout));
         let open = crate::open_chats::open_chats(layout)
@@ -304,7 +304,7 @@ impl ShellView {
         };
         let (chrome, _) = self.chrome(cx);
         let visible = visible_panes(
-            self.state.layout().active_tab(),
+            self.state.layout().showing(""),
             area,
             (chrome, self.source.as_ref()),
         );

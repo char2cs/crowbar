@@ -50,6 +50,7 @@ fn add_chat_tab(
     layout.apply(Command::AddTab {
         id: tab,
         title: title.clone(),
+        space: layout::SpaceId::default(),
     })?;
     layout.apply(Command::OpenPane {
         tab,

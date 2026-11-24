@@ -253,7 +253,7 @@ mod tests {
 
     #[test]
     fn a_tab_holds_a_bounded_number_of_panes() {
-        let mut tab = Tab::new(TabId(1), "t");
+        let mut tab = Tab::new(TabId(1), "t", crate::space_id::SpaceId::default());
         for index in 0..MAX_PANES_PER_TAB {
             tab.open(pane(&format!("p{index}")), None).unwrap();
         }
@@ -272,7 +272,7 @@ mod tests {
 
     #[test]
     fn closing_the_right_pane_of_a_nested_row_focuses_the_pane_beside_it() {
-        let mut tab = Tab::new(TabId(1), "t");
+        let mut tab = Tab::new(TabId(1), "t", crate::space_id::SpaceId::default());
         tab.open(pane("a"), None).unwrap();
         tab.open(pane("x"), Some(at("a", Edge::Right))).unwrap();
         tab.open(pane("b"), Some(at("a", Edge::Right))).unwrap();

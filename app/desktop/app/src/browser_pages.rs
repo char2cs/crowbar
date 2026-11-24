@@ -51,6 +51,7 @@ mod tests {
             .apply(Command::AddTab {
                 id: tab,
                 title: String::new(),
+                space: layout::SpaceId::default(),
             })
             .unwrap();
         let instance = PaneInstance {

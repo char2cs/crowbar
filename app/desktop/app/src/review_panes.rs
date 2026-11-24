@@ -55,6 +55,7 @@ mod tests {
             .apply(Command::AddTab {
                 id: TabId(1),
                 title,
+                space: layout::SpaceId::default(),
             })
             .unwrap();
         let review = |chat: &str| PaneSpec::review(chat, None).unwrap();

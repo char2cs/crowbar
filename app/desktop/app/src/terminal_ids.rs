@@ -149,6 +149,7 @@ mod tests {
         let add = Command::AddTab {
             id: tab,
             title: String::new(),
+            space: layout::SpaceId::default(),
         };
         layout.apply(add).unwrap();
     }

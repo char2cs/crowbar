@@ -4,6 +4,7 @@ use protocol::PaneId;
 use serde::Deserialize;
 
 use crate::pane_instance::PaneInstance;
+use crate::space_id::SpaceId;
 use crate::split_node::SplitNode;
 use crate::tab_id::TabId;
 
@@ -12,6 +13,7 @@ use crate::tab_id::TabId;
 pub(crate) struct TabRecord {
     pub(crate) id: TabId,
     pub(crate) title: String,
+    pub(crate) space: SpaceId,
     pub(crate) panes: BTreeMap<PaneId, PaneInstance>,
     pub(crate) tree: Option<SplitNode>,
     pub(crate) focused: Option<PaneId>,
@@ -30,6 +32,7 @@ mod tests {
         json!({
             "id": 1,
             "title": "t",
+            "space": "",
             "panes": {"a": {"paneId": "a", "type": "core.terminal", "params": {}, "state": null}},
             "tree": tree,
             "focused": focused,

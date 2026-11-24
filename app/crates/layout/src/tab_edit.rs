@@ -382,7 +382,7 @@ mod tests {
             assert_eq!(tab, before, "{name}: unchanged");
         }
         assert_eq!(
-            Tab::new(TabId(2), "e").resize(&[], bounds, 1.0),
+            Tab::new(TabId(2), "e", crate::space_id::SpaceId::default()).resize(&[], bounds, 1.0),
             Err(Error::NoSuchSplit),
             "no tree"
         );

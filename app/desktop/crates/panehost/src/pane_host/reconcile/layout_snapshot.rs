@@ -37,7 +37,7 @@ impl<'a> LayoutSnapshot<'a> {
             layout,
             parent,
             visible,
-            focused: layout.active_tab().and_then(|tab| tab.focused().cloned()),
+            focused: layout.showing("").and_then(|tab| tab.focused().cloned()),
             keyboard: Keyboard::default(),
             kinds: &(),
         }
@@ -111,12 +111,14 @@ mod tests {
             Command::AddTab {
                 id: TabId(1),
                 title: "a".into(),
+                space: layout::SpaceId::default(),
             },
             open(1, "p1"),
             open(1, "p2"),
             Command::AddTab {
                 id: TabId(2),
                 title: "b".into(),
+                space: layout::SpaceId::default(),
             },
             open(2, "p3"),
             Command::ActivateTab { tab: TabId(1) },

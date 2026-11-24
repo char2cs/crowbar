@@ -48,7 +48,7 @@ fn window_area() -> Bounds {
 
 fn visible(shell: &ShellState) -> Vec<VisiblePane> {
     let area = window_area();
-    shell.layout().active_tab().map_or_else(Vec::new, |tab| {
+    shell.layout().showing("").map_or_else(Vec::new, |tab| {
         tab.pane_ids()
             .into_iter()
             .map(|pane| VisiblePane { pane, bounds: area })
@@ -60,7 +60,7 @@ fn visible(shell: &ShellState) -> Vec<VisiblePane> {
 pub(crate) fn synced_chat(rig: &mut ShellRig) -> PaneId {
     open_chat(&mut rig.shell, "t1");
     resync(rig);
-    rig.shell.layout().active_tab().unwrap().pane_ids()[0].clone()
+    rig.shell.layout().showing("").unwrap().pane_ids()[0].clone()
 }
 
 /// Drives every visible pane of the rig's layout, as a frame does.

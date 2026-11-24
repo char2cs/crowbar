@@ -4,7 +4,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use layout::{
-    Branch, Command, Edge, Layout, LayoutHistory, PaneInstance, Placement, Rect, Tab, TabId,
+    Branch, Command, Edge, Layout, LayoutHistory, PaneInstance, Placement, Rect, SpaceId, Tab,
+    TabId,
 };
 use proptest::prelude::*;
 use protocol::{PaneId, PaneState, PaneTypeId, Params};
@@ -147,6 +148,7 @@ fn tab_command(step: &Step) -> Option<Command> {
         Step::AddTab(t) => Command::AddTab {
             id: tab_id(t),
             title: format!("tab {t}"),
+            space: SpaceId::default(),
         },
         Step::CloseTab(t) => Command::CloseTab { tab: tab_id(t) },
         Step::Activate(t) => Command::ActivateTab { tab: tab_id(t) },
@@ -357,7 +359,7 @@ fn check_focus(
     after: &Layout,
 ) {
     let shown = |pane: u8| {
-        pane_id(pane).is_ok_and(|id| after.active_tab().is_some_and(|t| t.focused() == Some(&id)))
+        pane_id(pane).is_ok_and(|id| after.showing("").is_some_and(|t| t.focused() == Some(&id)))
     };
     match step {
         Step::Focus(p)
@@ -545,4 +547,122 @@ fn open_step(pane: u8) -> Step {
         chat: None,
         placement: None,
     }
+}
+
+fn add_in(
+    tab: u8,
+    space: &str,
+) -> Command {
+    Command::AddTab {
+        id: tab_id(tab),
+        title: format!("tab {tab}"),
+        space: SpaceId::new(space),
+    }
+}
+
+fn open_in(
+    tab: u8,
+    pane: u8,
+) -> Fixture<Command> {
+    command(&Step::Open {
+        tab,
+        pane,
+        chat: None,
+        placement: None,
+    })
+}
+
+fn shown_in(
+    layout: &Layout,
+    space: &str,
+) -> Option<TabId> {
+    layout.showing(space).map(Tab::id)
+}
+
+fn two_spaces() -> Fixture<Layout> {
+    let mut layout = Layout::default();
+    for step in [
+        add_in(1, "p1"),
+        open_in(1, 1)?,
+        add_in(2, "p2"),
+        open_in(2, 2)?,
+    ] {
+        layout.apply(step)?;
+    }
+    Ok(layout)
+}
+
+#[test]
+fn a_tab_shown_in_one_space_is_not_shown_in_another() -> Fixture<()> {
+    let mut layout = two_spaces()?;
+    assert_eq!(shown_in(&layout, "p1"), Some(tab_id(1)), "p1 shows its tab");
+    assert_eq!(shown_in(&layout, "p2"), Some(tab_id(2)), "p2 shows its tab");
+    assert_eq!(shown_in(&layout, "p3"), None, "p3 shows its stage");
+    assert_eq!(
+        layout.tab(tab_id(2)).map(Tab::space),
+        Some("p2"),
+        "made in p2"
+    );
+    layout.apply(Command::FocusPane { pane: pane_id(2)? })?;
+    assert_eq!(
+        shown_in(&layout, "p1"),
+        Some(tab_id(1)),
+        "focus stays in p2"
+    );
+    layout.apply(Command::CloseTab { tab: tab_id(1) })?;
+    assert_eq!(shown_in(&layout, "p1"), None, "p1 falls back to its stage");
+    assert_eq!(shown_in(&layout, "p2"), Some(tab_id(2)), "p2 untouched");
+    layout.validate()?;
+    Ok(())
+}
+
+#[test]
+fn closing_a_shown_tab_hands_over_within_its_own_space() -> Fixture<()> {
+    let mut layout = two_spaces()?;
+    for step in [
+        add_in(3, "p1"),
+        open_in(3, 3)?,
+        add_in(4, "p2"),
+        open_in(4, 4)?,
+    ] {
+        layout.apply(step)?;
+    }
+    layout.apply(Command::CloseTab { tab: tab_id(3) })?;
+    assert_eq!(shown_in(&layout, "p1"), Some(tab_id(1)), "p1's other tab");
+    assert_eq!(shown_in(&layout, "p2"), Some(tab_id(4)), "p2 untouched");
+    Ok(())
+}
+
+#[test]
+fn withdrawing_an_open_restores_the_shown_tab_only_of_the_space_it_changed() -> Fixture<()> {
+    let mut history = LayoutHistory::default();
+    for step in [
+        add_in(1, "p1"),
+        open_in(1, 1)?,
+        add_in(2, "p1"),
+        open_in(2, 2)?,
+        add_in(3, "p2"),
+        open_in(3, 3)?,
+        add_in(4, "p2"),
+        open_in(4, 4)?,
+        Command::ActivateTab { tab: tab_id(1) },
+        open_in(2, 5)?,
+    ] {
+        history.apply(step)?;
+    }
+    history.apply(Command::ActivateTab { tab: tab_id(3) })?;
+    history.withdraw(&pane_id(5)?)?;
+    let layout = history.layout();
+    assert_eq!(
+        shown_in(layout, "p1"),
+        Some(tab_id(1)),
+        "p1 back where it was"
+    );
+    assert_eq!(
+        shown_in(layout, "p2"),
+        Some(tab_id(3)),
+        "p2 keeps the later switch"
+    );
+    layout.validate()?;
+    Ok(())
 }

@@ -1,7 +1,9 @@
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::space_id::SpaceId;
 use crate::tab::Tab;
 use crate::tab_id::TabId;
 
@@ -10,5 +12,5 @@ use crate::tab_id::TabId;
 pub(crate) struct LayoutDocument<'a> {
     pub(crate) version: u32,
     pub(crate) tabs: Cow<'a, [Tab]>,
-    pub(crate) active: Option<TabId>,
+    pub(crate) shown: Cow<'a, BTreeMap<SpaceId, TabId>>,
 }

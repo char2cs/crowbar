@@ -72,7 +72,7 @@ mod tests {
         for (name, commands, expected) in cases {
             let layout = applied(commands);
             assert_eq!(strip(&layout), expected, "{name}");
-            let focused = layout.active_tab().and_then(|tab| tab.focused().cloned());
+            let focused = layout.showing("").and_then(|tab| tab.focused().cloned());
             assert_eq!(focused, Some(id("c")), "{name}: focus unchanged");
         }
     }

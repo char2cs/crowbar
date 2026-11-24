@@ -59,6 +59,7 @@ mod tests {
         let add = Command::AddTab {
             id: TabId(1),
             title: String::new(),
+            space: layout::SpaceId::default(),
         };
         layout.apply(add).unwrap();
         for id in panes {

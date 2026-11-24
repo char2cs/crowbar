@@ -7,7 +7,7 @@ use crate::layout_history::LayoutHistory;
 impl LayoutHistory {
     /// Takes back the open of `pane`, as if it never happened, when that open is the last
     /// structural change: the layout returns to the arrangement before it, with its focus and
-    /// active tabs, and no undo step is left for it. A pane opened earlier closes as any other.
+    /// the tab its space showed, and no undo step is left for it. A pane opened earlier closes as any other.
     ///
     /// # Errors
     /// The [`Error`](crate::Error) that refused closing `pane`.
@@ -66,6 +66,7 @@ mod tests {
         Command::AddTab {
             id: TabId(1),
             title: "t1".to_owned(),
+            space: crate::SpaceId::default(),
         }
     }
 

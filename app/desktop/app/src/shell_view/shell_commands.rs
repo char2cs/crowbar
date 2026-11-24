@@ -140,7 +140,7 @@ impl ShellView {
         direction: Direction,
         cx: &mut Context<'_, Self>,
     ) {
-        let Some(tab) = self.state.layout().active_tab() else {
+        let Some(tab) = self.state.layout().showing("") else {
             return;
         };
         let Some(from) = tab.focused() else {
@@ -169,7 +169,7 @@ impl ShellView {
         let target = self
             .state
             .layout()
-            .active_tab()
+            .showing("")
             .and_then(crate::group_focus::close_target);
         if let Some(pane) = target {
             self.apply_guarded(vec![Command::ClosePane { pane }], cx);

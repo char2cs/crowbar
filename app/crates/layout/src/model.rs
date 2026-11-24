@@ -39,6 +39,7 @@ mod tests {
             .apply(Command::AddTab {
                 id: TabId(1),
                 title: "one".into(),
+                space: crate::SpaceId::default(),
             })
             .unwrap();
         layout
@@ -51,9 +52,9 @@ mod tests {
             layout(),
             "round trip"
         );
-        let legacy = json!({"tabs": [{"id": 1, "title": "one", "panes": {}, "tree": null, "focused": null}], "active": 1});
+        let unversioned = json!({"tabs": [{"id": 1, "title": "one", "panes": {}, "tree": null, "focused": null}], "active": 1});
         let newer = json!({"version": SCHEMA_VERSION + 1, "tabs": 3});
-        for other in [legacy, newer] {
+        for other in [unversioned, newer] {
             let loaded = load(other.to_string().as_bytes()).unwrap();
             assert_eq!(loaded, Layout::default(), "{other}");
         }
@@ -61,7 +62,7 @@ mod tests {
 
     #[test]
     fn unreadable_and_broken_data_are_distinct_errors() {
-        let broken = json!({"version": SCHEMA_VERSION, "tabs": [], "active": 4});
+        let broken = json!({"version": SCHEMA_VERSION, "tabs": [], "shown": {"": 4}});
         let shape = json!({"version": SCHEMA_VERSION, "tabs": 3});
         let cases = [
             (

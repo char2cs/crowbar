@@ -37,7 +37,7 @@ mod tests {
         let mut rig = shell_rig();
         open_chat(&mut rig.shell, "t1");
         let focused = |shell: &crate::shell_state::ShellState| {
-            let tab = shell.layout().active_tab().unwrap();
+            let tab = shell.layout().showing("").unwrap();
             tab.focused().cloned().unwrap()
         };
         rig.shell

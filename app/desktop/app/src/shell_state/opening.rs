@@ -118,7 +118,7 @@ mod tests {
             2,
             "t1 revealed, not copied"
         );
-        let active = rig.shell.layout().active_tab().map(layout::Tab::id);
+        let active = rig.shell.layout().showing("").map(layout::Tab::id);
         assert_eq!(active, Some(rig.shell.layout().tabs()[0].id()));
     }
 

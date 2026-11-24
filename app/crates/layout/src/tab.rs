@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::Error;
 use crate::pane_instance::PaneInstance;
+use crate::space_id::SpaceId;
 use crate::split_node::SplitNode;
 use crate::tab_id::TabId;
 use crate::tab_record::TabRecord;
@@ -26,6 +27,7 @@ pub const MAX_PANES_PER_TAB: usize = 64;
 pub struct Tab {
     pub(crate) id: TabId,
     pub(crate) title: String,
+    pub(crate) space: SpaceId,
     pub(crate) panes: BTreeMap<PaneId, PaneInstance>,
     pub(crate) tree: Option<SplitNode>,
     pub(crate) focused: Option<PaneId>,
@@ -35,11 +37,13 @@ impl Tab {
     pub(crate) fn new(
         id: TabId,
         title: impl Into<String>,
+        space: SpaceId,
     ) -> Self {
         Self::restored(
             TabShape {
                 id,
                 title: title.into(),
+                space,
                 tree: None,
                 focused: None,
             },
@@ -54,6 +58,7 @@ impl Tab {
         Self {
             id: shape.id,
             title: shape.title,
+            space: shape.space,
             panes,
             tree: shape.tree,
             focused: shape.focused,
@@ -136,6 +141,7 @@ impl TryFrom<TabRecord> for Tab {
         let shape = TabShape {
             id: record.id,
             title: record.title,
+            space: record.space,
             tree: record.tree,
             focused: record.focused,
         };

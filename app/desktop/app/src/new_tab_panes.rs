@@ -185,6 +185,7 @@ mod tests {
             .apply(Command::AddTab {
                 id: TabId(1),
                 title: String::new(),
+                space: layout::SpaceId::default(),
             })
             .unwrap();
         for (index, type_id) in types.iter().enumerate() {

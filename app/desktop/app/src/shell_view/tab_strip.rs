@@ -36,7 +36,7 @@ impl ShellView {
                     .collect(),
             })
             .collect();
-        let active = layout.active_tab().map(Tab::id);
+        let active = layout.showing("").map(Tab::id);
         self.tabs
             .update(cx, |bar, cx| bar.set_tabs(tabs, active, cx));
         self.follow_projects(cx);
@@ -207,6 +207,7 @@ mod tests {
             .apply(layout::Command::AddTab {
                 id: tab,
                 title: "t".into(),
+                space: layout::SpaceId::default(),
             })
             .unwrap();
         let held = [
@@ -241,6 +242,7 @@ mod tests {
             .apply(layout::Command::AddTab {
                 id: tab,
                 title: "t".into(),
+                space: layout::SpaceId::default(),
             })
             .unwrap();
         let instance = layout::PaneInstance {

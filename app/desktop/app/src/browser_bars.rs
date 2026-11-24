@@ -161,6 +161,7 @@ mod tests {
             .apply(layout::Command::AddTab {
                 id: tab,
                 title: "t".into(),
+                space: layout::SpaceId::default(),
             })
             .unwrap();
         for (pane, kind) in [("b1", browser::BROWSER_PANE_TYPE), ("c1", "core.chat")] {

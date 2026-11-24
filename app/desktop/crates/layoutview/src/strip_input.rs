@@ -309,7 +309,7 @@ mod tests {
             .apply(Command::FocusPane { pane: pane_id("b") })
             .expect("the lift shows b");
         view.update(cx, |view, cx| {
-            view.set_tab(layout.active_tab().cloned(), cx);
+            view.set_tab(layout.showing("").cloned(), cx);
         });
         cx.run_until_parked();
         let past_c = tab + point(px(400.0), px(0.0));

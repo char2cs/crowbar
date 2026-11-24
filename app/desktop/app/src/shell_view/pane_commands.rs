@@ -27,7 +27,7 @@ impl ShellView {
         let spec = terminal_spec(&id, chat.as_deref(), self.data.active_project());
         self.open_spec(spec, cx);
         let layout = self.state.layout();
-        let opened = layout.active_tab().and_then(layout::Tab::focused).cloned();
+        let opened = layout.showing("").and_then(layout::Tab::focused).cloned();
         if let Some(pane) = opened {
             self.source.native().focus(&pane, window, cx);
         }
@@ -72,7 +72,7 @@ impl ShellView {
         let toggle = self
             .state
             .layout()
-            .active_tab()
+            .showing("")
             .and_then(crate::group_focus::editor_toggle);
         if let Some(command) = toggle {
             self.apply_guarded(vec![command], cx);
@@ -152,7 +152,7 @@ mod tests {
         });
         shell.read_with(&opened.window, |shell, _| {
             let layout = shell.state.layout();
-            let focused = layout.active_tab().and_then(layout::Tab::focused).unwrap();
+            let focused = layout.showing("").and_then(layout::Tab::focused).unwrap();
             let instance = layout.pane(focused).unwrap();
             assert_eq!(instance.type_id.as_str(), CHAT);
             assert_eq!(instance.params.get("threadId"), Some("c2"));

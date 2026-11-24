@@ -19,7 +19,7 @@ pub(crate) fn open_commands(
         params,
         state: PaneState::default(),
     };
-    let Some(tab) = layout.active_tab() else {
+    let Some(tab) = layout.showing("") else {
         return Ok(open_in_new_tab(serials.next_tab(), instance));
     };
     Ok(vec![open_pane(tab.id(), instance)])
@@ -87,6 +87,7 @@ fn open_in_new_tab(
     let add = Command::AddTab {
         id,
         title: String::new(),
+        space: layout::SpaceId::default(),
     };
     vec![add, open_pane(id, instance)]
 }
@@ -163,7 +164,7 @@ mod tests {
     fn opening_a_pane_reuses_what_is_already_open() {
         for (name, threads, (tabs, panes, focused)) in CASES {
             let layout = open_all(threads);
-            let focus = layout.active_tab().and_then(|tab| tab.focused().cloned());
+            let focus = layout.showing("").and_then(|tab| tab.focused().cloned());
             assert_eq!(
                 (layout.tabs().len(), layout.pane_count()),
                 (*tabs, *panes),
@@ -175,7 +176,7 @@ mod tests {
                 "{name}: focus"
             );
             assert_eq!(
-                layout.active_tab().map(Tab::id),
+                layout.showing("").map(Tab::id),
                 Some(TabId(1)),
                 "{name}: tab"
             );
@@ -205,7 +206,7 @@ mod tests {
     fn a_chat_dropped_on_a_pane_opens_beside_it_on_that_side() {
         let mut layout = open_all(&["a"]);
         dropped(&mut layout, "b", ("p1", Edge::Left));
-        let tab = layout.active_tab().unwrap();
+        let tab = layout.showing("").unwrap();
         assert_eq!(layout.pane_count(), 2, "two panes");
         let names: Vec<_> = tab.pane_ids().iter().map(ToString::to_string).collect();
         assert_eq!(names, ["p2", "p1"], "the new chat is left of the first");
@@ -216,7 +217,7 @@ mod tests {
         let mut layout = open_all(&["a", "b"]);
         dropped(&mut layout, "a", ("p2", Edge::Right));
         assert_eq!(layout.pane_count(), 2, "still two panes");
-        let tab = layout.active_tab().unwrap();
+        let tab = layout.showing("").unwrap();
         let names: Vec<_> = tab.pane_ids().iter().map(ToString::to_string).collect();
         assert_eq!(names, ["p2", "p1"], "a moved to the right of b");
     }

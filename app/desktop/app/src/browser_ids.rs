@@ -74,6 +74,7 @@ mod tests {
             .apply(Command::AddTab {
                 id: TabId(1),
                 title: "t".into(),
+                space: layout::SpaceId::default(),
             })
             .unwrap();
         open(&mut layout, "p1", "core.browser");

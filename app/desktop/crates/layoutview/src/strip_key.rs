@@ -68,7 +68,7 @@ mod tests {
         ];
         for (name, shown, key, expected) in cases {
             let layout = strip_layout(shown);
-            let tab = layout.active_tab().unwrap();
+            let tab = layout.showing("").unwrap();
             let group = tab.group_of(&pane_id("a")).unwrap();
             let got = strip_command(group, &pane_id(shown), key);
             assert_eq!(got, expected, "{name}");

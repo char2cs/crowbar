@@ -200,7 +200,7 @@ mod tests {
     #[test]
     fn a_point_over_the_left_edge_of_pane_b_targets_b_on_its_left() {
         let layout = two_panes();
-        let slots = layout.active_tab().expect("tab").layout(CONTENT);
+        let slots = layout.showing("").expect("tab").layout(CONTENT);
         let subject = DragSubject::Open(chat("c"));
         let target = DropTarget::resolve(&subject, (410.0, 200.0), &slots, &[]).expect("target");
         assert_eq!(
@@ -217,7 +217,7 @@ mod tests {
     #[test]
     fn a_pane_dropped_on_itself_has_no_target() {
         let layout = two_panes();
-        let slots = layout.active_tab().expect("tab").layout(CONTENT);
+        let slots = layout.showing("").expect("tab").layout(CONTENT);
         let subject = DragSubject::Pane(pane_id("a"));
         assert_eq!(
             DropTarget::resolve(&subject, (100.0, 200.0), &slots, &[]),
@@ -229,7 +229,7 @@ mod tests {
     #[test]
     fn a_view_tab_targets_the_pane_under_it_like_a_chat() {
         let layout = two_panes();
-        let slots = layout.active_tab().expect("tab").layout(CONTENT);
+        let slots = layout.showing("").expect("tab").layout(CONTENT);
         let subject = DragSubject::Tab(TabId(2));
         let target = DropTarget::resolve(&subject, (100.0, 200.0), &slots, &[]);
         let expected = DropTarget {
@@ -243,7 +243,7 @@ mod tests {
     #[test]
     fn a_chat_row_targets_the_pane_under_it_like_an_unopened_chat() {
         let layout = two_panes();
-        let slots = layout.active_tab().expect("tab").layout(CONTENT);
+        let slots = layout.showing("").expect("tab").layout(CONTENT);
         let subject = DragSubject::Chat("t1".into());
         let target = DropTarget::resolve(&subject, (600.0, 200.0), &slots, &[]).expect("target");
         assert_eq!(
@@ -260,7 +260,7 @@ mod tests {
     #[test]
     fn a_point_over_the_sash_hits_nothing() {
         let layout = two_panes();
-        let slots = layout.active_tab().expect("tab").layout(CONTENT);
+        let slots = layout.showing("").expect("tab").layout(CONTENT);
         let subject = DragSubject::Open(chat("c"));
         assert_eq!(
             DropTarget::resolve(&subject, (403.0, 200.0), &slots, &[]),
@@ -328,7 +328,7 @@ mod tests {
     #[test]
     fn dropping_a_chat_from_the_sidebar_opens_it_beside_the_target() {
         let layout = two_panes();
-        let tab = layout.active_tab().expect("tab");
+        let tab = layout.showing("").expect("tab");
         let target = DropTarget {
             pane: pane_id("b"),
             zone: PaneZone::Bottom,
@@ -354,7 +354,7 @@ mod tests {
     #[test]
     fn a_chat_row_has_no_pane_to_command_with_yet() {
         let layout = two_panes();
-        let tab = layout.active_tab().expect("tab");
+        let tab = layout.showing("").expect("tab");
         let target = target_on(PaneZone::Left);
         assert_eq!(
             target.command(&DragSubject::Chat("t1".into()), tab),
@@ -374,7 +374,7 @@ mod tests {
     #[test]
     fn dropping_a_pane_of_the_same_tab_moves_it() {
         let layout = two_panes();
-        let tab = layout.active_tab().expect("tab");
+        let tab = layout.showing("").expect("tab");
         let target = DropTarget {
             pane: pane_id("b"),
             zone: PaneZone::Top,
@@ -399,7 +399,7 @@ mod tests {
     #[test]
     fn dropping_a_pane_of_another_tab_moves_it_into_this_tab() {
         let layout = two_panes();
-        let tab = layout.active_tab().expect("tab");
+        let tab = layout.showing("").expect("tab");
         let target = DropTarget {
             pane: pane_id("b"),
             zone: PaneZone::Right,
@@ -425,7 +425,7 @@ mod tests {
     #[test]
     fn the_commands_apply_to_the_model_and_yield_three_panes() {
         let mut layout = two_panes();
-        let tab = layout.active_tab().expect("tab").clone();
+        let tab = layout.showing("").expect("tab").clone();
         let target = DropTarget {
             pane: pane_id("b"),
             zone: PaneZone::Bottom,
@@ -441,7 +441,7 @@ mod tests {
     #[test]
     fn a_tab_dragged_out_of_its_own_strip_can_be_dropped_on_that_groups_edge() {
         let layout = stacked_layout();
-        let tab = layout.active_tab().expect("tab");
+        let tab = layout.showing("").expect("tab");
         let subject = DragSubject::Pane(pane_id("c"));
         let slots = DropTarget::slots_for(&subject, tab, CONTENT);
         let target = DropTarget::resolve(&subject, (410.0, 200.0), &slots, &[]).expect("target");
@@ -460,7 +460,7 @@ mod tests {
     #[test]
     fn a_pane_alone_in_its_group_still_has_no_target_on_itself() {
         let layout = stacked_layout();
-        let tab = layout.active_tab().expect("tab");
+        let tab = layout.showing("").expect("tab");
         let subject = DragSubject::Pane(pane_id("a"));
         let slots = DropTarget::slots_for(&subject, tab, CONTENT);
         assert_eq!(
@@ -473,7 +473,7 @@ mod tests {
     #[test]
     fn the_centre_of_a_group_that_takes_the_pane_joins_its_strip_and_previews_all_of_it() {
         let layout = stacked_layout();
-        let tab = layout.active_tab().expect("tab");
+        let tab = layout.showing("").expect("tab");
         let subject = DragSubject::Pane(pane_id("a"));
         let slots = tab.layout(CONTENT);
         let target =
@@ -501,7 +501,7 @@ mod tests {
     #[test]
     fn an_edge_drop_never_joins_even_when_the_pane_could() {
         let layout = stacked_layout();
-        let tab = layout.active_tab().expect("tab");
+        let tab = layout.showing("").expect("tab");
         let subject = DragSubject::Pane(pane_id("a"));
         let slots = tab.layout(CONTENT);
         let target =

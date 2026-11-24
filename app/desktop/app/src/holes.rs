@@ -99,6 +99,7 @@ mod tests {
             .apply(Command::AddTab {
                 id: TabId(1),
                 title: "t".into(),
+                space: layout::SpaceId::default(),
             })
             .unwrap();
         layout
@@ -125,7 +126,7 @@ mod tests {
             side: layout::SidebarSide::Left,
             tab_strip: true,
         };
-        let panes = visible_panes(layout.active_tab(), area, (chrome, &NoChrome));
+        let panes = visible_panes(layout.showing(""), area, (chrome, &NoChrome));
         assert_eq!(panes.len(), 1, "one pane");
         let bounds = panes[0].bounds;
         assert!(

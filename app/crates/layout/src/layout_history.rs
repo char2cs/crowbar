@@ -89,9 +89,11 @@ impl LayoutHistory {
             .into_iter()
             .map(|instance| (instance.pane_id.clone(), instance))
             .collect();
+        let spaces = before.spaces_changed_in(&self.current.arrangement());
         self.undo.push_back(UndoStep {
             arrangement: before,
             parked,
+            spaces,
         });
         self.redo.clear();
         self.trim();
@@ -183,6 +185,7 @@ mod tests {
         Command::AddTab {
             id: TabId(tab),
             title: format!("t{tab}"),
+            space: crate::SpaceId::default(),
         }
     }
 
@@ -517,7 +520,7 @@ mod tests {
         history.apply(move_left_of("b", "a")).unwrap();
         assert!(history.undo(), "undo the move");
         assert_eq!(
-            history.layout().active_tab().map(crate::tab::Tab::id),
+            history.layout().showing("").map(crate::tab::Tab::id),
             Some(TabId(1)),
             "tab"
         );

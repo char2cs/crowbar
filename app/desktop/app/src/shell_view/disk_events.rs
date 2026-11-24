@@ -85,7 +85,7 @@ mod tests {
         opened.shell.update(&mut opened.window, |shell, cx| {
             shell.open_workspace_file(PATH, cx);
             let layout = shell.state.layout();
-            let pane = layout.active_tab().and_then(layout::Tab::focused).cloned();
+            let pane = layout.showing("").and_then(layout::Tab::focused).cloned();
             let pane = pane.expect("the file pane has focus");
             let before = shell.notices.read(cx).len();
             shell.disk_taken(&pane, took, cx);

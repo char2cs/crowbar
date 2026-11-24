@@ -34,7 +34,7 @@ impl Demo {
             side: layout::SidebarSide::Left,
             tab_strip: true,
         };
-        let tab = layout.active_tab().cloned();
+        let tab = layout.showing("").cloned();
         view.update(cx, |view, cx| {
             view.set_chrome(chrome, cx);
             view.set_tab(tab, cx);
@@ -60,7 +60,7 @@ impl Demo {
             return;
         };
         if self.history.apply(command.clone()).is_ok() {
-            let tab = self.history.layout().active_tab().cloned();
+            let tab = self.history.layout().showing("").cloned();
             self.view.update(cx, |view, cx| view.set_tab(tab, cx));
         }
     }

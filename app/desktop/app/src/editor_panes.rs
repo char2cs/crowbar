@@ -89,7 +89,7 @@ impl EditorPanes {
             .flat_map(Tab::pane_ids)
             .filter_map(|pane| Some((pane.clone(), EditorTarget::of(layout.pane(&pane)?)?)))
             .collect();
-        let focused = layout.active_tab().and_then(Tab::focused);
+        let focused = layout.showing("").and_then(Tab::focused);
         let mut panes = self.panes.borrow_mut();
         let gone: Vec<EditorTarget> = panes
             .iter()
@@ -251,6 +251,7 @@ mod tests {
             Command::AddTab {
                 id: TabId(1),
                 title: String::new(),
+                space: layout::SpaceId::default(),
             },
             Command::OpenPane {
                 tab: TabId(1),

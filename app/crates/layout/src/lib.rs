@@ -7,11 +7,11 @@
 //! is versioned ([`SCHEMA_VERSION`]) and older versions are migrated on load.
 //!
 //! ```
-//! use layout::{Command, Layout, PaneInstance, TabId};
+//! use layout::{Command, Layout, PaneInstance, SpaceId, TabId};
 //! use protocol::{PaneId, PaneState, PaneTypeId, Params};
 //!
 //! let mut layout = Layout::default();
-//! layout.apply(Command::AddTab { id: TabId(1), title: "Chat".into() })?;
+//! layout.apply(Command::AddTab { id: TabId(1), title: "Chat".into(), space: SpaceId::default() })?;
 //! layout.apply(Command::OpenPane {
 //!     tab: TabId(1),
 //!     instance: PaneInstance {
@@ -22,7 +22,7 @@
 //!     },
 //!     placement: None,
 //! })?;
-//! assert_eq!(layout.active_tab().map(|tab| tab.pane_ids().len()), Some(1));
+//! assert_eq!(layout.showing("").map(|tab| tab.pane_ids().len()), Some(1));
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
@@ -49,6 +49,7 @@ mod placement;
 mod rect;
 mod sash;
 mod schema;
+mod space_id;
 mod split_extent;
 mod split_node;
 mod split_node_edit;
@@ -87,6 +88,7 @@ pub use placement::Placement;
 pub use rect::Rect;
 pub use sash::Sash;
 pub use schema::SCHEMA_VERSION;
+pub use space_id::SpaceId;
 pub use split_node::{MIN_PANE_EXTENT, SASH_THICKNESS, SplitNode};
 pub use tab::{MAX_PANES_PER_TAB, Tab};
 pub use tab_id::TabId;

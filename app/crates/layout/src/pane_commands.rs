@@ -23,7 +23,7 @@ pub(crate) fn open(
         return reveal(layout, &existing, tab, placement);
     }
     layout.tab_mut(tab)?.open(instance, placement)?;
-    layout.active = Some(tab);
+    layout.show(tab);
     Ok(())
 }
 
@@ -44,7 +44,7 @@ fn reveal(
         target.relocate(existing, &placement)?;
     }
     target.focus(existing)?;
-    layout.active = Some(tab);
+    layout.show(tab);
     Ok(())
 }
 
@@ -82,7 +82,8 @@ pub(crate) fn focus(
 ) -> Result<()> {
     let tab = layout.tab_of_mut(pane)?;
     tab.focus(pane)?;
-    layout.active = Some(tab.id());
+    let shown = tab.id();
+    layout.show(shown);
     Ok(())
 }
 
@@ -140,7 +141,7 @@ pub(crate) fn move_to_tab(
     if emptied {
         layout.take_tab_at(from);
     }
-    layout.active = Some(to);
+    layout.show(to);
     Ok(())
 }
 
@@ -171,7 +172,7 @@ fn move_group(
     if emptied {
         layout.take_tab_at(from);
     }
-    layout.active = Some(to);
+    layout.show(to);
     Ok(())
 }
 
@@ -199,11 +200,11 @@ pub(crate) fn detach(
         return Err(Error::OnlyPane(pane.clone()));
     }
     let moved = source.take_group(pane)?;
-    let mut tab = Tab::new(new_tab, title);
+    let mut tab = Tab::new(new_tab, title, source.space.clone());
     tab.receive(moved, None)?;
     tab.focus(pane)?;
     layout.tabs.insert(from + 1, tab);
-    layout.active = Some(new_tab);
+    layout.show(new_tab);
     Ok(())
 }
 
@@ -249,6 +250,7 @@ mod tests {
         Command::AddTab {
             id: TabId(tab),
             title: format!("tab {tab}"),
+            space: crate::SpaceId::default(),
         }
     }
 
@@ -308,7 +310,7 @@ mod tests {
     }
 
     fn active(layout: &Layout) -> Option<TabId> {
-        layout.active_tab().map(Tab::id)
+        layout.showing("").map(Tab::id)
     }
 
     fn order(

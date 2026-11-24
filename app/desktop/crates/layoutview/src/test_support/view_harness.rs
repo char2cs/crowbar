@@ -92,7 +92,7 @@ pub(crate) fn open_with<'a>(
     let opened = Rc::new(RefCell::new(Vec::new()));
     let sinks = (Rc::clone(&commands), Rc::clone(&opened));
     cx.update(|_, cx| record_events(&view, sinks, cx));
-    let tab = layout.active_tab().cloned();
+    let tab = layout.showing("").cloned();
     view.update(cx, |view, cx| view.set_tab(tab, cx));
     cx.run_until_parked();
     Harness {
@@ -125,7 +125,7 @@ pub(crate) fn open_under_row_source<'a>(
     let opened = Rc::new(RefCell::new(Vec::new()));
     let sinks = (Rc::clone(&commands), Rc::clone(&opened));
     cx.update(|_, cx| record_events(&view, sinks, cx));
-    let tab = layout.active_tab().cloned();
+    let tab = layout.showing("").cloned();
     view.update(cx, |view, cx| view.set_tab(tab, cx));
     cx.run_until_parked();
     Harness {
@@ -168,7 +168,7 @@ pub(crate) fn open_floating(
     let top = top.unwrap_or_else(|error| panic!("the layout window: {error}"));
     let top = top.unwrap_or_else(|error| panic!("the top layer: {error}"));
     let mut window = VisualTestContext::from_window(owner, cx);
-    let tab = layout.active_tab().cloned();
+    let tab = layout.showing("").cloned();
     view.update(&mut window, |view, cx| view.set_tab(tab, cx));
     window.run_until_parked();
     Floating {

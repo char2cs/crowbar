@@ -7,7 +7,8 @@ use serde_json::Value;
 use crate::error::{Error, Result};
 use crate::layout::{Layout, MAX_TABS};
 use crate::layout_document::LayoutDocument;
-use crate::schema::{SCHEMA_VERSION, is_current};
+use crate::schema::{SCHEMA_VERSION, current};
+use crate::space_id::SpaceId;
 use crate::tab::Tab;
 use crate::tab_id::TabId;
 
@@ -41,17 +42,17 @@ impl Layout {
         if has_duplicates(&mut identities) {
             return Err(Error::Invalid("a pane is open twice"));
         }
-        self.validate_active()
+        self.validate_shown()
     }
 
-    fn validate_active(&self) -> Result<()> {
-        let active_ok = match self.active {
-            Some(id) => self.tab(id).is_some(),
-            None => self.tabs.is_empty(),
-        };
-        active_ok
+    fn validate_shown(&self) -> Result<()> {
+        let own =
+            |(space, id): (&SpaceId, &TabId)| self.tab(*id).is_some_and(|tab| &tab.space == space);
+        self.shown
+            .iter()
+            .all(own)
             .then_some(())
-            .ok_or(Error::Invalid("active tab does not match the tabs"))
+            .ok_or(Error::Invalid("a space shows a tab that is not its own"))
     }
 }
 
@@ -68,7 +69,7 @@ impl Serialize for Layout {
         LayoutDocument {
             version: SCHEMA_VERSION,
             tabs: Cow::Borrowed(&self.tabs),
-            active: self.active,
+            shown: Cow::Borrowed(&self.shown),
         }
         .serialize(serializer)
     }
@@ -83,14 +84,14 @@ impl<'de> Deserialize<'de> for Layout {
 
 impl Layout {
     pub(crate) fn from_stored(stored: Value) -> Result<Self> {
-        if !is_current(&stored)? {
+        let Some(stored) = current(stored)? else {
             return Ok(Self::default());
-        }
+        };
         let document: LayoutDocument<'static> = serde_json::from_value(stored)
             .map_err(|source| Error::Unreadable(source.to_string()))?;
         let layout = Self {
             tabs: document.tabs.into_owned(),
-            active: document.active,
+            shown: document.shown.into_owned(),
         };
         layout.validate()?;
         Ok(layout)
@@ -116,6 +117,7 @@ mod tests {
             TabShape {
                 id: TabId(2),
                 title: "two".into(),
+                space: SpaceId::default(),
                 tree: Some(SplitNode::leaf(id("d"))),
                 focused: Some(id("d")),
             },
@@ -123,16 +125,16 @@ mod tests {
         );
         let cases = [
             (
-                "active tab missing",
+                "shown tab missing",
                 Layout {
-                    active: Some(TabId(9)),
+                    shown: [(SpaceId::default(), TabId(9))].into_iter().collect(),
                     ..sample()
                 },
             ),
             (
-                "tabs but no active",
+                "shown in a space it is not of",
                 Layout {
-                    active: None,
+                    shown: [(SpaceId::new("p1"), TabId(1))].into_iter().collect(),
                     ..sample()
                 },
             ),
@@ -156,7 +158,7 @@ mod tests {
     #[test]
     fn a_layout_of_another_version_loads_as_the_default_layout() {
         let value = serde_json::to_value(sample()).unwrap();
-        for version in [None, Some(SCHEMA_VERSION - 1), Some(SCHEMA_VERSION + 1)] {
+        for version in [None, Some(SCHEMA_VERSION - 2), Some(SCHEMA_VERSION + 1)] {
             let mut document = value.clone();
             document["version"] = version.map_or(Value::Null, Value::from);
             let loaded: Layout = serde_json::from_value(document).unwrap();
@@ -169,7 +171,12 @@ mod tests {
         let value = serde_json::to_value(sample()).unwrap();
         let cases = [
             ("unknown field", "surprise", json!(true), ""),
-            ("dangling active tab", "active", json!(77), "invalid layout"),
+            (
+                "dangling shown tab",
+                "shown",
+                json!({"": 77}),
+                "invalid layout",
+            ),
         ];
         for (name, field, bad, expected) in cases {
             let mut document = value.clone();
@@ -179,5 +186,66 @@ mod tests {
                 .to_string();
             assert!(error.contains(expected), "{name}: {error}");
         }
+    }
+
+    const V3_FIXTURE: &[u8] = include_bytes!("../tests/fixtures/layout-v3.json");
+
+    fn assert_kept(
+        tab: &Tab,
+        record: &Value,
+    ) {
+        let name = tab.id().0;
+        assert_eq!(tab.space(), "", "tab {name} waits for a space");
+        assert_eq!(tab.title(), record["title"], "tab {name}: title");
+        let panes = serde_json::to_value(&tab.panes).unwrap();
+        assert_eq!(panes, record["panes"], "tab {name}: panes and their state");
+        let tree = serde_json::to_value(tab.tree()).unwrap();
+        assert_eq!(tree, record["tree"], "tab {name}: tree");
+        let focused = serde_json::to_value(tab.focused()).unwrap();
+        assert_eq!(focused, record["focused"], "tab {name}: focus");
+    }
+
+    #[test]
+    fn a_v3_layout_loads_with_its_tabs_unowned_and_shown_in_no_space() {
+        let stored: Value = serde_json::from_slice(V3_FIXTURE).unwrap();
+        let layout = crate::model::load(V3_FIXTURE).unwrap();
+        let ids: Vec<u64> = layout.tabs().iter().map(|tab| tab.id().0).collect();
+        assert_eq!(ids, [1, 2, 3], "every tab kept, in order");
+        let records = stored["tabs"].as_array().unwrap();
+        for (tab, record) in layout.tabs().iter().zip(records) {
+            assert_kept(tab, record);
+        }
+        let shown = layout.showing("").map(Tab::id);
+        assert_eq!(shown, Some(TabId(2)), "the old active tab");
+        assert!(layout.showing("p1").is_none(), "no project shows it");
+        let resaved: Value = serde_json::to_value(&layout).unwrap();
+        assert_eq!(
+            resaved["version"],
+            json!(SCHEMA_VERSION),
+            "saved as current"
+        );
+        assert_eq!(resaved["shown"], json!({"": 2}), "shown in no space");
+    }
+
+    #[test]
+    fn a_v4_layout_round_trips_its_spaces_and_refuses_a_tab_shown_in_another_space() {
+        let mut layout = sample();
+        layout.tabs[1].space = SpaceId::new("p2");
+        layout.shown = [
+            (SpaceId::default(), TabId(1)),
+            (SpaceId::new("p2"), TabId(2)),
+        ]
+        .into_iter()
+        .collect();
+        let value = serde_json::to_value(&layout).unwrap();
+        assert_eq!(value["version"], json!(4), "v4");
+        assert_eq!(value["tabs"][1]["space"], json!("p2"), "space stored");
+        assert_eq!(value["shown"], json!({"": 1, "p2": 2}), "shown stored");
+        let back: Layout = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(back, layout, "round trip");
+        let mut crossed = value;
+        crossed["shown"] = json!({"p2": 1});
+        let error = serde_json::from_value::<Layout>(crossed).unwrap_err();
+        assert!(error.to_string().contains("invalid layout"), "{error}");
     }
 }

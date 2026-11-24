@@ -75,7 +75,7 @@ mod tests {
     }
 
     fn two_groups() -> Tab {
-        let mut tab = Tab::new(TabId(1), "t");
+        let mut tab = Tab::new(TabId(1), "t", crate::space_id::SpaceId::default());
         tab.open(pane("a"), None).unwrap();
         tab.open_in_group(pane("b"), (&id("a"), None)).unwrap();
         let beside = Placement {
@@ -97,7 +97,11 @@ mod tests {
             "strip of two"
         );
         assert!(tab.group_of(&id("q")).is_none(), "unknown");
-        assert_eq!(Tab::new(TabId(2), "e").group_count(), 0, "empty tab");
+        assert_eq!(
+            Tab::new(TabId(2), "e", crate::space_id::SpaceId::default()).group_count(),
+            0,
+            "empty tab"
+        );
     }
 
     const CASES: [(&str, &str, bool); 3] = [

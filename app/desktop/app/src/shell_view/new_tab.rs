@@ -65,17 +65,18 @@ fn stage_view(
     layout: &Layout,
     id: TabId,
 ) -> Vec<Command> {
-    if layout.active_tab().is_some() {
+    if layout.showing("").is_some() {
         return Vec::new();
     }
     vec![Command::AddTab {
         id,
         title: String::new(),
+        space: layout::SpaceId::default(),
     }]
 }
 
 fn page_in_group(layout: &Layout) -> Option<PaneId> {
-    let tab = layout.active_tab()?;
+    let tab = layout.showing("")?;
     let group = focused_group(tab)?;
     let is_page = |pane: &&PaneId| {
         tab.pane(pane)
@@ -131,6 +132,7 @@ mod tests {
             [Command::AddTab {
                 id: TabId(1),
                 title: String::new(),
+                space: layout::SpaceId::default()
             }],
             "the stage gets a view to hold the page"
         );
@@ -154,7 +156,7 @@ mod tests {
             let instance = instance(name, kind);
             layout
                 .apply(crate::pane_opener::open_in_tab(
-                    layout.active_tab().unwrap(),
+                    layout.showing("").unwrap(),
                     instance,
                 ))
                 .unwrap();
@@ -171,7 +173,7 @@ mod tests {
             .unwrap();
         for (name, kind) in [("c1", "core.chat"), ("n1", NEW_TAB)] {
             let open =
-                crate::pane_opener::open_in_tab(layout.active_tab().unwrap(), instance(name, kind));
+                crate::pane_opener::open_in_tab(layout.showing("").unwrap(), instance(name, kind));
             layout.apply(open).unwrap();
         }
         let cases = [("n1", 1, true), ("n1", 2, false), ("c1", 1, false)];

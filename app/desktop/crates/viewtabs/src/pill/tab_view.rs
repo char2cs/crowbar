@@ -79,12 +79,13 @@ mod tests {
             .apply(Command::AddTab {
                 id: TabId(7),
                 title: "T".into(),
+                space: layout::SpaceId::default(),
             })
             .expect("tab");
         for name in ["a", "b"] {
             open_pane(&mut layout, name);
         }
-        let view = TabView::from_tab(layout.active_tab().expect("tab"), member);
+        let view = TabView::from_tab(layout.showing("").expect("tab"), member);
         assert_eq!(view.id, TabId(7), "same id as the model tab");
         assert_eq!(view.members.len(), 2, "two members");
         assert_eq!(view.title(), "A | B", "titles joined");

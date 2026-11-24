@@ -64,14 +64,14 @@ mod tests {
     }
 
     fn shown_of(layout: &Layout) -> Option<PaneId> {
-        let tab = layout.active_tab()?;
+        let tab = layout.showing("")?;
         let first = tab.pane_ids().into_iter().next()?;
         tab.group_of(&first)
             .and_then(|group| group.active_tab().cloned())
     }
 
     fn focused(layout: &Layout) -> Option<PaneId> {
-        layout.active_tab().and_then(|tab| tab.focused().cloned())
+        layout.showing("").and_then(|tab| tab.focused().cloned())
     }
 
     #[test]

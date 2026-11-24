@@ -93,6 +93,7 @@ fn open_in_new_tab(
         Command::AddTab {
             id: new_tab.id,
             title: new_tab.title,
+            space: layout::SpaceId::default(),
         },
         open_in(instance, new_tab.id),
         move_tab(new_tab.id, index.min(tab_count)),

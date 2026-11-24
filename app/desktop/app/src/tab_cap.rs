@@ -159,6 +159,7 @@ mod tests {
         let add = Command::AddTab {
             id: TabId(1),
             title: String::new(),
+            space: layout::SpaceId::default(),
         };
         layout.apply(add).unwrap();
         for (id, type_id, thread) in panes {
@@ -174,7 +175,7 @@ mod tests {
         type_id: &str,
         thread: &str,
     ) -> Command {
-        let tab = layout.active_tab().unwrap();
+        let tab = layout.showing("").unwrap();
         let stacked = tab.pane_ids().into_iter().next();
         match stacked {
             Some(onto) if type_id != CHAT => Command::OpenPaneInGroup {

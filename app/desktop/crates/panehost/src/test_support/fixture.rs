@@ -128,6 +128,7 @@ fn layout_of(
         .apply(Command::AddTab {
             id: TabId(1),
             title: "t".into(),
+            space: layout::SpaceId::default(),
         })
         .unwrap();
     for instance in panes {

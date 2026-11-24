@@ -66,7 +66,7 @@ mod tests {
         let pane = opened.shell.update(&mut opened.window, |shell, cx| {
             shell.open_workspace_file(PATH, cx);
             let layout = shell.state.layout();
-            let focused = layout.active_tab().and_then(layout::Tab::focused);
+            let focused = layout.showing("").and_then(layout::Tab::focused);
             focused.cloned().expect("the file pane has focus")
         });
         let event = layoutview::LayoutEvent::ReloadTab { pane: pane.clone() };

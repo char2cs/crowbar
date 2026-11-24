@@ -77,7 +77,7 @@ mod tests {
         let mut rig = shell_rig();
         open_chat(&mut rig.shell, "t1");
         resync(&mut rig);
-        let tab = rig.shell.layout().active_tab().unwrap();
+        let tab = rig.shell.layout().showing("").unwrap();
         let chat = tab.pane_ids().into_iter().next().unwrap();
         let frame = PaneFrame::Open(PaneOpen {
             type_id: PaneTypeId::new(EDITOR).unwrap(),
@@ -91,7 +91,7 @@ mod tests {
             text,
         });
         rig.shell.apply(outcome.opens);
-        let tab = rig.shell.layout().active_tab().unwrap();
+        let tab = rig.shell.layout().showing("").unwrap();
         let group = tab.group_of(&chat).unwrap();
         let opened = group
             .tabs()
@@ -118,7 +118,7 @@ mod tests {
         let mut rig = shell_rig();
         open_chat(&mut rig.shell, "t1");
         resync(&mut rig);
-        let tab = rig.shell.layout().active_tab().unwrap();
+        let tab = rig.shell.layout().showing("").unwrap();
         let chat = tab.pane_ids().into_iter().next().unwrap();
         for kept in ["src/a.ts", "src/pricing.ts"] {
             rig.shell.open_spec(PaneSpec::editor("t1", kept).unwrap());

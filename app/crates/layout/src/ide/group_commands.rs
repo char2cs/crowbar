@@ -4,7 +4,6 @@ use crate::error::{Error, Result};
 use crate::ide::pin_commands;
 use crate::layout::Layout;
 use crate::pane_instance::PaneInstance;
-use crate::tab::Tab;
 
 type Seat<'a> = (&'a PaneId, Option<usize>);
 
@@ -29,7 +28,7 @@ pub(crate) fn open(
         .get_mut(home)
         .ok_or_else(|| Error::PaneNotFound(onto.0.clone()))?;
     tab.open_in_group(instance, onto)?;
-    layout.active = layout.tabs.get(home).map(Tab::id);
+    layout.show_at(home);
     Ok(())
 }
 
@@ -65,7 +64,7 @@ fn seat_in(
             .get_mut(from)
             .ok_or_else(|| Error::PaneNotFound(pane.clone()))?;
         tab.join_group(pane, onto)?;
-        layout.active = layout.tabs.get(from).map(Tab::id);
+        layout.show_at(from);
         return Ok(());
     }
     layout
@@ -88,12 +87,13 @@ fn seat_in(
     if emptied {
         layout.take_tab_at(from);
     }
-    layout.active = Some(shown);
+    layout.show(shown);
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::tab::Tab;
     use protocol::{PaneState, PaneTypeId, Params};
 
     use super::*;
@@ -239,6 +239,7 @@ mod tests {
         let command = Command::AddTab {
             id: TabId(tab),
             title: format!("tab {tab}"),
+            space: crate::SpaceId::default(),
         };
         apply(layout, command);
     }
@@ -327,13 +328,13 @@ mod tests {
 
     fn focused(layout: &Layout) -> String {
         layout
-            .active_tab()
+            .showing("")
             .and_then(|tab| tab.focused().map(ToString::to_string))
             .unwrap_or_default()
     }
 
     fn shown_tab(layout: &Layout) -> Option<TabId> {
-        layout.active_tab().map(Tab::id)
+        layout.showing("").map(Tab::id)
     }
 
     #[test]
@@ -1084,9 +1085,9 @@ mod tests {
         let terminal = |name: &str| serde_json::json!({"paneId": name, "type": "core.terminal", "params": {"id": name}, "state": null});
         let tree = serde_json::json!({"node": "leaf", "chat": null, "tabs": panes, "active": active,
             "pinned": 0, "editorOpen": true, "chatSelected": false});
-        let tab = serde_json::json!({"id": 1, "title": "t", "tree": tree, "focused": focused,
-            "panes": {"a": terminal("a"), "b": terminal("b")}});
-        serde_json::json!({"version": crate::SCHEMA_VERSION, "active": 1, "tabs": [tab]})
+        let tab = serde_json::json!({"id": 1, "title": "t", "space": "", "tree": tree,
+            "focused": focused, "panes": {"a": terminal("a"), "b": terminal("b")}});
+        serde_json::json!({"version": crate::SCHEMA_VERSION, "shown": {"": 1}, "tabs": [tab]})
             .to_string()
     }
 

@@ -137,7 +137,7 @@ mod tests {
         opened.shell.update(&mut opened.window, |shell, cx| {
             shell.open_workspace_file(path, cx);
             let layout = shell.state.layout();
-            let focused = layout.active_tab().and_then(layout::Tab::focused);
+            let focused = layout.showing("").and_then(layout::Tab::focused);
             focused.cloned().expect("the file pane has focus")
         })
     }
@@ -163,7 +163,7 @@ mod tests {
             shell.land_document(gone, cx);
         });
         let shown = opened.shell.update(&mut opened.window, |shell, _| {
-            let tab = shell.state.layout().active_tab().expect("a tab");
+            let tab = shell.state.layout().showing("").expect("a tab");
             let group = tab
                 .group_of(&before)
                 .and_then(layout::PaneGroup::active_tab);

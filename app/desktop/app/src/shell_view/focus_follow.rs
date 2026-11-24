@@ -14,7 +14,7 @@ impl ShellView {
     ) {
         let layout = self.state.layout();
         let focused = layout
-            .active_tab()
+            .showing("")
             .and_then(layout::Tab::focused)
             .and_then(|pane| layout.pane(pane));
         let now = focused.and_then(|pane| surface_of(pane.type_id.as_str()));

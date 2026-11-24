@@ -47,6 +47,7 @@ mod tests {
         Command::AddTab {
             id: TabId(tab),
             title: String::new(),
+            space: layout::SpaceId::default(),
         }
     }
 

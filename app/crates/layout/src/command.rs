@@ -5,6 +5,7 @@ use crate::ide::editor_view::EditorView;
 use crate::pane_instance::PaneInstance;
 use crate::placement::Placement;
 use crate::rect::Rect;
+use crate::space_id::SpaceId;
 use crate::tab_id::TabId;
 
 /// Everything that can change a [`Layout`](crate::Layout). A command is applied completely or
@@ -14,19 +15,22 @@ use crate::tab_id::TabId;
 /// holds an empty tab unless [`Command::AddTab`] just made it.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
-    /// Adds an empty tab at the end and makes it active.
+    /// Adds an empty tab at the end and shows it in its space.
     AddTab {
         /// The new tab's id.
         id: TabId,
         /// Its title.
         title: String,
+        /// The space it belongs to, for good.
+        space: SpaceId,
     },
-    /// Removes a tab with its panes; the neighbouring tab becomes active.
+    /// Removes a tab with its panes; when its space showed it, the neighbouring tab of that space
+    /// is shown, or the space's stage when it has no other tab.
     CloseTab {
         /// The tab to remove.
         tab: TabId,
     },
-    /// Makes a tab active.
+    /// Shows a tab in its space.
     ActivateTab {
         /// The tab to show.
         tab: TabId,
@@ -71,7 +75,7 @@ pub enum Command {
     },
     /// Moves an open pane into the group that holds `onto`, in this tab or another, at `index`
     /// among the other panes of that group (the end when `None`). Inside one group it only
-    /// reorders the strip. The pane is shown and focused, its tab becomes active, and a source
+    /// reorders the strip. The pane is shown and focused, its tab is shown in its space, and a source
     /// tab left without panes closes.
     MoveToGroup {
         /// The pane to move.
@@ -126,7 +130,7 @@ pub enum Command {
         /// The pane that was kept.
         pane: PaneId,
     },
-    /// Focuses a pane, shows it in its group and activates its tab.
+    /// Focuses a pane, shows it in its group and shows its tab in that tab's space.
     FocusPane {
         /// The pane to focus.
         pane: PaneId,
@@ -148,8 +152,8 @@ pub enum Command {
         /// Where it lands; `None` splits the destination's focused pane to the right.
         placement: Option<Placement>,
     },
-    /// Moves a chat and its editor tabs out of its siblings into a new tab right of its current
-    /// one, and shows it. Refused for an editor tab and for the only chat of a tab.
+    /// Moves a chat and its editor tabs out of its siblings into a new tab of the same space,
+    /// right of its current one, and shows it. Refused for an editor tab and for the only chat of a tab.
     DetachPane {
         /// The pane to detach.
         pane: PaneId,
@@ -241,6 +245,7 @@ mod tests {
             Command::AddTab {
                 id: tab,
                 title: String::new(),
+                space: SpaceId::default(),
             },
             Command::CloseTab { tab },
             Command::MoveTab { tab, to_index: 0 },

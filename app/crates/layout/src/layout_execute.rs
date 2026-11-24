@@ -16,7 +16,9 @@ impl Layout {
         command: Command,
     ) -> Result<Vec<PaneInstance>> {
         match command {
-            Command::AddTab { id, title } => tab_commands::add(self, id, title).map(none_removed),
+            Command::AddTab { id, title, space } => {
+                tab_commands::add(self, id, title, space).map(none_removed)
+            },
             Command::CloseTab { tab } => tab_commands::close(self, tab),
             Command::ActivateTab { tab } => tab_commands::activate(self, tab).map(none_removed),
             Command::MoveTab { tab, to_index } => {
@@ -109,6 +111,7 @@ mod tests {
             .execute(Command::AddTab {
                 id: tab,
                 title: "t".into(),
+                space: crate::space_id::SpaceId::default(),
             })
             .unwrap();
         assert!(layout.tab(tab).is_some(), "tab added");

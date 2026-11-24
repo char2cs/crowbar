@@ -116,6 +116,7 @@ mod tests {
             .apply(Command::AddTab {
                 id: TabId(1),
                 title: "Chat".into(),
+                space: layout::SpaceId::default(),
             })
             .unwrap();
         layout

@@ -2,7 +2,7 @@ use layout::{Layout, PaneGroup};
 use protocol::PaneId;
 
 pub(crate) fn focused_chat(layout: &Layout) -> Option<String> {
-    let tab = layout.active_tab()?;
+    let tab = layout.showing("")?;
     chat_of_pane(layout, tab.focused()?)
 }
 
@@ -36,7 +36,13 @@ mod tests {
         };
         let tab = TabId(1);
         let title = String::new();
-        layout.apply(Command::AddTab { id: tab, title }).unwrap();
+        layout
+            .apply(Command::AddTab {
+                id: tab,
+                title,
+                space: layout::SpaceId::default(),
+            })
+            .unwrap();
         let placement = None;
         layout
             .apply(Command::OpenPane {
@@ -56,7 +62,7 @@ mod tests {
         let browser = crate::pane_spec::PaneSpec::browser("b1").unwrap();
         rig.shell.open_spec(browser);
         let layout = rig.shell.layout();
-        let focused = layout.active_tab().and_then(layout::Tab::focused);
+        let focused = layout.showing("").and_then(layout::Tab::focused);
         let browser_focused = focused
             .and_then(|pane| layout.pane(pane))
             .is_some_and(|pane| pane.params.get("browserId") == Some("b1"));

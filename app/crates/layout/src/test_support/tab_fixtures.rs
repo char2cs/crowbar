@@ -43,7 +43,7 @@ pub(crate) fn order(tab: &Tab) -> Vec<String> {
 }
 
 pub(crate) fn tab_with(names: &[&str]) -> Tab {
-    let mut tab = Tab::new(TabId(1), "t");
+    let mut tab = Tab::new(TabId(1), "t", crate::space_id::SpaceId::default());
     for name in names {
         tab.open(pane(name), None).unwrap();
     }

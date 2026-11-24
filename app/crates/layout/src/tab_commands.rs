@@ -2,6 +2,7 @@ use crate::branch::Branch;
 use crate::error::{Error, Result};
 use crate::layout::{Layout, MAX_TABS};
 use crate::pane_instance::PaneInstance;
+use crate::space_id::SpaceId;
 use crate::tab::Tab;
 use crate::tab_id::TabId;
 
@@ -9,6 +10,7 @@ pub(crate) fn add(
     layout: &mut Layout,
     id: TabId,
     title: String,
+    space: SpaceId,
 ) -> Result<()> {
     if layout.tab(id).is_some() {
         return Err(Error::DuplicateTab(id));
@@ -16,8 +18,8 @@ pub(crate) fn add(
     if layout.tabs.len() >= MAX_TABS {
         return Err(Error::TooManyTabs { limit: MAX_TABS });
     }
-    layout.tabs.push(Tab::new(id, title));
-    layout.active = Some(id);
+    layout.tabs.push(Tab::new(id, title, space));
+    layout.show(id);
     Ok(())
 }
 
@@ -35,7 +37,7 @@ pub(crate) fn activate(
     id: TabId,
 ) -> Result<()> {
     layout.index_of(id)?;
-    layout.active = Some(id);
+    layout.show(id);
     Ok(())
 }
 
@@ -99,6 +101,7 @@ mod tests {
         Command::AddTab {
             id: TabId(tab),
             title: format!("tab {tab}"),
+            space: crate::SpaceId::default(),
         }
     }
 
@@ -123,7 +126,7 @@ mod tests {
     }
 
     fn active(layout: &Layout) -> Option<TabId> {
-        layout.active_tab().map(Tab::id)
+        layout.showing("").map(Tab::id)
     }
 
     #[test]

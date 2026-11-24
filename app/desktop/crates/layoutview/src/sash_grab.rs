@@ -171,7 +171,7 @@ mod tests {
         layout: &layout::Layout,
         pointer: (f32, f32),
     ) -> SashGrab {
-        let tab = layout.active_tab().expect("tab");
+        let tab = layout.showing("").expect("tab");
         let sash = tab.sashes(CONTENT).remove(0);
         SashGrab::begin(tab, &sash, pointer, CONTENT).expect("grab")
     }
@@ -206,7 +206,7 @@ mod tests {
         layout
             .apply(grab.resize((603.0, 300.0)))
             .expect("resize applies");
-        let tab = layout.active_tab().expect("tab");
+        let tab = layout.showing("").expect("tab");
         assert_eq!(
             tab.sashes(CONTENT)[0].rect.x,
             600.0,

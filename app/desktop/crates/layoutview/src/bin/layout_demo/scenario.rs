@@ -52,6 +52,7 @@ pub(crate) fn build(name: &str) -> DemoResult<Layout> {
         Command::AddTab {
             id: tab,
             title: "Tab".into(),
+            space: layout::SpaceId::default(),
         },
         Command::OpenPane {
             tab,

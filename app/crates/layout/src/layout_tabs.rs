@@ -14,7 +14,7 @@ impl Layout {
     pub(crate) fn arrangement(&self) -> Arrangement {
         Arrangement {
             tabs: self.tabs.iter().map(Tab::shape).collect(),
-            active: self.active,
+            shown: self.shown.clone(),
         }
     }
 
@@ -35,16 +35,41 @@ impl Layout {
         for tab in &mut self.tabs {
             pool.extend(tab.take_instances());
         }
-        let Arrangement { tabs, active } = step.arrangement;
+        let Arrangement { tabs, shown } = step.arrangement;
+        let changed = step.spaces;
         self.tabs = tabs
             .into_iter()
             .map(|shape| Tab::from_shape(shape, &mut pool))
             .collect();
-        self.active = active;
+        self.shown.retain(|space, _| !changed.contains(space));
+        self.shown.extend(
+            shown
+                .into_iter()
+                .filter(|(space, _)| changed.contains(space)),
+        );
         Ok(UndoStep {
             arrangement: before,
             parked: pool,
+            spaces: changed,
         })
+    }
+
+    pub(crate) fn show(
+        &mut self,
+        id: TabId,
+    ) {
+        if let Some(space) = self.tab(id).map(|tab| tab.space.clone()) {
+            self.shown.insert(space, id);
+        }
+    }
+
+    pub(crate) fn show_at(
+        &mut self,
+        index: usize,
+    ) {
+        if let Some(id) = self.tabs.get(index).map(Tab::id) {
+            self.show(id);
+        }
     }
 
     pub(crate) fn index_of(
@@ -95,10 +120,16 @@ impl Layout {
             return None;
         }
         let removed = self.tabs.remove(index);
-        if self.active == Some(removed.id()) {
-            let heir = self.tabs.get(index).or_else(|| self.tabs.last());
-            self.active = heir.map(Tab::id);
+        if self.shown.get(&removed.space) != Some(&removed.id()) {
+            return Some(removed);
         }
+        let same_space = |tab: &&Tab| tab.space == removed.space;
+        let after = self.tabs.iter().skip(index).find(same_space);
+        let heir = after.or_else(|| self.tabs.iter().take(index).rfind(same_space));
+        match heir.map(Tab::id) {
+            Some(heir) => self.shown.insert(removed.space.clone(), heir),
+            None => self.shown.remove(&removed.space),
+        };
         Some(removed)
     }
 }
@@ -107,6 +138,7 @@ impl Layout {
 mod tests {
     use super::*;
     use crate::command::Command;
+    use crate::space_id::SpaceId;
     use crate::split_node::SplitNode;
     use crate::test_support::layout_fixtures::sample;
     use crate::test_support::tab_fixtures::id;
@@ -124,6 +156,7 @@ mod tests {
                 .into_iter()
                 .map(|p| (p.pane_id.clone(), p))
                 .collect(),
+            spaces: [SpaceId::default()].into_iter().collect(),
         };
         let after_close = layout.arrangement();
         let inverse = layout.swap_arrangement(step).unwrap();
@@ -145,6 +178,7 @@ mod tests {
         let step = UndoStep {
             arrangement,
             parked: BTreeMap::new(),
+            spaces: std::collections::BTreeSet::new(),
         };
         assert!(layout.swap_arrangement(step).is_err(), "refused");
         assert_eq!(layout, before, "layout untouched");

@@ -123,6 +123,7 @@ mod tests {
         Command::AddTab {
             id: TabId(id),
             title: "t".into(),
+            space: layout::SpaceId::default(),
         }
     }
 

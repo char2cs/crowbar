@@ -13,7 +13,7 @@ pub(crate) fn focused_group(tab: &Tab) -> Option<&PaneGroup> {
 }
 
 pub(crate) fn editor_focused(layout: &Layout) -> bool {
-    let Some(tab) = layout.active_tab() else {
+    let Some(tab) = layout.showing("") else {
         return false;
     };
     let focused = tab.focused().and_then(|pane| tab.pane(pane));
@@ -83,6 +83,7 @@ mod tests {
             .apply(Command::AddTab {
                 id: TabId(1),
                 title: String::new(),
+                space: layout::SpaceId::default(),
             })
             .unwrap();
         for (name, kind) in panes {
@@ -130,7 +131,7 @@ mod tests {
     fn the_top_bar_lists_chats_and_only_falls_back_to_an_editor_tab_when_there_is_none() {
         for case in LISTINGS {
             let layout = layout_of(case.opened);
-            let tab = layout.active_tab().unwrap();
+            let tab = layout.showing("").unwrap();
             let names: Vec<String> = listed(tab).iter().map(ToString::to_string).collect();
             assert_eq!(names, case.listed, "{}", case.name);
         }
@@ -168,7 +169,7 @@ mod tests {
         ];
         for (opened, expected) in CASES {
             let layout = layout_of(opened);
-            let target = close_target(layout.active_tab().unwrap());
+            let target = close_target(layout.showing("").unwrap());
             assert_eq!(target.as_ref().map(PaneId::as_str), *expected, "{opened:?}");
         }
     }
@@ -185,7 +186,7 @@ mod tests {
         ];
         for (opened, expected) in CASES {
             let layout = layout_of(opened);
-            let toggle = layout.active_tab().and_then(editor_toggle);
+            let toggle = layout.showing("").and_then(editor_toggle);
             assert_eq!(toggle.and_then(|c| view_of(&c)), *expected, "{opened:?}");
         }
     }

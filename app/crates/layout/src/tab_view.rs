@@ -34,6 +34,12 @@ impl Tab {
             .map_or_else(Vec::new, |tree| tree.place_sashes(bounds, &[]))
     }
 
+    /// The space the tab was made in; empty while a tab stored before spaces waits for one.
+    #[must_use]
+    pub fn space(&self) -> &str {
+        self.space.as_str()
+    }
+
     pub(crate) fn contains(
         &self,
         pane: &PaneId,
@@ -53,6 +59,7 @@ impl Tab {
         TabShape {
             id: self.id,
             title: self.title.clone(),
+            space: self.space.clone(),
             tree: self.tree.clone(),
             focused: self.focused.clone(),
         }
