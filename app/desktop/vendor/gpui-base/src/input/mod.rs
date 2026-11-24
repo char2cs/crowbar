@@ -106,6 +106,7 @@ pub use highlighting::{
     SyntaxContext, SyntaxContextProvider,
 };
 pub use indent::TabSize;
+pub use layout::WhitespaceMode;
 pub use input::{Input, InputState};
 pub use kind::{
     EditorExtras, EditorMode, InputExtras, InputMode, InputModeKind, MultiLineMode, TextareaExtras,

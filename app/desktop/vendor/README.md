@@ -98,6 +98,8 @@ The editor engine (`gpui-base`: `InputBaseState`, the rope, tree-sitter highligh
 
 `editor-commands` (`gpui-base`, `src/input/base/state.rs`, `src/input/editor/display_map/display_map.rs`), applied on top of `letter-spacing`: the engine API the shell's editor chords need, as develop's Monaco has them. `selection_ranges` lists every selection (ctrl+d and the line commands act on all of them); `fold_candidates` and `set_folded` fold one range by its start line (ctrl+shift+[ and ], fold all), where upstream folds only from a gutter click; `reveal_centered` scrolls a position to the middle of the viewport as Monaco's `revealPositionInCenter` does (go to line, find), where upstream only scrolls it into view. Drop each method when upstream offers it.
 
+`whitespace-modes` (`gpui-base`, `src/input/base/layout.rs`, `src/input/base/state.rs`, `src/input/base/element.rs`, `src/input/editor/display_map/text_wrapper.rs`), applied on top of `editor-commands`: `WhitespaceMode` (`None`, `Boundary`, `Trailing`, `All`) says which spaces and tabs a code editor marks, as develop's `renderWhitespace` setting does through Monaco: boundary skips a single space between two words, trailing marks only what follows a line's last other character, judged over the whole line when it soft-wraps. `set_whitespace_mode` sets it and `whitespace_mode` reads it; upstream's `show_whitespaces` bool still means all or none. Drop it when upstream marks whitespace by mode.
+
 Drop the vendored copies when the editor needs no patch of its own and upstream keeps pace with gpui-pre.
 
 ## Updating

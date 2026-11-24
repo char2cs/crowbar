@@ -1,0 +1,191 @@
+--- a/src/input/base/element.rs
++++ b/src/input/base/element.rs
+@@ -1540,7 +1540,8 @@
+         window: &mut Window,
+         _cx: &App,
+     ) -> Option<WhitespaceIndicators> {
+-        if !state.show_whitespaces {
++        let mode = state.show_whitespaces;
++        if mode == crate::input::WhitespaceMode::None {
+             return None;
+         }
+ 
+@@ -1584,7 +1585,7 @@
+             None,
+         );
+ 
+-        Some(WhitespaceIndicators { space, tab })
++        Some(WhitespaceIndicators { space, tab, mode })
+     }
+ 
+     /// Compute inline completion ghost lines for rendering.
+--- a/src/input/base/layout.rs
++++ b/src/input/base/layout.rs
+@@ -4,10 +4,51 @@
+ 
+ use super::{WrappingIndent, display_map::LineLayout};
+ 
++/// Which spaces and tabs a code editor marks, as Monaco's `renderWhitespace`.
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
++pub enum WhitespaceMode {
++    /// No markers.
++    #[default]
++    None,
++    /// Every space and tab except a single space between two words.
++    Boundary,
++    /// The spaces and tabs after the last other character of a line.
++    Trailing,
++    /// Every space and tab.
++    All,
++}
++
++impl WhitespaceMode {
++    /// Every whitespace character when `show`, none otherwise.
++    pub(crate) fn of(show: bool) -> Self {
++        if show { Self::All } else { Self::None }
++    }
++
++    /// Whether the space or tab at byte `offset` of `line` gets a marker.
++    pub(crate) fn marks(self, line: &str, offset: usize) -> bool {
++        match self {
++            Self::None => false,
++            Self::All => true,
++            Self::Trailing => offset >= line.trim_end_matches([' ', '\t']).len(),
++            Self::Boundary => !is_lone_space_between_words(line, offset),
++        }
++    }
++}
++
++fn is_lone_space_between_words(line: &str, offset: usize) -> bool {
++    let is_blank = |c: char| matches!(c, ' ' | '\t');
++    let before = line[..offset].chars().next_back();
++    let after = line[offset..].chars().nth(1);
++    line[offset..].starts_with(' ')
++        && before.is_some_and(|c| !is_blank(c))
++        && after.is_some_and(|c| !is_blank(c))
++}
++
+ #[derive(Clone, Default)]
+ pub(crate) struct WhitespaceIndicators {
+     pub(crate) space: ShapedLine,
+     pub(crate) tab: ShapedLine,
++    pub(crate) mode: WhitespaceMode,
+ }
+ 
+ #[derive(Clone)]
+@@ -46,3 +87,25 @@
+         }
+     }
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::WhitespaceMode;
++
++    fn marked(mode: WhitespaceMode, line: &str) -> Vec<usize> {
++        line.char_indices()
++            .filter(|(offset, c)| matches!(c, ' ' | '\t') && mode.marks(line, *offset))
++            .map(|(offset, _)| offset)
++            .collect()
++    }
++
++    #[test]
++    fn each_mode_marks_the_whitespace_monaco_renders() {
++        let line = "  a b  c\td ";
++        assert_eq!(marked(WhitespaceMode::None, line), Vec::<usize>::new());
++        assert_eq!(marked(WhitespaceMode::All, line), [0, 1, 3, 5, 6, 8, 10]);
++        assert_eq!(marked(WhitespaceMode::Boundary, line), [0, 1, 5, 6, 8, 10]);
++        assert_eq!(marked(WhitespaceMode::Trailing, line), [10]);
++        assert_eq!(marked(WhitespaceMode::Trailing, "   "), [0, 1, 2]);
++    }
++}
+--- a/src/input/base/state.rs
++++ b/src/input/base/state.rs
+@@ -42,7 +42,8 @@
+ use crate::input::movement::MoveDirection;
+ use crate::input::rope_ext::{next_grapheme_boundary, previous_grapheme_boundary};
+ use crate::input::{
+-    InputEdit, InputExtras as _, Position, RopeExt as _, element::RIGHT_MARGIN, layout::LastLayout,
++    InputEdit, InputExtras as _, Position, RopeExt as _, WhitespaceMode, element::RIGHT_MARGIN,
++    layout::LastLayout,
+ };
+ use crate::overscroll::Overscroll;
+ use crate::{AutoScroll, StepAction, TestSupportExt as _};
+@@ -518,7 +519,7 @@
+     pub(super) input_action: Option<TextInputAction>,
+     pub(super) autocorrect: Option<bool>,
+     pub(super) autocapitalize: Option<Autocapitalize>,
+-    pub(super) show_whitespaces: bool,
++    pub(super) show_whitespaces: WhitespaceMode,
+     /// This flag tells the renderer to prefer the end of the current visual line.
+     pub(crate) cursor_line_end_affinity: bool,
+     pub(super) pattern: Option<regex::Regex>,
+@@ -1019,7 +1020,7 @@
+             input_action: None,
+             autocorrect: None,
+             autocapitalize: None,
+-            show_whitespaces: false,
++            show_whitespaces: WhitespaceMode::None,
+             loading: false,
+             pattern: None,
+             validate: None,
+@@ -1615,13 +1616,24 @@
+     /// Set whether to show whitespace characters.
+     #[doc(hidden)]
+     pub fn show_whitespaces(mut self, show: bool) -> Self {
+-        self.show_whitespaces = show;
++        self.show_whitespaces = WhitespaceMode::of(show);
+         self
+     }
+ 
+     /// Update whether to show whitespace characters.
+     pub fn set_show_whitespaces(&mut self, show: bool, _: &mut Window, cx: &mut Context<Self>) {
+-        self.show_whitespaces = show;
++        self.show_whitespaces = WhitespaceMode::of(show);
++        cx.notify();
++    }
++
++    /// Which whitespace characters show a marker.
++    pub fn whitespace_mode(&self) -> WhitespaceMode {
++        self.show_whitespaces
++    }
++
++    /// Update which whitespace characters show a marker.
++    pub fn set_whitespace_mode(&mut self, mode: WhitespaceMode, cx: &mut Context<Self>) {
++        self.show_whitespaces = mode;
+         cx.notify();
+     }
+ 
+--- a/src/input/editor/display_map/text_wrapper.rs
++++ b/src/input/editor/display_map/text_wrapper.rs
+@@ -1037,10 +1037,19 @@
+         };
+ 
+         let space_indicator_offset = indicators.space.width.half();
++        let mode = indicators.mode;
++        let line_text: String = self
++            .wrapped_lines
++            .iter()
++            .map(|wrapped_line| wrapped_line.text.as_str())
++            .collect();
++        let mut line_start = 0;
+ 
+         for (line_index, wrapped_line) in self.wrapped_lines.iter().enumerate() {
++            let start = line_start;
++            line_start += wrapped_line.text.len();
+             for (relative_offset, c) in wrapped_line.text.char_indices() {
+-                if matches!(c, ' ' | '\t') {
++                if matches!(c, ' ' | '\t') && mode.marks(&line_text, start + relative_offset) {
+                     let is_tab = c == '\t';
+                     let start_x = wrapped_line.x_for_index(relative_offset);
+                     let end_x = wrapped_line.x_for_index(relative_offset + c.len_utf8());
+--- a/src/input/mod.rs
++++ b/src/input/mod.rs
+@@ -106,6 +106,7 @@
+     SyntaxContext, SyntaxContextProvider,
+ };
+ pub use indent::TabSize;
++pub use layout::WhitespaceMode;
+ pub use input::{Input, InputState};
+ pub use kind::{
+     EditorExtras, EditorMode, InputExtras, InputMode, InputModeKind, MultiLineMode, TextareaExtras,

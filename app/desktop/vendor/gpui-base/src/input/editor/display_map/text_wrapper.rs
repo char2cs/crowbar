@@ -1037,10 +1037,19 @@ impl LineLayout {
         };
 
         let space_indicator_offset = indicators.space.width.half();
+        let mode = indicators.mode;
+        let line_text: String = self
+            .wrapped_lines
+            .iter()
+            .map(|wrapped_line| wrapped_line.text.as_str())
+            .collect();
+        let mut line_start = 0;
 
         for (line_index, wrapped_line) in self.wrapped_lines.iter().enumerate() {
+            let start = line_start;
+            line_start += wrapped_line.text.len();
             for (relative_offset, c) in wrapped_line.text.char_indices() {
-                if matches!(c, ' ' | '\t') {
+                if matches!(c, ' ' | '\t') && mode.marks(&line_text, start + relative_offset) {
                     let is_tab = c == '\t';
                     let start_x = wrapped_line.x_for_index(relative_offset);
                     let end_x = wrapped_line.x_for_index(relative_offset + c.len_utf8());

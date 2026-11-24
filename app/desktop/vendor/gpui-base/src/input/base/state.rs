@@ -42,7 +42,8 @@ use crate::input::blink_cursor::CURSOR_WIDTH;
 use crate::input::movement::MoveDirection;
 use crate::input::rope_ext::{next_grapheme_boundary, previous_grapheme_boundary};
 use crate::input::{
-    InputEdit, InputExtras as _, Position, RopeExt as _, element::RIGHT_MARGIN, layout::LastLayout,
+    InputEdit, InputExtras as _, Position, RopeExt as _, WhitespaceMode, element::RIGHT_MARGIN,
+    layout::LastLayout,
 };
 use crate::overscroll::Overscroll;
 use crate::{AutoScroll, StepAction, TestSupportExt as _};
@@ -518,7 +519,7 @@ pub struct InputBaseState<M: InputModeKind> {
     pub(super) input_action: Option<TextInputAction>,
     pub(super) autocorrect: Option<bool>,
     pub(super) autocapitalize: Option<Autocapitalize>,
-    pub(super) show_whitespaces: bool,
+    pub(super) show_whitespaces: WhitespaceMode,
     /// This flag tells the renderer to prefer the end of the current visual line.
     pub(crate) cursor_line_end_affinity: bool,
     pub(super) pattern: Option<regex::Regex>,
@@ -1019,7 +1020,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             input_action: None,
             autocorrect: None,
             autocapitalize: None,
-            show_whitespaces: false,
+            show_whitespaces: WhitespaceMode::None,
             loading: false,
             pattern: None,
             validate: None,
@@ -1615,13 +1616,24 @@ impl<M: InputModeKind> InputBaseState<M> {
     /// Set whether to show whitespace characters.
     #[doc(hidden)]
     pub fn show_whitespaces(mut self, show: bool) -> Self {
-        self.show_whitespaces = show;
+        self.show_whitespaces = WhitespaceMode::of(show);
         self
     }
 
     /// Update whether to show whitespace characters.
     pub fn set_show_whitespaces(&mut self, show: bool, _: &mut Window, cx: &mut Context<Self>) {
-        self.show_whitespaces = show;
+        self.show_whitespaces = WhitespaceMode::of(show);
+        cx.notify();
+    }
+
+    /// Which whitespace characters show a marker.
+    pub fn whitespace_mode(&self) -> WhitespaceMode {
+        self.show_whitespaces
+    }
+
+    /// Update which whitespace characters show a marker.
+    pub fn set_whitespace_mode(&mut self, mode: WhitespaceMode, cx: &mut Context<Self>) {
+        self.show_whitespaces = mode;
         cx.notify();
     }
 

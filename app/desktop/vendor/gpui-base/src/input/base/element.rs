@@ -1540,7 +1540,8 @@ impl<M: InputModeKind> TextElement<M> {
         window: &mut Window,
         _cx: &App,
     ) -> Option<WhitespaceIndicators> {
-        if !state.show_whitespaces {
+        let mode = state.show_whitespaces;
+        if mode == crate::input::WhitespaceMode::None {
             return None;
         }
 
@@ -1584,7 +1585,7 @@ impl<M: InputModeKind> TextElement<M> {
             None,
         );
 
-        Some(WhitespaceIndicators { space, tab })
+        Some(WhitespaceIndicators { space, tab, mode })
     }
 
     /// Compute inline completion ghost lines for rendering.
