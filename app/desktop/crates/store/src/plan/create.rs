@@ -3,6 +3,7 @@
 pub(crate) mod draft;
 pub(crate) mod folder;
 pub(crate) mod landing;
+pub(crate) mod new_chat;
 
 use daemonapi::Call;
 use serde_json::json;
@@ -161,7 +162,7 @@ pub(crate) fn host_id(
         .ok_or(PlanError::SpaceNotLoaded)
 }
 
-fn chat_body(
+pub(crate) fn chat_body(
     id: &str,
     (workspace, parent): (&str, &str),
     surface: Surface,

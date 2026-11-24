@@ -11,7 +11,7 @@ use crate::plan::Plan;
 use crate::plan::removal::Removal;
 use crate::plan::{
     agent as plan_agent, create as plan_create,
-    create::{draft as plan_draft, folder as plan_folder, landing},
+    create::{draft as plan_draft, folder as plan_folder, landing, new_chat as plan_new_chat},
     edit as plan_edit, icon as plan_icon, merge as plan_merge, relocate as plan_move,
 };
 use crate::reads::active_project;
@@ -58,9 +58,10 @@ fn thread(
         Command::NewThread(project) if drafts(state, command) => {
             plan_draft::home(state, project, id)
         },
-        Command::NewThread(project) | Command::NewChat(project) => {
+        Command::NewThread(project) => {
             plan_create::home_thread(state, project, id, Surface::Default)
         },
+        Command::NewChat(project) => plan_new_chat::plan(state, project, id),
         Command::NewTerminalThread(project) => {
             plan_create::home_thread(state, project, id, Surface::Terminal)
         },
@@ -202,19 +203,21 @@ mod tests {
     }
 
     #[test]
-    fn the_new_chat_chord_posts_to_the_home_and_opens_when_it_lands() {
-        let plan = plan_of(&Command::NewChat(ProjectId::from("p"))).unwrap();
+    fn the_new_chat_chord_makes_its_chat_in_the_focused_chats_workspace() {
+        let (mut state, _) = state();
+        state.panels.follow(Some("bo".into()));
+        let plan = plan(
+            (&state, &FakeFiles::default()),
+            &Command::NewChat(ProjectId::from("p")),
+        )
+        .unwrap();
         let call = &plan.calls[0];
         assert_eq!(
             (call.method, call.path.as_str()),
-            ("POST", "/v0/projects/p/home/chats")
+            ("POST", "/v0/projects/p/repos/r/chats")
         );
-        let body = call.body.as_ref().unwrap();
-        assert_eq!(body["workspaceId"], "hw");
+        assert_eq!(call.body.as_ref().unwrap()["workspaceId"], "b");
         assert!(plan.needs_provider);
-        let id = body["id"].as_str().unwrap();
-        assert_eq!(plan.after, After::OpenChat(id.to_owned()));
-        assert_eq!(plan.pending.as_ref().map(|row| row.id.as_str()), Some(id));
     }
 
     #[test]
