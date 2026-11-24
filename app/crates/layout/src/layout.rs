@@ -41,13 +41,15 @@ impl Layout {
         self.tabs.iter().find(|tab| tab.id() == id)
     }
 
-    /// The tab a space shows, or `None` when that space shows its stage.
+    /// The tab a space shows: the one it remembers, else its first tab in strip order, as
+    /// develop's `nextViewFor` falls back; `None` only when the space has no tabs.
     #[must_use]
     pub fn showing(
         &self,
         space: &str,
     ) -> Option<&Tab> {
-        self.shown.get(space).and_then(|id| self.tab(*id))
+        let remembered = self.shown.get(space).and_then(|id| self.tab(*id));
+        remembered.or_else(|| self.tabs.iter().find(|tab| tab.space() == space))
     }
 
     /// The tab holding a pane.

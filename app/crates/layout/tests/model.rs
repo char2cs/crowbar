@@ -572,6 +572,16 @@ fn open_in(
     })
 }
 
+fn adopt(
+    tab: u8,
+    space: &str,
+) -> Command {
+    Command::AdoptSpace {
+        tab: tab_id(tab),
+        space: SpaceId::new(space),
+    }
+}
+
 fn shown_in(
     layout: &Layout,
     space: &str,
@@ -664,5 +674,33 @@ fn withdrawing_an_open_restores_the_shown_tab_only_of_the_space_it_changed() -> 
         "p2 keeps the later switch"
     );
     layout.validate()?;
+    Ok(())
+}
+
+#[test]
+fn a_space_with_tabs_and_none_remembered_shows_its_first_tab_in_strip_order() -> Fixture<()> {
+    let mut layout = Layout::default();
+    for step in [add_in(1, ""), add_in(2, ""), add_in(3, "")] {
+        layout.apply(step)?;
+    }
+    layout.apply(Command::ActivateTab { tab: tab_id(3) })?;
+    for (tab, space) in [(3, "p2"), (2, "p1"), (1, "p1")] {
+        layout.apply(adopt(tab, space))?;
+    }
+    assert_eq!(
+        shown_in(&layout, "p2"),
+        Some(tab_id(3)),
+        "p2 remembers its tab"
+    );
+    assert_eq!(
+        shown_in(&layout, "p1"),
+        Some(tab_id(1)),
+        "p1 falls back to its first tab"
+    );
+    assert_eq!(
+        shown_in(&layout, "p3"),
+        None,
+        "a space with no tabs shows its stage"
+    );
     Ok(())
 }
