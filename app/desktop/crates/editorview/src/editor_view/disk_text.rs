@@ -68,9 +68,9 @@ pub(super) const fn next_mark(mark: SaveMark) -> SaveMark {
 mod tests {
     use gpui::TestAppContext;
 
-    use super::super::tests::{listened, opened};
     use super::*;
     use crate::Access;
+    use crate::editor_view::test_support::{listened, opened};
 
     fn take(
         view: &gpui::Entity<EditorView>,

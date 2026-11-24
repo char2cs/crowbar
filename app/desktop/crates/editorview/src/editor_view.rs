@@ -4,16 +4,29 @@ use gpui::{
     Task, Window, div,
 };
 use gpui_kit::base::input::{InputEvent, Rope};
-use gpui_kit::component::input::{Editor, EditorState, Position};
+use gpui_kit::component::input::{Editor, EditorState};
 
+use crate::find_widget::FindWidget;
+use crate::goto_line::GotoLine;
+use crate::occurrence_session::OccurrenceSession;
 use crate::save_key::{CONTEXT, Save};
 use crate::theme::ink;
 use crate::toolbar::Toolbar;
 use crate::{Access, Caret, EditorEvent, Opening, SaveMark};
 
 mod access_change;
+mod command_actions;
 mod disk_text;
+mod find_actions;
+mod fold_command;
+mod folding;
+mod goto_action;
+mod line_command;
+mod line_commands;
+mod occurrences;
 mod quiet;
+#[cfg(test)]
+pub(crate) mod test_support;
 
 /// One pane's editor: the gpui-kit `Editor` drawn over the document text it holds, under the
 /// toolbar of its file.
@@ -26,6 +39,9 @@ pub struct EditorView {
     disk_conflict: bool,
     reported_dirty: bool,
     quiet: Option<Task<()>>,
+    occurrences: Option<OccurrenceSession>,
+    find: Entity<FindWidget>,
+    goto: Entity<GotoLine>,
     _caret_moves: Subscription,
     _edits: Subscription,
 }
@@ -48,16 +64,12 @@ impl EditorView {
         let language = toolbar.language();
         let saved = Rope::from(saved.as_deref().unwrap_or(&text));
         let reported_dirty = saved != text.as_str();
-        let state = cx.new(|cx| {
-            EditorState::new(window, cx)
-                .language(crate::highlight_name::of(language))
-                .soft_wrap(false)
-                .context_menu(false)
-                .default_value(text)
-        });
+        let state = cx.new(|cx| editor_state(language, text, (window, cx)));
         if let Some(line) = line {
-            reveal(&state, line, (window, cx));
+            goto_action::reveal_line(&state, line, (window, cx));
         }
+        let find = cx.new(|cx| FindWidget::new(state.clone(), window, cx));
+        let goto = cx.new(|cx| GotoLine::new(state.clone(), window, cx));
         let caret_moves = cx.observe(&state, |_, _, cx| cx.notify());
         let edits = cx.subscribe(&state, Self::on_input);
         Self {
@@ -69,6 +81,9 @@ impl EditorView {
             disk_conflict: false,
             reported_dirty,
             quiet: None,
+            occurrences: None,
+            find,
+            goto,
             _caret_moves: caret_moves,
             _edits: edits,
         }
@@ -190,79 +205,53 @@ impl Render for EditorView {
     ) -> impl IntoElement {
         let read_only = self.access == Access::ReadOnly;
         let caret = self.caret(cx);
-        let toolbar = self.toolbar.element(caret, cx);
-        div()
+        let find_button = Self::find_button(cx);
+        let toolbar = self.toolbar.element(caret, find_button, cx);
+        let root = div()
             .size_full()
             .flex()
             .flex_col()
             .key_context(CONTEXT)
-            .on_action(cx.listener(|_, _: &Save, _, cx| cx.emit(EditorEvent::SaveRequested)))
-            .child(toolbar)
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .text_color(ink(cx))
-                    .child(Editor::new(&self.state).readonly(read_only).size_full()),
-            )
+            .on_action(cx.listener(|_, _: &Save, _, cx| cx.emit(EditorEvent::SaveRequested)));
+        let root = Self::command_actions(root, cx).on_action(cx.listener(Self::go_to_line));
+        Self::find_actions(root, cx).child(toolbar).child(
+            div()
+                .relative()
+                .flex_1()
+                .min_h_0()
+                .text_color(ink(cx))
+                .child(Editor::new(&self.state).readonly(read_only).size_full())
+                .child(self.find.clone())
+                .child(self.goto.clone()),
+        )
     }
 }
 
-fn reveal(
-    state: &Entity<EditorState>,
-    line: u32,
-    (window, cx): (&mut Window, &mut Context<'_, EditorView>),
-) {
-    let position = Position::new(line.saturating_sub(1), 0);
-    state.update(cx, |state, cx| {
-        state.set_cursor_position(position, window, cx);
-    });
+fn editor_state(
+    language: editor::Language,
+    text: String,
+    (window, cx): (&mut Window, &mut Context<'_, EditorState>),
+) -> EditorState {
+    EditorState::new(window, cx)
+        .language(crate::highlight_name::of(language))
+        .soft_wrap(false)
+        .context_menu(false)
+        .searchable(false)
+        .default_value(text)
 }
 
 #[cfg(test)]
 mod tests {
     use gpui::TestAppContext;
 
+    use super::test_support::{listened, opened};
     use super::*;
-
-    pub(super) fn opened<'cx>(
-        (text, line): (&str, Option<u32>),
-        access: Access,
-        cx: &'cx mut TestAppContext,
-    ) -> (Entity<EditorView>, &'cx mut gpui::VisualTestContext) {
-        cx.update(|cx| ui::init(cx).unwrap());
-        cx.update(crate::init);
-        let opening = Opening {
-            text: text.to_owned(),
-            path: "src/a.ts".to_owned(),
-            line,
-            access,
-            saved: None,
-        };
-        cx.add_window_view(|window, cx| EditorView::new(opening, window, cx))
-    }
 
     fn language_of(
         view: &Entity<EditorView>,
         cx: &App,
     ) -> &'static str {
         view.read(cx).toolbar.language().display_name()
-    }
-
-    pub(super) fn listened(
-        view: &Entity<EditorView>,
-        window: &mut gpui::VisualTestContext,
-    ) -> std::rc::Rc<std::cell::RefCell<Vec<EditorEvent>>> {
-        let heard = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
-        let log = std::rc::Rc::clone(&heard);
-        let record = move |_: Entity<EditorView>, event: &EditorEvent, _: &mut App| {
-            log.borrow_mut().push(*event);
-        };
-        window.update(|window, cx| {
-            window.focus(&view.focus_handle(cx), cx);
-            cx.subscribe(view, record).detach();
-        });
-        heard
     }
 
     #[gpui::test]
@@ -285,13 +274,6 @@ mod tests {
         let (view, cx) = opened(("a\nb", None), Access::ReadOnly, cx);
         cx.run_until_parked();
         assert_eq!(view.read_with(cx, EditorView::text), "a\nb");
-    }
-
-    #[gpui::test]
-    fn a_line_to_reveal_puts_the_caret_on_it(cx: &mut TestAppContext) {
-        let (view, cx) = opened(("a\nb\nc\nd", Some(3)), Access::ReadOnly, cx);
-        cx.run_until_parked();
-        assert_eq!(view.read_with(cx, |view, cx| view.caret(cx).line), 3);
     }
 
     #[gpui::test]

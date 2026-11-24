@@ -22,8 +22,8 @@ impl EditorView {
 mod tests {
     use gpui::{Focusable as _, TestAppContext};
 
-    use super::super::tests::opened;
     use super::*;
+    use crate::editor_view::test_support::opened;
 
     #[gpui::test]
     fn typing_follows_the_access_the_view_is_given_last(cx: &mut TestAppContext) {

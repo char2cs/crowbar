@@ -30,9 +30,9 @@ impl EditorView {
 mod tests {
     use gpui::TestAppContext;
 
-    use super::super::tests::{listened, opened};
     use super::*;
     use crate::Access;
+    use crate::editor_view::test_support::{listened, opened};
 
     #[gpui::test]
     fn edits_pause_once_the_quiet_period_passes_after_the_last_keystroke(cx: &mut TestAppContext) {

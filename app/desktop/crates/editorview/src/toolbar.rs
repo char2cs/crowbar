@@ -21,6 +21,9 @@ const CHIP_HEIGHT: f32 = 20.0;
 const CHIP_PADDING_X: f32 = 6.0;
 const CHIP_RADIUS: f32 = 6.0;
 const CORNER: f32 = 4.0;
+const DIVIDER_MARGIN_X: f32 = 4.0;
+const DIVIDER_HEIGHT: f32 = 14.0;
+const DIVIDER_ALPHA: f32 = 0.7;
 
 pub(crate) struct Toolbar {
     path: String,
@@ -42,13 +45,21 @@ impl Toolbar {
     pub(crate) fn element(
         &self,
         caret: Caret,
+        actions: AnyElement,
         cx: &mut App,
     ) -> AnyElement {
         let palette = *Theme::of(cx).palette(Surface::Window);
+        let divider = div()
+            .mx(px(DIVIDER_MARGIN_X))
+            .h(px(DIVIDER_HEIGHT))
+            .w(px(1.0))
+            .bg(palette.border().opacity(DIVIDER_ALPHA));
         let chips = div()
             .flex()
             .items_center()
             .gap(px(RIGHT_GAP))
+            .child(actions)
+            .child(divider)
             .child(chip(format!("{}:{}", caret.line, caret.column), &palette))
             .child(chip(self.language.display_name().to_owned(), &palette));
         div()

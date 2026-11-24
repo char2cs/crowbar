@@ -1,0 +1,148 @@
+use std::ops::Range;
+
+use editor::{FindOption, FindOptions, FindQuery};
+use gpui::Context;
+
+use super::EditorView;
+use crate::occurrence_session::OccurrenceSession;
+
+const WORD_SEARCH: &[FindOption] = &[FindOption::MatchCase, FindOption::WholeWord];
+
+impl EditorView {
+    pub(super) fn add_next_occurrence(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let state = self.state.read(cx);
+        let text = state.value();
+        let selections = state.selection_ranges();
+        let active = state.selected_range();
+        if active.is_empty() {
+            return self.start_from_word(active.start, cx);
+        }
+        let query = self.query_for(&selections, &text, &active);
+        let Ok(found) = query.matches(&text) else {
+            return;
+        };
+        let unselected = |range: &&Range<usize>| !selections.contains(range);
+        let after = found
+            .iter()
+            .filter(unselected)
+            .find(|range| range.start >= active.end);
+        let next = after.or_else(|| found.iter().find(unselected)).cloned();
+        let Some(next) = next else {
+            return;
+        };
+        self.state
+            .update(cx, |state, cx| state.add_selection(next, cx));
+        self.remember_session(query, cx);
+    }
+
+    pub(super) fn select_all_occurrences(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let state = self.state.read(cx);
+        let text = state.value();
+        let active = state.selected_range();
+        let word = editor::word_at(&text, active.start);
+        let (query, around) = match (active.is_empty(), word) {
+            (true, Some(word)) => (word_query(&text, &word), word),
+            (true, None) => return,
+            (false, _) => (selected_query(&text, &active), active),
+        };
+        let Ok(found) = query.matches(&text) else {
+            return;
+        };
+        let primary = found.iter().position(|range| *range == around).unwrap_or(0);
+        let ordered: Vec<Range<usize>> = found
+            .iter()
+            .skip(primary)
+            .chain(found.iter().take(primary))
+            .cloned()
+            .collect();
+        self.select_all_of(&ordered, cx);
+    }
+
+    fn start_from_word(
+        &mut self,
+        caret: usize,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let text = self.state.read(cx).value();
+        let Some(word) = editor::word_at(&text, caret) else {
+            return;
+        };
+        let query = word_query(&text, &word);
+        self.state
+            .update(cx, |state, cx| state.set_selected_range(word, cx));
+        self.remember_session(query, cx);
+    }
+
+    fn query_for(
+        &self,
+        selections: &[Range<usize>],
+        text: &str,
+        active: &Range<usize>,
+    ) -> FindQuery {
+        let ongoing = self
+            .occurrences
+            .as_ref()
+            .filter(|session| session.selections == selections);
+        ongoing.map_or_else(
+            || selected_query(text, active),
+            |session| session.query.clone(),
+        )
+    }
+
+    fn remember_session(
+        &mut self,
+        query: FindQuery,
+        cx: &Context<'_, Self>,
+    ) {
+        let selections = self.state.read(cx).selection_ranges();
+        self.occurrences = Some(OccurrenceSession { query, selections });
+    }
+}
+
+fn word_query(
+    text: &str,
+    word: &Range<usize>,
+) -> FindQuery {
+    let word = text.get(word.clone()).unwrap_or("");
+    FindQuery::new(word, FindOptions::of(WORD_SEARCH))
+}
+
+fn selected_query(
+    text: &str,
+    selected: &Range<usize>,
+) -> FindQuery {
+    let selected = text.get(selected.clone()).unwrap_or("");
+    FindQuery::new(selected, FindOptions::default())
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui::TestAppContext;
+
+    use crate::editor_view::test_support::opened;
+    use crate::{Access, EditorView};
+
+    #[gpui::test]
+    fn ctrl_d_and_ctrl_shift_l_select_the_caret_word_s_occurrences(cx: &mut TestAppContext) {
+        let text = "total Total totals total";
+        let cases = [
+            ("ctrl-d", "y Total totals total"),
+            ("ctrl-d ctrl-d", "y Total totals y"),
+            ("ctrl-d ctrl-d ctrl-d", "y Total totals y"),
+            ("ctrl-shift-l", "y Total totals y"),
+            ("shift-right shift-right ctrl-d", "ytal ytal totals total"),
+        ];
+        for (keys, expected) in cases {
+            let (view, window) = opened((text, Some(1)), Access::Editable, cx);
+            window.simulate_keystrokes(keys);
+            window.simulate_input("y");
+            assert_eq!(view.read_with(window, EditorView::text), expected, "{keys}");
+        }
+    }
+}
