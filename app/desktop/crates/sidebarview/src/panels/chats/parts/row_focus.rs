@@ -1,4 +1,4 @@
-//! Keyboard focus of a tree row: a tab stop that draws the focus ring and ignores pointer presses.
+//! Keyboard focus of a tree row: a tab stop that rings on focus-visible and ignores pointer presses.
 
 use gpui::{App, Div, ElementId, FocusHandle, InteractiveElement, Stateful, Styled, Window};
 use ui::{Palette, focus_ring};
@@ -22,7 +22,7 @@ pub(crate) fn ringed(
     let ring = focus_ring(palette);
     shell
         .track_focus(focus)
-        .focus(move |style| style.shadow(ring))
+        .focus_visible(move |style| style.shadow(ring))
         .on_mouse_down(gpui::MouseButton::Left, |_, window, _| {
             window.prevent_default();
         })
@@ -65,5 +65,38 @@ mod tests {
         assert!(!clicked, "a pointer press focused the row");
         assert!(focused, "the row is not a tab stop");
         assert!(distinct, "the row got a new handle on a later frame");
+    }
+
+    fn rings_drawn(cx: &mut gpui::VisualTestContext) -> usize {
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            let ring = Theme::of(cx).palette(Surface::Chrome).ring();
+            let shadows = window.painted_shadows();
+            shadows.iter().filter(|shadow| shadow.color == ring).count()
+        })
+    }
+
+    #[gpui::test]
+    fn a_focused_row_rings_only_after_a_key_as_develop_s_focus_visible_does(
+        cx: &mut TestAppContext
+    ) {
+        let focus = cx.update(|cx| cx.focus_handle());
+        let held = focus.clone();
+        let cx = mount(cx, move |_, cx| {
+            let palette = Theme::of(cx).palette(Surface::Chrome);
+            ringed(
+                row_shell("row".into(), 0, palette).child("label"),
+                &held,
+                palette,
+            )
+        });
+        cx.simulate_click(
+            gpui::point(gpui::px(20.0), gpui::px(10.0)),
+            gpui::Modifiers::none(),
+        );
+        cx.update(|window, cx| window.focus(&focus, cx));
+        assert_eq!(rings_drawn(cx), 0, "focused after a pointer press");
+        cx.simulate_keystrokes("shift");
+        assert_eq!(rings_drawn(cx), 1, "focused after a key");
     }
 }
