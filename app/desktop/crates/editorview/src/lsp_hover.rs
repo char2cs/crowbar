@@ -3,10 +3,11 @@
 use std::rc::Rc;
 
 use gpui::{App, AppContext as _, Task, Window};
-use gpui_kit::base::input::{HoverProvider, Rope, RopeExt as _};
+use gpui_kit::base::input::{HoverProvider, Rope};
 use serde_json::{Map, json};
 
 use crate::lsp_link::LspLink;
+use crate::lsp_position::{range_from_lsp, to_lsp};
 
 pub(crate) struct LspHover {
     pub(crate) link: Rc<LspLink>,
@@ -20,15 +21,24 @@ impl HoverProvider for LspHover {
         _window: &mut Window,
         cx: &mut App,
     ) -> Task<gpui::Result<Option<lsp_types::Hover>>> {
-        let position = text.offset_to_position(offset);
         let mut fields = Map::new();
-        fields.insert("position".to_owned(), json!(position));
+        fields.insert("position".to_owned(), json!(to_lsp(text, offset)));
         let asked = self.link.request("hover", fields, cx);
+        let text = text.clone();
         cx.background_spawn(async move {
             let answer = asked.await?;
-            Ok(serde_json::from_value(answer).ok().flatten())
+            let hover: Option<lsp_types::Hover> = serde_json::from_value(answer).ok().flatten();
+            Ok(hover.map(|hover| in_chars(&text, hover)))
         })
     }
+}
+
+fn in_chars(
+    text: &Rope,
+    hover: lsp_types::Hover,
+) -> lsp_types::Hover {
+    let range = hover.range.map(|range| range_from_lsp(text, range));
+    lsp_types::Hover { range, ..hover }
 }
 
 #[cfg(test)]
@@ -55,5 +65,24 @@ mod tests {
             hover.map(|hover| hover.contents),
             Some(HoverContents::Scalar(shown))
         );
+    }
+
+    #[gpui::test]
+    fn a_hover_past_an_emoji_counts_utf16_units_both_ways(cx: &mut TestAppContext) {
+        let (view, window, server) = served(("src/a.ts", "let a = \"😀\"; a"), cx);
+        let range =
+            json!({"start": {"line": 0, "character": 14}, "end": {"line": 0, "character": 15}});
+        server.answer(
+            "hover",
+            json!({"contents": "const a: string", "range": range}),
+        );
+        let hover = hover_at(&view, 16, window);
+        let position = json!({"path": "src/a.ts", "position": {"line": 0, "character": 14}});
+        assert_eq!(server.bodies()[1], position);
+        let chars = lsp_types::Range::new(
+            lsp_types::Position::new(0, 13),
+            lsp_types::Position::new(0, 14),
+        );
+        assert_eq!(hover.and_then(|hover| hover.range), Some(chars));
     }
 }

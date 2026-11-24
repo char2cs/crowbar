@@ -14,6 +14,7 @@ mod language_server;
 mod lsp_error;
 mod lsp_hover;
 mod lsp_link;
+mod lsp_position;
 mod occurrence_session;
 mod opening;
 mod reveal;
