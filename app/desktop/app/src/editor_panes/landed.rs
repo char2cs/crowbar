@@ -1,4 +1,4 @@
-use editorview::{Access, Opening, SaveMark};
+use editorview::{Access, DocumentOpening, Opening, SaveMark};
 use protocol::PaneId;
 
 use super::editor_target::EditorTarget;
@@ -17,18 +17,21 @@ impl Landed {
         &self,
         target: &EditorTarget,
         access: Access,
-    ) -> Opening {
+    ) -> (DocumentOpening, Opening) {
         let (text, saved) = match &self.draft {
             Some(draft) => (draft.text.clone(), Some(draft.saved_text.clone())),
             None => (self.disk.clone().unwrap_or_default(), None),
         };
-        Opening {
+        let document = DocumentOpening {
             text,
             path: target.label.clone(),
+            saved,
+        };
+        let opening = Opening {
             line: target.line,
             access,
-            saved,
-        }
+        };
+        (document, opening)
     }
 
     pub(super) fn text(&self) -> Option<String> {
@@ -102,10 +105,10 @@ mod tests {
         let typed = format!("x{TEXT}");
         assert_eq!(window.read(|cx| view.read(cx).text(cx)), typed);
         assert!(
-            window.read(|cx| view.read(cx).is_dirty(cx)),
+            window.read(|cx| view.read(cx).document().read(cx).is_dirty(cx)),
             "restored dirty"
         );
-        let since = window.read(|cx| view.read(cx).save_mark());
+        let since = window.read(|cx| view.read(cx).document().read(cx).save_mark());
         let told = [
             ShellRequest::Document(DocumentRequest::Dirty {
                 pane: pane.clone(),

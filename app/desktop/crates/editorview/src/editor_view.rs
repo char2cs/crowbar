@@ -1,9 +1,8 @@
 use gpui::{
     App, AppContext as _, Context, Entity, EventEmitter, FocusHandle, Focusable,
     InteractiveElement as _, IntoElement, ParentElement as _, Render, Styled as _, Subscription,
-    Task, Window, div, px,
+    Window, div, px,
 };
-use gpui_kit::base::input::{InputEvent, Rope};
 use gpui_kit::component::Sizable as _;
 use gpui_kit::component::input::{Editor, EditorState};
 
@@ -14,13 +13,12 @@ use crate::occurrence_session::OccurrenceSession;
 use crate::save_key::{CONTEXT, Save};
 use crate::theme::{ground, ink};
 use crate::toolbar::Toolbar;
-use crate::{Access, Caret, EditorEvent, Opening, SaveMark, Settings};
+use crate::{Access, Caret, DocumentEvent, EditorEvent, Opening, Settings};
 
 const BODY: &str = "editor-body";
 
 mod access_change;
 mod command_actions;
-mod disk_text;
 mod find_actions;
 mod fold_command;
 mod folding;
@@ -29,144 +27,94 @@ mod language;
 mod line_command;
 mod line_commands;
 mod occurrences;
-mod page_text;
-mod quiet;
 mod settings_follow;
 #[cfg(test)]
 pub(crate) mod test_support;
 mod view_button;
 mod view_buttons;
 
-/// One pane's editor: the gpui-kit `Editor` drawn over the document text it holds, under the
-/// toolbar of its file.
+/// One pane's editor: the gpui-kit `Editor` drawn over a document, under the toolbar of its
+/// file. Several views over one document share its text and history, each with its own carets.
 pub struct EditorView {
+    document: Entity<Document>,
     state: Entity<EditorState>,
     access: Access,
     toolbar: Toolbar,
-    saved: Rope,
-    save_mark: SaveMark,
-    disk_conflict: bool,
-    reported_dirty: bool,
-    quiet: Option<Task<()>>,
     occurrences: Option<OccurrenceSession>,
     find: Entity<FindWidget>,
     goto: Entity<GotoLine>,
-    lsp: Option<std::rc::Rc<crate::lsp_link::LspLink>>,
     _caret_moves: Subscription,
-    _edits: Subscription,
+    _document: Subscription,
     _settings: Subscription,
 }
 
 impl EditorView {
-    /// A view showing `opening`'s text, coloured by its language, with the caret on its line.
+    /// A view over `document`, coloured by its language, with the caret on `opening`'s line.
     pub fn new(
+        document: Entity<Document>,
         opening: Opening,
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> Self {
-        let Opening {
-            text,
-            path,
-            line,
-            access,
-            saved,
-        } = opening;
-        let toolbar = Toolbar::of(&path);
+        let Opening { line, access } = opening;
+        let toolbar = Toolbar::of(document.read(cx).path());
         let language = toolbar.language();
-        let saved = Rope::from(saved.as_deref().unwrap_or(&text));
-        let reported_dirty = saved != text.as_str();
-        let document = Document::new(&text, cx);
-        let state = cx.new(|cx| editor_state(language, &document, (window, cx)));
+        let model = document.read(cx).model().clone();
+        let state = cx.new(|cx| editor_state(language, model, (window, cx)));
         if let Some(line) = line {
             goto_action::reveal_line(&state, line, (window, cx));
         }
         let find = cx.new(|cx| FindWidget::new(state.clone(), window, cx));
         let goto = cx.new(|cx| GotoLine::new(state.clone(), window, cx));
         let caret_moves = cx.observe(&state, |_, _, cx| cx.notify());
-        let edits = cx.subscribe(&state, Self::on_input);
+        let followed = cx.subscribe(&document, |view, _, event, cx| {
+            view.follow_document(*event, cx);
+        });
         let settings = cx.observe_global_in::<Settings>(window, Self::follow_settings);
-        Self {
+        let view = Self {
+            document,
             state,
             access,
             toolbar,
-            saved,
-            save_mark: SaveMark::default(),
-            disk_conflict: false,
-            reported_dirty,
-            quiet: None,
             occurrences: None,
             find,
             goto,
-            lsp: None,
             _caret_moves: caret_moves,
-            _edits: edits,
+            _document: followed,
             _settings: settings,
+        };
+        view.ask_language_server(cx);
+        view
+    }
+
+    /// The document the view shows.
+    #[must_use]
+    pub const fn document(&self) -> &Entity<Document> {
+        &self.document
+    }
+
+    fn follow_document(
+        &mut self,
+        event: DocumentEvent,
+        cx: &mut Context<'_, Self>,
+    ) {
+        match event {
+            DocumentEvent::DirtyChanged(dirty) => cx.emit(EditorEvent::DirtyChanged(dirty)),
+            DocumentEvent::EditsPaused => cx.emit(EditorEvent::EditsPaused),
+            DocumentEvent::Rebound => self.rebound(cx),
         }
     }
 
-    /// Whether the text differs from the text last saved (or opened).
-    #[must_use]
-    pub fn is_dirty(
-        &self,
-        cx: &App,
-    ) -> bool {
-        self.state.read(cx).text() != &self.saved
-    }
-
-    /// The view now shows the file at `path`: its toolbar and its language follow it.
-    pub fn rebind(
+    fn rebound(
         &mut self,
-        path: &str,
         cx: &mut Context<'_, Self>,
     ) {
-        let toolbar = Toolbar::of(path);
+        let toolbar = Toolbar::of(self.document.read(cx).path());
         let language = crate::highlight_name::of(toolbar.language());
         self.state
             .update(cx, |state, cx| state.set_highlighter(language, cx));
         self.toolbar = toolbar;
-        self.lsp_open(cx);
         cx.notify();
-    }
-
-    /// `text` is now on disk: the view is clean again while it still holds that text.
-    pub fn mark_saved(
-        &mut self,
-        text: &str,
-        cx: &mut Context<'_, Self>,
-    ) {
-        self.saved = Rope::from(text);
-        self.save_mark = disk_text::next_mark(self.save_mark);
-        self.lsp_saved(cx);
-        self.report_dirty(cx);
-        if !self.reported_dirty {
-            self.disk_conflict = false;
-        }
-    }
-
-    fn on_input(
-        &mut self,
-        _: Entity<EditorState>,
-        event: &InputEvent,
-        cx: &mut Context<'_, Self>,
-    ) {
-        if !matches!(event, InputEvent::Change) {
-            return;
-        }
-        self.report_dirty(cx);
-        self.lsp_changed(cx);
-        self.quiet = Some(cx.spawn(async move |view, cx| Self::wait_quiet(view, cx).await));
-    }
-
-    fn report_dirty(
-        &mut self,
-        cx: &mut Context<'_, Self>,
-    ) {
-        let dirty = self.is_dirty(cx);
-        if dirty == self.reported_dirty {
-            return;
-        }
-        self.reported_dirty = dirty;
-        cx.emit(EditorEvent::DirtyChanged(dirty));
     }
 
     /// The text the view holds now.
@@ -259,14 +207,14 @@ impl Render for EditorView {
 
 fn editor_state(
     language: editor::Language,
-    document: &Document,
+    model: Entity<gpui_kit::base::input::TextModel>,
     (window, cx): (&mut Window, &mut Context<'_, EditorState>),
 ) -> EditorState {
     let mut state = EditorState::new(window, cx)
         .language(crate::highlight_name::of(language))
         .context_menu(false)
         .searchable(false);
-    document.show_in(&mut state, (window, cx));
+    state.share_text(model, window, cx);
     settings_follow::apply(&mut state, &Settings::of(cx), (window, cx));
     state
 }
@@ -275,8 +223,9 @@ fn editor_state(
 mod tests {
     use gpui::TestAppContext;
 
-    use super::test_support::{listened, opened};
+    use super::test_support::{document_of, document_opening, listened, opened, opened_at, shown};
     use super::*;
+    use crate::DocumentOpening;
 
     const MONACO_LINE_NUMBER_CHARS: f32 = 5.;
     const MONACO_FOLD_STRIP: gpui::Pixels = px(16.);
@@ -290,16 +239,7 @@ mod tests {
 
     #[gpui::test]
     fn an_untitled_view_shows_its_name_as_plain_text(cx: &mut TestAppContext) {
-        cx.update(|cx| ui::init(cx).unwrap());
-        cx.update(crate::init);
-        let opening = Opening {
-            text: String::new(),
-            path: "untitled:Untitled-1".to_owned(),
-            line: None,
-            access: Access::Editable,
-            saved: None,
-        };
-        let (view, cx) = cx.add_window_view(|window, cx| EditorView::new(opening, window, cx));
+        let (view, cx) = opened_at("untitled:Untitled-1", cx);
         assert_eq!(cx.read(|cx| language_of(&view, cx)), "Plain Text");
     }
 
@@ -331,10 +271,11 @@ mod tests {
     ) {
         let (view, window) = opened(("a", None), Access::Editable, cx);
         let heard = listened(&view, window);
+        let document = document_of(&view, window);
         window.simulate_input("x");
-        assert!(view.read_with(window, EditorView::is_dirty), "typed");
-        window.update(|_, cx| view.update(cx, |view, cx| view.mark_saved("xa", cx)));
-        assert!(!view.read_with(window, EditorView::is_dirty), "saved");
+        assert!(document.read_with(window, Document::is_dirty), "typed");
+        document.update(window, |document, cx| document.mark_saved("xa", cx));
+        assert!(!document.read_with(window, Document::is_dirty), "saved");
         window.simulate_keystrokes("secondary-s");
         let expected = [
             EditorEvent::DirtyChanged(true),
@@ -348,26 +289,32 @@ mod tests {
     fn a_view_opened_on_a_draft_is_dirty_and_undoes_nothing_back_to_its_file(
         cx: &mut TestAppContext
     ) {
-        cx.update(|cx| ui::init(cx).unwrap());
-        cx.update(crate::init);
+        let draft = DocumentOpening {
+            saved: Some("disk".to_owned()),
+            ..document_opening("src/a.ts", "draft")
+        };
         let opening = Opening {
-            text: "draft".to_owned(),
-            path: "src/a.ts".to_owned(),
             line: None,
             access: Access::Editable,
-            saved: Some("disk".to_owned()),
         };
-        let (view, window) = cx.add_window_view(|window, cx| EditorView::new(opening, window, cx));
+        let (view, window) = shown((draft, opening), None, cx);
         let heard = listened(&view, window);
-        assert!(view.read_with(window, EditorView::is_dirty), "opened dirty");
+        let document = document_of(&view, window);
+        assert!(
+            document.read_with(window, Document::is_dirty),
+            "opened dirty"
+        );
         window.simulate_keystrokes("ctrl-z");
         assert_eq!(
             view.read_with(window, EditorView::text),
             "draft",
             "nothing to undo"
         );
-        window.update(|_, cx| view.update(cx, |view, cx| view.mark_saved("draft", cx)));
-        assert_eq!(view.read_with(window, |view, _| view.saved_text()), "draft");
+        document.update(window, |document, cx| document.mark_saved("draft", cx));
+        assert_eq!(
+            document.read_with(window, |document, _| document.saved_text()),
+            "draft"
+        );
         assert_eq!(*heard.borrow(), [EditorEvent::DirtyChanged(false)]);
     }
 
@@ -377,7 +324,8 @@ mod tests {
         let language =
             |window: &mut gpui::VisualTestContext| window.read(|cx| language_of(&view, cx));
         assert_eq!(language(window), "TypeScript", "src/a.ts");
-        window.update(|_, cx| view.update(cx, |view, cx| view.rebind("notes.md", cx)));
+        let document = document_of(&view, window);
+        document.update(window, |document, cx| document.rebind("notes.md", cx));
         assert_eq!(language(window), "Markdown");
     }
 

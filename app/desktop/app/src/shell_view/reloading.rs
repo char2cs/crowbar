@@ -1,4 +1,4 @@
-use gpui::{AppContext as _, Context, Entity, Window};
+use gpui::{AppContext as _, Context, Entity};
 use protocol::PaneId;
 
 use super::ShellView;
@@ -43,11 +43,10 @@ impl ShellView {
     pub(super) fn take_reloaded(
         &mut self,
         (pane, read): (&PaneId, (&str, editorview::SaveMark)),
-        window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
         let editors = self.source.native().editors();
-        let took = editors.take_reloaded((pane, read), window, cx);
+        let took = editors.take_reloaded((pane, read), cx);
         self.disk_taken(pane, took, cx);
     }
 }

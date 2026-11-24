@@ -1,42 +1,68 @@
 //! Views opened for the unit tests, and reads of what they show.
 
-use gpui::{App, Context, Entity, Focusable as _, TestAppContext, VisualTestContext, Window};
+use gpui::{
+    App, AppContext as _, Context, Entity, Focusable as _, TestAppContext, VisualTestContext,
+    Window,
+};
 
 use super::EditorView;
+use crate::document::Document;
 use crate::find_widget::FindWidget;
-use crate::{Access, EditorEvent, Opening};
+use crate::{Access, DocumentOpening, EditorEvent, Opening};
 
 pub(crate) fn opened<'cx>(
     (text, line): (&str, Option<u32>),
     access: Access,
     cx: &'cx mut TestAppContext,
 ) -> (Entity<EditorView>, &'cx mut VisualTestContext) {
-    cx.update(|cx| ui::init(cx).unwrap());
-    cx.update(crate::init);
-    let opening = Opening {
-        text: text.to_owned(),
-        path: "src/a.ts".to_owned(),
-        line,
-        access,
-        saved: None,
-    };
-    cx.add_window_view(|window, cx| EditorView::new(opening, window, cx))
+    shown(
+        (document_opening("src/a.ts", text), Opening { line, access }),
+        None,
+        cx,
+    )
 }
 
 pub(crate) fn opened_at<'cx>(
     path: &str,
     cx: &'cx mut TestAppContext,
 ) -> (Entity<EditorView>, &'cx mut VisualTestContext) {
-    cx.update(|cx| ui::init(cx).unwrap());
-    cx.update(crate::init);
     let opening = Opening {
-        text: "# Title\n".to_owned(),
-        path: path.to_owned(),
         line: None,
         access: Access::Editable,
-        saved: None,
     };
-    cx.add_window_view(|window, cx| EditorView::new(opening, window, cx))
+    shown((document_opening(path, "# Title\n"), opening), None, cx)
+}
+
+pub(crate) fn document_opening(
+    path: &str,
+    text: &str,
+) -> DocumentOpening {
+    DocumentOpening {
+        text: text.to_owned(),
+        path: path.to_owned(),
+        saved: None,
+    }
+}
+
+/// A view over a new document `openings` describes, told to `server` when one is given.
+pub(crate) fn shown(
+    (document, opening): (DocumentOpening, Opening),
+    server: Option<std::rc::Rc<dyn crate::LanguageServer>>,
+    cx: &mut TestAppContext,
+) -> (Entity<EditorView>, &mut VisualTestContext) {
+    cx.update(|cx| ui::init(cx).unwrap());
+    cx.update(crate::init);
+    cx.add_window_view(|window, cx| {
+        let document = cx.new(|cx| Document::new(document, server, cx));
+        EditorView::new(document, opening, window, cx)
+    })
+}
+
+pub(crate) fn document_of(
+    view: &Entity<EditorView>,
+    window: &mut VisualTestContext,
+) -> Entity<Document> {
+    window.read(|cx| view.read(cx).document().clone())
 }
 
 pub(crate) fn find_of(
@@ -150,22 +176,16 @@ pub(crate) fn served<'cx>(
     (path, text): (&str, &str),
     cx: &'cx mut TestAppContext,
 ) -> (Entity<EditorView>, &'cx mut VisualTestContext, FakeServer) {
-    cx.update(|cx| ui::init(cx).unwrap());
-    cx.update(crate::init);
+    let server = FakeServer::default();
     let opening = Opening {
-        text: text.to_owned(),
-        path: path.to_owned(),
         line: None,
         access: Access::Editable,
-        saved: None,
     };
-    let server = FakeServer::default();
-    let port = server.port();
-    let (view, window) = cx.add_window_view(|window, cx| {
-        let mut view = EditorView::new(opening, window, cx);
-        view.attach_language_server(port, cx);
-        view
-    });
+    let (view, window) = shown(
+        (document_opening(path, text), opening),
+        Some(server.port()),
+        cx,
+    );
     window.update(|window, cx| window.focus(&view.focus_handle(cx), cx));
     (view, window, server)
 }

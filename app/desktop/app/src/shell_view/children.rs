@@ -86,9 +86,7 @@ fn editors_of(
     let chats = crate::editor_panes::ChatReads {
         locks: Rc::new(move |chat| locks.chat_read_only(chat)),
         workspaces: Rc::new(move |chat| workspaces.chat_workspace(chat)),
-        servers: crate::shared_documents::SharedDocuments::per_chat(
-            crate::pane_language_server::PaneLanguageServer::per_chat(servers),
-        ),
+        servers: crate::pane_language_server::PaneLanguageServer::per_chat(servers),
     };
     let file = editor::DiskDraftFile::at(drafts.to_path_buf());
     let (drafts, unread) = editor::Drafts::open(Box::new(file));

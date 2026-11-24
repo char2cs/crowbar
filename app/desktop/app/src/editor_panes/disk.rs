@@ -1,5 +1,5 @@
 use editorview::{DiskTake, SaveMark};
-use gpui::{App, Window};
+use gpui::App;
 use protocol::{DocumentPath, PaneId};
 
 use super::followed::Followed;
@@ -17,9 +17,10 @@ impl EditorPanes {
             .borrow()
             .iter()
             .filter(|(_, followed)| self.touches(followed, (workspace, path)))
+            .filter(|(pane, _)| self.leads(pane, cx))
             .filter_map(|(pane, followed)| {
                 let file = followed.target.file.clone()?;
-                let since = followed.view()?.read(cx).save_mark();
+                let since = followed.document(cx)?.read(cx).save_mark();
                 Some((pane.clone(), followed.target.chat.clone(), file, since))
             })
             .collect();
@@ -57,10 +58,10 @@ impl EditorPanes {
         let Some(followed) = panes.get_mut(pane) else {
             return false;
         };
-        let clean = followed
-            .view()
-            .map(|view| view.read(cx))
-            .is_some_and(|view| view.save_mark() == since && !view.is_dirty(cx));
+        let clean = followed.document(cx).is_some_and(|document| {
+            let document = document.read(cx);
+            document.save_mark() == since && !document.is_dirty(cx)
+        });
         if !clean {
             return false;
         }
@@ -81,19 +82,12 @@ impl EditorPanes {
     pub(crate) fn take_disk(
         &self,
         (pane, read): (&PaneId, (&str, SaveMark)),
-        window: &mut Window,
         cx: &mut App,
     ) -> DiskTake {
-        let view = self
-            .panes
-            .borrow()
-            .get(pane)
-            .and_then(Followed::view)
-            .cloned();
-        let Some(view) = view else {
+        let Some(document) = self.document_of(pane, cx) else {
             return DiskTake::Kept;
         };
-        view.update(cx, |view, cx| view.take_disk_text(read, window, cx))
+        document.update(cx, |document, cx| document.take_disk_text(read, cx))
     }
 
     pub(crate) fn file_name(
@@ -168,8 +162,7 @@ mod tests {
             "only its own file in its own workspace"
         );
         assert_eq!(pane, PaneId::new(PANE).unwrap());
-        let taken =
-            window.update(|window, cx| panes.take_disk((&pane, (&text, since)), window, cx));
+        let taken = window.update(|_, cx| panes.take_disk((&pane, (&text, since)), cx));
         assert_eq!(taken, DiskTake::Taken);
         assert_eq!(
             view.read_with(window, editorview::EditorView::text),

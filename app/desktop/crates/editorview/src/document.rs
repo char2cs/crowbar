@@ -1,30 +1,172 @@
-//! One open file's text and undo history, shown by every view over it, as develop's document
-//! registry keeps one Monaco model per document.
+//! One open file's text and undo history, shown by every view over it, and what is known of it:
+//! the text last saved, the latest save, a change on disk, and its language server, as develop's
+//! document registry keeps one Monaco model and its saved state per document.
 
-use gpui::{App, AppContext as _, Context, Entity, Window};
-use gpui_kit::base::input::TextModel;
-use gpui_kit::component::input::EditorState;
+use std::rc::Rc;
 
-pub(crate) struct Document {
+use gpui::{App, AppContext as _, Context, Entity, EventEmitter, Subscription, Task};
+use gpui_kit::base::input::{Rope, TextModel, TextModelEdit};
+
+use crate::lsp_link::LspLink;
+use crate::{DocumentEvent, DocumentOpening, LanguageServer, SaveMark};
+
+mod disk_text;
+mod quiet;
+
+/// One open document, shared by every view that shows it.
+pub struct Document {
     model: Entity<TextModel>,
+    path: String,
+    saved: Rope,
+    save_mark: SaveMark,
+    disk_conflict: bool,
+    reported_dirty: bool,
+    quiet: Option<Task<()>>,
+    lsp: Option<Rc<LspLink>>,
+    _edits: Subscription,
 }
 
 impl Document {
-    pub(crate) fn new(
-        text: &str,
-        cx: &mut App,
+    /// The document `opening` describes, told to `server` (when it has one) from now until it
+    /// goes, as develop's `document-lsp.ts` attaches once per model.
+    pub fn new(
+        opening: DocumentOpening,
+        server: Option<Rc<dyn LanguageServer>>,
+        cx: &mut Context<'_, Self>,
     ) -> Self {
+        let DocumentOpening { text, path, saved } = opening;
+        let saved = Rope::from(saved.as_deref().unwrap_or(&text));
+        let reported_dirty = saved != text.as_str();
+        let model = cx.new(|_| TextModel::new(&text));
+        let edits = cx.subscribe(&model, Self::on_edit);
+        let lsp = server.map(|server| LspLink::new(server, model.downgrade()));
+        if let Some(link) = &lsp {
+            link.open(&path, cx);
+        }
+        cx.on_release(|document, cx| document.lsp_close(cx))
+            .detach();
         Self {
-            model: cx.new(|_| TextModel::new(text)),
+            model,
+            path,
+            saved,
+            save_mark: SaveMark::default(),
+            disk_conflict: false,
+            reported_dirty,
+            quiet: None,
+            lsp,
+            _edits: edits,
         }
     }
 
-    pub(crate) fn show_in(
+    pub(crate) const fn model(&self) -> &Entity<TextModel> {
+        &self.model
+    }
+
+    pub(crate) fn lsp(&self) -> Option<Rc<LspLink>> {
+        self.lsp.clone()
+    }
+
+    /// The path the document is the file at, or its `untitled:` name.
+    #[must_use]
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+
+    /// The text the document holds now.
+    #[must_use]
+    pub fn text(
         &self,
-        state: &mut EditorState,
-        (window, cx): (&mut Window, &mut Context<'_, EditorState>),
+        cx: &App,
+    ) -> String {
+        self.model.read(cx).text().to_string()
+    }
+
+    /// Whether the text differs from the text last saved (or opened).
+    #[must_use]
+    pub fn is_dirty(
+        &self,
+        cx: &App,
+    ) -> bool {
+        self.model.read(cx).text() != &self.saved
+    }
+
+    /// The document is now the file at `path`: its language and its language server follow it.
+    pub fn rebind(
+        &mut self,
+        path: &str,
+        cx: &mut Context<'_, Self>,
     ) {
-        state.share_text(self.model.clone(), window, cx);
+        path.clone_into(&mut self.path);
+        if let Some(link) = &self.lsp {
+            link.open(path, cx);
+        }
+        cx.emit(DocumentEvent::Rebound);
+    }
+
+    /// `text` is now on disk: the document is clean again while it still holds that text.
+    pub fn mark_saved(
+        &mut self,
+        text: &str,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.saved = Rope::from(text);
+        self.save_mark = disk_text::next_mark(self.save_mark);
+        if let Some(link) = &self.lsp {
+            link.saved(cx);
+        }
+        self.report_dirty(cx);
+        if !self.reported_dirty {
+            self.disk_conflict = false;
+        }
+    }
+
+    fn on_edit(
+        &mut self,
+        _: Entity<TextModel>,
+        _: &TextModelEdit,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.report_dirty(cx);
+        if let Some(link) = &self.lsp {
+            link.changed(cx);
+        }
+        self.quiet = Some(cx.spawn(async move |document, cx| Self::wait_quiet(document, cx).await));
+    }
+
+    fn report_dirty(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let dirty = self.is_dirty(cx);
+        if dirty == self.reported_dirty {
+            return;
+        }
+        self.reported_dirty = dirty;
+        cx.emit(DocumentEvent::DirtyChanged(dirty));
+    }
+
+    fn lsp_close(
+        &self,
+        cx: &mut App,
+    ) {
+        if let Some(link) = &self.lsp {
+            link.close(cx);
+        }
+    }
+}
+
+impl EventEmitter<DocumentEvent> for Document {}
+
+impl std::fmt::Debug for Document {
+    fn fmt(
+        &self,
+        formatter: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        formatter
+            .debug_struct("Document")
+            .field("path", &self.path)
+            .field("save_mark", &self.save_mark)
+            .finish_non_exhaustive()
     }
 }
 
@@ -32,14 +174,23 @@ impl Document {
 mod tests {
     use gpui::{
         IntoElement, ParentElement as _, Render, Styled as _, TestAppContext, VisualTestContext,
-        div,
+        Window, div,
     };
     use gpui_kit::base::input::Position;
-    use gpui_kit::component::input::Editor;
+    use gpui_kit::component::input::{Editor, EditorState};
 
     use super::*;
+    use crate::editor_view::test_support::listened;
 
     const TEXT: &str = "one\ntwo\n";
+
+    fn opening(text: &str) -> DocumentOpening {
+        DocumentOpening {
+            text: text.to_owned(),
+            path: "src/a.ts".to_owned(),
+            saved: None,
+        }
+    }
 
     struct Pair {
         a: Entity<EditorState>,
@@ -60,12 +211,13 @@ mod tests {
     }
 
     fn over(
-        document: &Document,
+        document: &Entity<Document>,
         (window, cx): (&mut Window, &mut Context<'_, Pair>),
     ) -> Entity<EditorState> {
+        let model = document.read(cx).model().clone();
         cx.new(|cx| {
             let mut state = EditorState::new(window, cx);
-            document.show_in(&mut state, (window, cx));
+            state.share_text(model, window, cx);
             state
         })
     }
@@ -74,7 +226,7 @@ mod tests {
         cx.update(|cx| ui::init(cx).unwrap());
         cx.update(crate::init);
         cx.add_window_view(|window, cx| {
-            let document = Document::new(TEXT, cx);
+            let document = cx.new(|cx| Document::new(opening(TEXT), None, cx));
             let a = over(&document, (window, cx));
             let b = over(&document, (window, cx));
             Pair { a, b }
@@ -168,5 +320,81 @@ mod tests {
                 character: 1
             }
         );
+    }
+
+    struct Views {
+        a: Entity<crate::EditorView>,
+        b: Entity<crate::EditorView>,
+    }
+
+    impl Render for Views {
+        fn render(
+            &mut self,
+            _: &mut Window,
+            _: &mut Context<'_, Self>,
+        ) -> impl IntoElement {
+            div()
+                .size_full()
+                .child(self.a.clone())
+                .child(self.b.clone())
+        }
+    }
+
+    fn two_views(
+        server: Option<Rc<dyn LanguageServer>>,
+        cx: &mut TestAppContext,
+    ) -> (Entity<Views>, &mut VisualTestContext) {
+        cx.update(|cx| ui::init(cx).unwrap());
+        cx.update(crate::init);
+        let shown = crate::Opening {
+            line: None,
+            access: crate::Access::Editable,
+        };
+        cx.add_window_view(|window, cx| {
+            let document = cx.new(|cx| Document::new(opening(TEXT), server, cx));
+            let a = cx.new(|cx| crate::EditorView::new(document.clone(), shown, window, cx));
+            let b = cx.new(|cx| crate::EditorView::new(document, shown, window, cx));
+            Views { a, b }
+        })
+    }
+
+    #[gpui::test]
+    fn marking_the_document_saved_cleans_every_view_over_it(cx: &mut TestAppContext) {
+        let (views, window) = two_views(None, cx);
+        let (a, b) = window.read(|cx| (views.read(cx).a.clone(), views.read(cx).b.clone()));
+        let (heard_a, heard_b) = (listened(&a, window), listened(&b, window));
+        window
+            .update(|window, cx| window.focus(&gpui::Focusable::focus_handle(a.read(cx), cx), cx));
+        window.simulate_input("x");
+        let document = window.read(|cx| b.read(cx).document().clone());
+        document.update(window, |document, cx| {
+            document.mark_saved("xone\ntwo\n", cx);
+        });
+        let expected = [
+            crate::EditorEvent::DirtyChanged(true),
+            crate::EditorEvent::DirtyChanged(false),
+        ];
+        assert_eq!(*heard_a.borrow(), expected, "a");
+        assert_eq!(*heard_b.borrow(), expected, "b");
+    }
+
+    #[gpui::test]
+    fn a_document_shown_twice_sends_one_did_open(cx: &mut TestAppContext) {
+        let server = crate::editor_view::test_support::FakeServer::default();
+        let (views, window) = two_views(Some(server.port()), cx);
+        let a = window.read(|cx| views.read(cx).a.clone());
+        window
+            .update(|window, cx| window.focus(&gpui::Focusable::focus_handle(a.read(cx), cx), cx));
+        window.simulate_input("x");
+        window
+            .executor()
+            .advance_clock(std::time::Duration::from_secs(1));
+        window.run_until_parked();
+        let told = server.verbs();
+        let document_verbs: Vec<&str> = told
+            .into_iter()
+            .filter(|verb| verb.starts_with("did"))
+            .collect();
+        assert_eq!(document_verbs, ["didOpen", "didChange"]);
     }
 }

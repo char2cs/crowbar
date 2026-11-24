@@ -1,9 +1,8 @@
 use editorview::DiskTake;
-use gpui::{App, Window};
+use gpui::App;
 use protocol::PaneId;
 
 use super::EditorPanes;
-use super::followed::Followed;
 use crate::document_request::DocumentRequest;
 use crate::request_queue::send;
 use crate::shell_request::ShellRequest;
@@ -23,10 +22,10 @@ impl EditorPanes {
         let Some(followed) = panes.get(pane) else {
             return;
         };
-        let (Some(view), Some(file)) = (followed.view(), &followed.target.file) else {
+        let (Some(document), Some(file)) = (followed.document(cx), &followed.target.file) else {
             return;
         };
-        let since = view.read(cx).save_mark();
+        let since = document.read(cx).save_mark();
         let done = reloaded_into(self.requests.clone(), pane.clone(), since);
         if let Err(error) = self.documents.read(&followed.target.chat, file, done) {
             tracing::debug!(%error, %pane, "a reloaded file could not be read");
@@ -36,19 +35,23 @@ impl EditorPanes {
     pub(crate) fn take_reloaded(
         &self,
         (pane, read): (&PaneId, (&str, editorview::SaveMark)),
-        window: &mut Window,
         cx: &mut App,
     ) -> DiskTake {
-        let view = self
-            .panes
-            .borrow()
-            .get(pane)
-            .and_then(Followed::view)
-            .cloned();
-        let Some(view) = view else {
+        let Some(document) = self.document_of(pane, cx) else {
             return DiskTake::Kept;
         };
-        view.update(cx, |view, cx| view.take_reloaded_text(read, window, cx))
+        document.update(cx, |document, cx| document.take_reloaded_text(read, cx))
+    }
+
+    pub(super) fn document_of(
+        &self,
+        pane: &PaneId,
+        cx: &App,
+    ) -> Option<gpui::Entity<editorview::Document>> {
+        self.panes
+            .borrow()
+            .get(pane)
+            .and_then(|followed| followed.document(cx))
     }
 
     pub(crate) fn is_dirty(
@@ -59,8 +62,8 @@ impl EditorPanes {
         self.panes
             .borrow()
             .get(pane)
-            .and_then(Followed::view)
-            .is_some_and(|view| view.read(cx).is_dirty(cx))
+            .and_then(|followed| followed.document(cx))
+            .is_some_and(|document| document.read(cx).is_dirty(cx))
     }
 }
 
@@ -112,8 +115,7 @@ mod tests {
         else {
             panic!("the file reads again");
         };
-        let taken =
-            window.update(|window, cx| panes.take_reloaded((&pane, (&text, since)), window, cx));
+        let taken = window.update(|_, cx| panes.take_reloaded((&pane, (&text, since)), cx));
         assert_eq!(taken, DiskTake::Taken);
         let shown = view.read_with(window, editorview::EditorView::text);
         assert_eq!(shown, "changed\n");

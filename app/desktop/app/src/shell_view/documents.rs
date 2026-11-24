@@ -27,7 +27,7 @@ impl ShellView {
             DocumentRequest::Dirty { pane, dirty: false } => self.turned_clean(&pane, cx),
             DocumentRequest::Save { pane } => self.save_document(&pane, window, cx),
             DocumentRequest::SavedAs { pane, saved } => {
-                self.adopt_saved_as((&pane, &saved), window, cx);
+                self.adopt_saved_as((&pane, &saved), cx);
             },
             DocumentRequest::Paused { pane } => self.edits_paused(&pane, cx),
             DocumentRequest::Saved { pane, text } => {
@@ -35,10 +35,10 @@ impl ShellView {
             },
             DocumentRequest::SaveFailed { pane, reason } => self.refuse_save(&pane, reason, cx),
             DocumentRequest::DiskRead { pane, text, since } => {
-                self.take_disk((&pane, (&text, since)), window, cx);
+                self.take_disk((&pane, (&text, since)), cx);
             },
             DocumentRequest::Reloaded { pane, text, since } => {
-                self.take_reloaded((&pane, (&text, since)), window, cx);
+                self.take_reloaded((&pane, (&text, since)), cx);
             },
             DocumentRequest::DiskMissing {
                 pane,
@@ -102,6 +102,9 @@ impl ShellView {
         pane: &PaneId,
         cx: &Context<'_, Self>,
     ) {
+        if !self.source.native().editors().leads(pane, cx) {
+            return;
+        }
         self.source.native().editors().keep_draft(pane, cx);
         self.send_preview_texts(pane, cx);
         if self.autosaves() {

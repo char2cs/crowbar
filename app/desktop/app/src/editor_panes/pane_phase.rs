@@ -3,6 +3,8 @@ use gpui::Entity;
 pub(crate) enum PanePhase {
     /// Its chat is not loaded yet, so there is no daemon to read from.
     Waiting,
+    /// Another pane shows its document; the view joins it when the pane is first drawn.
+    Joining,
     /// The read is out.
     Reading,
     /// The text arrived; the view is made when the pane is first drawn.

@@ -1,18 +1,18 @@
 use gpui::{AsyncApp, Context, WeakEntity};
 
-use super::EditorView;
-use crate::EditorEvent;
+use super::Document;
+use crate::DocumentEvent;
 
 const QUIET_PERIOD: std::time::Duration = std::time::Duration::from_secs(1);
 
-impl EditorView {
+impl Document {
     pub(super) async fn wait_quiet(
-        view: WeakEntity<Self>,
+        document: WeakEntity<Self>,
         cx: &mut AsyncApp,
     ) {
         cx.background_executor().timer(QUIET_PERIOD).await;
-        if let Err(error) = view.update(cx, Self::edits_paused) {
-            tracing::debug!(%error, "the editor closed before its edits paused");
+        if let Err(error) = document.update(cx, Self::edits_paused) {
+            tracing::debug!(%error, "the document closed before its edits paused");
         }
     }
 
@@ -21,7 +21,7 @@ impl EditorView {
         cx: &mut Context<'_, Self>,
     ) {
         if self.is_dirty(cx) {
-            cx.emit(EditorEvent::EditsPaused);
+            cx.emit(DocumentEvent::EditsPaused);
         }
     }
 }
@@ -31,8 +31,8 @@ mod tests {
     use gpui::TestAppContext;
 
     use super::*;
-    use crate::Access;
     use crate::editor_view::test_support::{listened, opened};
+    use crate::{Access, EditorEvent};
 
     #[gpui::test]
     fn edits_pause_once_the_quiet_period_passes_after_the_last_keystroke(cx: &mut TestAppContext) {

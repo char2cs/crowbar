@@ -9,8 +9,8 @@ use std::io::Write;
 use std::sync::Arc;
 
 use adapters::stopwatch::Stopwatch;
-use editorview::{Access, EditorView, Opening};
-use gpui::{Entity, TestAppContext, TestDispatcher, VisualTestContext};
+use editorview::{Access, Document, DocumentOpening, EditorView, Opening};
+use gpui::{AppContext as _, Entity, TestAppContext, TestDispatcher, VisualTestContext};
 
 const LINE_COUNTS: [u32; 3] = [10_000, 50_000, 200_000];
 const KEYSTROKES: u32 = 50;
@@ -32,14 +32,19 @@ fn opened(
     lines: u32,
     cx: &mut TestAppContext,
 ) -> (Entity<EditorView>, &mut VisualTestContext) {
-    let opening = Opening {
+    let document = DocumentOpening {
         text: source(lines),
         path: "src/large.ts".to_owned(),
-        line: Some(lines),
-        access: Access::Editable,
         saved: None,
     };
-    let opened = cx.add_window_view(|window, cx| EditorView::new(opening, window, cx));
+    let opening = Opening {
+        line: Some(lines),
+        access: Access::Editable,
+    };
+    let opened = cx.add_window_view(|window, cx| {
+        let document = cx.new(|cx| Document::new(document, None, cx));
+        EditorView::new(document, opening, window, cx)
+    });
     opened.1.run_until_parked();
     opened
 }

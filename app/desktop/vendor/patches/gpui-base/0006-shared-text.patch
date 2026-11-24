@@ -242,13 +242,14 @@
                  .record_selections(vec![selection_before], vec![*self.active_selection()]);
 --- a/src/input/base/text_model.rs
 +++ b/src/input/base/text_model.rs
-@@ -0,0 +1,63 @@
+@@ -0,0 +1,83 @@
 +use std::ops::Range;
 +
 +use gpui::{Context, EntityId, EventEmitter};
 +use ropey::Rope;
 +
-+use super::undo_manager::UndoManager;
++use super::undo_manager::{EditIntent, UndoManager};
++use crate::input::change::Change;
 +
 +/// One document's text and undo history, shared by every editor state that
 +/// shows it.
@@ -293,6 +294,25 @@
 +    /// Advances with every edit, whichever state made it.
 +    pub fn revision(&self) -> u64 {
 +        self.revision
++    }
++
++    /// Replace the whole text as one undo step from outside any editor,
++    /// such as the file read from disk: every state over the model keeps its
++    /// selections at their line and column. The same text changes nothing.
++    pub fn replace_all(&mut self, text: &str, cx: &mut Context<Self>) {
++        if self.text == text {
++            return;
++        }
++        let range = 0..self.text.len();
++        let change = Change::new(range.clone(), &self.text.to_string(), 0..text.len(), text);
++        self.history.record_transaction(change, EditIntent::Atomic);
++        let edit = TextModelEdit {
++            origin: cx.entity_id(),
++            range,
++            new_text: text.to_owned(),
++            text: Rope::from(text),
++        };
++        self.push(edit, cx);
 +    }
 +
 +    pub(crate) fn history(&self) -> UndoManager {

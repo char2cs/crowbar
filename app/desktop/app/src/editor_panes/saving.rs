@@ -2,7 +2,6 @@ use gpui::App;
 use protocol::PaneId;
 
 use super::EditorPanes;
-use super::followed::Followed;
 use crate::document_source::{save_failed, saved_into};
 use crate::request_queue::send;
 
@@ -33,14 +32,8 @@ impl EditorPanes {
         text: &str,
         cx: &mut App,
     ) {
-        let view = self
-            .panes
-            .borrow()
-            .get(pane)
-            .and_then(Followed::view)
-            .cloned();
-        if let Some(view) = view {
-            view.update(cx, |view, cx| view.mark_saved(text, cx));
+        if let Some(document) = self.document_of(pane, cx) {
+            document.update(cx, |document, cx| document.mark_saved(text, cx));
         }
     }
 

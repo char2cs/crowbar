@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use editorview::{EditorEvent, EditorView};
+use editorview::{Document, EditorView, Opening};
 use gpui::{
     AnyElement, App, AppContext as _, Entity, Focusable as _, IntoElement as _, Subscription,
     Window,
@@ -20,6 +20,7 @@ use super::pane_phase::PanePhase;
 use super::pane_view::PaneView;
 use super::retry::Retry;
 use super::unavailable_panel;
+use super::view_events::listen;
 
 pub(super) struct Followed {
     pub(super) target: EditorTarget,
@@ -117,6 +118,13 @@ impl Followed {
         }
     }
 
+    pub(super) fn document(
+        &self,
+        cx: &App,
+    ) -> Option<Entity<Document>> {
+        self.view().map(|view| view.read(cx).document().clone())
+    }
+
     pub(super) fn materialize(
         &mut self,
         (pane, requests): (&PaneId, &Requests),
@@ -127,17 +135,21 @@ impl Followed {
             return;
         };
         let landed = std::mem::take(landed);
-        let opening = landed.opening(&self.target, self.access);
-        let server = Rc::clone(&self.server);
-        let view = cx.new(|cx| {
-            let mut view = EditorView::new(opening, window, cx);
-            view.attach_language_server(server, cx);
-            view
-        });
+        let (document, opening) = landed.opening(&self.target, self.access);
+        let server = Some(Rc::clone(&self.server));
+        let document = cx.new(|cx| Document::new(document, server, cx));
+        let since = document.read(cx).save_mark();
+        let view = cx.new(|cx| EditorView::new(document, opening, window, cx));
         self.told = Some(listen(&view, (pane, requests), cx));
-        let since = view.read(cx).save_mark();
         landed.restored(since, (pane, requests));
         self.phase = PanePhase::Shown(view);
+    }
+
+    pub(super) const fn opening(&self) -> Opening {
+        Opening {
+            line: self.target.line,
+            access: self.access,
+        }
     }
 
     pub(super) fn drawn(
@@ -161,57 +173,10 @@ impl Followed {
             PanePhase::Retrying(failure) => {
                 unavailable_panel::panel((failure, Retry::Running), on_retry, cx)
             },
-            PanePhase::Waiting | PanePhase::Reading | PanePhase::Read(_) => {
+            PanePhase::Waiting | PanePhase::Joining | PanePhase::Reading | PanePhase::Read(_) => {
                 gpui::div().into_any_element()
             },
         }
-    }
-}
-
-pub(super) fn listen(
-    view: &Entity<EditorView>,
-    (pane, requests): (&PaneId, &Requests),
-    cx: &mut App,
-) -> Subscription {
-    let tell = teller(pane, requests);
-    cx.subscribe(view, move |_, event: &EditorEvent, _| tell(event.clone()))
-}
-
-fn teller(
-    pane: &PaneId,
-    requests: &Requests,
-) -> impl Fn(EditorEvent) + 'static {
-    let (requests, pane) = (requests.clone(), pane.clone());
-    move |event| send(&requests, told(&pane, event))
-}
-
-fn told(
-    pane: &PaneId,
-    event: EditorEvent,
-) -> ShellRequest {
-    let pane = pane.clone();
-    match event {
-        EditorEvent::DirtyChanged(dirty) => {
-            ShellRequest::Document(DocumentRequest::Dirty { pane, dirty })
-        },
-        EditorEvent::SaveRequested => ShellRequest::Document(DocumentRequest::Save { pane }),
-        EditorEvent::EditsPaused => ShellRequest::Document(DocumentRequest::Paused { pane }),
-        EditorEvent::PreviewRequested => ShellRequest::Document(DocumentRequest::Preview { pane }),
-        EditorEvent::RichViewRequested => {
-            ShellRequest::Document(DocumentRequest::ShowRich { pane })
-        },
-        EditorEvent::Definition {
-            path,
-            line,
-            character,
-        } => ShellRequest::Document(DocumentRequest::Definition {
-            pane,
-            path,
-            at: (line, character),
-        }),
-        EditorEvent::DefinitionOutside(path) => {
-            ShellRequest::Document(DocumentRequest::DefinitionOutside { pane, path })
-        },
     }
 }
 
@@ -239,6 +204,7 @@ mod tests {
     fn phase_name(phase: &PanePhase) -> &'static str {
         match phase {
             PanePhase::Waiting => "waiting",
+            PanePhase::Joining => "joining",
             PanePhase::Reading => "reading",
             PanePhase::Read(_) => "read",
             PanePhase::Shown(_) => "shown",

@@ -1,9 +1,9 @@
 use editorview::DiskTake;
-use gpui::{App, Window};
+use gpui::App;
 use protocol::{DocumentPath, PaneId};
 
 use super::arrival::Arrival;
-use super::followed::listen;
+use super::view_events::listen;
 use super::{Adoption, EditorPanes, SaveAsPanes};
 use crate::document_source::{save_failed, saved_as_into};
 use crate::request_queue::send;
@@ -63,9 +63,9 @@ impl EditorPanes {
         followed.told = followed
             .view()
             .map(|view| listen(view, (&file_pane, &self.requests), cx));
-        if let Some(view) = followed.view().cloned() {
-            view.update(cx, |view, cx| view.rebind(saved.path.as_str(), cx));
-            view.update(cx, |view, cx| view.mark_saved(&saved.text, cx));
+        if let Some(document) = followed.document(cx) {
+            document.update(cx, |document, cx| document.rebind(saved.path.as_str(), cx));
+            document.update(cx, |document, cx| document.mark_saved(&saved.text, cx));
         }
         self.panes.borrow_mut().insert(file_pane, followed);
     }
@@ -73,40 +73,30 @@ impl EditorPanes {
     pub(crate) fn adopt(
         &self,
         (panes, saved): (SaveAsPanes<'_>, &SavedFile),
-        window: &mut Window,
         cx: &mut App,
     ) -> Adoption {
         let SaveAsPanes { holder, untitled } = panes;
         let late = self
-            .view_of(untitled)
-            .map(|view| view.read(cx).text(cx))
+            .document_of(untitled, cx)
+            .map(|document| document.read(cx).text(cx))
             .filter(|typed| *typed != saved.text);
-        let Some(view) = self.view_of(holder) else {
+        let Some(document) = self.document_of(holder, cx) else {
             return Adoption::Replaces(DiskTake::Kept);
         };
-        let edited = view.read(cx).is_dirty(cx) && view.read(cx).text(cx) != saved.text;
-        let took = view.update(cx, |view, cx| {
-            let since = view.save_mark();
-            view.take_disk_text((&saved.text, since), window, cx)
+        let held = document.read(cx);
+        let edited = held.is_dirty(cx) && held.text(cx) != saved.text;
+        let took = document.update(cx, |document, cx| {
+            let since = document.save_mark();
+            document.take_disk_text((&saved.text, since), cx)
         });
         match (late, edited) {
             (Some(_), true) => Adoption::Stays(took),
             (Some(late), false) => {
-                view.update(cx, |view, cx| view.take_page_text(&late, window, cx));
+                document.update(cx, |document, cx| document.take_page_text(&late, cx));
                 Adoption::Replaces(took)
             },
             (None, _) => Adoption::Replaces(took),
         }
-    }
-
-    fn view_of(
-        &self,
-        pane: &PaneId,
-    ) -> Option<gpui::Entity<editorview::EditorView>> {
-        let panes = self.panes.borrow();
-        panes
-            .get(pane)
-            .and_then(|followed| followed.view().cloned())
     }
 
     pub(crate) fn holders(
@@ -255,14 +245,14 @@ mod tests {
             holder: &holder,
             untitled: &untitled,
         };
-        let took = window.update(|window, cx| panes.adopt((both, &saved), window, cx));
+        let took = window.update(|_, cx| panes.adopt((both, &saved), cx));
         assert_eq!(took, Adoption::Replaces(DiskTake::Taken));
         assert_eq!(
             view.read_with(window, editorview::EditorView::text),
             "written\n"
         );
         assert!(
-            !view.read_with(window, editorview::EditorView::is_dirty),
+            !view.read_with(window, |view, cx| view.document().read(cx).is_dirty(cx)),
             "clean"
         );
         window.update(|window, cx| window.focus(&view.focus_handle(cx), cx));
@@ -295,7 +285,7 @@ mod tests {
     impl gpui::Render for Both {
         fn render(
             &mut self,
-            window: &mut Window,
+            window: &mut gpui::Window,
             cx: &mut gpui::Context<'_, Self>,
         ) -> impl gpui::IntoElement {
             let drawn: Vec<_> = [PANE, UNTITLED]
@@ -358,8 +348,10 @@ mod tests {
         let drawn = Rc::clone(&panes);
         let (_root, window) = cx.add_window_view(|_, _| Both(drawn));
         window.run_until_parked();
-        let views =
-            [PANE, UNTITLED].map(|pane| panes.view_of(&PaneId::new(pane).unwrap()).unwrap());
+        let views = [PANE, UNTITLED].map(|pane| {
+            let panes = panes.panes.borrow();
+            panes[&PaneId::new(pane).unwrap()].view().cloned().unwrap()
+        });
         (panes, views, window)
     }
 
@@ -396,11 +388,11 @@ mod tests {
             let (panes, [holder, untitled], window) = file_and_untitled_shown(cx);
             typed(&untitled, (window, "late "));
             typed(&holder, (window, holder_typing));
-            let adopted = window.update(|window, cx| panes.adopt((both, &saved), window, cx));
+            let adopted = window.update(|_, cx| panes.adopt((both, &saved), cx));
             assert_eq!(adopted, expected);
             assert_eq!(holder.read_with(window, editorview::EditorView::text), text);
             assert_eq!(
-                holder.read_with(window, |view, _| view.saved_text()),
+                holder.read_with(window, |view, cx| view.document().read(cx).saved_text()),
                 saved_text
             );
         }

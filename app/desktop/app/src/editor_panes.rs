@@ -29,8 +29,10 @@ mod retry;
 mod save_as_panes;
 mod saving;
 mod saving_as;
+mod sharing;
 mod sweep;
 mod unavailable_panel;
+mod view_events;
 mod viewing;
 
 pub(crate) use adoption::Adoption;
@@ -110,8 +112,8 @@ impl EditorPanes {
             let keyboard = focused
                 .filter(|focused| **focused == pane && access == Access::Editable)
                 .map_or(Keyboard::Leave, |_| Keyboard::Take);
-            let server = (self.chats.servers)(&target.chat);
-            panes.insert(pane, Followed::arrive(target, (keyboard, access), server));
+            let followed = self.arriving(target, (keyboard, access), &panes);
+            panes.insert(pane, followed);
         }
         drop(panes);
         self.forget_released(&gone);
@@ -160,6 +162,7 @@ impl EditorPanes {
         window: &mut Window,
         cx: &mut App,
     ) -> Option<AnyElement> {
+        self.join(pane, window, cx);
         let mut panes = self.panes.borrow_mut();
         let followed = panes.get_mut(pane).filter(|f| viewing::draws_natively(f))?;
         Some(followed.drawn((pane, &self.requests), window, cx))
@@ -263,6 +266,31 @@ mod tests {
         for command in commands {
             layout.apply(command).unwrap();
         }
+        layout
+    }
+
+    pub(super) fn two_panes_on(path: &str) -> Layout {
+        let layout = layout_in("c1", json!({"path": path}));
+        with_pane(layout, ("f2", "c2"), json!({"path": path}))
+    }
+
+    pub(super) fn with_pane(
+        mut layout: Layout,
+        (pane, chat): (&str, &str),
+        state: serde_json::Value,
+    ) -> Layout {
+        let instance = PaneInstance {
+            pane_id: PaneId::new(pane).unwrap(),
+            type_id: PaneTypeId::new(EDITOR).unwrap(),
+            params: Params::default().with("threadId", chat).unwrap(),
+            state: PaneState::new(state).unwrap(),
+        };
+        let open = Command::OpenPane {
+            tab: TabId(1),
+            instance,
+            placement: None,
+        };
+        layout.apply(open).unwrap();
         layout
     }
 

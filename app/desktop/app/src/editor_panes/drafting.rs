@@ -32,10 +32,11 @@ impl EditorPanes {
         followed: &Followed,
         cx: &App,
     ) -> Option<Draft> {
-        let view = followed.view()?.read(cx);
+        let document = followed.document(cx)?;
+        let document = document.read(cx);
         let uri = self.uri_of(&followed.target)?;
-        let text = view.text(cx);
-        let saved_text = view.saved_text();
+        let text = document.text(cx);
+        let saved_text = document.saved_text();
         (text != saved_text).then_some(Draft {
             uri,
             text,
@@ -141,7 +142,7 @@ impl EditorPanes {
         }
     }
 
-    fn uri_of(
+    pub(super) fn uri_of(
         &self,
         target: &EditorTarget,
     ) -> Option<String> {
@@ -164,7 +165,8 @@ mod tests {
 
     use super::super::Landing;
     use super::super::tests::{
-        Opened, PANE, PATH, TEXT, landed, layout_in, opened, panes_over, shown_in, typed_and_kept,
+        Opened, PANE, PATH, TEXT, landed, layout_in, opened, panes_over, shown_in, two_panes_on,
+        typed_and_kept,
     };
     use super::*;
     use crate::test_support::{FakeDocuments, memory_drafts};
@@ -219,23 +221,6 @@ mod tests {
         assert!(!kept(&documents), "no tab holds it");
     }
 
-    fn two_panes_on(path: &str) -> layout::Layout {
-        let mut layout = layout_in("c1", json!({"path": path}));
-        let instance = layout::PaneInstance {
-            pane_id: PaneId::new("f2").unwrap(),
-            type_id: protocol::PaneTypeId::new(crate::core_panes::EDITOR).unwrap(),
-            params: protocol::Params::default().with("threadId", "c2").unwrap(),
-            state: protocol::PaneState::new(json!({"path": path})).unwrap(),
-        };
-        let open = layout::Command::OpenPane {
-            tab: layout::TabId(1),
-            instance,
-            placement: None,
-        };
-        layout.apply(open).unwrap();
-        layout
-    }
-
     #[gpui::test]
     fn closing_one_of_two_panes_on_a_file_keeps_its_draft(cx: &mut TestAppContext) {
         cx.update(|cx| ui::init(cx).unwrap());
@@ -268,6 +253,6 @@ mod tests {
         assert_eq!(landed(&panes, &heard), Landing::Shown, "the draft opens");
         let (view, window) = shown_in(&panes, cx);
         assert_eq!(window.read(|cx| view.read(cx).text(cx)), format!("x{TEXT}"));
-        assert!(window.read(|cx| view.read(cx).is_dirty(cx)));
+        assert!(window.read(|cx| view.read(cx).document().read(cx).is_dirty(cx)));
     }
 }

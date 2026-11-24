@@ -57,6 +57,7 @@ impl EditorPanes {
         window: &mut Window,
         cx: &mut App,
     ) -> bool {
+        self.join(pane, window, cx);
         let mut panes = self.panes.borrow_mut();
         let Some(followed) = panes.get_mut(pane).filter(|f| f.view == PaneView::Rich) else {
             return false;
@@ -82,14 +83,8 @@ impl EditorPanes {
         if self.prepare(pane, window, cx) {
             return;
         }
-        let view = self
-            .panes
-            .borrow()
-            .get(pane)
-            .and_then(Followed::view)
-            .cloned();
-        if let Some(view) = view {
-            view.update(cx, |view, cx| view.take_page_text(text, window, cx));
+        if let Some(document) = self.document_of(pane, cx) {
+            document.update(cx, |document, cx| document.take_page_text(text, cx));
         }
     }
 
@@ -104,11 +99,8 @@ impl EditorPanes {
             PaneView::Source => None,
             PaneView::Rich => Some(followed.view()?.read(cx).text(cx)),
             PaneView::Preview => {
-                let live = panes
-                    .values()
-                    .filter(|other| other.view != PaneView::Preview)
-                    .filter(|other| other.shows(&followed.target))
-                    .find_map(|other| Some(other.view()?.read(cx).text(cx)));
+                let live = self.open_document(&followed.target, cx);
+                let live = live.map(|document| document.read(cx).text(cx));
                 live.or_else(|| landed_text(followed))
             },
         }
@@ -122,9 +114,14 @@ impl EditorPanes {
         let Some(source) = panes.get(pane) else {
             return Vec::new();
         };
+        let uri = self.uri_of(&source.target);
         panes
             .iter()
-            .filter(|(_, other)| other.view == PaneView::Preview && other.shows(&source.target))
+            .filter(|(id, _)| *id != pane)
+            .filter(|(_, other)| other.view != PaneView::Source)
+            .filter(|(_, other)| {
+                other.shows(&source.target) || uri.is_some() && self.uri_of(&other.target) == uri
+            })
             .map(|(id, _)| id.clone())
             .collect()
     }

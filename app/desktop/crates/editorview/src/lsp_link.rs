@@ -1,4 +1,4 @@
-//! One view's document at its language server, as develop's `document-lsp.ts` and
+//! One document at its language server, as develop's `document-lsp.ts` and
 //! `lsp-client.ts` keep it: didOpen with the text, a full-text didChange once edits pause (sent
 //! early by any request), didSave and didClose.
 
@@ -7,7 +7,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use gpui::{App, AppContext as _, Task, WeakEntity};
-use gpui_kit::component::input::EditorState;
+use gpui_kit::base::input::TextModel;
 use serde_json::{Map, Value, json};
 
 use crate::{LanguageServer, LspError};
@@ -19,7 +19,7 @@ const PATH: &str = "path";
 
 pub(crate) struct LspLink {
     server: Rc<dyn LanguageServer>,
-    state: WeakEntity<EditorState>,
+    model: WeakEntity<TextModel>,
     path: RefCell<Option<String>>,
     pending: RefCell<Option<Task<()>>>,
 }
@@ -27,11 +27,11 @@ pub(crate) struct LspLink {
 impl LspLink {
     pub(crate) fn new(
         server: Rc<dyn LanguageServer>,
-        state: WeakEntity<EditorState>,
+        model: WeakEntity<TextModel>,
     ) -> Rc<Self> {
         Rc::new(Self {
             server,
-            state,
+            model,
             path: RefCell::default(),
             pending: RefCell::default(),
         })
@@ -145,8 +145,8 @@ impl LspLink {
         &self,
         cx: &App,
     ) -> Option<String> {
-        let state = self.state.upgrade()?;
-        Some(state.read(cx).value().to_string())
+        let model = self.model.upgrade()?;
+        Some(model.read(cx).text().to_string())
     }
 }
 

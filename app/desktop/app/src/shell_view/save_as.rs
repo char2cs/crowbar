@@ -88,7 +88,6 @@ impl ShellView {
     pub(super) fn adopt_saved_as(
         &mut self,
         (pane, saved): (&PaneId, &SavedFile),
-        window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
         let editors = self.source.native().editors();
@@ -112,7 +111,7 @@ impl ShellView {
             holder: &holder,
             untitled,
         };
-        let adoption = editors.adopt((both, saved), window, cx);
+        let adoption = editors.adopt((both, saved), cx);
         self.disk_taken(&holder, adoption.took(), cx);
         if let Adoption::Replaces(_) = adoption {
             self.state.replace_untitled(pane, target);

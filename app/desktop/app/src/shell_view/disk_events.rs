@@ -1,4 +1,4 @@
-use gpui::{Context, Window};
+use gpui::Context;
 use protocol::PaneId;
 use ui::{ToastContent, ToastKind, ToastLifetime};
 
@@ -28,10 +28,9 @@ impl ShellView {
     pub(super) fn take_disk(
         &mut self,
         read: (&PaneId, (&str, editorview::SaveMark)),
-        window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        let took = self.source.native().editors().take_disk(read, window, cx);
+        let took = self.source.native().editors().take_disk(read, cx);
         self.disk_taken(read.0, took, cx);
     }
 
