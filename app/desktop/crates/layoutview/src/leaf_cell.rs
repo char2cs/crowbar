@@ -49,7 +49,7 @@ impl LayoutView {
             on_leave: Self::leave_action(&pane, cx),
             on_press: Self::press_action(&pane, cx),
             content: self.parts((group, &shown), window, cx),
-            pane,
+            group: group.chat().or_else(|| group.tabs().first())?.clone(),
             slot: rect,
             frame,
         };

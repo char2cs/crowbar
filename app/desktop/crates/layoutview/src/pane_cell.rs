@@ -21,7 +21,7 @@ pub(crate) type CellAction = Rc<dyn Fn(&mut Window, &mut App)>;
 
 #[derive(IntoElement)]
 pub(crate) struct PaneCell {
-    pub(crate) pane: PaneId,
+    pub(crate) group: PaneId,
     pub(crate) slot: Rect,
     pub(crate) frame: PaneFrame,
     pub(crate) content: AnyElement,
@@ -41,7 +41,7 @@ impl RenderOnce for PaneCell {
         let palette = Theme::of(cx).palette(Surface::Window);
         let frame = self.frame;
         let (enter, leave, press) = (self.on_enter, self.on_leave, self.on_press);
-        let id = ElementId::from(SharedString::from(self.pane.as_str().to_owned()));
+        let id = ElementId::from(SharedString::from(self.group.as_str().to_owned()));
         let (handle_left, handle_top) = handle_origin(&frame);
         let seat = (handle_left - self.slot.x, handle_top - self.slot.y);
         div()

@@ -292,4 +292,38 @@ mod tests {
             "the pane press behind the tab must not undo it"
         );
     }
+
+    #[gpui::test]
+    fn a_tab_lifted_from_behind_the_shown_one_still_lands_once_it_is_shown(
+        cx: &mut TestAppContext
+    ) {
+        let mut layout = stacked_layout();
+        let harness = open_with(cx, &layout, FakeSource::starting_at_first_tab());
+        let (view, cx, commands) = (harness.view, harness.cx, harness.commands);
+        let size = view.read_with(cx, |view, _| view.bounds.size);
+        let tab = point(size.width * 0.5 + px(74.0), px(20.0));
+        let none = Modifiers::none();
+        cx.simulate_mouse_down(tab, MouseButton::Left, none);
+        cx.simulate_mouse_move(tab + point(px(10.0), px(0.0)), MouseButton::Left, none);
+        layout
+            .apply(Command::FocusPane { pane: pane_id("b") })
+            .expect("the lift shows b");
+        view.update(cx, |view, cx| {
+            view.set_tab(layout.active_tab().cloned(), cx);
+        });
+        cx.run_until_parked();
+        let past_c = tab + point(px(400.0), px(0.0));
+        cx.simulate_mouse_move(past_c, MouseButton::Left, none);
+        cx.simulate_mouse_up(past_c, MouseButton::Left, none);
+        let landed = Command::MoveToGroup {
+            pane: pane_id("b"),
+            onto: pane_id("b"),
+            index: Some(1),
+        };
+        assert!(
+            commands.borrow().contains(&landed),
+            "{:?}",
+            commands.borrow()
+        );
+    }
 }
