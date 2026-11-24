@@ -9,7 +9,6 @@ use super::ShellState;
 use super::page_document::page_document;
 use layout::Command;
 
-use crate::dropped_files;
 use crate::event_commands::commands_for;
 use crate::outcome::Outcome;
 use crate::pane_toast_change::PaneToastChange;
@@ -90,14 +89,7 @@ impl ShellState {
             HostEvent::Reveal { path } => {
                 log_failure(platform::reveal_in_file_manager(Path::new(path.as_str())));
             },
-            HostEvent::FilesDropped { pane, paths }
-                if dropped_files::opens_files(self.history.layout(), &pane) =>
-            {
-                outcome.dropped.extend(paths);
-            },
-            HostEvent::StateChanged { .. }
-            | HostEvent::StateDiscarded { .. }
-            | HostEvent::FilesDropped { .. } => {},
+            HostEvent::StateChanged { .. } | HostEvent::StateDiscarded { .. } => {},
             HostEvent::BrowserPage { pane, update } => self.note_page(pane, update, outcome),
             HostEvent::PointerMoved { pane, x, y } => outcome.pointer = Some((pane, x, y)),
             report => note_report(report, outcome),

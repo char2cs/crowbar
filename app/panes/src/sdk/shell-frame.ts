@@ -1,4 +1,5 @@
 import type { Breakpoint } from './breakpoint'
+import type { FileDrop } from './file-drop'
 import type { LifecycleMessage } from './lifecycle-message'
 import type { ReviewViewedFrame } from './review-viewed-frame'
 import type { RpcFailure } from './rpc-failure'
@@ -26,3 +27,4 @@ export type ShellFrame =
   | ({ kind: 'review.viewed' } & ReviewViewedFrame)
   | { kind: 'review.reveal'; path: string }
   | { kind: 'document.text'; text: string }
+  | ({ kind: 'files.dropped' } & FileDrop)

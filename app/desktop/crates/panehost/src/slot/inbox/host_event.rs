@@ -120,13 +120,6 @@ pub enum HostEvent {
         /// The pane.
         pane: PaneId,
     },
-    /// Files from the operating system were dropped on a pane's page.
-    FilesDropped {
-        /// The pane.
-        pane: PaneId,
-        /// The dropped files that are absolute paths.
-        paths: Vec<FsPath>,
-    },
     /// A pane asked the shell to show a toast, or to rewrite the one it showed under the same key.
     ToastShown {
         /// The pane.

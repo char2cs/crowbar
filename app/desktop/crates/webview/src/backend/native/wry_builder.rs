@@ -105,26 +105,30 @@ fn watch_pages<'a>(
         .with_document_title_changed_handler(move |title| {
             on_title(PageEvent::Title(title));
         })
-        .with_drag_drop_handler(move |event| {
-            forward_drop(&on_drop, event);
-            false
-        })
+        .with_drag_drop_handler(move |event| take_drop(&on_drop, event))
 }
 
-fn forward_drop(
+fn take_drop(
     handler: &PageHandler,
     event: DragDropEvent,
-) {
-    if let Some(dropped) = files_dropped(event) {
-        handler(dropped);
-    }
+) -> bool {
+    let Some(dropped) = files_dropped(event) else {
+        return false;
+    };
+    handler(dropped);
+    true
 }
 
 fn files_dropped(event: DragDropEvent) -> Option<PageEvent> {
     match event {
-        DragDropEvent::Drop { paths, .. } if !paths.is_empty() => {
-            Some(PageEvent::FilesDropped(paths))
-        },
+        DragDropEvent::Drop {
+            paths,
+            position: (x, y),
+        } if !paths.is_empty() => Some(PageEvent::FilesDropped {
+            paths,
+            x: f64::from(x),
+            y: f64::from(y),
+        }),
         _ => None,
     }
 }
@@ -160,6 +164,35 @@ mod tests {
     type Case = (&'static str, f64, f64, f64, f64);
 
     #[test]
+    fn a_drop_with_files_is_reported_at_its_point_and_taken_from_the_page() {
+        let heard = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let kept = Arc::clone(&heard);
+        let handler: PageHandler =
+            Arc::new(move |event| kept.lock().map(|mut heard| heard.push(event)).is_ok());
+        let path = std::path::PathBuf::from("/tmp/a.txt");
+        let drop = DragDropEvent::Drop {
+            paths: vec![path.clone()],
+            position: (3, 4),
+        };
+        let taken = (
+            take_drop(&handler, drop),
+            take_drop(&handler, DragDropEvent::Leave),
+        );
+        let reported = heard.lock().unwrap().clone();
+        assert_eq!(
+            (taken, reported),
+            (
+                (true, false),
+                vec![PageEvent::FilesDropped {
+                    paths: vec![path],
+                    x: 3.0,
+                    y: 4.0,
+                }]
+            )
+        );
+    }
+
+    #[test]
     fn only_a_drop_with_files_is_reported() {
         let path = std::path::PathBuf::from("/tmp/a.txt");
         let at = (3, 4);
@@ -169,7 +202,11 @@ mod tests {
                     paths: vec![path.clone()],
                     position: at,
                 },
-                Some(PageEvent::FilesDropped(vec![path.clone()])),
+                Some(PageEvent::FilesDropped {
+                    paths: vec![path.clone()],
+                    x: 3.0,
+                    y: 4.0,
+                }),
             ),
             (
                 DragDropEvent::Drop {

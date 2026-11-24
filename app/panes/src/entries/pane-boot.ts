@@ -16,6 +16,7 @@ import { ShellViewedOwner } from '@/features/git/lib/shell-viewed-owner'
 import { installViewedOwner } from '@/features/git/lib/viewed-owner'
 import type { BootedPane } from './booted-pane'
 import { followChatZoom } from './follow-chat-zoom'
+import { followFileDrops } from './follow-file-drops'
 import { followShellAppearance } from './follow-shell-appearance'
 import { followShellSettings } from './follow-shell-settings'
 import { forwardToastsToShell } from './forward-toasts-to-shell'
@@ -44,6 +45,7 @@ export function bootPane(typeId: string): BootedPane {
   followShellAppearance(client)
   followShellSettings(client)
   forwardToastsToShell(client)
+  followFileDrops(client)
   installPreviewOpener(async (doc) =>
     client.open('core.editor', {}, { file: doc.path, mode: 'preview' }),
   )

@@ -253,6 +253,14 @@ describe('PaneClient', () => {
     expect(heard.mock.calls).toEqual([['# Title\n']])
   })
 
+  it('hears the files dropped on its page and where', () => {
+    const client = new PaneClient(pane.channel, 'core.chat')
+    const heard = vi.fn()
+    client.onFilesDropped(heard)
+    pane.deliver({ sdk: 1, kind: 'files.dropped', paths: ['/tmp/a b.md'], x: 12.5, y: 40 })
+    expect(heard.mock.calls).toEqual([[{ paths: ['/tmp/a b.md'], x: 12.5, y: 40 }]])
+  })
+
   it('ignores text that is not a frame', () => {
     const client = new PaneClient(pane.channel, 'core.chat')
     const heard = vi.fn()

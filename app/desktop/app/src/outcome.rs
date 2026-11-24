@@ -9,7 +9,6 @@ pub(crate) struct Outcome {
     pub(crate) hover: Vec<(PaneId, bool)>,
     pub(crate) focused: Vec<PaneId>,
     pub(crate) opens: Vec<layout::Command>,
-    pub(crate) dropped: Vec<protocol::FsPath>,
     pub(crate) commands: Vec<CommandId>,
     pub(crate) pages: Vec<(PaneId, String)>,
     pub(crate) loaded: Vec<PaneId>,

@@ -4,6 +4,7 @@ mod display;
 mod event;
 mod overlay;
 mod window;
+mod xdnd_relay;
 mod xim_handler;
 
 pub(crate) use client::*;

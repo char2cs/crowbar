@@ -127,6 +127,18 @@ pub enum ShellFrame {
         /// The whole text.
         text: String,
     },
+    /// `files.dropped`: files from the operating system were dropped on the pane's page, which
+    /// gets no drop event of its own; it gives them to the element at the point, as develop's
+    /// pages do with Tauri's drop event.
+    #[serde(rename = "files.dropped")]
+    FilesDropped {
+        /// The dropped files, absolute.
+        paths: Vec<String>,
+        /// Distance from the page's left edge, in CSS pixels.
+        x: f64,
+        /// Distance from the page's top edge, in CSS pixels.
+        y: f64,
+    },
 }
 
 #[cfg(test)]
@@ -141,6 +153,7 @@ mod tests {
             r#"{"kind":"breakpoints","cleared":["sm","md"]}"#,
             r#"{"kind":"chat.zoom","percent":120}"#,
             r#"{"kind":"document.text","text":"Title\n"}"#,
+            r#"{"kind":"files.dropped","paths":["/tmp/a b.rs"],"x":12.5,"y":40.0}"#,
         ];
         for text in cases {
             let frame: ShellFrame = serde_json::from_str(text).unwrap();

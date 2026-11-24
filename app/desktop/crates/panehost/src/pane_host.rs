@@ -30,7 +30,7 @@ use crate::slot::IpcMessage;
 use crate::slot::IpcNotice;
 use crate::slot::Pool;
 use crate::slot::browser_event;
-use crate::slot::drop_report;
+use crate::slot::drop_frame;
 use crate::slot::focus_report;
 use crate::slot::parse_hover;
 use crate::slot::pointer_report;
@@ -223,9 +223,11 @@ impl PaneHost {
         if let Some(events) = type_id.and_then(|type_id| browser_event(&message, type_id)) {
             return Ok(events);
         }
-        let report = hover_report(&message)
-            .or_else(|| pointer_report(&message))
-            .or_else(|| drop_report(&message));
+        if let Some(frame) = drop_frame(&message) {
+            self.send(&message.pane, &frame)?;
+            return Ok(Vec::new());
+        }
+        let report = hover_report(&message).or_else(|| pointer_report(&message));
         if let Some(event) = report {
             return Ok(vec![event]);
         }

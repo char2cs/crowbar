@@ -13,9 +13,17 @@ pub enum PageEvent {
     Loaded(String),
     /// The page set its title.
     Title(String),
-    /// Files from the operating system were dropped on the page; the page still gets its own
-    /// drop events.
-    FilesDropped(Vec<PathBuf>),
+    /// Files from the operating system were dropped on the page, at this point in logical pixels
+    /// from the page's top left. The web view takes the drop, so the page gets no drop event of
+    /// its own, as Tauri's web views take file drops.
+    FilesDropped {
+        /// The dropped files.
+        paths: Vec<PathBuf>,
+        /// Distance from the page's left edge.
+        x: f64,
+        /// Distance from the page's top edge.
+        y: f64,
+    },
     /// A mouse button went down on the page. Reported on Linux, where a press does not give the
     /// page the keyboard by itself; the page still gets its own pointer events.
     Pressed,

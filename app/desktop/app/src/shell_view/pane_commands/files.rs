@@ -137,22 +137,6 @@ impl ShellView {
         .detach();
     }
 
-    pub(in crate::shell_view) fn open_dropped(
-        &mut self,
-        paths: &[protocol::FsPath],
-        cx: &mut Context<'_, Self>,
-    ) {
-        if paths.is_empty() {
-            return;
-        }
-        let Some(chat) = self.chat_for("a dropped file") else {
-            return;
-        };
-        for path in paths {
-            self.open_host_file(&chat, path.as_str(), cx);
-        }
-    }
-
     fn open_host_file(
         &mut self,
         chat: &str,

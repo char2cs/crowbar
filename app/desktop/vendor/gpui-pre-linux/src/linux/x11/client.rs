@@ -47,6 +47,7 @@ use super::{
     clipboard::{self, Clipboard},
     get_reply, get_valuator_axis_index, handle_connection_error, modifiers_from_state,
     overlay::{self, OverlayLink},
+    xdnd_relay::{self, Relay, Route},
     pressed_button_from_mask, xcb_flush,
 };
 
@@ -163,6 +164,7 @@ pub struct Xdnd {
     drag_type: u32,
     retrieved: bool,
     position: Point<Pixels>,
+    relay: Relay,
 }
 
 #[derive(Debug)]
@@ -1118,8 +1120,30 @@ impl X11Client {
                         })
                 }
 
+                let root = state.xcb_connection.setup().roots[state.x_root_index].root;
+                let message = xdnd_relay::Message {
+                    window: event.window,
+                    source: state.xdnd_state.other_window,
+                    root,
+                    data: [atom, arg1, arg2, arg3, arg4],
+                };
+                let route = relay_xdnd(&mut state, event.type_, &message);
+                if route == Route::Relayed {
+                    return Some(());
+                }
+                if route == Route::LeftWindow {
+                    let position = state.xdnd_state.position;
+                    state.xdnd_state.retrieved = false;
+                    drop(state);
+                    window
+                        .handle_input(PlatformInput::FileDrop(FileDropEvent::Pending { position }));
+                    window.handle_input(PlatformInput::FileDrop(FileDropEvent::Exited {}));
+                    return Some(());
+                }
+
                 if event.type_ == state.atoms.XdndEnter {
                     state.xdnd_state.other_window = atom;
+                    state.xdnd_state.relay.entered([atom, arg1, arg2, arg3, arg4]);
                     if (arg1 & 0x1) == 0x1 {
                         state.xdnd_state.drag_type = xdnd_get_supported_atom(
                             &state.xcb_connection,
@@ -2704,6 +2728,42 @@ fn check_gtk_frame_extents_supported(
         .collect();
 
     supported_atom_ids.contains(&atoms._GTK_FRAME_EXTENTS)
+}
+
+/// Passes an XDND message on to the XDND-aware child window under the pointer, or back from it
+/// to the source; `Route::Window` leaves it to the window's own drop.
+fn relay_xdnd(
+    state: &mut X11ClientState,
+    message_type: u32,
+    message: &xdnd_relay::Message,
+) -> Route {
+    let xcb = state.xcb_connection.clone();
+    let atoms = state.atoms;
+    let relay = &mut state.xdnd_state.relay;
+    if message_type == atoms.XdndPosition {
+        return relay.position(&xcb, &atoms, message);
+    }
+    if message_type == atoms.XdndStatus {
+        return relay.answers(&xcb, &atoms, message_type, message);
+    }
+    if message_type == atoms.XdndFinished {
+        let route = relay.answers(&xcb, &atoms, message_type, message);
+        if route == Route::Relayed {
+            state.xdnd_state = Xdnd::default();
+        }
+        return route;
+    }
+    if message_type == atoms.XdndLeave {
+        let route = relay.ends(&xcb, message_type, message);
+        if route == Route::Relayed {
+            state.xdnd_state = Xdnd::default();
+        }
+        return route;
+    }
+    if message_type == atoms.XdndDrop {
+        return relay.ends(&xcb, message_type, message);
+    }
+    Route::Window
 }
 
 fn xdnd_is_atom_supported(atom: u32, atoms: &XcbAtoms) -> bool {

@@ -11,6 +11,7 @@ import type { SettingValues } from './setting-values'
 import type { ShellFrame } from './shell-frame'
 import type { ThemeTokens } from './theme-tokens'
 import type { Breakpoint } from './breakpoint'
+import type { FileDrop } from './file-drop'
 import {
   MAX_STATE_BYTES,
   REQUEST_TIMEOUT_MS,
@@ -66,6 +67,7 @@ export class PaneClient {
   private readonly reviewViewed = new Set<Listener<ReviewViewedFrame>>()
   private readonly reviewReveals = new Set<Listener<string>>()
   private readonly documentTexts = new Set<Listener<string>>()
+  private readonly fileDrops = new Set<Listener<FileDrop>>()
 
   constructor(
     private readonly channel: PaneChannel,
@@ -132,6 +134,11 @@ export class PaneClient {
   /** Hears the text of the file pane's document, which the shell owns, on mount and whenever it changes outside this page; returns the stop. */
   onDocumentText(listener: Listener<string>): () => void {
     return this.listen(this.documentTexts, listener)
+  }
+
+  /** Hears each drop of files from the operating system on this page, which gets no drop event of its own; returns the stop. */
+  onFilesDropped(listener: Listener<FileDrop>): () => void {
+    return this.listen(this.fileDrops, listener)
   }
 
   /** Hands the shell the whole text this page's view of the document holds now. */
@@ -294,6 +301,10 @@ export class PaneClient {
       this.reviewReveals.forEach((listener) => listener(frame.path))
     if (frame.kind === 'document.text')
       this.documentTexts.forEach((listener) => listener(frame.text))
+    if (frame.kind === 'files.dropped') {
+      const { paths, x, y } = frame
+      this.fileDrops.forEach((listener) => listener({ paths, x, y }))
+    }
     if (frame.kind === 'settings' && frame.version === SETTINGS_FRAME_VERSION) {
       this.shellSettings.forEach((listener) => listener(frame.values))
     }

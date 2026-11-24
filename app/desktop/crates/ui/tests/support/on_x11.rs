@@ -1,6 +1,9 @@
 //! The patches in `app/desktop/vendor/patches/gpui` that only a real X11 window shows (CI's
 //! Xvfb), pinned so that a gpui upgrade which drops one fails here by name.
 
+#[path = "xdnd_relay.rs"]
+mod xdnd_relay;
+
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::mpsc;

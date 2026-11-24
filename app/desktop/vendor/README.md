@@ -86,6 +86,10 @@ Drop it with `overlay-window`.
 
 Drop it with `overlay-window`.
 
+`xdnd-relay` (`gpui-pre-linux`, `src/linux/x11/xdnd_relay.rs` (new), `x11.rs`, `x11/client.rs`), applied on top of `unpainted-exposure`: a drag source talks only to the top-level window under the pointer, so the native web views the shell embeds as child windows never heard an OS file drag or a page's own text drag, and the window swallowed both. While the drag's point is over an XDND-aware child window, the window passes the drag on to the child's deepest window at that point (GTK takes drops only on its own windows, not on wry's foreign container) as the source's stand-in, at the point in that window's parent, where GTK reads it. The child is found from the point the source sends, as the source finds the window, since the pointer itself is over the source's drag icon: XdndEnter (its type list copied onto the window when the source has more than three types), XdndPosition, XdndDrop and XdndLeave go to it naming the window as their source, and its XdndStatus and XdndFinished go back to the source naming the window. Moving between the child and the window's own area leaves one and enters the other. Over its own area the window keeps upstream's drop.
+
+Drop it when upstream gpui forwards XDND to child windows, or when the shell no longer embeds web views as child windows.
+
 ## calloop 0.14.5
 
 `tracing-without-log` (`Cargo.toml`): calloop, reached through `gpui-pre-linux`, asks for tracing's `log` feature, and cargo turns a feature on for every crate that uses tracing. With `log` on, each `tracing` macro also expands to its `log` fallback, which quadruples `clippy::cognitive_complexity` in every function that logs. Nothing in the shell reads `log` records (no `log` logger or bridge is installed), so calloop loses only output nobody received.

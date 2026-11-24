@@ -1,0 +1,419 @@
+diff --git a/src/linux/x11.rs b/src/linux/x11.rs
+index 2a560268d..86a11d7a5 100644
+--- a/src/linux/x11.rs
++++ b/src/linux/x11.rs
+@@ -4,6 +4,7 @@ mod display;
+ mod event;
+ mod overlay;
+ mod window;
++mod xdnd_relay;
+ mod xim_handler;
+ 
+ pub(crate) use client::*;
+diff --git a/src/linux/x11/client.rs b/src/linux/x11/client.rs
+index 5adab76d1..e920c16da 100644
+--- a/src/linux/x11/client.rs
++++ b/src/linux/x11/client.rs
+@@ -47,6 +47,7 @@ use super::{
+     clipboard::{self, Clipboard},
+     get_reply, get_valuator_axis_index, handle_connection_error, modifiers_from_state,
+     overlay::{self, OverlayLink},
++    xdnd_relay::{self, Relay, Route},
+     pressed_button_from_mask, xcb_flush,
+ };
+ 
+@@ -163,6 +164,7 @@ pub struct Xdnd {
+     drag_type: u32,
+     retrieved: bool,
+     position: Point<Pixels>,
++    relay: Relay,
+ }
+ 
+ #[derive(Debug)]
+@@ -1118,8 +1120,30 @@ impl X11Client {
+                         })
+                 }
+ 
++                let root = state.xcb_connection.setup().roots[state.x_root_index].root;
++                let message = xdnd_relay::Message {
++                    window: event.window,
++                    source: state.xdnd_state.other_window,
++                    root,
++                    data: [atom, arg1, arg2, arg3, arg4],
++                };
++                let route = relay_xdnd(&mut state, event.type_, &message);
++                if route == Route::Relayed {
++                    return Some(());
++                }
++                if route == Route::LeftWindow {
++                    let position = state.xdnd_state.position;
++                    state.xdnd_state.retrieved = false;
++                    drop(state);
++                    window
++                        .handle_input(PlatformInput::FileDrop(FileDropEvent::Pending { position }));
++                    window.handle_input(PlatformInput::FileDrop(FileDropEvent::Exited {}));
++                    return Some(());
++                }
++
+                 if event.type_ == state.atoms.XdndEnter {
+                     state.xdnd_state.other_window = atom;
++                    state.xdnd_state.relay.entered([atom, arg1, arg2, arg3, arg4]);
+                     if (arg1 & 0x1) == 0x1 {
+                         state.xdnd_state.drag_type = xdnd_get_supported_atom(
+                             &state.xcb_connection,
+@@ -2706,6 +2730,42 @@ fn check_gtk_frame_extents_supported(
+     supported_atom_ids.contains(&atoms._GTK_FRAME_EXTENTS)
+ }
+ 
++/// Passes an XDND message on to the XDND-aware child window under the pointer, or back from it
++/// to the source; `Route::Window` leaves it to the window's own drop.
++fn relay_xdnd(
++    state: &mut X11ClientState,
++    message_type: u32,
++    message: &xdnd_relay::Message,
++) -> Route {
++    let xcb = state.xcb_connection.clone();
++    let atoms = state.atoms;
++    let relay = &mut state.xdnd_state.relay;
++    if message_type == atoms.XdndPosition {
++        return relay.position(&xcb, &atoms, message);
++    }
++    if message_type == atoms.XdndStatus {
++        return relay.answers(&xcb, &atoms, message_type, message);
++    }
++    if message_type == atoms.XdndFinished {
++        let route = relay.answers(&xcb, &atoms, message_type, message);
++        if route == Route::Relayed {
++            state.xdnd_state = Xdnd::default();
++        }
++        return route;
++    }
++    if message_type == atoms.XdndLeave {
++        let route = relay.ends(&xcb, message_type, message);
++        if route == Route::Relayed {
++            state.xdnd_state = Xdnd::default();
++        }
++        return route;
++    }
++    if message_type == atoms.XdndDrop {
++        return relay.ends(&xcb, message_type, message);
++    }
++    Route::Window
++}
++
+ fn xdnd_is_atom_supported(atom: u32, atoms: &XcbAtoms) -> bool {
+     atom == atoms.TEXT
+         || atom == atoms.STRING
+diff --git a/src/linux/x11/xdnd_relay.rs b/src/linux/x11/xdnd_relay.rs
+new file mode 100644
+index 000000000..2b0fe8489
+--- /dev/null
++++ b/src/linux/x11/xdnd_relay.rs
+@@ -0,0 +1,307 @@
++//! XDND over a child window that takes drops itself, such as a web view embedded in the window.
++//! A drag source looks for the top-level window under the pointer and talks only to it, so the
++//! window passes the drag on to an XDND-aware child under the drag's point, as the source's
++//! stand-in: the child answers the window, and the window answers the source.
++//!
++//! The child is found from the point the source sends, as the source finds the window, and not
++//! from the pointer, which is over the source's drag icon. The drag goes to the deepest window of
++//! that child at the point, and its point is the position in that window's parent. A GTK window
++//! embedded in a foreign window (wry's web views) takes drops only on its own windows, not the
++//! foreign one, and reads an embedded window's drop point as the root point less the window's
++//! position in its parent.
++
++use gpui_util::ResultExt as _;
++use x11rb::{
++    connection::Connection as _,
++    protocol::xproto::{self, AtomEnum, ClientMessageData, ClientMessageEvent, ConnectionExt as _},
++    xcb_ffi::XCBConnection,
++};
++
++use super::XcbAtoms;
++
++const MORE_TYPES: u32 = 1;
++const XDND_VERSION_SHIFT: u32 = 24;
++const MAX_TYPES: u32 = 1024;
++const ACCEPTS: u32 = 1;
++const SEND_EVERY_POSITION: u32 = 2;
++
++/// Where an XDND message goes.
++#[derive(Debug, PartialEq, Eq)]
++pub(crate) enum Route {
++    /// The window handles it as its own drop.
++    Window,
++    /// It was passed on; the window does nothing more with it.
++    Relayed,
++    /// It was passed on to a child, and the drag left the window's own area for it: the window
++    /// ends its own drop first.
++    LeftWindow,
++}
++
++/// The relay's part of one drag.
++#[derive(Debug, Default)]
++pub(crate) struct Relay {
++    enter: [u32; 4],
++    child: Option<xproto::Window>,
++    window_hovered: bool,
++    types_copied: bool,
++    aware: Option<(xproto::Window, bool)>,
++}
++
++/// One XDND message the window received.
++pub(crate) struct Message {
++    /// The window it was sent to.
++    pub window: xproto::Window,
++    /// The drag source, the window the source talks from.
++    pub source: xproto::Window,
++    /// The root window, which the points of the source's messages are in.
++    pub root: xproto::Window,
++    /// The message's data words.
++    pub data: [u32; 5],
++}
++
++impl Relay {
++    /// Remembers the source's XdndEnter, sent on to each child the drag enters.
++    pub(crate) fn entered(&mut self, data: [u32; 5]) {
++        let [_, flags, first, second, third] = data;
++        *self = Relay {
++            enter: [flags, first, second, third],
++            ..Relay::default()
++        };
++    }
++
++    /// Routes an XdndPosition to the XDND-aware child at its point, or to the window.
++    pub(crate) fn position(
++        &mut self,
++        xcb: &XCBConnection,
++        atoms: &XcbAtoms,
++        message: &Message,
++    ) -> Route {
++        let target = self.target_at(xcb, atoms, message);
++        let route = self.switch_to(xcb, atoms, message, target.map(|target| target.window));
++        let (Some(child), Some(target)) = (self.child, target) else {
++            self.window_hovered = true;
++            return Route::Window;
++        };
++        let [_, _, _, time, action] = message.data;
++        send(
++            xcb,
++            child,
++            atoms.XdndPosition,
++            [message.window, 0, target.point, time, action],
++        );
++        route
++    }
++
++    /// Routes an XdndDrop or XdndLeave to the child holding the drag, or to the window; the
++    /// source's time, the drop's third word, goes with it.
++    pub(crate) fn ends(
++        &mut self,
++        xcb: &XCBConnection,
++        message_type: xproto::Atom,
++        message: &Message,
++    ) -> Route {
++        let Some(child) = self.child else {
++            return Route::Window;
++        };
++        let [_, _, time, _, _] = message.data;
++        send(xcb, child, message_type, [message.window, 0, time, 0, 0]);
++        Route::Relayed
++    }
++
++    /// Passes the XdndStatus or XdndFinished of the child holding the drag back to the source.
++    pub(crate) fn answers(
++        &self,
++        xcb: &XCBConnection,
++        atoms: &XcbAtoms,
++        message_type: xproto::Atom,
++        message: &Message,
++    ) -> Route {
++        let [from, flags, first, second, action] = message.data;
++        if self.child != Some(from) {
++            return Route::Window;
++        }
++        let data = match message_type == atoms.XdndStatus {
++            true => [message.window, (flags & ACCEPTS) | SEND_EVERY_POSITION, 0, 0, action],
++            false => [message.window, flags, first, second, 0],
++        };
++        send(xcb, message.source, message_type, data);
++        Route::Relayed
++    }
++
++    fn switch_to(
++        &mut self,
++        xcb: &XCBConnection,
++        atoms: &XcbAtoms,
++        message: &Message,
++        target: Option<xproto::Window>,
++    ) -> Route {
++        if target == self.child {
++            return Route::Relayed;
++        }
++        if let Some(old) = self.child.take() {
++            send(xcb, old, atoms.XdndLeave, [message.window, 0, 0, 0, 0]);
++        }
++        let Some(child) = target else {
++            return Route::Window;
++        };
++        self.enter_child(xcb, atoms, message, child);
++        match std::mem::take(&mut self.window_hovered) {
++            true => Route::LeftWindow,
++            false => Route::Relayed,
++        }
++    }
++
++    fn enter_child(
++        &mut self,
++        xcb: &XCBConnection,
++        atoms: &XcbAtoms,
++        message: &Message,
++        child: xproto::Window,
++    ) {
++        let [flags, first, second, third] = self.enter;
++        if flags & MORE_TYPES != 0 && !self.types_copied {
++            copy_types(xcb, atoms, message);
++            self.types_copied = true;
++        }
++        let version = flags >> XDND_VERSION_SHIFT;
++        let flags = (version << XDND_VERSION_SHIFT) | (flags & MORE_TYPES);
++        send(
++            xcb,
++            child,
++            atoms.XdndEnter,
++            [message.window, flags, first, second, third],
++        );
++        self.child = Some(child);
++    }
++
++    fn target_at(
++        &mut self,
++        xcb: &XCBConnection,
++        atoms: &XcbAtoms,
++        message: &Message,
++    ) -> Option<Target> {
++        let [_, _, point, _, _] = message.data;
++        let in_window = point_in(xcb, message, message.window, point)?;
++        let child = Some(in_window.child).filter(|child| *child != x11rb::NONE)?;
++        if !self.is_aware(xcb, atoms, child) {
++            return None;
++        }
++        let in_child = point_in(xcb, message, child, point)?;
++        if in_child.child == x11rb::NONE {
++            return Some(Target::at(child, &in_window));
++        }
++        Some(Target::at(in_child.child, &in_child))
++    }
++
++    fn is_aware(
++        &mut self,
++        xcb: &XCBConnection,
++        atoms: &XcbAtoms,
++        child: xproto::Window,
++    ) -> bool {
++        if let Some((known, aware)) = self.aware
++            && known == child
++        {
++            return aware;
++        }
++        let aware = is_xdnd_aware(xcb, atoms, child);
++        self.aware = Some((child, aware));
++        aware
++    }
++}
++
++/// Where a relayed drag goes: a window, and the point to give it, the drag's point in its parent.
++#[derive(Clone, Copy)]
++struct Target {
++    window: xproto::Window,
++    point: u32,
++}
++
++impl Target {
++    fn at(
++        window: xproto::Window,
++        in_parent: &xproto::TranslateCoordinatesReply,
++    ) -> Self {
++        let x = u32::from(in_parent.dst_x.cast_unsigned());
++        let y = u32::from(in_parent.dst_y.cast_unsigned());
++        Target {
++            window,
++            point: (x << 16) | y,
++        }
++    }
++}
++
++fn point_in(
++    xcb: &XCBConnection,
++    message: &Message,
++    window: xproto::Window,
++    point: u32,
++) -> Option<xproto::TranslateCoordinatesReply> {
++    let x = ((point >> 16) as u16).cast_signed();
++    let y = ((point & 0xffff) as u16).cast_signed();
++    xcb.translate_coordinates(message.root, window, x, y)
++        .ok()?
++        .reply()
++        .log_err()
++}
++
++fn is_xdnd_aware(
++    xcb: &XCBConnection,
++    atoms: &XcbAtoms,
++    child: xproto::Window,
++) -> bool {
++    xcb.get_property(false, child, atoms.XdndAware, AtomEnum::ATOM, 0, 1)
++        .ok()
++        .and_then(|cookie| cookie.reply().log_err())
++        .is_some_and(|reply| reply.value_len > 0)
++}
++
++fn copy_types(
++    xcb: &XCBConnection,
++    atoms: &XcbAtoms,
++    message: &Message,
++) {
++    let types = xcb
++        .get_property(
++            false,
++            message.source,
++            atoms.XdndTypeList,
++            AtomEnum::ATOM,
++            0,
++            MAX_TYPES,
++        )
++        .ok()
++        .and_then(|cookie| cookie.reply().log_err());
++    let Some(types) = types else {
++        return;
++    };
++    xcb.change_property(
++        xproto::PropMode::REPLACE,
++        message.window,
++        atoms.XdndTypeList,
++        AtomEnum::ATOM,
++        32,
++        types.value_len,
++        &types.value,
++    )
++    .log_err();
++}
++
++fn send(
++    xcb: &XCBConnection,
++    to: xproto::Window,
++    message_type: xproto::Atom,
++    data: [u32; 5],
++) {
++    let message = ClientMessageEvent {
++        format: 32,
++        window: to,
++        type_: message_type,
++        data: ClientMessageData::from(data),
++        sequence: 0,
++        response_type: xproto::CLIENT_MESSAGE_EVENT,
++    };
++    xcb.send_event(false, to, xproto::EventMask::default(), message)
++        .log_err();
++    xcb.flush().log_err();
++}

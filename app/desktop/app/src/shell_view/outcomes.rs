@@ -65,7 +65,6 @@ impl ShellView {
             hover,
             focused,
             opens,
-            dropped,
             commands,
             pages,
             loaded,
@@ -78,7 +77,6 @@ impl ShellView {
         } = outcome;
         self.serve_mounted(&mounted, (documents, viewed), cx);
         self.store_pane_settings(settings);
-        self.open_dropped(&dropped, cx);
         self.finish_picks(picks, cx);
         self.show_addresses(pages, cx);
         for (pane, hovered) in hover {
