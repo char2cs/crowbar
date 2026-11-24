@@ -4014,13 +4014,22 @@ impl Window {
             self.platform_window.set_input_region(Some(&region));
             self.input_region = region;
         }
+        let takes_keys = self.overlay_shown && !self.rendered_frame.focus_path().is_empty();
+        self.update_takes_keys(owner, takes_keys, cx);
+    }
+
+    /// An overlay reports what it paints opaque once the frame is presented: a platform without
+    /// a compositor cuts the window to it, and growing the cut before the pixels arrive shows
+    /// the new area black for a frame, as a drag ghost's first frame did.
+    fn report_content_region(&mut self) {
+        if self.overlay_of.is_none() {
+            return;
+        }
         let content = content_region(&self.rendered_frame.scene, self.scale_factor());
         if content != self.content_region {
             self.platform_window.set_content_region(&content);
             self.content_region = content;
         }
-        let takes_keys = self.overlay_shown && !self.rendered_frame.focus_path().is_empty();
-        self.update_takes_keys(owner, takes_keys, cx);
     }
 
     fn update_takes_keys(&mut self, owner: AnyWindowHandle, takes_keys: bool, cx: &mut App) {
@@ -4168,12 +4177,13 @@ impl Window {
     }
 
     #[profiling::function]
-    fn present(&mut self) {
+    pub(crate) fn present(&mut self) {
         #[cfg(feature = "profiler")]
         let _foreground_turn = profiler::journal::foreground_turn();
         #[cfg(feature = "profiler")]
         let present_start = Instant::now();
         self.platform_window.draw(&self.rendered_frame.scene);
+        self.report_content_region();
         #[cfg(feature = "profiler")]
         self.window_profiler.record_present(
             present_start,

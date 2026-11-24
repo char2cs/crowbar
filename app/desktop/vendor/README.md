@@ -68,6 +68,10 @@ Drop it with `overlay-window`.
 
 Drop it when upstream gpui keeps focus-visible through pointer moves. Tracking: zed-industries/zed.
 
+`present-then-content` (`gpui-pre`, `src/window.rs`, `src/app.rs`), applied on top of `focus-visible-press`: an overlay reports its content region when the frame is presented, not when it is drawn. Without a compositor X11 cuts the overlay down to that region, and growing the cut before the frame's pixels arrived showed the new area black for a frame, as a drag ghost's first frame did. Test mode now presents after it draws, as a platform frame does, so tests still see the region.
+
+Drop it with `overlay-window`.
+
 ## calloop 0.14.5
 
 `tracing-without-log` (`Cargo.toml`): calloop, reached through `gpui-pre-linux`, asks for tracing's `log` feature, and cargo turns a feature on for every crate that uses tracing. With `log` on, each `tracing` macro also expands to its `log` fallback, which quadruples `clippy::cognitive_complexity` in every function that logs. Nothing in the shell reads `log` records (no `log` logger or bridge is installed), so calloop loses only output nobody received.

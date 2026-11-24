@@ -45,6 +45,8 @@ mod tests {
     use crate::floating::Portal;
     use crate::test_support::probe::{open_floating, settle};
 
+    const GHOST_SIDE: f32 = 10.0;
+
     fn counting(
         focus: &FocusHandle,
         pressed: &Rc<Cell<usize>>,
@@ -115,5 +117,28 @@ mod tests {
             floating: false,
         };
         assert!(!shown_after(&mut top, idle), "nothing floats: hidden");
+    }
+
+    fn ghost(side: Rc<Cell<f32>>) -> Portal {
+        Portal::here("p", move |_, _| div().size(px(side.get())).bg(gpui::red()))
+    }
+
+    #[gpui::test]
+    fn the_top_layer_reports_what_it_paints_only_once_that_frame_is_presented(
+        cx: &mut TestAppContext
+    ) {
+        let painted = Rc::new(Cell::new(0.0));
+        let shown = Rc::clone(&painted);
+        let (_owner, mut top) = open_floating(cx, move |_, _| ghost(Rc::clone(&shown)));
+        painted.set(GHOST_SIDE);
+        let drawn = top.update(|window, cx| {
+            window.refresh();
+            window.draw(cx).clear(cx);
+            window.content_region().to_vec()
+        });
+        assert_eq!(drawn, Vec::new(), "reported before its frame was presented");
+        settle(&mut top);
+        let presented = top.update(|window, _| window.content_region().len());
+        assert_eq!(presented, 1, "reported once presented");
     }
 }
