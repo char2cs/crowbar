@@ -31,7 +31,7 @@ impl Sidebar {
             Some(creating) => creating,
             None => match shown {
                 Mode::Chats => self.chats_panel(width, window, cx),
-                Mode::Files => self.files_panel(cx),
+                Mode::Files => self.files_panel(window, cx),
                 Mode::Changes => self.changes_panel(cx),
             },
         };

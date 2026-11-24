@@ -68,8 +68,10 @@ impl RenderOnce for FileTreeRow {
             _ => name,
         };
         let focus = row_focus(&id, window, cx);
-        let shaped = frame(id, &entry, (&self.look, palette))
-            .when(self.selected, |row| row.bg(palette.sidebar_element_idle()));
+        let shaped = frame(id, &entry, (&self.look, palette)).when(self.selected, |row| {
+            row.bg(palette.sidebar_element_idle())
+                .debug_selector(|| "file-selected".to_owned())
+        });
         let tinted = shaped.when(matched.is_some() && !self.selected, |row| {
             row.bg(palette.accent().opacity(MATCH_TINT))
         });

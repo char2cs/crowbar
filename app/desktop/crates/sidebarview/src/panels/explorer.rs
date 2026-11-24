@@ -19,7 +19,10 @@ pub(crate) use search::FileSearch;
 
 use std::rc::Rc;
 
-use gpui::{AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Styled, div, px};
+use gpui::{
+    AnyElement, App, Context, InteractiveElement, IntoElement, ParentElement, Styled, Window, div,
+    px,
+};
 use sidebar::{Expansion, FileKind, FolderPhase, GitStatus, Lock, MenuScope, ShellAnswers};
 use ui::{ContextMenu, ScrollArea};
 
@@ -79,6 +82,7 @@ impl Sidebar {
 
     pub(crate) fn files_panel(
         &mut self,
+        window: &Window,
         cx: &mut Context<'_, Self>,
     ) -> AnyElement {
         let phase = self.data.folder_phase();
@@ -97,7 +101,7 @@ impl Sidebar {
             scope: Rc::new(scope),
             editing: self.tree.editing().clone(),
             input: self.row_input(),
-            selected: self.tree.files().selected().map(str::to_owned),
+            selected: self.highlighted(window, cx),
             look: TreeLook::of(
                 &self.data.file_tree_view(),
                 self.search.as_ref().map(|search| search.query.as_str()),
@@ -112,6 +116,16 @@ impl Sidebar {
             .child(strip);
         let scroll = ScrollArea::new("files-scroll", &self.scrolls.files, list);
         self.panel_frame(scroll.into_any_element(), cx)
+    }
+
+    fn highlighted(
+        &self,
+        window: &Window,
+        cx: &App,
+    ) -> Option<String> {
+        let focused = self.files_focus.contains_focused(window, cx);
+        let selected = self.tree.files().selected().filter(|_| focused);
+        selected.map(str::to_owned)
     }
 
     fn panel_frame(
