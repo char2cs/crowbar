@@ -5,6 +5,14 @@ import type { NativeAgentsSettings } from '@/lib/native-chrome'
 import { MobileSettingsPage } from '@/features/settings/components/mobile-settings-page'
 import { getDefaultSetting, useSettingsStore } from '@/features/settings/store'
 
+// The page lazy-loads each tab; transform them at collection, where no test timeout runs,
+// rather than inside the first test that opens one.
+await Promise.all([
+  import('@/features/settings/components/tabs/appearance-settings'),
+  import('@/features/settings/components/tabs/git-settings'),
+  import('@/features/settings/components/mobile-agents-settings'),
+])
+
 type Shell = {
   webkit?: unknown
   __crowbarAgentsSettings?: (s: NativeAgentsSettings) => void
@@ -34,8 +42,7 @@ describe('MobileSettingsPage', () => {
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
     expect(screen.queryByPlaceholderText('Search settings...')).not.toBeInTheDocument()
     showTab('appearance')
-    // The first load of a tab's chunk can outlast the default wait on a busy machine.
-    expect(await screen.findByText('Color Theme', {}, { timeout: 8000 })).toBeInTheDocument()
+    expect(await screen.findByText('Color Theme')).toBeInTheDocument()
     showTab(null)
     expect(screen.queryByText('Color Theme')).not.toBeInTheDocument()
   })
