@@ -3,6 +3,7 @@
 mod edit_pencil;
 mod hover_glide;
 pub(crate) mod icon_editor;
+mod icon_label;
 mod space_icon_editor;
 
 pub(crate) use icon_editor::IconEditor;

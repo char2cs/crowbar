@@ -5,22 +5,23 @@ use std::rc::Rc;
 
 use gpui::StyledImage as _;
 use gpui::TaskExt as _;
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    App, AppContext as _, Context, Div, FontWeight, IntoElement, ParentElement, PathPromptOptions,
-    Render, Styled, Window, div, img, px,
+    App, AppContext as _, Context, Div, IntoElement, ParentElement, PathPromptOptions, Render,
+    Styled, Subscription, Window, div, img, px,
 };
 use sidebar::SpaceIcon;
 use ui::{
-    Button, ButtonSize, ButtonVariant, Icon, IconName, Palette, Surface, TextInput, TextInputStyle,
-    Theme, radius, tracking,
+    Button, ButtonSize, ButtonVariant, Icon, IconName, Palette, Surface, TextInput, TextInputEvent,
+    TextInputStyle, Theme, radius,
 };
 
-use crate::sidebar::scale::{ICON_LARGE, SPACE_MD, SPACE_SM, TEXT_MICRO};
+use crate::column::switcher::icon_label::section_label;
+use crate::sidebar::scale::{ICON_LARGE, SPACE_MD, SPACE_SM};
 
 const PREVIEW: f32 = 56.0;
 const EMOJI_PREVIEW: f32 = 24.0;
 const WIDTH: f32 = 224.0;
-const LABEL: &str = "ICON";
 
 pub(crate) type Pick = Rc<dyn Fn(SpaceIcon, &mut App)>;
 
@@ -29,6 +30,7 @@ pub(crate) struct IconEditor {
     emoji: gpui::Entity<TextInput>,
     typing: bool,
     pick: Pick,
+    _typed: Subscription,
 }
 
 impl IconEditor {
@@ -41,11 +43,16 @@ impl IconEditor {
                 .on(Surface::Window)
                 .style(TextInputStyle::Compact)
         });
+        let typed = cx.subscribe(&emoji, |this, _, event: &TextInputEvent, cx| match event {
+            TextInputEvent::Submitted => this.set_emoji(cx),
+            _ => cx.notify(),
+        });
         Self {
             current: SpaceIcon::Default,
             emoji,
             typing: false,
             pick,
+            _typed: typed,
         }
     }
 
@@ -89,10 +96,28 @@ impl IconEditor {
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
-        let text = self.emoji.read(cx).text().to_owned();
-        if let Some(icon) = SpaceIcon::emoji(&text) {
-            self.choose(icon, cx);
+        let text = self.emoji.read(cx).text().trim().to_owned();
+        let Some(icon) = SpaceIcon::emoji(&text) else {
+            return;
+        };
+        self.emoji.update(cx, |field, cx| field.set_text("", cx));
+        self.typing = false;
+        self.choose(icon, cx);
+    }
+}
+
+impl IconEditor {
+    fn toggle_typing(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.typing = !self.typing;
+        if self.typing {
+            let field = self.emoji.clone();
+            field.update(cx, |field, cx| field.focus(window, cx));
         }
+        cx.notify();
     }
 }
 
@@ -132,7 +157,10 @@ fn preview(
 }
 
 impl IconEditor {
-    fn action_row(cx: &mut Context<'_, Self>) -> Div {
+    fn action_row(
+        &self,
+        cx: &mut Context<'_, Self>,
+    ) -> Div {
         let upload = Button::new("icon-upload", "Upload")
             .icon(IconName::UploadSimple)
             .size(ButtonSize::Xs)
@@ -142,10 +170,8 @@ impl IconEditor {
             .icon(IconName::Smiley)
             .size(ButtonSize::Xs)
             .variant(ButtonVariant::Outline)
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.typing = !this.typing;
-                cx.notify();
-            }));
+            .when(self.typing, |emoji| emoji.variant(ButtonVariant::Secondary))
+            .on_click(cx.listener(|this, _, window, cx| this.toggle_typing(window, cx)));
         div()
             .flex()
             .flex_wrap()
@@ -161,6 +187,10 @@ impl IconEditor {
         let set = Button::new("icon-emoji-set", "Set")
             .size(ButtonSize::Xs)
             .on_click(cx.listener(|this, _, _, cx| this.set_emoji(cx)));
+        let set = set.when(
+            self.emoji.read(cx).text().trim().is_empty(),
+            Button::disabled,
+        );
         self.typing.then(|| {
             div()
                 .flex()
@@ -183,15 +213,6 @@ impl IconEditor {
     }
 }
 
-fn section_label(palette: &Palette) -> Div {
-    div()
-        .text_size(TEXT_MICRO)
-        .font_weight(FontWeight::SEMIBOLD)
-        .letter_spacing(tracking::at(tracking::WIDER, TEXT_MICRO))
-        .text_color(palette.muted_foreground())
-        .child(LABEL)
-}
-
 impl Render for IconEditor {
     fn render(
         &mut self,
@@ -206,7 +227,7 @@ impl Render for IconEditor {
             .w(px(WIDTH))
             .child(section_label(palette))
             .child(preview(&self.current, palette))
-            .child(Self::action_row(cx))
+            .child(self.action_row(cx))
             .children(self.typing_row(cx))
             .children(self.reset_button(cx))
     }
@@ -249,65 +270,31 @@ mod tests {
             SpaceIcon::Default
         );
     }
-    /// Tailwind `tracking-wider`, in em.
-    const WIDER: f32 = 0.05;
-
-    fn label_width(
-        cx: &mut TestAppContext,
-        spacing: Option<f32>,
-    ) -> f32 {
-        let window = crate::test_support::mount(cx, move |_, cx| {
-            let label = section_label(Theme::of(cx).palette(Surface::Window));
-            let label = match spacing {
-                Some(spacing) => label.letter_spacing(px(spacing)),
-                None => label,
-            };
-            div().flex().child(
-                gpui::InteractiveElement::debug_selector(div().flex_none(), || "label".into())
-                    .child(label),
-            )
-        });
-        f32::from(window.debug_bounds("label").unwrap_or_default().size.width)
-    }
-
     #[gpui::test]
-    fn the_section_label_is_set_wider_as_develop_does(cx: &mut TestAppContext) {
-        let wider = label_width(cx, None);
-        let loose = label_width(cx, Some(0.0));
-        let glyphs = f32::from(u16::try_from(LABEL.chars().count()).expect("a short label"));
-        let expected = glyphs * WIDER * f32::from(TEXT_MICRO);
-        assert!(
-            (wider - loose - expected).abs() < 1.0,
-            "{wider} - {loose} vs {expected}"
-        );
-    }
-
-    /// Develop's `text-[10px]` on the section label.
-    const DEVELOP_LABEL: f32 = 10.0;
-
-    #[gpui::test]
-    fn the_section_label_is_set_at_develops_ten_pixels(cx: &mut TestAppContext) {
-        let label = label_width(cx, Some(0.0));
-        let window = crate::test_support::mount(cx, move |_, _| {
-            let develop = div()
-                .text_size(px(DEVELOP_LABEL))
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(LABEL);
-            div().flex().child(
-                gpui::InteractiveElement::debug_selector(div().flex_none(), || "develop".into())
-                    .child(develop),
-            )
+    fn the_emoji_button_opens_a_focused_field_that_enter_sets_and_closes(cx: &mut TestAppContext) {
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let sink = Rc::clone(&seen);
+        let pick: Pick = Rc::new(move |icon, _| sink.borrow_mut().push(icon));
+        cx.update(|cx| ui::init(cx).expect("ui installs"));
+        let (editor, cx) = cx.add_window_view(|_, cx| IconEditor::new(pick, cx));
+        editor.update_in(cx, IconEditor::toggle_typing);
+        let focused = editor.update_in(cx, |this, window, cx| {
+            gpui::Focusable::focus_handle(this.emoji.read(cx), cx).is_focused(window)
         });
-        let develop = f32::from(
-            window
-                .debug_bounds("develop")
-                .unwrap_or_default()
-                .size
-                .width,
-        );
         assert!(
-            (label - develop).abs() < 0.5,
-            "{label} vs develop {develop}"
+            focused,
+            "the field takes the keyboard, as develop's autoFocus"
         );
+        let field = editor.read_with(cx, |this, _| this.emoji.clone());
+        field.update(cx, |field, cx| {
+            field.set_text("🦀", cx);
+            cx.emit(TextInputEvent::Submitted);
+        });
+        cx.run_until_parked();
+        assert_eq!(*seen.borrow(), vec![SpaceIcon::Emoji("🦀".into())]);
+        let after = editor.read_with(cx, |this, cx| {
+            (this.typing, this.emoji.read(cx).text().to_owned())
+        });
+        assert_eq!(after, (false, String::new()), "the field closes empty");
     }
 }
