@@ -80,7 +80,7 @@ describe('a database already at this build’s version', () => {
     await hydrateCriticalStores()
 
     const after = await openDB('crowbar')
-    expect(after.version).toBe(14)
+    expect(after.version).toBe(16)
     expect(Array.from(after.objectStoreNames).sort()).toEqual(stores)
     expect(await after.get('crowbar_chats', 'c1')).toEqual({ id: 'c1', title: 'kept' })
     after.close()
@@ -104,6 +104,18 @@ describe('concurrent callers', () => {
     const [a, b, c] = await Promise.all([getDB(), getDB(), getDB()])
     expect(a).toBe(b)
     expect(b).toBe(c)
-    expect(a.version).toBe(14)
+    expect(a.version).toBe(16)
+  })
+})
+
+describe('another window upgrading', () => {
+  it('is not held by this connection, and the next call opens at the new version', async () => {
+    const held = await getDB()
+    const upgraded = await openDB('crowbar', 99)
+    upgraded.close()
+
+    const reopened = await getDB()
+    expect(reopened).not.toBe(held)
+    expect(reopened.version).toBe(99)
   })
 })

@@ -68,7 +68,7 @@ describe('handleComposerKey', () => {
     })
 
     it('still accepts the highlighted picker item', () => {
-      const item = { id: 'compact' } as never
+      const item = { id: 'compact', insertText: '/compact ' } as never
       const t = { ...targets(() => undefined), enterSends: false }
       t.slash = { ...t.slash, highlighted: item } as never
       press(t, enter())
@@ -79,6 +79,34 @@ describe('handleComposerKey', () => {
       const t = { ...targets(() => undefined), enterSends: false }
       press(t, enter({ metaKey: true }))
       expect(t.send).toHaveBeenCalledWith('draft')
+    })
+  })
+
+  describe('Enter on a command typed in full', () => {
+    const enter = () => key({ key: 'Enter', nativeEvent: { isComposing: false } } as never)
+    const withPicker = (draft: string) => {
+      const t = targets(() => undefined)
+      t.slash = { ...t.slash, highlighted: { insertText: '/compact ' } } as never
+      handleComposerKey(
+        t,
+        enter(),
+        () => draft,
+        { atStart: false, atEnd: true },
+        { empty: false, slashQuery: 'compact', mentionQuery: null },
+      )
+      return t
+    }
+
+    it('sends it, as the picker’s run hint says, instead of completing it again', () => {
+      const t = withPicker('/compact')
+      expect(t.send).toHaveBeenCalledWith('/compact')
+      expect(t.selectSlashItem).not.toHaveBeenCalled()
+    })
+
+    it('still completes a command typed in part', () => {
+      const t = withPicker('/comp')
+      expect(t.selectSlashItem).toHaveBeenCalled()
+      expect(t.send).not.toHaveBeenCalled()
     })
   })
 })

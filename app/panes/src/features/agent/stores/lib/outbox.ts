@@ -79,8 +79,11 @@ export function nextToSend(
   // A prompt after Stop is the next turn: steered, it would end with the turn Stop ends.
   const stopping = facts.stopping !== null && facts.stopping === facts.running?.turnId
   if (busy && (!head.steer || stopping)) return undefined
-  if (Object.values(facts.prompts).some((fact) => fact.state === 'pending')) return undefined
-  return head
+  // Steered prompts are handed on one per turn end, so a steerable prompt queues behind them.
+  const blocking = Object.values(facts.prompts).some(
+    (fact) => fact.state === 'pending' && !(head.steer && fact.steer),
+  )
+  return blocking ? undefined : head
 }
 
 function mark(items: OutboxItem[], requestId: string, change: Partial<OutboxItem>) {

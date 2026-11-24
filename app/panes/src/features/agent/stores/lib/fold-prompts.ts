@@ -38,7 +38,12 @@ export function applyUserMessage(fold: FeedFold, row: LedgerRow<'user_message'>)
     requestId,
     steered
       ? { state: 'delivered', turnId: row.turnId! }
-      : { state: 'pending', seq: row.seq, ...(delivery === 'restart' && { launch: true }) },
+      : {
+          state: 'pending',
+          seq: row.seq,
+          ...(delivery === 'restart' && { launch: true }),
+          ...(delivery === 'steer' && { steer: true }),
+        },
   )
 }
 

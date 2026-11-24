@@ -371,11 +371,13 @@ export function useNativeSidebar({
 
   const onIntent = useEffectEvent((intent: NativeChromeIntent) => {
     switch (intent.type) {
-      case 'selectRow':
-        if (handleOpen(intent.id, readSelect(selectRepos), navigate, { fold: false })) {
+      case 'selectRow': {
+        const opened = handleOpen(intent.id, readSelect(selectRepos), navigate, { fold: false })
+        if (opened) {
           closeChatList()
         }
         return
+      }
       case 'newThread':
         if (!projectId || !homeWsId) {
           toast.error("Can't start a new thread yet")

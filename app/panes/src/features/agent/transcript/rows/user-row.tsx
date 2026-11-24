@@ -30,6 +30,13 @@ interface PromptState {
   builtin?: boolean
 }
 
+/** A Stop ends a prompt the provider may already hold, so it must not say the provider never took it. */
+function refusedWords(reason: string) {
+  if (reason === 'session_lost') return SESSION_LOST_TEXT
+  if (reason === 'stopped') return 'Stopped before it was answered. Retry sends it again.'
+  return 'The provider never took this prompt. Retry sends it again.'
+}
+
 /** One prompt's state, from the outbox until its row lands and from the rows after. */
 function usePromptState(chatId: string, id: string, item?: UserItem): PromptState {
   const requestId = item ? item.requestId : id.slice(2)
@@ -46,10 +53,7 @@ function usePromptState(chatId: string, id: string, item?: UserItem): PromptStat
   if (fact?.state === 'pending') return { text: item?.text, state: 'pending' }
   if (fact?.state === 'settled' && fact.builtin) return { text: item?.text, builtin: true }
   if (fact?.state !== 'refused') return { text: item?.text }
-  const error =
-    fact.reason === 'session_lost'
-      ? SESSION_LOST_TEXT
-      : 'The provider never took this prompt. Retry sends it again.'
+  const error = refusedWords(fact.reason)
   return { text: item?.text, state: 'refused', error, retried }
 }
 

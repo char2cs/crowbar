@@ -7,11 +7,13 @@ import type { CrowbarDB } from './schemas'
 // upgrade that holds it — a deadlock.
 const connections = new WeakMap<IDBFactory, Promise<IDBPDatabase<CrowbarDB>>>()
 
-export function getDB(): Promise<IDBPDatabase<CrowbarDB>> {
+export async function getDB(): Promise<IDBPDatabase<CrowbarDB>> {
   const factory = globalThis.indexedDB
   const held = connections.get(factory)
   if (held) return held
-  const opening = openDatabase()
+  const opening: Promise<IDBPDatabase<CrowbarDB>> = openDatabase(() => {
+    if (connections.get(factory) === opening) connections.delete(factory)
+  })
   connections.set(factory, opening)
   opening.catch(() => connections.delete(factory))
   return opening
@@ -20,9 +22,9 @@ export function getDB(): Promise<IDBPDatabase<CrowbarDB>> {
 // Open at the declared version, or as-is when the database is newer: asking below the on-disk
 // version throws VersionError and silently loses the cache. Every build with this bundle id shares
 // the origin (older checkouts, rollbacks), and stores are additive, so older builds read fine.
-async function openDatabase(): Promise<IDBPDatabase<CrowbarDB>> {
+async function openDatabase(release: () => void): Promise<IDBPDatabase<CrowbarDB>> {
   try {
-    return await openDeclared()
+    return await openDeclared(release)
   } catch (err) {
     if (!(err instanceof DOMException) || err.name !== 'VersionError') throw err
     return openDB<CrowbarDB>('crowbar')
@@ -37,8 +39,15 @@ const RETIRED_V12 = [
   'crowbar_threads',
 ]
 
-async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
-  return openDB<CrowbarDB>('crowbar', 14, {
+async function openDeclared(release: () => void): Promise<IDBPDatabase<CrowbarDB>> {
+  return openDB<CrowbarDB>('crowbar', 16, {
+    // Another window upgrading must not wait on this connection: close it, the next call reopens.
+    blocking(_current, _blocked, event) {
+      const held = event.target as IDBDatabase
+      held.close()
+      release()
+    },
+    terminated: release,
     upgrade(db, oldVersion) {
       // Retired stores are no longer in CrowbarDB; the upgrade chain still
       // creates and then drops them, so it goes through the untyped handle.
@@ -121,6 +130,14 @@ async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
         if (!raw.objectStoreNames.contains('editor-drafts')) {
           db.createObjectStore('editor-drafts', { keyPath: 'uri' })
         }
+      }
+      if (oldVersion < 15) {
+        const feeds = db.createObjectStore('chat-feeds', { keyPath: ['hostId', 'chatId'] })
+        feeds.createIndex('savedAt', 'savedAt')
+        feeds.createIndex('chatId', 'chatId')
+      }
+      if (oldVersion < 16) {
+        db.createObjectStore('host-placements', { keyPath: 'key' }).createIndex('hostId', 'hostId')
       }
     },
   })

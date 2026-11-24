@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, render, screen } from '@testing-library/react'
 import {
   createMemoryHistory,
@@ -12,6 +12,14 @@ import { ShellLanding } from '@/components/layout/shell-landing'
 import { useProjectStore } from '@/core/entities/active-project'
 import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 import { projectDTO, seedProjects } from '@/__tests__/__fixtures__/sidebar-entities'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
+import { seedChatPaneRecord } from '@/__tests__/__fixtures__/view-state'
+
+// Which chats the last run's placements vouch for is host-placements' business, not the landing's.
+vi.mock('@/lib/host-resolve-cached', () => ({
+  isChatRecalled: (chatId: string) => chatId === 'c-recalled',
+}))
 
 function ProjectHome() {
   const { projectId } = useParams({ strict: false })
@@ -80,5 +88,28 @@ describe('the landing', () => {
     useProjectStore.setState({ activeProjectId: 'p2' })
     renderLanding()
     expect(await screen.findByText('project home p2')).toBeTruthy()
+  })
+})
+
+describe('the landing of a phone with a paired host that has not listed', () => {
+  const WAITING = /Waiting for your hosts to list their projects/
+
+  beforeEach(() => {
+    pairRemoteHost('h1', 'rig')
+    resetWindowPaneStoreForTests()
+  })
+  afterEach(() => resetWindowPaneStoreForTests())
+
+  it('says it waits for the hosts when no chat is open', async () => {
+    renderLanding()
+    expect(await screen.findByText(WAITING)).toBeTruthy()
+  })
+
+  // The chat is already on screen from the last run's placement; the panel is for the empty stage.
+  it('does not stack the waiting panel under a chat recalled from the last run', async () => {
+    seedChatPaneRecord(windowPaneStore, 'pane-1', 'c-recalled', null)
+    renderLanding()
+    await act(async () => {})
+    expect(screen.queryByText(WAITING)).toBeNull()
   })
 })
