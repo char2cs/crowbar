@@ -168,15 +168,13 @@ fn editable_tile(
     let marked = div()
         .relative()
         .size(px(MARK))
+        .group(GROUP)
+        .debug_selector(|| "space-mark".into())
         .child(mark)
         .child(edit_pencil(px(MARK)));
-    Popover::new(
-        "space-icon",
-        tile.group(GROUP).child(marked),
-        move |_, _| editor.clone(),
-    )
-    .placement(Placement::Right)
-    .into_any_element()
+    let popover =
+        Popover::new("space-icon", marked, move |_, _| editor.clone()).placement(Placement::Right);
+    tile.child(popover).into_any_element()
 }
 
 fn add_slot(
@@ -288,6 +286,25 @@ mod tests {
             row.size.height,
             px(super::SWITCHER_HEIGHT),
             "develop keeps the switcher row with its + when no space exists"
+        );
+    }
+
+    #[gpui::test]
+    fn the_icon_popover_opens_level_with_the_mark_as_develops_align_start(cx: &mut TestAppContext) {
+        let mut floating = crate::test_support::open_floating(cx, DemoShell::reference());
+        let mark = floating
+            .window
+            .debug_bounds("space-mark")
+            .unwrap_or_default();
+        floating
+            .window
+            .simulate_click(mark.center(), gpui::Modifiers::none());
+        floating.window.run_until_parked();
+        let editor = floating.top.debug_bounds("icon-editor").unwrap_or_default();
+        assert_eq!(
+            f32::from(editor.top() - mark.top()),
+            17.0,
+            "the panel's border and padding sit above the editor, the panel's top on the mark's"
         );
     }
 
