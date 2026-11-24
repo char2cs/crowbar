@@ -64,6 +64,10 @@ Drop it when upstream has a shadow accessor.
 
 Drop it with `overlay-window`.
 
+`focus-visible-press` (`gpui-pre`, `src/window.rs`, `src/elements/div.rs`), applied on top of `overlay-input-modality`: `focus_visible` styles, and `Window::last_press_was_keyboard`, follow the last key or pointer press, not the last input of any kind. The browser's `:focus-visible` (develop's rings and keyboard tooltips) stays through pointer moves and goes on a press; upstream dropped it on any move. Hover still hides while the last input was a key, as upstream.
+
+Drop it when upstream gpui keeps focus-visible through pointer moves. Tracking: zed-industries/zed.
+
 ## calloop 0.14.5
 
 `tracing-without-log` (`Cargo.toml`): calloop, reached through `gpui-pre-linux`, asks for tracing's `log` feature, and cargo turns a feature on for every crate that uses tracing. With `log` on, each `tracing` macro also expands to its `log` fallback, which quadruples `clippy::cognitive_complexity` in every function that logs. Nothing in the shell reads `log` records (no `log` logger or bridge is installed), so calloop loses only output nobody received.

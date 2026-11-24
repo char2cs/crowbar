@@ -3489,7 +3489,7 @@ impl Interactivity {
 
             if let Some(focus_visible_style) = self.focus_visible_style.as_ref()
                 && focus_handle.is_focused(window)
-                && window.last_input_was_keyboard()
+                && window.last_press_was_keyboard()
             {
                 style.refine(focus_visible_style);
             }

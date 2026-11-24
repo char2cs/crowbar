@@ -145,7 +145,7 @@ impl Tooltip {
             .focus
             .as_ref()
             .is_some_and(|focus| focus.is_focused(window));
-        focused && window.last_input_was_keyboard()
+        focused && window.last_press_was_keyboard()
     }
 }
 
@@ -374,6 +374,27 @@ mod tests {
         assert!(
             cx.debug_bounds("tooltip-card").is_some(),
             "shown while keyboard focus rests on it"
+        );
+    }
+
+    #[gpui::test]
+    fn a_keyboard_focused_card_stays_while_the_pointer_moves_elsewhere(cx: &mut TestAppContext) {
+        let focus = cx.update(|cx| cx.focus_handle());
+        let held = focus.clone();
+        let cx = open(cx, move |_, _| {
+            let gear = Button::icon_only("b", IconName::Gear).focus_handle(held.clone());
+            div()
+                .size(px(400.0))
+                .child(Tooltip::new("t", "Settings", gear).focused_by(&held))
+        });
+        cx.update(|_, cx| cx.set_global(Motion::reduced()));
+        cx.update(|window, cx| window.focus(&focus, cx));
+        cx.simulate_keystrokes("shift");
+        cx.simulate_mouse_move(point(px(300.0), px(300.0)), None, gpui::Modifiers::none());
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("tooltip-card").is_some(),
+            "a pointer move leaves focus-visible as it is"
         );
     }
 

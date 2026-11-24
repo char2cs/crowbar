@@ -1217,6 +1217,15 @@ enum InputModality {
     Touch,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Modalities {
+    /// The last input of any kind: hover hides while it is the keyboard.
+    input: InputModality,
+    /// The last key or press: focus-visible shows while it is the keyboard. As in the browser,
+    /// moving the pointer leaves the focus ring where it is.
+    press: InputModality,
+}
+
 /// Holds the state for a specific window.
 pub struct Window {
     pub(crate) handle: AnyWindowHandle,
@@ -1287,7 +1296,7 @@ pub struct Window {
     pub(crate) window_profiler: profiler::WindowProfiler,
     /// Shared by an owner and its overlays: they are one page to the user, so a key typed in an
     /// overlay counts as keyboard input for the owner's focus ring too.
-    last_input_modality: Rc<Cell<InputModality>>,
+    last_input_modality: Rc<Cell<Modalities>>,
     touch_gestures: TouchGestureRecognizer,
     touch_prediction_enabled: bool,
     long_press_timer: Option<Task<()>>,
@@ -2429,7 +2438,12 @@ impl Window {
             last_input_modality: overlay_of
                 .and_then(|owner| cx.windows.get(owner.window_id())?.as_ref())
                 .map_or_else(
-                    || Rc::new(Cell::new(InputModality::Mouse)),
+                    || {
+                        Rc::new(Cell::new(Modalities {
+                            input: InputModality::Mouse,
+                            press: InputModality::Mouse,
+                        }))
+                    },
                     |owner| Rc::clone(&owner.last_input_modality),
                 ),
             touch_gestures: TouchGestureRecognizer::new(
@@ -3797,12 +3811,18 @@ impl Window {
     /// Returns true if the last input event was keyboard-based (key press, tab navigation, etc.)
     /// This is used for focus-visible styling to show focus indicators only for keyboard navigation.
     pub fn last_input_was_keyboard(&self) -> bool {
-        self.last_input_modality.get() == InputModality::Keyboard
+        self.last_input_modality.get().input == InputModality::Keyboard
+    }
+
+    /// Returns true if the last key or pointer press was a key. This is the browser's
+    /// `:focus-visible` rule: moving the pointer does not hide the focus ring, a press does.
+    pub fn last_press_was_keyboard(&self) -> bool {
+        self.last_input_modality.get().press == InputModality::Keyboard
     }
 
     /// Returns whether the last input event came from a touch screen.
     pub fn last_input_was_touch(&self) -> bool {
-        self.last_input_modality.get() == InputModality::Touch
+        self.last_input_modality.get().input == InputModality::Touch
     }
 
     /// The current state of the keyboard's capslock
@@ -6189,12 +6209,19 @@ impl Window {
         // Hover is suppressed during keyboard modality so that keyboard navigation
         // doesn't show hover highlights on the item under the mouse cursor.
         let old_modality = self.last_input_modality.get();
-        let modality = match &event {
+        let input = match &event {
             PlatformInput::KeyDown(_) => InputModality::Keyboard,
             PlatformInput::MouseMove(_) | PlatformInput::MouseDown(_) => InputModality::Mouse,
             PlatformInput::Touch(_) => InputModality::Touch,
-            _ => old_modality,
+            _ => old_modality.input,
         };
+        let press = match &event {
+            PlatformInput::KeyDown(_) => InputModality::Keyboard,
+            PlatformInput::MouseDown(_) => InputModality::Mouse,
+            PlatformInput::Touch(_) => InputModality::Touch,
+            _ => old_modality.press,
+        };
+        let modality = Modalities { input, press };
         if modality != old_modality {
             self.last_input_modality.set(modality);
             self.refresh_modality_sharers(cx);
