@@ -3,7 +3,7 @@
 pub(crate) mod chat_member;
 mod emitter;
 mod forest;
-mod look;
+pub(crate) mod look;
 pub(crate) mod pending;
 pub(crate) mod project;
 pub(crate) mod repo_mark;

@@ -1,6 +1,9 @@
 //! The delete of a held row, and what its refusal tells the shell.
 
 mod risk_record;
+mod taken;
+
+pub(crate) use taken::Taken;
 
 use sidebar::{RowId, WorkAtRisk};
 

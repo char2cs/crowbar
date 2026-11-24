@@ -180,22 +180,11 @@ impl Sidebar {
         let Some(project) = self.data.active_project() else {
             return;
         };
-        let rows = self.data.tree(&project).rows;
-        let from = rows.iter().position(|row| &row.id == id);
-        let Some(below) = from.and_then(|at| rows.get(at..)) else {
+        let tree = self.data.tree(&project);
+        let Some(row) = tree.rows.iter().find(|row| &row.id == id) else {
             return;
         };
-        let Some(row) = below.first() else {
-            return;
-        };
-        let beneath = below
-            .iter()
-            .skip(1)
-            .take_while(|lower| lower.depth > row.depth);
-        let held = std::iter::once(row)
-            .chain(beneath)
-            .map(|held| held.id.clone())
-            .collect();
+        let held = tree.subtree(id);
         self.tree.request_removal(row, self.clock.now());
         self.schedule_removals(cx);
         let counting = self

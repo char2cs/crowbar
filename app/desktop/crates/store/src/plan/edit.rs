@@ -8,7 +8,8 @@ use crate::live::HostSlot;
 use crate::live::PlanError;
 use crate::live::State;
 use crate::plan::Plan;
-use crate::plan::removal::Removal;
+use crate::plan::after::After;
+use crate::plan::removal::{Removal, Taken};
 use crate::reads::host_of;
 use crate::rows::pending as pending_rows;
 use crate::target::Kind;
@@ -63,21 +64,36 @@ pub(crate) fn remove(
     let row = removal.row().as_str();
     let (target, host) = locate(state, row)?;
     let (project, repo) = (&target.project, &target.repo);
-    let call = match &target.kind {
-        Kind::Folder => Call::delete(format!(
-            "{}/{row}",
-            daemonapi::Route::folders(project, repo)
-        )),
-        Kind::RepoHeader { .. } => Call::delete(daemonapi::Route::scope(project, repo))
-            .idempotent(&daemonapi::Uuid::random().to_string()),
-        _ => Call::delete(format!(
-            "{}/{}",
-            daemonapi::Route::chats(project, repo),
-            target.chat()?
-        )),
+    let (call, after) = match &target.kind {
+        Kind::Folder => (
+            Call::delete(format!(
+                "{}/{row}",
+                daemonapi::Route::folders(project, repo)
+            )),
+            After::Nothing,
+        ),
+        Kind::RepoHeader { .. } => (
+            Call::delete(daemonapi::Route::scope(project, repo))
+                .idempotent(&daemonapi::Uuid::random().to_string()),
+            After::Nothing,
+        ),
+        _ => chat_delete(state, &target)?,
     };
     let call = if_consented(call, &removal);
-    Ok(Plan::of(&host, vec![call]).removing(removal))
+    Ok(Plan::of(&host, vec![call]).removing(removal).then(after))
+}
+
+fn chat_delete(
+    state: &State,
+    target: &Target,
+) -> Result<(Call, After), PlanError> {
+    let chat = target.chat()?;
+    let route = daemonapi::Route::chats(&target.project, &target.repo);
+    let taken = Taken::before(state, (&target.project, chat));
+    Ok((
+        Call::delete(format!("{route}/{chat}")),
+        After::AnnounceTaken(taken),
+    ))
 }
 
 fn if_consented(

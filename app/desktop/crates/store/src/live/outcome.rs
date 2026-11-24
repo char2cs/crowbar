@@ -79,6 +79,11 @@ pub enum Outcome {
         /// Why it was not removed.
         reason: String,
     },
+    /// A chat delete's git cascade also took chats the user never selected, named by `titles`.
+    AlsoRemoved {
+        /// The title of each chat taken, in the daemon's order.
+        titles: Vec<String>,
+    },
 }
 
 /// Called from a runtime thread, so the shell forwards it onto its own thread.

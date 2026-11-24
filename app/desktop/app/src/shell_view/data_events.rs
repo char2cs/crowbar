@@ -90,21 +90,21 @@ impl ShellView {
                 let (key, notice) = failure_notice(title, reason);
                 self.show_keyed(&key, notice, cx);
             },
-            DataOutcome::WorkAtRisk { row, at_risk } => {
-                self.sidebar
-                    .update(cx, |sidebar, cx| sidebar.ask_to_discard(&row, at_risk, cx));
-            },
             DataOutcome::ReviewViewed { workspace, viewed } => {
                 self.push_review_viewed(&workspace, &viewed);
             },
             disk @ (DataOutcome::FileChanged { .. } | DataOutcome::FilesSynced { .. }) => {
                 self.disk_changed(disk, cx);
             },
-            DataOutcome::RemovalRefused { row, reason } => {
-                tracing::warn!(%reason, "a delete was refused");
-                self.sidebar
-                    .update(cx, |sidebar, cx| sidebar.removal_refused(&row, reason, cx));
-            },
+            DataOutcome::WorkAtRisk { row, at_risk } => self
+                .sidebar
+                .update(cx, |sidebar, cx| sidebar.ask_to_discard(&row, at_risk, cx)),
+            DataOutcome::RemovalRefused { row, reason } => self
+                .sidebar
+                .update(cx, |sidebar, cx| sidebar.removal_refused(&row, reason, cx)),
+            DataOutcome::AlsoRemoved { titles } => self
+                .sidebar
+                .update(cx, |sidebar, cx| sidebar.also_removed(&titles, cx)),
         }
     }
 

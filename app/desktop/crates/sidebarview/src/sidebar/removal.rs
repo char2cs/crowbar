@@ -13,6 +13,15 @@ fn reason_of(error: Error) -> String {
     }
 }
 
+fn taken_toast(titles: &[String]) -> ToastContent {
+    let noun = match titles.len() {
+        1 => "chat",
+        _ => "chats",
+    };
+    ToastContent::new(ToastKind::Info, titles.join(", "))
+        .titled(format!("Also removed {} {noun}", titles.len()))
+}
+
 fn refusal_toast(
     hold: Option<&Hold>,
     reason: String,
@@ -33,10 +42,20 @@ impl Sidebar {
         reason: String,
         cx: &mut Context<'_, Self>,
     ) {
+        tracing::warn!(%reason, "a delete was refused");
         let toast = refusal_toast(self.tree.removals().tray().get(row), reason);
         self.tree.keep(row);
         self.toast(toast, (None, ToastLifetime::Auto), cx);
         cx.notify();
+    }
+
+    /// Names the chats a delete's cascade took beyond the selection, under a toast counting them.
+    pub fn also_removed(
+        &mut self,
+        titles: &[String],
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.toast(taken_toast(titles), (None, ToastLifetime::Auto), cx);
     }
 
     pub(crate) fn send_removal(
@@ -98,6 +117,23 @@ mod tests {
             ToastContent::new(ToastKind::Error, "busy"),
             "no row, no title"
         );
+    }
+
+    #[test]
+    fn the_taken_chats_are_counted_in_the_title_and_named_beneath() {
+        let one = taken_toast(&["Child".into()]);
+        let expected = ToastContent::new(ToastKind::Info, "Child").titled("Also removed 1 chat");
+        assert_eq!(one, expected, "one");
+        let two = taken_toast(&["A".into(), "B".into()]);
+        let expected = ToastContent::new(ToastKind::Info, "A, B").titled("Also removed 2 chats");
+        assert_eq!(two, expected, "two");
+    }
+
+    #[gpui::test]
+    fn a_delete_that_took_more_says_so(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
+        sidebar.update(cx, |this, cx| this.also_removed(&["Child".into()], cx));
+        assert_eq!(shown_toasts(&sidebar, cx), 1, "one toast names them");
     }
 
     #[gpui::test]

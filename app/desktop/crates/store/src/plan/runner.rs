@@ -142,6 +142,10 @@ async fn finish(
             .for_each(|named| outcome(named)),
         After::SettleName(row) => outcome(Outcome::NameAnswered { row, refusal: None }),
         After::Place(workspace) => place(hub, (&plan.host, &workspace), answer),
+        After::AnnounceTaken(taken) => taken
+            .announce(answer)
+            .into_iter()
+            .for_each(|named| outcome(named)),
     }
 }
 
