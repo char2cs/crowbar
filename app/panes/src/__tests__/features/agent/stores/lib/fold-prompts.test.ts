@@ -52,6 +52,19 @@ describe('divider', () => {
     })
   })
 
+  it('queues a prompt typed into the live CLI without a launch, then delivers it with its turn', () => {
+    const l = ledger()
+    const queued = applyRows(emptyFeed(), [
+      l.delivered('r1', 'go', 'type'),
+      l.row('marker', { kind: 'model_changed', detail: 'model-a' }),
+    ])
+    expect(queued.facts.prompts.r1).toEqual({ state: 'pending', seq: 1 })
+    expect(queued.order.map((id) => queued.items.get(id)?.kind)).toEqual(['user', 'marker'])
+
+    const taken = applyRows(queued, [l.start('turn-1', 'r1')])
+    expect(taken.facts.prompts.r1).toEqual({ state: 'delivered', turnId: 'turn-1' })
+  })
+
   it('shows what the CLI warned its user about as a notice in the transcript', () => {
     const l = ledger()
     const feed = applyRows(emptyFeed(), [
