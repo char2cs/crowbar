@@ -113,7 +113,10 @@ fn preview(
         .rounded(radius::XL)
         .bg(palette.muted());
     match icon {
-        SpaceIcon::Emoji(text) => frame.text_size(px(EMOJI_PREVIEW)).child(text.clone()),
+        SpaceIcon::Emoji(text) => frame
+            .font(ui::font::emoji_font())
+            .text_size(px(EMOJI_PREVIEW))
+            .child(text.clone()),
         SpaceIcon::Image(path) => frame.child(
             img(PathBuf::from(path))
                 .size(px(PREVIEW))

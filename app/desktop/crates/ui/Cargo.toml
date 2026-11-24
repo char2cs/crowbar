@@ -24,6 +24,7 @@ unicode-segmentation.workspace = true
 gpui = { workspace = true, features = ["test-support"] }
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
+gpui_wgpu.workspace = true
 raw-window-handle.workspace = true
 x11rb.workspace = true
 

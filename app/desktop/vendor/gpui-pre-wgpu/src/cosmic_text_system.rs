@@ -43,6 +43,14 @@ impl FontKey {
     }
 }
 
+/// What a family is loaded for: a primary face must have Latin letters, a fallback face (an
+/// emoji or symbol font) need not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FaceRole {
+    Primary,
+    Fallback,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct LoadedFontKey {
     database_id: cosmic_text::fontdb::ID,
@@ -204,8 +212,12 @@ impl PlatformTextSystem for CosmicTextSystem {
         let candidates = if let Some(font_ids) = state.font_ids_by_family_cache.get(&key) {
             font_ids.as_slice()
         } else {
-            let font_ids =
-                state.load_family(&font.family, &font.features, font.fallbacks.as_ref())?;
+            let font_ids = state.load_family(
+                &font.family,
+                &font.features,
+                font.fallbacks.as_ref(),
+                FaceRole::Primary,
+            )?;
             state.font_ids_by_family_cache.insert(key.clone(), font_ids);
             state.font_ids_by_family_cache[&key].as_ref()
         };
@@ -357,6 +369,7 @@ impl CosmicTextSystemState {
         name: &str,
         features: &FontFeatures,
         fallbacks: Option<&FontFallbacks>,
+        role: FaceRole,
     ) -> Result<SmallVec<[FontId; 4]>> {
         let loaded_font_key = FontKey::new(
             SharedString::from(name.to_owned()),
@@ -379,7 +392,8 @@ impl CosmicTextSystemState {
                     let fb_ids = if let Some(cached) = self.font_ids_by_family_cache.get(&fb_key) {
                         cached.clone()
                     } else {
-                        let loaded = self.load_family(fallback_name, features, None)?;
+                        let loaded =
+                            self.load_family(fallback_name, features, None, FaceRole::Fallback)?;
                         self.font_ids_by_family_cache
                             .insert(fb_key.clone(), loaded.clone());
                         loaded
@@ -442,7 +456,8 @@ impl CosmicTextSystemState {
             // and emoji fonts often have no Latin glyphs, and they are exactly
             // what cosmic-text falls back to when the primary font lacks a
             // glyph.
-            if font.as_swash().charmap().map('m') == 0
+            if role == FaceRole::Primary
+                && font.as_swash().charmap().map('m') == 0
                 && !allowed_bad_font_names.contains(&postscript_name.as_str())
             {
                 continue;

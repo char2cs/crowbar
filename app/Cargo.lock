@@ -8929,6 +8929,7 @@ version = "0.1.0"
 dependencies = [
  "gpui-pre",
  "gpui-pre-platform",
+ "gpui-pre-wgpu",
  "image",
  "raw-window-handle",
  "thiserror 2.0.21",

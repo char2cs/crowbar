@@ -56,6 +56,7 @@ pub(crate) fn mark_view(
             .child(letter.to_string())
             .into_any_element(),
         Mark::Emoji(text) => frame
+            .font(ui::font::emoji_font())
             .text_size(px(EMOJI_SIZE))
             .child(text.clone())
             .into_any_element(),
