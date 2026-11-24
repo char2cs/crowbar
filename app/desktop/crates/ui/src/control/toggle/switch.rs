@@ -130,7 +130,7 @@ impl RenderOnce for Switch {
             .bg(mix(palette.input(), palette.primary(), fade))
             .when(enabled, |d| d.cursor_pointer().tab_stop(true))
             .when(!enabled, |d| d.opacity(DISABLED_OPACITY))
-            .focus(move |s| s.shadow(focus_ring(palette)))
+            .focus_visible(move |s| s.shadow(focus_ring(palette)))
             .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
             .child(thumb(slide, palette))
             .when_some(self.on_change.filter(|_| enabled), move |d, handler| {

@@ -203,7 +203,7 @@ impl RenderOnce for Button {
             .when(!enabled, |d| {
                 d.opacity(DISABLED_OPACITY).bg(colors.background)
             })
-            .focus(move |s| s.shadow(ring))
+            .focus_visible(move |s| s.shadow(ring))
             .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
             .children(icon)
             .children(self.label)
@@ -238,7 +238,7 @@ mod tests {
     use std::cell::Cell;
     use std::rc::Rc;
 
-    use gpui::{Modifiers, TestAppContext, point, px};
+    use gpui::{Modifiers, TestAppContext, VisualTestContext, point, px};
 
     use super::*;
     use crate::test_support::probe::{measure, open};
@@ -308,5 +308,30 @@ mod tests {
         let plain = measure(cx, |_, _| Button::new("go", "Go"));
         let loading = measure(cx, |_, _| Button::new("go", "Go").loading());
         assert_eq!(plain.size, loading.size);
+    }
+
+    fn rings_drawn(cx: &mut VisualTestContext) -> usize {
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            let ring = Theme::of(cx).palette(Surface::default()).ring();
+            let shadows = window.painted_shadows();
+            shadows.iter().filter(|s| s.color == ring).count()
+        })
+    }
+
+    #[gpui::test]
+    fn the_focus_ring_shows_only_after_a_key_as_develop_s_focus_visible_does(
+        cx: &mut TestAppContext
+    ) {
+        let focus = cx.update(|cx| cx.focus_handle());
+        let held = focus.clone();
+        let cx = open(cx, move |_, _| {
+            Button::new("go", "Go").focus_handle(held.clone())
+        });
+        cx.simulate_click(point(px(20.0), px(16.0)), Modifiers::none());
+        cx.update(|window, cx| window.focus(&focus, cx));
+        assert_eq!(rings_drawn(cx), 0, "focused from a pointer click");
+        cx.simulate_keystrokes("shift");
+        assert_eq!(rings_drawn(cx), 1, "focused after a key");
     }
 }

@@ -93,7 +93,7 @@ impl Cell {
             .font_weight(FontWeight::MEDIUM)
             .whitespace_nowrap();
         frame
-            .focus(move |s| s.shadow(focus_ring(palette)))
+            .focus_visible(move |s| s.shadow(focus_ring(palette)))
             .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
     }
 

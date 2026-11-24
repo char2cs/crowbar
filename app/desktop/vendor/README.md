@@ -56,6 +56,10 @@ Drop it when upstream gpui offers letter spacing. Tracking: zed-industries/zed.
 
 Drop it when the shell no longer needs to scroll as WebKitGTK does.
 
+`painted-shadows` (`gpui-pre`, `src/window.rs`), applied on top of `webkit-wheel-step`: with `test-support`, `Window::painted_shadows` returns the last frame's shadows, as `painted_quads` returns its quads, so a test can see whether a focus ring is drawn.
+
+Drop it when upstream has a shadow accessor.
+
 ## calloop 0.14.5
 
 `tracing-without-log` (`Cargo.toml`): calloop, reached through `gpui-pre-linux`, asks for tracing's `log` feature, and cargo turns a feature on for every crate that uses tracing. With `log` on, each `tracing` macro also expands to its `log` fallback, which quadruples `clippy::cognitive_complexity` in every function that logs. Nothing in the shell reads `log` records (no `log` logger or bridge is installed), so calloop loses only output nobody received.

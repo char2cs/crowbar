@@ -147,7 +147,7 @@ impl RenderOnce for Checkbox {
             })
             .when(enabled, |d| d.cursor_pointer().tab_stop(true))
             .when(!enabled, |d| d.opacity(DISABLED_OPACITY))
-            .focus(move |s| s.shadow(focus_ring(palette)))
+            .focus_visible(move |s| s.shadow(focus_ring(palette)))
             .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
             .when(checked, |d| d.child(mark(palette)))
             .when(self.mixed == Pose::On, |d| d.child(dash(palette)))
