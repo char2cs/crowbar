@@ -91,6 +91,7 @@ fn preview(
         .children(dot);
     let pill = div()
         .flex()
+        .flex_none()
         .items_center()
         .gap(spacing::STEP_1_5)
         .px(spacing::STEP_2)
@@ -116,7 +117,7 @@ mod tests {
     use gpui::{AppContext as _, TestAppContext};
 
     use super::*;
-    use crate::test_support::probe::measure;
+    use crate::test_support::probe::{measure, open_floating, settle};
 
     #[gpui::test]
     fn the_preview_fits_its_name_on_an_eleven_pixel_line(cx: &mut TestAppContext) {
@@ -133,5 +134,17 @@ mod tests {
         let bounds = measure(cx, move |_, cx| cx.new(|_| TabPreview::new(name.clone())));
         let most = LABEL_MAX + 2.0 * f32::from(spacing::STEP_2) + 2.0;
         assert!(f32::from(bounds.size.width) <= most, "{bounds:?}");
+    }
+
+    #[gpui::test]
+    fn a_sized_preview_keeps_its_size_when_its_holder_has_none(cx: &mut TestAppContext) {
+        let tab = gpui::size(px(116.0), px(32.0));
+        let (_, mut top) = open_floating(cx, move |_, cx| {
+            let preview = cx.new(|_| TabPreview::new("Untitled").sized(tab));
+            div().relative().size_0().child(preview)
+        });
+        settle(&mut top);
+        let ghost = top.debug_bounds("drag-ghost").unwrap_or_default();
+        assert_eq!(ghost.size, tab, "a drag view lays its ghost out at no size");
     }
 }
