@@ -22,6 +22,10 @@ pub(crate) fn followed_workspace(state: &State) -> Option<&WorkspaceRecord> {
     slot.store.workspaces.get(&chat.workspace_id)
 }
 
+pub(crate) fn followed_workspace_id(state: &State) -> &str {
+    followed_workspace(state).map_or("", |workspace| workspace.id.as_str())
+}
+
 pub(crate) fn workspace_of_chat(
     state: &State,
     chat: &str,

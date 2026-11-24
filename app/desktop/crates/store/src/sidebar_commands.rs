@@ -84,7 +84,8 @@ impl SidebarCommands {
         path: &str,
     ) {
         let (open, listed, chat, client) = self.hub.edit(|state| {
-            let open = state.panels.toggle(path);
+            let workspace = crate::reads::files::followed_workspace_id(state).to_owned();
+            let open = state.panels.expansions.toggle(&workspace, path);
             let chat = state.panels.chat.clone();
             let client = chat.as_deref().and_then(|chat| state.client_of_chat(chat));
             (open, state.panels.listings.contains_key(path), chat, client)
@@ -290,6 +291,18 @@ mod tests {
         );
     }
 
+    fn status_asked(daemon: &FakeDaemon) -> bool {
+        let seen = daemon.seen();
+        seen.iter()
+            .any(|call| call.path == "/v0/chats/hc/git/status")
+    }
+
+    async fn until_status_asked(daemon: &FakeDaemon) {
+        while !status_asked(daemon) {
+            tokio::task::yield_now().await;
+        }
+    }
+
     async fn until_listed(commands: &SidebarCommands) {
         while commands.hub.read(|state| state.panels.listings.is_empty()) {
             tokio::task::yield_now().await;
@@ -339,6 +352,40 @@ mod tests {
             .filter(|call| call.path.contains("path=src"))
             .count();
         assert_eq!(listed, 1);
+    }
+
+    #[tokio::test]
+    async fn a_folder_opened_in_a_workspace_is_open_again_when_its_chat_is_followed_back() {
+        let (commands, daemon) = commands();
+        daemon.ok(
+            "GET",
+            "/v0/chats/hc/files/tree?path=.",
+            r#"[{"name":"src","path":"src","type":"directory"}]"#,
+        );
+        daemon.ok(
+            "GET",
+            "/v0/chats/hc/files/tree?path=src",
+            r#"[{"name":"m.rs","path":"src/m.rs","type":"file"}]"#,
+        );
+        commands
+            .dispatch(Command::ToggleDirectory("src".into()))
+            .unwrap();
+        until_listed(&commands).await;
+        commands
+            .hub
+            .edit(|state| state.panels.follow(Some("bo".into())));
+        commands
+            .hub
+            .edit(|state| state.panels.follow(Some("hc".into())));
+        panel_loader::followed_ask::ask(&commands.hub, &commands.handle);
+        until_status_asked(&daemon).await;
+        let rows = commands.hub.read(crate::reads::files);
+        let paths: Vec<&str> = rows.iter().map(|row| row.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            ["src", "src/m.rs"],
+            "develop keys open folders by workspace"
+        );
     }
 
     fn assert_all_refused(

@@ -1,10 +1,12 @@
 //! What the Files and Changes panels were last told about the focused workspace.
 
 mod asking;
+mod expansions;
 mod file_entry;
 mod ignore_rules;
 mod rule_set;
 
+pub(crate) use expansions::Expansions;
 pub(crate) use file_entry::FileEntry;
 
 use std::collections::{HashMap, HashSet};
@@ -22,7 +24,7 @@ pub(crate) struct PanelState {
     pub(crate) chat: Option<String>,
     pub(crate) asking: Asking,
     pub(crate) listings: HashMap<String, Vec<FileEntry>>,
-    pub(crate) expanded: HashSet<String>,
+    pub(crate) expansions: Expansions,
     pub(crate) statuses: IndexMap<String, GitStatus>,
     pub(crate) ignores: IgnoreRules,
     pub(crate) changes: Changes,
@@ -41,6 +43,7 @@ impl PanelState {
         }
         *self = Self {
             chat,
+            expansions: std::mem::take(&mut self.expansions),
             ..Self::default()
         };
     }
@@ -125,17 +128,6 @@ impl PanelState {
             self.open_threads = open_threads;
         }
     }
-
-    pub(crate) fn toggle(
-        &mut self,
-        path: &str,
-    ) -> bool {
-        if self.expanded.remove(path) {
-            return false;
-        }
-        self.expanded.insert(path.to_owned());
-        true
-    }
 }
 
 #[cfg(test)]
@@ -151,12 +143,5 @@ mod tests {
         assert_eq!(panel.listings.len(), 1);
         panel.follow(Some("b".into()));
         assert!(panel.listings.is_empty());
-    }
-
-    #[test]
-    fn toggle_alternates() {
-        let mut panel = PanelState::default();
-        assert!(panel.toggle("src"));
-        assert!(!panel.toggle("src"));
     }
 }

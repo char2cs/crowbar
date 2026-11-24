@@ -157,7 +157,7 @@ pub(crate) fn move_targets(
 }
 
 pub(crate) fn files(state: &State) -> Vec<FileRow> {
-    file_rows::of(&state.panels)
+    file_rows::of(&state.panels, files::followed_workspace_id(state))
 }
 
 pub(crate) fn changes(state: &State) -> Changes {
