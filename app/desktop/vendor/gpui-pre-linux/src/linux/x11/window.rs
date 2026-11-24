@@ -517,7 +517,6 @@ impl X11WindowState {
         let win_aux = xproto::CreateWindowAux::new()
             // https://stackoverflow.com/questions/43218127/x11-xlib-xcb-creating-a-window-requires-border-pixel-if-specifying-colormap-wh
             .border_pixel(visual_set.black_pixel)
-            .background_pixel(overlay.as_ref().map(|_| 0))
             .colormap(colormap)
             .override_redirect((params.kind == WindowKind::PopUp) as u32)
             .event_mask(
@@ -950,6 +949,10 @@ fn set_overlay_properties(
     bounds: Bounds<DevicePixels>,
 ) -> anyhow::Result<()> {
     let owner = link.owner;
+    check_reply(
+        || "X11 setting the background of an overlay failed.",
+        xcb.change_window_attributes(x_window, &overlay::background(link.composited)),
+    )?;
     if let Some(rects) = overlay::bounding(&link.content, link.composited) {
         check_reply(
             || "X11 cutting an overlay down to nothing failed.",
@@ -1535,6 +1538,12 @@ impl X11WindowStatePtr {
         };
         link.composited = composited;
         drop(state);
+        check_reply(
+            || "X11 setting the background of an overlay failed.",
+            self.xcb
+                .change_window_attributes(self.x_window, &overlay::background(composited)),
+        )
+        .log_err();
         self.apply_bounding();
         self.apply_catcher();
     }

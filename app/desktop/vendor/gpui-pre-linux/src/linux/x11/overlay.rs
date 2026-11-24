@@ -132,6 +132,19 @@ pub(crate) fn bounding(
     (!composited).then(|| shape_rects(content))
 }
 
+/// The background of an overlay, which X paints wherever the window is exposed, such as the
+/// area a growing bounding shape uncovers before the frame's pixels land. Without a compositor
+/// it is none, so X leaves the pixels beneath in place instead of filling them black; with one
+/// it is transparent, as a redirected window's first pixels are otherwise undefined.
+pub(crate) fn background(composited: bool) -> xproto::ChangeWindowAttributesAux {
+    let background = xproto::ChangeWindowAttributesAux::new();
+    match composited {
+        true => background.background_pixel(TRANSPARENT),
+        false => background.background_pixmap(x11rb::NONE),
+    }
+}
+const TRANSPARENT: u32 = 0;
+
 /// The selection a compositing manager owns on screen `screen` (EWMH `_NET_WM_CM_Sn`).
 pub(crate) fn compositor_selection(screen: usize) -> String {
     format!("_NET_WM_CM_S{screen}")
@@ -509,6 +522,16 @@ mod tests {
         assert!(bounding(&[menu], true).is_none());
         assert_eq!(bounding(&[menu], false).map(|r| plain(&r)), Some(plain(&[menu])));
         assert_eq!(bounding(&[], false).map(|r| plain(&r)), Some(plain(&[NOTHING])));
+    }
+
+    #[test]
+    fn without_a_compositor_an_exposed_overlay_keeps_the_pixels_beneath() {
+        let bare = background(false);
+        assert_eq!(bare.background_pixmap, Some(x11rb::NONE), "no background is painted");
+        assert_eq!(bare.background_pixel, None, "not a black fill");
+        let composited = background(true);
+        assert_eq!(composited.background_pixel, Some(TRANSPARENT));
+        assert_eq!(composited.background_pixmap, None);
     }
 
     #[test]

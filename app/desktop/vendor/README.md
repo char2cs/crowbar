@@ -41,6 +41,10 @@ Drop it when upstream gpui reads the detail of a focus change. Tracking: zed-ind
 
 Drop it when upstream gpui reports the physical key. Tracking: zed-industries/zed.
 
+`unpainted-exposure` (`gpui-pre-linux`, `src/linux/x11/overlay.rs`, `x11/window.rs`), applied on top of `physical-key`: without a compositor an overlay has no background, so X leaves the pixels beneath in place where the window is exposed; with one its background stays transparent. A frame's content region grows the bounding shape before that frame's pixels land, and the uncovered area was filled with the black background pixel until they did, so a drag ghost showed black for a frame each time it appeared or moved.
+
+Drop it with `overlay-window`.
+
 `overlay-focus-owner` (`gpui-pre`, `src/window.rs`), applied on top of `physical-key`: focusing an element in an overlay also focuses it in the owner. The owner hands its focus to its overlays on every frame, so with only the overlay's focus moved (a click into a dialog's field, a select opening its list) the owner's next frame, such as the one the window's activation draws, put the keyboard back on what the owner focused before.
 
 Drop it with `overlay-window`.
@@ -68,11 +72,7 @@ Drop it with `overlay-window`.
 
 Drop it when upstream gpui keeps focus-visible through pointer moves. Tracking: zed-industries/zed.
 
-`present-then-content` (`gpui-pre`, `src/window.rs`, `src/app.rs`), applied on top of `focus-visible-press`: an overlay reports its content region when the frame is presented, not when it is drawn. Without a compositor X11 cuts the overlay down to that region, and growing the cut before the frame's pixels arrived showed the new area black for a frame, as a drag ghost's first frame did. Test mode now presents after it draws, as a platform frame does, so tests still see the region.
-
-Drop it with `overlay-window`.
-
-`rounded-content` (`gpui-pre`, `src/window.rs`), applied on top of `present-then-content`: an overlay's content region leaves out the rounded corners of an opaque fill. Each corner arc becomes a rectangle per device-pixel row, and a pixel is kept when the arc covers its centre. Without a compositor the X11 overlay is cut to that region, and transparent pixels inside it show black. A rounded card counted as its square bounds, so the drag pill, menus and popovers had black square corners on bare X11.
+`rounded-content` (`gpui-pre`, `src/window.rs`), applied on top of `focus-visible-press`: an overlay's content region leaves out the rounded corners of an opaque fill. Each corner arc becomes a rectangle per device-pixel row, and a pixel is kept when the arc covers its centre. Without a compositor the X11 overlay is cut to that region, and transparent pixels inside it show black. A rounded card counted as its square bounds, so the drag pill, menus and popovers had black square corners on bare X11.
 
 Drop it with `overlay-window`.
 

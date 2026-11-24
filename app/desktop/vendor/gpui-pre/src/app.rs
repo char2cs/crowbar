@@ -2186,19 +2186,12 @@ impl App {
                         .values()
                         .filter_map(|window| {
                             let window = window.as_deref()?;
-                            let stale = window.invalidator.is_dirty() || window.needs_present.get();
-                            stale.then_some(window.handle)
+                            window.invalidator.is_dirty().then_some(window.handle)
                         })
                         .collect::<Vec<_>>()
                     {
-                        // As a platform frame does: draw what changed, then present it.
-                        self.update_window(window, |_, window, cx| {
-                            if window.invalidator.is_dirty() {
-                                window.draw(cx).clear(cx);
-                            }
-                            window.present();
-                        })
-                        .unwrap();
+                        self.update_window(window, |_, window, cx| window.draw(cx).clear(cx))
+                            .unwrap();
                     }
                 }
 

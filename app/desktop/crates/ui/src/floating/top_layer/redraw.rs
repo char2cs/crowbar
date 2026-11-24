@@ -124,7 +124,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn the_top_layer_reports_what_it_paints_only_once_that_frame_is_presented(
+    fn the_top_layer_reports_what_it_paints_before_that_frame_is_presented(
         cx: &mut TestAppContext
     ) {
         let painted = Rc::new(Cell::new(0.0));
@@ -134,11 +134,11 @@ mod tests {
         let drawn = top.update(|window, cx| {
             window.refresh();
             window.draw(cx).clear(cx);
-            window.content_region().to_vec()
+            window.content_region().len()
         });
-        assert_eq!(drawn, Vec::new(), "reported before its frame was presented");
-        settle(&mut top);
-        let presented = top.update(|window, _| window.content_region().len());
-        assert_eq!(presented, 1, "reported once presented");
+        assert_eq!(
+            drawn, 1,
+            "the cut must cover the frame's pixels when they land"
+        );
     }
 }

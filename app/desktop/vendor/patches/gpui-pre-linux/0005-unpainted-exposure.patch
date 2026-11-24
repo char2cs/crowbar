@@ -1,0 +1,73 @@
+--- a/src/linux/x11/overlay.rs
++++ b/src/linux/x11/overlay.rs
+@@ -132,6 +132,19 @@
+     (!composited).then(|| shape_rects(content))
+ }
+ 
++/// The background of an overlay, which X paints wherever the window is exposed, such as the
++/// area a growing bounding shape uncovers before the frame's pixels land. Without a compositor
++/// it is none, so X leaves the pixels beneath in place instead of filling them black; with one
++/// it is transparent, as a redirected window's first pixels are otherwise undefined.
++pub(crate) fn background(composited: bool) -> xproto::ChangeWindowAttributesAux {
++    let background = xproto::ChangeWindowAttributesAux::new();
++    match composited {
++        true => background.background_pixel(TRANSPARENT),
++        false => background.background_pixmap(x11rb::NONE),
++    }
++}
++const TRANSPARENT: u32 = 0;
++
+ /// The selection a compositing manager owns on screen `screen` (EWMH `_NET_WM_CM_Sn`).
+ pub(crate) fn compositor_selection(screen: usize) -> String {
+     format!("_NET_WM_CM_S{screen}")
+@@ -512,6 +525,16 @@
+     }
+ 
+     #[test]
++    fn without_a_compositor_an_exposed_overlay_keeps_the_pixels_beneath() {
++        let bare = background(false);
++        assert_eq!(bare.background_pixmap, Some(x11rb::NONE), "no background is painted");
++        assert_eq!(bare.background_pixel, None, "not a black fill");
++        let composited = background(true);
++        assert_eq!(composited.background_pixel, Some(TRANSPARENT));
++        assert_eq!(composited.background_pixmap, None);
++    }
++
++    #[test]
+     fn an_overlay_asks_for_no_decorations() {
+         assert_eq!(UNDECORATED[0] & MWM_HINTS_DECORATIONS, MWM_HINTS_DECORATIONS, "flags");
+         assert_eq!(UNDECORATED[2], 0, "decorations: none");
+--- a/src/linux/x11/window.rs
++++ b/src/linux/x11/window.rs
+@@ -517,7 +517,6 @@
+         let win_aux = xproto::CreateWindowAux::new()
+             // https://stackoverflow.com/questions/43218127/x11-xlib-xcb-creating-a-window-requires-border-pixel-if-specifying-colormap-wh
+             .border_pixel(visual_set.black_pixel)
+-            .background_pixel(overlay.as_ref().map(|_| 0))
+             .colormap(colormap)
+             .override_redirect((params.kind == WindowKind::PopUp) as u32)
+             .event_mask(
+@@ -950,6 +949,10 @@
+     bounds: Bounds<DevicePixels>,
+ ) -> anyhow::Result<()> {
+     let owner = link.owner;
++    check_reply(
++        || "X11 setting the background of an overlay failed.",
++        xcb.change_window_attributes(x_window, &overlay::background(link.composited)),
++    )?;
+     if let Some(rects) = overlay::bounding(&link.content, link.composited) {
+         check_reply(
+             || "X11 cutting an overlay down to nothing failed.",
+@@ -1535,6 +1538,12 @@
+         };
+         link.composited = composited;
+         drop(state);
++        check_reply(
++            || "X11 setting the background of an overlay failed.",
++            self.xcb
++                .change_window_attributes(self.x_window, &overlay::background(composited)),
++        )
++        .log_err();
+         self.apply_bounding();
+         self.apply_catcher();
+     }
