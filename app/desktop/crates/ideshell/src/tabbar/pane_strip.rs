@@ -456,6 +456,52 @@ mod tests {
         }
     }
 
+    fn left_of(
+        cx: &mut gpui::VisualTestContext,
+        frame: &'static str,
+    ) -> f32 {
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+        f32::from(cx.debug_bounds(frame).unwrap_or_default().left())
+    }
+
+    #[gpui::test]
+    fn a_passed_neighbour_slides_into_the_freed_slot_over_a_quarter_second(
+        cx: &mut TestAppContext
+    ) {
+        let cx = opened_with(cx, (3, 0, 1200.0), Moves::default());
+        let (first, second) = (
+            left_of(cx, "strip-tab-frame-t0"),
+            left_of(cx, "strip-tab-frame-t1"),
+        );
+        let lifted = cx.debug_bounds("strip-tab-frame-t0").unwrap_or_default();
+        let left = gpui::MouseButton::Left;
+        let at = |x: f32| gpui::point(lifted.center().x + px(x), lifted.center().y);
+        cx.simulate_mouse_down(at(0.0), left, Modifiers::none());
+        cx.simulate_mouse_move(at(10.0), Some(left), Modifiers::none());
+        cx.simulate_mouse_move(at(second - first + 2.0), Some(left), Modifiers::none());
+        let mut seen = vec![left_of(cx, "strip-tab-frame-t1")];
+        for step in [125, 125] {
+            cx.executor()
+                .advance_clock(std::time::Duration::from_millis(step));
+            seen.push(left_of(cx, "strip-tab-frame-t1"));
+        }
+        cx.simulate_mouse_up(at(second - first + 2.0), left, Modifiers::none());
+        let (start, mid, end) = (seen[0], seen[1], seen[2]);
+        assert!(
+            (start - second).abs() < 1.0,
+            "starts where it was: {seen:?}"
+        );
+        assert!(
+            first < mid && mid < second,
+            "on its way at 125 ms: {seen:?}"
+        );
+        assert!(
+            (end - first).abs() < 1.0,
+            "in the freed slot at 250 ms: {seen:?}"
+        );
+    }
+
     #[gpui::test]
     fn a_lifted_tab_s_preview_takes_the_tab_s_width(cx: &mut TestAppContext) {
         let cx = opened_with(cx, (1, 0, 1200.0), Moves::default());

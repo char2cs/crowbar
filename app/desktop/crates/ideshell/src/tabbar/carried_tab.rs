@@ -1,11 +1,13 @@
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    App, AppContext as _, Div, Entity, InteractiveElement, IntoElement, MouseDownEvent, RenderOnce,
-    Stateful, StatefulInteractiveElement, Styled, Window,
+    AnimationExt as _, AnyElement, App, AppContext as _, Div, ElementId, Entity,
+    InteractiveElement, IntoElement, MouseDownEvent, Pixels, RenderOnce, SharedString, Stateful,
+    StatefulInteractiveElement, Styled, Window,
 };
 use std::rc::Rc;
+use std::time::Duration;
 
-use ui::TabPreview;
+use ui::{CubicBezier, Motion, TabPreview};
 
 use crate::tabbar::strip_seat::StripSeat;
 use crate::tabbar::strip_state::StripState;
@@ -15,6 +17,7 @@ use crate::tabbar::tab_drag::TabDrag;
 use crate::tabbar::tab_ghost::TabGhost;
 
 const LIFTED_OPACITY: f32 = 0.4;
+const SLIDE: Duration = Duration::from_millis(250);
 
 #[derive(IntoElement)]
 pub(crate) struct CarriedTab {
@@ -64,16 +67,35 @@ impl RenderOnce for CarriedTab {
         cx: &mut App,
     ) -> impl IntoElement {
         let Self { tab, seat } = self;
-        let lifted = seat
-            .strip
-            .read(cx)
-            .drag
-            .as_ref()
-            .is_some_and(|drag| drag.lifts(seat.index));
+        let drag = seat.strip.read(cx).drag.as_ref();
+        let lifted = drag.is_some_and(|drag| drag.lifts(seat.index));
+        let slide = drag
+            .filter(|drag| drag.armed())
+            .and_then(|drag| drag.slide(seat.index));
+        let key = SharedString::from(format!("strip-slide-{}", seat.pane.as_str()));
         let picked = (tab.look.drag_preview(), Rc::clone(&tab.actions.select));
-        tab.element(cx, move |frame| wire(frame, seat, picked))
-            .when(lifted, |tab| tab.opacity(LIFTED_OPACITY))
+        let element = tab
+            .element(cx, move |frame| wire(frame, seat, picked))
+            .when(lifted, |tab| tab.opacity(LIFTED_OPACITY));
+        match slide {
+            Some((seat, offset)) => sliding(element, ((key, seat).into(), offset), cx),
+            None => element.into_any_element(),
+        }
     }
+}
+
+fn sliding(
+    element: Div,
+    (id, offset): (ElementId, Pixels),
+    cx: &App,
+) -> AnyElement {
+    let animation = Motion::of(cx).animation(SLIDE, CubicBezier::EASE);
+    element
+        .relative()
+        .with_animation(id, animation, move |tab, done| {
+            tab.left(offset * (1.0 - done))
+        })
+        .into_any_element()
 }
 
 fn wire(

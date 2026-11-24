@@ -70,11 +70,10 @@ impl StripState {
         tabs: usize,
     ) {
         let lead = self.first_tab(tabs);
-        let centres = (lead..lead + tabs)
+        let slots = (lead..lead + tabs)
             .filter_map(|child| self.scroll.bounds_for_item(child))
-            .map(|bounds| bounds.center().x)
             .collect();
-        self.drag = Some(StripDrag::new(tab, self.pressed, centres));
+        self.drag = Some(StripDrag::new(tab, self.pressed, slots));
     }
 
     pub(crate) fn tab_width(

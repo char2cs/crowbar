@@ -1,4 +1,4 @@
-use gpui::{Pixels, Point};
+use gpui::{Bounds, Pixels, Point};
 use protocol::PaneId;
 
 const ACTIVATION: f32 = 6.0;
@@ -10,22 +10,25 @@ pub(crate) struct StripDrag {
     press: Point<Pixels>,
     armed: bool,
     target: usize,
-    centres: Vec<Pixels>,
+    slots: Vec<Bounds<Pixels>>,
+    origins: Vec<Pixels>,
 }
 
 impl StripDrag {
     pub(crate) fn new(
         (pane, from): (PaneId, usize),
         press: Point<Pixels>,
-        centres: Vec<Pixels>,
+        slots: Vec<Bounds<Pixels>>,
     ) -> Self {
+        let origins = slots.iter().map(Bounds::left).collect();
         Self {
             pane,
             from,
             press,
             armed: false,
             target: from,
-            centres,
+            slots,
+            origins,
         }
     }
 
@@ -36,24 +39,83 @@ impl StripDrag {
         let before = (self.armed, self.target);
         self.armed |= (pointer - self.press).magnitude() >= f64::from(ACTIVATION);
         if self.armed {
-            self.target = self.closest(pointer.x - self.press.x);
+            self.retarget(self.closest(pointer.x - self.press.x));
         }
         before != (self.armed, self.target)
+    }
+
+    fn retarget(
+        &mut self,
+        target: usize,
+    ) {
+        if target == self.target {
+            return;
+        }
+        let before = self.lefts();
+        self.target = target;
+        let after = self.lefts();
+        let moved = before
+            .into_iter()
+            .zip(after)
+            .map(|(was, now)| (was != now).then_some(was));
+        for (origin, was) in self.origins.iter_mut().zip(moved) {
+            *origin = was.unwrap_or(*origin);
+        }
+    }
+
+    fn lefts(&self) -> Vec<Pixels> {
+        let (Some(first), gap) = (self.slots.first(), self.gap()) else {
+            return Vec::new();
+        };
+        let advance = |index: usize| {
+            self.slots
+                .get(index)
+                .map_or(Pixels::ZERO, |slot| slot.size.width + gap)
+        };
+        let mut placed: Vec<(usize, Pixels)> = self
+            .order(self.slots.len())
+            .into_iter()
+            .scan(first.left(), |left, index| {
+                let at = *left;
+                *left += advance(index);
+                Some((index, at))
+            })
+            .collect();
+        placed.sort_by_key(|(index, _)| *index);
+        placed.into_iter().map(|(_, left)| left).collect()
+    }
+
+    fn gap(&self) -> Pixels {
+        match self.slots.as_slice() {
+            [first, second, ..] => second.left() - first.right(),
+            _ => Pixels::ZERO,
+        }
+    }
+
+    pub(crate) fn slide(
+        &self,
+        index: usize,
+    ) -> Option<(usize, Pixels)> {
+        let order = self.order(self.slots.len());
+        let seat = order.iter().position(|shown| *shown == index)?;
+        let now = self.lefts().get(index).copied()?;
+        let origin = self.origins.get(index).copied()?;
+        Some((seat, origin - now))
     }
 
     fn closest(
         &self,
         shift: Pixels,
     ) -> usize {
-        let Some(start) = self.centres.get(self.from) else {
+        let Some(start) = self.slots.get(self.from) else {
             return self.target;
         };
-        let centre = *start + shift;
-        let distance = |slot: Pixels| f32::from((slot - centre).abs());
-        self.centres
+        let centre = start.center().x + shift;
+        let distance = |slot: &Bounds<Pixels>| f32::from((slot.center().x - centre).abs());
+        self.slots
             .iter()
             .enumerate()
-            .min_by(|a, b| distance(*a.1).total_cmp(&distance(*b.1)))
+            .min_by(|a, b| distance(a.1).total_cmp(&distance(b.1)))
             .map_or(self.target, |(index, _)| index)
     }
 
@@ -156,6 +218,25 @@ mod tests {
             let landing = drag.landing().map(|(_, index)| index);
             assert_eq!(landing, case.landing, "{}: landing", case.name);
         }
+    }
+
+    #[test]
+    fn a_shifted_tab_slides_from_the_slot_it_last_left_and_a_still_one_keeps_its_course() {
+        let slides =
+            |drag: &super::StripDrag| (0..3).map(|index| drag.slide(index)).collect::<Vec<_>>();
+        let seat = |at: usize, offset: f32| Some((at, gpui::px(offset)));
+        let past_one = dragged(0, &[6.0, 120.0]);
+        assert_eq!(
+            slides(&past_one),
+            [seat(1, -100.0), seat(0, 100.0), seat(2, 0.0)],
+            "the lifted tab and the passed one swap slots"
+        );
+        let past_both = dragged(0, &[6.0, 120.0, 260.0]);
+        assert_eq!(
+            slides(&past_both),
+            [seat(2, -100.0), seat(0, 100.0), seat(1, 100.0)],
+            "the first passed tab still slides from where it stood"
+        );
     }
 
     #[test]
