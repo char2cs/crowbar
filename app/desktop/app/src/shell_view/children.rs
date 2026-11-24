@@ -57,11 +57,11 @@ pub(super) fn build_panes<V: 'static>(
         .reviewing(Rc::new(move |chat| reviews.chat_reviews_branch(chat)))
         .locking(Rc::new(move |chat| locks.chat_read_only(chat)))
         .iconing(icons_of(data));
-    let source = Rc::new(source);
-    let view_source = Rc::clone(&source);
-    let layout = cx.new(|_| LayoutView::new(view_source));
     let first_tab = state.serials().next_tab();
     let tabs = cx.new(|_| TabBar::new(first_tab));
+    let source = Rc::new(source.previewing(previews_of(&tabs)));
+    let view_source = Rc::clone(&source);
+    let layout = cx.new(|_| LayoutView::new(view_source));
     let workspace = cx.new(|_| Workspace::new(tabs.clone(), layout.clone()));
     Panes {
         layout,
@@ -69,6 +69,11 @@ pub(super) fn build_panes<V: 'static>(
         workspace,
         source,
     }
+}
+
+fn previews_of(tabs: &Entity<TabBar>) -> crate::shell_pane_source::PanePreviews {
+    let bar = tabs.downgrade();
+    Rc::new(move |pane, cx| bar.upgrade()?.read(cx).preview(pane))
 }
 
 fn editors_of(

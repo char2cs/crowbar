@@ -1,8 +1,18 @@
-use gpui::SharedString;
+use gpui::{AnyElement, App, SharedString};
 use layout::TabId;
 use protocol::PaneId;
 
-use super::ShellPaneSource;
+use super::{PanePreviews, ShellPaneSource};
+
+impl ShellPaneSource {
+    pub(crate) fn previewing(
+        mut self,
+        previews: PanePreviews,
+    ) -> Self {
+        self.previews = previews;
+        self
+    }
+}
 
 impl layoutview::PaneDetach for ShellPaneSource {
     fn label(
@@ -13,6 +23,14 @@ impl layoutview::PaneDetach for ShellPaneSource {
             || crate::chat_label::NEW_CHAT.into(),
             |title| title.to_string().into(),
         )
+    }
+
+    fn preview(
+        &self,
+        pane: &PaneId,
+        cx: &App,
+    ) -> Option<AnyElement> {
+        (self.previews)(pane, cx)
     }
 
     fn fresh_tab(

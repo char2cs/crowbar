@@ -101,7 +101,7 @@ impl LayoutView {
         }
         Some(PaneHandle {
             pane: pane.clone(),
-            label: self.source.label(pane),
+            source: std::rc::Rc::clone(&self.source),
             opacity,
             on_detach: Self::detach_action(pane, cx),
             on_close: Self::close_action(pane, cx),

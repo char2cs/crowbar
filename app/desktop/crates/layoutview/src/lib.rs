@@ -19,6 +19,7 @@ mod drop_hover;
 mod drop_preview;
 mod drop_target;
 mod edge_contact;
+mod grip_ghost;
 mod handle_button;
 mod hover_route;
 mod hover_source;

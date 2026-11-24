@@ -16,6 +16,7 @@ pub(crate) type ChatGlyphs = std::rc::Rc<dyn Fn(&str) -> Option<String>>;
 pub(crate) type ChatReviews = std::rc::Rc<dyn Fn(&str) -> bool>;
 pub(crate) use crate::chat_locks::ChatLocks;
 pub(crate) type FileIcons = std::rc::Rc<dyn Fn() -> sidebar::IconTheme>;
+pub(crate) type PanePreviews = std::rc::Rc<dyn Fn(&PaneId, &App) -> Option<AnyElement>>;
 
 pub(crate) struct ShellPaneSource {
     titles: Titles,
@@ -27,6 +28,7 @@ pub(crate) struct ShellPaneSource {
     reviews: ChatReviews,
     locks: ChatLocks,
     icons: (FileIcons, std::rc::Rc<ui::MaterialTable>),
+    previews: PanePreviews,
 }
 
 impl ShellPaneSource {
@@ -49,6 +51,7 @@ impl ShellPaneSource {
                 std::rc::Rc::new(sidebar::IconTheme::default),
                 std::rc::Rc::default(),
             ),
+            previews: std::rc::Rc::new(|_, _| None),
         }
     }
 

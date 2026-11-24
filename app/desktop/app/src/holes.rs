@@ -76,6 +76,14 @@ mod tests {
             "pane".into()
         }
 
+        fn preview(
+            &self,
+            _pane: &PaneId,
+            _cx: &gpui::App,
+        ) -> Option<gpui::AnyElement> {
+            None
+        }
+
         fn fresh_tab(
             &self,
             _pane: &PaneId,

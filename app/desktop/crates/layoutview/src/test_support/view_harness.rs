@@ -149,6 +149,14 @@ pub(crate) fn open_floating(
     cx: &mut TestAppContext,
     layout: &Layout,
 ) -> Floating {
+    open_floating_with(cx, layout, FakeSource::starting_at_first_tab())
+}
+
+pub(crate) fn open_floating_with(
+    cx: &mut TestAppContext,
+    layout: &Layout,
+    source: FakeSource,
+) -> Floating {
     cx.update(|cx| {
         ui::init(cx).expect("ui init");
         cx.set_global(Theme::default());
@@ -157,8 +165,7 @@ pub(crate) fn open_floating(
     let clock = Rc::new(Cell::new(Instant::now()));
     let reading = Rc::clone(&clock);
     let window = cx.add_window(move |_, _| {
-        let source = Rc::new(FakeSource::starting_at_first_tab());
-        LayoutView::with_clock(source, Rc::new(move || reading.get()))
+        LayoutView::with_clock(Rc::new(source), Rc::new(move || reading.get()))
     });
     let view = window
         .entity(cx)

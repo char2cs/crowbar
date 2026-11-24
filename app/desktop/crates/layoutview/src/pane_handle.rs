@@ -1,13 +1,16 @@
+use std::rc::Rc;
+
+use crate::grip_ghost::GripGhost;
 use crate::handle_button::{HandleAction, HandleButton};
 use crate::hover_route::route;
+use crate::pane_source::PaneSource;
 use gpui::{
-    App, AppContext as _, CursorStyle, ElementId, Hsla, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, RenderOnce, SharedString, StatefulInteractiveElement, Styled,
-    Window, div, px,
+    App, CursorStyle, ElementId, Hsla, InteractiveElement, IntoElement, MouseButton, ParentElement,
+    RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
 use layout::DragSubject;
 use protocol::PaneId;
-use ui::{DragGhost, Icon, IconName, IconWeight, Surface, Theme, Tooltip, shadow};
+use ui::{Icon, IconName, IconWeight, Surface, Theme, Tooltip, shadow};
 
 const WIDTH: f32 = 69.0;
 const HEIGHT: f32 = 21.0;
@@ -20,12 +23,11 @@ const BOTTOM_RADIUS: f32 = 8.0;
 const GRIP: f32 = 10.0;
 const DETACH: f32 = 10.0;
 const CLOSE: f32 = 8.0;
-const GHOST_WIDTH: f32 = 160.0;
 
 #[derive(Clone, IntoElement)]
 pub(crate) struct PaneHandle {
     pub(crate) pane: PaneId,
-    pub(crate) label: SharedString,
+    pub(crate) source: Rc<dyn PaneSource>,
     pub(crate) opacity: f32,
     pub(crate) on_detach: HandleAction,
     pub(crate) on_close: HandleAction,
@@ -47,7 +49,7 @@ impl RenderOnce for PaneHandle {
         let palette = Theme::of(cx).palette(Surface::Window);
         let ink = palette.primary_foreground();
         let name = self.pane.as_str().to_owned();
-        let grip = grip(self.pane, self.label, ink);
+        let grip = grip(self.pane, self.source, ink);
         let [leave, enter] = self.on_hover;
         div()
             .id(element_id(&name, "handle"))
@@ -114,7 +116,7 @@ fn element_id(
 
 fn grip(
     pane: PaneId,
-    label: SharedString,
+    source: Rc<dyn PaneSource>,
     ink: Hsla,
 ) -> impl IntoElement {
     div()
@@ -124,8 +126,8 @@ fn grip(
         .items_center()
         .justify_center()
         .cursor(CursorStyle::OpenHand)
-        .on_drag(DragSubject::Pane(pane), move |_, _, _, cx| {
-            cx.new(|_| DragGhost::new(label.clone(), GHOST_WIDTH))
+        .on_drag(DragSubject::Pane(pane.clone()), move |_, held, _, cx| {
+            GripGhost::lift((pane.clone(), Rc::clone(&source)), held, cx)
         })
         .child(
             Icon::new(IconName::DotsSixVertical)

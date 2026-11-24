@@ -1,6 +1,6 @@
 //! What dragging a pane out of its strip needs.
 
-use gpui::SharedString;
+use gpui::{AnyElement, App, SharedString};
 use layout::TabId;
 use protocol::PaneId;
 
@@ -11,6 +11,14 @@ pub trait PaneDetach {
         &self,
         pane: &PaneId,
     ) -> SharedString;
+
+    /// The pane drawn as its grip's drag ghost, centred on the grip; `None` draws the labelled
+    /// pill.
+    fn preview(
+        &self,
+        pane: &PaneId,
+        cx: &App,
+    ) -> Option<AnyElement>;
 
     /// A tab id nobody uses yet and the title for the tab a detached pane opens.
     fn fresh_tab(
