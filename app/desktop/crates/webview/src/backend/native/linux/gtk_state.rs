@@ -252,6 +252,7 @@ mod tests {
     use crate::scheme::ProtocolRequest;
     use crate::scheme::ProtocolResponse;
     use crate::scheme::{ProtocolHandler, ProtocolResponder};
+    use crate::test_support::x11_windows::{transient_for, xid};
     use crate::view::Bounds;
     use crate::view::Color;
     use crate::view::Visibility;
@@ -464,6 +465,16 @@ mod tests {
         a_view_shows_the_background_it_is_given();
         a_page_request_body_reaches_the_protocol_handler();
         only_focus_inside_the_view_lays_it_out();
-        file_chooser::tests::the_chooser_is_transient_for_the_shell_window();
+        the_chooser_is_transient_for_the_shell_window();
+    }
+
+    fn the_chooser_is_transient_for_the_shell_window() {
+        let shell = gtk::Window::new(gtk::WindowType::Toplevel);
+        shell.show_all();
+        let top = xid(&shell.window().unwrap());
+        let dialog = file_chooser::chooser(top);
+        gtk::gdk::Display::default().unwrap().sync();
+        let over = transient_for(xid(&dialog.window().unwrap()));
+        assert_eq!(over, Some(top), "transient for the shell window");
     }
 }

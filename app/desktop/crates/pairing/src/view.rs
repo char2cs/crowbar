@@ -364,6 +364,17 @@ mod tests {
             .children(layers.dialog.clone())
     }
 
+    fn hold(
+        layers: &Entity<Layers>,
+        dialog: &Entity<View>,
+        cx: &mut gpui::App,
+    ) {
+        layers.update(cx, |layers, cx| {
+            layers.dialog = Some(dialog.clone());
+            cx.notify();
+        });
+    }
+
     #[gpui::test]
     fn a_dialog_opened_while_the_top_layer_holds_the_keyboard_types_into_its_name(
         cx: &mut TestAppContext
@@ -389,17 +400,13 @@ mod tests {
         });
         owner.run_until_parked();
         let source: Rc<dyn Source> = Rc::new(Fake::default());
-        let dialog = owner.update(|window, cx| {
-            let dialog = cx.new(|cx| View::over(source, window, cx));
-            layers.update(cx, |layers, cx| {
-                layers.dialog = Some(dialog.clone());
-                cx.notify();
-            });
-            // The X11 top layer can draw the new dialog before its owner's next frame.
+        let dialog = owner.update(|window, cx| cx.new(|cx| View::over(source, window, cx)));
+        owner.update(|_, cx| hold(&layers, &dialog, cx));
+        // PLATFORM: linux the X11 top layer can draw the new dialog before its owner's next frame.
+        owner.update(|_, cx| {
             shown
                 .update(cx, |_, window, cx| window.draw(cx).clear(cx))
                 .unwrap();
-            dialog
         });
         owner.run_until_parked();
         top.simulate_input("如同我");
