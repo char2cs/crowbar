@@ -48,6 +48,11 @@ impl ViewLifecycle for MockPlatform {
         self.record(Call::Destroy { id });
         Ok(())
     }
+
+    fn settle(&self) -> Result<()> {
+        self.record(Call::Settle);
+        Ok(())
+    }
 }
 
 impl ViewLayout for MockPlatform {

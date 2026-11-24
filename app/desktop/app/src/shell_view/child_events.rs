@@ -36,6 +36,7 @@ impl ShellView {
             cx.observe_window_activation(window, |this, window, cx| {
                 this.on_window_activation(window, cx);
             }),
+            cx.on_app_quit(|this, _| this.close_before_quitting()),
             cx.observe_overlay_keys(window, |this, window, cx| {
                 this.return_keyboard(window, cx);
             }),
@@ -56,6 +57,11 @@ impl ShellView {
     ) {
         self.state.keep_keyboard_in_shell();
         self.sync(cx);
+    }
+
+    fn close_before_quitting(&mut self) -> impl Future<Output = ()> + use<> {
+        self.state.close_web_views();
+        async {}
     }
 
     fn on_window_activation(

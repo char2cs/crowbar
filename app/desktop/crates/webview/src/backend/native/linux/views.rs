@@ -19,6 +19,12 @@ use crate::view::Visibility;
 
 const CREATE_PATIENCE: Duration = Duration::from_secs(5);
 
+fn answer_settled(reply: &mpsc::Sender<Result<()>>) {
+    if reply.send(Ok(())).is_err() {
+        tracing::debug!("nobody waits for the web views to settle");
+    }
+}
+
 fn settle_create(
     state: &mut GtkState,
     reply: CreateReply,
@@ -50,6 +56,12 @@ impl ViewLifecycle for GtkPlatform {
         id: Id,
     ) -> Result<()> {
         self.post_logged("destroy", move |state| state.destroy(id))
+    }
+
+    fn settle(&self) -> Result<()> {
+        let (reply, answer) = mpsc::channel();
+        self.post(move |_| answer_settled(&reply))?;
+        wait_for(&answer, CREATE_PATIENCE)
     }
 }
 

@@ -75,6 +75,8 @@ pub enum Call {
         /// The view.
         id: Id,
     },
+    /// Every earlier request was waited for.
+    Settle,
     /// The browser views' storage was cleared.
     ClearBrowsingData,
     /// The desktop's caret blink was followed.

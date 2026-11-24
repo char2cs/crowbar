@@ -50,6 +50,7 @@ impl ShellView {
     ) -> bool {
         let dirty = self.state.dirty().all();
         if dirty.is_empty() {
+            self.state.close_web_views();
             return true;
         }
         if self.pending_close.is_none() {
@@ -124,7 +125,10 @@ impl ShellView {
                 self.state.apply(commands);
                 self.refresh(cx);
             },
-            CloseStep::Run(Closing::Window) => window.remove_window(),
+            CloseStep::Run(Closing::Window) => {
+                self.state.close_web_views();
+                window.remove_window();
+            },
             CloseStep::Wait(pending) => self.pending_close = Some(pending),
             CloseStep::Stop => {},
         }
@@ -178,6 +182,27 @@ mod tests {
         opened.window.simulate_keystrokes("ctrl-shift-s");
         opened.window.run_until_parked();
         assert_eq!(saves_asked(&opened.mock) - before, 1, "the dirty chat page");
+    }
+
+    fn web_views(opened: &mut crate::shell_view::tests::Opened) -> usize {
+        opened.shell.update(&mut opened.window, |shell, _| {
+            shell.state.host().web_view_count()
+        })
+    }
+
+    #[gpui::test]
+    fn a_window_allowed_to_close_has_destroyed_its_web_views(cx: &mut gpui::TestAppContext) {
+        let mut opened = crate::shell_view::tests::open_shell(cx);
+        assert!(web_views(&mut opened) > 0, "the chat page");
+        let allowed = opened
+            .shell
+            .update(&mut opened.window, ShellView::allow_window_close);
+        assert!(allowed);
+        assert_eq!(
+            web_views(&mut opened),
+            0,
+            "gone while their parent window still exists"
+        );
     }
 
     #[test]

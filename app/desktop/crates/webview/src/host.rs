@@ -66,6 +66,14 @@ impl Host {
         self.platform.follow_caret(report)
     }
 
+    /// Returns once every view destroyed before it is gone from the platform.
+    ///
+    /// # Errors
+    /// An [`Error`](crate::Error) when the backend has stopped or does not answer in time.
+    pub fn settle(&self) -> Result<()> {
+        self.platform.settle()
+    }
+
     /// Creates a web view inside `window` and returns its handle.
     ///
     /// # Errors

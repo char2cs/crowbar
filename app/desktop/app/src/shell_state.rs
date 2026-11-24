@@ -163,6 +163,13 @@ impl ShellState {
         self.keyboard = Keyboard::Shell;
     }
 
+    // PLATFORM: linux GTK ends the process on its next request to a web view whose parent window is gone.
+    pub(crate) fn close_web_views(&mut self) {
+        if let Err(error) = self.host.close_web_views() {
+            tracing::warn!(%error, "the web views did not close before their window");
+        }
+    }
+
     fn run(
         &mut self,
         commands: Vec<Command>,

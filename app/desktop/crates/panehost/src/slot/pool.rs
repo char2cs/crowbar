@@ -64,6 +64,10 @@ impl Pool {
         }
     }
 
+    pub(crate) fn clear(&mut self) {
+        self.slots.clear();
+    }
+
     pub(crate) fn discard(
         &mut self,
         id: Id,

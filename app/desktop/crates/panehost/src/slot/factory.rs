@@ -50,6 +50,10 @@ impl Factory {
         self.webviews.clear_browsing_data()
     }
 
+    pub(crate) fn settle(&self) -> webview::Result<()> {
+        self.webviews.settle()
+    }
+
     pub(crate) fn create(
         &self,
         request: Request,
