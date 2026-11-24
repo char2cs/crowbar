@@ -1,5 +1,5 @@
 use gpui::Context;
-use layout::Tab;
+use layout::{Tab, TabId};
 use protocol::PaneId;
 use settings::{Key, Read as _};
 use sidebar::{Activity, Row, Titling};
@@ -52,6 +52,15 @@ impl ShellView {
         tab: &Tab,
     ) -> Vec<String> {
         projects_of(tab, |chat| self.data.chat_project(chat))
+    }
+
+    pub(super) fn tab_projects_of(
+        &self,
+        tab: TabId,
+    ) -> Vec<String> {
+        let layout = self.state.layout();
+        let found = layout.tabs().iter().find(|shown| shown.id() == tab);
+        found.map_or_else(Vec::new, |tab| self.tab_projects(tab))
     }
 }
 
@@ -169,7 +178,7 @@ mod tests {
 
     fn open(
         layout: &mut layout::Layout,
-        tab: layout::TabId,
+        tab: TabId,
         instance: layout::PaneInstance,
     ) {
         layout
@@ -183,7 +192,7 @@ mod tests {
 
     #[test]
     fn a_tab_belongs_to_the_projects_of_the_chats_its_panes_hold() {
-        let tab = layout::TabId(1);
+        let tab = TabId(1);
         let mut layout = layout::Layout::default();
         layout
             .apply(layout::Command::AddTab {
@@ -218,7 +227,7 @@ mod tests {
         params: protocol::Params,
     ) -> layout::Layout {
         let mut layout = layout::Layout::default();
-        let tab = layout::TabId(1);
+        let tab = TabId(1);
         layout
             .apply(layout::Command::AddTab {
                 id: tab,
