@@ -332,7 +332,7 @@ describe('AgentChatPaneGate before any host has listed', () => {
   })
 
   it('waits as before when nothing could be read back', async () => {
-    globalThis.indexedDB = undefined as unknown as IDBFactory
+    vi.stubGlobal('indexedDB', undefined)
     await hydrateHostPlacements()
 
     mount('w-remote')
