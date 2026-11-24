@@ -1,36 +1,38 @@
-//! The icon popover of a space: preview, upload, emoji and reset.
+//! The icon popover of a space or a repository: preview, upload, emoji, GitHub and reset.
+
+mod github;
+mod preview;
 
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use gpui::StyledImage as _;
 use gpui::TaskExt as _;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     App, AppContext as _, Context, Div, InteractiveElement as _, IntoElement, ParentElement,
-    PathPromptOptions, Render, Styled, Subscription, Window, div, img, px,
+    PathPromptOptions, Render, Styled, Subscription, Window, div, px,
 };
-use sidebar::SpaceIcon;
+use sidebar::{Mark, SpaceIcon};
 use ui::{
-    Button, ButtonSize, ButtonVariant, Icon, IconName, Palette, Surface, TextInput, TextInputEvent,
-    TextInputStyle, Theme, radius,
+    Button, ButtonSize, ButtonVariant, IconName, Surface, TextInput, TextInputEvent,
+    TextInputStyle, Theme,
 };
 
 use crate::column::switcher::icon_label::section_label;
 use crate::sidebar::scale::{SPACE_LG, SPACE_SM};
 
-const PREVIEW: f32 = 56.0;
-const EMOJI_PREVIEW: f32 = 24.0;
-const GLYPH_PREVIEW: f32 = 24.0;
 const WIDTH: f32 = 222.0;
 
 pub(crate) type Pick = Rc<dyn Fn(SpaceIcon, &mut App)>;
+pub(crate) type Act = Rc<dyn Fn(&mut App)>;
 
 pub(crate) struct IconEditor {
     pub(crate) current: SpaceIcon,
     emoji: gpui::Entity<TextInput>,
     typing: bool,
     pick: Pick,
+    fallback: Mark,
+    github: Option<Act>,
     _typed: Subscription,
 }
 
@@ -53,6 +55,8 @@ impl IconEditor {
             emoji,
             typing: false,
             pick,
+            fallback: Mark::Fallback,
+            github: None,
             _typed: typed,
         }
     }
@@ -126,40 +130,6 @@ fn first_image(paths: &[PathBuf]) -> Option<SpaceIcon> {
     paths.first().and_then(|path| SpaceIcon::image(path))
 }
 
-fn preview(
-    icon: &SpaceIcon,
-    palette: &Palette,
-) -> Div {
-    let frame = div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center()
-        .size(px(PREVIEW))
-        .rounded(radius::XL)
-        .overflow_hidden()
-        .bg(palette.background())
-        .debug_selector(|| "icon-preview".into());
-    let framed = match icon {
-        SpaceIcon::Emoji(text) => frame
-            .font(ui::font::emoji_font())
-            .text_size(px(EMOJI_PREVIEW))
-            .child(text.clone()),
-        SpaceIcon::Image(path) => frame.child(
-            img(PathBuf::from(path))
-                .size(px(PREVIEW))
-                .rounded(radius::XL)
-                .object_fit(gpui::ObjectFit::Cover),
-        ),
-        SpaceIcon::Default => frame.child(
-            Icon::new(IconName::Books)
-                .size(px(GLYPH_PREVIEW))
-                .color(palette.foreground()),
-        ),
-    };
-    div().flex().justify_center().child(framed)
-}
-
 impl IconEditor {
     fn action_row(
         &self,
@@ -184,6 +154,7 @@ impl IconEditor {
             .debug_selector(|| "icon-actions".into())
             .child(upload)
             .child(emoji)
+            .children(self.github_button(cx))
     }
 
     fn typing_row(
@@ -191,7 +162,7 @@ impl IconEditor {
         cx: &mut Context<'_, Self>,
     ) -> Option<Div> {
         let set = Button::new("icon-emoji-set", "Set")
-            .size(ButtonSize::Xs)
+            .size(ButtonSize::Sm)
             .on_click(cx.listener(|this, _, _, cx| this.set_emoji(cx)));
         let set = set.when(
             self.emoji.read(cx).text().trim().is_empty(),
@@ -235,7 +206,7 @@ impl Render for IconEditor {
             .w(px(WIDTH))
             .debug_selector(|| "icon-editor".into())
             .child(section_label(palette))
-            .child(preview(&self.current, palette))
+            .child(self.preview(palette))
             .child(self.action_row(cx))
             .children(self.typing_row(cx))
             .children(self.reset_button(cx))

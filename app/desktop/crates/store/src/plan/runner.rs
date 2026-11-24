@@ -179,6 +179,7 @@ fn fail(
     let Some(title) = plan.failure.clone() else {
         return outcome(Outcome::Failed(reason));
     };
+    let reason = plan.explained.clone().unwrap_or(reason);
     outcome(Outcome::Refused { title, reason });
 }
 
@@ -308,6 +309,19 @@ mod tests {
             reason: "workspace is busy".into(),
         };
         assert_eq!(*seen.lock().unwrap(), [refused]);
+        let explained = Plan::of("local", vec![Call::post("/v0/projects/p/home/chats")])
+            .failing_as(Some("New thread failed".into()))
+            .explaining("Try again.");
+        run(&hub, explained, &outcome).await;
+        let told = Outcome::Refused {
+            title: "New thread failed".into(),
+            reason: "Try again.".into(),
+        };
+        assert_eq!(
+            seen.lock().unwrap()[1],
+            told,
+            "a set reason replaces the daemon's"
+        );
     }
 
     async fn no_enabled_agent_stops_before_any_create_and_a_drop_plan_only_forgets() {

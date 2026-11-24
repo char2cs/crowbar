@@ -126,7 +126,8 @@ impl Sidebar {
             project: project.id.clone(),
             handler: Rc::clone(&handler),
         };
-        let rows = self.tree_rows(&tree, (&handler, width));
+        let me = cx.weak_entity();
+        let rows = self.tree_rows(&tree, (&handler, width, &me));
         let list = div()
             .flex()
             .flex_col()

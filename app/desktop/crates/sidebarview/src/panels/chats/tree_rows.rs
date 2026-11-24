@@ -3,8 +3,10 @@
 use std::rc::Rc;
 use std::time::Instant;
 
-use gpui::{AnyElement, IntoElement};
-use sidebar::{Editing, Expansion, Hold, ProjectTree, Row, RowKind, VisibleRow, Worktree};
+use gpui::{AnyElement, IntoElement, WeakEntity};
+use sidebar::{
+    Command, Editing, Expansion, Hold, ProjectTree, Row, RowKind, SpaceIcon, VisibleRow, Worktree,
+};
 
 use crate::panels::chats::kinds::OperationRow;
 use crate::panels::chats::kinds::RemovingRow;
@@ -34,7 +36,7 @@ impl Sidebar {
     pub(crate) fn tree_rows(
         &self,
         tree: &ProjectTree,
-        (handler, width): (&RowHandler, f32),
+        (handler, width, me): (&RowHandler, f32, &WeakEntity<Self>),
     ) -> Vec<AnyElement> {
         let now = self.clock.now();
         self.tree
@@ -44,7 +46,7 @@ impl Sidebar {
             .flat_map(|(row, visible)| {
                 let draft = self.draft_below(&row, handler);
                 [
-                    Some(self.row_element((row, visible), now, (handler, width))),
+                    Some(self.row_element((row, visible), now, (handler, width, me))),
                     draft,
                 ]
             })
@@ -56,9 +58,9 @@ impl Sidebar {
         &self,
         entry: (Row, VisibleRow),
         now: Instant,
-        layout: (&RowHandler, f32),
+        layout: (&RowHandler, f32, &WeakEntity<Self>),
     ) -> AnyElement {
-        let ((mut row, visible), (handler, width)) = (entry, layout);
+        let ((mut row, visible), (handler, width, me)) = (entry, layout);
         row.presence = self.open_chats.presence_of(&row.id);
         let handler = Rc::clone(handler);
         if let Some(hold) = visible.removal {
@@ -75,6 +77,7 @@ impl Sidebar {
             ghost: None,
         };
         let width = width - 2.0 * ROW_MARGIN_X - f32::from(row.depth) * INDENT_STEP;
+        let icon_editing = self.edits_icon_of(&row).then(|| me.clone());
         TreeRow {
             row,
             expansion,
@@ -83,8 +86,20 @@ impl Sidebar {
             drag,
             bounds: self.row_bounds.clone(),
             width,
+            icon_editing,
         }
         .into_any_element()
+    }
+
+    fn edits_icon_of(
+        &self,
+        row: &Row,
+    ) -> bool {
+        let command = Command::SetRepoIcon {
+            row: row.id.clone(),
+            icon: SpaceIcon::Default,
+        };
+        row.kind == RowKind::RepoHeader && self.data.serves(&command)
     }
 
     fn input_for(
@@ -135,6 +150,7 @@ impl Sidebar {
                 drag: RowDrag::default(),
                 bounds: self.row_bounds.clone(),
                 width: 0.0,
+                icon_editing: None,
             }
             .into_any_element(),
         )
@@ -154,8 +170,9 @@ mod tests {
             let project = this.data.active_project().expect("an active space");
             let tree = this.data.tree(&project);
             let handler = Sidebar::row_handler(cx);
+            let me = cx.weak_entity();
             (
-                this.tree_rows(&tree, (&handler, 294.0)).len(),
+                this.tree_rows(&tree, (&handler, 294.0, &me)).len(),
                 tree.rows.len(),
             )
         })

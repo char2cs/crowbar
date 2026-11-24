@@ -1,12 +1,15 @@
 //! A normal row of the chats tree.
 
+mod editable_mark;
+
 use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, ClickEvent, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    RenderOnce, SharedString, Stateful, StatefulInteractiveElement, Styled, Window, div, px,
+    RenderOnce, SharedString, Stateful, StatefulInteractiveElement, Styled, WeakEntity, Window,
+    div, px,
 };
 use sidebar::{Expansion, Presence, Row, RowId};
 use ui::{DraggedRow, FlickerSpinner, Icon, Palette, Pose, Surface};
@@ -25,7 +28,7 @@ use crate::panels::chats::parts::{ringed, row_focus};
 use crate::panels::chats::reorder::GhostBuild;
 use crate::panels::chats::reorder::draggable;
 use crate::panels::chats::reorder::{RowDrag, tracked};
-use crate::sidebar::{RowAction, RowHandler};
+use crate::sidebar::{RowAction, RowHandler, Sidebar};
 
 const GLYPH: f32 = 16.0;
 const HEADER_GLYPH: f32 = 20.0;
@@ -40,6 +43,7 @@ pub(crate) struct TreeRow {
     pub(crate) drag: RowDrag,
     pub(crate) bounds: RowBounds,
     pub(crate) width: f32,
+    pub(crate) icon_editing: Option<WeakEntity<Sidebar>>,
 }
 
 impl TreeRow {
@@ -79,7 +83,7 @@ impl RenderOnce for TreeRow {
             .group(group)
             .hover(move |style| style.bg(idle))
             .when(self.row.presence == Presence::Open, move |d| d.bg(idle))
-            .child(glyph_box(&self.row, self.expansion, palette))
+            .child(self.glyph(palette))
             .child(label(
                 &self.row,
                 self.input.as_ref(),
@@ -95,6 +99,16 @@ impl RenderOnce for TreeRow {
         let shell = with_menu(shell, &self.row.id, &self.handler);
         let (id, handler) = (self.row.id.clone(), Rc::clone(&self.handler));
         shell.when(live, move |d| open_on_click(d, id, handler))
+    }
+}
+
+impl TreeRow {
+    fn glyph(
+        &self,
+        palette: &Palette,
+    ) -> gpui::AnyElement {
+        let editing = self.icon_editing.clone();
+        glyph_box((&self.row, self.expansion), editing, palette)
     }
 }
 
@@ -131,6 +145,7 @@ fn ghost_row(
         drag: RowDrag::lifted(width),
         bounds: RowBounds::default(),
         width,
+        icon_editing: None,
     }
 }
 
@@ -170,8 +185,8 @@ fn open_on_click(
 }
 
 fn glyph_box(
-    row: &Row,
-    expansion: Expansion,
+    (row, expansion): (&Row, Expansion),
+    icon_editing: Option<WeakEntity<Sidebar>>,
     palette: &Palette,
 ) -> gpui::AnyElement {
     let frame = div().flex().flex_none().items_center().justify_center();
@@ -185,11 +200,7 @@ fn glyph_box(
             .into_any_element(),
         RowGlyph::Mark => frame
             .size(px(HEADER_GLYPH))
-            .children(
-                row.mark
-                    .as_ref()
-                    .map(|mark| mark_view(mark, px(HEADER_GLYPH), palette)),
-            )
+            .children(header_mark(row, icon_editing, palette))
             .into_any_element(),
         RowGlyph::Icon(name, weight, tone) => {
             let icon = Icon::new(name).weight(weight).size(px(GLYPH));
@@ -200,6 +211,22 @@ fn glyph_box(
             frame.size(px(GLYPH)).child(icon).into_any_element()
         },
     }
+}
+
+fn header_mark(
+    row: &Row,
+    icon_editing: Option<WeakEntity<Sidebar>>,
+    palette: &Palette,
+) -> Option<gpui::AnyElement> {
+    let mark = mark_view(row.mark.as_ref()?, px(HEADER_GLYPH), palette);
+    let Some(sidebar) = icon_editing else {
+        return Some(mark);
+    };
+    Some(editable_mark::editable_mark(
+        row,
+        (mark, px(HEADER_GLYPH)),
+        sidebar,
+    ))
 }
 
 #[cfg(test)]
@@ -260,6 +287,7 @@ mod tests {
             bounds: RowBounds::default(),
             width: 294.0,
             handler: Rc::clone(&handler),
+            icon_editing: None,
         });
         let none = Modifiers::none();
         let start = point(px(40.0), px(18.0));
@@ -281,6 +309,7 @@ mod tests {
             bounds: RowBounds::default(),
             width: 294.0,
             handler: Rc::clone(&handler),
+            icon_editing: None,
         });
         assert_eq!(f32::from(bounds.size.height), 38.0);
     }

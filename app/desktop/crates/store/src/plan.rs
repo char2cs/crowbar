@@ -35,6 +35,7 @@ pub(crate) struct Plan {
     pub(crate) committing: bool,
     pub(crate) removal: Option<Removal>,
     pub(crate) failure: Option<String>,
+    pub(crate) explained: Option<String>,
     pub(crate) settling: Option<String>,
 }
 
@@ -54,6 +55,7 @@ impl Plan {
             committing: false,
             removal: None,
             failure: None,
+            explained: None,
             settling: None,
         }
     }
@@ -115,6 +117,15 @@ impl Plan {
         landing: Surface,
     ) -> Self {
         self.landing = landing;
+        self
+    }
+
+    #[must_use]
+    pub(crate) fn explaining(
+        mut self,
+        reason: &str,
+    ) -> Self {
+        self.explained = Some(reason.to_owned());
         self
     }
 

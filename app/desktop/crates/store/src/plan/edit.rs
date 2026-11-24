@@ -15,7 +15,7 @@ use crate::rows::pending as pending_rows;
 use crate::target::Kind;
 use crate::target::{Target, resolve};
 
-fn locate(
+pub(crate) fn locate(
     state: &State,
     row: &str,
 ) -> Result<(Target, String), PlanError> {

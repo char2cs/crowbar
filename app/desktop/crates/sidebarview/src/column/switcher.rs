@@ -1,6 +1,6 @@
 //! The 44px space switcher: active space name, add button and the other spaces.
 
-mod edit_pencil;
+pub(crate) mod edit_pencil;
 mod hover_glide;
 pub(crate) mod icon_editor;
 mod icon_label;

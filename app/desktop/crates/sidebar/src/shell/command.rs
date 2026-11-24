@@ -250,6 +250,15 @@ pub enum Command {
         /// The new icon.
         icon: SpaceIcon,
     },
+    /// Set the icon of the repository whose header is `row`; [`SpaceIcon::Default`] resets it.
+    SetRepoIcon {
+        /// The repository's header row.
+        row: RowId,
+        /// The new icon.
+        icon: SpaceIcon,
+    },
+    /// Set the icon of the repository whose header is `row` to the avatar of its GitHub owner.
+    UseGithubAvatar(RowId),
     /// Remember the strategy the focused workspace merges with.
     SetMergeStrategy(MergeStrategy),
     /// Merge the focused workspace into its parent with the chosen strategy.

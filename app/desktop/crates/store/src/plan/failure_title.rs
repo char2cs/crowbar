@@ -16,7 +16,10 @@ pub(crate) fn failure_title(
         Command::CreateSpace { name, .. } | Command::CreateSpaceWithIcon { name, .. } => {
             format!("Add \u{201c}{name}\u{201d} failed")
         },
-        Command::SetSpaceIcon { .. } => "Failed to set icon".to_owned(),
+        Command::SetSpaceIcon { icon, .. } | Command::SetRepoIcon { icon, .. } => {
+            icon_title(icon).to_owned()
+        },
+        Command::UseGithubAvatar(_) => "Could not fetch the GitHub avatar".to_owned(),
         Command::Fork { name, .. } => format!("Create {name} failed"),
         Command::NewThread(_)
         | Command::NewChat(_)
@@ -29,6 +32,14 @@ pub(crate) fn failure_title(
         _ => return None,
     };
     Some(title)
+}
+
+fn icon_title(icon: &sidebar::SpaceIcon) -> &'static str {
+    match icon {
+        sidebar::SpaceIcon::Emoji(_) => "Failed to set emoji",
+        sidebar::SpaceIcon::Default => "Failed to reset icon",
+        sidebar::SpaceIcon::Image(_) => "Failed to set icon",
+    }
 }
 
 fn rename_title(
