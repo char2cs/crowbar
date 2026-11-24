@@ -181,6 +181,7 @@ impl Toast {
             .bg(palette.popover())
             .text_color(palette.foreground())
             .text_size(text_size::SM)
+            .line_height(text_size::LINE_HEIGHT)
             .font_family(theme.ui_family())
             .shadow(shadow::lg(opacity::PERCENT_5))
     }
@@ -318,6 +319,12 @@ mod tests {
         assert!(
             titled.size.height > plain.size.height,
             "the title takes a line of its own"
+        );
+        let lines = 2.0 * 20.0 + TITLE_GAP;
+        assert_eq!(
+            f32::from(titled.size.height),
+            2.0 * 12.0 + 2.0 + lines,
+            "py-3, a 1px border and two text-sm lines of 20px, as develop's card"
         );
     }
 
