@@ -174,7 +174,7 @@ pub(super) fn listen(
     cx: &mut App,
 ) -> Subscription {
     let tell = teller(pane, requests);
-    cx.subscribe(view, move |_, event: &EditorEvent, _| tell(*event))
+    cx.subscribe(view, move |_, event: &EditorEvent, _| tell(event.clone()))
 }
 
 fn teller(
@@ -199,6 +199,12 @@ fn told(
         EditorEvent::PreviewRequested => ShellRequest::Document(DocumentRequest::Preview { pane }),
         EditorEvent::RichViewRequested => {
             ShellRequest::Document(DocumentRequest::ShowRich { pane })
+        },
+        EditorEvent::Definition { path, line } => {
+            ShellRequest::Document(DocumentRequest::Definition { pane, path, line })
+        },
+        EditorEvent::DefinitionOutside(path) => {
+            ShellRequest::Document(DocumentRequest::DefinitionOutside { pane, path })
         },
     }
 }

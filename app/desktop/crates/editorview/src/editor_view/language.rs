@@ -5,12 +5,14 @@ use gpui::Context;
 use super::EditorView;
 use crate::LanguageServer;
 use crate::lsp_completion::LspCompletion;
+use crate::lsp_definition::{LspDefinition, elsewhere};
 use crate::lsp_hover::LspHover;
 use crate::lsp_link::LspLink;
 
 impl EditorView {
     /// Tells `server` about the document this view shows, from now until the view goes, and
-    /// asks it for hovers and completions, as develop's editor does for a workspace file.
+    /// asks it for hovers, completions and definitions, as develop's editor does for a
+    /// workspace file.
     pub fn attach_language_server(
         &mut self,
         server: Rc<dyn LanguageServer>,
@@ -23,9 +25,15 @@ impl EditorView {
         let completion = LspCompletion {
             link: Rc::clone(&link),
         };
+        let definition = LspDefinition {
+            link: Rc::clone(&link),
+        };
+        let shows = show_elsewhere(cx.entity().downgrade(), Rc::clone(&link));
         self.state.update(cx, |state, _| {
             state.lsp_mut().hover_provider = Some(Rc::new(hover));
             state.lsp_mut().completion_provider = Some(Rc::new(completion));
+            state.lsp_mut().definition_provider = Some(Rc::new(definition));
+            state.lsp_mut().show_document = Some(shows);
         });
         cx.on_release(|view, cx| view.lsp_close(cx)).detach();
         self.lsp = Some(link);
@@ -67,6 +75,24 @@ impl EditorView {
             link.close(cx);
         }
     }
+}
+
+fn show_elsewhere(
+    view: gpui::WeakEntity<EditorView>,
+    link: Rc<LspLink>,
+) -> gpui_kit::base::input::ShowDocumentHandler {
+    Rc::new(move |shown, _, cx| tell_elsewhere((&view, &link), shown, cx))
+}
+
+fn tell_elsewhere(
+    (view, link): (&gpui::WeakEntity<EditorView>, &LspLink),
+    shown: &lsp_types::ShowDocumentParams,
+    cx: &mut gpui::App,
+) -> bool {
+    let Some(event) = elsewhere(shown, link.path().as_deref()) else {
+        return false;
+    };
+    view.update(cx, |_, cx| cx.emit(event)).is_ok()
 }
 
 #[cfg(test)]

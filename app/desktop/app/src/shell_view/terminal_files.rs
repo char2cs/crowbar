@@ -85,7 +85,7 @@ impl ShellView {
     }
 }
 
-fn at_line(
+pub(super) fn at_line(
     spec: crate::error::Result<PaneSpec>,
     line: Option<u32>,
 ) -> crate::error::Result<PaneSpec> {

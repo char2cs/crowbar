@@ -55,6 +55,10 @@ impl LspLink {
         self.send("didOpen", body, cx).detach();
     }
 
+    pub(crate) fn path(&self) -> Option<String> {
+        self.path.borrow().clone()
+    }
+
     pub(crate) fn close(
         &self,
         cx: &mut App,

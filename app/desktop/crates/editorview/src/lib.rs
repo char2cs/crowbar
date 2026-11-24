@@ -12,6 +12,7 @@ mod highlight_name;
 mod keys;
 mod language_server;
 mod lsp_completion;
+mod lsp_definition;
 mod lsp_error;
 mod lsp_hover;
 mod lsp_link;

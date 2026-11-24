@@ -55,7 +55,7 @@ impl ViewButton {
             .justify_center()
             .rounded(px(radius))
             .hover(|style| style.bg(palette.accent()))
-            .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(event)))
+            .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(event.clone())))
             .child(
                 Icon::new(IconName::Eye)
                     .size(px(ICON_SIZE))

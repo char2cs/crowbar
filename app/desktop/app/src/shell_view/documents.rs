@@ -48,11 +48,26 @@ impl ShellView {
             DocumentRequest::PageEdited { pane, text } => {
                 self.take_page_text((&pane, &text), window, cx);
             },
+            other => self.on_view_request(other, cx),
+        }
+    }
+
+    fn on_view_request(
+        &mut self,
+        request: DocumentRequest,
+        cx: &mut Context<'_, Self>,
+    ) {
+        match request {
             DocumentRequest::ShowSource { pane } => {
                 self.show_pane_view(&pane, PaneView::Source, cx);
             },
             DocumentRequest::ShowRich { pane } => self.show_pane_view(&pane, PaneView::Rich, cx),
             DocumentRequest::Preview { pane } => self.open_file_preview(&pane, cx),
+            DocumentRequest::Definition { pane, path, line } => {
+                self.open_definition(&pane, (&path, line), cx);
+            },
+            DocumentRequest::DefinitionOutside { path, .. } => self.definition_outside(path, cx),
+            _ => {},
         }
     }
 

@@ -67,7 +67,7 @@ pub(crate) fn listened(
     let heard = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
     let log = std::rc::Rc::clone(&heard);
     let record = move |_: Entity<EditorView>, event: &EditorEvent, _: &mut App| {
-        log.borrow_mut().push(*event);
+        log.borrow_mut().push(event.clone());
     };
     window.update(|window, cx| {
         window.focus(&view.focus_handle(cx), cx);

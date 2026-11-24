@@ -25,6 +25,7 @@ mod child_events;
 mod children;
 mod closing;
 mod data_events;
+mod definitions;
 mod disk_events;
 mod documents;
 mod evictions;

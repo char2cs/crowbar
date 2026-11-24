@@ -1,5 +1,5 @@
 /// What a view tells its owner.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditorEvent {
     /// The text now differs from the saved text, or matches it again.
     DirtyChanged(bool),
@@ -12,4 +12,13 @@ pub enum EditorEvent {
     PreviewRequested,
     /// The user asked to show the document in its rich view instead (Markdown only).
     RichViewRequested,
+    /// Go to definition led to another workspace file, at a 0-based line.
+    Definition {
+        /// The file's workspace-relative path.
+        path: String,
+        /// The definition's 0-based line.
+        line: u32,
+    },
+    /// Go to definition led only outside the workspace, to this absolute path.
+    DefinitionOutside(String),
 }
