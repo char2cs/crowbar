@@ -50,13 +50,33 @@ impl StripDrag {
     }
 
     #[must_use]
+    pub(crate) fn eased_x(
+        &self,
+        x: f32,
+        pull: f32,
+    ) -> f32 {
+        let pinned = self.ghost_x(x);
+        pinned + (x - self.grab - pinned) * pull
+    }
+
+    #[must_use]
+    pub(crate) fn pull(
+        pointer_y: f32,
+        row_top: f32,
+        grab_y: f32,
+    ) -> f32 {
+        let delta = pointer_y - grab_y - row_top;
+        (delta.abs() / BAND_MARGIN).clamp(0.0, 1.0)
+    }
+
+    #[must_use]
     pub(crate) fn ghost_y(
         pointer_y: f32,
         row_top: f32,
         grab_y: f32,
     ) -> f32 {
         let delta = pointer_y - grab_y - row_top;
-        row_top + delta * (delta.abs() / BAND_MARGIN).clamp(0.0, 1.0)
+        row_top + delta * Self::pull(pointer_y, row_top, grab_y)
     }
 
     pub(crate) fn moved(
@@ -304,6 +324,14 @@ mod tests {
             StripDrag::begin(tabs, spans[..1].to_vec(), 0, 0.0).is_none(),
             "length mismatch"
         );
+    }
+
+    #[test]
+    fn off_the_row_the_ghost_follows_the_pointer_past_the_strip_ends() {
+        let drag = drag(1, 130.0);
+        assert_eq!(drag.eased_x(-500.0, 0.0), 0.0, "pinned over the tabs");
+        assert_eq!(drag.eased_x(-500.0, 1.0), -530.0, "free past the margin");
+        assert_eq!(drag.eased_x(-500.0, 0.5), -265.0, "halfway eased");
     }
 
     #[test]

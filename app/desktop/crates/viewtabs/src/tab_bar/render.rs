@@ -4,13 +4,13 @@ use std::time::Instant;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, Context, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
-    ParentElement, Render, StatefulInteractiveElement, Styled, Window, canvas, deferred, div, px,
+    ParentElement, Render, StatefulInteractiveElement, Styled, Window, canvas, div, px,
 };
 use layout::{Command, DragSubject, TabId};
-use ui::{Motion, Surface, Theme, layer};
+use ui::{Motion, Surface, Theme};
 
 use crate::event::Event;
-use crate::gesture::{StripDrag, TabDrop};
+use crate::gesture::TabDrop;
 use crate::pill::ShellLook;
 use crate::pill::{CloseAction, TabShell};
 use crate::strip_metrics::{
@@ -241,43 +241,6 @@ impl TabBar {
                 mirrored: side == SidebarState::ClosedRight,
             });
         ui::Tooltip::new("sidebar-toggle-tip", "Show Sidebar", button)
-    }
-
-    fn ghost(&self) -> Option<AnyElement> {
-        let drag = self.drag.as_ref()?;
-        let tab = self
-            .tabs
-            .iter()
-            .find(|tab| Some(tab.id) == drag.engine.tab())?;
-        let x = drag.engine.ghost_x(self.content_x(drag.pointer));
-        let left = x
-            + f32::from(self.scroll.offset().x)
-            + f32::from(self.strip_left() - self.row.origin.x);
-        let row_top = (ROW_HEIGHT - TAB_HEIGHT) / 2.0;
-        let top = StripDrag::ghost_y(
-            f32::from(drag.pointer.y - self.row.origin.y),
-            row_top,
-            drag.grab_y + row_top,
-        );
-        let width = self.slot_spans().first().map_or(0.0, |span| span.width) - 2.0 * SHELL_MARGIN;
-        let shell = TabShell {
-            id: "tab-ghost".into(),
-            members: tab.members.clone(),
-            look: ShellLook::Lifted,
-            width,
-            on_close: None,
-        };
-        Some(
-            deferred(
-                div()
-                    .absolute()
-                    .left(px(left + SHELL_MARGIN))
-                    .top(px(top))
-                    .child(shell),
-            )
-            .with_priority(layer::OVERLAY)
-            .into_any_element(),
-        )
     }
 
     fn drop_line(

@@ -1,5 +1,6 @@
 mod clock;
 mod geometry;
+mod ghost;
 mod incoming;
 mod menu;
 mod pointer;
