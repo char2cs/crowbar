@@ -1,5 +1,6 @@
-use protocol::{PaneId, PaneState};
+use protocol::PaneId;
 
+use crate::command::Command;
 use crate::error::{Error, Result};
 use crate::layout::{Layout, MAX_TABS};
 use crate::pane_instance::PaneInstance;
@@ -101,12 +102,17 @@ pub(crate) fn swap(
     layout.tab_of_mut(a)?.swap(a, b)
 }
 
-pub(crate) fn set_state(
+pub(crate) fn set_content(
     layout: &mut Layout,
-    pane: &PaneId,
-    state: PaneState,
+    command: Command,
 ) -> Result<()> {
-    layout.tab_of_mut(pane)?.set_state(pane, state)
+    match command {
+        Command::SetPaneState { pane, state } => layout.tab_of_mut(&pane)?.set_state(&pane, state),
+        Command::SetPaneParams { pane, params } => {
+            layout.tab_of_mut(&pane)?.set_params(&pane, params)
+        },
+        _ => Ok(()),
+    }
 }
 
 pub(crate) fn move_to_tab(
@@ -821,6 +827,39 @@ mod tests {
             layout.apply(Command::SetPaneState {
                 pane: id("q"),
                 state
+            }),
+            Err(Error::PaneNotFound(id("q"))),
+            "unknown"
+        );
+    }
+
+    #[test]
+    fn re_keying_a_pane_keeps_its_place_and_focus() {
+        let mut layout = layout(vec![
+            add(1),
+            open(1, "a"),
+            open(1, "b"),
+            add(2),
+            open(2, "c"),
+        ]);
+        let params = Params::default().with("threadId", "made").unwrap();
+        layout
+            .apply(Command::SetPaneParams {
+                pane: id("b"),
+                params: params.clone(),
+            })
+            .unwrap();
+        assert_eq!(
+            layout.pane(&id("b")).map(|p| &p.params),
+            Some(&params),
+            "re-keyed"
+        );
+        assert_eq!(order(&layout, 1), ["a", "b"], "in place");
+        assert_eq!(active(&layout), Some(TabId(2)), "focus unchanged");
+        assert_eq!(
+            layout.apply(Command::SetPaneParams {
+                pane: id("q"),
+                params
             }),
             Err(Error::PaneNotFound(id("q"))),
             "unknown"

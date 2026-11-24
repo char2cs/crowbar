@@ -1,4 +1,4 @@
-use protocol::{PaneId, PaneState};
+use protocol::{PaneId, PaneState, Params};
 
 use crate::branch::Branch;
 use crate::ide::editor_view::EditorView;
@@ -192,6 +192,14 @@ pub enum Command {
         /// The new state.
         state: PaneState,
     },
+    /// Re-keys a pane on new parameters, as a draft chat does when its chat is created. The pane
+    /// keeps its id, place and state. Never an undo step.
+    SetPaneParams {
+        /// The pane to re-key.
+        pane: PaneId,
+        /// Its parameters from now on.
+        params: Params,
+    },
 }
 
 impl Command {
@@ -208,6 +216,7 @@ impl Command {
                 | Self::ResizeSplit { .. }
                 | Self::ResetSplit { .. }
                 | Self::SetPaneState { .. }
+                | Self::SetPaneParams { .. }
         )
     }
 }
@@ -221,7 +230,7 @@ mod tests {
         PaneInstance {
             pane_id: pane.clone(),
             type_id: protocol::PaneTypeId::new("core.chat").unwrap(),
-            params: protocol::Params::default(),
+            params: Params::default(),
             state: PaneState::default(),
         }
     }
@@ -304,7 +313,7 @@ mod tests {
         ]
     }
 
-    fn view_only() -> [Command; 5] {
+    fn view_only() -> [Command; 6] {
         let pane = PaneId::new("a").unwrap();
         let tab = TabId(1);
         [
@@ -326,8 +335,12 @@ mod tests {
                 path: Vec::new(),
             },
             Command::SetPaneState {
-                pane,
+                pane: pane.clone(),
                 state: PaneState::default(),
+            },
+            Command::SetPaneParams {
+                pane,
+                params: Params::default(),
             },
         ]
     }

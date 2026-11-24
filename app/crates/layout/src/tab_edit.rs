@@ -1,4 +1,4 @@
-use protocol::{PaneId, PaneState};
+use protocol::{PaneId, PaneState, Params};
 
 use crate::branch::Branch;
 use crate::error::{Error, Result};
@@ -75,6 +75,19 @@ impl Tab {
             .get_mut(pane)
             .ok_or_else(|| Error::PaneNotFound(pane.clone()))?;
         instance.state = state;
+        Ok(())
+    }
+
+    pub(crate) fn set_params(
+        &mut self,
+        pane: &PaneId,
+        params: Params,
+    ) -> Result<()> {
+        let instance = self
+            .panes
+            .get_mut(pane)
+            .ok_or_else(|| Error::PaneNotFound(pane.clone()))?;
+        instance.params = params;
         Ok(())
     }
 

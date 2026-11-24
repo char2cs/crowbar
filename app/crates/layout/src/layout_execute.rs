@@ -84,8 +84,8 @@ impl Layout {
                 title,
             } => pane_commands::detach(self, &pane, new_tab, title).map(none_removed),
             Command::SwapPanes { a, b } => pane_commands::swap(self, &a, &b).map(none_removed),
-            Command::SetPaneState { pane, state } => {
-                pane_commands::set_state(self, &pane, state).map(none_removed)
+            content @ (Command::SetPaneState { .. } | Command::SetPaneParams { .. }) => {
+                pane_commands::set_content(self, content).map(none_removed)
             },
             _ => Ok(Vec::new()),
         }
