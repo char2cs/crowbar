@@ -1,6 +1,6 @@
 import { getEditorHost } from '@/features/editor/host/editor-host'
 import { report } from '@/lib/errors/report'
-import { getDB } from '@/lib/persistence/idb'
+import { commit, getDB } from '@/lib/persistence/idb'
 
 /** The unsaved text of a dirty document, kept so a reload or a crash loses nothing. */
 export interface EditorDraft {
@@ -65,7 +65,7 @@ export async function putDrafts(drafts: readonly EditorDraft[]): Promise<void> {
   if (drafts.length === 0) return
   const db = await getDB()
   const tx = db.transaction('editor-drafts', 'readwrite')
-  await Promise.all([...drafts.map((draft) => tx.store.put(draft)), tx.done])
+  await commit(tx, () => Promise.all(drafts.map((draft) => tx.store.put(draft))))
 }
 
 // Edits may not have paused when the window goes away.

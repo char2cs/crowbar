@@ -1,5 +1,5 @@
 import { openDB } from 'idb'
-import type { IDBPDatabase } from 'idb'
+import type { IDBPDatabase, IDBPTransaction, StoreNames } from 'idb'
 import type { CrowbarDB } from './schemas'
 
 // One connection per IndexedDB factory, memoizing the in-flight open as well as the settled handle:
@@ -141,4 +141,13 @@ async function openDeclared(release: () => void): Promise<IDBPDatabase<CrowbarDB
       }
     },
   })
+}
+
+/** Runs `write` in `tx` and settles once the transaction commits. A transaction the database
+ *  aborts rejects `done` however the writes fail, so `done` is awaited with them, never after. */
+export async function commit<Stores extends ArrayLike<StoreNames<CrowbarDB>>>(
+  tx: IDBPTransaction<CrowbarDB, Stores, 'readwrite'>,
+  write: () => Promise<unknown>,
+): Promise<void> {
+  await Promise.all([tx.done, (async () => write())()])
 }

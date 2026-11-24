@@ -4,6 +4,8 @@ import { getDB } from '@/lib/persistence/idb'
 import { applyRows, ledger } from '@/__tests__/__fixtures__/ledger-rows'
 import { applyReady } from '@/features/agent/stores/lib/fold-live'
 import { emptyFeed } from '@/features/agent/stores/lib/fold-rows'
+import { shellsOf } from '@/features/agent/stores/lib/fold-shells'
+import { abortDuring, watchUnhandled } from '@/__tests__/__fixtures__/aborted-write'
 import {
   forgetChatFeeds,
   forgetFeed,
@@ -98,6 +100,19 @@ describe('feed cache', () => {
     expect(Math.min(...kept)).toBe(back.from + 1)
   })
 
+  it('keeps the background shells the feed lists, which are no part of the transcript order', async () => {
+    const l = ledger()
+    const rows = [
+      l.prompt('r1', 'serve it'),
+      l.start('t1', 'r1'),
+      l.row('shell', { phase: 'start', shellId: 'sh-1', command: 'npm run dev' }, { turnId: 't1' }),
+    ]
+    saveFeed('h', 'chat-1', applyReady(applyRows(emptyFeed(), rows), 'e1'))
+    await settled()
+    const back = (await loadFeed('h', 'chat-1'))!
+    expect(shellsOf(back)).toMatchObject([{ shellId: 'sh-1', status: 'running' }])
+  })
+
   it('evicts the least recently saved chats beyond the cap', async () => {
     for (let i = 0; i < MAX_CHATS; i++) saveFeed('h', `c${i}`, feedOf(1))
     await settled()
@@ -151,6 +166,58 @@ describe('feed cache', () => {
     await expect(settled()).resolves.toBeUndefined()
     await expect(loadFeed('h', 'chat-1')).resolves.toBeUndefined()
     await expect(forgetChatFeeds('chat-1')).resolves.toBeUndefined()
+  })
+
+  it('leaves no unhandled rejection when the database aborts a write', async () => {
+    const watch = watchUnhandled()
+    try {
+      abortDuring('count')
+      saveFeed('h', 'chat-1', feedOf(1))
+      await settled()
+      await watch.flush()
+      expect(watch.seen).toEqual([])
+    } finally {
+      watch.stop()
+    }
+  })
+
+  it('leaves no unhandled rejection when forgetting a chat finds its transaction aborted', async () => {
+    saveFeed('h', 'chat-1', feedOf(1))
+    await settled()
+    const watch = watchUnhandled()
+    try {
+      abortDuring('delete')
+      await forgetChatFeeds('chat-1')
+      await watch.flush()
+      expect(watch.seen).toEqual([])
+    } finally {
+      watch.stop()
+    }
+  })
+
+  it('keeps a running subagent whose card is older than the newest items', async () => {
+    const l = ledger()
+    const rows = [
+      l.prompt('r0', 'launch'),
+      l.start('turn-1', 'r0'),
+      l.row(
+        'tool_call',
+        { toolId: 'call-1', phase: 'pre', name: 'Agent', kind: 'subagent', title: 'Find tests' },
+        { turnId: 'turn-1' },
+      ),
+      l.row(
+        'subagent',
+        { phase: 'start', spawnToolId: 'call-1', title: 'Find tests' },
+        { turnId: 'turn-1' },
+      ),
+      ...Array.from({ length: MAX_ITEMS + 20 }, (_, i) => l.prompt(`later-${i}`, `text ${i}`)),
+    ]
+    const feed = applyReady(applyRows(emptyFeed(), rows), 'e1')
+    expect(feed.facts.liveSubagents).not.toEqual([])
+    saveFeed('h', 'chat-1', feed)
+    await settled()
+    const back = (await loadFeed('h', 'chat-1'))!
+    for (const id of back.facts.liveSubagents) expect(back.items.get(id)).toBeDefined()
   })
 
   it('survives a write that aborts', async () => {

@@ -3,6 +3,7 @@ import { IDBFactory } from 'fake-indexeddb'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { pairRemoteHost } from '@/__tests__/__fixtures__/remote-host'
 import { getDB } from '@/lib/persistence/idb'
+import { abortDuring, watchUnhandled } from '@/__tests__/__fixtures__/aborted-write'
 import {
   hydrateHostPlacements,
   persistedHostOf,
@@ -95,6 +96,35 @@ describe('host placements', () => {
     expect(persistedHostOf('workspace', 'w1')).toBeNull()
     expect(persistedHostOf('workspace', 'w2')).toBe('host-2')
     expect(await stored()).toBe(1)
+  })
+
+  it('leaves no unhandled rejection when the database aborts a placement write', async () => {
+    const watch = watchUnhandled()
+    try {
+      const put = abortDuring('put')
+      putEntities('workspace', [workspaceDTO({ id: 'w1' })], 'host-1')
+      await vi.waitFor(() => expect(put).toHaveBeenCalled())
+      await watch.flush()
+      expect(watch.seen).toEqual([])
+    } finally {
+      watch.stop()
+    }
+  })
+
+  it('leaves no unhandled rejection when forgetting a host finds its transaction aborted', async () => {
+    putEntities('workspace', [workspaceDTO({ id: 'w1' })], 'host-1')
+    await vi.waitFor(async () => expect(await stored()).toBe(1))
+    pairRemoteHost('host-1')
+    const watch = watchUnhandled()
+    try {
+      const del = abortDuring('delete')
+      useHostConfigStore.getState().removeHost('host-1')
+      await vi.waitFor(() => expect(del).toHaveBeenCalled())
+      await watch.flush()
+      expect(watch.seen).toEqual([])
+    } finally {
+      watch.stop()
+    }
   })
 
   it('reads as empty when IndexedDB is unavailable', async () => {
