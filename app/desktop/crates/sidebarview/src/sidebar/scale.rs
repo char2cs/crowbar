@@ -8,6 +8,7 @@ pub(crate) const SPACE_MD: Pixels = px(8.0);
 pub(crate) const SPACE_LG: Pixels = px(12.0);
 pub(crate) const SPACE_XL: Pixels = px(24.0);
 
+pub(crate) const TEXT_MICRO: Pixels = px(10.0);
 pub(crate) const TEXT_CAPTION: Pixels = px(11.0);
 pub(crate) const TEXT_SMALL: Pixels = px(12.0);
 pub(crate) const TEXT_BODY: Pixels = px(13.0);

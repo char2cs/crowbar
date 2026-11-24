@@ -15,7 +15,7 @@ use ui::{
     Theme, radius, tracking,
 };
 
-use crate::sidebar::scale::{ICON_LARGE, SPACE_MD, SPACE_SM, TEXT_CAPTION};
+use crate::sidebar::scale::{ICON_LARGE, SPACE_MD, SPACE_SM, TEXT_MICRO};
 
 const PREVIEW: f32 = 56.0;
 const EMOJI_PREVIEW: f32 = 24.0;
@@ -182,9 +182,9 @@ impl IconEditor {
 
 fn section_label(palette: &Palette) -> Div {
     div()
-        .text_size(TEXT_CAPTION)
+        .text_size(TEXT_MICRO)
         .font_weight(FontWeight::SEMIBOLD)
-        .letter_spacing(tracking::at(tracking::WIDER, TEXT_CAPTION))
+        .letter_spacing(tracking::at(tracking::WIDER, TEXT_MICRO))
         .text_color(palette.muted_foreground())
         .child(LABEL)
 }
@@ -272,10 +272,39 @@ mod tests {
         let wider = label_width(cx, None);
         let loose = label_width(cx, Some(0.0));
         let glyphs = f32::from(u16::try_from(LABEL.chars().count()).expect("a short label"));
-        let expected = glyphs * WIDER * f32::from(TEXT_CAPTION);
+        let expected = glyphs * WIDER * f32::from(TEXT_MICRO);
         assert!(
             (wider - loose - expected).abs() < 1.0,
             "{wider} - {loose} vs {expected}"
+        );
+    }
+
+    /// Develop's `text-[10px]` on the section label.
+    const DEVELOP_LABEL: f32 = 10.0;
+
+    #[gpui::test]
+    fn the_section_label_is_set_at_develops_ten_pixels(cx: &mut TestAppContext) {
+        let label = label_width(cx, Some(0.0));
+        let window = crate::test_support::mount(cx, move |_, _| {
+            let develop = div()
+                .text_size(px(DEVELOP_LABEL))
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(LABEL);
+            div().flex().child(
+                gpui::InteractiveElement::debug_selector(div().flex_none(), || "develop".into())
+                    .child(develop),
+            )
+        });
+        let develop = f32::from(
+            window
+                .debug_bounds("develop")
+                .unwrap_or_default()
+                .size
+                .width,
+        );
+        assert!(
+            (label - develop).abs() < 0.5,
+            "{label} vs develop {develop}"
         );
     }
 }
