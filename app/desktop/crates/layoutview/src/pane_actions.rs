@@ -4,24 +4,25 @@ use gpui::Context;
 use protocol::PaneId;
 
 use crate::handle_button::HandleAction;
+use crate::hover_source::HoverSource;
 use crate::layout_view::LayoutView;
 use crate::pane_cell::CellAction;
 
 impl LayoutView {
     pub(crate) fn enter_action(
-        pane: &PaneId,
+        (source, pane): (HoverSource, &PaneId),
         cx: &mut Context<'_, Self>,
     ) -> CellAction {
         let (view, pane) = (cx.entity(), pane.clone());
-        Rc::new(move |_, cx| view.update(cx, |this, cx| this.pane_entered(&pane, cx)))
+        Rc::new(move |_, cx| view.update(cx, |this, cx| this.pointer_entered((source, &pane), cx)))
     }
 
     pub(crate) fn leave_action(
-        pane: &PaneId,
+        (source, pane): (HoverSource, &PaneId),
         cx: &mut Context<'_, Self>,
     ) -> CellAction {
         let (view, pane) = (cx.entity(), pane.clone());
-        Rc::new(move |_, cx| view.update(cx, |this, cx| this.pane_left(&pane, cx)))
+        Rc::new(move |_, cx| view.update(cx, |this, cx| this.pointer_left((source, &pane), cx)))
     }
 
     pub(crate) fn press_action(
@@ -66,14 +67,14 @@ mod tests {
         let (view, cx) = (harness.view, harness.cx);
         let (enter, leave) = view.update(cx, |_, cx| {
             (
-                LayoutView::enter_action(&pane_id("a"), cx),
-                LayoutView::leave_action(&pane_id("a"), cx),
+                LayoutView::enter_action((HoverSource::Cell, &pane_id("a")), cx),
+                LayoutView::leave_action((HoverSource::Cell, &pane_id("a")), cx),
             )
         });
         cx.update(|window, cx| enter(window, cx));
-        let entered = view.read_with(cx, |view, _| view.hovered.clone());
+        let entered = view.read_with(cx, |view, _| view.hover.pane().cloned());
         cx.update(|window, cx| leave(window, cx));
-        let left = view.read_with(cx, |view, _| view.hovered.clone());
+        let left = view.read_with(cx, |view, _| view.hover.pane().cloned());
         assert_eq!((entered, left), (Some(pane_id("a")), None), "enter, leave");
     }
 

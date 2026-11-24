@@ -3,6 +3,7 @@ use layout::{Command, Sash};
 use protocol::PaneId;
 use ui::SashDrag;
 
+use crate::hover_source::HoverSource;
 use crate::layout_event::LayoutEvent;
 use crate::layout_view::LayoutView;
 use crate::sash_grab::SashGrab;
@@ -42,23 +43,21 @@ impl LayoutView {
         cx.emit(LayoutEvent::Apply(command));
     }
 
-    pub(crate) fn pane_entered(
+    pub(crate) fn pointer_entered(
         &mut self,
-        pane: &PaneId,
+        (source, pane): (HoverSource, &PaneId),
         cx: &mut Context<'_, Self>,
     ) {
-        self.hovered = Some(pane.clone());
+        self.hover.entered(source, pane);
         self.hover_changed(cx);
     }
 
-    pub(crate) fn pane_left(
+    pub(crate) fn pointer_left(
         &mut self,
-        pane: &PaneId,
+        (source, pane): (HoverSource, &PaneId),
         cx: &mut Context<'_, Self>,
     ) {
-        if self.hovered.as_ref() == Some(pane) {
-            self.hovered = None;
-        }
+        self.hover.left(source, pane);
         self.hover_changed(cx);
     }
 
@@ -137,6 +136,7 @@ mod tests {
     use gpui::TestAppContext;
     use layout::Edge;
 
+    use crate::hover_source::HoverSource;
     use crate::test_support::{layout_of, open, pane_id};
 
     #[gpui::test]
@@ -146,12 +146,18 @@ mod tests {
         let layout = layout_of("a", &[("b", "a", Edge::Right)]);
         let harness = open(cx, &layout);
         let (view, cx) = (harness.view, harness.cx);
-        view.update(cx, |view, cx| view.pane_entered(&pane_id("a"), cx));
-        view.read_with(cx, |view, _| {
-            assert_eq!(view.hovered, Some(pane_id("a")), "hovered");
+        view.update(cx, |view, cx| {
+            view.pointer_entered((HoverSource::Cell, &pane_id("a")), cx);
         });
-        view.update(cx, |view, cx| view.pane_left(&pane_id("a"), cx));
-        view.read_with(cx, |view, _| assert_eq!(view.hovered, None, "hover ended"));
+        view.read_with(cx, |view, _| {
+            assert_eq!(view.hover.pane(), Some(&pane_id("a")), "hovered");
+        });
+        view.update(cx, |view, cx| {
+            view.pointer_left((HoverSource::Cell, &pane_id("a")), cx);
+        });
+        view.read_with(cx, |view, _| {
+            assert_eq!(view.hover.pane(), None, "hover ended");
+        });
     }
 
     #[gpui::test]
@@ -159,10 +165,14 @@ mod tests {
         let layout = layout_of("a", &[("b", "a", Edge::Right)]);
         let harness = open(cx, &layout);
         let (view, cx) = (harness.view, harness.cx);
-        view.update(cx, |view, cx| view.pane_entered(&pane_id("a"), cx));
-        view.update(cx, |view, cx| view.pane_left(&pane_id("b"), cx));
+        view.update(cx, |view, cx| {
+            view.pointer_entered((HoverSource::Cell, &pane_id("a")), cx);
+        });
+        view.update(cx, |view, cx| {
+            view.pointer_left((HoverSource::Cell, &pane_id("b")), cx);
+        });
         view.read_with(cx, |view, _| {
-            assert_eq!(view.hovered, Some(pane_id("a")), "still a");
+            assert_eq!(view.hover.pane(), Some(&pane_id("a")), "still a");
         });
     }
 
@@ -171,7 +181,9 @@ mod tests {
         let layout = layout_of("a", &[("b", "a", Edge::Right)]);
         let mut floating = crate::test_support::open_floating(cx, &layout);
         let (view, window) = (floating.view.clone(), &mut floating.window);
-        view.update(window, |view, cx| view.pane_entered(&pane_id("a"), cx));
+        view.update(window, |view, cx| {
+            view.pointer_entered((HoverSource::Cell, &pane_id("a")), cx);
+        });
         let later = floating.clock.get() + std::time::Duration::from_secs(1);
         floating.clock.set(later);
         view.update(window, |_, cx| cx.notify());

@@ -8,6 +8,7 @@ use layout::Rect;
 use protocol::PaneId;
 use ui::{Appearance, Palette, Portal, Surface, Theme};
 
+use crate::hover_route::route;
 use crate::insets::Insets;
 
 use crate::pane_frame::PaneFrame;
@@ -91,17 +92,6 @@ pub(crate) fn pane_box(
     palette: &Palette,
 ) -> gpui::Div {
     boxed(frame, slot, palette.pane_border(), palette.pane_chrome_bg())
-}
-
-fn route(
-    actions: [&CellAction; 2],
-    hovered: usize,
-    window: &mut Window,
-    cx: &mut App,
-) {
-    if let Some(action) = actions.get(hovered) {
-        action(window, cx);
-    }
 }
 
 fn handle_origin(frame: &PaneFrame) -> (f32, f32) {

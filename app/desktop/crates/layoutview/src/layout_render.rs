@@ -9,6 +9,7 @@ use protocol::PaneId;
 use ui::{DraggedRow, Motion, Portal, Sash, SashDrag, Surface, Theme, Wordmark};
 
 use crate::drop_preview::drop_preview;
+use crate::hover_source::HoverSource;
 use crate::layout_view::LayoutView;
 use crate::pane_cell::pane_box;
 use crate::pane_frame::PaneFrame;
@@ -104,6 +105,10 @@ impl LayoutView {
             opacity,
             on_detach: Self::detach_action(pane, cx),
             on_close: Self::close_action(pane, cx),
+            on_hover: [
+                Self::leave_action((HoverSource::Handle, pane), cx),
+                Self::enter_action((HoverSource::Handle, pane), cx),
+            ],
         })
     }
 

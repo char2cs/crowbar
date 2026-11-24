@@ -72,7 +72,6 @@ use self::watches::Watches;
 use crate::daemon_link::DaemonLink;
 use crate::focused_chat::focused_chat;
 use crate::holes::visible_panes;
-use crate::hover_tracker::HoverTracker;
 use crate::ports::Ports;
 use crate::shell_pane_source::ShellPaneSource;
 use crate::shell_parts::ShellParts;
@@ -109,7 +108,6 @@ pub(crate) struct ShellView {
     data_queued: Arc<AtomicBool>,
     settings_backend: Option<SettingsAdapter>,
     placement: Option<(webview::ParentWindow, webview::Bounds)>,
-    hover: HoverTracker,
     focus_surface: Option<sidebar::Mode>,
     ports: Ports,
     readout: crate::readout_state::ReadoutState,
@@ -167,7 +165,6 @@ impl ShellView {
             data_queued: built.data_queued,
             settings_backend: None,
             placement: None,
-            hover: HoverTracker::default(),
             focus_surface: None,
             readout: crate::readout_state::ReadoutState::new(Arc::clone(&parts.ports.clock)),
             ports: parts.ports,

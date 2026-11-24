@@ -1,9 +1,14 @@
 use gpui::Context;
 use keymap::ShellCommand;
 use layout::Command;
+use layoutview::LayoutView;
 use protocol::{CommandId, PaneId};
 
 use super::ShellView;
+
+type PageHover = fn(&mut LayoutView, &PaneId, &mut Context<'_, LayoutView>);
+
+const PAGE_HOVER: [PageHover; 2] = [LayoutView::page_left, LayoutView::page_entered];
 use crate::document_request::DocumentRequest;
 use crate::outcome::Outcome;
 use crate::request_queue::send;
@@ -79,11 +84,11 @@ impl ShellView {
         self.store_pane_settings(settings);
         self.finish_picks(picks, cx);
         self.show_addresses(pages, cx);
-        for (pane, hovered) in hover {
-            let entered = hovered.then(|| self.hover.entered(pane.clone()));
-            let current = entered.unwrap_or_else(|| self.hover.left(&pane));
-            self.layout
-                .update(cx, |view, cx| view.set_hovered_pane(current, cx));
+        let reports = hover
+            .into_iter()
+            .filter_map(|(pane, hovered)| Some((PAGE_HOVER.get(usize::from(hovered))?, pane)));
+        for (report, pane) in reports {
+            self.layout.update(cx, |view, cx| report(view, &pane, cx));
         }
         self.follow_pages((focused, opens), cx);
         self.serve(&commands);

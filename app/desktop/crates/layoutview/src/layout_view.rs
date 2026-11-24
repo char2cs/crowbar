@@ -9,8 +9,10 @@ use ui::Motion;
 use crate::chrome_context::ChromeContext;
 use crate::clock::Clock;
 use crate::drop_hover::DropHover;
+use crate::hover_source::HoverSource;
 use crate::layout_event::LayoutEvent;
 use crate::pane_fades::PaneFades;
+use crate::pane_hover::PaneHover;
 use crate::pane_source::PaneSource;
 use crate::sash_grab::SashGrab;
 
@@ -22,7 +24,7 @@ pub struct LayoutView {
     pub(crate) chrome: ChromeContext,
     pub(crate) source: Rc<dyn PaneSource>,
     pub(crate) bounds: Bounds<Pixels>,
-    pub(crate) hovered: Option<PaneId>,
+    pub(crate) hover: PaneHover,
     pub(crate) sash: Option<SashGrab>,
     pub(crate) drop: DropHover,
     pub(crate) rings: PaneFades,
@@ -38,7 +40,7 @@ impl std::fmt::Debug for LayoutView {
         formatter
             .debug_struct("LayoutView")
             .field("tab", &self.tab.as_ref().map(Tab::id))
-            .field("hovered", &self.hovered)
+            .field("hovered", &self.hover.pane())
             .finish_non_exhaustive()
     }
 }
@@ -61,7 +63,7 @@ impl LayoutView {
             chrome: ChromeContext::default(),
             source,
             bounds: Bounds::default(),
-            hovered: None,
+            hover: PaneHover::default(),
             sash: None,
             drop: DropHover::default(),
             rings: PaneFades::default(),
@@ -100,16 +102,22 @@ impl LayoutView {
         cx.notify();
     }
 
-    /// The pane the pointer is over, when the shell learns it from a web view instead of from
-    /// this view's own hover tracking.
-    pub fn set_hovered_pane(
+    /// The pointer entered `pane`'s web view, which the shell learns from the page.
+    pub fn page_entered(
         &mut self,
-        pane: Option<PaneId>,
+        pane: &PaneId,
         cx: &mut Context<'_, Self>,
     ) {
-        self.hovered = pane;
-        self.sync_fades(cx);
-        cx.notify();
+        self.pointer_entered((HoverSource::Page, pane), cx);
+    }
+
+    /// The pointer left `pane`'s web view.
+    pub fn page_left(
+        &mut self,
+        pane: &PaneId,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.pointer_left((HoverSource::Page, pane), cx);
     }
 
     pub(crate) fn local(&self) -> Rect {
@@ -144,7 +152,7 @@ impl LayoutView {
             self.rings.show(pane, now, motion);
         }
         self.rings.hide_all_but(ring.as_ref(), now, motion);
-        let handle = self.hovered.clone().filter(|_| multiple);
+        let handle = self.hover.pane().cloned().filter(|_| multiple);
         if let Some(pane) = &handle {
             self.handles.show(pane, now, motion);
         }
@@ -335,7 +343,7 @@ mod tests {
         let layout = side_by_side();
         let harness = open(cx, &layout);
         let (view, cx, clock) = (harness.view, harness.cx, harness.clock);
-        view.update(cx, |view, cx| view.set_hovered_pane(Some(pane_id("a")), cx));
+        view.update(cx, |view, cx| view.page_entered(&pane_id("a"), cx));
         clock.set(clock.get() + std::time::Duration::from_millis(200));
         cx.run_until_parked();
         view.read_with(cx, |view, _| {
@@ -364,7 +372,7 @@ mod tests {
         let layout = layout_of("a", &[]);
         let harness = open(cx, &layout);
         let (view, cx) = (harness.view, harness.cx);
-        view.update(cx, |view, cx| view.set_hovered_pane(Some(pane_id("a")), cx));
+        view.update(cx, |view, cx| view.page_entered(&pane_id("a"), cx));
         view.read_with(cx, |view, _| {
             let now = view.clock.now() + std::time::Duration::from_millis(200);
             let motion = ui::Motion::default();

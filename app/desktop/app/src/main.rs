@@ -52,7 +52,6 @@ mod group_focus;
 mod holes;
 mod host_builder;
 mod hosts;
-mod hover_tracker;
 mod installed_fonts;
 mod landing;
 mod last_window;

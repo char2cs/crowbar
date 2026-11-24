@@ -8,6 +8,7 @@ use ui::{Motion, Surface, Theme};
 
 use ideshell::PaneStrip;
 
+use crate::hover_source::HoverSource;
 use crate::layout_view::LayoutView;
 use crate::pane_cell::PaneCell;
 use crate::pane_frame::PaneFrame;
@@ -45,8 +46,8 @@ impl LayoutView {
         let cell = PaneCell {
             handle: self.handle_for(&pane, (now, motion), cx),
             ring_opacity: self.rings.opacity(&pane, now, motion),
-            on_enter: Self::enter_action(&pane, cx),
-            on_leave: Self::leave_action(&pane, cx),
+            on_enter: Self::enter_action((HoverSource::Cell, &pane), cx),
+            on_leave: Self::leave_action((HoverSource::Cell, &pane), cx),
             on_press: Self::press_action(&pane, cx),
             content: self.parts((group, &shown), window, cx),
             group: group.chat().or_else(|| group.tabs().first())?.clone(),

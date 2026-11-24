@@ -1,4 +1,5 @@
 use crate::handle_button::{HandleAction, HandleButton};
+use crate::hover_route::route;
 use gpui::{
     App, AppContext as _, CursorStyle, ElementId, Hsla, InteractiveElement, IntoElement,
     MouseButton, ParentElement, RenderOnce, SharedString, StatefulInteractiveElement, Styled,
@@ -28,6 +29,7 @@ pub(crate) struct PaneHandle {
     pub(crate) opacity: f32,
     pub(crate) on_detach: HandleAction,
     pub(crate) on_close: HandleAction,
+    pub(crate) on_hover: [HandleAction; 2],
 }
 
 impl PaneHandle {
@@ -46,8 +48,13 @@ impl RenderOnce for PaneHandle {
         let ink = palette.primary_foreground();
         let name = self.pane.as_str().to_owned();
         let grip = grip(self.pane, self.label, ink);
+        let [leave, enter] = self.on_hover;
         div()
+            .id(element_id(&name, "handle"))
             .debug_selector(|| "pane-handle".into())
+            .on_hover(move |hovered, window, cx| {
+                route([&leave, &enter], usize::from(*hovered), window, cx);
+            })
             .flex()
             .items_start()
             .gap(px(GAP))
