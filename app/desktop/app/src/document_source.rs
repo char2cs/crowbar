@@ -6,6 +6,8 @@ use crate::request_queue::send;
 use crate::saved_file::SavedFile;
 use crate::shell_request::ShellRequest;
 
+const NOT_FOUND: u16 = 404;
+
 pub(crate) trait DocumentSource {
     /// Reads `file` of `chat`'s workspace (or of this computer, for an absolute path) and hands
     /// its text to `done`; an error now means `chat` is not loaded yet.
@@ -76,14 +78,38 @@ pub(crate) fn saved_into(
 pub(crate) fn disk_into(
     requests: async_channel::Sender<ShellRequest>,
     pane: PaneId,
-    since: editorview::SaveMark,
+    (file, since): (DocumentPath, editorview::SaveMark),
 ) -> FileDone<String> {
-    Box::new(move |result| match result {
-        Ok(text) => send(
-            &requests,
-            ShellRequest::Document(DocumentRequest::DiskRead { pane, text, since }),
-        ),
-        Err(error) => tracing::debug!(%error, %pane, "a file changed on disk and did not read"),
+    Box::new(move |result| send_some(&requests, disk_request(pane, (&file, since), result)))
+}
+
+fn send_some(
+    requests: &async_channel::Sender<ShellRequest>,
+    request: Option<DocumentRequest>,
+) {
+    if let Some(request) = request {
+        send(requests, ShellRequest::Document(request));
+    }
+}
+
+fn disk_request(
+    pane: PaneId,
+    (file, since): (&DocumentPath, editorview::SaveMark),
+    result: Result<String, FileError>,
+) -> Option<DocumentRequest> {
+    let error = match result {
+        Ok(text) => return Some(DocumentRequest::DiskRead { pane, text, since }),
+        Err(error) => error,
+    };
+    if error.refusal().0 != NOT_FOUND {
+        tracing::debug!(%error, %pane, "a file changed on disk and did not read");
+        return None;
+    }
+    let failure = failure_of(file, &error);
+    Some(DocumentRequest::DiskMissing {
+        pane,
+        failure,
+        since,
     })
 }
 

@@ -29,6 +29,12 @@ pub(crate) enum DocumentRequest {
         text: String,
         since: editorview::SaveMark,
     },
+    /// A file pane's file was gone when it was read again, under the save mark it had then.
+    DiskMissing {
+        pane: protocol::PaneId,
+        failure: editor::OpenFailure,
+        since: editorview::SaveMark,
+    },
     /// A file pane's page holds `text` for the document the pane's editor owns.
     PageEdited {
         pane: protocol::PaneId,

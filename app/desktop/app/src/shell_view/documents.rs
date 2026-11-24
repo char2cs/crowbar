@@ -5,8 +5,6 @@ use ui::{ToastContent, ToastKind, ToastLifetime};
 
 use super::ShellView;
 
-const CHANGED_ON_DISK: &str =
-    "Your unsaved changes are kept. Saving will overwrite the on-disk version.";
 use crate::document_request::DocumentRequest;
 use crate::editor_panes::{Landing, PaneView};
 use crate::request_queue::send;
@@ -26,12 +24,7 @@ impl ShellView {
                 self.state.mark_dirty(pane);
                 self.dirty_changed(cx);
             },
-            DocumentRequest::Dirty { pane, dirty: false } => {
-                self.source.native().editors().discard_draft(&pane);
-                self.state.clear_dirty(&pane);
-                self.dirty_changed(cx);
-                self.send_preview_texts(&pane, cx);
-            },
+            DocumentRequest::Dirty { pane, dirty: false } => self.turned_clean(&pane, cx),
             DocumentRequest::Save { pane } => self.save_document(&pane, window, cx),
             DocumentRequest::SavedAs { pane, saved } => {
                 self.adopt_saved_as((&pane, &saved), window, cx);
@@ -44,6 +37,11 @@ impl ShellView {
             DocumentRequest::DiskRead { pane, text, since } => {
                 self.take_disk((&pane, (&text, since)), window, cx);
             },
+            DocumentRequest::DiskMissing {
+                pane,
+                failure,
+                since,
+            } => self.disk_missing((&pane, failure, since), cx),
             DocumentRequest::PageEdited { pane, text } => {
                 self.take_page_text((&pane, &text), window, cx);
             },
@@ -69,53 +67,15 @@ impl ShellView {
         self.send_preview_texts(pane, cx);
     }
 
-    pub(super) fn disk_changed(
-        &self,
-        outcome: store::Outcome,
-        cx: &Context<'_, Self>,
-    ) {
-        let editors = self.source.native().editors();
-        match outcome {
-            store::Outcome::FileChanged { workspace, path } => {
-                editors.disk_changed((&workspace, Some(&path)), cx);
-            },
-            store::Outcome::FilesSynced { workspace } => {
-                editors.disk_changed((&workspace, None), cx);
-            },
-            _ => {},
-        }
-    }
-
-    fn take_disk(
-        &mut self,
-        read: (&PaneId, (&str, editorview::SaveMark)),
-        window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        let took = self.source.native().editors().take_disk(read, window, cx);
-        self.disk_taken(read.0, took, cx);
-    }
-
-    pub(super) fn disk_taken(
+    fn turned_clean(
         &mut self,
         pane: &PaneId,
-        took: editorview::DiskTake,
         cx: &mut Context<'_, Self>,
     ) {
-        let editors = self.source.native().editors();
-        if took == editorview::DiskTake::Taken {
-            self.send_page_text(pane, cx);
-            self.send_preview_texts(pane, cx);
-        }
-        if took != editorview::DiskTake::Conflicted {
-            return;
-        }
-        let Some(name) = editors.file_name(pane) else {
-            return;
-        };
-        let said = ToastContent::new(ToastKind::Warning, CHANGED_ON_DISK)
-            .titled(format!("{name} changed on disk"));
-        self.show_keyed(&format!("disk:{pane}"), (said, ToastLifetime::Auto), cx);
+        self.source.native().editors().discard_draft(pane);
+        self.state.clear_dirty(pane);
+        self.dirty_changed(cx);
+        self.send_preview_texts(pane, cx);
     }
 
     fn edits_paused(
