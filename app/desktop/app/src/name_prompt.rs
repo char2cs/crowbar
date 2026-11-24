@@ -9,11 +9,14 @@ use crate::prefill::Prefill;
 use crate::prompt_words::PromptWords;
 
 const BUTTON_GAP: f32 = 8.0;
-const PLACEHOLDER: &str = "Name";
+const LABEL_GAP: f32 = 8.0;
 
+// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/tabs/components/tab-context-menu.tsx
 pub(crate) const RENAME: PromptWords = PromptWords {
     dialog: "rename-prompt",
-    title: "Rename Tab",
+    title: "Rename Terminal",
+    label: "Enter a terminal name:",
+    placeholder: "Terminal name",
     cancel_id: "rename-prompt-cancel",
     confirm_id: "rename-prompt-confirm",
     confirm: "Rename",
@@ -23,6 +26,8 @@ pub(crate) const RENAME: PromptWords = PromptWords {
 pub(crate) const SAVE_AS: PromptWords = PromptWords {
     dialog: "save-as-prompt",
     title: "Save as:",
+    label: "",
+    placeholder: "Name",
     cancel_id: "save-as-prompt-cancel",
     confirm_id: "save-as-prompt-confirm",
     confirm: "OK",
@@ -43,7 +48,7 @@ impl NamePrompt {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> Self {
-        let field = cx.new(|cx| TextInput::new(PLACEHOLDER, cx).on(Surface::Window));
+        let field = cx.new(|cx| TextInput::new(words.placeholder, cx).on(Surface::Window));
         field.update(cx, |field, cx| field.set_text(current, cx));
         if words.prefill == Prefill::Selected {
             field.update(cx, TextInput::select_all);
@@ -74,6 +79,27 @@ impl NamePrompt {
     }
 }
 
+impl NamePrompt {
+    fn body(
+        &self,
+        cx: &Context<'_, Self>,
+    ) -> gpui::Div {
+        let label = (!self.words.label.is_empty()).then(|| {
+            let palette = ui::Theme::of(cx).palette(Surface::Window);
+            div()
+                .text_size(ui::text_size::SM)
+                .text_color(palette.foreground())
+                .child(self.words.label)
+        });
+        div()
+            .flex()
+            .flex_col()
+            .gap(gpui::px(LABEL_GAP))
+            .children(label)
+            .child(self.field.clone())
+    }
+}
+
 impl Render for NamePrompt {
     fn render(
         &mut self,
@@ -90,7 +116,7 @@ impl Render for NamePrompt {
         Dialog::new(self.words.dialog)
             .title(self.words.title)
             .size(DialogSize::Sm)
-            .body(self.field.clone())
+            .body(self.body(cx))
             .footer(
                 div()
                     .flex()
@@ -135,7 +161,7 @@ mod tests {
     const CASES: &[(&str, &str, &str)] = &[
         ("the name is sent as typed", "logs", "logs"),
         ("surrounding blanks are dropped", "  logs  ", "logs"),
-        ("an emptied field asks for the default name", "   ", ""),
+        ("an emptied field sends an empty name", "   ", ""),
     ];
 
     #[gpui::test]

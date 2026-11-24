@@ -37,19 +37,25 @@ impl ShellView {
         let Some((pane, name)) = confirmed(asked.as_ref(), event) else {
             return;
         };
-        self.state.rename_pane(pane, name);
+        self.state.rename_pane(pane, &name);
         self.refresh(cx);
     }
 }
 
 fn confirmed<'a>(
     asked: Option<&'a PaneId>,
-    event: &'a NameEvent,
-) -> Option<(&'a PaneId, &'a str)> {
+    event: &NameEvent,
+) -> Option<(&'a PaneId, String)> {
     let NameEvent::Confirmed(name) = event else {
         return None;
     };
-    asked.map(|pane| (pane, name.as_str()))
+    // SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/tabs/components/tab-context-menu.tsx
+    let name: String = name.chars().filter(|c| !c.is_control()).collect();
+    let name = name.trim();
+    if name.is_empty() {
+        return None;
+    }
+    asked.map(|pane| (pane, name.to_owned()))
 }
 
 #[cfg(test)]
@@ -62,10 +68,20 @@ mod tests {
         let named = NameEvent::Confirmed("logs".into());
         assert_eq!(
             confirmed(Some(&pane), &named),
-            Some((&pane, "logs")),
+            Some((&pane, "logs".to_owned())),
             "named"
         );
         assert_eq!(confirmed(None, &named), None, "nobody asked");
+        let cases = [
+            ("   ", None),
+            ("\u{7}\u{1b}", None),
+            ("lo\u{7}gs", Some("logs")),
+        ];
+        for (typed, expected) in cases {
+            let typed = NameEvent::Confirmed(typed.into());
+            let renamed = confirmed(Some(&pane), &typed).map(|(_, name)| name);
+            assert_eq!(renamed.as_deref(), expected, "{typed:?}");
+        }
         assert_eq!(
             confirmed(Some(&pane), &NameEvent::Dismissed),
             None,

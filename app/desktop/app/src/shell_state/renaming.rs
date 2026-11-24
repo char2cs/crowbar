@@ -31,10 +31,7 @@ fn named_state(
     name: &str,
 ) -> Option<PaneState> {
     let mut fields: Map<String, Value> = state.as_value().as_object().cloned().unwrap_or_default();
-    fields.remove(NAME_KEY);
-    if !name.is_empty() {
-        fields.insert(NAME_KEY.to_owned(), Value::from(name));
-    }
+    fields.insert(NAME_KEY.to_owned(), Value::from(name));
     PaneState::new(Value::Object(fields)).ok()
 }
 
@@ -43,25 +40,18 @@ mod tests {
     use crate::pane_spec::PaneSpec;
     use crate::test_support::shell_rig;
 
-    const CASES: &[(&str, &str, &str)] = &[
-        ("a name replaces the folder", "logs", "logs"),
-        ("an empty name brings the folder back", "", "src"),
-    ];
-
     #[test]
     fn renaming_a_terminal_names_its_tab_and_keeps_its_folder() {
-        for (case, name, shown) in CASES {
-            let mut rig = shell_rig();
-            let spec = PaneSpec::terminal("t1", None, Some("/work/src")).unwrap();
-            rig.shell.open_spec(spec);
-            let pane = rig.shell.layout().tabs()[0].pane_ids()[0].clone();
-            rig.shell.rename_pane(&pane, "old");
-            rig.shell.rename_pane(&pane, name);
-            let title = rig.shell.titles().get(&pane).map(|t| t.to_string());
-            assert_eq!(title.as_deref(), Some(*shown), "{case}");
-            let state = rig.shell.layout().pane(&pane).unwrap().state.clone();
-            assert_eq!(state.as_value()["directory"], "/work/src", "{case}: folder");
-        }
+        let mut rig = shell_rig();
+        let spec = PaneSpec::terminal("t1", None, Some("/work/src")).unwrap();
+        rig.shell.open_spec(spec);
+        let pane = rig.shell.layout().tabs()[0].pane_ids()[0].clone();
+        rig.shell.rename_pane(&pane, "old");
+        rig.shell.rename_pane(&pane, "logs");
+        let title = rig.shell.titles().get(&pane).map(|t| t.to_string());
+        assert_eq!(title.as_deref(), Some("logs"));
+        let state = rig.shell.layout().pane(&pane).unwrap().state.clone();
+        assert_eq!(state.as_value()["directory"], "/work/src", "folder");
     }
 
     #[test]
