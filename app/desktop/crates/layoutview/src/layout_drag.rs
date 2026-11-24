@@ -74,6 +74,7 @@ impl LayoutView {
         cx: &mut Context<'_, Self>,
     ) {
         let Some(tab) = &self.tab else {
+            self.hover_stage(subject, position, cx);
             return;
         };
         let own_tab = matches!(subject, DragSubject::Tab(dragged) if *dragged == tab.id());
@@ -96,6 +97,20 @@ impl LayoutView {
             now: self.clock.now(),
         };
         self.drop.over(hit, cx);
+        cx.notify();
+    }
+
+    fn hover_stage(
+        &mut self,
+        subject: &DragSubject,
+        position: Point<Pixels>,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let on_stage = matches!(subject, DragSubject::Chat(_)) && self.bounds.contains(&position);
+        self.drop.clear();
+        if on_stage {
+            self.drop.over_stage(subject);
+        }
         cx.notify();
     }
 
@@ -130,7 +145,10 @@ impl LayoutView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        let opened = self.tab.as_ref().and_then(|tab| self.drop.chat_event(tab));
+        let opened = self
+            .tab
+            .as_ref()
+            .map_or_else(|| self.drop.stage_event(), |tab| self.drop.chat_event(tab));
         self.released(event, window, cx);
         if let Some(opened) = opened {
             cx.emit(opened);
@@ -268,5 +286,25 @@ mod tests {
             view.drop.is_dragging()
         });
         assert!(!after, "no drag after the release");
+    }
+
+    #[gpui::test]
+    fn a_chat_row_released_on_the_empty_stage_asks_to_open_it_there(cx: &mut TestAppContext) {
+        let layout = layout::Layout::default();
+        let harness = crate::test_support::open_under_row_source(cx, &layout);
+        let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
+        let centre = view.read_with(cx, |view, _| view.bounds.center());
+        let none = gpui::Modifiers::none();
+        let left = gpui::MouseButton::Left;
+        cx.simulate_mouse_down(point(px(4.0), px(4.0)), left, none);
+        cx.simulate_mouse_move(point(px(40.0), px(40.0)), left, none);
+        cx.simulate_mouse_move(centre, left, none);
+        cx.simulate_mouse_up(centre, left, none);
+        let expected = crate::LayoutEvent::StageChat { chat: "t1".into() };
+        assert_eq!(
+            opened.borrow().clone(),
+            vec![expected],
+            "open t1 on the stage"
+        );
     }
 }

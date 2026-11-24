@@ -161,6 +161,9 @@ impl ShellView {
                 tab,
                 placement,
             } => self.drop_chat(chat, (*tab, placement), cx),
+            LayoutEvent::StageChat { chat } => {
+                self.open_chat(crate::core_panes::chat_params(chat), cx);
+            },
             LayoutEvent::DropTab {
                 tab,
                 onto,

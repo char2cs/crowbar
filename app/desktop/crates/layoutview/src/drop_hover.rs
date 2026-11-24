@@ -49,6 +49,23 @@ impl DropHover {
             .flatten()
     }
 
+    pub(crate) fn over_stage(
+        &mut self,
+        subject: &DragSubject,
+    ) {
+        *self = Self {
+            subject: Some(subject.clone()),
+            ..Self::default()
+        };
+    }
+
+    pub(crate) fn stage_event(&self) -> Option<LayoutEvent> {
+        match self.subject.as_ref()? {
+            DragSubject::Chat(chat) => Some(LayoutEvent::StageChat { chat: chat.clone() }),
+            _ => None,
+        }
+    }
+
     pub(crate) fn event(
         &self,
         subject: &DragSubject,

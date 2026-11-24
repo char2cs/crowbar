@@ -115,7 +115,7 @@ impl ShellView {
         }
     }
 
-    fn open_chat(
+    pub(super) fn open_chat(
         &mut self,
         params: crate::error::Result<protocol::Params>,
         cx: &mut Context<'_, Self>,
