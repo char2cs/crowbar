@@ -1,9 +1,9 @@
 //! A normal row of the chats tree.
 
+mod drag_payload;
 mod editable_mark;
 
 use std::rc::Rc;
-use std::sync::Arc;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
@@ -12,7 +12,7 @@ use gpui::{
     div, px,
 };
 use sidebar::{Expansion, Presence, Row, RowId};
-use ui::{DraggedRow, FlickerSpinner, Icon, Palette, Pose, Surface};
+use ui::{FlickerSpinner, Icon, Palette, Pose, Surface};
 
 use crate::column::mark_view;
 use crate::panels::chats::parts::ClusterSpec;
@@ -92,7 +92,7 @@ impl RenderOnce for TreeRow {
             .children(buttons);
         let shell = self.drag.style(shell, palette);
         let shell = tracked(shell, &self.row.id, &self.bounds);
-        let payload = payload_of(&self.row);
+        let payload = drag_payload::of(&self.row);
         let ghost = ghost_of(self.row.clone(), self.expansion, self.width);
         let handler = Rc::clone(&self.handler);
         let shell = shell.when(live, move |d| draggable(d, payload, ghost, &handler));
@@ -114,14 +114,6 @@ impl TreeRow {
 
 fn buttons_shown(input: Option<Trailing>) -> bool {
     input.is_none_or(|trailing| trailing == Trailing::Kept)
-}
-
-fn payload_of(row: &Row) -> DraggedRow {
-    let id: Arc<str> = Arc::from(row.id.as_str());
-    DraggedRow {
-        chat: (!row.is_container()).then(|| Arc::clone(&id)),
-        row: id,
-    }
 }
 
 fn ghost_of(
@@ -234,7 +226,6 @@ mod tests {
     use gpui::{Modifiers, MouseButton, TestAppContext, point, px};
 
     use super::*;
-    use sidebar::RowKind;
 
     use crate::test_support::{chat, measure, mount, recording_handler};
 
@@ -248,24 +239,6 @@ mod tests {
     fn a_rename_keeps_the_hover_buttons_and_a_branch_name_hides_them() {
         for (input, shown) in BUTTONS {
             assert_eq!(buttons_shown(input), shown, "{input:?}");
-        }
-    }
-
-    #[test]
-    fn a_row_carries_the_chat_it_opens_and_a_container_none() {
-        let mut locked = Row::new("main", RowKind::Branch, 1, "main");
-        locked.lock = sidebar::Lock::Locked;
-        let cases = [
-            (chat("Refactor"), true),
-            (Row::new("b1", RowKind::Branch, 1, "Untitled chat"), true),
-            (locked, false),
-            (Row::new("f", RowKind::Folder, 1, "src"), false),
-        ];
-        for (row, opens) in cases {
-            let payload = payload_of(&row);
-            let carried = payload.chat.as_deref() == Some(payload.row.as_ref());
-            assert_eq!(carried, opens, "{:?}", row.kind);
-            assert_eq!(payload.chat.is_none(), !opens, "{:?}", row.kind);
         }
     }
 
