@@ -140,14 +140,20 @@ mod tests {
     }
 
     #[test]
-    fn a_closed_pane_comes_back_once_and_nothing_closed_reopens_nothing() {
+    fn a_closed_file_tab_comes_back_once_and_a_closed_chat_never_does() {
         let mut rig = shell_rig();
         assert!(!rig.shell.reopen_closed(), "nothing closed yet");
         open_chat(&mut rig.shell, "t1");
-        let pane = rig.shell.layout().tabs()[0].pane_ids()[0].clone();
-        rig.shell.apply(vec![layout::Command::ClosePane { pane }]);
-        assert!(rig.shell.reopen_closed(), "reopened");
-        assert!(!rig.shell.reopen_closed(), "only once");
-        assert_eq!(rig.shell.layout().pane_count(), 1, "back");
+        let chat = rig.shell.layout().tabs()[0].pane_ids()[0].clone();
+        rig.shell
+            .open_spec(PaneSpec::editor("t1", "src/a.ts").unwrap());
+        let file = rig.shell.layout().tabs()[0].pane_ids()[1].clone();
+        rig.shell
+            .apply(vec![layout::Command::ClosePane { pane: file }]);
+        rig.shell
+            .apply(vec![layout::Command::ClosePane { pane: chat }]);
+        assert!(rig.shell.reopen_closed(), "the file is reopened");
+        assert!(!rig.shell.reopen_closed(), "only once, and not the chat");
+        assert_eq!(rig.shell.layout().pane_count(), 1, "the file is back alone");
     }
 }

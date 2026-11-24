@@ -1,9 +1,12 @@
-use layout::{Command, Layout};
+use layout::{Command, Layout, PaneInstance};
 
 use crate::close_guard::closing_panes;
 use crate::pane_spec::PaneSpec;
 
-const REMEMBERED: usize = 20;
+// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/editor/config/constants.ts
+const REMEMBERED: usize = 10;
+const PATH: &str = "path";
+const PREVIEW: &str = "preview";
 
 #[derive(Debug, Default)]
 pub(crate) struct ClosedPanes {
@@ -18,6 +21,7 @@ impl ClosedPanes {
         closing_panes(layout, command)
             .iter()
             .filter_map(|pane| layout.pane(pane))
+            .filter(|instance| is_file_tab(instance))
             .map(PaneSpec::of)
             .collect()
     }
@@ -36,22 +40,22 @@ impl ClosedPanes {
     }
 }
 
+fn is_file_tab(instance: &PaneInstance) -> bool {
+    let state = instance.state.as_value();
+    let named = state
+        .get(PATH)
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|path| !path.is_empty());
+    crate::tab_looks::is_file(instance) && named && state.get(PREVIEW).is_none()
+}
+
 #[cfg(test)]
 mod tests {
-    use layout::{PaneInstance, TabId};
-    use protocol::{PaneId, PaneState};
+    use layout::TabId;
+    use protocol::PaneId;
 
     use super::*;
     use crate::core_panes::{chat_params, chat_type};
-
-    fn chat_instance(id: &str) -> PaneInstance {
-        PaneInstance {
-            pane_id: PaneId::new(id).unwrap(),
-            type_id: chat_type().unwrap(),
-            params: chat_params(id).unwrap(),
-            state: PaneState::default(),
-        }
-    }
 
     fn open_pane(
         layout: &mut Layout,
@@ -65,76 +69,97 @@ mod tests {
         layout.apply(command).unwrap();
     }
 
-    fn layout_with(panes: &[&str]) -> Layout {
+    fn file(id: &str) -> PaneInstance {
+        let spec = PaneSpec::editor("c1", &format!("src/{id}.ts")).unwrap();
+        spec.instance(PaneId::new(id).unwrap())
+    }
+
+    fn layout_of(instances: Vec<PaneInstance>) -> Layout {
         let mut layout = Layout::default();
         let add = Command::AddTab {
             id: TabId(1),
             title: String::new(),
         };
         layout.apply(add).unwrap();
-        for id in panes {
-            open_pane(&mut layout, chat_instance(id));
+        for instance in instances {
+            open_pane(&mut layout, instance);
         }
         layout
     }
 
-    type Case = (&'static str, fn() -> Command, &'static [&'static str]);
+    fn mixed() -> Layout {
+        let chat = PaneInstance {
+            pane_id: PaneId::new("chat").unwrap(),
+            type_id: chat_type().unwrap(),
+            params: chat_params("c1").unwrap(),
+            state: protocol::PaneState::default(),
+        };
+        let untitled = PaneSpec::untitled("c1", ("1", "Untitled")).unwrap();
+        let preview = PaneSpec::preview(
+            "c1",
+            (
+                &protocol::DocumentPath::new("src/b.md").unwrap(),
+                editor::Preview::Markdown,
+            ),
+        );
+        layout_of(vec![
+            chat,
+            file("a"),
+            untitled.instance(PaneId::new("u").unwrap()),
+            preview.unwrap().instance(PaneId::new("p").unwrap()),
+            file("b"),
+        ])
+    }
 
-    const CASES: [Case; 4] = [
-        (
-            "a tab closes its panes",
-            || Command::CloseTab { tab: TabId(1) },
-            &["a", "b"],
-        ),
-        (
-            "a pane closes itself",
-            || Command::ClosePane {
-                pane: PaneId::new("b").unwrap(),
-            },
-            &["b"],
-        ),
-        (
-            "a bulk close names each of its panes",
-            || Command::ClosePanes {
-                panes: vec![PaneId::new("a").unwrap(), PaneId::new("b").unwrap()],
-            },
-            &["a", "b"],
-        ),
-        (
-            "other commands close nothing",
-            || Command::FocusPane {
-                pane: PaneId::new("a").unwrap(),
-            },
-            &[],
-        ),
-    ];
+    fn paths(specs: &[PaneSpec]) -> Vec<String> {
+        specs
+            .iter()
+            .filter_map(|spec| spec.state.as_value().get(PATH)?.as_str().map(str::to_owned))
+            .collect()
+    }
 
     #[test]
-    fn closing_names_the_panes_the_command_closes() {
-        let layout = layout_with(&["a", "b"]);
-        for (name, command, expected) in CASES {
-            let closing = ClosedPanes::closing(&layout, &command());
-            let threads: Vec<_> = closing
-                .iter()
-                .map(|spec| spec.params.get("threadId").unwrap())
-                .collect();
-            assert_eq!(threads, expected, "{name}");
+    fn closing_a_tab_remembers_only_its_file_tabs() {
+        let closing = ClosedPanes::closing(&mixed(), &Command::CloseTab { tab: TabId(1) });
+        assert_eq!(paths(&closing), ["src/a.ts", "src/b.ts"]);
+    }
+
+    #[test]
+    fn closing_names_the_file_panes_the_command_closes() {
+        let layout = mixed();
+        let one = |id: &str| PaneId::new(id).unwrap();
+        let cases = [
+            (Command::ClosePane { pane: one("a") }, vec!["src/a.ts"]),
+            (Command::ClosePane { pane: one("chat") }, vec![]),
+            (
+                Command::ClosePanes {
+                    panes: vec![one("u"), one("b")],
+                },
+                vec!["src/b.ts"],
+            ),
+            (Command::FocusPane { pane: one("a") }, vec![]),
+        ];
+        for (command, expected) in cases {
+            assert_eq!(paths(&ClosedPanes::closing(&layout, &command)), expected);
         }
     }
 
     #[test]
-    fn the_last_closed_comes_back_first_and_only_the_newest_are_kept() {
-        let layout = layout_with(&["a", "b"]);
+    fn the_last_closed_comes_back_first_and_only_the_newest_ten_are_kept() {
+        let layout = layout_of(vec![file("a"), file("b")]);
         let both = ClosedPanes::closing(&layout, &Command::CloseTab { tab: TabId(1) });
         let mut closed = ClosedPanes::default();
         closed.remember(both.clone());
-        let last = closed.take_last().unwrap();
-        assert_eq!(last.params.get("threadId"), Some("b"), "newest first");
+        assert_eq!(
+            paths(&[closed.take_last().unwrap()]),
+            ["src/b.ts"],
+            "newest"
+        );
         assert!(closed.take_last().is_some(), "then the other");
         assert!(closed.take_last().is_none(), "then nothing");
         for _ in 0..REMEMBERED {
             closed.remember(both.clone());
         }
-        assert_eq!(closed.specs.len(), REMEMBERED, "capped");
+        assert_eq!(closed.specs.len(), 10, "capped as develop");
     }
 }
