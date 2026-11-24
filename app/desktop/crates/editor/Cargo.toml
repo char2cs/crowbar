@@ -1,6 +1,6 @@
 [package]
 name = "editor"
-description = "The Crowbar editor's documents without GPUI: languages by path and why a document did not open."
+description = "The Crowbar editor's documents without GPUI: languages by path, why a document did not open, drafts and text commands."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,8 +10,10 @@ publish.workspace = true
 
 [dependencies]
 atomicfile.workspace = true
+regex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

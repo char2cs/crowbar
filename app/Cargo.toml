@@ -76,6 +76,7 @@ wry = { version = "0.53", features = ["linux-body"] }
 x11rb = "0.13"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+regex = "1.13"
 thiserror = "2"
 tracing = "0.1"
 unicode-segmentation = "1"

@@ -1,15 +1,32 @@
 //! The Crowbar editor's documents without GPUI: the language a path is written in, as develop's
 //! `language-id.ts` resolves it, why a document could not be opened, and the drafts that keep a
-//! dirty document's text across restarts.
+//! dirty document's text across restarts, and the text commands the editor runs over a
+//! document: finding, word lookup and whole-line edits.
 
 mod draft;
 mod drafts;
 mod editor;
+mod error;
+mod find_option;
+mod find_options;
+mod find_query;
+mod goto_target;
 mod language;
+mod line_edit;
 mod open_failure;
+mod vertical;
+mod word;
 
 pub use draft::Draft;
 pub use drafts::{DiskDraftFile, DraftFile, Drafts};
 pub use editor::{host_uri, workspace_uri};
+pub use error::Error;
+pub use find_option::FindOption;
+pub use find_options::FindOptions;
+pub use find_query::FindQuery;
+pub use goto_target::GotoTarget;
 pub use language::Language;
+pub use line_edit::LineEdit;
 pub use open_failure::OpenFailure;
+pub use vertical::Vertical;
+pub use word::{is_separator, word_at};
