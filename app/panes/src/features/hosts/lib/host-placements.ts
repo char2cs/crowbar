@@ -26,21 +26,19 @@ const recordOf = (hostId: string, kind: Placed, id: string): PlacementRecord => 
 })
 
 function onlyIn(s: EntityState, other: EntityState, kind: Placed): PlacementRecord[] {
-  return Object.keys(s.byKind[kind])
-    .filter((key) => !(key in other.byKind[kind]))
-    .map((key) => {
-      const { hostId, id } = splitHostKey(key)
-      return recordOf(hostId, kind, id)
-    })
+  return Object.keys(s.byKind[kind]).flatMap((key) => {
+    if (key in other.byKind[kind]) return []
+    const { hostId, id } = splitHostKey(key)
+    return [recordOf(hostId, kind, id)]
+  })
 }
 
 function landedHosts(s: EntityState, prev: EntityState): string[] {
   if (s.loaded === prev.loaded) return []
-  return Object.keys(s.loaded)
-    .filter((scope) => !prev.loaded[scope])
-    .map(splitHostKey)
-    .filter(({ id }) => id === HOSTS_LIST)
-    .map(({ hostId }) => hostId)
+  return Object.keys(s.loaded).flatMap((scope) => {
+    const { hostId, id } = splitHostKey(scope)
+    return !prev.loaded[scope] && id === HOSTS_LIST ? [hostId] : []
+  })
 }
 
 async function writeChange({ put, del }: Change): Promise<void> {
@@ -80,7 +78,7 @@ class Placements {
     const kinds = KINDS.filter((kind) => s.byKind[kind] !== prev.byKind[kind])
     const listed = landedHosts(s, prev).flatMap((hostId) => this.heldBy(hostId))
     const change: Change = {
-      put: kinds.flatMap((kind) => onlyIn(s, prev, kind)).filter((r) => !this.isHeld(r)),
+      put: kinds.flatMap((kind) => onlyIn(s, prev, kind).filter((r) => !this.isHeld(r))),
       del: [
         ...kinds.flatMap((kind) => onlyIn(prev, s, kind)),
         ...listed.filter((r) => !s.byKind[r.kind][entityKey(r.hostId, r.id)]),
@@ -113,12 +111,11 @@ class Placements {
   }
 
   private heldBy(hostId: string): PlacementRecord[] {
-    return [...this.held]
-      .filter(([, hosts]) => hosts.has(hostId))
-      .map(([k]) => {
-        const at = k.indexOf(SEP)
-        return recordOf(hostId, k.slice(0, at) as Placed, k.slice(at + SEP.length))
-      })
+    return [...this.held].flatMap(([k, hosts]) => {
+      if (!hosts.has(hostId)) return []
+      const at = k.indexOf(SEP)
+      return [recordOf(hostId, k.slice(0, at) as Placed, k.slice(at + SEP.length))]
+    })
   }
 }
 

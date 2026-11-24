@@ -27,10 +27,10 @@ function cutAt(feed: ChatFeed): number {
 }
 
 function keptScopes(feed: ChatFeed, keep: Set<string>): Record<string, string[]> {
-  const scopes = Object.entries(feed.facts.subagentScopes)
-    .filter(([, card]) => keep.has(card))
-    .map(([scope]) => scope)
-  return Object.fromEntries(scopes.map((scope) => [scope, feed.scoped[scope] ?? []]))
+  const kept = Object.entries(feed.facts.subagentScopes).flatMap(([scope, card]) =>
+    keep.has(card) ? [[scope, feed.scoped[scope] ?? []] as const] : [],
+  )
+  return Object.fromEntries(kept)
 }
 
 function snapshot(feed: ChatFeed): { rows: Rows; cursor: FeedCursor } {
