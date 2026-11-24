@@ -1,0 +1,15 @@
+--- a/src/window.rs
++++ b/src/window.rs
+@@ -2543,7 +2543,11 @@
+                 .polychrome_sprites
+                 .iter()
+                 .filter(|s| s.opacity >= OPAQUE_ALPHA)
+-                .map(|s| (s.bounds, s.content_mask.bounds)),
++                .flat_map(|s| {
++                    rounded_rows(s.bounds, &s.corner_radii)
++                        .into_iter()
++                        .map(|row| (row, s.content_mask.bounds))
++                }),
+         )
+         .chain(
+             scene

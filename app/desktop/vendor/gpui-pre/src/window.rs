@@ -2536,7 +2536,11 @@ fn content_region(scene: &Scene, scale_factor: f32) -> Vec<Bounds<Pixels>> {
                 .polychrome_sprites
                 .iter()
                 .filter(|s| s.opacity >= OPAQUE_ALPHA)
-                .map(|s| (s.bounds, s.content_mask.bounds)),
+                .flat_map(|s| {
+                    rounded_rows(s.bounds, &s.corner_radii)
+                        .into_iter()
+                        .map(|row| (row, s.content_mask.bounds))
+                }),
         )
         .chain(
             scene

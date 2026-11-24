@@ -1,8 +1,8 @@
 //! What a toast paints under its card while the card is translucent.
 
 use gpui::{
-    AnimationElement, AnimationExt, App, Div, ElementId, Entity, ParentElement, Styled, Window,
-    canvas, div,
+    AnimationElement, AnimationExt, App, Bounds, Corners, Div, ElementId, Entity, ParentElement,
+    Pixels, Styled, Window, canvas, div,
 };
 
 use crate::display::toast::motion::fade;
@@ -10,6 +10,7 @@ use crate::display::toast::phase::Phase;
 use crate::floating::Backdrop;
 use crate::foundation::CubicBezier;
 use crate::foundation::Motion;
+use crate::foundation::tokens::radius;
 use crate::foundation::tokens::timing;
 
 // PLATFORM: linux X11 without a compositor shows only opaque pixels; paint the window under a fade.
@@ -37,9 +38,17 @@ fn reveal(
     }
     let backdrop = backdrop.clone();
     let paint = move |bounds, (), window: &mut Window, cx: &mut App| {
-        backdrop.update(cx, |backdrop, _| backdrop.paint_under(bounds, window));
+        backdrop.update(cx, |backdrop, _| under_card(backdrop, bounds, window));
     };
     slot.child(canvas(|_, _, _| (), paint).size_full())
+}
+
+fn under_card(
+    backdrop: &mut Backdrop,
+    bounds: Bounds<Pixels>,
+    window: &mut Window,
+) {
+    backdrop.paint_under(bounds, Corners::all(radius::LG), window);
 }
 
 #[cfg(test)]
@@ -52,6 +61,7 @@ mod tests {
     use crate::test_support::probe::open_floating;
 
     const TOAST_WIDTH: f32 = 288.0;
+    const CORNER: f32 = 0.5;
 
     fn sidebar_toast() -> gpui::Div {
         div()
@@ -59,10 +69,21 @@ mod tests {
             .child(Toast::new("t", ToastKind::Info, "Saved").full_width())
     }
 
+    fn shown_at(
+        top: &mut VisualTestContext,
+        x: f32,
+        y: f32,
+    ) -> bool {
+        let card = top.debug_bounds("ui-toast").unwrap_or_default();
+        let at = gpui::point(card.left() + px(x), card.top() + px(y));
+        let region = top.update(|window, _| window.content_region().to_vec());
+        region.iter().any(|shown| shown.contains(&at))
+    }
+
     fn shown(top: &mut VisualTestContext) -> bool {
         let card = top.debug_bounds("ui-toast").unwrap_or_default();
-        let region = top.update(|window, _| window.content_region().to_vec());
-        region.iter().any(|shown| shown.contains(&card.center()))
+        let middle = card.size.height / 2.0;
+        shown_at(top, TOAST_WIDTH / 2.0, f32::from(middle))
     }
 
     #[gpui::test]
@@ -79,6 +100,10 @@ mod tests {
         assert!(
             shown(&mut top),
             "half faded in: the card shows, blended over the captured window"
+        );
+        assert!(
+            !shown_at(&mut top, CORNER, CORNER),
+            "the capture keeps to the card's rounded corners"
         );
     }
 }

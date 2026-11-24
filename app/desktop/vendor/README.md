@@ -82,6 +82,8 @@ Drop it with `overlay-window`.
 
 `overlay-opened-with-owner` (`gpui-pre`, `src/window.rs`), applied on top of `opaque-ink`: an overlay no longer looks its owner up when it is created; `Window::share_input_modality` takes the owner's modality from whoever opens it. The shell opens its top layer while the main window is built, before that window's first frame, and the app cannot hand out a window it is building, so the lookup found nothing and the two kept separate modalities. Opened after the first frame instead, the top layer came up a second or more after the window on a slow host, and a cover the first frame showed painted under the native web views meanwhile.
 
+`rounded-images` (`gpui-pre`, `src/window.rs`), applied on top of `overlay-opened-with-owner`: an overlay's content region leaves out the rounded corners of an opaque image, as `rounded-content` does for fills. A fading toast paints the captured window under its rounded card; counted as its square bounds, the capture showed its corners black for a frame on bare X11 while the shape grew past the card.
+
 Drop it with `overlay-window`.
 
 ## calloop 0.14.5

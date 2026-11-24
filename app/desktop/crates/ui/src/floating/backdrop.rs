@@ -68,12 +68,13 @@ impl Backdrop {
         Some(Self::picture(image, bounds))
     }
 
-    /// Paints the window, as captured, into `bounds` of the top layer, so translucent content
-    /// painted over it there blends as a compositor would blend it over the live window; does
-    /// nothing where a compositor runs.
+    /// Paints the window, as captured, into `bounds` of the top layer rounded by `corners`, so
+    /// translucent content painted over it there blends as a compositor would blend it over the
+    /// live window; does nothing where a compositor runs.
     pub fn paint_under(
         &mut self,
         bounds: Bounds<Pixels>,
+        corners: Corners<Pixels>,
         window: &mut Window,
     ) {
         if window.is_composited() {
@@ -85,7 +86,7 @@ impl Backdrop {
         let Some(image) = self.plain.clone() else {
             return;
         };
-        let painted = window.paint_image(bounds, owner, Corners::default(), image, 0, false);
+        let painted = window.paint_image(bounds, owner, corners, image, 0, false);
         if let Err(error) = painted {
             tracing::warn!(%error, "painting a backdrop capture failed");
         }
