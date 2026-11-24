@@ -8,7 +8,7 @@ use gpui::{
     App, ClickEvent, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement,
     RenderOnce, SharedString, Stateful, StatefulInteractiveElement, Styled, Window, div, px,
 };
-use sidebar::{Expansion, Presence, Row, RowId, RowKind};
+use sidebar::{Expansion, Presence, Row, RowId};
 use ui::{DraggedRow, FlickerSpinner, Icon, Palette, Pose, Surface};
 
 use crate::column::mark_view;
@@ -105,7 +105,7 @@ fn buttons_shown(input: Option<Trailing>) -> bool {
 fn payload_of(row: &Row) -> DraggedRow {
     let id: Arc<str> = Arc::from(row.id.as_str());
     DraggedRow {
-        chat: (row.kind == RowKind::Chat).then(|| Arc::clone(&id)),
+        chat: (!row.is_container()).then(|| Arc::clone(&id)),
         row: id,
     }
 }
@@ -207,6 +207,8 @@ mod tests {
     use gpui::{Modifiers, MouseButton, TestAppContext, point, px};
 
     use super::*;
+    use sidebar::RowKind;
+
     use crate::test_support::{chat, measure, mount, recording_handler};
 
     const BUTTONS: [(Option<Trailing>, bool); 3] = [
@@ -223,15 +225,21 @@ mod tests {
     }
 
     #[test]
-    fn only_a_chat_row_carries_a_chat_to_open() {
-        let chat_row = payload_of(&chat("Refactor"));
-        assert_eq!(
-            chat_row.chat.as_deref(),
-            Some(chat_row.row.as_ref()),
-            "chat"
-        );
-        let folder = Row::new("f", RowKind::Folder, 1, "src");
-        assert_eq!(payload_of(&folder).chat, None, "folder");
+    fn a_row_carries_the_chat_it_opens_and_a_container_none() {
+        let mut locked = Row::new("main", RowKind::Branch, 1, "main");
+        locked.lock = sidebar::Lock::Locked;
+        let cases = [
+            (chat("Refactor"), true),
+            (Row::new("b1", RowKind::Branch, 1, "Untitled chat"), true),
+            (locked, false),
+            (Row::new("f", RowKind::Folder, 1, "src"), false),
+        ];
+        for (row, opens) in cases {
+            let payload = payload_of(&row);
+            let carried = payload.chat.as_deref() == Some(payload.row.as_ref());
+            assert_eq!(carried, opens, "{:?}", row.kind);
+            assert_eq!(payload.chat.is_none(), !opens, "{:?}", row.kind);
+        }
     }
 
     #[gpui::test]
