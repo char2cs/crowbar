@@ -35,6 +35,7 @@ mod document_request;
 mod document_source;
 mod dropped_files;
 mod editor_panes;
+mod editor_preferences;
 mod error;
 mod event_commands;
 mod family_names;

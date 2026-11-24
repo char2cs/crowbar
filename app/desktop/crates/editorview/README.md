@@ -11,6 +11,9 @@ develop's toolbar (the path breadcrumb, the caret's line and column, the languag
   `caret`; it is `Focusable`.
 - `Opening`, `Access` (`Editable`, `ReadOnly`), `Caret`.
 - `init`: registers the gpui-kit editor's theme global and key bindings.
+- `Settings` (font size, line height multiplier, tab size, word wrap, line numbers, indent
+  guides, `WhitespaceMode`): installed as a global with `install`; every open `EditorView`
+  follows it live. The font family is the theme's code font.
 
 ## Depends on
 

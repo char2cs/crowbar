@@ -1,7 +1,7 @@
 use gpui::{
     App, AppContext as _, Context, Entity, EventEmitter, FocusHandle, Focusable,
     InteractiveElement as _, IntoElement, ParentElement as _, Render, Styled as _, Subscription,
-    Task, Window, div,
+    Task, Window, div, px,
 };
 use gpui_kit::base::input::{InputEvent, Rope};
 use gpui_kit::component::input::{Editor, EditorState};
@@ -12,7 +12,7 @@ use crate::occurrence_session::OccurrenceSession;
 use crate::save_key::{CONTEXT, Save};
 use crate::theme::ink;
 use crate::toolbar::Toolbar;
-use crate::{Access, Caret, EditorEvent, Opening, SaveMark};
+use crate::{Access, Caret, EditorEvent, Opening, SaveMark, Settings};
 
 mod access_change;
 mod command_actions;
@@ -26,6 +26,7 @@ mod line_commands;
 mod occurrences;
 mod page_text;
 mod quiet;
+mod settings_follow;
 #[cfg(test)]
 pub(crate) mod test_support;
 mod view_buttons;
@@ -46,6 +47,7 @@ pub struct EditorView {
     goto: Entity<GotoLine>,
     _caret_moves: Subscription,
     _edits: Subscription,
+    _settings: Subscription,
 }
 
 impl EditorView {
@@ -74,6 +76,7 @@ impl EditorView {
         let goto = cx.new(|cx| GotoLine::new(state.clone(), window, cx));
         let caret_moves = cx.observe(&state, |_, _, cx| cx.notify());
         let edits = cx.subscribe(&state, Self::on_input);
+        let settings = cx.observe_global_in::<Settings>(window, Self::follow_settings);
         Self {
             state,
             access,
@@ -88,6 +91,7 @@ impl EditorView {
             goto,
             _caret_moves: caret_moves,
             _edits: edits,
+            _settings: settings,
         }
     }
 
@@ -210,6 +214,13 @@ impl Render for EditorView {
         let actions = self.toolbar_actions(cx);
         let rich_view = self.rich_view_button(cx);
         let toolbar = self.toolbar.element(caret, (actions, rich_view), cx);
+        let settings = Settings::of(cx);
+        let editor = Editor::new(&self.state)
+            .readonly(read_only)
+            .size_full()
+            .font_family(ui::Theme::of(cx).mono_family())
+            .text_size(px(settings.font_size))
+            .line_height(settings.row_height());
         let root = div()
             .size_full()
             .flex()
@@ -223,7 +234,7 @@ impl Render for EditorView {
                 .flex_1()
                 .min_h_0()
                 .text_color(ink(cx))
-                .child(Editor::new(&self.state).readonly(read_only).size_full())
+                .child(editor)
                 .child(self.find.clone())
                 .child(self.goto.clone()),
         )
@@ -235,12 +246,13 @@ fn editor_state(
     text: String,
     (window, cx): (&mut Window, &mut Context<'_, EditorState>),
 ) -> EditorState {
-    EditorState::new(window, cx)
+    let mut state = EditorState::new(window, cx)
         .language(crate::highlight_name::of(language))
-        .soft_wrap(false)
         .context_menu(false)
         .searchable(false)
-        .default_value(text)
+        .default_value(text);
+    settings_follow::apply(&mut state, &Settings::of(cx), (window, cx));
+    state
 }
 
 #[cfg(test)]

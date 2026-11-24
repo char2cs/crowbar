@@ -6,6 +6,7 @@ use super::ShellView;
 use super::readout::BUILD_READOUT;
 use super::sidebar_position::SIDEBAR_POSITION;
 use super::tab_strip::TAB_LIST_SCOPE;
+use crate::editor_preferences::{self, editor_settings};
 use crate::family_names::FamilyNames;
 use crate::shell_request::ShellRequest;
 use crate::single_precision::single_precision;
@@ -32,6 +33,7 @@ fn is_appearance(key: &Key) -> bool {
     ]
     .contains(&key.as_str())
         || KEYS.contains(&key.as_str())
+        || editor_preferences::KEYS.contains(&key.as_str())
 }
 
 fn notify_when_appearance_moves(
@@ -132,6 +134,7 @@ impl ShellView {
         theme.install(cx);
         let terminal = terminal_settings(|key| backend.get(&Key::new(key)));
         self.source.native().apply_terminal_settings(terminal, cx);
+        editor_settings(|key| backend.get(&Key::new(key))).install(cx);
         self.apply_sidebar_position(cx);
         self.apply_readout(cx);
         self.refresh(cx);
