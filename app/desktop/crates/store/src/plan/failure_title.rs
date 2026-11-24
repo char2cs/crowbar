@@ -19,6 +19,7 @@ pub(crate) fn failure_title(
         Command::SetSpaceIcon { .. } => "Failed to set icon".to_owned(),
         Command::Fork { name, .. } => format!("Create {name} failed"),
         Command::NewThread(_)
+        | Command::NewChat(_)
         | Command::NewTerminalThread(_)
         | Command::Thread(_)
         | Command::TerminalThread(_) => "New thread failed".to_owned(),

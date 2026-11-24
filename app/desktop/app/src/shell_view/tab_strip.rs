@@ -6,12 +6,13 @@ use sidebar::{Activity, Row, Titling};
 use viewtabs::{MemberGlyph, MemberKind, MemberView, TabView};
 
 use super::ShellView;
-use crate::chat_label::{LOADING_CHAT, NEW_CHAT};
+use crate::chat_label::{NEW_CHAT, unloaded_label};
 use crate::tab_scope::TabScope;
 
 pub(super) const TAB_LIST_SCOPE: &str = "tabListScope";
 const TERMINAL_LABEL: &str = "Terminal";
 const THREAD_ID: &str = "threadId";
+const PROJECT_ID: &str = "projectId";
 
 impl ShellView {
     pub(super) fn push_tabs(
@@ -71,8 +72,12 @@ fn projects_of(
 ) -> Vec<String> {
     tab.pane_ids()
         .iter()
-        .filter_map(|pane| tab.pane(pane)?.params.get(THREAD_ID))
-        .filter_map(project_of)
+        .filter_map(|pane| tab.pane(pane))
+        .filter_map(|instance| {
+            let params = &instance.params;
+            let chat = params.get(THREAD_ID).and_then(&project_of);
+            chat.or_else(|| params.get(PROJECT_ID).map(str::to_owned))
+        })
         .collect()
 }
 
@@ -84,9 +89,10 @@ fn member(
     pane: &PaneId,
 ) -> MemberView {
     let kind = kind_of(layout, pane);
-    let row = thread_of(layout, pane).and_then(chat_rows);
+    let thread = thread_of(layout, pane);
+    let row = thread.and_then(chat_rows);
     if kind == MemberKind::Chat {
-        return chat_member(pane, row);
+        return chat_member(pane, (thread, row));
     }
     let working = row.as_ref().is_some_and(is_working);
     let title = titles.get(pane);
@@ -108,11 +114,12 @@ fn is_working(row: &Row) -> bool {
 
 fn chat_member(
     pane: &PaneId,
-    row: Option<Row>,
+    (thread, row): (Option<&str>, Option<Row>),
 ) -> MemberView {
     let working = row.as_ref().is_some_and(is_working);
     let glyph = row.as_ref().map(sidebar_glyph);
-    let (label, provisional) = row.map_or((LOADING_CHAT.into(), true), |row| {
+    let unloaded = unloaded_label(thread);
+    let (label, provisional) = row.map_or((unloaded.into(), true), |row| {
         (row.label, row.titling == Titling::Provisional)
     });
     MemberView {
@@ -162,6 +169,7 @@ fn untitled(kind: MemberKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::chat_label::{LOADING_CHAT, NEW_THREAD};
     use crate::core_panes::{CHAT, NEW_TAB, TERMINAL};
     use crate::titles::Titles;
 
@@ -361,5 +369,24 @@ mod tests {
                 "{type_id} {title:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_draft_reads_new_thread_provisionally_and_belongs_to_its_space() {
+        let pane = PaneId::new("p7").unwrap();
+        let params = thread("draft-u1").with(PROJECT_ID, "p2").unwrap();
+        let layout = layout_holding(&pane, CHAT, params);
+        let none = |_: &str| None;
+        let member = member((&Titles::default(), &layout), &none, &pane);
+        assert_eq!(
+            (member.label.as_ref(), member.provisional),
+            (NEW_THREAD, true)
+        );
+        let projects = projects_of(&layout.tabs()[0], |_| None);
+        assert_eq!(
+            projects,
+            ["p2"],
+            "listed with its space before its chat exists"
+        );
     }
 }

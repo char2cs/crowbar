@@ -8,7 +8,7 @@ use ui::ToastKind;
 
 use super::ShellView;
 use crate::byte_source::ByteSource;
-use crate::core_panes::{chat_params, chat_type};
+use crate::core_panes::{chat_params, chat_type, draft_params};
 use crate::logged::{closed_view, logged};
 use crate::notice_key::NoticeKey;
 use crate::notices::failure_notice;
@@ -70,7 +70,8 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) {
         match outcome {
-            DataOutcome::OpenChat(chat) => self.open_chat(&chat, cx),
+            DataOutcome::OpenChat(chat) => self.open_chat(chat_params(&chat), cx),
+            DataOutcome::OpenDraft(draft) => self.open_chat(draft_params(&draft), cx),
             DataOutcome::PickDescriptor => self.pick_descriptor(cx),
             DataOutcome::PairHost => self.show_pairing(window, cx),
             DataOutcome::ClearBrowsingData => self.clear_browsing_data(cx),
@@ -110,10 +111,10 @@ impl ShellView {
 
     fn open_chat(
         &mut self,
-        chat: &str,
+        params: crate::error::Result<protocol::Params>,
         cx: &mut Context<'_, Self>,
     ) {
-        let (Ok(type_id), Ok(params)) = (chat_type(), chat_params(chat)) else {
+        let (Ok(type_id), Ok(params)) = (chat_type(), params) else {
             return;
         };
         self.state.open_view(type_id, params);

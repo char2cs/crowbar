@@ -1,5 +1,6 @@
 //! Plans that make something new: threads, forks, folders, spaces.
 
+pub(crate) mod draft;
 pub(crate) mod folder;
 pub(crate) mod landing;
 
@@ -59,7 +60,7 @@ pub(crate) fn thread(
         .with_provider())
 }
 
-fn parent_chat(target: &Target) -> Result<String, PlanError> {
+pub(crate) fn parent_chat(target: &Target) -> Result<String, PlanError> {
     if matches!(target.kind, Kind::Branch { .. }) {
         return target.chat().map(str::to_owned);
     }
@@ -138,7 +139,7 @@ pub(crate) fn repo(
     Ok(Plan::of(&slot.spec.id, vec![call]))
 }
 
-fn workspace_for(
+pub(crate) fn workspace_for(
     state: &State,
     target: &Target,
 ) -> Result<String, PlanError> {

@@ -20,8 +20,8 @@ pub use documents::Documents;
 pub use error::{Error, Result};
 pub use language_servers::LanguageServers;
 pub use live::{
-    BookError, BookFuture, ChangeSignal, HostBook, HostDesk, HostNotes, HostSpec, Note, Outcome,
-    OutcomeSink, PairingRequest,
+    BookError, BookFuture, ChangeSignal, DraftThread, HostBook, HostDesk, HostNotes, HostSpec,
+    Note, Outcome, OutcomeSink, PairingRequest,
 };
 pub use sidebar_commands::{
     FileDone, FileError, Overwrite, SidebarCommands, TemplateOutcome, ViewedMarks,

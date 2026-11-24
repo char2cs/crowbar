@@ -135,6 +135,7 @@ async fn finish(
     match plan.after.clone() {
         After::Nothing => {},
         After::OpenChat(id) => outcome(Outcome::OpenChat(id)),
+        After::OpenDraft(draft) => outcome(Outcome::OpenDraft(draft)),
         After::SelectProject(id) => hub.edit(|state| state.active_project = Some(id)),
         After::ReloadChanges => changes_reload::reload(hub).await,
         After::NameFolder => named_folder(answer)

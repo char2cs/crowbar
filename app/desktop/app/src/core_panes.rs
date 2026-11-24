@@ -20,6 +20,24 @@ pub(crate) fn chat_params(thread: &str) -> Result<Params> {
     Ok(Params::default().with("threadId", thread)?)
 }
 
+pub(crate) fn draft_params(draft: &store::DraftThread) -> Result<Params> {
+    let params = chat_params(&draft.id)?
+        .with("workspaceId", &draft.workspace)?
+        .with("projectId", &draft.project)?;
+    let params = with_set(params, ("repoId", &draft.repo))?;
+    with_set(params, ("parentId", &draft.parent))
+}
+
+fn with_set(
+    params: Params,
+    (key, value): (&str, &str),
+) -> Result<Params> {
+    if value.is_empty() {
+        return Ok(params);
+    }
+    Ok(params.with(key, value)?)
+}
+
 const TYPES: [CoreType; 6] = [
     CoreType {
         id: EDITOR,
@@ -103,6 +121,29 @@ fn pane_type(spec: &CoreType) -> Result<PaneType> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_draft_names_its_workspace_scope_and_leaves_out_what_it_has_not() {
+        let draft = store::DraftThread {
+            id: "draft-u1".into(),
+            project: "p".into(),
+            repo: "r".into(),
+            workspace: "w".into(),
+            parent: String::new(),
+        };
+        let params = draft_params(&draft).unwrap();
+        let read = |key| params.get(key);
+        assert_eq!(
+            [
+                read("threadId"),
+                read("projectId"),
+                read("repoId"),
+                read("workspaceId")
+            ],
+            [Some("draft-u1"), Some("p"), Some("r"), Some("w")]
+        );
+        assert_eq!(read("parentId"), None, "the home has no parent row");
+    }
 
     fn registered() -> PaneRegistry {
         let mut registry = PaneRegistry::default();

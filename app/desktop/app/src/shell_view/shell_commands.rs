@@ -111,7 +111,7 @@ impl ShellView {
         if crate::group_focus::editor_focused(self.state.layout()) {
             return self.new_tab(cx);
         }
-        self.start_chat(sidebar::Command::NewThread);
+        self.start_chat(sidebar::Command::NewChat);
     }
 
     fn new_terminal_chat(&self) {
@@ -119,7 +119,7 @@ impl ShellView {
         if terminal_ok {
             return self.start_chat(sidebar::Command::NewTerminalThread);
         }
-        self.start_chat(sidebar::Command::NewThread);
+        self.start_chat(sidebar::Command::NewChat);
     }
 
     fn start_chat(

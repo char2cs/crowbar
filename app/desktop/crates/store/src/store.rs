@@ -396,7 +396,7 @@ mod tests {
         rig.hear_the_space().await;
         let commands = rig.data.commands();
         commands
-            .dispatch(Command::NewThread(ProjectId::from("p")))
+            .dispatch(Command::NewChat(ProjectId::from("p")))
             .unwrap();
         until_opened(&rig.opened, &rig.changed).await;
         assert!(matches!(

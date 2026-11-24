@@ -22,7 +22,9 @@ fn surface_for(
     let chat_first = stored.and_then(|value| value.as_bool()).unwrap_or(true);
     match command {
         Command::NewTerminalThread(_) => Surface::Terminal,
-        Command::NewThread(_) | Command::Thread(_) if !chat_first => Surface::Terminal,
+        Command::NewThread(_) | Command::NewChat(_) | Command::Thread(_) if !chat_first => {
+            Surface::Terminal
+        },
         _ => Surface::Default,
     }
 }

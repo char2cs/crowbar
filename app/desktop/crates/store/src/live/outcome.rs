@@ -10,6 +10,8 @@ use sidebar::{RowId, WorkAtRisk};
 pub enum Outcome {
     /// A chat was created and should open in a pane.
     OpenChat(String),
+    /// A new thread opens as a draft pane: no chat exists until its first prompt is sent.
+    OpenDraft(crate::live::DraftThread),
     /// The user asked to install an agent descriptor: the shell picks the YAML file and hands it back.
     PickDescriptor,
     /// The user asked to add a host: the shell opens the pairing dialog.

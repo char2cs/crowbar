@@ -66,8 +66,10 @@ pub enum Command {
     /// Send the delete of a held row again, destroying the work at risk the user was shown and
     /// agreed to lose.
     RemoveDiscardingWork(RowId),
-    /// Start a chat in the space's home workspace.
+    /// Open a draft thread in the space's home workspace; its chat is created on the first send.
     NewThread(ProjectId),
+    /// Create a chat in the space's home workspace at once, as the new-chat chord does.
+    NewChat(ProjectId),
     /// Start a chat in the space that opens on its terminal.
     NewTerminalThread(ProjectId),
     /// Start a thread under the row.

@@ -8,6 +8,8 @@ pub(crate) enum After {
     Nothing,
     /// Open the new chat in a pane.
     OpenChat(String),
+    /// Open a draft pane; nothing was sent.
+    OpenDraft(crate::live::DraftThread),
     /// Show the new space.
     SelectProject(String),
     /// Read the followed chat's changes again.
