@@ -2,8 +2,9 @@
 
 use std::rc::Rc;
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    AnyElement, App, DismissEvent, ElementId, Entity, InteractiveElement, IntoElement,
+    AnyElement, App, DismissEvent, ElementId, Entity, FocusHandle, InteractiveElement, IntoElement,
     ParentElement, Pixels, Point, RenderOnce, StatefulInteractiveElement, Styled, Window, div,
 };
 
@@ -25,6 +26,7 @@ pub struct DropdownMenu {
     spec: Spec,
     placement: Placement,
     over: Option<(Point<Pixels>, Pixels)>,
+    trigger_focus: Option<FocusHandle>,
 }
 
 impl DropdownMenu {
@@ -40,6 +42,7 @@ impl DropdownMenu {
             spec: Spec::new(items.into()),
             placement: Placement::default(),
             over: None,
+            trigger_focus: None,
         }
     }
 
@@ -65,6 +68,14 @@ impl DropdownMenu {
 }
 
 impl DropdownMenu {
+    pub(crate) fn trigger_focus(
+        mut self,
+        focus: FocusHandle,
+    ) -> Self {
+        self.trigger_focus = Some(focus);
+        self
+    }
+
     pub(crate) fn options_over(
         mut self,
         chosen: Option<usize>,
@@ -83,17 +94,20 @@ impl RenderOnce for DropdownMenu {
         window: &mut Window,
         cx: &mut App,
     ) -> impl IntoElement {
+        let given = self.trigger_focus.clone();
         let state =
             window.use_keyed_state((self.id.clone(), "dropdown"), cx, |_, cx| DropdownState {
                 open: None,
-                trigger: cx.focus_handle(),
+                trigger: given.unwrap_or_else(|| cx.focus_handle()),
             });
         let open = state.read(cx).open.clone();
         let (trigger_state, spec) = (state.clone(), self.spec);
         let id = self.id.clone();
         let wrapper = div()
             .id(self.id)
-            .track_focus(&state.read(cx).trigger)
+            .when_none(&self.trigger_focus, |wrapper| {
+                wrapper.track_focus(&state.read(cx).trigger)
+            })
             .relative()
             .child(self.trigger)
             .on_click(move |_, window, cx| toggle(&trigger_state, &spec, window, cx));

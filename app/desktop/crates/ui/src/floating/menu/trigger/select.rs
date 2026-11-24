@@ -4,8 +4,8 @@ use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    App, ElementId, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, Pixels,
-    Point, RenderOnce, SharedString, Styled, Window, div, point, px,
+    App, ElementId, FocusHandle, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
+    Pixels, Point, RenderOnce, SharedString, Styled, Window, div, point, px,
 };
 
 use crate::floating::menu::menu_item::MenuAction;
@@ -48,6 +48,7 @@ pub struct Select {
     on_change: Option<IndexHandler>,
 }
 
+mod ring;
 mod style;
 
 impl Select {
@@ -96,6 +97,7 @@ impl Select {
         &self,
         theme: Theme,
         breakpoint: ControlScale,
+        focus: &FocusHandle,
     ) -> gpui::Stateful<gpui::Div> {
         let palette = theme.palette(self.surface);
         let fill = match theme.appearance() {
@@ -106,8 +108,8 @@ impl Select {
         let caret = Icon::new(IconName::CaretUpDown)
             .size(breakpoint.icon())
             .color(palette.foreground().opacity(CARET_OPACITY));
-        div()
-            .id((self.id.clone(), "trigger"))
+        let trigger = div().id((self.id.clone(), "trigger"));
+        ring::focusable(trigger, focus, palette.ring())
             .flex()
             .items_center()
             .justify_between()
@@ -205,7 +207,11 @@ impl RenderOnce for Select {
         cx: &mut App,
     ) -> impl IntoElement {
         let breakpoint = ControlScale::of(window);
-        let trigger = self.trigger(*Theme::of(cx), breakpoint);
+        let focus = window.use_keyed_state((self.id.clone(), "trigger-focus"), cx, |_, cx| {
+            cx.focus_handle()
+        });
+        let focus = focus.read(cx).clone();
+        let trigger = self.trigger(*Theme::of(cx), breakpoint, &focus);
         let growth = breakpoint.growth();
         let heights = (self.height + growth, OPTION_HEIGHT + growth);
         let items: Vec<MenuItem> = self
@@ -216,6 +222,7 @@ impl RenderOnce for Select {
             .collect();
         let chosen = self.selected.unwrap_or(0);
         DropdownMenu::new(self.id, trigger, items)
+            .trigger_focus(focus)
             .options_over(self.selected, (over_chosen(chosen, heights), OPTION_REACH))
     }
 }
