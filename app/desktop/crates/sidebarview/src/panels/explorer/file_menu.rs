@@ -2,7 +2,7 @@
 
 use gpui::{ClipboardItem, SharedString};
 use sidebar::{ClipMode, Command, FileAction, FileKind, Intent, MenuScope, NewEntry, PathText};
-use ui::{IconName, MenuAction, MenuItem};
+use ui::{MenuAction, MenuItem};
 
 use crate::panels::explorer::file_tree_entry::FileTreeEntry;
 use crate::panels::explorer::menu_lines::{FileEntry, MenuLines};
@@ -21,29 +21,26 @@ fn directory_items(
     let path = || entry.path.clone();
     if !scope.is_locked() {
         let create = |entry| Intent::StartFileCreate { dir: path(), entry };
-        lines.run(("New File", IconName::FilePlus), create(NewEntry::File));
-        lines.run(
-            ("New Folder", IconName::FolderPlus),
-            create(NewEntry::Folder),
-        );
+        lines.run("New File", create(NewEntry::File));
+        lines.run("New Folder", create(NewEntry::Folder));
         let upload = Command::UploadFile { path: path() };
-        lines.send(("Upload File", IconName::UploadSimple), upload);
+        lines.send("Upload File", upload);
     }
     let refresh = Command::RefreshDirectory { path: path() };
-    lines.send(("Refresh", IconName::ArrowClockwise), refresh);
+    lines.send("Refresh", refresh);
     let open_all = Command::OpenAllFiles { path: path() };
-    lines.send(("Open All Files", IconName::FolderOpen), open_all);
+    lines.send("Open All Files", open_all);
     let collapse = Command::CollapseDirectory { path: path() };
-    lines.send(("Collapse All", IconName::CaretDoubleUp), collapse);
+    lines.send("Collapse All", collapse);
     let terminal = Command::OpenTerminalAt { path: path() };
-    lines.send(("Open in Terminal", IconName::TerminalWindow), terminal);
+    lines.send("Open in Terminal", terminal);
     if scope.can_generate_image {
         let generate = Command::GenerateImage { path: path() };
-        lines.send(("Generate Image", IconName::Image), generate);
+        lines.send("Generate Image", generate);
     }
     if entry.path.is_empty() {
         let add = Command::AddFolderToWorkspace;
-        lines.send(("Add Folder to Workspace", IconName::FolderSimplePlus), add);
+        lines.send("Add Folder to Workspace", add);
     }
     lines.rule();
 }
@@ -59,7 +56,7 @@ fn env_templates(
 ) {
     lines.rule();
     for (label, target) in ENV_TEMPLATES {
-        lines.send((label, IconName::FilePlus), env_template(path, target));
+        lines.send(label, env_template(path, target));
     }
 }
 
@@ -78,16 +75,13 @@ fn leaf_items(
     (entry, scope): (&FileTreeEntry, &MenuScope),
 ) {
     let path = || entry.path.clone();
-    lines.send(("Open", IconName::FolderOpen), Command::OpenFile(path()));
+    lines.send("Open", Command::OpenFile(path()));
     let content = Command::CopyFileContent { path: path() };
-    lines.send(("Copy Content", IconName::Copy), content);
+    lines.send("Copy Content", content);
     if !scope.is_locked() && is_env_file(PathText::new(&entry.path).base()) {
         env_templates(lines, &entry.path);
     }
-    lines.run(
-        ("Properties", IconName::Info),
-        Intent::ShowProperties(path()),
-    );
+    lines.run("Properties", Intent::ShowProperties(path()));
     lines.rule();
 }
 
@@ -103,18 +97,15 @@ fn shared_items(
     (entry, scope): (&FileTreeEntry, &MenuScope),
 ) {
     lines.copy(
-        ("Copy Path", IconName::Link),
+        "Copy Path",
         PathText::new(&entry.path).absolute(scope.root.as_deref()),
     );
-    lines.copy(
-        ("Copy Relative Path", IconName::FileText),
-        relative(&entry.path),
-    );
+    lines.copy("Copy Relative Path", relative(&entry.path));
     let reveal = Command::RevealFile {
         path: entry.path.clone(),
     };
     if scope.local {
-        lines.send(("Reveal in Finder", IconName::FolderOpen), reveal);
+        lines.send("Reveal in Finder", reveal);
     }
     staging_items(lines, (entry, scope));
 }
@@ -127,16 +118,15 @@ fn staging_items(
         path: entry.path.clone(),
         mode,
     };
-    lines.run(("Copy", IconName::Copy), stage(ClipMode::Copy));
+    lines.run("Copy", stage(ClipMode::Copy));
     if !scope.is_locked() {
-        let cut = ("Cut", IconName::Scissors);
-        lines.run(cut, stage(ClipMode::Cut));
+        lines.run("Cut", stage(ClipMode::Cut));
     }
     let remove = Command::RemoveFolderFromWorkspace {
         path: entry.path.clone(),
     };
     if scope.answers.can_remove_folder(&entry.path) {
-        lines.send(("Remove From Workspace", IconName::FolderMinus), remove);
+        lines.send("Remove From Workspace", remove);
     }
 }
 
@@ -146,17 +136,16 @@ fn management_items(
 ) {
     let path = || entry.path.clone();
     let is_dir = matches!(entry.kind, FileKind::Directory(_));
-    lines.rule();
     let duplicate = Command::DuplicateFile { path: path() };
-    lines.send(("Duplicate", IconName::CopySimple), duplicate);
+    lines.send("Duplicate", duplicate);
     let rename = Intent::StartFileRename(path());
-    lines.run(("Rename", IconName::PencilSimple), rename);
+    lines.run("Rename", rename);
     lines.rule();
     let delete = Intent::RequestFileDelete {
         path: path(),
         is_dir,
     };
-    lines.run(("Delete", IconName::Trash), delete);
+    lines.run("Delete", delete);
 }
 
 pub(crate) fn file_items(
@@ -191,21 +180,16 @@ pub(crate) fn file_menu(
 }
 
 fn menu_row(
-    (label, icon, action): FileEntry,
+    (label, action): FileEntry,
     handler: &RowHandler,
 ) -> MenuItem {
     let handler = std::rc::Rc::clone(handler);
-    let destructive = label == "Delete";
     let row = MenuAction::new(SharedString::from(label), move |window, cx| match &action {
         FileAction::Do(intent) => handler(RowAction::Intent(intent.clone()), window, cx),
         FileAction::CopyText(text) => {
             cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
         },
-    })
-    .icon(icon);
-    if destructive {
-        return MenuItem::Action(row.destructive());
-    }
+    });
     MenuItem::Action(row)
 }
 
@@ -245,7 +229,7 @@ mod tests {
     ) -> Vec<&'static str> {
         file_items(entry, scope)
             .iter()
-            .map(|item| item.as_ref().map_or("-", |(label, _, _)| *label))
+            .map(|item| item.as_ref().map_or("-", |(label, _)| *label))
             .collect()
     }
 
@@ -254,7 +238,7 @@ mod tests {
     }
 
     #[test]
-    fn a_file_lists_open_copy_properties_paths_and_management() {
+    fn a_file_lists_develops_entries_with_its_rules_after_properties_and_before_delete() {
         assert_eq!(
             labels(&entry(FileKind::File, "src/a.rs"), &scope()),
             [
@@ -267,7 +251,6 @@ mod tests {
                 "Reveal in Finder",
                 "Copy",
                 "Cut",
-                "-",
                 "Duplicate",
                 "Rename",
                 "-",
@@ -294,7 +277,6 @@ mod tests {
                 "Reveal in Finder",
                 "Copy",
                 "Cut",
-                "-",
                 "Duplicate",
                 "Rename",
                 "-",
@@ -371,8 +353,8 @@ mod tests {
         file_items(entry, &scope())
             .into_iter()
             .flatten()
-            .find(|(name, _, _)| *name == label)
-            .map(|(_, _, action)| action)
+            .find(|(name, _)| *name == label)
+            .map(|(_, action)| action)
     }
 
     #[test]
