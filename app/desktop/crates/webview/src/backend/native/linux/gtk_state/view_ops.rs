@@ -17,6 +17,20 @@ use crate::view::Id;
 use crate::view::Snapshot;
 use crate::view::Visibility;
 
+// PLATFORM: linux wry 0.53 hands WebKitGTK 8-bit channels as 0..1 doubles, so every colour but black reads as white; the view is coloured here instead.
+pub(super) fn paint_background(
+    view: &wry::WebView,
+    color: Color,
+) {
+    let channel = |value: u8| f64::from(value) / f64::from(u8::MAX);
+    view.webview().set_background_color(&gdk::RGBA::new(
+        channel(color.red),
+        channel(color.green),
+        channel(color.blue),
+        channel(color.alpha),
+    ));
+}
+
 // PLATFORM: linux WebKit's script dialog holds the GTK focus inside the view, and grabbing the view would take its typing away.
 fn grab_unless_within(view: &gtk::Widget) {
     let window = view
@@ -67,7 +81,8 @@ impl GtkState {
         id: Id,
         color: Color,
     ) -> Result<()> {
-        Ok(self.live(id)?.view.set_background_color(color.rgba())?)
+        paint_background(&self.live(id)?.view, color);
+        Ok(())
     }
 
     pub(crate) fn eval(

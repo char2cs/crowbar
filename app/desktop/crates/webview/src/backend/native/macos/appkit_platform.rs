@@ -95,6 +95,10 @@ impl ViewLifecycle for AppkitPlatform {
             .ok_or(Error::UnsupportedParent("no open window shows that NSView"))?;
         let builder = self.builder_for(&config.kind);
         let id_text = id.to_string();
+        let builder = match config.background {
+            Some(color) => builder.with_background_color(color.rgba()),
+            None => builder,
+        };
         let web_view = common_attributes(builder, &id_text, &config).build_as_child(&view)?;
         self.views.borrow_mut().insert(id, Rc::new(web_view));
         self.kinds.borrow_mut().insert(id, config.kind);

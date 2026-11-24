@@ -132,6 +132,9 @@ impl GtkState {
         let id_text = id.to_string();
         let view = common_attributes(builder, &id_text, config)
             .build_as_child(&XlibParent::new(window))?;
+        if let Some(color) = config.background {
+            view_ops::paint_background(&view, color);
+        }
         let wanted = to_rect(config.bounds);
         let window_of_page = view
             .webview()
@@ -247,6 +250,7 @@ mod tests {
     use crate::scheme::ProtocolResponse;
     use crate::scheme::{ProtocolHandler, ProtocolResponder};
     use crate::view::Bounds;
+    use crate::view::Color;
     use crate::view::Visibility;
 
     const SAVE_PAGE: &str =
@@ -396,11 +400,65 @@ mod tests {
         }
     }
 
+    const DARK: Color = Color {
+        red: 18,
+        green: 18,
+        blue: 16,
+        alpha: 255,
+    };
+    const LIGHT: Color = Color {
+        red: 253,
+        green: 253,
+        blue: 252,
+        alpha: 255,
+    };
+
+    fn x11_parent() -> (gtk::Window, u32) {
+        let window = gtk::Window::new(gtk::WindowType::Toplevel);
+        window.show_all();
+        let xid = window
+            .window()
+            .and_then(|window| window.downcast::<gdkx11::X11Window>().ok())
+            .and_then(|window| u32::try_from(window.xid()).ok())
+            .unwrap();
+        (window, xid)
+    }
+
+    fn shows(
+        state: &GtkState,
+        color: Color,
+    ) -> bool {
+        use webkit2gtk::WebViewExt as _;
+        let shown = state.live(Id(1)).unwrap().view.webview().background_color();
+        let channels = [shown.red(), shown.green(), shown.blue(), shown.alpha()];
+        let wanted = [color.red, color.green, color.blue, color.alpha];
+        channels
+            .iter()
+            .zip(wanted)
+            .all(|(shown, wanted)| (shown - f64::from(wanted) / 255.0).abs() < 1e-6)
+    }
+
+    fn a_view_shows_the_background_it_is_given() {
+        let mut state = state_serving(Arc::new(Silent));
+        let (_window, parent) = x11_parent();
+        let config = Config {
+            background: Some(DARK),
+            ..config_at("about:blank", rect(0.0, 0.0, 10.0, 10.0))
+        };
+        state
+            .create(Id(1), ParentWindow::X11(parent), &config)
+            .unwrap();
+        assert!(shows(&state, DARK), "the background it was created with");
+        state.set_background(Id(1), LIGHT).unwrap();
+        assert!(shows(&state, LIGHT), "the background it was given later");
+    }
+
     #[test]
     #[ignore = "needs display"]
     fn live_gtk_web_views() {
         gtk::init().unwrap();
         a_parent_that_is_not_an_x11_window_is_refused();
+        a_view_shows_the_background_it_is_given();
         a_page_request_body_reaches_the_protocol_handler();
         only_focus_inside_the_view_lays_it_out();
     }
