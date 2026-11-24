@@ -253,7 +253,7 @@ mod tests {
         let (requests, heard) = async_channel::unbounded();
         let source: Rc<dyn DocumentSource> = Rc::<FakeDocuments>::clone(documents);
         let workspaces: crate::chat_workspaces::ChatWorkspaces =
-            Rc::new(|chat| (chat == "c1").then(|| "w1".to_owned()));
+            Rc::new(|chat| matches!(chat, "c1" | "c2").then(|| "w1".to_owned()));
         let chats = ChatReads { locks, workspaces };
         let drafts = crate::test_support::memory_drafts(&documents.drafts());
         (

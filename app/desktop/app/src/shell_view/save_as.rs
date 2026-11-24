@@ -73,8 +73,11 @@ impl ShellView {
             Ok(path) => path,
             Err(error) => return self.refuse_save(pane, error.to_string(), cx),
         };
-        let open = self.state.file_pane((&chat, &path));
-        if open.is_some_and(|open| self.state.dirty().contains(&open)) {
+        let holders = self.source.native().editors().holders((&chat, &path));
+        if holders
+            .iter()
+            .any(|holder| self.state.dirty().contains(holder))
+        {
             let said = ToastContent::new(ToastKind::Error, held_by(&path));
             return self.show_keyed(&format!("save:{pane}"), (said, ToastLifetime::Auto), cx);
         }
@@ -83,8 +86,8 @@ impl ShellView {
 
     pub(super) fn adopt_saved_as(
         &mut self,
-        pane: &PaneId,
-        saved: &SavedFile,
+        (pane, saved): (&PaneId, &SavedFile),
+        window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
         let editors = self.source.native().editors();
@@ -96,10 +99,12 @@ impl ShellView {
         let Some(shown) = self.state.replace_untitled(pane, target) else {
             return;
         };
-        match holder {
-            Some(holder) => editors.forget(&holder),
-            None => editors.rebind((pane, shown), saved, cx),
-        }
+        let Some(holder) = holder else {
+            editors.rebind((pane, shown), saved, cx);
+            return self.refresh(cx);
+        };
+        let took = editors.adopt((&holder, saved), window, cx);
+        self.disk_taken(&holder, took, cx);
         self.refresh(cx);
     }
 }

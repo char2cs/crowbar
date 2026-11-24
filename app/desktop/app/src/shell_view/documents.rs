@@ -33,7 +33,9 @@ impl ShellView {
                 self.send_preview_texts(&pane, cx);
             },
             DocumentRequest::Save { pane } => self.save_document(&pane, window, cx),
-            DocumentRequest::SavedAs { pane, saved } => self.adopt_saved_as(&pane, &saved, cx),
+            DocumentRequest::SavedAs { pane, saved } => {
+                self.adopt_saved_as((&pane, &saved), window, cx);
+            },
             DocumentRequest::Paused { pane } => self.edits_paused(&pane, cx),
             DocumentRequest::Saved { pane, text } => {
                 self.source.native().editors().saved(&pane, &text, cx);
@@ -90,9 +92,17 @@ impl ShellView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        let pane = read.0;
+        let took = self.source.native().editors().take_disk(read, window, cx);
+        self.disk_taken(read.0, took, cx);
+    }
+
+    pub(super) fn disk_taken(
+        &mut self,
+        pane: &PaneId,
+        took: editorview::DiskTake,
+        cx: &mut Context<'_, Self>,
+    ) {
         let editors = self.source.native().editors();
-        let took = editors.take_disk(read, window, cx);
         if took == editorview::DiskTake::Taken {
             self.send_page_text(pane, cx);
             self.send_preview_texts(pane, cx);
