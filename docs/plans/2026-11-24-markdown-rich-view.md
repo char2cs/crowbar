@@ -84,9 +84,9 @@ the editor page and Plate; LSP status and the sliders menu stay out.
 - **panehost:** `LayoutSnapshot::kinds` (`PaneKinds`) answers per pane; `NativePanes` answers for
   file panes, the type decides for the rest.
 - **Preview:** `PaneSpec::preview` = `core.editor` with `view=preview` in its params and
-  `preview: markdown|html` in its state, titled "<name> (Preview)". It renders the live text of an
-  open pane on the same file, else its own read; it follows edits when they pause, on save and
-  when a disk change is taken.
+  `preview: markdown|html` in its state, titled "<name>:preview" as develop's strip shows it. It
+  renders the live text of an open pane on the same file, else its own read; it follows edits
+  when they pause, on save and when a disk change is taken.
 
 Known differences from develop:
 - A Markdown file whose text does not fit one 256 KB frame opens in the source view.

@@ -8,7 +8,7 @@ use crate::core_panes::{BROWSER, CHAT, CONSOLE, EDITOR, NEW_TAB, REVIEW, TERMINA
 pub(crate) const UNTITLED: &str = "Untitled";
 const THREAD_ID: &str = "threadId";
 const PREVIEW: &str = "preview";
-const PREVIEW_SUFFIX: &str = " (Preview)";
+const PREVIEW_SUFFIX: &str = ":preview";
 
 pub(crate) fn tab_look(
     instance: &PaneInstance,
@@ -168,7 +168,7 @@ mod tests {
             kind: EDITOR,
             state: r#"{"path": "docs/README.md", "preview": "markdown"}"#,
             title: None,
-            label: "README.md (Preview)",
+            label: "README.md:preview",
             icon: FILE_ICON,
         },
         Case {
