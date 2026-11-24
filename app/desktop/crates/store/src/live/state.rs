@@ -10,7 +10,7 @@ pub use change_signal::ChangeSignal;
 pub(crate) use hub::Hub;
 
 use daemonapi::{Frame, Switch};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::live::held::HostSlot;
 use crate::live::held::IconCache;
@@ -31,6 +31,7 @@ pub(crate) struct State {
     pub(crate) icons: IconCache,
     pub(crate) settings: SettingsSlot,
     pub(crate) viewed: ViewedFiles,
+    pub(crate) watched_chats: BTreeSet<String>,
 }
 
 impl State {
@@ -45,6 +46,7 @@ impl State {
             icons: IconCache::default(),
             settings: SettingsSlot::default(),
             viewed: ViewedFiles::default(),
+            watched_chats: BTreeSet::new(),
         }
     }
 

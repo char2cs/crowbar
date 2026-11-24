@@ -185,6 +185,21 @@ impl Store {
             .steer(None, crate::live::StreamControl::FollowFiles);
         panel_loader::followed_ask::ask(&self.hub, &self.commands.handle);
     }
+
+    /// Watches the files of every chat an open tab shows, as develop holds the `files:` scope of
+    /// each open workspace, so a file open in a chat that is not focused hears its changes on
+    /// disk. Watching the chats already watched does nothing.
+    pub fn watch_chats(
+        &self,
+        chats: std::collections::BTreeSet<String>,
+    ) {
+        if self.hub.read(|state| state.watched_chats == chats) {
+            return;
+        }
+        self.hub.edit(|state| state.watched_chats = chats);
+        self.fleet
+            .steer(None, crate::live::StreamControl::FollowFiles);
+    }
 }
 
 impl Drop for Store {
@@ -441,7 +456,8 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn the_focused_workspaces_files_scope_is_held_and_its_changes_relist_the_tree() {
+    async fn the_focused_and_open_chats_files_scopes_are_held_and_focused_changes_relist_the_tree()
+    {
         let mut rig = start();
         rig.hear_the_space().await;
         rig.daemon.ok("GET", ROOT, ONE_FILE);
@@ -466,6 +482,13 @@ mod tests {
         rig.data.focus_chat(None);
         let released = Some(r#"{"op":"unsub","scope":"files:hw"}"#.to_owned());
         assert_eq!(rig.next_request().await, released);
+        rig.data.watch_chats(["bo".to_owned()].into());
+        let watched = Some(r#"{"op":"sub","scope":"files:b"}"#.to_owned());
+        assert_eq!(
+            rig.next_request().await,
+            watched,
+            "an open chat's workspace is held unfocused"
+        );
     }
 
     #[tokio::test]

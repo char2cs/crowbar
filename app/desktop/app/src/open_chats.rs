@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use layout::{Layout, PaneInstance};
 use protocol::PaneId;
 
@@ -8,6 +10,11 @@ pub(crate) fn open_chats(layout: &Layout) -> Vec<String> {
         .into_iter()
         .map(|(_, chat)| chat)
         .collect()
+}
+
+pub(crate) fn tab_chats(layout: &Layout) -> BTreeSet<String> {
+    let chats = tab_panes(layout).into_iter().filter_map(chat_of);
+    chats.map(|(_, chat)| chat).collect()
 }
 
 pub(crate) fn panes_showing(
@@ -22,6 +29,14 @@ pub(crate) fn panes_showing(
 }
 
 fn chat_panes(layout: &Layout) -> Vec<(PaneId, String)> {
+    tab_panes(layout)
+        .into_iter()
+        .filter(|pane| pane.type_id.is_chat())
+        .filter_map(chat_of)
+        .collect()
+}
+
+fn tab_panes(layout: &Layout) -> Vec<PaneInstance> {
     layout
         .tabs()
         .iter()
@@ -30,8 +45,6 @@ fn chat_panes(layout: &Layout) -> Vec<(PaneId, String)> {
                 .into_iter()
                 .filter_map(|pane| tab.pane(&pane).cloned())
         })
-        .filter(|pane| pane.type_id.is_chat())
-        .filter_map(chat_of)
         .collect()
 }
 
@@ -81,6 +94,7 @@ mod tests {
     #[test]
     fn every_chat_some_pane_shows_is_open_whatever_its_tab() {
         let terminal = PaneTypeId::new("core.terminal").unwrap();
+        let editor = PaneTypeId::new(crate::core_panes::EDITOR).unwrap();
         let commands = [
             add(1),
             open(
@@ -88,6 +102,7 @@ mod tests {
                 pane("c1", (chat_type().unwrap(), chat_params("t-1").unwrap())),
             ),
             open(1, pane("x", (terminal, Params::default()))),
+            open(1, pane("f", (editor, chat_params("t-3").unwrap()))),
             add(2),
             open(
                 2,
@@ -104,6 +119,8 @@ mod tests {
             ["t-1", "t-2"],
             "both chats, no terminal"
         );
+        let shown: Vec<String> = tab_chats(&layout).into_iter().collect();
+        assert_eq!(shown, ["t-1", "t-2", "t-3"], "and the chat of a file tab");
         let held = ["t-2".to_owned(), "x".to_owned()];
         assert_eq!(
             panes_showing(&layout, &held),

@@ -1,5 +1,6 @@
 //! What the `files:` hold reads from the shared state and says to the daemon.
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use serde_json::json;
@@ -10,11 +11,28 @@ use crate::live::state::{Hub, State};
 
 const FILES_KIND: &str = "files";
 
-pub(crate) fn wanted_scope(
+pub(crate) fn followed_scope(
     state: &State,
     host: &str,
 ) -> Option<String> {
-    let chat = state.panels.chat.as_deref()?;
+    scope_of(state, (host, state.panels.chat.as_deref()?))
+}
+
+pub(crate) fn wanted_scopes(
+    state: &State,
+    host: &str,
+) -> BTreeSet<String> {
+    let watched = state.watched_chats.iter().map(String::as_str);
+    let chats = watched.chain(state.panels.chat.as_deref());
+    chats
+        .filter_map(|chat| scope_of(state, (host, chat)))
+        .collect()
+}
+
+fn scope_of(
+    state: &State,
+    (host, chat): (&str, &str),
+) -> Option<String> {
     let slot = state.hosts.iter().find(|slot| slot.spec.id == host)?;
     let workspace = &slot.store.chats.get(chat)?.workspace_id;
     Some(workspace)
@@ -78,13 +96,15 @@ mod tests {
     #[test]
     fn the_followed_chats_workspace_is_wanted_and_only_listed_folders_are_relisted() {
         let (mut state, _) = state();
-        assert_eq!(wanted_scope(&state, "local"), None, "no chat followed");
+        assert_eq!(followed_scope(&state, "local"), None, "no chat followed");
         state.panels.follow(Some("hc".into()));
-        assert_eq!(wanted_scope(&state, "local").as_deref(), Some("files:hw"));
-        assert_eq!(
-            wanted_scope(&state, "elsewhere"),
-            None,
-            "another host's chat"
+        state.watched_chats = ["bo".to_owned(), "gone".to_owned()].into();
+        assert_eq!(followed_scope(&state, "local").as_deref(), Some("files:hw"));
+        let wanted: Vec<String> = wanted_scopes(&state, "local").into_iter().collect();
+        assert_eq!(wanted, ["files:b", "files:hw"], "and each open chat's");
+        assert!(
+            wanted_scopes(&state, "elsewhere").is_empty(),
+            "another host's chats"
         );
         state.panels.list("hc", "src", Vec::new());
         let folders = vec!["src".to_owned(), "lib".to_owned()];

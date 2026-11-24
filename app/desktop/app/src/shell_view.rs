@@ -268,6 +268,7 @@ impl ShellView {
         self.source.native().follow(layout, &titles);
         let tab = layout.active_tab().cloned();
         self.data.focus_chat(focused_chat(layout).as_deref());
+        self.data.watch_chats(crate::open_chats::tab_chats(layout));
         let open = crate::open_chats::open_chats(layout)
             .into_iter()
             .map(sidebar::RowId::from);
