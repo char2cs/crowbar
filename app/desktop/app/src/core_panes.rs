@@ -10,6 +10,7 @@ pub(crate) const REVIEW: &str = "core.review";
 pub(crate) const CONSOLE: &str = "core.console";
 pub(crate) const TERMINAL: &str = "core.terminal";
 pub(crate) const NEW_TAB: &str = "core.newtab";
+pub(crate) const THREAD_ID: &str = "threadId";
 pub(crate) const BROWSER: &str = browser::BROWSER_PANE_TYPE;
 
 pub(crate) fn chat_type() -> Result<PaneTypeId> {
@@ -17,7 +18,7 @@ pub(crate) fn chat_type() -> Result<PaneTypeId> {
 }
 
 pub(crate) fn chat_params(thread: &str) -> Result<Params> {
-    Ok(Params::default().with("threadId", thread)?)
+    Ok(Params::default().with(THREAD_ID, thread)?)
 }
 
 pub(crate) fn draft_params(draft: &store::DraftThread) -> Result<Params> {

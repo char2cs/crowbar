@@ -3,7 +3,7 @@ use protocol::{PaneTypeId, Params};
 
 use super::ShellState;
 use super::preview::keeping;
-use crate::core_panes::{chat_params, chat_type};
+use crate::core_panes::{THREAD_ID, chat_params, chat_type};
 use crate::pane_opener::{open_at, open_view_commands};
 use crate::pane_spec::PaneSpec;
 
@@ -23,17 +23,22 @@ impl ShellState {
         self.open_with(view, Self::apply_from_strip);
     }
 
+    fn space_of(
+        &self,
+        params: &Params,
+    ) -> String {
+        let chat = params.get(THREAD_ID);
+        let own = chat.and_then(|chat| self.space.of_chat(chat));
+        own.unwrap_or_else(|| self.space.active())
+    }
+
     fn open_with(
         &mut self,
         view: (PaneTypeId, Params),
         apply: fn(&mut Self, Vec<layout::Command>),
     ) {
-        match open_view_commands(
-            self.history.layout(),
-            &self.space.active(),
-            view,
-            &self.serials,
-        ) {
+        let space = self.space_of(&view.1);
+        match open_view_commands(self.history.layout(), &space, view, &self.serials) {
             Ok(commands) => apply(self, commands),
             Err(error) => tracing::warn!(%error, "could not open the view"),
         }
@@ -76,6 +81,7 @@ impl ShellState {
 mod tests {
     use super::*;
     use crate::test_support::{open_chat, shell_rig};
+    use layout::Tab;
 
     #[test]
     fn a_terminal_opened_from_a_folder_is_titled_by_it() {
@@ -123,7 +129,7 @@ mod tests {
             2,
             "t1 revealed, not copied"
         );
-        let active = rig.shell.showing().map(layout::Tab::id);
+        let active = rig.shell.showing().map(Tab::id);
         assert_eq!(active, Some(rig.shell.layout().tabs()[0].id()));
     }
 
@@ -160,5 +166,22 @@ mod tests {
         assert!(rig.shell.reopen_closed(), "the file is reopened");
         assert!(!rig.shell.reopen_closed(), "only once, and not the chat");
         assert_eq!(rig.shell.layout().pane_count(), 1, "the file is back alone");
+    }
+
+    #[test]
+    fn a_draft_opens_as_a_tab_of_the_active_space() {
+        let mut rig = shell_rig();
+        rig.space.select("p1");
+        let draft = store::DraftThread {
+            id: "draft-u1".into(),
+            project: "p1".into(),
+            repo: String::new(),
+            workspace: "w".into(),
+            parent: String::new(),
+        };
+        let params = crate::core_panes::draft_params(&draft).unwrap();
+        rig.shell.open_view(chat_type().unwrap(), params);
+        let spaces: Vec<&str> = rig.shell.layout().tabs().iter().map(Tab::space).collect();
+        assert_eq!(spaces, ["p1"], "the draft's tab is the active space's");
     }
 }

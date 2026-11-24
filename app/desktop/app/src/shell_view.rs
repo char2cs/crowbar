@@ -57,6 +57,7 @@ mod sidebar_position;
 mod sidebar_wiring;
 mod space_drops;
 mod space_switch;
+mod strip_space;
 mod tab_strip;
 mod terminal_files;
 mod terminal_life;

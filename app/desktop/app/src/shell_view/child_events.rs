@@ -122,7 +122,7 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) {
         match event {
-            viewtabs::Event::Apply(commands) => self.apply_guarded(commands.clone(), cx),
+            viewtabs::Event::Apply(commands) => self.apply_from_strip(commands, cx),
             viewtabs::Event::ToggleSidebar => {
                 self.sidebar
                     .update(cx, |sidebar, cx| sidebar.toggle(window, cx));
