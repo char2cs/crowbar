@@ -9,7 +9,7 @@ impl ShellState {
         &mut self,
         spec: PaneSpec,
     ) {
-        match spec.open_commands((self.history.layout(), &self.space.active()), &self.serials) {
+        match self.spec_commands(spec) {
             Ok(commands) => self.apply(previewing(commands)),
             Err(error) => tracing::warn!(%error, "could not preview the pane"),
         }

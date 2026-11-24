@@ -7,6 +7,7 @@ use crate::active_space::ActiveSpace;
 pub(crate) struct FakeSpace {
     active: RefCell<String>,
     chats: RefCell<BTreeMap<String, String>>,
+    workspaces: RefCell<BTreeMap<String, String>>,
 }
 
 impl FakeSpace {
@@ -25,6 +26,15 @@ impl FakeSpace {
             .borrow_mut()
             .insert(chat.to_owned(), space.to_owned());
     }
+
+    pub(crate) fn know_workspace(
+        &self,
+        (chat, workspace): (&str, &str),
+    ) {
+        self.workspaces
+            .borrow_mut()
+            .insert(chat.to_owned(), workspace.to_owned());
+    }
 }
 
 impl ActiveSpace for FakeSpace {
@@ -37,5 +47,12 @@ impl ActiveSpace for FakeSpace {
         chat: &str,
     ) -> Option<String> {
         self.chats.borrow().get(chat).cloned()
+    }
+
+    fn workspace_of_chat(
+        &self,
+        chat: &str,
+    ) -> Option<String> {
+        self.workspaces.borrow().get(chat).cloned()
     }
 }

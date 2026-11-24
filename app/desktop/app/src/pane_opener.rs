@@ -94,7 +94,7 @@ fn open_in_new_tab(
     vec![add, open_pane(id, instance)]
 }
 
-fn focus_commands(
+pub(crate) fn focus_commands(
     layout: &Layout,
     pane: &PaneId,
 ) -> Vec<Command> {

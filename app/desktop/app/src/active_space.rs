@@ -7,6 +7,11 @@ pub(crate) trait ActiveSpace {
         &self,
         chat: &str,
     ) -> Option<String>;
+
+    fn workspace_of_chat(
+        &self,
+        chat: &str,
+    ) -> Option<String>;
 }
 
 impl ActiveSpace for store::Store {
@@ -19,6 +24,13 @@ impl ActiveSpace for store::Store {
         chat: &str,
     ) -> Option<String> {
         self.chat_project(chat)
+    }
+
+    fn workspace_of_chat(
+        &self,
+        chat: &str,
+    ) -> Option<String> {
+        self.chat_workspace(chat)
     }
 }
 

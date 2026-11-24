@@ -45,12 +45,10 @@ impl ShellState {
             return Ok(Vec::new());
         };
         let path = file.as_str();
-        let space = self.space.active();
-        let at = (layout, space.as_str());
         if file.is_host() {
-            return PaneSpec::host_file(&chat, path)?.open_commands(at, &self.serials);
+            return self.spec_commands(PaneSpec::host_file(&chat, path)?);
         }
-        PaneSpec::editor(&chat, path)?.open_commands(at, &self.serials)
+        self.spec_commands(PaneSpec::editor(&chat, path)?)
     }
 }
 

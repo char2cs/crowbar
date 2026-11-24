@@ -29,6 +29,7 @@ mod agent_progress;
 mod agent_tabs;
 mod browsing;
 mod chat_zoom;
+mod document_routing;
 mod file_panes;
 mod host_events;
 mod host_settings;

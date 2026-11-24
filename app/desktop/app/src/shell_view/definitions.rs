@@ -3,7 +3,7 @@
 //! workspace says so.
 
 use gpui::{Context, Window};
-use protocol::{DocumentPath, PaneId};
+use protocol::PaneId;
 use ui::{ToastContent, ToastKind, ToastLifetime};
 
 use super::ShellView;
@@ -25,14 +25,15 @@ impl ShellView {
         let Some(chat) = chat.map(str::to_owned) else {
             return;
         };
-        let open = DocumentPath::new(path)
+        let spec = at_line(PaneSpec::editor(&chat, path), at.0.checked_add(1));
+        let open = spec
+            .as_ref()
             .ok()
-            .and_then(|file| self.state.file_pane((&chat, &file)));
+            .and_then(|spec| self.state.document_pane(spec));
         let target = open.clone().unwrap_or_else(|| pane.clone());
         self.state
             .apply(vec![layout::Command::FocusPane { pane: target }]);
         let Some(open) = open else {
-            let spec = at_line(PaneSpec::editor(&chat, path), at.0.checked_add(1));
             return self.open_spec(spec, cx);
         };
         self.refresh(cx);

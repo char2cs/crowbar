@@ -1,5 +1,5 @@
 use layout::PaneInstance;
-use protocol::{DocumentPath, PaneState};
+use protocol::{DocumentPath, PaneState, PaneTypeId, Params};
 use serde_json::Value;
 
 use super::arrival::Arrival;
@@ -31,11 +31,17 @@ pub(crate) struct EditorTarget {
 
 impl EditorTarget {
     pub(crate) fn of(instance: &PaneInstance) -> Option<Self> {
-        if instance.type_id.as_str() != EDITOR {
+        Self::of_pane((&instance.type_id, &instance.params, &instance.state))
+    }
+
+    pub(crate) fn of_pane(
+        (type_id, params, state): (&PaneTypeId, &Params, &PaneState)
+    ) -> Option<Self> {
+        if type_id.as_str() != EDITOR {
             return None;
         }
-        let chat = instance.params.get(THREAD_ID)?.to_owned();
-        let state = instance.state.as_value();
+        let chat = params.get(THREAD_ID)?.to_owned();
+        let state = state.as_value();
         let arrival = match state.get(FRESH).and_then(Value::as_bool) {
             Some(true) => Arrival::Fresh,
             _ => Arrival::Restored,
