@@ -15,4 +15,4 @@ pub(crate) use new_tab::NewTab;
 pub(crate) use press::Press;
 pub(crate) use settle::Settle;
 pub(crate) use strip_drag::StripDrag;
-pub(crate) use tab_drop::TabDrop;
+pub use tab_drop::TabDrop;

@@ -1,6 +1,7 @@
-use gpui::{Context, DragMoveEvent, Window};
-use layout::DragSubject;
-use ui::Motion;
+use gpui::{Context, DragMoveEvent, Pixels, Point, Window};
+use layout::{Command, DragSubject};
+use protocol::PaneId;
+use ui::{DraggedRow, Motion};
 
 use crate::event::Event;
 use crate::gesture::IncomingDrop;
@@ -14,10 +15,56 @@ impl TabBar {
         _: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        let hovering = self.row.contains(&event.event.position);
-        let drop = hovering
-            .then(|| self.drop_at(event.event.position))
-            .flatten();
+        self.hover_at(event.event.position, cx);
+    }
+
+    pub(crate) fn row_over(
+        &mut self,
+        event: &DragMoveEvent<DraggedRow>,
+        _: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if event.drag(cx).chat.is_some() {
+            self.hover_at(event.event.position, cx);
+        }
+    }
+
+    pub(crate) fn row_dropped(
+        &mut self,
+        row: &DraggedRow,
+        _: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let incoming = self.incoming.take();
+        cx.notify();
+        let (Some(incoming), Some(chat)) = (incoming, row.chat.as_deref()) else {
+            return;
+        };
+        cx.emit(Event::DropChat {
+            chat: chat.to_owned(),
+            at: incoming.drop,
+        });
+    }
+
+    /// The commands that move the open chat in `pane` to `at`, as if its pane had been dragged
+    /// there: a sidebar row of an open chat drops as its pane.
+    pub fn pane_drop(
+        &mut self,
+        pane: &PaneId,
+        at: TabDrop,
+    ) -> Vec<Command> {
+        let subject = DragSubject::Pane(pane.clone());
+        let new_tab = self.allocate_tab(self.ghost_title(&subject));
+        at.commands(&subject, new_tab, &self.tabs)
+    }
+
+    fn hover_at(
+        &mut self,
+        position: Point<Pixels>,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let hovering = self.row.contains(&position);
+        let drop = hovering.then(|| self.drop_at(position)).flatten();
         let Some(drop) = drop else {
             self.incoming = None;
             cx.notify();
@@ -52,7 +99,7 @@ impl TabBar {
 
     fn drop_at(
         &self,
-        position: gpui::Point<gpui::Pixels>,
+        position: Point<Pixels>,
     ) -> Option<TabDrop> {
         let ids: Vec<_> = self.tabs.iter().map(|tab| tab.id).collect();
         TabDrop::at(self.content_x(position), &self.slot_spans(), &ids)
@@ -98,7 +145,7 @@ mod tests {
     use crate::event::Event;
     use crate::gesture::IncomingDrop;
     use crate::gesture::TabDrop;
-    use crate::test_support::{open, view};
+    use crate::test_support::{ROW_SOURCE_Y, open, open_under_row_source, view};
 
     #[gpui::test]
     fn dropping_a_pane_on_a_tab_asks_to_merge_it(cx: &mut TestAppContext) {
@@ -141,6 +188,50 @@ mod tests {
         assert!(
             matches!(commands[0], Command::AddTab { id: TabId(50), .. }),
             "first free id: {commands:?}"
+        );
+    }
+
+    fn chat_row_dropped_at(
+        x: f32,
+        cx: &mut TestAppContext,
+    ) -> Vec<Event> {
+        let harness = open_under_row_source(cx, vec![view(1, &["a"]), view(2, &["b"])], 1);
+        let (cx, events) = (harness.cx, harness.events);
+        let none = gpui::Modifiers::none();
+        let (source, over) = (
+            gpui::point(gpui::px(4.0), gpui::px(ROW_SOURCE_Y + 4.0)),
+            gpui::point(gpui::px(x), gpui::px(21.0)),
+        );
+        cx.simulate_mouse_down(source, gpui::MouseButton::Left, none);
+        cx.simulate_mouse_move(over, gpui::MouseButton::Left, none);
+        cx.simulate_mouse_move(over, gpui::MouseButton::Left, none);
+        cx.simulate_mouse_up(over, gpui::MouseButton::Left, none);
+        events.borrow().clone()
+    }
+
+    #[gpui::test]
+    fn a_chat_row_dropped_on_a_tab_middle_asks_to_join_that_tab(cx: &mut TestAppContext) {
+        let expected = Event::DropChat {
+            chat: "t9".into(),
+            at: TabDrop::Merge(TabId(1)),
+        };
+        assert_eq!(
+            chat_row_dropped_at(8.0 + 120.0, cx),
+            vec![expected],
+            "joins tab one"
+        );
+    }
+
+    #[gpui::test]
+    fn a_chat_row_dropped_on_a_tab_edge_asks_to_move_beside_it(cx: &mut TestAppContext) {
+        let expected = Event::DropChat {
+            chat: "t9".into(),
+            at: TabDrop::Reorder(1),
+        };
+        assert_eq!(
+            chat_row_dropped_at(8.0 + 240.0 + 20.0, cx),
+            vec![expected],
+            "before tab two"
         );
     }
 

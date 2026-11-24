@@ -7,7 +7,7 @@ use gpui::{
     ParentElement, Render, StatefulInteractiveElement, Styled, Window, canvas, div, px,
 };
 use layout::{Command, DragSubject, TabId};
-use ui::{Motion, Surface, Theme};
+use ui::{DraggedRow, Motion, Surface, Theme};
 
 use crate::event::Event;
 use crate::gesture::{DragSession, TabDrop};
@@ -60,6 +60,8 @@ impl Render for TabBar {
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::released))
             .on_drag_move::<DragSubject>(cx.listener(Self::drag_over))
             .on_drop::<DragSubject>(cx.listener(Self::dropped))
+            .on_drag_move::<DraggedRow>(cx.listener(Self::row_over))
+            .on_drop::<DraggedRow>(cx.listener(Self::row_dropped))
     }
 }
 

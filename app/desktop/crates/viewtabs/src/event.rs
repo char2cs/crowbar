@@ -1,6 +1,8 @@
 use gpui::{Pixels, Point};
 use layout::{Command, TabId};
 
+use crate::gesture::TabDrop;
+
 /// What the tab bar asks its owner to do.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
@@ -27,4 +29,12 @@ pub enum Event {
     /// A tab that was dragged out of the strip came back to it, or its drag ended without a
     /// drop: drop any preview of it.
     DragCancel,
+    /// A sidebar chat row was dropped on the strip: on a tab's middle the chat joins that tab, and
+    /// between tabs the chat's own tab moves there.
+    DropChat {
+        /// The dropped chat.
+        chat: String,
+        /// Where on the strip it landed.
+        at: TabDrop,
+    },
 }

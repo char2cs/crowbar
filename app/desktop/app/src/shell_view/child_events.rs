@@ -134,6 +134,7 @@ impl ShellView {
                 layout.tab_dropped(*tab, *position, cx);
             }),
             viewtabs::Event::DragCancel => self.layout.update(cx, LayoutView::tab_drag_cancelled),
+            viewtabs::Event::DropChat { chat, at } => self.drop_chat_on_strip(chat, *at, cx),
             _ => {},
         }
     }

@@ -6,8 +6,9 @@ use crate::span::Span;
 
 const EDGE: f32 = 0.25;
 
+/// Where a drop lands on the strip.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TabDrop {
+pub enum TabDrop {
     /// Between tabs: a tab of its own at this index.
     Reorder(usize),
     /// On the middle of a tab: merged into that tab as a split.

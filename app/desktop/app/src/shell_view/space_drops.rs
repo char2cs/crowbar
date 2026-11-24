@@ -1,9 +1,11 @@
 use gpui::Context;
-use layout::{Placement, TabId};
+use layout::{Edge, Layout, Placement, TabId};
 use ui::ToastKind;
+use viewtabs::TabDrop;
 
 use super::ShellView;
 use crate::notice_key::NoticeKey;
+use crate::open_chats::panes_showing;
 
 // SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/components/sidebar/lib/pane-drop-actions.ts
 const OTHER_SPACE: &str = "That chat belongs to a different space";
@@ -19,6 +21,43 @@ impl ShellView {
         if !self.refuses_other_space((&dragged, tab), cx) {
             self.state.open_chat_at(chat, (tab, placement.clone()));
         }
+    }
+
+    pub(super) fn drop_chat_on_strip(
+        &mut self,
+        chat: &str,
+        at: TabDrop,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if self.refuses_merge(chat, at, cx) {
+            return;
+        }
+        let open = panes_showing(self.state.layout(), &[chat.to_owned()]);
+        if let Some(pane) = open.first() {
+            let commands = self.tabs.update(cx, |bar, _| bar.pane_drop(pane, at));
+            return self.apply_guarded(commands, cx);
+        }
+        let TabDrop::Merge(tab) = at else {
+            return;
+        };
+        let Some(placement) = after_last_pane(self.state.layout(), tab) else {
+            return;
+        };
+        self.state.open_chat_at(chat, (tab, placement));
+        self.refresh(cx);
+    }
+
+    fn refuses_merge(
+        &mut self,
+        chat: &str,
+        at: TabDrop,
+        cx: &mut Context<'_, Self>,
+    ) -> bool {
+        let TabDrop::Merge(tab) = at else {
+            return false;
+        };
+        let dragged: Vec<String> = self.data.chat_project(chat).into_iter().collect();
+        self.refuses_other_space((&dragged, tab), cx)
     }
 
     pub(super) fn drop_view(
@@ -48,6 +87,17 @@ impl ShellView {
     }
 }
 
+fn after_last_pane(
+    layout: &Layout,
+    tab: TabId,
+) -> Option<Placement> {
+    let target = layout.tab(tab)?.pane_ids().pop()?;
+    Some(Placement {
+        target,
+        edge: Edge::Right,
+    })
+}
+
 fn crosses(
     dragged: &[String],
     target: &[String],
@@ -60,7 +110,121 @@ fn crosses(
 
 #[cfg(test)]
 mod tests {
+    use gpui::TestAppContext;
+    use protocol::PaneId;
+
     use super::*;
+    use crate::core_panes::{chat_params, chat_type};
+    use crate::shell_view::tests::{Opened, open_shell};
+
+    fn open_chats(
+        opened: &mut Opened,
+        chats: &[&str],
+    ) {
+        let views: Vec<_> = chats
+            .iter()
+            .map(|chat| {
+                (
+                    chat_type().expect("type"),
+                    chat_params(chat).expect("params"),
+                )
+            })
+            .collect();
+        opened.shell.update(&mut opened.window, |shell, cx| {
+            open_views(&mut shell.state, views);
+            shell.refresh(cx);
+        });
+    }
+
+    fn open_views(
+        state: &mut crate::shell_state::ShellState,
+        views: Vec<(protocol::PaneTypeId, protocol::Params)>,
+    ) {
+        for (type_id, params) in views {
+            state.open_view(type_id, params);
+        }
+    }
+
+    fn tab_of(
+        opened: &mut Opened,
+        chat: &str,
+    ) -> TabId {
+        opened.shell.read_with(&opened.window, |shell, _| {
+            let layout = shell.state.layout();
+            let pane = panes_showing(layout, &[chat.to_owned()]);
+            let holds = |tab: &&layout::Tab| pane.first().is_some_and(|p| tab.pane(p).is_some());
+            layout
+                .tabs()
+                .iter()
+                .find(holds)
+                .map(layout::Tab::id)
+                .expect("a tab shows the chat")
+        })
+    }
+
+    fn tabs(opened: &mut Opened) -> Vec<Vec<PaneId>> {
+        opened.shell.read_with(&opened.window, |shell, _| {
+            shell
+                .state
+                .layout()
+                .tabs()
+                .iter()
+                .map(layout::Tab::pane_ids)
+                .collect()
+        })
+    }
+
+    fn drop_row(
+        opened: &mut Opened,
+        chat: &str,
+        at: TabDrop,
+    ) {
+        let bar = opened
+            .shell
+            .read_with(&opened.window, |shell, _| shell.tabs.clone());
+        let event = viewtabs::Event::DropChat {
+            chat: chat.to_owned(),
+            at,
+        };
+        bar.update(&mut opened.window, |_, cx| cx.emit(event));
+        opened.window.run_until_parked();
+    }
+
+    #[gpui::test]
+    fn a_row_of_an_open_chat_dropped_on_a_tab_middle_moves_the_chat_into_that_tab(
+        cx: &mut TestAppContext
+    ) {
+        let mut opened = open_shell(cx);
+        open_chats(&mut opened, &["t1", "t2"]);
+        let (before, target) = (tabs(&mut opened).len(), tab_of(&mut opened, "t1"));
+        drop_row(&mut opened, "t2", TabDrop::Merge(target));
+        assert_eq!(tabs(&mut opened).len(), before - 1, "t2's own tab is gone");
+        assert_eq!(tab_of(&mut opened, "t2"), target, "t2 joined t1's tab");
+    }
+
+    #[gpui::test]
+    fn a_row_of_a_closed_chat_dropped_on_a_tab_middle_opens_it_in_that_tab(
+        cx: &mut TestAppContext
+    ) {
+        let mut opened = open_shell(cx);
+        open_chats(&mut opened, &["t1"]);
+        let (before, target) = (tabs(&mut opened).len(), tab_of(&mut opened, "t1"));
+        drop_row(&mut opened, "t3", TabDrop::Merge(target));
+        assert_eq!(tabs(&mut opened).len(), before, "no new tab");
+        assert_eq!(tab_of(&mut opened, "t3"), target, "t3 opened beside t1");
+    }
+
+    #[gpui::test]
+    fn a_row_of_an_open_chat_dropped_between_tabs_moves_its_tab_there(cx: &mut TestAppContext) {
+        let mut opened = open_shell(cx);
+        open_chats(&mut opened, &["t1", "t2"]);
+        let moved = tab_of(&mut opened, "t2");
+        drop_row(&mut opened, "t2", TabDrop::Reorder(0));
+        let first = opened.shell.read_with(&opened.window, |shell, _| {
+            shell.state.layout().tabs().first().map(layout::Tab::id)
+        });
+        assert_eq!(first, Some(moved), "t2's tab leads the strip");
+    }
 
     type Case = (&'static [&'static str], &'static [&'static str], bool);
 
