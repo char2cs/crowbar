@@ -1,5 +1,5 @@
 use gpui::Context;
-use layout::{Tab, TabId};
+use layout::Tab;
 use protocol::PaneId;
 use settings::{Key, Read as _};
 use sidebar::{Activity, Row, Titling};
@@ -12,7 +12,6 @@ use crate::tab_scope::TabScope;
 pub(super) const TAB_LIST_SCOPE: &str = "tabListScope";
 const TERMINAL_LABEL: &str = "Terminal";
 const THREAD_ID: &str = "threadId";
-const PROJECT_ID: &str = "projectId";
 
 impl ShellView {
     pub(super) fn push_tabs(
@@ -48,37 +47,6 @@ impl ShellView {
             .and_then(|backend| backend.get(&Key::new(TAB_LIST_SCOPE)));
         TabScope::from_setting(stored.as_ref().and_then(settings::Value::as_text))
     }
-
-    fn tab_projects(
-        &self,
-        tab: &Tab,
-    ) -> Vec<String> {
-        projects_of(tab, |chat| self.data.chat_project(chat))
-    }
-
-    pub(super) fn tab_projects_of(
-        &self,
-        tab: TabId,
-    ) -> Vec<String> {
-        let layout = self.state.layout();
-        let found = layout.tabs().iter().find(|shown| shown.id() == tab);
-        found.map_or_else(Vec::new, |tab| self.tab_projects(tab))
-    }
-}
-
-fn projects_of(
-    tab: &Tab,
-    project_of: impl Fn(&str) -> Option<String>,
-) -> Vec<String> {
-    tab.pane_ids()
-        .iter()
-        .filter_map(|pane| tab.pane(pane))
-        .filter_map(|instance| {
-            let params = &instance.params;
-            let chat = params.get(THREAD_ID).and_then(&project_of);
-            chat.or_else(|| params.get(PROJECT_ID).map(str::to_owned))
-        })
-        .collect()
 }
 
 type ChatRows<'a> = &'a dyn Fn(&str) -> Option<Row>;
@@ -173,71 +141,13 @@ mod tests {
     use crate::core_panes::{CHAT, NEW_TAB, TERMINAL};
     use crate::titles::Titles;
 
-    fn pane(
-        id: &str,
-        params: protocol::Params,
-    ) -> layout::PaneInstance {
-        layout::PaneInstance {
-            pane_id: PaneId::new(id).unwrap(),
-            type_id: protocol::PaneTypeId::new(CHAT).unwrap(),
-            params,
-            state: protocol::PaneState::default(),
-        }
-    }
-
-    fn open(
-        layout: &mut layout::Layout,
-        tab: TabId,
-        instance: layout::PaneInstance,
-    ) {
-        layout
-            .apply(layout::Command::OpenPane {
-                tab,
-                instance,
-                placement: None,
-            })
-            .unwrap();
-    }
-
-    #[test]
-    fn a_tab_belongs_to_the_projects_of_the_chats_its_panes_hold() {
-        let tab = TabId(1);
-        let mut layout = layout::Layout::default();
-        layout
-            .apply(layout::Command::AddTab {
-                id: tab,
-                title: "t".into(),
-                space: layout::SpaceId::default(),
-            })
-            .unwrap();
-        let held = [
-            pane(
-                "c1",
-                protocol::Params::default().with("threadId", "a").unwrap(),
-            ),
-            pane(
-                "c2",
-                protocol::Params::default()
-                    .with("threadId", "unknown")
-                    .unwrap(),
-            ),
-            pane("c3", protocol::Params::default()),
-        ];
-        for instance in held {
-            open(&mut layout, tab, instance);
-        }
-        let found = layout.tabs().iter().find(|held| held.id() == tab).unwrap();
-        let projects = projects_of(found, |chat| (chat == "a").then(|| "p1".to_owned()));
-        assert_eq!(projects, ["p1"]);
-    }
-
     fn layout_holding(
         pane: &PaneId,
         type_id: &str,
         params: protocol::Params,
     ) -> layout::Layout {
         let mut layout = layout::Layout::default();
-        let tab = TabId(1);
+        let tab = layout::TabId(1);
         layout
             .apply(layout::Command::AddTab {
                 id: tab,
@@ -374,21 +284,15 @@ mod tests {
     }
 
     #[test]
-    fn a_draft_reads_new_thread_provisionally_and_belongs_to_its_space() {
+    fn a_draft_reads_new_thread_provisionally() {
         let pane = PaneId::new("p7").unwrap();
-        let params = thread("draft-u1").with(PROJECT_ID, "p2").unwrap();
+        let params = thread("draft-u1").with("projectId", "p2").unwrap();
         let layout = layout_holding(&pane, CHAT, params);
         let none = |_: &str| None;
         let member = member((&Titles::default(), &layout), &none, &pane);
         assert_eq!(
             (member.label.as_ref(), member.provisional),
             (NEW_THREAD, true)
-        );
-        let projects = projects_of(&layout.tabs()[0], |_| None);
-        assert_eq!(
-            projects,
-            ["p2"],
-            "listed with its space before its chat exists"
         );
     }
 }

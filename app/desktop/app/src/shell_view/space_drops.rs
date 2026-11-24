@@ -17,8 +17,9 @@ impl ShellView {
         (tab, placement): (TabId, &Placement),
         cx: &mut Context<'_, Self>,
     ) {
-        let dragged: Vec<String> = self.data.chat_project(chat).into_iter().collect();
-        if !self.refuses_other_space((&dragged, tab), cx) {
+        let dragged = self.data.chat_project(chat).unwrap_or_default();
+        let target = space_of(self.state.layout(), tab).to_owned();
+        if !self.refuses((&dragged, &target), cx) {
             self.state.open_chat_at(chat, (tab, placement.clone()));
         }
     }
@@ -56,8 +57,9 @@ impl ShellView {
         let TabDrop::Merge(tab) = at else {
             return false;
         };
-        let dragged: Vec<String> = self.data.chat_project(chat).into_iter().collect();
-        self.refuses_other_space((&dragged, tab), cx)
+        let dragged = self.data.chat_project(chat).unwrap_or_default();
+        let target = space_of(self.state.layout(), tab).to_owned();
+        self.refuses((&dragged, &target), cx)
     }
 
     pub(super) fn drop_view(
@@ -66,24 +68,25 @@ impl ShellView {
         (onto, placement): (TabId, &Placement),
         cx: &mut Context<'_, Self>,
     ) {
-        let dragged = self.tab_projects_of(tab);
-        if !self.refuses_other_space((&dragged, onto), cx) {
+        let layout = self.state.layout();
+        let (dragged, target) = (space_of(layout, tab), space_of(layout, onto));
+        let (dragged, target) = (dragged.to_owned(), target.to_owned());
+        if !self.refuses((&dragged, &target), cx) {
             self.state.drop_tab(tab, (onto, placement.clone()));
         }
     }
 
-    fn refuses_other_space(
+    fn refuses(
         &mut self,
-        (dragged, onto): (&[String], TabId),
+        (dragged, target): (&str, &str),
         cx: &mut Context<'_, Self>,
     ) -> bool {
-        let target = self.tab_projects_of(onto);
-        if !crosses(dragged, &target) {
-            return false;
+        let crossing = crosses(dragged, target);
+        if crossing {
+            let said = (ToastKind::Error, OTHER_SPACE.to_owned());
+            self.show_notice(NoticeKey::Command, said, cx);
         }
-        let said = (ToastKind::Error, OTHER_SPACE.to_owned());
-        self.show_notice(NoticeKey::Command, said, cx);
-        true
+        crossing
     }
 }
 
@@ -98,14 +101,18 @@ fn after_last_pane(
     })
 }
 
+fn space_of(
+    layout: &Layout,
+    tab: TabId,
+) -> &str {
+    layout.tab(tab).map_or("", layout::Tab::space)
+}
+
 fn crosses(
-    dragged: &[String],
-    target: &[String],
+    dragged: &str,
+    target: &str,
 ) -> bool {
-    let Some(home) = target.first() else {
-        return false;
-    };
-    dragged.iter().any(|project| project != home)
+    !dragged.is_empty() && !target.is_empty() && dragged != target
 }
 
 #[cfg(test)]
@@ -226,27 +233,40 @@ mod tests {
         assert_eq!(first, Some(moved), "t2's tab leads the strip");
     }
 
-    type Case = (&'static [&'static str], &'static [&'static str], bool);
+    fn add(
+        id: u64,
+        space: &str,
+    ) -> layout::Command {
+        layout::Command::AddTab {
+            id: TabId(id),
+            title: String::new(),
+            space: layout::SpaceId::new(space),
+        }
+    }
 
-    fn owned(projects: &[&str]) -> Vec<String> {
-        projects.iter().map(|p| (*p).to_owned()).collect()
+    fn layout() -> Layout {
+        let mut layout = Layout::default();
+        for (id, space) in [(1, "p1"), (2, "p2"), (3, "p1"), (4, "")] {
+            layout.apply(add(id, space)).unwrap();
+        }
+        layout
     }
 
     #[test]
-    fn only_a_chat_of_a_known_other_space_is_refused() {
-        let cases: [Case; 5] = [
-            (&["p2"], &["p1"], true),
-            (&["p1"], &["p1"], false),
-            (&[], &["p1"], false),
-            (&["p2"], &[], false),
-            (&["p1", "p2"], &["p1"], true),
+    fn a_drop_between_two_known_different_spaces_is_refused_even_without_chats() {
+        let layout = layout();
+        let cases = [
+            ((1, 2), true),
+            ((1, 3), false),
+            ((4, 2), false),
+            ((2, 4), false),
         ];
-        for (dragged, target, refused) in cases {
-            assert_eq!(
-                crosses(&owned(dragged), &owned(target)),
-                refused,
-                "{dragged:?} onto {target:?}"
+        for ((tab, onto), refused) in cases {
+            let crossing = crosses(
+                space_of(&layout, TabId(tab)),
+                space_of(&layout, TabId(onto)),
             );
+            assert_eq!(crossing, refused, "{tab} onto {onto}");
         }
     }
 }
