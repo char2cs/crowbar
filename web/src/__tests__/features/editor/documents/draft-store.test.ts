@@ -1,11 +1,12 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MONACO_LOAD_MS } from '@/__tests__/__fixtures__/documents'
 import { documentUri } from '@/features/editor/documents/document-ref'
-import { clearDraft, loadDrafts } from '@/features/editor/documents/draft-store'
+import { clearDraft, loadDrafts, putDrafts } from '@/features/editor/documents/draft-store'
 import { loadEditorHost, type EditorHost } from '@/features/editor/host/editor-host'
 import { QUIET_PERIOD_MS } from '@/features/editor/lib/buffer-save'
 import { workspaceRef } from '@/lib/api/documents'
 import { toastManager } from '@/lib/toast-manager'
+import { abortDuring, watchUnhandled } from '@/__tests__/__fixtures__/aborted-write'
 
 const DOC = workspaceRef('ws-drafts', 'notes.md')
 const URI = documentUri(DOC)
@@ -30,6 +31,21 @@ afterEach(async () => {
 })
 
 describe('draft store', () => {
+  it('leaves no unhandled rejection when the database aborts a draft write', async () => {
+    const watch = watchUnhandled()
+    const put = abortDuring('put')
+    try {
+      await expect(
+        putDrafts([{ uri: URI, text: 'typed', savedText: 'disk', updatedAt: 1 }]),
+      ).rejects.toBeDefined()
+      await watch.flush()
+      expect(watch.seen).toEqual([])
+    } finally {
+      watch.stop()
+      put.mockRestore()
+    }
+  })
+
   it('a dirty document is written once after the quiet period, not per keystroke', async () => {
     const puts = vi.spyOn(IDBObjectStore.prototype, 'put')
     for (let i = 1; i <= 30; i++) {

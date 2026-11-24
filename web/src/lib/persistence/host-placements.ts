@@ -1,7 +1,7 @@
 import { entityStore, type EntityState } from '@/core/entities/entity-store'
 import { entityKey, splitHostKey } from '@/core/stream/host-scope'
 import { onHostRemoved } from '@/features/hosts/stores/host-config-store'
-import { getDB } from '@/lib/persistence/idb'
+import { commit, getDB } from '@/lib/persistence/idb'
 
 export type Placed = 'workspace' | 'chat'
 const KINDS: readonly Placed[] = ['workspace', 'chat']
@@ -113,11 +113,9 @@ function apply({ put, del }: Change) {
   if (put.length === 0 && del.length === 0) return
   void enqueue(async () => {
     const tx = (await getDB()).transaction('host-placements', 'readwrite')
-    await Promise.all([
-      ...put.map((r) => tx.store.put(r)),
-      ...del.map((r) => tx.store.delete(r.key)),
-      tx.done,
-    ])
+    await commit(tx, () =>
+      Promise.all([...put.map((r) => tx.store.put(r)), ...del.map((r) => tx.store.delete(r.key))]),
+    )
   })
 }
 
@@ -141,8 +139,10 @@ function forgetHostPlacements(hostId: string): Promise<void> {
   }
   return enqueue(async () => {
     const tx = (await getDB()).transaction('host-placements', 'readwrite')
-    const keys = await tx.store.index('hostId').getAllKeys(hostId)
-    await Promise.all([...keys.map((k) => tx.store.delete(k)), tx.done])
+    await commit(tx, async () => {
+      const keys = await tx.store.index('hostId').getAllKeys(hostId)
+      await Promise.all(keys.map((k) => tx.store.delete(k)))
+    })
   })
 }
 
