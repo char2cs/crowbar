@@ -1,5 +1,7 @@
 //! A tab drag follows the pointer anywhere in the window and ends wherever it is released, as
 //! develop's sortable bar lands a tab on its closest slot even when the release is outside the bar.
+//! The listeners are in place on every frame, so a drag that began after the last paint still
+//! lands when it is released before the next one.
 
 use gpui::{
     App, DispatchPhase, Entity, IntoElement, MouseMoveEvent, MouseUpEvent, Pixels, Point, Styled,
@@ -18,7 +20,7 @@ pub(crate) fn probe(
     let landing: Landing = (state, reorder);
     canvas(
         |_, _, _| {},
-        move |_, (), window, cx| listen(landing, window, cx),
+        move |_, (), window, _| listen(landing, window),
     )
     .absolute()
     .size_0()
@@ -27,11 +29,7 @@ pub(crate) fn probe(
 fn listen(
     landing: Landing,
     window: &mut Window,
-    cx: &App,
 ) {
-    if landing.0.read(cx).drag.is_none() {
-        return;
-    }
     let following = landing.0.clone();
     window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
         follow(&following, (event.position, phase), window, cx);
@@ -71,6 +69,9 @@ fn land(
         return;
     }
     let (state, reorder) = landing;
+    if state.read(cx).drag.is_none() {
+        return;
+    }
     let (landed, chosen) = state.update(cx, |state, cx| {
         cx.notify();
         (state.land(pointer), state.chosen.take())
@@ -156,5 +157,25 @@ mod tests {
             let ended = released(cx, (drag, below_the_bar(x)));
             assert_eq!(ended, (expected, true), "{name}");
         }
+    }
+
+    #[gpui::test]
+    fn a_drag_lifted_since_the_last_paint_still_lands_on_release(cx: &mut TestAppContext) {
+        let state = cx.update(|cx| cx.new(StripState::new));
+        let moves = Moves::default();
+        let bar = (state.clone(), Rc::clone(&moves));
+        let (_, cx) = cx.add_window_view(move |_, _| Bar {
+            state: bar.0,
+            moves: bar.1,
+        });
+        cx.run_until_parked();
+        state.update(cx, |state, _| state.drag = Some(dragged(0, &[6.0, 260.0])));
+        cx.simulate_mouse_up(
+            point(px(310.0), px(16.0)),
+            MouseButton::Left,
+            Modifiers::none(),
+        );
+        let ended = state.read_with(cx, |state, _| state.drag.is_none());
+        assert_eq!((moves.take(), ended), (vec![2], true), "landed and ended");
     }
 }
