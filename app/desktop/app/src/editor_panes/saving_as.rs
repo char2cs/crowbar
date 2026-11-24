@@ -2,9 +2,9 @@ use editorview::DiskTake;
 use gpui::{App, Window};
 use protocol::{DocumentPath, PaneId};
 
-use super::EditorPanes;
 use super::arrival::Arrival;
 use super::followed::listen;
+use super::{Adoption, EditorPanes, SaveAsPanes};
 use crate::document_source::{save_failed, saved_as_into};
 use crate::request_queue::send;
 use crate::saved_file::SavedFile;
@@ -71,22 +71,41 @@ impl EditorPanes {
 
     pub(crate) fn adopt(
         &self,
-        (holder, saved): (&PaneId, &SavedFile),
+        (panes, saved): (SaveAsPanes<'_>, &SavedFile),
         window: &mut Window,
         cx: &mut App,
-    ) -> DiskTake {
-        let view = self
-            .panes
-            .borrow()
-            .get(holder)
-            .and_then(|followed| followed.view().cloned());
-        let Some(view) = view else {
-            return DiskTake::Kept;
+    ) -> Adoption {
+        let SaveAsPanes { holder, untitled } = panes;
+        let late = self
+            .view_of(untitled)
+            .map(|view| view.read(cx).text(cx))
+            .filter(|typed| *typed != saved.text);
+        let Some(view) = self.view_of(holder) else {
+            return Adoption::Replaces(DiskTake::Kept);
         };
-        view.update(cx, |view, cx| {
+        let edited = view.read(cx).is_dirty(cx) && view.read(cx).text(cx) != saved.text;
+        let took = view.update(cx, |view, cx| {
             let since = view.save_mark();
             view.take_disk_text((&saved.text, since), window, cx)
-        })
+        });
+        match (late, edited) {
+            (Some(_), true) => Adoption::Stays(took),
+            (Some(late), false) => {
+                view.update(cx, |view, cx| view.take_page_text(&late, window, cx));
+                Adoption::Replaces(took)
+            },
+            (None, _) => Adoption::Replaces(took),
+        }
+    }
+
+    fn view_of(
+        &self,
+        pane: &PaneId,
+    ) -> Option<gpui::Entity<editorview::EditorView>> {
+        let panes = self.panes.borrow();
+        panes
+            .get(pane)
+            .and_then(|followed| followed.view().cloned())
     }
 
     pub(crate) fn holders(
@@ -196,8 +215,13 @@ mod tests {
             path: DocumentPath::new(PATH).unwrap(),
             text: "written\n".to_owned(),
         };
-        let took = window.update(|window, cx| panes.adopt((&holder, &saved), window, cx));
-        assert_eq!(took, DiskTake::Taken);
+        let untitled = PaneId::new("u1").unwrap();
+        let both = SaveAsPanes {
+            holder: &holder,
+            untitled: &untitled,
+        };
+        let took = window.update(|window, cx| panes.adopt((both, &saved), window, cx));
+        assert_eq!(took, Adoption::Replaces(DiskTake::Taken));
         assert_eq!(
             view.read_with(window, editorview::EditorView::text),
             "written\n"
@@ -228,6 +252,121 @@ mod tests {
         ];
         for (asked, expected) in cases {
             assert_eq!(panes.holders(asked), expected, "{asked:?}");
+        }
+    }
+
+    struct Both(Rc<EditorPanes>);
+
+    impl gpui::Render for Both {
+        fn render(
+            &mut self,
+            window: &mut Window,
+            cx: &mut gpui::Context<'_, Self>,
+        ) -> impl gpui::IntoElement {
+            let drawn: Vec<_> = [PANE, UNTITLED]
+                .iter()
+                .filter_map(|pane| self.0.content(&PaneId::new(*pane).unwrap(), window, cx))
+                .collect();
+            gpui::ParentElement::children(gpui::div(), drawn)
+        }
+    }
+
+    const UNTITLED: &str = "u1";
+
+    fn with_untitled(mut layout: layout::Layout) -> layout::Layout {
+        let instance = layout::PaneInstance {
+            pane_id: PaneId::new(UNTITLED).unwrap(),
+            type_id: protocol::PaneTypeId::new(crate::core_panes::EDITOR).unwrap(),
+            params: protocol::Params::default()
+                .with("threadId", "c1")
+                .and_then(|params| params.with("fileId", "u1"))
+                .unwrap(),
+            state: protocol::PaneState::new(json!({"untitled": true})).unwrap(),
+        };
+        let commands = [
+            layout::Command::AddTab {
+                id: layout::TabId(2),
+                title: String::new(),
+            },
+            layout::Command::OpenPane {
+                tab: layout::TabId(2),
+                instance,
+                placement: None,
+            },
+        ];
+        for command in commands {
+            layout.apply(command).unwrap();
+        }
+        layout
+    }
+
+    fn typed(
+        view: &gpui::Entity<editorview::EditorView>,
+        (window, text): (&mut gpui::VisualTestContext, &str),
+    ) {
+        window.update(|window, cx| window.focus(&view.focus_handle(cx), cx));
+        window.simulate_input(text);
+    }
+
+    type Views = [gpui::Entity<editorview::EditorView>; 2];
+
+    fn file_and_untitled_shown(
+        cx: &mut TestAppContext
+    ) -> (Rc<EditorPanes>, Views, &mut gpui::VisualTestContext) {
+        let documents = Rc::new(FakeDocuments::default());
+        documents.loading("c1");
+        documents.holding(PATH, TEXT);
+        let (panes, heard) = panes_over(&documents);
+        panes.follow(&with_untitled(layout_with(json!({"path": PATH}))));
+        landed(&panes, &heard);
+        let drawn = Rc::clone(&panes);
+        let (_root, window) = cx.add_window_view(|_, _| Both(drawn));
+        window.run_until_parked();
+        let views =
+            [PANE, UNTITLED].map(|pane| panes.view_of(&PaneId::new(pane).unwrap()).unwrap());
+        (panes, views, window)
+    }
+
+    #[gpui::test]
+    fn text_typed_into_the_untitled_tab_during_the_write_stays_unsaved_in_the_file_pane(
+        cx: &mut TestAppContext
+    ) {
+        cx.update(|cx| ui::init(cx).unwrap());
+        cx.update(editorview::init);
+        let mine = format!("mine {TEXT}");
+        let cases = [
+            (
+                "",
+                Adoption::Replaces(DiskTake::Taken),
+                ("late ", "written\n"),
+            ),
+            (
+                "mine ",
+                Adoption::Stays(DiskTake::Conflicted),
+                (mine.as_str(), TEXT),
+            ),
+        ];
+        let saved = SavedFile {
+            path: DocumentPath::new(PATH).unwrap(),
+            text: "written\n".to_owned(),
+        };
+        let (holder_pane, untitled_pane) =
+            (PaneId::new(PANE).unwrap(), PaneId::new(UNTITLED).unwrap());
+        let both = SaveAsPanes {
+            holder: &holder_pane,
+            untitled: &untitled_pane,
+        };
+        for (holder_typing, expected, (text, saved_text)) in cases {
+            let (panes, [holder, untitled], window) = file_and_untitled_shown(cx);
+            typed(&untitled, (window, "late "));
+            typed(&holder, (window, holder_typing));
+            let adopted = window.update(|window, cx| panes.adopt((both, &saved), window, cx));
+            assert_eq!(adopted, expected);
+            assert_eq!(holder.read_with(window, editorview::EditorView::text), text);
+            assert_eq!(
+                holder.read_with(window, |view, _| view.saved_text()),
+                saved_text
+            );
         }
     }
 }

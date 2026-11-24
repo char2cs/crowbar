@@ -3,6 +3,7 @@ use protocol::{DocumentPath, PaneId};
 use ui::{ToastContent, ToastKind, ToastLifetime};
 
 use super::ShellView;
+use crate::editor_panes::{Adoption, SaveAsPanes};
 use crate::name_event::NameEvent;
 use crate::name_prompt::{NamePrompt, SAVE_AS};
 use crate::saved_file::SavedFile;
@@ -96,15 +97,26 @@ impl ShellView {
         };
         let target = (chat.as_str(), &saved.path);
         let holder = self.state.file_pane(target);
-        let Some(shown) = self.state.replace_untitled(pane, target) else {
-            return;
+        let shown = match holder {
+            None => self.state.replace_untitled(pane, target),
+            Some(_) => None,
         };
-        let Some(holder) = holder else {
+        if let Some(shown) = shown {
             editors.rebind((pane, shown), saved, cx);
+        }
+        let Some(holder) = holder else {
             return self.refresh(cx);
         };
-        let took = editors.adopt((&holder, saved), window, cx);
-        self.disk_taken(&holder, took, cx);
+        let untitled = pane;
+        let both = SaveAsPanes {
+            holder: &holder,
+            untitled,
+        };
+        let adoption = editors.adopt((both, saved), window, cx);
+        self.disk_taken(&holder, adoption.took(), cx);
+        if let Adoption::Replaces(_) = adoption {
+            self.state.replace_untitled(pane, target);
+        }
         self.refresh(cx);
     }
 }

@@ -10,6 +10,7 @@ use protocol::PaneId;
 use crate::document_source::{DocumentSource, answer_into};
 use crate::shell_request::ShellRequest;
 
+mod adoption;
 mod arrival;
 mod chat_reads;
 mod disk;
@@ -25,13 +26,16 @@ mod pane_phase;
 mod pane_view;
 mod reloading;
 mod retry;
+mod save_as_panes;
 mod saving;
 mod saving_as;
 mod sweep;
 mod unavailable_panel;
 mod viewing;
 
+pub(crate) use adoption::Adoption;
 pub(crate) use chat_reads::ChatReads;
+pub(crate) use save_as_panes::SaveAsPanes;
 
 pub(crate) const DRAFTS_FILE: &str = "editor-drafts.json";
 pub(crate) use editor_target::EditorTarget;
