@@ -145,6 +145,7 @@ impl ShellView {
             ShellRequest::Link { pane, url, choice } => self.choose_link((&pane, url, choice), cx),
             ShellRequest::Contextual(command) => self.run_contextual(command, window, cx),
             ShellRequest::Document(request) => self.on_document(request, window, cx),
+            ShellRequest::FirstRun(event) => self.on_oobe(event, window, cx),
         }
     }
 

@@ -41,6 +41,8 @@ pub(crate) enum ShellRequest {
         pane: protocol::PaneId,
         report: ptysession::Report,
     },
+    /// The first-run screens asked something of the shell.
+    FirstRun(oobe::Event),
     /// A file pane's document moved: read, edited, saved or refused.
     Document(crate::document_request::DocumentRequest),
     /// The user chose a row of a terminal URL's menu.

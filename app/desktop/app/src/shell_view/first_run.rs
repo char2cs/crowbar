@@ -1,4 +1,4 @@
-use gpui::{AppContext as _, Context, Entity};
+use gpui::{AppContext as _, Context, Entity, Window};
 use sidebar::{Command, Host, HostId, HostKind, Sink as _, SpaceList as _};
 
 use super::ShellView;
@@ -41,11 +41,10 @@ impl ShellView {
         let Some(oobe) = oobe else {
             return;
         };
-        self.subscriptions.push(
-            cx.subscribe(&oobe, |this, source, event: &oobe::Event, cx| {
-                this.on_oobe(source, *event, cx);
-            }),
-        );
+        self.subscriptions
+            .push(cx.subscribe(&oobe, |this, _, event: &oobe::Event, _| {
+                send(&this.requests, ShellRequest::FirstRun(*event));
+            }));
         self.first_run = Some((landing, oobe));
         cx.notify();
     }
@@ -72,15 +71,16 @@ impl ShellView {
         }
     }
 
-    fn on_oobe(
+    pub(super) fn on_oobe(
         &mut self,
-        _: Entity<oobe::View>,
         event: oobe::Event,
+        window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
         match event {
             oobe::Event::ChooseFolder => self.choose_first_space(cx),
             oobe::Event::AddHost => self.queue_pairing(),
+            oobe::Event::MoveWindow => window.start_window_move(),
             _ => {},
         }
     }
