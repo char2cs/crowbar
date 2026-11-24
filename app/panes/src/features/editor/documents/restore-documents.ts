@@ -282,26 +282,10 @@ function failAll(buffers: EditorContent[], error: unknown): void {
   sayFailures(failures)
 }
 
-type DraftSweep = (drafts: Map<string, EditorDraft>, held: Set<string>) => void
-
-const dropClosedDrafts: DraftSweep = (drafts, held) => {
-  for (const uri of drafts.keys()) if (!held.has(uri)) clearDraft(uri)
-}
-
 /** Opens the document of every editor buffer the saved layout restored. A dirty draft beats disk
  *  (flagged if disk moved under it), a failed read keeps the tab and says why, and drafts of
  *  closed buffers go. */
-export function restoreDocuments(): Promise<void> {
-  return restoreHeld(dropClosedDrafts)
-}
-
-/** As restoreDocuments for a pane page, which holds only its own tab: the other panes' drafts share
- *  its store, so it leaves every draft it does not hold alone. */
-export function restorePaneDocuments(): Promise<void> {
-  return restoreHeld(() => undefined)
-}
-
-async function restoreHeld(sweep: DraftSweep): Promise<void> {
+export async function restoreDocuments(): Promise<void> {
   const buffers = windowPaneStore
     .getState()
     .buffers.filter((b): b is EditorContent => isEditorContent(b) && !!b.path)
@@ -314,7 +298,7 @@ async function restoreHeld(sweep: DraftSweep): Promise<void> {
     return failAll(buffers, error)
   }
   const [openModel, drafts] = loaded
-  sweep(drafts, held)
+  for (const uri of drafts.keys()) if (!held.has(uri)) clearDraft(uri)
   if (!openModel) return
   const failures: Failures = []
   const restores = buffers.map((buffer) => {

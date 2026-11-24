@@ -82,6 +82,21 @@ describe('PaneClient', () => {
       },
     ],
     [
+      'hands the shell the text its document view holds',
+      (client: PaneClient) => client.editDocument('# Title\n'),
+      { kind: 'document.edit', text: '# Title\n' },
+    ],
+    [
+      'asks the shell for the source editor',
+      (client: PaneClient) => client.showSource(),
+      { kind: 'document.showSource' },
+    ],
+    [
+      'asks the shell to save the document',
+      (client: PaneClient) => client.saveDocument(),
+      { kind: 'document.save' },
+    ],
+    [
       'runs a command',
       (client: PaneClient) => client.runCommand('workbench.settings'),
       { kind: 'command.run', command: 'workbench.settings' },
@@ -228,6 +243,14 @@ describe('PaneClient', () => {
     pane.deliver({ sdk: 1, kind: 'review.reveal', path: 'src/a.ts' })
     expect(viewed.mock.calls).toEqual([[{ workspace: 'w1', viewed: { 'a.ts': 's' } }]])
     expect(reveal.mock.calls).toEqual([['src/a.ts']])
+  })
+
+  it('hears the text of the document the shell owns', () => {
+    const client = new PaneClient(pane.channel, 'core.editor')
+    const heard = vi.fn()
+    client.onDocumentText(heard)
+    pane.deliver({ sdk: 1, kind: 'document.text', text: '# Title\n' })
+    expect(heard.mock.calls).toEqual([['# Title\n']])
   })
 
   it('ignores text that is not a frame', () => {

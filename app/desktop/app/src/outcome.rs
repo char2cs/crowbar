@@ -17,6 +17,7 @@ pub(crate) struct Outcome {
     pub(crate) settings: Vec<(protocol::SettingKey, serde_json::Value)>,
     pub(crate) pointer: Option<(PaneId, f64, f64)>,
     pub(crate) mounted: Vec<PaneId>,
+    pub(crate) documents: Vec<crate::document_request::DocumentRequest>,
     pub(crate) viewed: Vec<(PaneId, crate::review_panes::ViewedChanges)>,
     pub(crate) toasts: Vec<PaneToastChange>,
 }

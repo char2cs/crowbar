@@ -3,6 +3,7 @@ use protocol::PaneId;
 
 use super::EditorPanes;
 use super::keyboard::Keyboard;
+use super::pane_view::PaneView;
 
 impl EditorPanes {
     pub(crate) fn focus(
@@ -12,7 +13,7 @@ impl EditorPanes {
         cx: &mut App,
     ) {
         let mut panes = self.panes.borrow_mut();
-        let Some(followed) = panes.get_mut(pane) else {
+        let Some(followed) = panes.get_mut(pane).filter(|f| f.view == PaneView::Source) else {
             return;
         };
         match followed.view() {

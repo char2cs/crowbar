@@ -5,13 +5,11 @@ import { bufferSession } from '@/entries/buffer-session'
 import { useSettingsStore } from '@/features/settings/store'
 import { getUiFontScale } from '@/features/settings/lib/ui-font-size'
 
-vi.mock('@/entries/buffer-pane-host', () => ({ BufferPaneHost: () => null }))
-
-const { BufferPaneMount } = await import('@/entries/buffer-pane-mount')
+import { BufferPaneMount } from '@/entries/buffer-pane-mount'
 
 function startedMount() {
   const { client, deliver } = lifecycleDriver()
-  new BufferPaneMount(document.createElement('div'), client, () => Promise.resolve(null)).start()
+  new BufferPaneMount(document.createElement('div'), client, null).start()
   return (
     event: LifecycleMessage['event'],
     params: Record<string, string> = {},

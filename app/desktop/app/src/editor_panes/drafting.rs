@@ -72,7 +72,8 @@ impl EditorPanes {
         target: &EditorTarget,
         disk: String,
     ) -> Landed {
-        let Some(uri) = self.uri_of(target) else {
+        let uri = self.uri_of(target).filter(|_| target.preview.is_none());
+        let Some(uri) = uri else {
             return Landed { disk, draft: None };
         };
         let draft = self.drafts.borrow().get(&uri).cloned();

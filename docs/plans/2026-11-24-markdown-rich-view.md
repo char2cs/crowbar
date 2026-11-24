@@ -65,3 +65,31 @@ It is not saved with the layout (develop doesn't save it either). Nothing else h
 - **panehost:** a pane whose source says web gets a slot although its type is native, and the
   reverse.
 - **Rig:** ED-114, ED-115, ED-116, ED-117 and ED-082 pairs against Tauri.
+
+## As built (S1, 2026-11-24)
+Coordinator decisions: the panehost change is approved; the preview is the editor page with a
+preview parameter, not a new pane type (develop: a `preview` buffer in the same group); S7 keeps
+the editor page and Plate; LSP status and the sliders menu stay out.
+- **One owner of the view:** `Followed.view` (`editor_panes/pane_view.rs`) per file pane, in
+  memory: `Rich` on open for `.md`/`.markdown`, `Preview` for a preview pane, `Source` otherwise.
+  Closing the pane drops it. The page keeps no copy: it is mounted only while the pane is rich or a
+  preview.
+- **One owner of the text:** the pane's `EditorView`, made when the text lands even while it is not
+  drawn. The rich page reads it (`document.text`, sent on mount, after a read and after a disk
+  change is taken) and writes it back (`document.edit`, one undoable edit), so dirty state, drafts,
+  autosave and save stay where they are. `document.showSource` and `document.save` send the
+  page's pending edit first (frames are ordered).
+- **Keyboard:** a rich or preview pane's `EditorView` is neither drawn nor focused, so the page
+  keeps the keys; switching views focuses the pane so the keys follow the view that draws it.
+- **panehost:** `LayoutSnapshot::kinds` (`PaneKinds`) answers per pane; `NativePanes` answers for
+  file panes, the type decides for the rest.
+- **Preview:** `PaneSpec::preview` = `core.editor` with `view=preview` in its params and
+  `preview: markdown|html` in its state, titled "<name> (Preview)". It renders the live text of an
+  open pane on the same file, else its own read; it follows edits when they pause, on save and
+  when a disk change is taken.
+
+Known differences from develop:
+- A Markdown file whose text does not fit one 256 KB frame opens in the source view.
+- A preview follows unsaved source edits when they pause (the autosave quiet period), not per
+  keystroke.
+- Rich-view undo is Plate's own; the native undo stack keeps each page edit as one step.

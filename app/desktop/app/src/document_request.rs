@@ -29,6 +29,17 @@ pub(crate) enum DocumentRequest {
         text: String,
         since: editorview::SaveMark,
     },
+    /// A file pane's page holds `text` for the document the pane's editor owns.
+    PageEdited {
+        pane: protocol::PaneId,
+        text: String,
+    },
+    /// The user asked to see a file pane's document in its native source editor.
+    ShowSource { pane: protocol::PaneId },
+    /// The user asked to see a Markdown pane's document in its page's rich view.
+    ShowRich { pane: protocol::PaneId },
+    /// The user asked to open a file pane's preview tab.
+    Preview { pane: protocol::PaneId },
     /// A file pane's save failed, with the daemon's reason.
     SaveFailed {
         pane: protocol::PaneId,

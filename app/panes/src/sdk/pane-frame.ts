@@ -19,5 +19,8 @@ export type PaneFrame =
   | { kind: 'shell.reveal'; path: string }
   | { kind: 'settings.set'; version: number; key: string; value: unknown }
   | { kind: 'review.setViewed'; files: ViewedFile[]; viewed: boolean }
+  | { kind: 'document.edit'; text: string }
+  | { kind: 'document.showSource' }
+  | { kind: 'document.save' }
   | ({ kind: 'shell.toast' } & PaneToast)
   | { kind: 'shell.toastClose'; key: string }

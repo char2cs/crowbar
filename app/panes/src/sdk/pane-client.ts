@@ -65,6 +65,7 @@ export class PaneClient {
   private readonly events = new Map<string, EventSubscription>()
   private readonly reviewViewed = new Set<Listener<ReviewViewedFrame>>()
   private readonly reviewReveals = new Set<Listener<string>>()
+  private readonly documentTexts = new Set<Listener<string>>()
 
   constructor(
     private readonly channel: PaneChannel,
@@ -126,6 +127,26 @@ export class PaneClient {
   /** Asks the shell, which owns the viewed map, to mark or unmark files of this pane's workspace. */
   setReviewViewed(change: ViewedChange): void {
     this.send({ kind: 'review.setViewed', files: [...change.files], viewed: change.viewed })
+  }
+
+  /** Hears the text of the file pane's document, which the shell owns, on mount and whenever it changes outside this page; returns the stop. */
+  onDocumentText(listener: Listener<string>): () => void {
+    return this.listen(this.documentTexts, listener)
+  }
+
+  /** Hands the shell the whole text this page's view of the document holds now. */
+  editDocument(text: string): void {
+    this.send({ kind: 'document.edit', text })
+  }
+
+  /** Asks the shell to show the file pane's document in its source editor instead of this page. */
+  showSource(): void {
+    this.send({ kind: 'document.showSource' })
+  }
+
+  /** Asks the shell to save the file pane's document; send the pending edit first. */
+  saveDocument(): void {
+    this.send({ kind: 'document.save' })
   }
 
   /** Tells the shell the pane holds work that closing would lose. */
@@ -271,6 +292,8 @@ export class PaneClient {
     }
     if (frame.kind === 'review.reveal')
       this.reviewReveals.forEach((listener) => listener(frame.path))
+    if (frame.kind === 'document.text')
+      this.documentTexts.forEach((listener) => listener(frame.text))
     if (frame.kind === 'settings' && frame.version === SETTINGS_FRAME_VERSION) {
       this.shellSettings.forEach((listener) => listener(frame.values))
     }

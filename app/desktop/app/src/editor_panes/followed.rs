@@ -15,6 +15,7 @@ use super::keyboard::Keyboard;
 use super::landed::Landed;
 use super::landing::Landing;
 use super::pane_phase::PanePhase;
+use super::pane_view::PaneView;
 use super::retry::Retry;
 use super::unavailable_panel;
 
@@ -22,6 +23,7 @@ pub(super) struct Followed {
     pub(super) target: EditorTarget,
     pub(super) phase: PanePhase,
     pub(super) keyboard: Keyboard,
+    pub(super) view: PaneView,
     access: editorview::Access,
     pub(super) told: Option<Subscription>,
 }
@@ -35,10 +37,12 @@ impl Followed {
             Some(_) => PanePhase::Waiting,
             None => PanePhase::Read(Landed::default()),
         };
+        let view = target.view();
         Self {
             target,
             phase,
             keyboard,
+            view,
             access,
             told: None,
         }
@@ -108,14 +112,22 @@ impl Followed {
         }
     }
 
-    fn show(
-        &self,
-        landed: &Landed,
+    pub(super) fn materialize(
+        &mut self,
+        (pane, requests): (&PaneId, &Requests),
         window: &mut Window,
         cx: &mut App,
-    ) -> Entity<EditorView> {
+    ) {
+        let PanePhase::Read(landed) = &mut self.phase else {
+            return;
+        };
+        let landed = std::mem::take(landed);
         let opening = landed.opening(&self.target, self.access);
-        cx.new(|cx| EditorView::new(opening, window, cx))
+        let view = cx.new(|cx| EditorView::new(opening, window, cx));
+        self.told = Some(listen(&view, (pane, requests), cx));
+        let since = view.read(cx).save_mark();
+        landed.restored(since, (pane, requests));
+        self.phase = PanePhase::Shown(view);
     }
 
     pub(super) fn drawn(
@@ -124,14 +136,7 @@ impl Followed {
         window: &mut Window,
         cx: &mut App,
     ) -> AnyElement {
-        if let PanePhase::Read(landed) = &mut self.phase {
-            let landed = std::mem::take(landed);
-            let view = self.show(&landed, window, cx);
-            self.told = Some(listen(&view, (pane, requests), cx));
-            let since = view.read(cx).save_mark();
-            landed.restored(since, (pane, requests));
-            self.phase = PanePhase::Shown(view);
-        }
+        self.materialize((pane, requests), window, cx);
         self.take_keyboard(window, cx);
         let (requests, retry) = (
             requests.clone(),
@@ -181,6 +186,10 @@ fn told(
         },
         EditorEvent::SaveRequested => ShellRequest::Document(DocumentRequest::Save { pane }),
         EditorEvent::EditsPaused => ShellRequest::Document(DocumentRequest::Paused { pane }),
+        EditorEvent::PreviewRequested => ShellRequest::Document(DocumentRequest::Preview { pane }),
+        EditorEvent::RichViewRequested => {
+            ShellRequest::Document(DocumentRequest::ShowRich { pane })
+        },
     }
 }
 
@@ -197,6 +206,7 @@ mod tests {
             label: file.unwrap_or("untitled:Untitled-1").to_owned(),
             arrival: Arrival::Restored,
             line: None,
+            preview: None,
         }
     }
 

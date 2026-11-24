@@ -8,7 +8,7 @@ use super::ShellView;
 const CHANGED_ON_DISK: &str =
     "Your unsaved changes are kept. Saving will overwrite the on-disk version.";
 use crate::document_request::DocumentRequest;
-use crate::editor_panes::Landing;
+use crate::editor_panes::{Landing, PaneView};
 use crate::request_queue::send;
 use crate::shell_request::ShellRequest;
 
@@ -20,7 +20,7 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) {
         match request {
-            DocumentRequest::Read { pane, read } => self.land_document((&pane, read), cx),
+            DocumentRequest::Read { pane, read } => self.read_landed((&pane, read), window, cx),
             DocumentRequest::Retry { pane } => self.retry_document(&pane, cx),
             DocumentRequest::Dirty { pane, dirty: true } => {
                 self.state.mark_dirty(pane);
@@ -30,6 +30,7 @@ impl ShellView {
                 self.source.native().editors().discard_draft(&pane);
                 self.state.clear_dirty(&pane);
                 self.dirty_changed(cx);
+                self.send_preview_texts(&pane, cx);
             },
             DocumentRequest::Save { pane } => self.save_document(&pane, window, cx),
             DocumentRequest::SavedAs { pane, saved } => self.adopt_saved_as(&pane, &saved, cx),
@@ -41,7 +42,29 @@ impl ShellView {
             DocumentRequest::DiskRead { pane, text, since } => {
                 self.take_disk((&pane, (&text, since)), window, cx);
             },
+            DocumentRequest::PageEdited { pane, text } => {
+                self.take_page_text((&pane, &text), window, cx);
+            },
+            DocumentRequest::ShowSource { pane } => {
+                self.show_pane_view(&pane, PaneView::Source, cx);
+            },
+            DocumentRequest::ShowRich { pane } => self.show_pane_view(&pane, PaneView::Rich, cx),
+            DocumentRequest::Preview { pane } => self.open_file_preview(&pane, cx),
         }
+    }
+
+    fn read_landed(
+        &mut self,
+        (pane, read): (&PaneId, Result<String, editor::OpenFailure>),
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.land_document((pane, read), cx);
+        if self.source.native().editors().prepare(pane, window, cx) {
+            self.refresh(cx);
+        }
+        self.send_page_text(pane, cx);
+        self.send_preview_texts(pane, cx);
     }
 
     pub(super) fn disk_changed(
@@ -69,7 +92,12 @@ impl ShellView {
     ) {
         let pane = read.0;
         let editors = self.source.native().editors();
-        if editors.take_disk(read, window, cx) != editorview::DiskTake::Conflicted {
+        let took = editors.take_disk(read, window, cx);
+        if took == editorview::DiskTake::Taken {
+            self.send_page_text(pane, cx);
+            self.send_preview_texts(pane, cx);
+        }
+        if took != editorview::DiskTake::Conflicted {
             return;
         }
         let Some(name) = editors.file_name(pane) else {
@@ -86,6 +114,7 @@ impl ShellView {
         cx: &Context<'_, Self>,
     ) {
         self.source.native().editors().keep_draft(pane, cx);
+        self.send_preview_texts(pane, cx);
         if self.autosaves() {
             self.source.native().editors().autosave(pane, cx);
         }

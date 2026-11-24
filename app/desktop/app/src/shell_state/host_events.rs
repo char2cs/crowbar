@@ -1,11 +1,12 @@
 use std::path::Path;
 
 use browser::PageUrl;
-use panehost::{HostEvent, IpcMessage, LayoutSnapshot, VisiblePane};
+use panehost::{HostEvent, IpcMessage, LayoutSnapshot, PaneKinds, VisiblePane};
 use protocol::PaneId;
 use webview::ParentWindow;
 
 use super::ShellState;
+use super::page_document::page_document;
 use layout::Command;
 
 use crate::dropped_files;
@@ -17,10 +18,11 @@ impl ShellState {
     pub(crate) fn sync(
         &mut self,
         parent: ParentWindow,
-        visible: Vec<VisiblePane>,
+        (visible, kinds): (Vec<VisiblePane>, &dyn PaneKinds),
     ) -> Outcome {
         let snapshot = LayoutSnapshot::from_layout(self.history.layout(), parent, visible)
-            .with_keyboard(self.keyboard);
+            .with_keyboard(self.keyboard)
+            .with_kinds(kinds);
         let report = self.host.sync(&snapshot);
         if let Some(error) = report.failure {
             tracing::error!(%error, "a pane could not be driven while syncing with the layout");
@@ -181,6 +183,10 @@ fn note_report(
 ) {
     if let HostEvent::Mounted { pane } = event {
         outcome.mounted.push(pane);
+        return;
+    }
+    if let Some(request) = page_document(&event) {
+        outcome.documents.push(request);
         return;
     }
     if !matches!(event, HostEvent::ReviewViewedSet { .. }) {

@@ -60,7 +60,25 @@ function findAnchorTarget(root: HTMLElement | null, id: string): Element | null 
 }
 
 export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
-  const { content: sourceContent, doc: sourceDoc } = usePreviewSource(bufferId)
+  const { content, doc } = usePreviewSource(bufferId)
+  return <MarkdownPreviewView doc={doc} content={content} scrollKey={bufferId ?? null} />
+}
+
+export interface MarkdownPreviewViewProps {
+  /** The document rendered; its relative links open beside it. */
+  doc: DocumentRef | null
+  /** Its Markdown text. */
+  content: string
+  /** The key its scroll offset is kept under, or null to keep none. */
+  scrollKey: string | null
+}
+
+/** `content`, the Markdown text of `doc`, rendered read-only, with its links opening documents. */
+export function MarkdownPreviewView({
+  doc: sourceDoc,
+  content: sourceContent,
+  scrollKey,
+}: MarkdownPreviewViewProps) {
   // Links in a host document belong to no workspace, so none is refused as another host's.
   const sourceWorkspaceId = sourceDoc?.authority === 'workspace' ? sourceDoc.workspaceId : null
   const fontSize = useSettingsStore((state) => state.settings.fontSize)
@@ -74,7 +92,7 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
 
   // A tab switch unmounts this pane, so the scroll offset is kept outside it. Restored once the
   // rendered body is in the DOM; before that the box is empty and any offset clamps away.
-  usePreservedScroll(containerRef, bufferId ?? null, body !== '')
+  usePreservedScroll(containerRef, scrollKey, body !== '')
 
   const handleLinkClick = useCallback(
     async (e: React.MouseEvent<HTMLDivElement>) => {

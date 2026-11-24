@@ -12,8 +12,19 @@ const WORKSPACE_SANDBOX = 'allow-scripts allow-forms allow-popups allow-modals'
 const HOST_SANDBOX = ''
 
 export function HtmlPreview({ bufferId }: { bufferId?: string }) {
-  const source = usePreviewSource(bufferId)
-  const { doc } = source
+  const { shown, doc, content } = usePreviewSource(bufferId)
+  if (!shown) {
+    return (
+      <div className="flex h-full items-center justify-center text-muted-foreground">
+        No active buffer
+      </div>
+    )
+  }
+  return <HtmlPreviewView doc={doc} content={content} />
+}
+
+/** `content`, the HTML text of `doc`, rendered in a sandboxed frame with its local assets inlined. */
+export function HtmlPreviewView({ doc, content }: { doc: DocumentRef | null; content: string }) {
   const [iframeContent, setIframeContent] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -30,23 +41,15 @@ export function HtmlPreview({ bufferId }: { bufferId?: string }) {
     }
     const built =
       doc?.authority === 'host'
-        ? buildHostPreviewDocument(source.content, doc, read)
-        : buildHtmlPreviewDocument(source.content, loadAsset)
+        ? buildHostPreviewDocument(content, doc, read)
+        : buildHtmlPreviewDocument(content, loadAsset)
     void built.then((html) => {
       if (!cancelled) setIframeContent(html)
     })
     return () => {
       cancelled = true
     }
-  }, [source.content, doc])
-
-  if (!source.shown) {
-    return (
-      <div className="flex h-full items-center justify-center text-muted-foreground">
-        No active buffer
-      </div>
-    )
-  }
+  }, [content, doc])
 
   return (
     <div ref={containerRef} className="html-preview h-full w-full bg-white">

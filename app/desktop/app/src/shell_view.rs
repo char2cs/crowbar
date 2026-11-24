@@ -35,6 +35,7 @@ mod keymap_settings;
 mod new_tab;
 mod notices;
 mod outcomes;
+mod page_documents;
 mod pane_commands;
 mod pane_settings_watch;
 mod pane_toasts;
@@ -307,7 +308,7 @@ impl ShellView {
             (chrome, self.source.as_ref()),
         );
         self.state.set_theme(*Theme::of(cx));
-        let outcome = self.state.sync(parent, visible);
+        let outcome = self.state.sync(parent, (visible, self.source.native()));
         self.apply_outcome(outcome, cx);
     }
 }

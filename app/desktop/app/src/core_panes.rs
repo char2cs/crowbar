@@ -24,7 +24,7 @@ const TYPES: [CoreType; 6] = [
     CoreType {
         id: EDITOR,
         title: "File",
-        entry: "",
+        entry: "editor/index.html",
         kind: PaneKind::Native,
         lifecycle: PaneLifecycle::Parkable,
         multiplicity: Multiplicity::PerParams,
@@ -112,7 +112,7 @@ mod tests {
 
     const CASES: [(&str, bool); 7] = [
         (CHAT, true),
-        (EDITOR, false),
+        (EDITOR, true),
         (REVIEW, true),
         (CONSOLE, true),
         (TERMINAL, false),
@@ -121,7 +121,7 @@ mod tests {
     ];
 
     #[test]
-    fn every_core_type_is_registered_and_only_bundled_web_ones_have_an_entry() {
+    fn every_core_type_is_registered_and_only_ones_with_a_page_have_an_entry() {
         let registry = registered();
         for (id, bundled) in CASES {
             let pane_type = registry.get(&PaneTypeId::new(id).unwrap()).unwrap();

@@ -7,6 +7,8 @@ use crate::core_panes::{BROWSER, CHAT, CONSOLE, EDITOR, NEW_TAB, REVIEW, TERMINA
 
 pub(crate) const UNTITLED: &str = "Untitled";
 const THREAD_ID: &str = "threadId";
+const PREVIEW: &str = "preview";
+const PREVIEW_SUFFIX: &str = " (Preview)";
 
 pub(crate) fn tab_look(
     instance: &PaneInstance,
@@ -73,9 +75,14 @@ fn by_type(instance: &PaneInstance) -> (String, IconName) {
 fn file_name(instance: &PaneInstance) -> String {
     let state = instance.state.as_value();
     let path = state.get("path").and_then(serde_json::Value::as_str);
-    path.and_then(|path| path.rsplit('/').next())
+    let name = path
+        .and_then(|path| path.rsplit('/').next())
         .filter(|name| !name.is_empty())
-        .map_or_else(|| UNTITLED.to_owned(), str::to_owned)
+        .map_or_else(|| UNTITLED.to_owned(), str::to_owned);
+    if state.get(PREVIEW).is_none() {
+        return name;
+    }
+    format!("{name}{PREVIEW_SUFFIX}")
 }
 
 #[cfg(test)]
@@ -107,7 +114,7 @@ mod tests {
 
     const FILE_ICON: IconName = IconName::FileText;
 
-    const CASES: [Case; 8] = [
+    const CASES: [Case; 9] = [
         Case {
             name: "an untitled chat",
             kind: CHAT,
@@ -154,6 +161,14 @@ mod tests {
             state: r#"{"path": "src/lib/main.rs"}"#,
             title: None,
             label: "main.rs",
+            icon: FILE_ICON,
+        },
+        Case {
+            name: "a file's preview, as develop names it",
+            kind: EDITOR,
+            state: r#"{"path": "docs/README.md", "preview": "markdown"}"#,
+            title: None,
+            label: "README.md (Preview)",
             icon: FILE_ICON,
         },
         Case {

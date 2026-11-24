@@ -3,6 +3,7 @@ use protocol::{DocumentPath, PaneState};
 use serde_json::Value;
 
 use super::arrival::Arrival;
+use super::pane_view::PaneView;
 use crate::core_panes::EDITOR;
 use crate::tab_looks;
 
@@ -13,6 +14,9 @@ const UNTITLED: &str = "untitled";
 const FRESH: &str = "fresh";
 const LINE: &str = "line";
 const NAME: &str = "name";
+const PREVIEW: &str = "preview";
+const MARKDOWN_PREVIEW: &str = "markdown";
+const HTML_PREVIEW: &str = "html";
 const UNTITLED_SCHEME: &str = "untitled:";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,6 +26,7 @@ pub(crate) struct EditorTarget {
     pub(crate) label: String,
     pub(crate) arrival: Arrival,
     pub(crate) line: Option<u32>,
+    pub(crate) preview: Option<editor::Preview>,
 }
 
 impl EditorTarget {
@@ -45,13 +50,39 @@ impl EditorTarget {
             _ => Some(file_of(state)?),
         };
         let label = label_of(file.as_ref(), state);
+        let preview = state
+            .get(PREVIEW)
+            .and_then(Value::as_str)
+            .and_then(preview_of);
         Some(Self {
             chat,
             file,
             label,
             arrival,
             line,
+            preview,
         })
+    }
+
+    pub(crate) fn view(&self) -> PaneView {
+        if self.preview.is_some() {
+            return PaneView::Preview;
+        }
+        let rich = self
+            .file
+            .as_ref()
+            .is_some_and(|file| editor::Preview::has_rich_view(file.as_str()));
+        if rich {
+            return PaneView::Rich;
+        }
+        PaneView::Source
+    }
+
+    pub(crate) const fn preview_name(preview: editor::Preview) -> &'static str {
+        match preview {
+            editor::Preview::Markdown => MARKDOWN_PREVIEW,
+            editor::Preview::Html => HTML_PREVIEW,
+        }
     }
 
     pub(crate) fn untitled_label(name: &str) -> String {
@@ -83,6 +114,14 @@ fn label_of(
         .and_then(Value::as_str)
         .unwrap_or(tab_looks::UNTITLED);
     EditorTarget::untitled_label(name)
+}
+
+fn preview_of(name: &str) -> Option<editor::Preview> {
+    match name {
+        MARKDOWN_PREVIEW => Some(editor::Preview::Markdown),
+        HTML_PREVIEW => Some(editor::Preview::Html),
+        _ => None,
+    }
 }
 
 fn file_of(state: &Value) -> Option<DocumentPath> {
@@ -161,6 +200,32 @@ mod tests {
         for (state, expected) in cases {
             let target = EditorTarget::of(&instance(state.clone())).unwrap();
             assert_eq!(target.label, expected, "{state}");
+        }
+    }
+
+    #[test]
+    fn a_preview_pane_names_how_its_page_renders_the_file() {
+        let cases = [
+            (
+                json!({"path": "README.md", "preview": "markdown"}),
+                Some(editor::Preview::Markdown),
+            ),
+            (
+                json!({"path": "a.html", "preview": "html"}),
+                Some(editor::Preview::Html),
+            ),
+            (json!({"path": "README.md"}), None),
+            (json!({"path": "README.md", "preview": "pdf"}), None),
+        ];
+        for (state, expected) in cases {
+            let target = EditorTarget::of(&instance(state.clone())).unwrap();
+            assert_eq!(target.preview, expected, "{state}");
+            let named = expected.map(EditorTarget::preview_name);
+            assert_eq!(
+                named,
+                state["preview"].as_str().filter(|_| expected.is_some()),
+                "{state}"
+            );
         }
     }
 

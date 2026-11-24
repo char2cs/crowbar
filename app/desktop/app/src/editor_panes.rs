@@ -22,10 +22,12 @@ mod landed;
 mod landing;
 mod locking;
 mod pane_phase;
+mod pane_view;
 mod retry;
 mod saving;
 mod saving_as;
 mod unavailable_panel;
+mod viewing;
 
 pub(crate) use chat_reads::ChatReads;
 
@@ -35,6 +37,7 @@ use followed::Followed;
 use keyboard::Keyboard;
 pub(crate) use landing::Landing;
 use pane_phase::PanePhase;
+pub(crate) use pane_view::PaneView;
 
 pub(crate) struct EditorPanes {
     documents: Rc<dyn DocumentSource>,
@@ -84,6 +87,7 @@ impl EditorPanes {
             .filter(|(pane, followed)| {
                 !open.get(*pane).is_some_and(|target| followed.shows(target))
             })
+            .filter(|(_, followed)| followed.target.preview.is_none())
             .map(|(_, followed)| followed.target.clone())
             .collect();
         panes.retain(|pane, followed| open.get(pane).is_some_and(|target| followed.shows(target)));
@@ -139,7 +143,7 @@ impl EditorPanes {
         cx: &mut App,
     ) -> Option<AnyElement> {
         let mut panes = self.panes.borrow_mut();
-        let followed = panes.get_mut(pane)?;
+        let followed = panes.get_mut(pane).filter(|f| f.view == PaneView::Source)?;
         Some(followed.drawn((pane, &self.requests), window, cx))
     }
 

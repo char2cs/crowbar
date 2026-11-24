@@ -1,22 +1,35 @@
 use gpui::Context;
 use keymap::ShellCommand;
 use layout::Command;
-use protocol::CommandId;
+use protocol::{CommandId, PaneId};
 
 use super::ShellView;
+use crate::document_request::DocumentRequest;
 use crate::outcome::Outcome;
 use crate::request_queue::send;
+use crate::review_panes::ViewedChanges;
 use crate::shell_request::ShellRequest;
+
+type ViewedPanes = Vec<(PaneId, ViewedChanges)>;
 
 impl ShellView {
     fn focus_pages(
         &mut self,
-        focused: Vec<protocol::PaneId>,
+        focused: Vec<PaneId>,
         cx: &mut Context<'_, Self>,
     ) {
         for pane in focused {
             self.apply_guarded(vec![Command::FocusPane { pane }], cx);
         }
+    }
+
+    fn follow_pages(
+        &mut self,
+        (focused, opens): (Vec<PaneId>, Vec<Command>),
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.focus_pages(focused, cx);
+        self.open_for_pages(opens, cx);
     }
 
     fn open_for_pages(
@@ -29,6 +42,16 @@ impl ShellView {
         }
         self.state.apply(opens);
         self.refresh(cx);
+    }
+
+    fn serve_mounted(
+        &mut self,
+        mounted: &[PaneId],
+        (documents, viewed): (Vec<DocumentRequest>, ViewedPanes),
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.serve_page_documents(mounted, documents, cx);
+        self.serve_review_viewed(mounted, viewed);
     }
 
     pub(super) fn apply_outcome(
@@ -50,9 +73,10 @@ impl ShellView {
             settings,
             mounted,
             viewed,
+            documents,
             ..
         } = outcome;
-        self.serve_review_viewed(&mounted, viewed);
+        self.serve_mounted(&mounted, (documents, viewed), cx);
         self.store_pane_settings(settings);
         self.open_dropped(&dropped, cx);
         self.finish_picks(picks, cx);
@@ -63,8 +87,7 @@ impl ShellView {
             self.layout
                 .update(cx, |view, cx| view.set_hovered_pane(current, cx));
         }
-        self.focus_pages(focused, cx);
-        self.open_for_pages(opens, cx);
+        self.follow_pages((focused, opens), cx);
         self.serve(&commands);
         if dirty_changed {
             send(&self.requests, ShellRequest::ResumeClosing);
@@ -78,7 +101,7 @@ impl ShellView {
 
     fn run_deferred_agents(
         &mut self,
-        loaded: &[protocol::PaneId],
+        loaded: &[PaneId],
         cx: &mut Context<'_, Self>,
     ) {
         for pane in loaded {
@@ -88,7 +111,7 @@ impl ShellView {
 
     fn show_addresses(
         &self,
-        pages: Vec<(protocol::PaneId, String)>,
+        pages: Vec<(PaneId, String)>,
         cx: &mut Context<'_, Self>,
     ) {
         for (pane, address) in pages {
@@ -159,7 +182,7 @@ mod tests {
 
     fn open_files(
         shell: &mut ShellView,
-        pane: &protocol::PaneId,
+        pane: &PaneId,
     ) {
         let layout = shell.state.layout();
         let chat = layout.pane(pane).and_then(crate::tab_looks::chat_of);

@@ -32,6 +32,7 @@ mod host_settings;
 mod navigation_target;
 mod open_requested;
 mod opening;
+mod page_document;
 mod page_step;
 mod preview;
 mod renaming;
@@ -275,7 +276,8 @@ mod tests {
             pane: pane.clone(),
             bounds,
         };
-        rig.shell.sync(webview::ParentWindow::X11(9), vec![shown]);
+        rig.shell
+            .sync(webview::ParentWindow::X11(9), (vec![shown], &()));
     }
 
     enum Via {

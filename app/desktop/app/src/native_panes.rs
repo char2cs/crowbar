@@ -60,9 +60,7 @@ impl NativePanes {
         &self,
         pane: &PaneId,
     ) -> bool {
-        self.terminals.is_terminal(pane)
-            || self.new_tabs.contains(pane)
-            || self.editors.contains(pane)
+        self.terminals.is_terminal(pane) || self.new_tabs.contains(pane) || self.editors.draws(pane)
     }
 
     pub(crate) fn empty_editor(
@@ -92,6 +90,26 @@ impl NativePanes {
             Some(view) => view.into_any_element(),
             None => div().into_any_element(),
         }
+    }
+}
+
+impl std::fmt::Debug for NativePanes {
+    fn fmt(
+        &self,
+        formatter: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        formatter
+            .debug_struct("NativePanes")
+            .finish_non_exhaustive()
+    }
+}
+
+impl panehost::PaneKinds for NativePanes {
+    fn kind_of(
+        &self,
+        pane: &PaneId,
+    ) -> Option<panehost::PaneKind> {
+        self.editors.kind_of(pane)
     }
 }
 

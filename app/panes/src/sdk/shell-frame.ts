@@ -25,3 +25,4 @@ export type ShellFrame =
   | { kind: 'settings'; version: number; values: SettingValues }
   | ({ kind: 'review.viewed' } & ReviewViewedFrame)
   | { kind: 'review.reveal'; path: string }
+  | { kind: 'document.text'; text: string }

@@ -32,10 +32,7 @@ import {
   retryLoad,
 } from '@/features/editor/documents/open-document'
 import { getEditorHost, releaseWithDocument } from '@/features/editor/host/editor-host'
-import {
-  restoreDocuments,
-  restorePaneDocuments,
-} from '@/features/editor/documents/restore-documents'
+import { restoreDocuments } from '@/features/editor/documents/restore-documents'
 import { saveActiveBuffer } from '@/features/editor/lib/buffer-save'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
@@ -305,17 +302,14 @@ describe('restoreDocuments', () => {
     expect(readDocument).not.toHaveBeenCalled()
   })
 
-  it.each([
-    ['the window, which holds every tab, drops it', restoreDocuments, []],
-    ['a pane, which holds only its own tab, keeps it', restorePaneDocuments, [documentUri(B)]],
-  ])('a draft of a document no restored tab holds: %s', async (_, restore, kept) => {
+  it('drops a draft of a document no restored tab holds', async () => {
     restoredTab(A)
     await putDrafts([draft(B, 'theirs', 'disk')])
     readDocument.mockResolvedValue({ ref: A, text: 'disk' })
 
-    await restore()
+    await restoreDocuments()
 
-    expect([...(await loadDrafts()).keys()]).toEqual(kept)
+    expect([...(await loadDrafts()).keys()]).toEqual([])
   })
 
   it('a layout without editor tabs drops its drafts and never loads the editor', async () => {
