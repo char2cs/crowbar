@@ -151,7 +151,7 @@ mod tests {
         cx.update(|cx| hover.over(hit, cx));
         assert!(hover.is_dragging(), "a drag is in progress");
         assert_eq!(
-            hover.target.as_ref().map(|t| (t.pane.clone(), t.edge)),
+            hover.target.as_ref().map(|t| (t.pane.clone(), t.edge())),
             Some((pane_id("b"), Edge::Left)),
             "target"
         );

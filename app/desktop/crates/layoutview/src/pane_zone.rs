@@ -45,7 +45,7 @@ impl PaneZone {
     }
 
     /// The side a chat dropped here lands on. The centre of an open pane adds the chat beside
-    /// it on the right, and the preview shows exactly that.
+    /// it on the right.
     #[must_use]
     pub fn edge(self) -> Edge {
         match self {
