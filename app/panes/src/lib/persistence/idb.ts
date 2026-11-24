@@ -9,6 +9,7 @@ const connections = new WeakMap<IDBFactory, Promise<IDBPDatabase<CrowbarDB>>>()
 
 export async function getDB(): Promise<IDBPDatabase<CrowbarDB>> {
   const factory = globalThis.indexedDB
+  if (!factory) throw new Error('IndexedDB is unavailable')
   const held = connections.get(factory)
   if (held) return held
   const opening: Promise<IDBPDatabase<CrowbarDB>> = openDatabase(() => {
