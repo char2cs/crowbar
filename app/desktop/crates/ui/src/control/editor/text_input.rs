@@ -66,7 +66,7 @@ impl TextInput {
         Self {
             buffer: Buffer::default(),
             placeholder: placeholder.into(),
-            focus_handle: cx.focus_handle(),
+            focus_handle: cx.focus_handle().tab_stop(true),
             layout: None,
             bounds: None,
             selecting: false,
@@ -223,5 +223,17 @@ mod tests {
         let seen = record_changes(&input, cx);
         cx.simulate_input("ab");
         assert_eq!(seen.borrow().last().map(String::as_str), Some("ab"));
+    }
+
+    #[gpui::test]
+    fn tab_reaches_the_field_as_it_reaches_an_input_in_the_browser(cx: &mut TestAppContext) {
+        let (input, cx) = field(cx);
+        cx.update(gpui::Window::blur);
+        cx.run_until_parked();
+        let focused = cx.update(|window, cx| {
+            window.focus_next(cx);
+            input.read(cx).focus_handle.is_focused(window)
+        });
+        assert!(focused);
     }
 }

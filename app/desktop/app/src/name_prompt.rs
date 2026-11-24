@@ -2,7 +2,9 @@ use gpui::{
     AppContext as _, Context, Entity, EventEmitter, IntoElement, ParentElement, Render, Styled,
     Window, div,
 };
-use ui::{Button, ButtonVariant, Dialog, DialogSize, Surface, TextInput, TextInputEvent};
+use ui::{
+    Button, ButtonVariant, Dialog, DialogSize, DialogStyle, Surface, TextInput, TextInputEvent,
+};
 
 use crate::name_event::NameEvent;
 use crate::prefill::Prefill;
@@ -107,15 +109,15 @@ impl Render for NamePrompt {
         cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
         let cancel = Button::new(self.words.cancel_id, "Cancel")
-            .variant(ButtonVariant::Ghost)
+            .variant(ButtonVariant::Outline)
             .on_click(cx.listener(|_, _, _, cx| Self::dismiss(cx)));
         let rename = Button::new(self.words.confirm_id, self.words.confirm)
-            .variant(ButtonVariant::Secondary)
             .on_click(cx.listener(|this, _, _, cx| this.confirm(cx)));
         let prompt = cx.entity();
         Dialog::new(self.words.dialog)
             .title(self.words.title)
-            .size(DialogSize::Sm)
+            .style(DialogStyle::Plain)
+            .size(DialogSize::Base)
             .body(self.body(cx))
             .footer(
                 div()
@@ -195,5 +197,17 @@ mod tests {
             let typed = window.read(|cx| prompt.read(cx).field.read(cx).text().to_owned());
             assert_eq!(typed, expected, "{}", words.title);
         }
+    }
+
+    #[gpui::test]
+    fn the_prompt_is_develops_plain_dialog_at_its_full_width(cx: &mut TestAppContext) {
+        cx.update(|cx| cx.set_global(ui::Theme::default()));
+        let (_, window) =
+            cx.add_window_view(|window, cx| NamePrompt::new(("Terminal", RENAME), window, cx));
+        window.run_until_parked();
+        let shown = window
+            .debug_bounds("ui-dialog")
+            .map(|bounds| bounds.size.width);
+        assert_eq!(shown, Some(gpui::px(512.0)), "max-w-lg");
     }
 }
