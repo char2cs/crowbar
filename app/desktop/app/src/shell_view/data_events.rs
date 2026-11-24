@@ -51,6 +51,12 @@ impl ShellView {
         self.source.native().editors().data_changed(cx);
         self.update_landing(cx);
         self.follow_backend(cx);
+        let left = self.data.take_departed_projects();
+        let closing = self.state.closing_spaces(&left);
+        if !closing.is_empty() {
+            self.apply_guarded(closing, cx);
+        }
+        self.state.adopt_unowned();
         self.show_active_space(cx);
         if let Some(dialog) = &self.branch_import {
             dialog.update(cx, |_, cx| cx.notify());

@@ -189,6 +189,15 @@ pub enum Command {
         /// Steps from the root to the split.
         path: Vec<Branch>,
     },
+    /// Gives a tab stored before spaces were recorded the space it belongs to, once; when its
+    /// empty space showed it, `space` shows it unless it already shows a tab. Never an undo
+    /// step, and the undo history learns the tab's space too.
+    AdoptSpace {
+        /// A tab with no space yet.
+        tab: TabId,
+        /// The space it belongs to.
+        space: SpaceId,
+    },
     /// Replaces a pane's persisted state. Never an undo step, however often it is sent.
     SetPaneState {
         /// The pane to update.
@@ -221,6 +230,7 @@ impl Command {
                 | Self::ResetSplit { .. }
                 | Self::SetPaneState { .. }
                 | Self::SetPaneParams { .. }
+                | Self::AdoptSpace { .. }
         )
     }
 }

@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use crate::branch::Branch;
 use crate::error::{Error, Result};
 use crate::layout::{Layout, MAX_TABS};
@@ -39,6 +41,31 @@ pub(crate) fn activate(
     layout.index_of(id)?;
     layout.show(id);
     Ok(())
+}
+
+pub(crate) fn adopt(
+    layout: &mut Layout,
+    id: TabId,
+    space: SpaceId,
+) -> Result<()> {
+    let tab = layout.tab_mut(id)?;
+    if !tab.space.is_unowned() {
+        return Err(Error::Owned(id));
+    }
+    tab.space = space.clone();
+    adopt_shown(&mut layout.shown, (id, space));
+    Ok(())
+}
+
+pub(crate) fn adopt_shown(
+    shown: &mut BTreeMap<SpaceId, TabId>,
+    (id, space): (TabId, SpaceId),
+) {
+    if shown.get("") != Some(&id) {
+        return;
+    }
+    shown.remove("");
+    shown.entry(space).or_insert(id);
 }
 
 pub(crate) fn move_to(

@@ -30,6 +30,18 @@ impl Arrangement {
             .collect()
     }
 
+    pub(crate) fn adopt(
+        &mut self,
+        (id, space): (TabId, &SpaceId),
+    ) {
+        let unowned = |tab: &&mut TabShape| tab.id == id && tab.space.is_unowned();
+        let Some(tab) = self.tabs.iter_mut().find(unowned) else {
+            return;
+        };
+        tab.space = space.clone();
+        crate::tab_commands::adopt_shown(&mut self.shown, (id, space.clone()));
+    }
+
     fn of(
         &self,
         space: &SpaceId,

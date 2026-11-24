@@ -21,6 +21,7 @@ use crate::terminal_ids::TerminalIds;
 use crate::titles::Titles;
 
 mod accessors;
+mod adopting;
 mod agent_call;
 mod agent_ops;
 mod agent_page;

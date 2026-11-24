@@ -87,6 +87,18 @@ impl Store {
         })
     }
 
+    /// The projects the daemon deleted since the last call, each named once, so the shell
+    /// closes the views of those spaces.
+    pub fn take_departed_projects(&self) -> Vec<String> {
+        self.hub.quietly(|state| {
+            state
+                .hosts
+                .iter_mut()
+                .flat_map(|slot| slot.store.take_departed_projects())
+                .collect()
+        })
+    }
+
     /// The id of the host `chat` runs on; `None` when it is not loaded.
     pub fn chat_host(
         &self,

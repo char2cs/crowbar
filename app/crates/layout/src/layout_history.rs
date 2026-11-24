@@ -7,6 +7,7 @@ use crate::layout::Layout;
 use crate::pane_instance::PaneInstance;
 use crate::undo_step::UndoStep;
 
+mod adopt;
 mod withdraw;
 
 /// Most undo steps kept; the oldest is forgotten first.
@@ -70,7 +71,14 @@ impl LayoutHistory {
         command: Command,
     ) -> Result<()> {
         let before = command.is_structural().then(|| self.current.arrangement());
+        let adopted = match &command {
+            Command::AdoptSpace { tab, space } => Some((*tab, space.clone())),
+            _ => None,
+        };
         let removed = self.current.execute(command)?;
+        if let Some((tab, space)) = adopted {
+            self.carry_adoption((tab, &space));
+        }
         if let Some(before) = before {
             self.record(before, removed);
         }

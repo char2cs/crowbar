@@ -42,6 +42,9 @@ impl Layout {
             marking @ (Command::PreviewPane { .. } | Command::KeepPane { .. }) => {
                 preview_commands::execute(self, marking).map(none_removed)
             },
+            Command::AdoptSpace { tab, space } => {
+                tab_commands::adopt(self, tab, space).map(none_removed)
+            },
             Command::SetEditorView { pane, view } => {
                 view_commands::set_editor_view(self, &pane, view).map(none_removed)
             },

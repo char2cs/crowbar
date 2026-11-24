@@ -55,6 +55,7 @@ pub(crate) struct Entities {
     snapshot_rows: Vec<Frame>,
     synced: bool,
     departed: Vec<String>,
+    departed_projects: Vec<String>,
 }
 
 impl Entities {
@@ -170,7 +171,7 @@ impl Entities {
         id: &str,
     ) {
         match kind {
-            PROJECT => self.projects.remove(id),
+            PROJECT => self.forget_project(id),
             REPO => self.repos.remove(id),
             WORKSPACE => self.workspaces.remove(id),
             CHAT => self.forget_chat(id),
@@ -202,7 +203,7 @@ impl Entities {
     ) {
         let held = |kind: &str, id: &str| fresh.contains(&format!("{kind}:{id}"));
         let unreadable = |owner: &str| unread.iter().any(|name| name == owner);
-        self.projects.retain(|id, _| held(PROJECT, id));
+        self.prune_projects(|id| held(PROJECT, id));
         self.repos.retain(|id, _| held(REPO, id));
         self.operations.retain(|id, _| held(OPERATION, id));
         self.presence.retain(|id, _| held(PRESENCE, id));
