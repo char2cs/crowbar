@@ -80,6 +80,7 @@ x11rb::atom_manager! {
         _NET_WM_WINDOW_TYPE,
         _NET_WM_WINDOW_TYPE_NOTIFICATION,
         _NET_WM_WINDOW_TYPE_DIALOG,
+        _NET_WM_WINDOW_TYPE_NORMAL,
         _NET_WM_STATE_MODAL,
         _NET_WM_SYNC,
         _NET_SUPPORTED,
@@ -620,6 +621,19 @@ impl X11WindowState {
                         atoms._NET_WM_NAME,
                         atoms.UTF8_STRING,
                         title.as_bytes(),
+                    ),
+                )?;
+            }
+
+            if params.kind == WindowKind::Normal {
+                check_reply(
+                    || "X11 ChangeProperty32 setting window type for normal window failed.",
+                    xcb.change_property32(
+                        xproto::PropMode::REPLACE,
+                        x_window,
+                        atoms._NET_WM_WINDOW_TYPE,
+                        xproto::AtomEnum::ATOM,
+                        &[atoms._NET_WM_WINDOW_TYPE_NORMAL],
                     ),
                 )?;
             }
@@ -1962,7 +1976,12 @@ impl PlatformWindow for X11Window {
         let mut data = Vec::with_capacity(app_id.len() * 2 + 2);
         data.extend(app_id.bytes()); // instance https://unix.stackexchange.com/a/494170
         data.push(b'\0');
-        data.extend(app_id.bytes()); // class
+        // The class is the instance capitalized, as GTK names a program's class.
+        let mut chars = app_id.chars();
+        if let Some(first) = chars.next() {
+            data.extend(first.to_uppercase().to_string().bytes());
+            data.extend(chars.as_str().bytes());
+        }
         data.push(b'\0');
 
         check_reply(

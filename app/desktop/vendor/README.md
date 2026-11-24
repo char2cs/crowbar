@@ -90,6 +90,10 @@ Drop it with `overlay-window`.
 
 Drop it when upstream gpui forwards XDND to child windows, or when the shell no longer embeds web views as child windows.
 
+`gtk-identity` (`gpui-pre-linux`, `src/linux/x11/window.rs`), applied on top of `xdnd-relay`: a window names itself to the window manager as GTK names the Tauri build's window. `set_app_id` writes `WM_CLASS` as the app id and the app id capitalized (`crowbar-desktop`, `Crowbar-desktop`), and a normal window declares `_NET_WM_WINDOW_TYPE_NORMAL`. Upstream writes the app id twice and declares no type, so a desktop file's `StartupWMClass` and WM rules written for the class did not match.
+
+Drop it when upstream gpui names its windows as GTK does.
+
 ## calloop 0.14.5
 
 `tracing-without-log` (`Cargo.toml`): calloop, reached through `gpui-pre-linux`, asks for tracing's `log` feature, and cargo turns a feature on for every crate that uses tracing. With `log` on, each `tracing` macro also expands to its `log` fallback, which quadruples `clippy::cognitive_complexity` in every function that logs. Nothing in the shell reads `log` records (no `log` logger or bridge is installed), so calloop loses only output nobody received.
