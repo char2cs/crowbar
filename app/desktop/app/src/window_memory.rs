@@ -7,6 +7,8 @@ use gpui::{
 use windowstate::{DEFAULT_SIZE, Placement, Rect, WindowState, WindowStore};
 
 pub(crate) const WINDOW_TITLE: &str = "Crowbar";
+// SPEC: https://github.com/char2cs/crowbar/blob/develop/desktop/src-tauri/Cargo.toml
+pub(crate) const APP_ID: &str = "crowbar-desktop";
 
 pub(crate) struct WindowMemory {
     store: WindowStore,
@@ -32,6 +34,7 @@ impl WindowMemory {
         WindowOptions {
             window_bounds: Some(window_bounds(&placement)),
             titlebar: Some(titlebar()),
+            app_id: Some(APP_ID.to_owned()),
             ..WindowOptions::default()
         }
     }
@@ -169,5 +172,14 @@ mod tests {
         let memory = WindowMemory::new(Path::new("/nonexistent/crowbar/window.json"));
         let least = cx.update(|cx| memory.options(cx).window_min_size);
         assert_eq!(least, None, "develop's window declares no minimum size");
+    }
+
+    #[gpui::test]
+    fn the_window_is_classed_as_develops_binary_for_the_desktop_file(
+        cx: &mut gpui::TestAppContext
+    ) {
+        let memory = WindowMemory::new(Path::new("/nonexistent/crowbar/window.json"));
+        let app_id = cx.update(|cx| memory.options(cx).app_id);
+        assert_eq!(app_id.as_deref(), Some("crowbar-desktop"));
     }
 }

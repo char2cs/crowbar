@@ -53,6 +53,7 @@ mod hosts;
 mod hover_tracker;
 mod installed_fonts;
 mod landing;
+mod last_window;
 mod launched;
 mod layout_files;
 mod layout_store;
@@ -142,7 +143,6 @@ mod transport_book;
 mod unsaved_dialog;
 mod view_life;
 mod window_memory;
-mod window_title;
 mod window_vibrancy;
 mod workspace;
 mod workspace_event;
@@ -201,10 +201,13 @@ fn start(
     cx.bind_keys(settingsview::bindings());
     window_vibrancy::install(window_vibrancy::of_platform(), cx);
     app_menu::install(cx);
+    last_window::quit_with_last_window(cx, |cx| cx.quit());
     let memory = WindowMemory::new(&options.state_dir().join("window.json"));
     let window_options = memory.options(cx);
     let mut top_layer = None;
     let opened = cx.open_window(window_options, |window, cx| {
+        // PLATFORM: linux X11 windows take WM_CLASS only from set_app_id; wayland reads the options.
+        window.set_app_id(window_memory::APP_ID);
         top_layer = Some(ui::TopLayer::open(window, cx));
         let view = cx.new(|cx| ShellView::new(parts, window, cx));
         remember_close(&memory, window, cx, &view);

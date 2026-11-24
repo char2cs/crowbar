@@ -92,7 +92,6 @@ pub(crate) struct ShellView {
     name_prompt: Option<(protocol::PaneId, Entity<crate::name_prompt::NamePrompt>)>,
     pairing: Option<Entity<pairing::View>>,
     first_run: Option<(crate::landing::Landing, Entity<oobe::View>)>,
-    window_title: String,
     question: Option<gpui::AnyView>,
     pending_close: Option<crate::pending_close::PendingClose>,
     source: Rc<ShellPaneSource>,
@@ -153,7 +152,6 @@ impl ShellView {
             pairing: None,
             first_run: None,
             question: None,
-            window_title: crate::window_memory::WINDOW_TITLE.to_owned(),
             pending_close: None,
             focus,
             keymap: Keymap::defaults(),
@@ -295,18 +293,6 @@ impl ShellView {
         cx.notify();
     }
 
-    fn follow_window_title(
-        &mut self,
-        window: &mut Window,
-    ) {
-        let title = crate::window_title::window_title(self.state.layout(), &self.state.titles());
-        if title == self.window_title {
-            return;
-        }
-        window.set_window_title(&title);
-        self.window_title = title;
-    }
-
     fn sync(
         &mut self,
         cx: &mut Context<'_, Self>,
@@ -333,10 +319,9 @@ fn layer<V: Render>(view: Option<&Entity<V>>) -> Option<Div> {
 impl Render for ShellView {
     fn render(
         &mut self,
-        window: &mut Window,
+        _: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
-        self.follow_window_title(window);
         let palette = Theme::of(cx).palette(Surface::Window);
         self.readout.paint();
         div()
