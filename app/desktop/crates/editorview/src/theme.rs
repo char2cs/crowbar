@@ -24,6 +24,15 @@ pub(crate) fn ink(cx: &App) -> Hsla {
         .unwrap_or(theme.foreground)
 }
 
+pub(crate) fn ground(cx: &App) -> Hsla {
+    let theme = KitTheme::global(cx);
+    theme
+        .highlight_theme
+        .style
+        .editor_background
+        .unwrap_or(theme.background)
+}
+
 fn install(cx: &mut App) {
     if !cx.has_global::<Theme>() {
         return;
@@ -123,6 +132,19 @@ mod tests {
                 (dark, dark),
                 "{mode:?}"
             );
+        }
+    }
+
+    #[gpui::test]
+    fn the_editor_s_ground_is_the_shell_s_pane_background_in_either_mode(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            Theme::default().install(cx);
+            crate::init(cx);
+        });
+        for mode in [ThemeMode::Dark, ThemeMode::Light] {
+            cx.update(|cx| Theme::default().with_mode(mode).install(cx));
+            let pane = cx.read(|cx| Theme::of(cx).palette(Surface::Window).pane_background());
+            assert_eq!(cx.read(ground), pane, "{mode:?}");
         }
     }
 }

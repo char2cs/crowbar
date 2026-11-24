@@ -11,7 +11,7 @@ use crate::find_widget::FindWidget;
 use crate::goto_line::GotoLine;
 use crate::occurrence_session::OccurrenceSession;
 use crate::save_key::{CONTEXT, Save};
-use crate::theme::ink;
+use crate::theme::{ground, ink};
 use crate::toolbar::Toolbar;
 use crate::{Access, Caret, EditorEvent, Opening, SaveMark, Settings};
 
@@ -229,6 +229,7 @@ impl Render for EditorView {
             .line_height(settings.row_height());
         let root = div()
             .size_full()
+            .bg(ground(cx))
             .flex()
             .flex_col()
             .key_context(CONTEXT)
