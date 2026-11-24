@@ -1,4 +1,4 @@
-use layout::{Command, Layout, PaneInstance, Placement, Tab, TabId};
+use layout::{Command, Layout, PaneInstance, Placement, SpaceId, Tab, TabId};
 use protocol::{PaneId, PaneState, PaneTypeId, Params};
 
 use crate::error::Result;
@@ -6,6 +6,7 @@ use crate::serials::Serials;
 
 pub(crate) fn open_commands(
     layout: &Layout,
+    space: &str,
     pane: (PaneTypeId, Params),
     serials: &Serials,
 ) -> Result<Vec<Command>> {
@@ -19,14 +20,15 @@ pub(crate) fn open_commands(
         params,
         state: PaneState::default(),
     };
-    let Some(tab) = layout.showing("") else {
-        return Ok(open_in_new_tab(serials.next_tab(), instance));
+    let Some(tab) = layout.showing(space) else {
+        return Ok(open_in_new_tab((serials.next_tab(), space), instance));
     };
     Ok(vec![open_pane(tab.id(), instance)])
 }
 
 pub(crate) fn open_view_commands(
     layout: &Layout,
+    space: &str,
     pane: (PaneTypeId, Params),
     serials: &Serials,
 ) -> Result<Vec<Command>> {
@@ -40,7 +42,7 @@ pub(crate) fn open_view_commands(
         params,
         state: PaneState::default(),
     };
-    Ok(open_in_new_tab(serials.next_tab(), instance))
+    Ok(open_in_new_tab((serials.next_tab(), space), instance))
 }
 
 pub(crate) fn open_at(
@@ -81,13 +83,13 @@ fn open_pane(
 }
 
 fn open_in_new_tab(
-    id: TabId,
+    (id, space): (TabId, &str),
     instance: PaneInstance,
 ) -> Vec<Command> {
     let add = Command::AddTab {
         id,
         title: String::new(),
-        space: layout::SpaceId::default(),
+        space: SpaceId::new(space),
     };
     vec![add, open_pane(id, instance)]
 }
@@ -132,7 +134,7 @@ mod tests {
         let mut layout = Layout::default();
         let serials = Serials::above(&layout);
         for name in threads {
-            let commands = open_commands(&layout, (chat(), thread(name)), &serials).unwrap();
+            let commands = open_commands(&layout, "", (chat(), thread(name)), &serials).unwrap();
             apply(&mut layout, commands);
         }
         layout

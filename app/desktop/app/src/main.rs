@@ -1,5 +1,6 @@
 //! The Crowbar desktop shell: a GPUI window whose content area hosts panes as web views.
 
+mod active_space;
 mod adapters;
 mod agent_requests;
 mod app_menu;
@@ -250,7 +251,9 @@ fn main() -> anyhow::Result<()> {
     let (caret, caret_changes) = caret_follower::channel();
     let host = build_host(&options, (link.transport(), caret), Path::is_file)?;
     let store = LayoutStore::on_disk(options.state_dir().join("layout.json"));
-    let state = ShellState::new(host, store)?;
+    let (requests, queue) = async_channel::unbounded();
+    let (data, data_queued) = data_signal::start_data(&link, &requests);
+    let state = ShellState::new(host, store, active_space::of_store(&data))?;
     let preferences_path = options.state_dir().join("sidebar.json");
     let shutdown = Rc::clone(&link);
     let parts = ShellParts {
@@ -258,6 +261,10 @@ fn main() -> anyhow::Result<()> {
         link,
         ports: system_ports(preferences_path.clone()),
         preferences_path,
+        data,
+        data_queued,
+        requests,
+        queue,
     };
     gpui_platform::application()
         .with_assets(ui::assets())

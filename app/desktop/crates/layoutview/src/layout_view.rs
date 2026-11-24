@@ -2,7 +2,7 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use gpui::{App, Bounds, Context, EventEmitter, Pixels};
-use layout::{Rect, Tab};
+use layout::{Rect, Tab, TabId};
 use protocol::PaneId;
 use ui::Motion;
 
@@ -70,7 +70,7 @@ impl LayoutView {
         }
     }
 
-    /// Shows `tab`, the model's active tab, or nothing when no tab is open.
+    /// Shows `tab`, the tab the active space shows, or the stage when it is `None`.
     pub fn set_tab(
         &mut self,
         tab: Option<Tab>,
@@ -82,6 +82,12 @@ impl LayoutView {
         self.handles.retain(&panes);
         self.sync_fades(cx);
         cx.notify();
+    }
+
+    /// The id of the tab it shows, or `None` while it shows the stage.
+    #[must_use]
+    pub fn shown_tab(&self) -> Option<TabId> {
+        self.tab.as_ref().map(Tab::id)
     }
 
     /// Tells the view what surrounds it so the outer panes get the right borders.

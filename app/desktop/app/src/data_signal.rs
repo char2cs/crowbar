@@ -1,8 +1,10 @@
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use store::{ChangeSignal, Outcome, OutcomeSink};
 
+use crate::daemon_link::DaemonLink;
 use crate::shell_request::ShellRequest;
 
 pub(crate) fn callbacks(
@@ -35,6 +37,21 @@ fn pass_outcome(
     if outcomes.try_send(ShellRequest::Outcome(outcome)).is_err() {
         tracing::debug!("the shell is closing; a command result goes unseen");
     }
+}
+
+pub(crate) fn start_data(
+    link: &DaemonLink,
+    requests: &async_channel::Sender<ShellRequest>,
+) -> (Rc<store::Store>, Arc<AtomicBool>) {
+    let queued = Arc::new(AtomicBool::new(false));
+    let (signal, outcome) = callbacks(requests, &queued);
+    let wiring = store::Ports {
+        desk: link.desk(),
+        signal,
+        outcome,
+    };
+    let data = store::Store::start(&link.handle(), &link.transport(), link.hosts(), wiring);
+    (Rc::new(data), queued)
 }
 
 #[cfg(test)]

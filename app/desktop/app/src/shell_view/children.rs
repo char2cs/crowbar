@@ -1,6 +1,5 @@
 use std::rc::Rc;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 
 use gpui::{AppContext as _, Context, Entity};
 use layoutview::LayoutView;
@@ -23,21 +22,6 @@ use crate::sidebar_requests::SidebarRequests;
 use crate::startup_requests::StartupRequests;
 use crate::terminal_panes::TerminalPanes;
 use crate::workspace::Workspace;
-
-pub(super) fn start_data(
-    link: &DaemonLink,
-    requests: &async_channel::Sender<ShellRequest>,
-) -> (Rc<store::Store>, Arc<AtomicBool>) {
-    let queued = Arc::new(AtomicBool::new(false));
-    let (signal, outcome) = crate::data_signal::callbacks(requests, &queued);
-    let wiring = store::Ports {
-        desk: link.desk(),
-        signal,
-        outcome,
-    };
-    let data = store::Store::start(&link.handle(), &link.transport(), link.hosts(), wiring);
-    (Rc::new(data), queued)
-}
 
 fn terminal_sessions(link: &DaemonLink) -> TerminalSessions {
     let (transport, host) = (link.transport(), link.local_host());
@@ -160,7 +144,7 @@ pub(super) fn build_children<V: 'static>(
     cx: &mut Context<'_, V>,
 ) -> Built {
     let link = &*parts.link;
-    let (data, data_queued) = start_data(link, requests);
+    let data = Rc::clone(&parts.data);
     let drafts = parts
         .preferences_path
         .with_file_name(crate::editor_panes::DRAFTS_FILE);
@@ -187,7 +171,7 @@ pub(super) fn build_children<V: 'static>(
     let notices = sidebar.read(cx).toast_queue();
     Built {
         data,
-        data_queued,
+        data_queued: Arc::clone(&parts.data_queued),
         layout: panes.layout,
         tabs: panes.tabs,
         workspace: panes.workspace,

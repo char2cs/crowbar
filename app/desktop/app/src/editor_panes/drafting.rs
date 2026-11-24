@@ -177,7 +177,7 @@ mod tests {
         cx.update(editorview::init);
         let pane = PaneId::new(PANE).unwrap();
         let saved = |panes: &EditorPanes| panes.discard_draft(&pane);
-        let closed = |panes: &EditorPanes| panes.follow(&layout::Layout::default());
+        let closed = |panes: &EditorPanes| panes.follow(&layout::Layout::default(), "");
         let ends: [(&str, &Ending<'_>); 2] = [("saved", &saved), ("closed", &closed)];
         for (end, close) in ends {
             let documents = Rc::new(FakeDocuments::default());
@@ -205,7 +205,7 @@ mod tests {
         documents.holding(PATH, TEXT);
         drop(typed_and_kept(&documents, cx));
         let (panes, _heard) = panes_over(&documents);
-        panes.follow(&layout_in("c2", json!({"path": PATH})));
+        panes.follow(&layout_in("c2", json!({"path": PATH})), "");
         assert!(kept(&documents), "its tab's workspace is not known yet");
         documents.loading("c2");
         cx.update(|cx| panes.data_changed(cx));
@@ -215,7 +215,7 @@ mod tests {
             "a tab of another chat on its workspace holds it"
         );
         let (panes, _heard) = panes_over(&documents);
-        panes.follow(&layout::Layout::default());
+        panes.follow(&layout::Layout::default(), "");
         assert!(!kept(&documents), "no tab holds it");
     }
 
@@ -246,11 +246,11 @@ mod tests {
         documents.holding(PATH, TEXT);
         let panes = typed_and_kept(&documents, cx);
         assert!(kept(&documents), "typed");
-        panes.follow(&two_panes_on(PATH));
+        panes.follow(&two_panes_on(PATH), "");
         assert!(kept(&documents), "a second pane opens on it");
-        panes.follow(&layout_in("c1", json!({"path": PATH})));
+        panes.follow(&layout_in("c1", json!({"path": PATH})), "");
         assert!(kept(&documents), "the other pane still shows the file");
-        panes.follow(&layout::Layout::default());
+        panes.follow(&layout::Layout::default(), "");
         assert!(!kept(&documents), "no pane shows it");
     }
 
@@ -264,7 +264,7 @@ mod tests {
         drop(typed_and_kept(&documents, cx));
         documents.refusing(PATH, 404);
         let (panes, heard) = panes_over(&documents);
-        panes.follow(&layout_in("c1", json!({"path": PATH})));
+        panes.follow(&layout_in("c1", json!({"path": PATH})), "");
         assert_eq!(landed(&panes, &heard), Landing::Shown, "the draft opens");
         let (view, window) = shown_in(&panes, cx);
         assert_eq!(window.read(|cx| view.read(cx).text(cx)), format!("x{TEXT}"));

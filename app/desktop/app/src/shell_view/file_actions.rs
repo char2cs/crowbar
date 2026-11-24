@@ -124,7 +124,7 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) {
         let id = format!("t{}", self.state.serials().next_pane());
-        let chat = focused_chat(self.state.layout());
+        let chat = focused_chat(self.state.layout(), &self.state.space());
         let folder = terminal_folder(directory);
         self.open_spec(PaneSpec::terminal(&id, chat.as_deref(), folder), cx);
     }

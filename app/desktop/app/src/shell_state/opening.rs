@@ -28,7 +28,12 @@ impl ShellState {
         view: (PaneTypeId, Params),
         apply: fn(&mut Self, Vec<layout::Command>),
     ) {
-        match open_view_commands(self.history.layout(), view, &self.serials) {
+        match open_view_commands(
+            self.history.layout(),
+            &self.space.active(),
+            view,
+            &self.serials,
+        ) {
             Ok(commands) => apply(self, commands),
             Err(error) => tracing::warn!(%error, "could not open the view"),
         }
@@ -52,7 +57,7 @@ impl ShellState {
         &mut self,
         spec: PaneSpec,
     ) {
-        match spec.open_commands(self.history.layout(), &self.serials) {
+        match spec.open_commands((self.history.layout(), &self.space.active()), &self.serials) {
             Ok(commands) => self.apply(keeping(self.history.layout(), commands)),
             Err(error) => tracing::warn!(%error, "could not open the pane"),
         }
@@ -118,7 +123,7 @@ mod tests {
             2,
             "t1 revealed, not copied"
         );
-        let active = rig.shell.layout().showing("").map(layout::Tab::id);
+        let active = rig.shell.showing().map(layout::Tab::id);
         assert_eq!(active, Some(rig.shell.layout().tabs()[0].id()));
     }
 

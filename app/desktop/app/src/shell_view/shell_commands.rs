@@ -108,7 +108,7 @@ impl ShellView {
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
-        if crate::group_focus::editor_focused(self.state.layout()) {
+        if crate::group_focus::editor_focused(self.state.layout(), &self.state.space()) {
             return self.new_tab(cx);
         }
         self.start_chat(sidebar::Command::NewChat);
@@ -140,7 +140,7 @@ impl ShellView {
         direction: Direction,
         cx: &mut Context<'_, Self>,
     ) {
-        let Some(tab) = self.state.layout().showing("") else {
+        let Some(tab) = self.state.showing() else {
             return;
         };
         let Some(from) = tab.focused() else {
@@ -168,8 +168,7 @@ impl ShellView {
     ) {
         let target = self
             .state
-            .layout()
-            .showing("")
+            .showing()
             .and_then(crate::group_focus::close_target);
         if let Some(pane) = target {
             self.apply_guarded(vec![Command::ClosePane { pane }], cx);

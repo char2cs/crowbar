@@ -65,7 +65,7 @@ mod tests {
     fn a_review_that_has_not_mounted_keeps_the_reveal_for_its_mount() {
         let mut rig = shell_rig();
         rig.shell.open_spec(PaneSpec::review("c1", None).unwrap());
-        let pane = rig.shell.layout().showing("").unwrap().pane_ids()[0].clone();
+        let pane = rig.shell.showing().unwrap().pane_ids()[0].clone();
         rig.shell.reveal_in_review(&pane, "src/a.ts");
         let saved = rig
             .shell

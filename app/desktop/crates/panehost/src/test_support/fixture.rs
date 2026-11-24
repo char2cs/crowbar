@@ -67,7 +67,13 @@ impl Fixture {
     ) -> Vec<HostEvent> {
         self.layout = layout_of(panes, None);
         let visible = visible.iter().map(|id| visible_pane(id)).collect();
-        let snapshot = LayoutSnapshot::from_layout(&self.layout, WINDOW, visible).with_kinds(kinds);
+        let focus = self
+            .layout
+            .showing("")
+            .and_then(|tab| tab.focused().cloned());
+        let snapshot = LayoutSnapshot::from_layout(&self.layout, WINDOW, visible)
+            .with_focus(focus)
+            .with_kinds(kinds);
         synced(&mut self.host, &snapshot)
     }
 

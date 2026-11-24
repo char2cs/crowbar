@@ -67,11 +67,7 @@ impl ShellView {
             return;
         };
         let (chrome, _) = self.chrome(cx);
-        let visible = visible_panes(
-            self.state.layout().showing(""),
-            area,
-            (chrome, self.source.as_ref()),
-        );
+        let visible = visible_panes(self.state.showing(), area, (chrome, self.source.as_ref()));
         let Some(origin) = visible.iter().find(|shown| shown.pane == pane) else {
             return;
         };

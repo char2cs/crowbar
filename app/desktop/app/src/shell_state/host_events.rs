@@ -19,7 +19,9 @@ impl ShellState {
         parent: ParentWindow,
         (visible, kinds): (Vec<VisiblePane>, &dyn PaneKinds),
     ) -> Outcome {
+        let focus = self.showing().and_then(layout::Tab::focused).cloned();
         let snapshot = LayoutSnapshot::from_layout(self.history.layout(), parent, visible)
+            .with_focus(focus)
             .with_keyboard(self.keyboard)
             .with_kinds(kinds);
         let report = self.host.sync(&snapshot);

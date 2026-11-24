@@ -19,13 +19,10 @@ impl TabScope {
 
     pub(crate) fn lists(
         self,
-        active: Option<&str>,
-        projects: &[String],
+        active: &str,
+        space: &str,
     ) -> bool {
-        let Some(active) = active.filter(|_| self == Self::Project) else {
-            return true;
-        };
-        projects.is_empty() || projects.iter().any(|project| project == active)
+        self == Self::All || active.is_empty() || space.is_empty() || space == active
     }
 }
 
@@ -33,30 +30,23 @@ impl TabScope {
 mod tests {
     use super::*;
 
-    type Case = (
-        TabScope,
-        Option<&'static str>,
-        &'static [&'static str],
-        bool,
-    );
+    type Case = (TabScope, &'static str, &'static str, bool);
 
     const CASES: &[Case] = &[
-        (TabScope::Project, Some("p1"), &["p1"], true),
-        (TabScope::Project, Some("p1"), &["p2"], false),
-        (TabScope::Project, Some("p1"), &["p2", "p1"], true),
-        (TabScope::Project, Some("p1"), &[], true),
-        (TabScope::Project, None, &["p2"], true),
-        (TabScope::All, Some("p1"), &["p2"], true),
+        (TabScope::Project, "p1", "p1", true),
+        (TabScope::Project, "p1", "p2", false),
+        (TabScope::Project, "p1", "", true),
+        (TabScope::Project, "", "p2", true),
+        (TabScope::All, "p1", "p2", true),
     ];
 
     #[test]
     fn the_project_scope_lists_its_own_and_unowned_tabs_and_the_all_scope_lists_everything() {
-        for (scope, active, projects, listed) in CASES {
-            let owned: Vec<String> = projects.iter().map(|p| (*p).to_owned()).collect();
+        for (scope, active, space, listed) in CASES {
             assert_eq!(
-                scope.lists(*active, &owned),
+                scope.lists(active, space),
                 *listed,
-                "{scope:?} {active:?} {projects:?}"
+                "{scope:?} {active:?} {space:?}"
             );
         }
     }

@@ -184,8 +184,7 @@ mod tests {
     fn opened_file(opened: &mut Opened) -> PaneId {
         opened.shell.update(&mut opened.window, |shell, cx| {
             shell.open_workspace_file(PATH, cx);
-            let layout = shell.state.layout();
-            let focused = layout.showing("").and_then(layout::Tab::focused);
+            let focused = shell.state.showing().and_then(layout::Tab::focused);
             focused.cloned().expect("the file pane has focus")
         })
     }
@@ -260,7 +259,7 @@ mod tests {
             spec.state = protocol::PaneState::new(serde_json::json!({"path": README}))
                 .expect("a restored file's state");
             shell.open_spec(Ok(spec), cx);
-            let focused = shell.state.layout().showing("").and_then(layout::Tab::focused);
+            let focused = shell.state.showing().and_then(layout::Tab::focused);
             focused.cloned().expect("the file pane has focus")
         })
     }

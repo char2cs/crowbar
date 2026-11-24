@@ -129,9 +129,10 @@ mod tests {
         documents.holding(PATH, TEXT);
         drop(typed_and_kept(&documents, cx));
         let (panes, heard) = super::super::tests::panes_over(&documents);
-        panes.follow(&super::super::tests::layout_with(
-            serde_json::json!({"path": PATH}),
-        ));
+        panes.follow(
+            &super::super::tests::layout_with(serde_json::json!({"path": PATH})),
+            "",
+        );
         super::super::tests::landed(&panes, &heard);
         let dirty = ShellRequest::Document(DocumentRequest::Dirty {
             pane: PaneId::new(PANE).unwrap(),

@@ -1,5 +1,5 @@
 use gpui::{Context, Window};
-use layout::{Command, Layout, TabId};
+use layout::{Command, Layout, SpaceId, Tab, TabId};
 use protocol::PaneId;
 
 use super::ShellView;
@@ -15,7 +15,8 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) {
         let id = self.state.serials().next_tab();
-        self.state.apply(stage_view(self.state.layout(), id));
+        self.state
+            .apply(stage_view((self.state.layout(), &self.state.space()), id));
         self.open_page(cx);
     }
 
@@ -33,12 +34,12 @@ impl ShellView {
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
-        if let Some(pane) = page_in_group(self.state.layout()) {
+        if let Some(pane) = self.state.showing().and_then(page_in_group) {
             self.state.apply(vec![Command::FocusPane { pane }]);
             self.refresh(cx);
             return;
         }
-        let chat = focused_chat(self.state.layout());
+        let chat = focused_chat(self.state.layout(), &self.state.space());
         let page = page_name(&self.state.serials().next_pane());
         self.open_spec(PaneSpec::new_tab(&page, chat.as_deref()), cx);
     }
@@ -62,21 +63,20 @@ impl ShellView {
 }
 
 fn stage_view(
-    layout: &Layout,
+    (layout, space): (&Layout, &str),
     id: TabId,
 ) -> Vec<Command> {
-    if layout.showing("").is_some() {
+    if layout.showing(space).is_some() {
         return Vec::new();
     }
     vec![Command::AddTab {
         id,
         title: String::new(),
-        space: layout::SpaceId::default(),
+        space: SpaceId::new(space),
     }]
 }
 
-fn page_in_group(layout: &Layout) -> Option<PaneId> {
-    let tab = layout.showing("")?;
+fn page_in_group(tab: &Tab) -> Option<PaneId> {
     let group = focused_group(tab)?;
     let is_page = |pane: &&PaneId| {
         tab.pane(pane)
@@ -128,19 +128,19 @@ mod tests {
     fn a_new_tab_page_opens_inside_the_showing_view_and_needs_a_view_only_on_the_stage() {
         let mut layout = Layout::default();
         assert_eq!(
-            stage_view(&layout, TabId(1)),
+            stage_view((&layout, ""), TabId(1)),
             [Command::AddTab {
                 id: TabId(1),
                 title: String::new(),
-                space: layout::SpaceId::default()
+                space: SpaceId::default()
             }],
             "the stage gets a view to hold the page"
         );
         layout
-            .apply(stage_view(&layout, TabId(1)).remove(0))
+            .apply(stage_view((&layout, ""), TabId(1)).remove(0))
             .unwrap();
         assert!(
-            stage_view(&layout, TabId(2)).is_empty(),
+            stage_view((&layout, ""), TabId(2)).is_empty(),
             "a showing view takes the page in place"
         );
     }
@@ -149,9 +149,13 @@ mod tests {
     fn a_group_keeps_one_new_tab_page_among_its_tabs() {
         let mut layout = Layout::default();
         layout
-            .apply(stage_view(&layout, TabId(1)).remove(0))
+            .apply(stage_view((&layout, ""), TabId(1)).remove(0))
             .unwrap();
-        assert_eq!(page_in_group(&layout), None, "an empty view has none");
+        assert_eq!(
+            layout.showing("").and_then(page_in_group),
+            None,
+            "an empty view has none"
+        );
         for (name, kind) in [("c1", "core.chat"), ("e1", "core.editor"), ("n1", NEW_TAB)] {
             let instance = instance(name, kind);
             layout
@@ -161,7 +165,10 @@ mod tests {
                 ))
                 .unwrap();
         }
-        let page = page_in_group(&layout).map(|pane| pane.as_str().to_owned());
+        let page = layout
+            .showing("")
+            .and_then(page_in_group)
+            .map(|pane| pane.as_str().to_owned());
         assert_eq!(page.as_deref(), Some("n1"), "the group's page is found");
     }
 
@@ -169,7 +176,7 @@ mod tests {
     fn a_choice_replaces_a_page_once_a_pane_opened_and_never_an_empty_editors_chat() {
         let mut layout = Layout::default();
         layout
-            .apply(stage_view(&layout, TabId(1)).remove(0))
+            .apply(stage_view((&layout, ""), TabId(1)).remove(0))
             .unwrap();
         for (name, kind) in [("c1", "core.chat"), ("n1", NEW_TAB)] {
             let open =

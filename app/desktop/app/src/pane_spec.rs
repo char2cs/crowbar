@@ -20,11 +20,11 @@ pub(crate) struct PaneSpec {
 impl PaneSpec {
     pub(crate) fn open_commands(
         self,
-        layout: &Layout,
+        (layout, space): (&Layout, &str),
         serials: &Serials,
     ) -> Result<Vec<Command>> {
         let state = opened_state(&self.type_id, &self.state, layout);
-        let mut commands = open_commands(layout, (self.type_id, self.params), serials)?;
+        let mut commands = open_commands(layout, space, (self.type_id, self.params), serials)?;
         for instance in commands.iter_mut().filter_map(opened_instance) {
             instance.state = state.clone();
         }
@@ -164,12 +164,12 @@ mod tests {
         let serials = Serials::above(&Layout::default());
         let mut layout = Layout::default();
         let spec = PaneSpec::editor("c1", "a.rs").unwrap();
-        for command in spec.clone().open_commands(&layout, &serials).unwrap() {
+        for command in spec.clone().open_commands((&layout, ""), &serials).unwrap() {
             layout.apply(command).unwrap();
         }
         let opened = layout.find_pane(&spec.type_id, &spec.params).unwrap();
         assert_eq!(opened.state, spec.state, "state");
-        let again = spec.open_commands(&layout, &serials).unwrap();
+        let again = spec.open_commands((&layout, ""), &serials).unwrap();
         assert!(
             again.iter().all(|c| !matches!(c, Command::OpenPane { .. })),
             "no second pane"
@@ -181,7 +181,7 @@ mod tests {
         spec: &PaneSpec,
         serials: &Serials,
     ) {
-        for command in spec.clone().open_commands(layout, serials).unwrap() {
+        for command in spec.clone().open_commands((layout, ""), serials).unwrap() {
             layout.apply(command).unwrap();
         }
     }

@@ -79,7 +79,7 @@ mod tests {
         documents.loading("c1");
         documents.holding(PATH, TEXT);
         let (panes, heard) = panes_over(&documents);
-        panes.follow(&layout_with(json!({"path": PATH})));
+        panes.follow(&layout_with(json!({"path": PATH})), "");
         assert_eq!(landed(&panes, &heard), Landing::Shown);
         let (_root, window) = cx.add_window_view(|_, _| gpui::Empty);
         let pane = PaneId::new(PANE).unwrap();
@@ -111,7 +111,7 @@ mod tests {
             documents.loading("c1");
             documents.holding(PATH, TEXT);
             let (panes, heard) = panes_over(&documents);
-            panes.follow(&layout_with(state.clone()));
+            panes.follow(&layout_with(state.clone()), "");
             landed(&panes, &heard);
             let (view, window) = shown_in(&panes, cx);
             window.update(|window, cx| window.focus(&view.focus_handle(cx), cx));

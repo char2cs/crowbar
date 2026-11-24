@@ -20,14 +20,14 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) {
         let scope = self.tab_scope();
-        let project = self.data.active_project();
+        let space = self.state.space();
         let titles = self.state.titles();
         let layout = self.state.layout();
         let rows = |chat: &str| self.data.chat_row(chat);
         let tabs: Vec<TabView> = layout
             .tabs()
             .iter()
-            .filter(|tab| scope.lists(project.as_deref(), &self.tab_projects(tab)))
+            .filter(|tab| scope.lists(&space, tab.space()))
             .map(|tab| TabView {
                 id: tab.id(),
                 members: crate::group_focus::listed(tab)
@@ -36,7 +36,7 @@ impl ShellView {
                     .collect(),
             })
             .collect();
-        let active = layout.showing("").map(Tab::id);
+        let active = layout.showing(&space).map(Tab::id);
         self.tabs
             .update(cx, |bar, cx| bar.set_tabs(tabs, active, cx));
         self.follow_projects(cx);

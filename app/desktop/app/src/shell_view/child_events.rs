@@ -248,8 +248,9 @@ mod tests {
 
     fn terminals(shell: &ShellView) -> Vec<protocol::PaneId> {
         let layout = shell.state.layout();
-        let tab = layout
-            .showing("")
+        let tab = shell
+            .state
+            .showing()
             .map_or_else(Vec::new, layout::Tab::pane_ids);
         tab.into_iter()
             .filter(|pane| is_terminal(layout, pane))

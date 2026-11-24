@@ -163,7 +163,7 @@ mod tests {
         let documents = Rc::new(FakeDocuments::default());
         documents.loading("c1");
         let (panes, heard) = panes_over(&documents);
-        panes.follow(&layout_with(json!({"untitled": true})));
+        panes.follow(&layout_with(json!({"untitled": true})), "");
         let (view, window) = shown_in(&panes, cx);
         window.update(|window, cx| window.focus(&view.focus_handle(cx), cx));
         window.simulate_input("hi");
@@ -205,7 +205,7 @@ mod tests {
         let documents = Rc::new(FakeDocuments::default());
         documents.loading("c1");
         let (panes, _heard) = panes_over(&documents);
-        panes.follow(&layout_with(json!({"untitled": true})));
+        panes.follow(&layout_with(json!({"untitled": true})), "");
         let (_view, window) = shown_in(&panes, cx);
         let path = DocumentPath::new(path).unwrap();
         let saved = SavedFile {
@@ -242,7 +242,7 @@ mod tests {
         documents.loading("c1");
         documents.holding(PATH, TEXT);
         let (panes, heard) = panes_over(&documents);
-        panes.follow(&layout_with(json!({"path": PATH})));
+        panes.follow(&layout_with(json!({"path": PATH})), "");
         landed(&panes, &heard);
         let (view, window) = shown_in(&panes, cx);
         let holder = PaneId::new(PANE).unwrap();
@@ -275,7 +275,7 @@ mod tests {
         let documents = Rc::new(FakeDocuments::default());
         documents.loading("c1");
         let (panes, _heard) = panes_over(&documents);
-        panes.follow(&layout_with(json!({"path": PATH})));
+        panes.follow(&layout_with(json!({"path": PATH})), "");
         let path = DocumentPath::new(PATH).unwrap();
         let other = DocumentPath::new("src/other.ts").unwrap();
         let holder = vec![PaneId::new(PANE).unwrap()];
@@ -353,7 +353,7 @@ mod tests {
         documents.loading("c1");
         documents.holding(PATH, TEXT);
         let (panes, heard) = panes_over(&documents);
-        panes.follow(&with_untitled(layout_with(json!({"path": PATH}))));
+        panes.follow(&with_untitled(layout_with(json!({"path": PATH}))), "");
         landed(&panes, &heard);
         let drawn = Rc::clone(&panes);
         let (_root, window) = cx.add_window_view(|_, _| Both(drawn));

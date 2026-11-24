@@ -17,7 +17,7 @@ pub struct LayoutSnapshot<'a> {
     pub parent: ParentWindow,
     /// Panes shown in the active tab and where.
     pub visible: Vec<VisiblePane>,
-    /// The focused pane of the active tab.
+    /// The focused pane of the tab the window shows.
     pub focused: Option<PaneId>,
     /// Who the keys go to while that pane is shown.
     pub keyboard: Keyboard,
@@ -37,10 +37,21 @@ impl<'a> LayoutSnapshot<'a> {
             layout,
             parent,
             visible,
-            focused: layout.showing("").and_then(|tab| tab.focused().cloned()),
+            focused: None,
             keyboard: Keyboard::default(),
             kinds: &(),
         }
+    }
+
+    /// The same snapshot with `focused` as the pane that has focus: the focus of the tab the
+    /// window shows, which only the shell knows.
+    #[must_use]
+    pub fn with_focus(
+        mut self,
+        focused: Option<PaneId>,
+    ) -> Self {
+        self.focused = focused;
+        self
     }
 
     /// The same snapshot with the keys going to `keyboard`.
@@ -129,20 +140,22 @@ mod tests {
     }
 
     #[test]
-    fn lists_every_pane_and_the_focus_of_the_active_tab() {
+    fn lists_every_pane_and_the_focus_it_was_given() {
         let hole = VisiblePane {
             pane: PaneId::new("p1").unwrap(),
             bounds: bounds(),
         };
         let layout = layout();
+        let focus = layout.showing("").and_then(|tab| tab.focused().cloned());
         let snapshot =
-            LayoutSnapshot::from_layout(&layout, ParentWindow::X11(5), vec![hole.clone()]);
+            LayoutSnapshot::from_layout(&layout, ParentWindow::X11(5), vec![hole.clone()])
+                .with_focus(focus);
         assert_eq!(snapshot.pane_ids().count(), 3, "all tabs");
         assert_eq!(snapshot.visible, [hole], "the holes the shell gave");
         assert_eq!(
             snapshot.focused.as_ref().map(PaneId::as_str),
             Some("p2"),
-            "focus of the active tab"
+            "the focus it was given"
         );
     }
 

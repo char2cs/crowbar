@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::rc::Rc;
 
 use layout::{Command, LayoutHistory};
 use std::sync::Arc;
@@ -6,6 +7,7 @@ use std::sync::Arc;
 use browseragent::Replies;
 use panehost::{Keyboard, PaneHost};
 
+use crate::active_space::ActiveSpace;
 use crate::browser_ids::BrowserIds;
 use crate::browser_pages::BrowserPages;
 use crate::closed_panes::ClosedPanes;
@@ -42,6 +44,7 @@ mod withdrawing;
 
 pub(crate) struct ShellState {
     history: LayoutHistory,
+    space: Rc<dyn ActiveSpace>,
     writer: LayoutWriter,
     notice: Option<String>,
     host: PaneHost,
@@ -75,6 +78,7 @@ impl ShellState {
     pub(crate) fn new(
         host: PaneHost,
         store: LayoutStore,
+        space: Rc<dyn ActiveSpace>,
     ) -> Result<Self> {
         let LoadedLayout {
             layout,
@@ -91,6 +95,7 @@ impl ShellState {
         let writer = LayoutWriter::start(store).map_err(Error::LayoutWriter)?;
         Ok(Self {
             history: LayoutHistory::new(layout),
+            space,
             writer,
             notice: quarantined.map(|path| notice_for(&path)),
             host,
@@ -364,9 +369,16 @@ mod tests {
         let mut rig = shell_rig();
         open_chat(&mut rig.shell, "t1");
         let expected = rig.shell.layout().clone();
-        let ShellRig { shell, mock, files } = rig;
+        let ShellRig {
+            shell, mock, files, ..
+        } = rig;
         drop(shell);
-        let again = ShellState::new(crate::test_support::mock_host(&mock), files.store()).unwrap();
+        let again = ShellState::new(
+            crate::test_support::mock_host(&mock),
+            files.store(),
+            Rc::new(crate::test_support::FakeSpace::default()),
+        )
+        .unwrap();
         assert_eq!(again.layout(), &expected, "same layout after loading");
     }
 }

@@ -1,8 +1,11 @@
 use layout::{Layout, PaneGroup};
 use protocol::PaneId;
 
-pub(crate) fn focused_chat(layout: &Layout) -> Option<String> {
-    let tab = layout.showing("")?;
+pub(crate) fn focused_chat(
+    layout: &Layout,
+    space: &str,
+) -> Option<String> {
+    let tab = layout.showing(space)?;
     chat_of_pane(layout, tab.focused()?)
 }
 
@@ -56,9 +59,9 @@ mod tests {
     #[test]
     fn the_focused_pane_names_its_groups_chat() {
         let mut rig = crate::test_support::shell_rig();
-        assert_eq!(focused_chat(rig.shell.layout()), None, "nothing open");
+        assert_eq!(focused_chat(rig.shell.layout(), ""), None, "nothing open");
         crate::test_support::open_chat(&mut rig.shell, "c7");
-        assert_eq!(focused_chat(rig.shell.layout()).as_deref(), Some("c7"));
+        assert_eq!(focused_chat(rig.shell.layout(), "").as_deref(), Some("c7"));
         let browser = crate::pane_spec::PaneSpec::browser("b1").unwrap();
         rig.shell.open_spec(browser);
         let layout = rig.shell.layout();
@@ -68,7 +71,7 @@ mod tests {
             .is_some_and(|pane| pane.params.get("browserId") == Some("b1"));
         assert!(browser_focused, "the browser takes the focus");
         assert_eq!(
-            focused_chat(layout).as_deref(),
+            focused_chat(layout, "").as_deref(),
             Some("c7"),
             "a browser beside it"
         );
@@ -78,6 +81,6 @@ mod tests {
     fn a_pane_without_a_chat_names_none() {
         let mut layout = Layout::default();
         open(&mut layout, Params::default());
-        assert_eq!(focused_chat(&layout), None);
+        assert_eq!(focused_chat(&layout, ""), None);
     }
 }

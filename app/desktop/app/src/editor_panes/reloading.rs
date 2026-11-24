@@ -98,7 +98,7 @@ mod tests {
         documents.loading("c1");
         documents.holding(PATH, TEXT);
         let (panes, heard) = panes_over(&documents);
-        panes.follow(&layout_with(json!({"path": PATH})));
+        panes.follow(&layout_with(json!({"path": PATH})), "");
         landed(&panes, &heard);
         let (view, window) = shown_in(&panes, cx);
         window.update(|window, cx| window.focus(&view.focus_handle(cx), cx));

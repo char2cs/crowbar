@@ -26,7 +26,7 @@ pub(super) fn panes_of(
             .pane(pane)
             .is_some_and(|instance| instance.type_id.as_str() == type_id)
     };
-    let tab = layout.showing("").map(layout::Tab::pane_ids);
+    let tab = shell.state.showing().map(layout::Tab::pane_ids);
     tab.unwrap_or_default()
         .into_iter()
         .filter(is_kind)

@@ -64,7 +64,7 @@ mod tests {
         documents.loading("c1");
         documents.holding(PATH, TEXT);
         let (panes, heard) = panes_over(&documents);
-        panes.follow(&layout_with(json!({"path": PATH})));
+        panes.follow(&layout_with(json!({"path": PATH})), "");
         assert_eq!(landed(&panes, &heard), Landing::Shown);
         let (view, window) = shown_in(&panes, cx);
         let has_keys = |window: &mut gpui::VisualTestContext| {

@@ -9,7 +9,7 @@ impl ShellState {
         &mut self,
         spec: PaneSpec,
     ) {
-        match spec.open_commands(self.history.layout(), &self.serials) {
+        match spec.open_commands((self.history.layout(), &self.space.active()), &self.serials) {
             Ok(commands) => self.apply(previewing(commands)),
             Err(error) => tracing::warn!(%error, "could not preview the pane"),
         }
@@ -92,7 +92,7 @@ mod tests {
     use crate::test_support::{open_chat, resync, shell_rig};
 
     fn preview_of(shell: &ShellState) -> Option<String> {
-        let tab = shell.layout().showing("")?;
+        let tab = shell.showing()?;
         let chat = tab.pane_ids().into_iter().next()?;
         let preview = tab.group_of(&chat)?.preview()?;
         let state: &PaneState = &shell.layout().pane(preview)?.state;
@@ -165,7 +165,7 @@ mod tests {
                 Step::Open(file) => rig.shell.open_spec(spec(file)),
             }
         }
-        let tabs = rig.shell.layout().showing("").unwrap().pane_ids().len();
+        let tabs = rig.shell.showing().unwrap().pane_ids().len();
         (preview_of(&rig.shell), tabs)
     }
 
@@ -192,7 +192,7 @@ mod tests {
         rig.shell
             .preview_spec(PaneSpec::editor("t1", "a.rs").unwrap());
         resync(&mut rig);
-        let tab = rig.shell.layout().showing("").unwrap();
+        let tab = rig.shell.showing().unwrap();
         let pane = tab.pane_ids().into_iter().last().unwrap();
         rig.shell.mark_dirty(pane);
         assert_eq!(preview_of(&rig.shell), None);

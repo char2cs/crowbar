@@ -82,6 +82,7 @@ impl EditorPanes {
     pub(crate) fn follow(
         &self,
         layout: &Layout,
+        space: &str,
     ) {
         let open: BTreeMap<PaneId, EditorTarget> = layout
             .tabs()
@@ -89,7 +90,7 @@ impl EditorPanes {
             .flat_map(Tab::pane_ids)
             .filter_map(|pane| Some((pane.clone(), EditorTarget::of(layout.pane(&pane)?)?)))
             .collect();
-        let focused = layout.showing("").and_then(Tab::focused);
+        let focused = layout.showing(space).and_then(Tab::focused);
         let mut panes = self.panes.borrow_mut();
         let gone: Vec<EditorTarget> = panes
             .iter()
@@ -323,7 +324,7 @@ mod tests {
                 Err(status) => documents.refusing(PATH, status),
             }
             let (panes, heard) = panes_over(&documents);
-            panes.follow(&layout_with(json!({"path": PATH, "fresh": fresh})));
+            panes.follow(&layout_with(json!({"path": PATH, "fresh": fresh})), "");
             assert_eq!(
                 landed(&panes, &heard),
                 expected,
@@ -338,7 +339,7 @@ mod tests {
         let documents = Rc::new(FakeDocuments::default());
         documents.holding(PATH, TEXT);
         let (panes, heard) = panes_over(&documents);
-        panes.follow(&layout_with(json!({"path": PATH})));
+        panes.follow(&layout_with(json!({"path": PATH})), "");
         assert!(documents.reads().is_empty(), "no daemon to read from yet");
         documents.loading("c1");
         cx.update(|cx| panes.data_changed(cx));
@@ -358,7 +359,7 @@ mod tests {
         let documents = Rc::new(FakeDocuments::default());
         documents.loading("c1");
         let (panes, heard) = panes_over(&documents);
-        panes.follow(&layout_with(json!({"path": PATH})));
+        panes.follow(&layout_with(json!({"path": PATH})), "");
         assert_eq!(landed(&panes, &heard), Landing::Quiet, "the tab stays");
         let pane = PaneId::new(PANE).unwrap();
         documents.holding(PATH, TEXT);
@@ -394,7 +395,7 @@ mod tests {
         cx: &'cx mut TestAppContext,
     ) -> Opened<'cx> {
         let (panes, heard) = panes_over(documents);
-        panes.follow(&layout_with(json!({"path": PATH})));
+        panes.follow(&layout_with(json!({"path": PATH})), "");
         landed(&panes, &heard);
         let (view, window) = shown_in(&panes, cx);
         window.update(|window, cx| window.focus(&view.focus_handle(cx), cx));
@@ -446,7 +447,7 @@ mod tests {
         documents.loading("c1");
         documents.holding(PATH, TEXT);
         let (panes, heard) = panes_locked(&documents, Rc::new(|chat| chat == "c1"));
-        panes.follow(&layout_with(json!({"path": PATH})));
+        panes.follow(&layout_with(json!({"path": PATH})), "");
         assert_eq!(landed(&panes, &heard), Landing::Shown);
         let (view, window) = shown_in(&panes, cx);
         let has_keys = window.update(|window, cx| view.focus_handle(cx).is_focused(window));

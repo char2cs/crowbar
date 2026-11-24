@@ -20,6 +20,7 @@ impl ShellState {
             Some(file) => self.document_commands(from, &file),
             None => open_commands(
                 self.history.layout(),
+                &self.space.active(),
                 (open.type_id, open.params),
                 &self.serials,
             ),
@@ -44,10 +45,12 @@ impl ShellState {
             return Ok(Vec::new());
         };
         let path = file.as_str();
+        let space = self.space.active();
+        let at = (layout, space.as_str());
         if file.is_host() {
-            return PaneSpec::host_file(&chat, path)?.open_commands(layout, &self.serials);
+            return PaneSpec::host_file(&chat, path)?.open_commands(at, &self.serials);
         }
-        PaneSpec::editor(&chat, path)?.open_commands(layout, &self.serials)
+        PaneSpec::editor(&chat, path)?.open_commands(at, &self.serials)
     }
 }
 
@@ -77,7 +80,7 @@ mod tests {
         let mut rig = shell_rig();
         open_chat(&mut rig.shell, "t1");
         resync(&mut rig);
-        let tab = rig.shell.layout().showing("").unwrap();
+        let tab = rig.shell.showing().unwrap();
         let chat = tab.pane_ids().into_iter().next().unwrap();
         let frame = PaneFrame::Open(PaneOpen {
             type_id: PaneTypeId::new(EDITOR).unwrap(),
@@ -91,7 +94,7 @@ mod tests {
             text,
         });
         rig.shell.apply(outcome.opens);
-        let tab = rig.shell.layout().showing("").unwrap();
+        let tab = rig.shell.showing().unwrap();
         let group = tab.group_of(&chat).unwrap();
         let opened = group
             .tabs()
@@ -118,7 +121,7 @@ mod tests {
         let mut rig = shell_rig();
         open_chat(&mut rig.shell, "t1");
         resync(&mut rig);
-        let tab = rig.shell.layout().showing("").unwrap();
+        let tab = rig.shell.showing().unwrap();
         let chat = tab.pane_ids().into_iter().next().unwrap();
         for kept in ["src/a.ts", "src/pricing.ts"] {
             rig.shell.open_spec(PaneSpec::editor("t1", kept).unwrap());

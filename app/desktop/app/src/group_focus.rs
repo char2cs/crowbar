@@ -12,8 +12,11 @@ pub(crate) fn focused_group(tab: &Tab) -> Option<&PaneGroup> {
     tab.group_of(tab.focused()?)
 }
 
-pub(crate) fn editor_focused(layout: &Layout) -> bool {
-    let Some(tab) = layout.showing("") else {
+pub(crate) fn editor_focused(
+    layout: &Layout,
+    space: &str,
+) -> bool {
+    let Some(tab) = layout.showing(space) else {
         return false;
     };
     let focused = tab.focused().and_then(|pane| tab.pane(pane));
@@ -145,10 +148,10 @@ mod tests {
             (&[("c1", "core.chat"), ("e1", "core.editor")], true),
             (&[("c1", "core.chat"), ("t1", "core.terminal")], true),
         ];
-        assert!(!editor_focused(&Layout::default()), "no view");
+        assert!(!editor_focused(&Layout::default(), ""), "no view");
         for (opened, expected) in CASES {
             let layout = layout_of(opened);
-            assert_eq!(editor_focused(&layout), *expected, "{opened:?}");
+            assert_eq!(editor_focused(&layout, ""), *expected, "{opened:?}");
         }
     }
 

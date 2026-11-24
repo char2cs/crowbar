@@ -31,11 +31,11 @@ impl NativePanes {
 
     pub(crate) fn follow(
         &self,
-        layout: &layout::Layout,
+        (layout, space): (&layout::Layout, &str),
         titles: &Titles,
     ) {
         self.new_tabs.follow(layout, titles);
-        self.editors.follow(layout);
+        self.editors.follow(layout, space);
     }
 
     pub(crate) fn apply_terminal_settings(

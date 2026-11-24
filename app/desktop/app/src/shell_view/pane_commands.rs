@@ -23,11 +23,10 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) {
         let id = format!("t{}", self.state.serials().next_pane());
-        let chat = focused_chat(self.state.layout());
+        let chat = focused_chat(self.state.layout(), &self.state.space());
         let spec = terminal_spec(&id, chat.as_deref(), self.data.active_project());
         self.open_spec(spec, cx);
-        let layout = self.state.layout();
-        let opened = layout.showing("").and_then(layout::Tab::focused).cloned();
+        let opened = self.state.showing().and_then(layout::Tab::focused).cloned();
         if let Some(pane) = opened {
             self.source.native().focus(&pane, window, cx);
         }
@@ -71,8 +70,7 @@ impl ShellView {
     ) {
         let toggle = self
             .state
-            .layout()
-            .showing("")
+            .showing()
             .and_then(crate::group_focus::editor_toggle);
         if let Some(command) = toggle {
             self.apply_guarded(vec![command], cx);
@@ -100,7 +98,7 @@ impl ShellView {
         &self,
         what: &str,
     ) -> Option<String> {
-        let chat = focused_chat(self.state.layout());
+        let chat = focused_chat(self.state.layout(), &self.state.space());
         if chat.is_none() {
             tracing::info!("{what} needs a chat to be focused first");
         }
@@ -152,7 +150,11 @@ mod tests {
         });
         shell.read_with(&opened.window, |shell, _| {
             let layout = shell.state.layout();
-            let focused = layout.showing("").and_then(layout::Tab::focused).unwrap();
+            let focused = shell
+                .state
+                .showing()
+                .and_then(layout::Tab::focused)
+                .unwrap();
             let instance = layout.pane(focused).unwrap();
             assert_eq!(instance.type_id.as_str(), CHAT);
             assert_eq!(instance.params.get("threadId"), Some("c2"));

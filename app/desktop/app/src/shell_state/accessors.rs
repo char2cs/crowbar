@@ -5,7 +5,7 @@ use crate::save_report::SaveReport;
 use crate::serials::Serials;
 use crate::terminal_ids::TerminalIds;
 use crate::titles::Titles;
-use layout::Layout;
+use layout::{Layout, Tab};
 use panehost::PaneHost;
 
 impl ShellState {
@@ -19,6 +19,14 @@ impl ShellState {
 
     pub(crate) fn layout(&self) -> &Layout {
         self.history.layout()
+    }
+
+    pub(crate) fn space(&self) -> String {
+        self.space.active()
+    }
+
+    pub(crate) fn showing(&self) -> Option<&Tab> {
+        self.history.layout().showing(&self.space.active())
     }
 
     pub(crate) fn titles(&self) -> Titles {
@@ -63,7 +71,12 @@ mod tests {
         let mock = Rc::new(MockPlatform::default());
         let files = Arc::new(MemoryFiles::default());
         files.seed(Path::new(LAYOUT_PATH), "garbage");
-        let mut shell = ShellState::new(mock_host(&mock), files.store()).unwrap();
+        let mut shell = ShellState::new(
+            mock_host(&mock),
+            files.store(),
+            Rc::new(crate::test_support::FakeSpace::default()),
+        )
+        .unwrap();
         assert_eq!(shell.layout().pane_count(), 0, "fresh layout");
         let notice = shell.take_notice().unwrap();
         assert!(notice.contains("layout.json.bad-"), "{notice}");

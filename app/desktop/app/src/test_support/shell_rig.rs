@@ -5,7 +5,7 @@ use panehost::VisiblePane;
 use protocol::PaneId;
 use webview::{Bounds, MockPlatform, ParentWindow};
 
-use super::{MemoryFiles, mock_host};
+use super::{FakeSpace, MemoryFiles, mock_host};
 use crate::core_panes::{chat_params, chat_type};
 use crate::shell_state::ShellState;
 
@@ -13,13 +13,21 @@ pub(crate) struct ShellRig {
     pub(crate) shell: ShellState,
     pub(crate) mock: Rc<MockPlatform>,
     pub(crate) files: Arc<MemoryFiles>,
+    pub(crate) space: Rc<FakeSpace>,
 }
 
 pub(crate) fn shell_rig() -> ShellRig {
     let mock = Rc::new(MockPlatform::default());
     let files = Arc::new(MemoryFiles::default());
-    let shell = ShellState::new(mock_host(&mock), files.store()).unwrap();
-    ShellRig { shell, mock, files }
+    let space = Rc::new(FakeSpace::default());
+    let port = Rc::<FakeSpace>::clone(&space);
+    let shell = ShellState::new(mock_host(&mock), files.store(), port).unwrap();
+    ShellRig {
+        shell,
+        mock,
+        files,
+        space,
+    }
 }
 
 pub(crate) fn open_chat(
@@ -48,7 +56,7 @@ fn window_area() -> Bounds {
 
 fn visible(shell: &ShellState) -> Vec<VisiblePane> {
     let area = window_area();
-    shell.layout().showing("").map_or_else(Vec::new, |tab| {
+    shell.showing().map_or_else(Vec::new, |tab| {
         tab.pane_ids()
             .into_iter()
             .map(|pane| VisiblePane { pane, bounds: area })
@@ -60,7 +68,7 @@ fn visible(shell: &ShellState) -> Vec<VisiblePane> {
 pub(crate) fn synced_chat(rig: &mut ShellRig) -> PaneId {
     open_chat(&mut rig.shell, "t1");
     resync(rig);
-    rig.shell.layout().showing("").unwrap().pane_ids()[0].clone()
+    rig.shell.showing().unwrap().pane_ids()[0].clone()
 }
 
 /// Drives every visible pane of the rig's layout, as a frame does.

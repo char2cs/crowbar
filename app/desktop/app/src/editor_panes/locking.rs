@@ -36,7 +36,7 @@ mod tests {
         let locked = Rc::new(Cell::new(false));
         let lock = Rc::clone(&locked);
         let (panes, heard) = panes_locked(&documents, Rc::new(move |_| lock.get()));
-        panes.follow(&layout_with(json!({"path": PATH})));
+        panes.follow(&layout_with(json!({"path": PATH})), "");
         assert_eq!(landed(&panes, &heard), Landing::Shown);
         let (view, window) = shown_in(&panes, cx);
         window.update(|window, cx| window.focus(&view.focus_handle(cx), cx));

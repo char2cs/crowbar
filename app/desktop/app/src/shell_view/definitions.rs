@@ -88,8 +88,11 @@ mod tests {
             let files = panes_of(shell, EDITOR);
             let (b, a) = (files[0].clone(), files[1].clone());
             shell.open_definition((&a, "src/b.ts", (4, 0)), window, cx);
-            let layout = shell.state.layout();
-            let focused = layout.showing("").and_then(layout::Tab::focused).cloned();
+            let focused = shell
+                .state
+                .showing()
+                .and_then(layout::Tab::focused)
+                .cloned();
             (focused, panes_of(shell, EDITOR).len(), b)
         });
         assert_eq!((focused, panes), (Some(b), 2));

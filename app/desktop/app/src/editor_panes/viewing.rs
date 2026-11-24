@@ -196,7 +196,7 @@ mod tests {
         for (state, expected) in cases {
             let documents = Rc::new(FakeDocuments::default());
             let (panes, _heard) = panes_over(&documents);
-            panes.follow(&layout_with(state.clone()));
+            panes.follow(&layout_with(state.clone()), "");
             assert_eq!(kind(&panes, &pane), expected, "{state}");
         }
     }
@@ -206,7 +206,7 @@ mod tests {
         let documents = Rc::new(FakeDocuments::default());
         documents.loading("c1");
         let (panes, heard) = panes_over(&documents);
-        panes.follow(&layout_with(json!({"path": README})));
+        panes.follow(&layout_with(json!({"path": README})), "");
         landed(&panes, &heard);
         let pane = PaneId::new(PANE).unwrap();
         assert_eq!(kind(&panes, &pane), Some(PaneKind::Native), "gone");
@@ -230,7 +230,7 @@ mod tests {
         documents.loading("c1");
         documents.holding(README, TITLE);
         let (panes, heard) = panes_over(&documents);
-        panes.follow(&layout_with(json!({"path": README})));
+        panes.follow(&layout_with(json!({"path": README})), "");
         landed(&panes, &heard);
         let pane = PaneId::new(PANE).unwrap();
         let (_root, window) = cx.add_window_view(|_, _| gpui::Empty);
@@ -299,7 +299,7 @@ mod tests {
             Some("# Edited\n"),
             "one text"
         );
-        panes.follow(&layout::Layout::default());
+        panes.follow(&layout::Layout::default(), "");
         assert_eq!(kind(&panes, &pane), None, "closing forgets the view");
     }
 
@@ -311,7 +311,7 @@ mod tests {
         documents.loading("c1");
         documents.holding(README, &"x".repeat(protocol::MAX_FRAME_BYTES));
         let (panes, heard) = panes_over(&documents);
-        panes.follow(&layout_with(json!({"path": README})));
+        panes.follow(&layout_with(json!({"path": README})), "");
         landed(&panes, &heard);
         let pane = PaneId::new(PANE).unwrap();
         let (_root, window) = cx.add_window_view(|_, _| gpui::Empty);
@@ -336,7 +336,7 @@ mod tests {
         for (state, view, expected) in cases {
             let documents = Rc::new(FakeDocuments::default());
             let (panes, _heard) = panes_over(&documents);
-            panes.follow(&layout_with(state.clone()));
+            panes.follow(&layout_with(state.clone()), "");
             assert_eq!(panes.show(&pane, view), expected, "{state} to {view:?}");
         }
     }

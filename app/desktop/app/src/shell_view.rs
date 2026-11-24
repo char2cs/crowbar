@@ -56,6 +56,7 @@ mod shell_commands;
 mod sidebar_position;
 mod sidebar_wiring;
 mod space_drops;
+mod space_switch;
 mod tab_strip;
 mod terminal_files;
 mod terminal_life;
@@ -123,7 +124,7 @@ impl ShellView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> Self {
-        let (requests, queue) = async_channel::unbounded();
+        let (requests, queue) = (parts.requests.clone(), parts.queue.clone());
         let mut built = build_children(&parts, &requests, cx);
         built.subscriptions = Self::subscribe_children(&built, window, cx);
         let mut view = Self::assemble(parts, built, requests, cx.focus_handle());
@@ -270,9 +271,11 @@ impl ShellView {
     ) {
         let titles = self.state.titles();
         let layout = self.state.layout();
-        self.source.native().follow(layout, &titles);
-        let tab = layout.showing("").cloned();
-        self.data.focus_chat(focused_chat(layout).as_deref());
+        let space = self.state.space();
+        self.source.native().follow((layout, &space), &titles);
+        let tab = layout.showing(&space).cloned();
+        self.data
+            .focus_chat(focused_chat(layout, &space).as_deref());
         self.data.watch_chats(crate::open_chats::tab_chats(layout));
         let open = crate::open_chats::open_chats(layout)
             .into_iter()
@@ -303,11 +306,7 @@ impl ShellView {
             return;
         };
         let (chrome, _) = self.chrome(cx);
-        let visible = visible_panes(
-            self.state.layout().showing(""),
-            area,
-            (chrome, self.source.as_ref()),
-        );
+        let visible = visible_panes(self.state.showing(), area, (chrome, self.source.as_ref()));
         self.state.set_theme(*Theme::of(cx));
         let outcome = self.state.sync(parent, (visible, self.source.native()));
         self.apply_outcome(outcome, cx);
@@ -386,6 +385,7 @@ mod tests {
         pub(super) mock: Rc<webview::MockPlatform>,
         pub(super) pane: protocol::PaneId,
         preferences: Arc<crate::test_support::MemoryPreferences>,
+        pub(super) space: Rc<crate::test_support::FakeSpace>,
     }
 
     pub(super) fn open_shell(cx: &mut TestAppContext) -> Opened {
@@ -400,13 +400,17 @@ mod tests {
         mock: Rc<webview::MockPlatform>,
         pane: protocol::PaneId,
         preferences: Arc<crate::test_support::MemoryPreferences>,
+        space: Rc<crate::test_support::FakeSpace>,
     }
+
+    pub(super) const SPACE: &str = "p1";
 
     fn shell_rig(cx: &mut TestAppContext) -> Rig {
         cx.executor().allow_parking();
         cx.update(|cx| ui::init(cx).expect("ui installs"));
         cx.update(editorview::init);
         let mut rig = crate::test_support::shell_rig();
+        rig.space.select(SPACE);
         let pane = crate::test_support::synced_chat(&mut rig);
         let preferences = Arc::new(crate::test_support::MemoryPreferences::default());
         let ports = Ports {
@@ -414,17 +418,25 @@ mod tests {
             bytes: Arc::new(crate::test_support::MemoryFiles::default()),
             preferences: Arc::<crate::test_support::MemoryPreferences>::clone(&preferences),
         };
+        let link = Rc::new(crate::test_support::link_without_daemon());
+        let (requests, queue) = async_channel::unbounded();
+        let (data, data_queued) = crate::data_signal::start_data(&link, &requests);
         let parts = ShellParts {
             state: rig.shell,
-            link: Rc::new(crate::test_support::link_without_daemon()),
+            link,
             preferences_path: PathBuf::from("/state/sidebar.json"),
             ports,
+            data,
+            data_queued,
+            requests,
+            queue,
         };
         Rig {
             parts,
             mock: rig.mock,
             pane,
             preferences,
+            space: rig.space,
         }
     }
 
@@ -434,6 +446,7 @@ mod tests {
             mock,
             pane,
             preferences,
+            space,
         } = shell_rig(cx);
         let window = cx.add_window(move |window, cx| ShellView::new(parts, window, cx));
         let shell = window.entity(cx).expect("the shell view");
@@ -451,6 +464,7 @@ mod tests {
             mock,
             pane,
             preferences,
+            space,
         }
     }
 
