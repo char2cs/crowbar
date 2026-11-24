@@ -501,15 +501,18 @@ daemon_path() {
   if [[ -e $RIG_DIR/daemon.nogit ]]; then tr : '\n' <<<"$PATH" | grep -vx /opt/rig/git-bin | paste -sd:; else echo "$PATH"; fi
 }
 
-# chooser <app>: the open file-chooser window — Tauri's own GTK dialog, or the portal's (GTK) dialog
-# that the Rust shell asks xdg-desktop-portal for — the largest visible window of that process
-# other than the app's own.
+# chooser <app>: the open file-chooser window — Tauri's own GTK dialog; for the Rust shell, the GTK
+# dialog it opens itself for a page's file input, else the portal's (GTK) dialog it asks
+# xdg-desktop-portal for — the largest visible window of that process other than the app's own.
 chooser() {
   local pid main="" w g best="" area=0
   if [[ $1 == tauri ]]; then
     pid=$(pid_of tauri) || return 1
     main=$(winid tauri)
   else
+    pid=$(pid_of rust) || return 1
+    w=$(xdotool search --onlyvisible --pid "$pid" --role GtkFileChooserDialog 2>/dev/null | tail -1)
+    [[ -n $w ]] && echo "$w" && return 0
     pid=$(pgrep -f /usr/libexec/xdg-desktop-portal-gtk | head -1) || return 1
   fi
   for w in $(xdotool search --onlyvisible --pid "$pid" 2>/dev/null); do
