@@ -9,6 +9,8 @@ mod local_link;
 mod pairing_session;
 mod ports;
 mod projects_load;
+#[cfg(feature = "fake")]
+mod projects_loss;
 pub(crate) mod settings_core;
 mod system_check;
 

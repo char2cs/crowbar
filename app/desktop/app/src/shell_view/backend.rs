@@ -28,7 +28,6 @@ impl ShellView {
         }
         let status = backend_status(event.as_ref(), link);
         self.follow_crash(&status, cx);
-        self.follow_projects(cx);
         let act = self.backend.connection.follow(status);
         if act != NoticeAct::Keep {
             self.backend.warning = None;
@@ -71,7 +70,7 @@ impl ShellView {
         self.backend.crash = Some((panel, toasts));
     }
 
-    fn follow_projects(
+    pub(super) fn follow_projects(
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
@@ -120,9 +119,11 @@ async fn warn_later(
 mod tests {
     use gpui::TestAppContext;
 
+    use layout::{Command, Tab};
+
     use super::SHOW_DELAY;
     use crate::shell_view::ShellView;
-    use crate::shell_view::tests::{Opened, open_shell_unsettled};
+    use crate::shell_view::tests::{Opened, open_shell, open_shell_unsettled};
 
     fn shown(opened: &mut Opened) -> usize {
         opened.window.run_until_parked();
@@ -145,5 +146,40 @@ mod tests {
             before + 1,
             "Backend unavailable / Reconnecting…"
         );
+    }
+
+    fn landing(opened: &mut Opened) -> bool {
+        opened.window.run_until_parked();
+        opened.shell.update(&mut opened.window, |shell, cx| {
+            shell.backend.workspace.read(cx).has_landing()
+        })
+    }
+
+    fn has_tabs(opened: &mut Opened) -> bool {
+        opened.shell.update(&mut opened.window, |shell, cx| {
+            shell.tabs.read(cx).has_tabs()
+        })
+    }
+
+    #[gpui::test]
+    fn closing_the_last_tab_after_the_projects_failed_shows_the_landing(cx: &mut TestAppContext) {
+        let mut opened = open_shell(cx);
+        opened.shell.update(&mut opened.window, |shell, _| {
+            shell.data.lose_projects_snapshot();
+            shell.data.lose_projects_snapshot();
+        });
+        let load = opened
+            .shell
+            .update(&mut opened.window, |shell, _| shell.data.projects_load());
+        assert_eq!(load, store::ProjectsLoad::Failed);
+        assert!(has_tabs(&mut opened));
+        assert!(!landing(&mut opened), "an open tab keeps the stage");
+        opened.shell.update(&mut opened.window, |shell, cx| {
+            let panes = shell.state.layout().tabs().iter().flat_map(Tab::pane_ids);
+            let closes = panes.map(|pane| Command::ClosePane { pane }).collect();
+            shell.apply_guarded(closes, cx);
+        });
+        assert!(!has_tabs(&mut opened), "the last tab closed");
+        assert!(landing(&mut opened), "the empty stage lands on the failure");
     }
 }

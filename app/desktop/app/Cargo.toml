@@ -61,6 +61,7 @@ windowstate.workspace = true
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
+store = { workspace = true, features = ["fake"] }
 transport = { workspace = true, features = ["loopback"] }
 webview = { workspace = true, features = ["mock"] }
 
