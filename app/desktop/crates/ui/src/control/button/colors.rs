@@ -69,7 +69,7 @@ impl Colors {
                 foreground: palette.foreground(),
                 shadow: Vec::new(),
             },
-            ButtonVariant::Row => Self {
+            ButtonVariant::Muted | ButtonVariant::Row => Self {
                 foreground: palette.muted_foreground(),
                 ..Self::resolve(ButtonVariant::Ghost, palette, appearance)
             },
@@ -195,6 +195,7 @@ mod tests {
         let (palette, appearance) = palette(ThemeMode::Dark);
         let cases = [
             (ButtonVariant::Ghost, palette.foreground()),
+            (ButtonVariant::Muted, palette.muted_foreground()),
             (ButtonVariant::Row, palette.muted_foreground()),
         ];
         for (variant, ink) in cases {

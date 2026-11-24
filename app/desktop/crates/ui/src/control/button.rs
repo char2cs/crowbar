@@ -9,6 +9,7 @@ use gpui::{
 
 use crate::control::button::click_handler::ClickHandler;
 use crate::control::button::colors::Colors;
+use crate::control::button::fill::Fill;
 use crate::display::Spinner;
 use crate::foundation::ControlScale;
 use crate::foundation::Icon;
@@ -35,6 +36,7 @@ pub struct Button {
     surface: Surface,
     disabled: bool,
     loading: bool,
+    fill: Fill,
     focus: Option<FocusHandle>,
     on_click: Option<ClickHandler>,
 }
@@ -44,6 +46,7 @@ mod button_size;
 mod button_variant;
 mod click_handler;
 mod colors;
+mod fill;
 
 pub use button_size::ButtonSize;
 pub use button_variant::ButtonVariant;
@@ -80,6 +83,7 @@ impl Button {
             surface: Surface::default(),
             disabled: false,
             loading: false,
+            fill: Fill::Content,
             focus: None,
             on_click: None,
         }
@@ -148,6 +152,7 @@ impl Button {
         let frame = frame.when(self.variant == ButtonVariant::Row, |row| {
             row.justify_start()
         });
+        let frame = self.fill.apply(frame);
         match &self.label {
             None => frame.w(height),
             Some(_) => frame.px(size.padding_x()),
