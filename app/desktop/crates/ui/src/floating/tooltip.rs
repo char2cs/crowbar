@@ -461,7 +461,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn without_a_compositor_the_whole_card_shows_behind_its_text(cx: &mut TestAppContext) {
+    fn without_a_compositor_the_card_shows_to_its_rounded_corners(cx: &mut TestAppContext) {
         let (mut owner, mut top) = open_floating(cx, |_, _| {
             Tooltip::new("t", "Settings", Button::icon_only("b", IconName::Gear))
         });
@@ -472,6 +472,31 @@ mod tests {
         owner.run_until_parked();
         let card = top.debug_bounds("tooltip-card").unwrap_or_default();
         let content = top.update(|window, _| window.content_region().to_vec());
-        assert!(content.contains(&card), "{card:?} shows: {content:?}");
+        let shows = |x: f32, y: f32| {
+            let at = point(card.left() + px(x), card.top() + px(y));
+            content.iter().any(|bounds| bounds.contains(&at))
+        };
+        let (width, height) = (f32::from(card.size.width), f32::from(card.size.height));
+        let inside = [
+            (width / 2.0, height / 2.0),
+            (0.5, height / 2.0),
+            (width - 0.5, height / 2.0),
+            (width / 2.0, 0.5),
+            (width / 2.0, height - 0.5),
+        ];
+        let corners = [
+            (0.5, 0.5),
+            (width - 0.5, 0.5),
+            (0.5, height - 0.5),
+            (width - 0.5, height - 0.5),
+        ];
+        assert!(
+            inside.iter().all(|(x, y)| shows(*x, *y)),
+            "{card:?} shows to its edges: {content:?}"
+        );
+        assert!(
+            !corners.iter().any(|(x, y)| shows(*x, *y)),
+            "{card:?} leaves out its corner pixels: {content:?}"
+        );
     }
 }

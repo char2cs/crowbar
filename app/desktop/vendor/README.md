@@ -72,6 +72,10 @@ Drop it when upstream gpui keeps focus-visible through pointer moves. Tracking: 
 
 Drop it with `overlay-window`.
 
+`rounded-content` (`gpui-pre`, `src/window.rs`), applied on top of `present-then-content`: an overlay's content region leaves out the rounded corners of an opaque fill. Each corner arc becomes a rectangle per device-pixel row, and a pixel is kept when the arc covers its centre. Without a compositor the X11 overlay is cut to that region, and transparent pixels inside it show black. A rounded card counted as its square bounds, so the drag pill, menus and popovers had black square corners on bare X11.
+
+Drop it with `overlay-window`.
+
 ## calloop 0.14.5
 
 `tracing-without-log` (`Cargo.toml`): calloop, reached through `gpui-pre-linux`, asks for tracing's `log` feature, and cargo turns a feature on for every crate that uses tracing. With `log` on, each `tracing` macro also expands to its `log` fallback, which quadruples `clippy::cognitive_complexity` in every function that logs. Nothing in the shell reads `log` records (no `log` logger or bridge is installed), so calloop loses only output nobody received.
