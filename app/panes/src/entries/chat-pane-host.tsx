@@ -4,6 +4,7 @@ import { ChatHeaderSlotProvider } from '@/features/agent/hooks/chat-header-slot'
 import { AgentChatPaneGate } from '@/features/agent/components/agent-chat-pane-gate'
 import { useChatField } from '@/features/agent/hooks/use-chat-entity'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import {
   getOrCreateWorkspaceStore,
   setActiveWorkspaceId,
@@ -15,12 +16,12 @@ import { chatSession } from './chat-session'
 
 const TOGGLE_EDITOR = 'panes.toggleEditor'
 
-/** The shell's chat pane: the chat the shell opened, placed in its own workspace like the desktop pane container does, with its identity row and title sent to the shell tab; the row's open editor button asks the shell to open the editor beside the chat. An untitled chat keeps the shell's own label. */
+/** The shell's chat pane: the chat the shell opened, placed in its own workspace like the desktop pane container does, with its identity row and title sent to the shell tab; the row's open editor button asks the shell to open the editor beside the chat. An untitled chat keeps the shell's own label; a draft's row has no title, as develop's. */
 export function ChatPaneHost({ client }: { client: Pick<PaneClient, 'setTitle' | 'runCommand'> }) {
   const chatId = useStore(chatSession, (s) => s.chatId)
   const active = useStore(chatSession, (s) => s.active)
   const fillsGroup = useStore(chatSession, (s) => s.fillsGroup)
-  const wsId = useChatField(chatId ?? '', (c) => c?.workspaceId || null)
+  const wsId = usePaneWorkspace(chatId)
   const title = useChatField(chatId ?? '', (c) => c?.title ?? '')
 
   useEffect(() => {
@@ -54,4 +55,9 @@ export function ChatPaneHost({ client }: { client: Pick<PaneClient, 'setTitle' |
       </ChatHeaderSlotProvider>
     </WorkspaceStoreContext.Provider>
   )
+}
+
+function usePaneWorkspace(chatId: string | null): string | null {
+  const paneWsId = useStore(windowPaneStore, (s) => s.panes[ROOT_PANE_ID]?.workspaceId ?? null)
+  return useChatField(chatId ?? '', (c) => c?.workspaceId || null) ?? paneWsId
 }

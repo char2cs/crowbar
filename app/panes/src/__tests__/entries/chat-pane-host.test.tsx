@@ -1,6 +1,10 @@
 import { render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { chatSession } from '@/entries/chat-session'
+import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import { fillPane } from '@/features/panes/lib/view-ops'
+import { initialViewState } from '@/features/panes/lib/view-state'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 
 const chat = vi.hoisted(() => ({ title: '', workspaceId: '' }))
 
@@ -62,5 +66,17 @@ describe('ChatPaneHost', () => {
     expect(offered).toHaveLength(buttons)
     offered.forEach((button) => button.click())
     expect(runCommand.mock.calls).toEqual(buttons ? [['panes.toggleEditor']] : [])
+  })
+
+  it('draws a draft, which has no chat yet, in the workspace its pane names, under its open editor row', () => {
+    windowPaneStore.setState((state) => {
+      Object.assign(state, initialViewState())
+      fillPane(state, ROOT_PANE_ID, 'draft-1', null, 'p1', 'ws-1')
+      return state
+    })
+    chatSession.setState({ chatId: 'draft-1', active: true })
+    render(<ChatPaneHost client={{ setTitle: vi.fn(), runCommand: vi.fn() }} />)
+    expect(screen.getByTestId('gate')).toBeTruthy()
+    expect(screen.getByTestId('header')).toBeTruthy()
   })
 })
