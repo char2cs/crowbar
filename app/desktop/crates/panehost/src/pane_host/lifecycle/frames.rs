@@ -84,6 +84,7 @@ impl PaneHost {
                     .collect());
             },
             PaneFrame::SetTitle { title } => HostEvent::TitleChanged { pane, title },
+            PaneFrame::SetParams { params } => HostEvent::ParamsChanged { pane, params },
             PaneFrame::SetState { state } => HostEvent::StateChanged { pane, state },
             PaneFrame::SetDirty { dirty } => HostEvent::DirtyChanged { pane, dirty },
             PaneFrame::Open(open) => HostEvent::OpenRequested { from: pane, open },
@@ -281,6 +282,7 @@ mod tests {
         let pane = PaneId::new("p1").unwrap();
         let title = PaneTitle::new("Hi").unwrap();
         let state = PaneState::new(json!({"k": 1})).unwrap();
+        let params = protocol::Params::default().with("threadId", "c1").unwrap();
         let cases: Vec<Case> = vec![
             (
                 "a title frame",
@@ -297,7 +299,17 @@ mod tests {
                 PaneFrame::SetState {
                     state: state.clone(),
                 },
-                HostEvent::StateChanged { pane, state },
+                HostEvent::StateChanged {
+                    pane: pane.clone(),
+                    state,
+                },
+            ),
+            (
+                "a params frame",
+                PaneFrame::SetParams {
+                    params: params.clone(),
+                },
+                HostEvent::ParamsChanged { pane, params },
             ),
         ];
         assert_events(cases);

@@ -89,6 +89,7 @@ impl ShellState {
             HostEvent::Reveal { path } => {
                 log_failure(platform::reveal_in_file_manager(Path::new(path.as_str())));
             },
+            HostEvent::ParamsChanged { .. } => outcome.titles_changed = true,
             HostEvent::StateChanged { .. } | HostEvent::StateDiscarded { .. } => {},
             HostEvent::BrowserPage { pane, update } => self.note_page(pane, update, outcome),
             HostEvent::PointerMoved { pane, x, y } => outcome.pointer = Some((pane, x, y)),

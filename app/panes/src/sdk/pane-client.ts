@@ -171,6 +171,11 @@ export class PaneClient {
     this.send({ kind: 'pane.setTitle', title: fitTitle(title) })
   }
 
+  /** Re-keys the pane on new params, as a draft chat does once its chat exists; the pane keeps its place. */
+  setParams(params: PaneParams): void {
+    this.send({ kind: 'pane.setParams', params })
+  }
+
   /** Replaces the persisted state; throws a RangeError when it is over the shell's state limit. */
   setState(state: unknown): void {
     const size = encoder.encode(JSON.stringify(state)).length

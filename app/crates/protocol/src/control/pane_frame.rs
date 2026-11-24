@@ -12,6 +12,7 @@ use crate::control::payload::PaneOpen;
 use crate::control::payload::PaneState;
 use crate::control::payload::PaneTitle;
 use crate::control::payload::PaneToast;
+use crate::control::payload::Params;
 use crate::control::payload::ViewedFile;
 use crate::control::sdk_version::SdkVersion;
 use crate::identity::CommandId;
@@ -47,6 +48,13 @@ pub enum PaneFrame {
     SetTitle {
         /// The new title.
         title: PaneTitle,
+    },
+    /// `pane.setParams`: re-keys the pane on new parameters, as a draft chat does once its chat
+    /// is created. The pane keeps its place, state and page.
+    #[serde(rename = "pane.setParams")]
+    SetParams {
+        /// Its parameters from now on.
+        params: Params,
     },
     /// `pane.setState`: replaces the pane's persisted state.
     #[serde(rename = "pane.setState")]
@@ -181,6 +189,7 @@ mod tests {
             r#"{"kind":"document.edit","text":"Title\n"}"#,
             r#"{"kind":"document.showSource"}"#,
             r#"{"kind":"document.save"}"#,
+            r#"{"kind":"pane.setParams","params":{"threadId":"c1"}}"#,
         ];
         for text in cases {
             let frame: PaneFrame = serde_json::from_str(text).unwrap();
@@ -194,6 +203,7 @@ mod tests {
             r#"{"kind":"shell.openExternal","url":"file:///etc/passwd"}"#,
             r#"{"kind":"shell.reveal","path":"relative"}"#,
             r#"{"kind":"shell.toast","key":"t1","tone":"shout","title":"x"}"#,
+            r#"{"kind":"pane.setParams","params":{"threadId":""}}"#,
         ];
         for text in cases {
             assert!(serde_json::from_str::<PaneFrame>(text).is_err(), "{text}");

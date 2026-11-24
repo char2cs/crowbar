@@ -32,6 +32,11 @@ describe('PaneClient', () => {
       { kind: 'pane.setTitle', title: 'Fix the build' },
     ],
     [
+      're-keys the pane on new params',
+      (client: PaneClient) => client.setParams({ threadId: 'c9' }),
+      { kind: 'pane.setParams', params: { threadId: 'c9' } },
+    ],
+    [
       'saves state',
       (client: PaneClient) => client.setState({ scroll: 4 }),
       { kind: 'pane.setState', state: { scroll: 4 } },

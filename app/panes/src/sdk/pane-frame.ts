@@ -8,6 +8,7 @@ export type PaneFrame =
   | { kind: 'pane.register'; typeId: string; sdkVersion: string }
   | ({ kind: 'pane.open'; typeId: string; params: PaneParams } & Partial<OpenTarget>)
   | { kind: 'pane.setTitle'; title: string }
+  | { kind: 'pane.setParams'; params: PaneParams }
   | { kind: 'pane.setState'; state: unknown }
   | { kind: 'pane.setDirty'; dirty: boolean }
   | { kind: 'pane.openRefused'; title?: string; message: string }

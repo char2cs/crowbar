@@ -1,7 +1,7 @@
 use browser::PageUpdate;
 use protocol::{
     CommandId, DisplayText, ExternalUrl, FsPath, PaneId, PaneOpen, PaneState, PaneTitle, PaneToast,
-    SettingKey, ViewedFile,
+    Params, SettingKey, ViewedFile,
 };
 use serde_json::Value;
 
@@ -15,6 +15,13 @@ pub enum HostEvent {
         pane: PaneId,
         /// The new title.
         title: PaneTitle,
+    },
+    /// A pane re-keyed itself on new parameters.
+    ParamsChanged {
+        /// The pane.
+        pane: PaneId,
+        /// Its parameters from now on.
+        params: Params,
     },
     /// A pane replaced its persisted state.
     StateChanged {
