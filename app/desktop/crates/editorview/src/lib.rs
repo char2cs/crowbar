@@ -3,6 +3,7 @@
 mod access;
 mod caret;
 mod disk_take;
+mod document;
 mod editor_event;
 mod editor_view;
 mod editorview;

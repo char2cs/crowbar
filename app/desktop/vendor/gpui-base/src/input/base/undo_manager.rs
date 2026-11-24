@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use super::auto_close::AutoClosedPairs;
 use crate::input::change::Change;
 
@@ -62,8 +65,14 @@ pub(crate) struct Replay {
 /// multi-cursor edit) bracket those changes with `begin_transaction` and
 /// `commit_transaction`. The bracket nests, so an outer caller can group
 /// several already-bracketed edits into one undo entry.
+///
+/// The history is shared: every state over one [`super::TextModel`] holds the
+/// same history, so undo in any of them undoes the document's last edit.
+#[derive(Debug, Clone)]
+pub(crate) struct UndoManager(Rc<RefCell<UndoHistory>>);
+
 #[derive(Debug)]
-pub(crate) struct UndoManager {
+struct UndoHistory {
     undo_transactions: Vec<UndoTransaction>,
     redo_transactions: Vec<UndoTransaction>,
     ignoring: bool,
@@ -75,6 +84,86 @@ pub(crate) struct UndoManager {
 
 impl UndoManager {
     pub(super) fn new() -> Self {
+        Self(Rc::new(RefCell::new(UndoHistory::new())))
+    }
+
+    pub(super) fn take_pending_intent(&self) -> Option<EditIntent> {
+        self.0.borrow_mut().take_pending_intent()
+    }
+
+    pub(super) fn set_pending_intent(&self, intent: EditIntent) {
+        self.0.borrow_mut().set_pending_intent(intent)
+    }
+
+    pub(super) fn record_transaction(&self, change: Change, intent: EditIntent) -> bool {
+        self.0.borrow_mut().record_transaction(change, intent)
+    }
+
+    pub(super) fn begin_transaction(&self) {
+        self.0.borrow_mut().begin_transaction()
+    }
+
+    pub(super) fn begin_transaction_with(&self, intent: EditIntent) {
+        self.0.borrow_mut().begin_transaction_with(intent)
+    }
+
+    pub(super) fn commit_transaction(&self) {
+        self.0.borrow_mut().commit_transaction()
+    }
+
+    pub(super) fn record_selections(&self, before: Vec<CursorSelection>, after: Vec<CursorSelection>) {
+        self.0.borrow_mut().record_selections(before, after)
+    }
+
+    pub(super) fn record_auto_closed_pairs(&self, before: AutoClosedPairs, after: AutoClosedPairs) {
+        self.0.borrow_mut().record_auto_closed_pairs(before, after)
+    }
+
+    pub(super) fn record_auto_closed_pairs_after(&self, after: AutoClosedPairs) {
+        self.0.borrow_mut().record_auto_closed_pairs_after(after)
+    }
+
+    pub(super) fn has_open_transaction(&self) -> bool {
+        self.0.borrow_mut().has_open_transaction()
+    }
+
+    pub(super) fn break_transaction_coalescing(&self) {
+        self.0.borrow_mut().break_transaction_coalescing()
+    }
+
+    pub(super) fn is_ignoring(&self) -> bool {
+        self.0.borrow_mut().is_ignoring()
+    }
+
+    pub(super) fn set_ignoring(&self, ignoring: bool) {
+        self.0.borrow_mut().set_ignoring(ignoring)
+    }
+
+    pub(super) fn clear(&self) {
+        self.0.borrow_mut().clear()
+    }
+
+    pub(super) fn undo(&self) -> Option<Replay> {
+        self.0.borrow_mut().undo()
+    }
+
+    pub(super) fn redo(&self) -> Option<Replay> {
+        self.0.borrow_mut().redo()
+    }
+
+    #[cfg(test)]
+    pub(super) fn has_undos(&self) -> bool {
+        self.0.borrow().has_undos()
+    }
+
+    #[cfg(test)]
+    pub(super) fn undo_count(&self) -> usize {
+        self.0.borrow().undo_count()
+    }
+}
+
+impl UndoHistory {
+    fn new() -> Self {
         Self {
             undo_transactions: Vec::new(),
             redo_transactions: Vec::new(),

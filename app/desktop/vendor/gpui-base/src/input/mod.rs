@@ -76,6 +76,10 @@ mod state;
 mod tab_stops;
 mod textarea;
 pub use scrollbar_presentation::{EditorScrollbarContext, EditorScrollbarRenderer};
+#[path = "base/shared_text.rs"]
+mod shared_text;
+#[path = "base/text_model.rs"]
+mod text_model;
 #[path = "base/touch.rs"]
 mod touch;
 #[path = "base/undo_manager.rs"]
@@ -133,4 +137,5 @@ pub use rope_ext::{InputEdit, Point, RopeExt, RopeLines};
 pub use ropey::Rope;
 pub use search::{SearchMatcher, SearchSession};
 pub use state::*;
+pub use text_model::{TextModel, TextModelEdit};
 pub use textarea::{Textarea, TextareaState};

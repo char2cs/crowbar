@@ -449,6 +449,8 @@ pub struct InputBaseState<M: InputModeKind> {
     pub(super) replaying_history: bool,
     pub(super) validated_token_edit: bool,
     pub(super) document_revision: u64,
+    /// The shared document this state shows, if any. See [`super::TextModel`].
+    pub(super) text_model: Option<Entity<super::TextModel>>,
     pub(super) token_presentation: super::InlineTokenPresentation,
     pub(super) token_layout_cache: Option<Box<super::token_presentation::TokenLayoutCache>>,
     /// Real per-frame bounds of the placed token elements, keyed by token
@@ -606,7 +608,7 @@ pub struct InputBaseState<M: InputModeKind> {
     /// A flag to indicate if we should emit InputEvents.
     pub(super) emit_events: bool,
 
-    _subscriptions: Vec<Subscription>,
+    pub(super) _subscriptions: Vec<Subscription>,
 
     pub(super) auto_scroll: AutoScroll,
 }
@@ -998,6 +1000,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             replaying_history: false,
             validated_token_edit: false,
             document_revision: 0,
+            text_model: None,
             token_presentation: Default::default(),
             token_bounds: Default::default(),
             hovered_token: None,
@@ -1375,7 +1378,7 @@ impl<M: InputModeKind> InputBaseState<M> {
         cx.notify();
     }
 
-    fn offset_within(&self, position: &Position, lines: usize) -> usize {
+    pub(super) fn offset_within(&self, position: &Position, lines: usize) -> usize {
         if position.line as usize >= lines {
             return self.text.len();
         }
@@ -3476,8 +3479,10 @@ impl<M: InputModeKind> InputBaseState<M> {
         requested_intent: Option<EditIntent>,
         selection_before: CursorSelection,
         selection_after: Option<CursorSelection>,
+        cx: &mut Context<Self>,
     ) -> bool {
         self.document_revision = self.document_revision.wrapping_add(1);
+        self.publish_edit(range, new_text, cx);
         let token_delta = self.edit_tokens(range, new_text.len());
         if self.undo_manager.is_ignoring() {
             return false;
@@ -3584,7 +3589,7 @@ impl<M: InputModeKind> InputBaseState<M> {
     /// Restore a set of selections captured in a transaction, clamping offsets
     /// to the current text length and out of tokens. `None` leaves the current
     /// selections as the replay left them.
-    fn restore_selections(&mut self, selections: Option<Vec<CursorSelection>>) {
+    pub(super) fn restore_selections(&mut self, selections: Option<Vec<CursorSelection>>) {
         let Some(selections) = selections else {
             return;
         };
@@ -4532,6 +4537,7 @@ impl<M: InputModeKind> InputBaseState<M> {
                 requested_intent,
                 selection_before,
                 None,
+                cx,
             );
 
             // Incremental, single-range updates must run per edit.
@@ -4677,7 +4683,7 @@ impl<M: InputModeKind> InputBaseState<M> {
 
     /// Incrementally update fold candidates after a text edit.
     /// Only traverses the edited region of the syntax tree instead of the full tree.
-    fn update_fold_candidates_incremental(&mut self, edit_range: &Range<usize>, new_text: &str) {
+    pub(super) fn update_fold_candidates_incremental(&mut self, edit_range: &Range<usize>, new_text: &str) {
         if !self.mode.is_folding() {
             return;
         }
@@ -4969,6 +4975,7 @@ impl<M: InputModeKind> EntityInputHandler for InputBaseState<M> {
                 Some(EditIntent::Atomic),
                 selection_before,
                 Some((new_offset..new_offset).into()),
+                cx,
             );
         } else {
             self.push_history(
@@ -4978,6 +4985,7 @@ impl<M: InputModeKind> EntityInputHandler for InputBaseState<M> {
                 requested_intent,
                 selection_before,
                 None,
+                cx,
             );
         }
         if let Some(diagnostics) = self.mode.diagnostics_mut() {
@@ -5164,6 +5172,7 @@ impl<M: InputModeKind> EntityInputHandler for InputBaseState<M> {
             requested_intent,
             selection_before,
             Some(*self.active_selection()),
+            cx,
         ) {
             self.undo_manager
                 .record_selections(vec![selection_before], vec![*self.active_selection()]);

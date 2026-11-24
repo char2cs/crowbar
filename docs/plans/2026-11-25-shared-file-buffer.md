@@ -59,30 +59,26 @@ asks for this plan before the fix.
 gpui-base is split the way Monaco splits model from editor:
 
 - **`TextModel` (an `Entity`)** owns the text (`Rope`), the undo and redo transactions (today's
-  `UndoManager`), the `document_revision`, and the highlighter (today an
-  `Rc<RefCell<Option<Box<dyn InputHighlighter>>>>`, which already allows sharing). It applies a batch
-  of `Change`s for an origin `EntityId` and records them as one transaction, with that origin's
-  selections before and after. It then emits `TextModelEvent::Edited { changes, origin, kind }`, where
-  `kind` is `Typed`, `ReplacedKeepingPositions` or `Undo/Redo`.
-- **`InputBaseState`** holds `model: Entity<TextModel>`. Every local edit path
-  (`replace_text_in_range_silent`, `replace_all*`, undo and redo) goes through the model.
-  - Its `text` field becomes the model's **snapshot**: `ropey::Rope` clones share their nodes in O(1),
-    and the snapshot is replaced (never edited) from the model's text in the same synchronous event.
-    It is a read handle on the owner, not a second copy. A test checks that
-    `state.revision == model.revision` after every edit, from either side.
+  `UndoManager`, now one `Rc` the states share, so its call sites are unchanged) and the revision.
+  Each state keeps its own highlighter, so the patch stays small for re-porting. A state publishes each
+  replacement it records (`push_history`, the one place every edit passes) as a `TextModelEdit
+  { origin, range, new_text, text }`, and the model emits it.
+- **`InputBaseState`** gains `share_text(model)`: it shows the model's text and adopts its history.
+  - Its `text` field is the model's **snapshot**: `ropey::Rope` clones share their nodes in O(1), and
+    each edit replaces it from the edit's text in the same event. It is a read handle on the owner,
+    not a second copy that is edited apart.
   - The state subscribes to its model. On an edit from another origin, it runs the same incremental
-    path a local edit runs (display map, `adjust_annotations`, LSP reset) but **transforms** its own
-    selections through the changes instead of placing them. On `ReplacedKeepingPositions` it keeps
-    them by line and column, as `replace_all_keeping_selections` does today.
-  - Undo and redo ask the model. The state that undoes takes the selections recorded with the
-    transaction (Monaco's cursor state), and every other state transforms its own.
-- **Unchanged API:** `EditorState::new` makes its own private model, so single-line inputs and text
-  areas behave exactly as before.
-- **New API:** `TextModel::new(text, language, cx)`, `EditorState::over(model, window, cx)`,
-  `EditorState::model()`, `TextModel::{text, revision, replace_all_keeping_positions, on edits}`.
+    path a local edit runs (display map, folds, highlighter, `adjust_annotations`, LSP reset) but
+    **shifts** its own selections past the edit instead of placing them. A replacement of the whole
+    text keeps them at their line and column, as `replace_all_keeping_selections` does.
+  - Undo and redo act on the shared history. The state that undoes takes the selections recorded with
+    the transaction (Monaco's cursor state), and every other state shifts its own.
+- **Unchanged API:** a state that never calls `share_text` behaves as upstream's, so single-line
+  inputs and text areas are untouched.
+- **New API:** `TextModel::{new, text, revision}`, `InputBaseState::{share_text, text_model}`.
 - Display map, wrap widths, folds, search session, decorations, hover and completion stay per state,
   as in Monaco: each pane has its own width and its own folds.
-- The patch is recorded in `vendor/README.md` and `patches/gpui-base/NNNN-shared-text.patch`. It is
+- The patch is recorded in `vendor/README.md` and `patches/gpui-base/0006-shared-text.patch`. It is
   dropped if upstream gains a shared buffer.
 
 The alternative of mirroring each view's edits into the other views (one `EditorState` per pane, kept
@@ -138,11 +134,11 @@ current routing makes (two chats on one workspace, or two spaces).
 
 ## Slices (red test first in each)
 1. **`shared-text` patch (gpui-base).**
-   - Red, in `crates/editorview` (public API): `two_states_over_one_model_show_each_others_edits_and_keep_their_own_carets`.
+   - Red, in `crates/editorview/tests/shared_text.rs` (public API): `two_states_over_one_model_show_each_others_edits_and_keep_their_own_carets`.
      Typing in A appears in B; B's caret, placed after the edit point, shifts by the inserted length;
      A's does not move.
    - Red: `undo_in_either_state_undoes_the_documents_last_edit`.
-   - Red: `a_replacement_keeping_positions_keeps_every_states_caret`.
+   - Red: `a_replacement_of_the_whole_text_keeps_every_states_caret`.
 2. **`editorview::Document`.** Move the saved text, save mark, dirty, conflict, language, quiet period
    and LSP link out of `EditorView`.
    - Red: `marking_the_document_saved_cleans_every_view_over_it`.

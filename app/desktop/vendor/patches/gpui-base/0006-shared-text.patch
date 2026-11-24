@@ -1,0 +1,439 @@
+--- a/src/input/base/shared_text.rs
++++ b/src/input/base/shared_text.rs
+@@ -0,0 +1,141 @@
++use std::ops::Range;
++
++use gpui::{Context, Entity, SharedString, Window};
++use ropey::Rope;
++
++use super::{
++    InputBaseState, InputModeKind, RopeExt as _, TextModel, TextModelEdit,
++    cursor::CursorSelection, mode::HighlighterUpdate,
++};
++
++impl<M: InputModeKind> InputBaseState<M> {
++    /// Show `model`'s text and share it from now on: edits made here reach
++    /// the model, and edits other states make to it are followed here, each
++    /// state keeping its own selections, scroll and folds. Undo and redo act
++    /// on the model's history, so they undo the document's last edit
++    /// whichever state made it.
++    pub fn share_text(
++        &mut self,
++        model: Entity<TextModel>,
++        window: &mut Window,
++        cx: &mut Context<Self>,
++    ) {
++        let text = SharedString::from(model.read(cx).text().to_string());
++        self.text_model = None;
++        self.set_value(text, window, cx);
++        self.undo_manager = model.read(cx).history();
++        let edits = cx.subscribe_in(&model, window, Self::follow_text_model);
++        self._subscriptions.push(edits);
++        self.text_model = Some(model);
++    }
++
++    /// The shared document this state shows, if it was given one.
++    pub fn text_model(&self) -> Option<&Entity<TextModel>> {
++        self.text_model.as_ref()
++    }
++
++    pub(super) fn publish_edit(
++        &mut self,
++        range: &Range<usize>,
++        new_text: &str,
++        cx: &mut Context<Self>,
++    ) {
++        let Some(model) = self.text_model.clone() else {
++            return;
++        };
++        let edit = TextModelEdit {
++            origin: cx.entity_id(),
++            range: range.clone(),
++            new_text: new_text.to_owned(),
++            text: self.text.clone(),
++        };
++        model.update(cx, |model, cx| model.push(edit, cx));
++    }
++
++    fn follow_text_model(
++        &mut self,
++        _: &Entity<TextModel>,
++        edit: &TextModelEdit,
++        window: &mut Window,
++        cx: &mut Context<Self>,
++    ) {
++        if edit.origin == cx.entity_id() {
++            return;
++        }
++        let old_text = std::mem::replace(&mut self.text, edit.text.clone());
++        let (range, new_text) = (&edit.range, edit.new_text.as_str());
++        self.document_revision = self.document_revision.wrapping_add(1);
++        self.mode.adjust_auto_closed_pair(range, new_text.len());
++        M::adjust_annotations(self, range, new_text.len());
++        self.display_map
++            .adjust_folds_for_edit(&old_text, range, new_text);
++        self.display_map
++            .on_text_changed(&self.text, range, &Rope::from(new_text), cx);
++        let input_edit = super::mode::replacement_input_edit(&old_text, &self.text, range, new_text);
++        self.mode.update_highlighter(
++            HighlighterUpdate {
++                selected_range: range,
++                old_text: &old_text,
++                new_text: &self.text,
++                change_text: new_text,
++                force: true,
++                input_edit: Some(input_edit),
++            },
++            window,
++            cx,
++        );
++        self.update_fold_candidates_incremental(range, new_text);
++        if let Some(diagnostics) = self.mode.diagnostics_mut() {
++            diagnostics.reset(&self.text)
++        }
++        M::refresh_language_features(self, window, cx);
++        self.update_search(cx);
++        self.follow_selections(&old_text, range, new_text.len());
++        self.ime_marked_range = None;
++        if self.is_multi_line() {
++            self.mode.update_auto_grow(&self.display_map);
++        }
++        cx.notify();
++    }
++
++    /// Another state's edit moves this state's selections as Monaco moves the
++    /// cursors of every other editor on a model: a replacement of the whole
++    /// text keeps them at their line and column, any other edit shifts the
++    /// offsets after it.
++    fn follow_selections(&mut self, old_text: &Rope, range: &Range<usize>, new_len: usize) {
++        let whole = range.start == 0 && range.end >= old_text.len();
++        let lines = self.text.lines_len();
++        let followed: Vec<CursorSelection> = self
++            .selections
++            .iter()
++            .map(|selection| {
++                let mut selection = *selection;
++                let (start, end) = if whole {
++                    (
++                        self.offset_within(&old_text.offset_to_position(selection.start), lines),
++                        self.offset_within(&old_text.offset_to_position(selection.end), lines),
++                    )
++                } else {
++                    (
++                        shifted(selection.start, range, new_len),
++                        shifted(selection.end, range, new_len),
++                    )
++                };
++                selection.start = start;
++                selection.end = end;
++                selection
++            })
++            .collect();
++        self.restore_selections(Some(followed));
++    }
++}
++
++fn shifted(offset: usize, range: &Range<usize>, new_len: usize) -> usize {
++    if offset < range.start {
++        return offset;
++    }
++    if offset >= range.end {
++        return offset - range.len() + new_len;
++    }
++    range.start + (offset - range.start).min(new_len)
++}
+--- a/src/input/base/state.rs
++++ b/src/input/base/state.rs
+@@ -449,6 +449,8 @@
+     pub(super) replaying_history: bool,
+     pub(super) validated_token_edit: bool,
+     pub(super) document_revision: u64,
++    /// The shared document this state shows, if any. See [`super::TextModel`].
++    pub(super) text_model: Option<Entity<super::TextModel>>,
+     pub(super) token_presentation: super::InlineTokenPresentation,
+     pub(super) token_layout_cache: Option<Box<super::token_presentation::TokenLayoutCache>>,
+     /// Real per-frame bounds of the placed token elements, keyed by token
+@@ -606,7 +608,7 @@
+     /// A flag to indicate if we should emit InputEvents.
+     pub(super) emit_events: bool,
+ 
+-    _subscriptions: Vec<Subscription>,
++    pub(super) _subscriptions: Vec<Subscription>,
+ 
+     pub(super) auto_scroll: AutoScroll,
+ }
+@@ -998,6 +1000,7 @@
+             replaying_history: false,
+             validated_token_edit: false,
+             document_revision: 0,
++            text_model: None,
+             token_presentation: Default::default(),
+             token_bounds: Default::default(),
+             hovered_token: None,
+@@ -1375,7 +1378,7 @@
+         cx.notify();
+     }
+ 
+-    fn offset_within(&self, position: &Position, lines: usize) -> usize {
++    pub(super) fn offset_within(&self, position: &Position, lines: usize) -> usize {
+         if position.line as usize >= lines {
+             return self.text.len();
+         }
+@@ -3476,8 +3479,10 @@
+         requested_intent: Option<EditIntent>,
+         selection_before: CursorSelection,
+         selection_after: Option<CursorSelection>,
++        cx: &mut Context<Self>,
+     ) -> bool {
+         self.document_revision = self.document_revision.wrapping_add(1);
++        self.publish_edit(range, new_text, cx);
+         let token_delta = self.edit_tokens(range, new_text.len());
+         if self.undo_manager.is_ignoring() {
+             return false;
+@@ -3584,7 +3589,7 @@
+     /// Restore a set of selections captured in a transaction, clamping offsets
+     /// to the current text length and out of tokens. `None` leaves the current
+     /// selections as the replay left them.
+-    fn restore_selections(&mut self, selections: Option<Vec<CursorSelection>>) {
++    pub(super) fn restore_selections(&mut self, selections: Option<Vec<CursorSelection>>) {
+         let Some(selections) = selections else {
+             return;
+         };
+@@ -4532,6 +4537,7 @@
+                 requested_intent,
+                 selection_before,
+                 None,
++                cx,
+             );
+ 
+             // Incremental, single-range updates must run per edit.
+@@ -4677,7 +4683,7 @@
+ 
+     /// Incrementally update fold candidates after a text edit.
+     /// Only traverses the edited region of the syntax tree instead of the full tree.
+-    fn update_fold_candidates_incremental(&mut self, edit_range: &Range<usize>, new_text: &str) {
++    pub(super) fn update_fold_candidates_incremental(&mut self, edit_range: &Range<usize>, new_text: &str) {
+         if !self.mode.is_folding() {
+             return;
+         }
+@@ -4969,6 +4975,7 @@
+                 Some(EditIntent::Atomic),
+                 selection_before,
+                 Some((new_offset..new_offset).into()),
++                cx,
+             );
+         } else {
+             self.push_history(
+@@ -4978,6 +4985,7 @@
+                 requested_intent,
+                 selection_before,
+                 None,
++                cx,
+             );
+         }
+         if let Some(diagnostics) = self.mode.diagnostics_mut() {
+@@ -5164,6 +5172,7 @@
+             requested_intent,
+             selection_before,
+             Some(*self.active_selection()),
++            cx,
+         ) {
+             self.undo_manager
+                 .record_selections(vec![selection_before], vec![*self.active_selection()]);
+--- a/src/input/base/text_model.rs
++++ b/src/input/base/text_model.rs
+@@ -0,0 +1,63 @@
++use std::ops::Range;
++
++use gpui::{Context, EntityId, EventEmitter};
++use ropey::Rope;
++
++use super::undo_manager::UndoManager;
++
++/// One document's text and undo history, shared by every editor state that
++/// shows it.
++///
++/// A state made with [`super::InputBaseState::share_text`] applies its edits
++/// here, and every other state over the same model follows them while
++/// keeping its own selections, scroll and folds, as several Monaco editors
++/// share one text model.
++pub struct TextModel {
++    text: Rope,
++    revision: u64,
++    history: UndoManager,
++}
++
++/// One replacement a state applied to a [`TextModel`], in the coordinates of
++/// the text before it.
++#[derive(Clone)]
++pub struct TextModelEdit {
++    pub(crate) origin: EntityId,
++    pub(crate) range: Range<usize>,
++    pub(crate) new_text: String,
++    pub(crate) text: Rope,
++}
++
++impl EventEmitter<TextModelEdit> for TextModel {}
++
++impl TextModel {
++    /// A model holding `text`, with an empty history.
++    pub fn new(text: &str) -> Self {
++        Self {
++            text: Rope::from(text),
++            revision: 0,
++            history: UndoManager::new(),
++        }
++    }
++
++    /// The text as it stands after the last edit.
++    pub fn text(&self) -> &Rope {
++        &self.text
++    }
++
++    /// Advances with every edit, whichever state made it.
++    pub fn revision(&self) -> u64 {
++        self.revision
++    }
++
++    pub(crate) fn history(&self) -> UndoManager {
++        self.history.clone()
++    }
++
++    pub(crate) fn push(&mut self, edit: TextModelEdit, cx: &mut Context<Self>) {
++        self.text = edit.text.clone();
++        self.revision = self.revision.wrapping_add(1);
++        cx.emit(edit);
++        cx.notify();
++    }
++}
+--- a/src/input/base/undo_manager.rs
++++ b/src/input/base/undo_manager.rs
+@@ -1,3 +1,6 @@
++use std::cell::RefCell;
++use std::rc::Rc;
++
+ use super::auto_close::AutoClosedPairs;
+ use crate::input::change::Change;
+ 
+@@ -62,8 +65,14 @@
+ /// multi-cursor edit) bracket those changes with `begin_transaction` and
+ /// `commit_transaction`. The bracket nests, so an outer caller can group
+ /// several already-bracketed edits into one undo entry.
++///
++/// The history is shared: every state over one [`super::TextModel`] holds the
++/// same history, so undo in any of them undoes the document's last edit.
++#[derive(Debug, Clone)]
++pub(crate) struct UndoManager(Rc<RefCell<UndoHistory>>);
++
+ #[derive(Debug)]
+-pub(crate) struct UndoManager {
++struct UndoHistory {
+     undo_transactions: Vec<UndoTransaction>,
+     redo_transactions: Vec<UndoTransaction>,
+     ignoring: bool,
+@@ -75,6 +84,86 @@
+ 
+ impl UndoManager {
+     pub(super) fn new() -> Self {
++        Self(Rc::new(RefCell::new(UndoHistory::new())))
++    }
++
++    pub(super) fn take_pending_intent(&self) -> Option<EditIntent> {
++        self.0.borrow_mut().take_pending_intent()
++    }
++
++    pub(super) fn set_pending_intent(&self, intent: EditIntent) {
++        self.0.borrow_mut().set_pending_intent(intent)
++    }
++
++    pub(super) fn record_transaction(&self, change: Change, intent: EditIntent) -> bool {
++        self.0.borrow_mut().record_transaction(change, intent)
++    }
++
++    pub(super) fn begin_transaction(&self) {
++        self.0.borrow_mut().begin_transaction()
++    }
++
++    pub(super) fn begin_transaction_with(&self, intent: EditIntent) {
++        self.0.borrow_mut().begin_transaction_with(intent)
++    }
++
++    pub(super) fn commit_transaction(&self) {
++        self.0.borrow_mut().commit_transaction()
++    }
++
++    pub(super) fn record_selections(&self, before: Vec<CursorSelection>, after: Vec<CursorSelection>) {
++        self.0.borrow_mut().record_selections(before, after)
++    }
++
++    pub(super) fn record_auto_closed_pairs(&self, before: AutoClosedPairs, after: AutoClosedPairs) {
++        self.0.borrow_mut().record_auto_closed_pairs(before, after)
++    }
++
++    pub(super) fn record_auto_closed_pairs_after(&self, after: AutoClosedPairs) {
++        self.0.borrow_mut().record_auto_closed_pairs_after(after)
++    }
++
++    pub(super) fn has_open_transaction(&self) -> bool {
++        self.0.borrow_mut().has_open_transaction()
++    }
++
++    pub(super) fn break_transaction_coalescing(&self) {
++        self.0.borrow_mut().break_transaction_coalescing()
++    }
++
++    pub(super) fn is_ignoring(&self) -> bool {
++        self.0.borrow_mut().is_ignoring()
++    }
++
++    pub(super) fn set_ignoring(&self, ignoring: bool) {
++        self.0.borrow_mut().set_ignoring(ignoring)
++    }
++
++    pub(super) fn clear(&self) {
++        self.0.borrow_mut().clear()
++    }
++
++    pub(super) fn undo(&self) -> Option<Replay> {
++        self.0.borrow_mut().undo()
++    }
++
++    pub(super) fn redo(&self) -> Option<Replay> {
++        self.0.borrow_mut().redo()
++    }
++
++    #[cfg(test)]
++    pub(super) fn has_undos(&self) -> bool {
++        self.0.borrow().has_undos()
++    }
++
++    #[cfg(test)]
++    pub(super) fn undo_count(&self) -> usize {
++        self.0.borrow().undo_count()
++    }
++}
++
++impl UndoHistory {
++    fn new() -> Self {
+         Self {
+             undo_transactions: Vec::new(),
+             redo_transactions: Vec::new(),
+--- a/src/input/mod.rs
++++ b/src/input/mod.rs
+@@ -76,6 +76,10 @@
+ mod tab_stops;
+ mod textarea;
+ pub use scrollbar_presentation::{EditorScrollbarContext, EditorScrollbarRenderer};
++#[path = "base/shared_text.rs"]
++mod shared_text;
++#[path = "base/text_model.rs"]
++mod text_model;
+ #[path = "base/touch.rs"]
+ mod touch;
+ #[path = "base/undo_manager.rs"]
+@@ -133,4 +137,5 @@
+ pub use ropey::Rope;
+ pub use search::{SearchMatcher, SearchSession};
+ pub use state::*;
++pub use text_model::{TextModel, TextModelEdit};
+ pub use textarea::{Textarea, TextareaState};

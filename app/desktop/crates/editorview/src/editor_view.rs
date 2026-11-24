@@ -7,6 +7,7 @@ use gpui_kit::base::input::{InputEvent, Rope};
 use gpui_kit::component::Sizable as _;
 use gpui_kit::component::input::{Editor, EditorState};
 
+use crate::document::Document;
 use crate::find_widget::FindWidget;
 use crate::goto_line::GotoLine;
 use crate::occurrence_session::OccurrenceSession;
@@ -74,7 +75,8 @@ impl EditorView {
         let language = toolbar.language();
         let saved = Rope::from(saved.as_deref().unwrap_or(&text));
         let reported_dirty = saved != text.as_str();
-        let state = cx.new(|cx| editor_state(language, text, (window, cx)));
+        let document = Document::new(&text, cx);
+        let state = cx.new(|cx| editor_state(language, &document, (window, cx)));
         if let Some(line) = line {
             goto_action::reveal_line(&state, line, (window, cx));
         }
@@ -257,14 +259,14 @@ impl Render for EditorView {
 
 fn editor_state(
     language: editor::Language,
-    text: String,
+    document: &Document,
     (window, cx): (&mut Window, &mut Context<'_, EditorState>),
 ) -> EditorState {
     let mut state = EditorState::new(window, cx)
         .language(crate::highlight_name::of(language))
         .context_menu(false)
-        .searchable(false)
-        .default_value(text);
+        .searchable(false);
+    document.show_in(&mut state, (window, cx));
     settings_follow::apply(&mut state, &Settings::of(cx), (window, cx));
     state
 }
