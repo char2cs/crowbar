@@ -80,6 +80,7 @@ impl ShellState {
             layout,
             quarantined,
         } = store.load_or_quarantine()?;
+        let layout = crate::draft_views::without_drafts(layout);
         let browsers = BrowserIds::default();
         browsers.follow(&layout);
         let terminals = TerminalIds::default();

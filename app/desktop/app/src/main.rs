@@ -34,6 +34,7 @@ mod direction;
 mod dirty_panes;
 mod document_request;
 mod document_source;
+mod draft_views;
 mod editor_panes;
 mod editor_preferences;
 mod error;
