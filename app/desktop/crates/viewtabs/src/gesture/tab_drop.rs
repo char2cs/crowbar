@@ -36,6 +36,19 @@ impl TabDrop {
     }
 
     #[must_use]
+    pub(crate) fn gap_at(
+        x: f32,
+        spans: &[Span],
+    ) -> Option<Self> {
+        spans.first()?;
+        let before = spans
+            .iter()
+            .filter(|span| span.x + span.width / 2.0 <= x)
+            .count();
+        Some(Self::Reorder(before))
+    }
+
+    #[must_use]
     pub(crate) fn commands(
         &self,
         subject: &DragSubject,

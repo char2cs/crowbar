@@ -6,6 +6,7 @@ use ui::{DraggedRow, Motion};
 use crate::event::Event;
 use crate::gesture::IncomingDrop;
 use crate::gesture::TabDrop;
+use crate::pill::MemberView;
 use crate::tab_bar::TabBar;
 
 impl TabBar {
@@ -15,7 +16,8 @@ impl TabBar {
         _: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        self.hover_at(event.event.position, cx);
+        let subject = event.drag(cx).clone();
+        self.hover_at((event.event.position, Some(&subject)), cx);
     }
 
     pub(crate) fn row_over(
@@ -25,7 +27,7 @@ impl TabBar {
         cx: &mut Context<'_, Self>,
     ) {
         if event.drag(cx).chat.is_some() {
-            self.hover_at(event.event.position, cx);
+            self.hover_at((event.event.position, None), cx);
         }
     }
 
@@ -60,11 +62,11 @@ impl TabBar {
 
     fn hover_at(
         &mut self,
-        position: Point<Pixels>,
+        (position, subject): (Point<Pixels>, Option<&DragSubject>),
         cx: &mut Context<'_, Self>,
     ) {
         let hovering = self.row.contains(&position);
-        let drop = hovering.then(|| self.drop_at(position)).flatten();
+        let drop = hovering.then(|| self.drop_at(position, subject)).flatten();
         let Some(drop) = drop else {
             self.incoming = None;
             cx.notify();
@@ -100,9 +102,30 @@ impl TabBar {
     fn drop_at(
         &self,
         position: Point<Pixels>,
+        subject: Option<&DragSubject>,
     ) -> Option<TabDrop> {
+        let (x, spans) = (self.content_x(position), self.slot_spans());
+        if subject
+            .and_then(|subject| self.member_of(subject))
+            .is_some()
+        {
+            return TabDrop::gap_at(x, &spans);
+        }
         let ids: Vec<_> = self.tabs.iter().map(|tab| tab.id).collect();
-        TabDrop::at(self.content_x(position), &self.slot_spans(), &ids)
+        TabDrop::at(x, &spans, &ids)
+    }
+
+    fn member_of(
+        &self,
+        subject: &DragSubject,
+    ) -> Option<&MemberView> {
+        let DragSubject::Pane(pane) = subject else {
+            return None;
+        };
+        self.tabs
+            .iter()
+            .flat_map(|tab| &tab.members)
+            .find(|member| &member.pane == pane)
     }
 
     fn line_x(
@@ -124,15 +147,8 @@ impl TabBar {
         &self,
         subject: &DragSubject,
     ) -> String {
-        match subject {
-            DragSubject::Pane(pane) => self
-                .tabs
-                .iter()
-                .flat_map(|tab| &tab.members)
-                .find(|member| &member.pane == pane)
-                .map_or_else(String::new, |member| member.label.to_string()),
-            DragSubject::Open(_) | DragSubject::Chat(_) | DragSubject::Tab(_) => String::new(),
-        }
+        self.member_of(subject)
+            .map_or_else(String::new, |member| member.label.to_string())
     }
 }
 
@@ -170,6 +186,18 @@ mod tests {
         bar.read_with(cx, |bar, _| {
             assert!(bar.incoming.is_none(), "marker consumed");
         });
+    }
+
+    #[gpui::test]
+    fn a_chat_of_a_view_held_over_a_tab_opens_a_gap_beside_it_instead_of_merging(
+        cx: &mut TestAppContext
+    ) {
+        let harness = open(cx, vec![view(1, &["a"]), view(2, &["b", "c"])], 1);
+        let (bar, cx) = (harness.bar, harness.cx);
+        let over_tab_two = gpui::point(gpui::px(8.0 + 240.0 + 60.0), gpui::px(21.0));
+        let subject = DragSubject::Pane(PaneId::new("c").expect("id"));
+        let drop = bar.read_with(cx, |bar, _| bar.drop_at(over_tab_two, Some(&subject)));
+        assert_eq!(drop, Some(TabDrop::Reorder(1)), "the gap before tab two");
     }
 
     #[gpui::test]
