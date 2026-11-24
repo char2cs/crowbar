@@ -41,9 +41,9 @@ import {
 } from '@/__tests__/__fixtures__/remote-host'
 import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
-const LONG_MARKDOWN = Array.from({ length: 200 }, (_, i) => `# Heading ${i}\n\nBody ${i}\n`).join(
-  '\n',
-)
+// jsdom lays nothing out, so no offset is ever clamped: the document's length plays no part, and
+// each extra block is only Plate render time under StrictMode's double render.
+const MARKDOWN = Array.from({ length: 10 }, (_, i) => `# Heading ${i}\n\nBody ${i}\n`).join('\n')
 
 /** The open source document's tab; `doc`'s text is `text`. */
 function makeSource(doc: DocumentRef, text: string): EditorContent {
@@ -85,7 +85,7 @@ function setupStore(paths: string[]) {
   const store = createWorkspaceStore('w1')
   resetWindowPaneStoreForTests()
   const buffers: PaneContent[] = paths.flatMap((path) => [
-    makeSource(workspaceRef('w1', path), LONG_MARKDOWN),
+    makeSource(workspaceRef('w1', path), MARKDOWN),
     makePreview(path),
   ])
   windowPaneStore.setState((s) => {

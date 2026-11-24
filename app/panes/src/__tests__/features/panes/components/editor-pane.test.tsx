@@ -124,12 +124,14 @@ describe('EditorPane', () => {
     expect(monacoMounted()).toBe(false)
   })
 
+  // The retry cases open markdown: the document they reload lands on the mocked Plate surface
+  // instead of mounting Monaco, which none of them looks at.
   it('a tab whose document failed to load reads it again on request', async () => {
-    const doc = workspaceRef('ws-buffer', 'untitled:Untitled-7')
+    const doc = workspaceRef('ws-buffer', 'untitled:Untitled-7.md')
     const id = windowPaneStore
       .getState()
-      .bufferActions.openContent({ type: 'editor', doc, name: 'Untitled-7', isVirtual: true })
-    setDocumentUnavailable(doc, { title: 'Failed to open file', message: 'Untitled-7' })
+      .bufferActions.openContent({ type: 'editor', doc, name: 'Untitled-7.md', isVirtual: true })
+    setDocumentUnavailable(doc, { title: 'Failed to open file', message: 'Untitled-7.md' })
     await putDrafts([{ uri: documentUri(doc), text: 'scratch', savedText: '', updatedAt: 0 }])
     const retry = vi.spyOn(openDocumentModule, 'retryLoad')
     onTestFinished(() => retry.mockRestore())
@@ -145,9 +147,9 @@ describe('EditorPane', () => {
   })
 
   it('a failed retry reports why', async () => {
-    const doc = workspaceRef('ws-buffer', 'src/flaky.ts')
-    const id = await open('src/flaky.ts')
-    setDocumentUnavailable(doc, { title: 'File not found', message: 'src/flaky.ts' })
+    const doc = workspaceRef('ws-buffer', 'src/flaky.md')
+    const id = await open('src/flaky.md')
+    setDocumentUnavailable(doc, { title: 'File not found', message: 'src/flaky.md' })
     const retry = vi
       .spyOn(openDocumentModule, 'retryLoad')
       .mockRejectedValue(new ApiError('daemon unreachable', 500))
@@ -168,9 +170,9 @@ describe('EditorPane', () => {
   })
 
   it('Try again on a tab whose file is back shows the file, with no error', async () => {
-    const doc = workspaceRef('ws-buffer', 'src/back.ts')
-    const id = await open('src/back.ts')
-    setDocumentUnavailable(doc, { title: 'File not found', message: 'src/back.ts' })
+    const doc = workspaceRef('ws-buffer', 'src/back.md')
+    const id = await open('src/back.md')
+    setDocumentUnavailable(doc, { title: 'File not found', message: 'src/back.md' })
     readDocument.mockResolvedValueOnce({ ref: doc, text: 'back' })
     const error = vi.spyOn(toast, 'error')
     render(inAmbient(pane(id)))
@@ -184,11 +186,11 @@ describe('EditorPane', () => {
   })
 
   it('Try again is busy while it reads, so a second click starts no second read', async () => {
-    const doc = workspaceRef('ws-buffer', 'src/slow.ts')
+    const doc = workspaceRef('ws-buffer', 'src/slow.md')
     const id = windowPaneStore
       .getState()
-      .bufferActions.openContent({ type: 'editor', doc, name: 'slow.ts' })
-    setDocumentUnavailable(doc, { title: 'Failed to open file', message: 'slow.ts' })
+      .bufferActions.openContent({ type: 'editor', doc, name: 'slow.md' })
+    setDocumentUnavailable(doc, { title: 'Failed to open file', message: 'slow.md' })
     let finish!: (read: { ref: DocumentRef; text: string }) => void
     readDocument.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)))
     render(inAmbient(pane(id)))
