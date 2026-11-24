@@ -17,7 +17,6 @@ const SHELL_KEYS: readonly string[] = [
   'renderIndentGuides',
   'semanticHighlighting',
   'highlightOccurrences',
-  'showMinimap',
   'formatOnSave',
   'inlineBlame',
   'autoCompletion',

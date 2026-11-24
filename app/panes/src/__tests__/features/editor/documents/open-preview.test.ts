@@ -9,12 +9,11 @@ import { workspaceRef } from '@/lib/api/documents'
 const DOC = workspaceRef('ws1', 'src/a.ts')
 
 afterEach(() => {
-  installPreviewOpener(null)
   vi.clearAllMocks()
 })
 
 describe('openPreview', () => {
-  it('opens the document as this page’s preview tab when no opener is installed', async () => {
+  it('in the app opens the document as this page’s own preview tab', async () => {
     await openPreview(DOC)
     expect(openDocument).toHaveBeenCalledExactlyOnceWith(DOC, { preview: true })
   })

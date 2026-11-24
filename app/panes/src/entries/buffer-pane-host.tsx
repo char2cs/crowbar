@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
 import { useStore } from 'zustand'
 import { useChatField } from '@/features/agent/hooks/use-chat-entity'
-import { EditorHostRegistry } from '@/features/panes/components/editor-host-registry'
 import { PaneEditorViewContent } from '@/features/panes/components/pane-editor-view-content'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
@@ -118,7 +117,6 @@ export function BufferPaneHost({ client, open }: { client: Shell; open: OpenBuff
           showing
         />
       </div>
-      <EditorHostRegistry />
     </WorkspaceStoreContext.Provider>
   )
 }

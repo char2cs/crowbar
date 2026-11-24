@@ -17,7 +17,6 @@ Display|Render Whitespace|Show visible markers for spaces and tabs|whitespace, s
 Display|Indent Guides|Show vertical guides for indentation levels|indent, guides, indentation, tabs, spaces, display\n\
 Display|Semantic Highlighting|Color functions, types, and properties using language servers and grammars|semantic, highlighting, syntax, colors, tokens, display\n\
 Display|Highlight Occurrences|Highlight visible matches for the word under the cursor|highlight, occurrences, matches, word, symbol, cursor\n\
-Display|Show Minimap|Show a minimap overview of the code on the right side of the editor|minimap, overview, code, preview, display\n\
 Tabs|Max Open Tabs|Maximum number of tabs before oldest closes|tabs, limit, maximum, open\n\
 Code Formatting|Format on Save|Format with the language server when saving (manual saves only)|format, save, automatic, formatting, lsp\n\
 Code Formatting|Inline Blame|Show who last changed the cursor's line, and when|blame, git, author, annotate\n\

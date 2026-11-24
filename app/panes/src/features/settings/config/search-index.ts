@@ -99,14 +99,6 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     keywords: ['highlight', 'occurrences', 'matches', 'word', 'symbol', 'cursor'],
   },
   {
-    id: 'editor-show-minimap',
-    tab: 'editor',
-    section: 'Display',
-    label: 'Show Minimap',
-    description: 'Show a minimap overview of the code on the right side of the editor',
-    keywords: ['minimap', 'overview', 'code', 'preview', 'display'],
-  },
-  {
     id: 'editor-max-open-tabs',
     tab: 'editor',
     section: 'Tabs',

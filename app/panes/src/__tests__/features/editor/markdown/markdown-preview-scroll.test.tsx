@@ -229,7 +229,6 @@ describe('MarkdownPreview links', () => {
       expect(opener).toHaveBeenCalledExactlyOnceWith(workspaceRef('w1', 'docs/spec.md')),
     )
     expect(openDocument).not.toHaveBeenCalled()
-    installPreviewOpener(null)
     exists.mockImplementation(async () => true)
   })
 

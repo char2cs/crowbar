@@ -185,12 +185,10 @@ export type OpenDocumentModel = (ref: DocumentRef, text: string, savedText?: str
 
 /** Resolves once Monaco has loaded, with the way to open document models synchronously. */
 export async function documentModelOpener(): Promise<OpenDocumentModel> {
-  const [host, { langForUri }] = await Promise.all([
-    loadEditorHost(),
-    import('@/features/editor/lib/monaco-adapters'),
-  ])
+  const host = await loadEditorHost()
   return (ref, text, savedText = text) => {
-    host.documents.open(ref, langForUri(documentUri(ref)), text, savedText)
+    const uri = documentUri(ref)
+    host.documents.open(ref, host.languageOf(uri), text, savedText)
   }
 }
 

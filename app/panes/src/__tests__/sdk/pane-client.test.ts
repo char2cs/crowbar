@@ -65,8 +65,8 @@ describe('PaneClient', () => {
     ],
     [
       'asks the shell to store a setting',
-      (client: PaneClient) => client.setSetting('showMinimap', true),
-      { kind: 'settings.set', version: 1, key: 'showMinimap', value: true },
+      (client: PaneClient) => client.setSetting('wordWrap', true),
+      { kind: 'settings.set', version: 1, key: 'wordWrap', value: true },
     ],
     [
       'marks review files viewed',

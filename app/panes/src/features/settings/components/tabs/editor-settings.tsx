@@ -175,18 +175,6 @@ export const EditorSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Show Minimap"
-          description="Show a minimap overview on the right side of the editor"
-          onReset={() => updateSetting('showMinimap', getDefaultSetting('showMinimap'))}
-          canReset={settings.showMinimap !== getDefaultSetting('showMinimap')}
-        >
-          <Switch
-            checked={settings.showMinimap}
-            onChange={(checked) => updateSetting('showMinimap', checked)}
-            size="sm"
-          />
-        </SettingRow>
-        <SettingRow
           label="Max Open Tabs"
           description="Maximum number of tabs before oldest closes"
           onReset={() => updateSetting('maxOpenTabs', getDefaultSetting('maxOpenTabs'))}

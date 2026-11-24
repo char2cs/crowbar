@@ -84,7 +84,6 @@ export function useEditorOptions(
   const renderIndentGuides = useSettingsStore((s) => s.settings.renderIndentGuides)
   const semanticHighlighting = useSettingsStore((s) => s.settings.semanticHighlighting)
   const highlightOccurrences = useSettingsStore((s) => s.settings.highlightOccurrences)
-  const minimap = useSettingsStore((s) => s.settings.showMinimap)
   const autoCompletion = useSettingsStore((s) => s.settings.autoCompletion)
   const parameterHints = useSettingsStore((s) => s.settings.parameterHints)
   const zoomLevel = useZoomStore.use.editorZoomLevel()
@@ -104,7 +103,6 @@ export function useEditorOptions(
       readOnly,
       domReadOnly: readOnly,
       lineNumbers: lineNumbers ? 'on' : 'off',
-      minimap: { enabled: minimap },
       renderWhitespace,
       wordWrap: wordWrap ? 'on' : 'off',
       guides: { indentation: renderIndentGuides, highlightActiveIndentation: renderIndentGuides },
@@ -126,7 +124,6 @@ export function useEditorOptions(
     highlightOccurrences,
     lineHeight,
     lineNumbers,
-    minimap,
     parameterHints,
     readOnly,
     renderIndentGuides,

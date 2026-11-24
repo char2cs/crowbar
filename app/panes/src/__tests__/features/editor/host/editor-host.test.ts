@@ -242,4 +242,10 @@ describe('editor host', () => {
     },
     MONACO_LOAD_MS,
   )
+
+  it('refuses to load in a page that installed no editor, as a shell pane', async () => {
+    vi.resetModules()
+    const fresh = await import('@/features/editor/host/editor-host')
+    await expect(fresh.loadEditorHost()).rejects.toThrow('This page has no code editor')
+  })
 })

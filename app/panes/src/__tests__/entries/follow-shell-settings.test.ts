@@ -47,14 +47,14 @@ describe('followShellSettings', () => {
       ...shellThatSends(),
       setSetting: (key, value) => written.push([key, value]),
     })
-    void useSettingsStore.getState().updateSetting('showMinimap', true)
+    void useSettingsStore.getState().updateSetting('renderIndentGuides', false)
     void useSettingsStore.getState().updateSetting('coreFeatures', { breadcrumbs: false })
-    expect(written).toEqual([['showMinimap', true]])
+    expect(written).toEqual([['renderIndentGuides', false]])
     const { settings } = useSettingsStore.getState()
-    expect([settings.showMinimap, settings.coreFeatures.breadcrumbs]).toEqual([false, false])
+    expect([settings.renderIndentGuides, settings.coreFeatures.breadcrumbs]).toEqual([true, false])
     stop()
-    void useSettingsStore.getState().updateSetting('showMinimap', true)
-    expect(useSettingsStore.getState().settings.showMinimap).toBe(true)
+    void useSettingsStore.getState().updateSetting('renderIndentGuides', false)
+    expect(useSettingsStore.getState().settings.renderIndentGuides).toBe(false)
   })
 
   it('keeps the font variables in step with the shell', () => {

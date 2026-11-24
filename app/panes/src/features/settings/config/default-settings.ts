@@ -30,7 +30,6 @@ export const defaultSettings: Settings = {
   renderIndentGuides: true,
   semanticHighlighting: true,
   highlightOccurrences: false,
-  showMinimap: false,
   // Terminal
   terminalFontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
   terminalFontSize: DEFAULT_CODE_FONT_SIZE,

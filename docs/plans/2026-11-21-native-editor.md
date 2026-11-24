@@ -317,6 +317,17 @@ The Monaco pane stays in place until slice 7 retires it. No feature flag is adde
 - The `monaco-editor` dependency in `app/package.json`, and the editor tests under `src/__tests__/features/editor/**` that cover deleted units.
 - Kept: Plate markdown (`features/editor/markdown/**`, shared with the chat composer), Shiki (`lib/shiki-grammars.ts`, used by the code-block node), and the review pane.
 
+**As built (2026-11-24).** The list above cannot be deleted: `index.html` → `app-main.tsx` is the
+mobile app's page (`app/mobile/src-tauri/tauri.conf.json` serves `panes/dist`), and its IDE screen
+(`mobile-ide-screen.tsx` → `pane-editor-view-content.tsx` → `editor-pane.tsx`) is develop's Monaco
+editor. So Monaco is retired from the shell's four pane bundles instead:
+- The app installs its editor at boot (`features/editor/host/app-editor.ts`): the host build
+  (`build-editor-host.ts`, the only module that loads Monaco) and its own preview opener. A shell
+  pane installs neither, so `loadEditorHost` refuses there and no pane entry reaches Monaco.
+- The review page no longer mounts the Monaco host registry; it shows only review buffers.
+- The minimap setting (D4) is deleted from the settings catalog, the app's settings tab and the
+  toolbar menu; ED-024 and ED-054 are marked dropped.
+
 A reachability check run for this plan (imports from `entries/{chat,review,console}.tsx` with the review host cut off from `editor-pane.tsx`) shows 61 files that only the editor entry reaches. Most of the rest of `features/editor` (documents, LSP, buffer-save) is still reached from chat, through `window-pane-store`'s editor slices (`chat-lifecycle.ts` → `editor-tab-actions.ts` → `editor-host.ts` → `buffer-save.ts`). knip will flag it once those slices go.
 
 ## 6. Risks

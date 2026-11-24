@@ -112,12 +112,6 @@ fn saving(section: Section) -> Section {
             Value::Bool(false),
         ))
         .row(row(
-            ("showMinimap", "Show Minimap"),
-            "Show a minimap overview on the right side of the editor",
-            Control::switch(),
-            Value::Bool(false),
-        ))
-        .row(row(
             ("maxOpenTabs", "Max Open Tabs"),
             "Maximum number of tabs before oldest closes",
             MAX_OPEN_TABS.plain(compact),
@@ -175,7 +169,11 @@ mod tests {
     #[test]
     fn every_editor_setting_of_the_spec_has_a_row_with_a_default() {
         let page = page();
-        assert_eq!(page.rows().count(), 18);
+        assert_eq!(
+            page.rows().count(),
+            17,
+            "develop's rows without the minimap (plan D4)"
+        );
         assert!(
             page.rows().all(|row| row.default.is_some()),
             "every row is resettable"

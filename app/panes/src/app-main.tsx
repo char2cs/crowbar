@@ -22,9 +22,11 @@ import { followWorkspaceScopes } from '@/lib/follow-workspace-scopes'
 import '@/core/entities/entity-store'
 import { IdbViewedOwner } from '@/features/git/lib/idb-viewed-owner'
 import { installViewedOwner } from '@/features/git/lib/viewed-owner'
+import { installAppEditor } from '@/features/editor/host/app-editor'
 
-// No native shell here (mobile, web): the page owns the viewed maps itself.
+// No native shell here (mobile, web): the page owns the viewed maps and its Monaco editor itself.
 installViewedOwner(new IdbViewedOwner())
+installAppEditor()
 
 // First in boot: perf marks are no-ops until the observer exists, and it self-gates via
 // perfEnabled(), so it is safe in every build.

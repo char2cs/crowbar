@@ -4,6 +4,7 @@ import { enableMapSet } from 'immer'
 import { afterEach, beforeEach, vi } from 'vitest'
 import { IdbViewedOwner } from '@/features/git/lib/idb-viewed-owner'
 import { installViewedOwner } from '@/features/git/lib/viewed-owner'
+import { installAppEditor } from '@/features/editor/host/app-editor'
 
 // main.tsx calls this once at real app boot — stores that keep a Set/Map in
 // Immer state (e.g. file-explorer-tree-store's expandedPathsByWorkspace)
@@ -12,8 +13,13 @@ import { installViewedOwner } from '@/features/git/lib/viewed-owner'
 // that imports a store directly (unit-testing it in isolation) does.
 enableMapSet()
 
-// app-main installs the IndexedDB owner; a test that needs the shell's installs that one.
-beforeEach(() => installViewedOwner(new IdbViewedOwner()))
+// app-main installs the IndexedDB owner and its editor; a test that needs the shell's installs
+// that one. The editor is installed at once too: some tests open documents as they load.
+installAppEditor()
+beforeEach(() => {
+  installViewedOwner(new IdbViewedOwner())
+  installAppEditor()
+})
 
 // Node 25 exposes a native localStorage that lacks .clear()/.removeItem() etc.
 // Replace it with a proper in-memory implementation so tests can use the full Web Storage API.
