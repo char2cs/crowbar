@@ -41,10 +41,7 @@ impl TabDrop {
         spans: &[Span],
     ) -> Option<Self> {
         spans.first()?;
-        let before = spans
-            .iter()
-            .filter(|span| span.x + span.width / 2.0 <= x)
-            .count();
+        let before = spans.iter().filter(|span| span.end() <= x).count();
         Some(Self::Reorder(before))
     }
 

@@ -194,7 +194,7 @@ mod tests {
     ) {
         let harness = open(cx, vec![view(1, &["a"]), view(2, &["b", "c"])], 1);
         let (bar, cx) = (harness.bar, harness.cx);
-        let over_tab_two = gpui::point(gpui::px(8.0 + 240.0 + 60.0), gpui::px(21.0));
+        let over_tab_two = gpui::point(gpui::px(8.0 + 240.0 + 200.0), gpui::px(21.0));
         let subject = DragSubject::Pane(PaneId::new("c").expect("id"));
         let drop = bar.read_with(cx, |bar, _| bar.drop_at(over_tab_two, Some(&subject)));
         assert_eq!(drop, Some(TabDrop::Reorder(1)), "the gap before tab two");
