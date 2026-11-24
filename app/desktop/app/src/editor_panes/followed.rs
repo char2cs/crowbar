@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use editorview::{EditorEvent, EditorView};
 use gpui::{
     AnyElement, App, AppContext as _, Entity, Focusable as _, IntoElement as _, Subscription,
@@ -25,6 +27,7 @@ pub(super) struct Followed {
     pub(super) keyboard: Keyboard,
     pub(super) view: PaneView,
     access: editorview::Access,
+    server: Rc<dyn editorview::LanguageServer>,
     pub(super) told: Option<Subscription>,
 }
 
@@ -32,6 +35,7 @@ impl Followed {
     pub(super) fn arrive(
         target: EditorTarget,
         (keyboard, access): (Keyboard, editorview::Access),
+        server: Rc<dyn editorview::LanguageServer>,
     ) -> Self {
         let phase = match target.file {
             Some(_) => PanePhase::Waiting,
@@ -44,6 +48,7 @@ impl Followed {
             keyboard,
             view,
             access,
+            server,
             told: None,
         }
     }
@@ -123,7 +128,12 @@ impl Followed {
         };
         let landed = std::mem::take(landed);
         let opening = landed.opening(&self.target, self.access);
-        let view = cx.new(|cx| EditorView::new(opening, window, cx));
+        let server = Rc::clone(&self.server);
+        let view = cx.new(|cx| {
+            let mut view = EditorView::new(opening, window, cx);
+            view.attach_language_server(server, cx);
+            view
+        });
         self.told = Some(listen(&view, (pane, requests), cx));
         let since = view.read(cx).save_mark();
         landed.restored(since, (pane, requests));
@@ -235,6 +245,7 @@ mod tests {
             let mut followed = Followed::arrive(
                 target(Some("a.ts")),
                 (Keyboard::Leave, editorview::Access::Editable),
+                crate::test_support::FakeServers::default().servers()("c1"),
             );
             followed.phase = phase;
             followed.reading();
@@ -247,16 +258,34 @@ mod tests {
         let untitled = Followed::arrive(
             target(None),
             (Keyboard::Leave, editorview::Access::Editable),
+            crate::test_support::FakeServers::default().servers()("c1"),
         );
         assert_eq!(phase_name(&untitled.phase), "read");
         let workspace = Followed::arrive(
             target(Some("a.ts")),
             (Keyboard::Leave, editorview::Access::Editable),
+            crate::test_support::FakeServers::default().servers()("c1"),
         );
         assert!(workspace.shows(&target(Some("a.ts"))));
         assert!(
             !workspace.shows(&target(Some("b.ts"))),
             "another file is another pane"
         );
+    }
+
+    #[gpui::test]
+    fn a_shown_file_opens_its_document_at_its_chat_s_language_server(
+        cx: &mut gpui::TestAppContext
+    ) {
+        use super::super::tests::{PATH, TEXT, opened};
+        cx.update(|cx| ui::init(cx).unwrap());
+        cx.update(editorview::init);
+        let documents = Rc::new(crate::test_support::FakeDocuments::default());
+        documents.loading("c1");
+        documents.holding(PATH, TEXT);
+        let _opened = opened(&documents, cx);
+        let told = documents.servers().told();
+        let expected = serde_json::json!({"path": PATH, "languageId": "typescript", "text": TEXT});
+        assert_eq!(told, [("c1".to_owned(), "didOpen", expected)]);
     }
 }

@@ -3,6 +3,7 @@
 
 mod documents;
 mod error;
+mod language_servers;
 mod live;
 mod plan;
 mod reads;
@@ -17,6 +18,7 @@ mod test_support;
 pub use daemonapi::EntryKind;
 pub use documents::Documents;
 pub use error::{Error, Result};
+pub use language_servers::LanguageServers;
 pub use live::{
     BookError, BookFuture, ChangeSignal, HostBook, HostDesk, HostNotes, HostSpec, Note, Outcome,
     OutcomeSink, PairingRequest,

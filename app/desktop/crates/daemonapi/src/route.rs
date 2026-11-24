@@ -1,4 +1,5 @@
 mod document;
+mod lsp;
 mod query;
 
 use std::fmt;

@@ -1921,6 +1921,7 @@ dependencies = [
  "gpui-kit",
  "gpui-pre",
  "gpui-pre-wgpu",
+ "lsp-types",
  "serde_json",
  "tracing",
  "ui",

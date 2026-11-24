@@ -100,14 +100,17 @@ impl EditorPanes {
             .map(|(_, followed)| followed.target.clone())
             .collect();
         panes.retain(|pane, followed| open.get(pane).is_some_and(|target| followed.shows(target)));
-        for (pane, target) in open {
+        let fresh: Vec<(PaneId, EditorTarget)> = open
+            .into_iter()
+            .filter(|(pane, _)| !panes.contains_key(pane))
+            .collect();
+        for (pane, target) in fresh {
             let access = self.access_of(&target);
             let keyboard = focused
                 .filter(|focused| **focused == pane && access == Access::Editable)
                 .map_or(Keyboard::Leave, |_| Keyboard::Take);
-            panes
-                .entry(pane)
-                .or_insert_with(|| Followed::arrive(target, (keyboard, access)));
+            let server = (self.chats.servers)(&target.chat);
+            panes.insert(pane, Followed::arrive(target, (keyboard, access), server));
         }
         drop(panes);
         self.forget_drafts(&gone);
@@ -275,7 +278,12 @@ mod tests {
         let source: Rc<dyn DocumentSource> = Rc::<FakeDocuments>::clone(documents);
         let workspaces: crate::chat_workspaces::ChatWorkspaces =
             Rc::new(|chat| matches!(chat, "c1" | "c2").then(|| "w1".to_owned()));
-        let chats = ChatReads { locks, workspaces };
+        let servers = documents.servers().servers();
+        let chats = ChatReads {
+            locks,
+            workspaces,
+            servers,
+        };
         let drafts = crate::test_support::memory_drafts(&documents.drafts());
         (
             Rc::new(EditorPanes::new(source, chats, drafts, requests)),

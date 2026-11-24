@@ -93,9 +93,11 @@ fn editors_of(
 ) -> crate::editor_panes::EditorPanes {
     let documents: Rc<dyn crate::document_source::DocumentSource> = Rc::new(data.documents());
     let (locks, workspaces) = (Rc::clone(data), Rc::clone(data));
+    let servers = data.language_servers();
     let chats = crate::editor_panes::ChatReads {
         locks: Rc::new(move |chat| locks.chat_read_only(chat)),
         workspaces: Rc::new(move |chat| workspaces.chat_workspace(chat)),
+        servers: crate::pane_language_server::PaneLanguageServer::per_chat(servers),
     };
     let file = editor::DiskDraftFile::at(drafts.to_path_buf());
     let (drafts, unread) = editor::Drafts::open(Box::new(file));

@@ -93,3 +93,100 @@ pub(crate) fn open_find(
         find.open(reveal, window, cx);
     });
 }
+
+type Posts = std::rc::Rc<std::cell::RefCell<Vec<(&'static str, serde_json::Value)>>>;
+
+/// A language server that records what it was told and answers from a table, `null` else.
+#[derive(Clone, Default)]
+pub(crate) struct FakeServer {
+    told: Posts,
+    answers: Posts,
+}
+
+impl FakeServer {
+    pub(crate) fn port(&self) -> std::rc::Rc<dyn crate::LanguageServer> {
+        std::rc::Rc::new(self.clone())
+    }
+
+    pub(crate) fn answer(
+        &self,
+        verb: &'static str,
+        data: serde_json::Value,
+    ) {
+        self.answers.borrow_mut().push((verb, data));
+    }
+
+    pub(crate) fn verbs(&self) -> Vec<&'static str> {
+        self.told.borrow().iter().map(|(verb, _)| *verb).collect()
+    }
+
+    pub(crate) fn bodies(&self) -> Vec<serde_json::Value> {
+        self.told
+            .borrow()
+            .iter()
+            .map(|(_, body)| body.clone())
+            .collect()
+    }
+}
+
+impl crate::LanguageServer for FakeServer {
+    fn post(
+        &self,
+        verb: &'static str,
+        body: serde_json::Value,
+        _: &mut App,
+    ) -> gpui::Task<Result<serde_json::Value, crate::LspError>> {
+        self.told.borrow_mut().push((verb, body));
+        let answers = self.answers.borrow();
+        let data = answers.iter().find(|(asked, _)| *asked == verb);
+        gpui::Task::ready(Ok(
+            data.map_or(serde_json::Value::Null, |(_, data)| data.clone())
+        ))
+    }
+}
+
+/// A focused view of `text` at `path` that tells a [`FakeServer`] about its document.
+pub(crate) fn served<'cx>(
+    (path, text): (&str, &str),
+    cx: &'cx mut TestAppContext,
+) -> (Entity<EditorView>, &'cx mut VisualTestContext, FakeServer) {
+    cx.update(|cx| ui::init(cx).unwrap());
+    cx.update(crate::init);
+    let opening = Opening {
+        text: text.to_owned(),
+        path: path.to_owned(),
+        line: None,
+        access: Access::Editable,
+        saved: None,
+    };
+    let server = FakeServer::default();
+    let port = server.port();
+    let (view, window) = cx.add_window_view(|window, cx| {
+        let mut view = EditorView::new(opening, window, cx);
+        view.attach_language_server(port, cx);
+        view
+    });
+    window.update(|window, cx| window.focus(&view.focus_handle(cx), cx));
+    (view, window, server)
+}
+
+/// What the view's hover provider answers at `offset` of its text.
+pub(crate) fn hover_at(
+    view: &Entity<EditorView>,
+    offset: usize,
+    window: &mut VisualTestContext,
+) -> Option<lsp_types::Hover> {
+    let hover = window.update(|window, cx| {
+        let state = view.read(cx).state.clone();
+        let text = state.read(cx).text().clone();
+        let provider = state.read(cx).lsp().hover_provider.clone()?;
+        Some(provider.hover(&text, offset, window, cx))
+    })?;
+    let answer = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let slot = std::rc::Rc::clone(&answer);
+    window
+        .spawn(async move |_| *slot.borrow_mut() = hover.await.ok())
+        .detach();
+    window.run_until_parked();
+    answer.borrow_mut().take().flatten()
+}

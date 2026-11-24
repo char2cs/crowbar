@@ -24,6 +24,7 @@ mod find_actions;
 mod fold_command;
 mod folding;
 mod goto_action;
+mod language;
 mod line_command;
 mod line_commands;
 mod occurrences;
@@ -49,6 +50,7 @@ pub struct EditorView {
     occurrences: Option<OccurrenceSession>,
     find: Entity<FindWidget>,
     goto: Entity<GotoLine>,
+    lsp: Option<std::rc::Rc<crate::lsp_link::LspLink>>,
     _caret_moves: Subscription,
     _edits: Subscription,
     _settings: Subscription,
@@ -93,6 +95,7 @@ impl EditorView {
             occurrences: None,
             find,
             goto,
+            lsp: None,
             _caret_moves: caret_moves,
             _edits: edits,
             _settings: settings,
@@ -119,6 +122,7 @@ impl EditorView {
         self.state
             .update(cx, |state, cx| state.set_highlighter(language, cx));
         self.toolbar = toolbar;
+        self.lsp_open(cx);
         cx.notify();
     }
 
@@ -130,6 +134,7 @@ impl EditorView {
     ) {
         self.saved = Rope::from(text);
         self.save_mark = disk_text::next_mark(self.save_mark);
+        self.lsp_saved(cx);
         self.report_dirty(cx);
         if !self.reported_dirty {
             self.disk_conflict = false;
@@ -146,6 +151,7 @@ impl EditorView {
             return;
         }
         self.report_dirty(cx);
+        self.lsp_changed(cx);
         self.quiet = Some(cx.spawn(async move |view, cx| Self::wait_quiet(view, cx).await));
     }
 

@@ -70,6 +70,7 @@ gpui_wgpu = { package = "gpui-pre-wgpu", version = "=0.3.12" }
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", default-features = false, features = ["font-kit", "wayland", "x11"] }
 gtk = "0.18"
 image = { version = "0.25", default-features = false }
+lsp-types = "0.97"
 webkit2gtk = "2.0.1"
 raw-window-handle = "0.6"
 wry = { version = "0.53", features = ["linux-body"] }

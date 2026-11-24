@@ -19,6 +19,7 @@ pub(crate) struct FakeDocuments {
     reads: RefCell<Vec<String>>,
     writes: RefCell<Vec<(String, String)>>,
     drafts: super::MemoryDraftFile,
+    servers: super::FakeServers,
 }
 
 impl FakeDocuments {
@@ -57,6 +58,10 @@ impl FakeDocuments {
 
     pub(crate) fn drafts(&self) -> super::MemoryDraftFile {
         self.drafts.clone()
+    }
+
+    pub(crate) fn servers(&self) -> super::FakeServers {
+        self.servers.clone()
     }
 }
 
@@ -112,6 +117,7 @@ pub(crate) fn idle_editors() -> EditorPanes {
     let chats = crate::editor_panes::ChatReads {
         locks: Rc::new(|_| false),
         workspaces: Rc::new(|_| None),
+        servers: super::FakeServers::default().servers(),
     };
     let drafts = super::memory_drafts(&super::MemoryDraftFile::default());
     EditorPanes::new(

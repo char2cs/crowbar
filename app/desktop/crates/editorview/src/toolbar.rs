@@ -42,6 +42,10 @@ impl Toolbar {
         }
     }
 
+    pub(crate) fn path(&self) -> &str {
+        &self.path
+    }
+
     pub(crate) fn language(&self) -> editor::Language {
         self.language
     }
