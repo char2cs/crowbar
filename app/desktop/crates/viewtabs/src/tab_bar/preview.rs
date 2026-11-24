@@ -1,4 +1,6 @@
-use gpui::{AnyElement, InteractiveElement as _, IntoElement as _, ParentElement as _, div};
+use gpui::{
+    AnyElement, InteractiveElement as _, IntoElement as _, ParentElement as _, Styled as _, div, px,
+};
 use protocol::PaneId;
 
 use crate::pill::{MemberView, ShellLook, TabShell};
@@ -24,7 +26,13 @@ impl TabBar {
             width,
             on_close: None,
         };
-        let preview = div().debug_selector(|| PREVIEW.into()).child(shell);
+        let (dx, dy) = self.held_offset().unwrap_or_default();
+        let preview = div()
+            .debug_selector(|| PREVIEW.into())
+            .relative()
+            .left(px(dx))
+            .top(px(dy))
+            .child(shell);
         Some(preview.into_any_element())
     }
 
@@ -86,6 +94,31 @@ mod tests {
             "joined width"
         );
         assert_eq!(bounds.size.height, px(TAB_HEIGHT), "a tab's height");
+    }
+
+    fn held_preview_origin(
+        at: gpui::Point<gpui::Pixels>,
+        cx: &mut TestAppContext,
+    ) -> gpui::Point<gpui::Pixels> {
+        let harness = open(cx, vec![view(1, &["a"]), view(2, &["a2", "b"])], 1);
+        let (bar, cx) = (harness.bar, harness.cx);
+        cx.simulate_resize(size(px(616.0), px(400.0)));
+        cx.run_until_parked();
+        let subject = layout::DragSubject::Pane(PaneId::new("b").expect("id"));
+        bar.update(cx, |bar, cx| bar.hover_at((at, Some(&subject)), cx));
+        let (_, lifted) = cx.add_window_view(|_, _| Lifted(bar));
+        lifted.run_until_parked();
+        lifted
+            .debug_bounds("tab-preview")
+            .expect("a preview is drawn")
+            .origin
+    }
+
+    #[gpui::test]
+    fn a_member_held_over_the_strip_is_pinned_to_the_tab_row(cx: &mut TestAppContext) {
+        let low_in_the_row = gpui::point(px(8.0 + 250.0), px(35.0));
+        let origin = held_preview_origin(low_in_the_row, cx);
+        assert_eq!(origin, gpui::point(px(0.0), px(5.0 - 19.0)), "raised");
     }
 
     #[gpui::test]

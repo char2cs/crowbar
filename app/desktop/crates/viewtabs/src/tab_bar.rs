@@ -1,6 +1,7 @@
 mod clock;
 mod geometry;
 mod ghost;
+mod held;
 mod incoming;
 mod menu;
 mod pointer;
@@ -22,6 +23,7 @@ use ui::Menu;
 
 use crate::event::Event;
 use crate::gesture::DragSession;
+use crate::gesture::HeldGap;
 use crate::gesture::IncomingDrop;
 use crate::gesture::NewTab;
 use crate::gesture::Press;
@@ -41,6 +43,7 @@ pub struct TabBar {
     pub(crate) press: Option<Press>,
     pub(crate) drag: Option<DragSession>,
     pub(crate) incoming: Option<IncomingDrop>,
+    pub(crate) gap: Option<HeldGap>,
     pub(crate) settle: Option<Settle>,
     pub(crate) menu: Option<Entity<Menu>>,
     pub(crate) menu_at: Point<Pixels>,
@@ -90,6 +93,7 @@ impl TabBar {
             press: None,
             drag: None,
             incoming: None,
+            gap: None,
             settle: None,
             menu: None,
             menu_at: Point::default(),

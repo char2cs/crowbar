@@ -78,6 +78,7 @@ impl TabBar {
     ) {
         let press = self.press.take();
         self.incoming = None;
+        self.gap = None;
         let Some(drag) = self.drag.take() else {
             self.activate(press, cx);
             return;

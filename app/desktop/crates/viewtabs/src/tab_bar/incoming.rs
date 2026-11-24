@@ -60,13 +60,20 @@ impl TabBar {
         at.commands(&subject, new_tab, &self.tabs)
     }
 
-    fn hover_at(
+    pub(crate) fn hover_at(
         &mut self,
         (position, subject): (Point<Pixels>, Option<&DragSubject>),
         cx: &mut Context<'_, Self>,
     ) {
+        if subject
+            .and_then(|subject| self.member_of(subject))
+            .is_some()
+        {
+            self.hold_gap(position, cx);
+            return;
+        }
         let hovering = self.row.contains(&position);
-        let drop = hovering.then(|| self.drop_at(position, subject)).flatten();
+        let drop = hovering.then(|| self.drop_at(position)).flatten();
         let Some(drop) = drop else {
             self.incoming = None;
             cx.notify();
@@ -87,12 +94,17 @@ impl TabBar {
         _: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        let Some(incoming) = self.incoming.take() else {
+        let held = self.take_held();
+        let marked = self.incoming.take().map(|incoming| incoming.drop);
+        let Some(drop) = held.map(|(to, _)| TabDrop::Reorder(to)).or(marked) else {
             return;
         };
         let title = self.ghost_title(subject);
         let new_tab = self.allocate_tab(title);
-        let commands = incoming.drop.commands(subject, new_tab, &self.tabs);
+        let commands = drop.commands(subject, new_tab, &self.tabs);
+        if let Some(held) = held {
+            self.settle_held(held, &commands, cx);
+        }
         cx.notify();
         if !commands.is_empty() {
             cx.emit(Event::Apply(commands));
@@ -102,15 +114,8 @@ impl TabBar {
     fn drop_at(
         &self,
         position: Point<Pixels>,
-        subject: Option<&DragSubject>,
     ) -> Option<TabDrop> {
         let (x, spans) = (self.content_x(position), self.slot_spans());
-        if subject
-            .and_then(|subject| self.member_of(subject))
-            .is_some()
-        {
-            return TabDrop::gap_at(x, &spans);
-        }
         let ids: Vec<_> = self.tabs.iter().map(|tab| tab.id).collect();
         TabDrop::at(x, &spans, &ids)
     }
@@ -186,15 +191,43 @@ mod tests {
     }
 
     #[gpui::test]
-    fn a_chat_of_a_view_held_over_a_tab_opens_a_gap_beside_it_instead_of_merging(
+    fn a_chat_of_a_view_dropped_in_its_gap_takes_it_and_glides_in_from_where_it_was_held(
         cx: &mut TestAppContext
     ) {
         let harness = open(cx, vec![view(1, &["a"]), view(2, &["b", "c"])], 1);
-        let (bar, cx) = (harness.bar, harness.cx);
-        let over_tab_two = gpui::point(gpui::px(8.0 + 240.0 + 200.0), gpui::px(21.0));
+        let (bar, cx, events) = (harness.bar, harness.cx, harness.events);
+        cx.simulate_resize(gpui::size(gpui::px(616.0), gpui::px(400.0)));
+        cx.run_until_parked();
         let subject = DragSubject::Pane(PaneId::new("c").expect("id"));
-        let drop = bar.read_with(cx, |bar, _| bar.drop_at(over_tab_two, Some(&subject)));
-        assert_eq!(drop, Some(TabDrop::Reorder(1)), "the gap before tab two");
+        let over_tab_two = gpui::point(gpui::px(8.0 + 250.0), gpui::px(35.0));
+        let frozen = std::time::Instant::now();
+        bar.update(cx, |bar, cx| {
+            bar.clock = std::rc::Rc::new(move || frozen);
+            bar.hover_at((over_tab_two, Some(&subject)), cx);
+        });
+        bar.update_in(cx, |bar, window, cx| bar.dropped(&subject, window, cx));
+        let expected = vec![
+            Command::DetachPane {
+                pane: PaneId::new("c").expect("id"),
+                new_tab: TabId(50),
+                title: "c".into(),
+            },
+            Command::MoveTab {
+                tab: TabId(50),
+                to_index: 1,
+            },
+        ];
+        assert_eq!(events.borrow().as_slice(), &[Event::Apply(expected)]);
+        let settle = bar.read_with(cx, |bar, cx| {
+            let settle = bar.settle.as_ref()?;
+            Some((
+                settle.tab,
+                settle.offset(bar.clock.now(), ui::Motion::of(cx)),
+            ))
+        });
+        let (tab, from) = settle.expect("the new tab settles");
+        assert_eq!(tab, TabId(50), "the new tab");
+        assert_eq!(from, 152.0 - 202.0, "from the ghost");
     }
 
     #[gpui::test]

@@ -104,6 +104,10 @@ impl TabBar {
                 .incoming
                 .as_ref()
                 .is_some_and(|incoming| incoming.is_moving(now, motion))
+            || self
+                .gap
+                .as_ref()
+                .is_some_and(|gap| gap.is_sliding(now, motion))
     }
 
     fn scroller(
@@ -145,6 +149,9 @@ impl TabBar {
     ) -> f32 {
         if let Some(drag) = &self.drag {
             return drag.slide(index, now, motion);
+        }
+        if let Some(gap) = &self.gap {
+            return gap.slide(index, now, motion);
         }
         self.settle
             .as_ref()
@@ -316,5 +323,35 @@ mod tests {
         bar.read_with(cx, |bar, _| {
             assert_eq!(bar.look_of(0), ShellLook::MergeTarget, "merge target");
         });
+    }
+
+    #[gpui::test]
+    fn a_chat_of_a_view_held_over_the_strip_slides_the_tabs_after_its_gap_by_the_joined_width(
+        cx: &mut TestAppContext
+    ) {
+        let harness = open(cx, vec![view(1, &["a"]), view(2, &["b", "c"])], 1);
+        let (bar, cx) = (harness.bar, harness.cx);
+        cx.simulate_resize(gpui::size(gpui::px(616.0), gpui::px(400.0)));
+        cx.update(|_, cx| cx.set_global(ui::Motion::reduced()));
+        cx.run_until_parked();
+        let subject = layout::DragSubject::Pane(protocol::PaneId::new("c").expect("id"));
+        let over_tab_two = gpui::point(gpui::px(8.0 + 250.0), gpui::px(21.0));
+        bar.update(cx, |bar, cx| {
+            bar.hover_at((over_tab_two, Some(&subject)), cx);
+        });
+        let shifts = bar.read_with(cx, |bar, cx| {
+            let at = (bar.clock.now(), ui::Motion::of(cx));
+            [bar.shift(0, TabId(1), at), bar.shift(1, TabId(2), at)]
+        });
+        assert_eq!(shifts, [0.0, 200.0], "tab two makes room for a third");
+        let off_the_strip = gpui::point(gpui::px(300.0), gpui::px(200.0));
+        bar.update(cx, |bar, cx| {
+            bar.hover_at((off_the_strip, Some(&subject)), cx);
+        });
+        let shifts = bar.read_with(cx, |bar, cx| {
+            let at = (bar.clock.now(), ui::Motion::of(cx));
+            [bar.shift(0, TabId(1), at), bar.shift(1, TabId(2), at)]
+        });
+        assert_eq!(shifts, [0.0, 0.0], "the gap closes off the strip");
     }
 }
