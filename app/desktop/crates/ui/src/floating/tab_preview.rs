@@ -3,7 +3,7 @@
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     App, Context, InteractiveElement, IntoElement, ParentElement, Pixels, Render, SharedString,
-    Size, Styled, Window, div, px, relative,
+    Styled, Window, div, px, relative,
 };
 
 use crate::floating::Portal;
@@ -22,13 +22,13 @@ const SHADOW_ALPHA: f32 = 0.15;
 const DIRTY_DOT: &str = "•";
 
 /// An editor tab's drag preview: the lifted control surface, `rounded-lg`, `px-2 py-1`, its
-/// `ui-text-xs` name (at most 200px) with the unsaved dot after it, as large as the tab it lifts
+/// `ui-text-xs` name (at most 200px) with the unsaved dot after it, as wide as the tab it lifts
 /// or else as its name. Return it from `on_drag`.
 #[derive(Clone)]
 pub struct TabPreview {
     name: SharedString,
     unsaved: bool,
-    size: Option<Size<Pixels>>,
+    width: Option<Pixels>,
 }
 
 impl TabPreview {
@@ -37,17 +37,17 @@ impl TabPreview {
         Self {
             name: name.into(),
             unsaved: false,
-            size: None,
+            width: None,
         }
     }
 
-    /// Takes the size of the tab it lifts, as develop's drag overlay takes its source's.
+    /// Takes the width of the tab it lifts, as develop's drag overlay stretches its block preview.
     #[must_use]
-    pub fn sized(
+    pub fn wide(
         mut self,
-        size: Size<Pixels>,
+        width: Pixels,
     ) -> Self {
-        self.size = Some(size);
+        self.width = Some(width);
         self
     }
 
@@ -105,7 +105,7 @@ fn preview(
         .font_family(theme.ui_family())
         .text_size(ScaledText::Xs.size(&theme))
         .line_height(relative(LINE))
-        .when_some(tab.size, |pill, size| pill.w(size.width).h(size.height))
+        .when_some(tab.width, Styled::w)
         .child(label);
     div().flex().child(pill)
 }
@@ -137,14 +137,22 @@ mod tests {
     }
 
     #[gpui::test]
-    fn a_sized_preview_keeps_its_size_when_its_holder_has_none(cx: &mut TestAppContext) {
+    fn a_widened_preview_keeps_its_width_when_its_holder_has_none(cx: &mut TestAppContext) {
         let tab = gpui::size(px(116.0), px(32.0));
         let (_, mut top) = open_floating(cx, move |_, cx| {
-            let preview = cx.new(|_| TabPreview::new("Untitled").sized(tab));
+            let preview = cx.new(|_| TabPreview::new("Untitled").wide(tab.width));
             div().relative().size_0().child(preview)
         });
         settle(&mut top);
         let ghost = top.debug_bounds("drag-ghost").unwrap_or_default();
-        assert_eq!(ghost.size, tab, "a drag view lays its ghost out at no size");
+        assert_eq!(
+            ghost.size.width, tab.width,
+            "a drag view lays its ghost out at no size"
+        );
+        let tall = f32::from(ghost.size.height);
+        assert!(
+            (26.0..=27.0).contains(&tall),
+            "develop's preview keeps its own height: {tall}"
+        );
     }
 }

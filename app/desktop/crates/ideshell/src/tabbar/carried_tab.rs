@@ -113,9 +113,9 @@ fn lift(
         state.begin(tab, seat.tabs);
         state.chosen = Some(select);
     });
-    let size = seat.strip.read(cx).tab_size((seat.index, seat.tabs));
-    let preview = match size {
-        Some(size) => preview.sized(size),
+    let width = seat.strip.read(cx).tab_width((seat.index, seat.tabs));
+    let preview = match width {
+        Some(width) => preview.wide(width),
         None => preview,
     };
     let pill = cx.new(|_| preview);

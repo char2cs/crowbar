@@ -457,7 +457,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn a_lifted_tab_s_preview_takes_the_tab_s_size(cx: &mut TestAppContext) {
+    fn a_lifted_tab_s_preview_takes_the_tab_s_width(cx: &mut TestAppContext) {
         let cx = opened_with(cx, (1, 0, 1200.0), Moves::default());
         let tab = cx.debug_bounds("strip-tab-frame-t0").unwrap_or_default();
         let left = gpui::MouseButton::Left;
@@ -470,8 +470,12 @@ mod tests {
         let ghost = cx.debug_bounds("drag-ghost").unwrap_or_default();
         cx.simulate_mouse_up(held, left, Modifiers::none());
         assert_eq!(
-            ghost.size, tab.size,
-            "develop's overlay copies its source's size"
+            ghost.size.width, tab.size.width,
+            "develop's overlay copies its source's width"
+        );
+        assert!(
+            ghost.size.height < tab.size.height,
+            "and keeps the preview's own height"
         );
     }
 

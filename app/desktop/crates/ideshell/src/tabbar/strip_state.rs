@@ -1,4 +1,4 @@
-use gpui::{App, Context, Entity, FocusHandle, Pixels, Point, ScrollHandle, Size, Window, px};
+use gpui::{App, Context, Entity, FocusHandle, Pixels, Point, ScrollHandle, Window, px};
 use protocol::PaneId;
 
 use crate::tabbar::input_mode::InputMode;
@@ -77,12 +77,14 @@ impl StripState {
         self.drag = Some(StripDrag::new(tab, self.pressed, centres));
     }
 
-    pub(crate) fn tab_size(
+    pub(crate) fn tab_width(
         &self,
         (index, tabs): (usize, usize),
-    ) -> Option<Size<Pixels>> {
+    ) -> Option<Pixels> {
         let child = self.first_tab(tabs) + index;
-        self.scroll.bounds_for_item(child).map(|bounds| bounds.size)
+        self.scroll
+            .bounds_for_item(child)
+            .map(|bounds| bounds.size.width)
     }
 
     fn first_tab(
