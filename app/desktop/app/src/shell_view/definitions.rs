@@ -2,8 +2,8 @@
 //! definition in another workspace file opens it at its line, and one only outside the
 //! workspace says so.
 
-use gpui::Context;
-use protocol::PaneId;
+use gpui::{Context, Window};
+use protocol::{DocumentPath, PaneId};
 use ui::{ToastContent, ToastKind, ToastLifetime};
 
 use super::ShellView;
@@ -15,19 +15,30 @@ const OUTSIDE: &str = "Definition is outside this workspace";
 impl ShellView {
     pub(super) fn open_definition(
         &mut self,
-        pane: &PaneId,
-        (path, line): (&str, u32),
+        found: (&PaneId, &str, (u32, u32)),
+        window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
+        let (pane, path, at) = found;
         let layout = self.state.layout();
         let chat = layout.pane(pane).and_then(crate::tab_looks::file_chat_of);
         let Some(chat) = chat.map(str::to_owned) else {
             return;
         };
-        let focus = layout::Command::FocusPane { pane: pane.clone() };
-        self.state.apply(vec![focus]);
-        let spec = at_line(PaneSpec::editor(&chat, path), line.checked_add(1));
-        self.open_spec(spec, cx);
+        let open = DocumentPath::new(path)
+            .ok()
+            .and_then(|file| self.state.file_pane((&chat, &file)));
+        let target = open.clone().unwrap_or_else(|| pane.clone());
+        self.state
+            .apply(vec![layout::Command::FocusPane { pane: target }]);
+        let Some(open) = open else {
+            let spec = at_line(PaneSpec::editor(&chat, path), at.0.checked_add(1));
+            return self.open_spec(spec, cx);
+        };
+        self.refresh(cx);
+        let editors = self.source.native().editors();
+        editors.reveal((&open, at), window, cx);
+        editors.focus(&open, window, cx);
     }
 
     pub(super) fn definition_outside(
@@ -53,10 +64,10 @@ mod tests {
     fn a_definition_in_another_file_opens_it_at_the_definition_s_line(cx: &mut TestAppContext) {
         let mut opened = open_shell(cx);
         let shell = opened.shell.clone();
-        let states = shell.update_in(&mut opened.window, |shell, _, cx| {
+        let states = shell.update_in(&mut opened.window, |shell, window, cx| {
             shell.open_spec(PaneSpec::editor("t1", "src/a.ts"), cx);
             let file = panes_of(shell, EDITOR).remove(0);
-            shell.open_definition(&file, ("src/b.ts", 4), cx);
+            shell.open_definition((&file, "src/b.ts", (4, 0)), window, cx);
             let layout = shell.state.layout();
             panes_of(shell, EDITOR)
                 .iter()
@@ -65,6 +76,23 @@ mod tests {
                 .collect::<Vec<_>>()
         });
         assert_eq!(states.last().cloned().flatten(), Some(serde_json::json!(5)));
+    }
+
+    #[gpui::test]
+    fn a_definition_in_a_file_already_open_goes_to_its_tab(cx: &mut TestAppContext) {
+        let mut opened = open_shell(cx);
+        let shell = opened.shell.clone();
+        let (focused, panes, b) = shell.update_in(&mut opened.window, |shell, window, cx| {
+            shell.open_spec(PaneSpec::editor("t1", "src/b.ts"), cx);
+            shell.open_spec(PaneSpec::editor("t1", "src/a.ts"), cx);
+            let files = panes_of(shell, EDITOR);
+            let (b, a) = (files[0].clone(), files[1].clone());
+            shell.open_definition((&a, "src/b.ts", (4, 0)), window, cx);
+            let layout = shell.state.layout();
+            let focused = layout.active_tab().and_then(layout::Tab::focused).cloned();
+            (focused, panes_of(shell, EDITOR).len(), b)
+        });
+        assert_eq!((focused, panes), (Some(b), 2));
     }
 
     #[gpui::test]

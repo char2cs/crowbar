@@ -23,6 +23,25 @@ impl EditorPanes {
     }
 }
 
+impl EditorPanes {
+    pub(crate) fn reveal(
+        &self,
+        (pane, at): (&PaneId, (u32, u32)),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let view = self
+            .panes
+            .borrow()
+            .get(pane)
+            .and_then(|f| f.view().cloned());
+        let Some(view) = view else {
+            return;
+        };
+        view.update(cx, |view, cx| view.reveal_lsp_position(at, window, cx));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::rc::Rc;

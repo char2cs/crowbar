@@ -200,9 +200,15 @@ fn told(
         EditorEvent::RichViewRequested => {
             ShellRequest::Document(DocumentRequest::ShowRich { pane })
         },
-        EditorEvent::Definition { path, line } => {
-            ShellRequest::Document(DocumentRequest::Definition { pane, path, line })
-        },
+        EditorEvent::Definition {
+            path,
+            line,
+            character,
+        } => ShellRequest::Document(DocumentRequest::Definition {
+            pane,
+            path,
+            at: (line, character),
+        }),
         EditorEvent::DefinitionOutside(path) => {
             ShellRequest::Document(DocumentRequest::DefinitionOutside { pane, path })
         },

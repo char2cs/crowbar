@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 use gpui::{App, AppContext as _, Task, Window};
 use gpui_kit::base::input::{DefinitionProvider, Rope};
-use lsp_types::{LocationLink, Range, Uri};
+use lsp_types::{LocationLink, Position, Range, Uri};
 use serde_json::{Map, Value, json};
 
 use crate::EditorEvent;
@@ -51,11 +51,14 @@ pub(crate) fn elsewhere(
 ) -> Option<EditorEvent> {
     let path = shown.uri.path().as_str();
     let relative = path.trim_start_matches(OUTSIDE_ROOT);
-    let line = shown.selection.map_or(0, |range| range.start.line);
+    let start = shown
+        .selection
+        .map_or(Position::default(), |range| range.start);
     match shown.uri.scheme()?.as_str() {
         WORKSPACE_SCHEME if Some(relative) != own => Some(EditorEvent::Definition {
             path: relative.to_owned(),
-            line,
+            line: start.line,
+            character: start.character,
         }),
         OUTSIDE_SCHEME => Some(EditorEvent::DefinitionOutside(path.to_owned())),
         _ => None,
@@ -153,6 +156,7 @@ mod tests {
         let definition = EditorEvent::Definition {
             path: "src/b.ts".to_owned(),
             line: 3,
+            character: 2,
         };
         assert_eq!(told, [definition]);
     }

@@ -48,13 +48,14 @@ impl ShellView {
             DocumentRequest::PageEdited { pane, text } => {
                 self.take_page_text((&pane, &text), window, cx);
             },
-            other => self.on_view_request(other, cx),
+            other => self.on_view_request(other, window, cx),
         }
     }
 
     fn on_view_request(
         &mut self,
         request: DocumentRequest,
+        window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
         match request {
@@ -63,8 +64,8 @@ impl ShellView {
             },
             DocumentRequest::ShowRich { pane } => self.show_pane_view(&pane, PaneView::Rich, cx),
             DocumentRequest::Preview { pane } => self.open_file_preview(&pane, cx),
-            DocumentRequest::Definition { pane, path, line } => {
-                self.open_definition(&pane, (&path, line), cx);
+            DocumentRequest::Definition { pane, path, at } => {
+                self.open_definition((&pane, &path, at), window, cx);
             },
             DocumentRequest::DefinitionOutside { path, .. } => self.definition_outside(path, cx),
             _ => {},

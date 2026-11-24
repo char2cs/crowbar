@@ -27,6 +27,23 @@ pub(super) fn reveal_line(
     });
 }
 
+impl EditorView {
+    /// Puts the caret at a language server's `(line, character)`, counted in UTF-16 code units
+    /// as LSP counts them, as develop reveals a definition in a tab already open.
+    pub fn reveal_lsp_position(
+        &mut self,
+        (line, character): (u32, u32),
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let text = self.state.read(cx).text().clone();
+        let position = crate::lsp_position::from_lsp(&text, Position::new(line, character));
+        self.state.update(cx, |state, cx| {
+            state.set_cursor_position(position, window, cx);
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use gpui::TestAppContext;
@@ -47,5 +64,19 @@ mod tests {
                 "{keys}"
             );
         }
+    }
+
+    #[gpui::test]
+    fn a_language_server_position_past_an_emoji_puts_the_caret_on_its_character(
+        cx: &mut TestAppContext
+    ) {
+        let (view, window) = opened(("a\n\"😀\" b", None), Access::Editable, cx);
+        window.update(|window, cx| {
+            view.update(cx, |view, cx| view.reveal_lsp_position((1, 5), window, cx));
+        });
+        assert_eq!(
+            crate::editor_view::test_support::selected_of(&view, window),
+            9..9
+        );
     }
 }

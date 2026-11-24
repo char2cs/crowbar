@@ -53,11 +53,12 @@ pub(crate) enum DocumentRequest {
     ShowRich { pane: protocol::PaneId },
     /// The user asked to open a file pane's preview tab.
     Preview { pane: protocol::PaneId },
-    /// Go to definition in a file pane led to another workspace file, at a 0-based line.
+    /// Go to definition in a file pane led to another workspace file, at an LSP position
+    /// (0-based line, UTF-16 character).
     Definition {
         pane: protocol::PaneId,
         path: String,
-        line: u32,
+        at: (u32, u32),
     },
     /// Go to definition in a file pane led only outside the workspace, to this path.
     DefinitionOutside {
