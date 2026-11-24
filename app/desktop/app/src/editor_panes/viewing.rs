@@ -14,7 +14,7 @@ impl EditorPanes {
     ) -> Option<PaneKind> {
         let panes = self.panes.borrow();
         let followed = panes.get(pane)?;
-        if draws_natively(followed) {
+        if self.draws_natively(followed) {
             return Some(PaneKind::Native);
         }
         Some(PaneKind::Web)
@@ -36,15 +36,16 @@ impl EditorPanes {
         let Some(followed) = panes.get_mut(pane) else {
             return false;
         };
+        let shown = self.view_of(followed);
         let allowed = match view {
-            PaneView::Source => followed.view == PaneView::Rich,
-            PaneView::Rich => followed.view == PaneView::Source && Self::has_rich_view(followed),
+            PaneView::Source => shown == PaneView::Rich,
+            PaneView::Rich => shown == PaneView::Source && Self::has_rich_view(followed),
             PaneView::Preview => false,
         };
-        if !allowed {
+        let Some(uri) = self.uri_of(&followed.target).filter(|_| allowed) else {
             return false;
-        }
-        followed.view = view;
+        };
+        self.source_shown.show(uri, view);
         if view == PaneView::Source {
             followed.keyboard = Keyboard::Take;
         }
@@ -59,7 +60,10 @@ impl EditorPanes {
     ) -> bool {
         self.join(pane, window, cx);
         let mut panes = self.panes.borrow_mut();
-        let Some(followed) = panes.get_mut(pane).filter(|f| f.view == PaneView::Rich) else {
+        let Some(followed) = panes
+            .get_mut(pane)
+            .filter(|f| self.view_of(f) == PaneView::Rich)
+        else {
             return false;
         };
         followed.materialize((pane, &self.requests), window, cx);
@@ -70,7 +74,10 @@ impl EditorPanes {
         if protocol::encode(&ShellFrame::DocumentText { text }).is_ok() {
             return false;
         }
-        followed.view = PaneView::Source;
+        let Some(uri) = self.uri_of(&followed.target) else {
+            return false;
+        };
+        self.source_shown.show(uri, PaneView::Source);
         true
     }
 
@@ -95,7 +102,7 @@ impl EditorPanes {
     ) -> Option<String> {
         let panes = self.panes.borrow();
         let followed = panes.get(pane)?;
-        match followed.view {
+        match self.view_of(followed) {
             PaneView::Source => None,
             PaneView::Rich => Some(followed.view()?.read(cx).text(cx)),
             PaneView::Preview => {
@@ -118,7 +125,7 @@ impl EditorPanes {
         panes
             .iter()
             .filter(|(id, _)| *id != pane)
-            .filter(|(_, other)| other.view != PaneView::Source)
+            .filter(|(_, other)| self.view_of(other) != PaneView::Source)
             .filter(|(_, other)| {
                 other.shows(&source.target) || uri.is_some() && self.uri_of(&other.target) == uri
             })
@@ -140,6 +147,26 @@ impl EditorPanes {
     fn has_rich_view(followed: &Followed) -> bool {
         followed.target.view() == PaneView::Rich
     }
+
+    pub(super) fn view_of(
+        &self,
+        followed: &Followed,
+    ) -> PaneView {
+        let view = followed.target.view();
+        let uri = self.uri_of(&followed.target);
+        let source = uri.is_some_and(|uri| self.source_shown.contains(&uri));
+        if view == PaneView::Rich && source {
+            return PaneView::Source;
+        }
+        view
+    }
+
+    pub(super) fn draws_natively(
+        &self,
+        followed: &Followed,
+    ) -> bool {
+        self.view_of(followed) == PaneView::Source || followed.phase.says_why()
+    }
 }
 
 fn landed_text(followed: &Followed) -> Option<String> {
@@ -149,10 +176,6 @@ fn landed_text(followed: &Followed) -> Option<String> {
     }
 }
 
-pub(super) fn draws_natively(followed: &Followed) -> bool {
-    followed.view == PaneView::Source || followed.phase.says_why()
-}
-
 #[cfg(test)]
 mod tests {
     use std::rc::Rc;
@@ -160,7 +183,7 @@ mod tests {
     use gpui::{Focusable as _, TestAppContext};
     use serde_json::json;
 
-    use super::super::tests::{PANE, landed, layout_with, panes_over};
+    use super::super::tests::{PANE, landed, layout_with, panes_over, two_panes_on};
     use super::*;
     use crate::document_request::DocumentRequest;
     use crate::shell_request::ShellRequest;
@@ -315,6 +338,33 @@ mod tests {
         let flipped = window.update(|window, cx| panes.prepare(&pane, window, cx));
         assert!(flipped, "flipped to source");
         assert_eq!(kind(&panes, &pane), Some(PaneKind::Native));
+    }
+
+    #[test]
+    fn the_rich_or_source_view_belongs_to_the_document_and_goes_with_it() {
+        let documents = Rc::new(FakeDocuments::default());
+        let (panes, _heard) = panes_over(&documents);
+        let (one, two) = (PaneId::new(PANE).unwrap(), PaneId::new("f2").unwrap());
+        panes.follow(&two_panes_on(README), "");
+        assert!(panes.show(&one, PaneView::Source), "to source");
+        assert_eq!(
+            kind(&panes, &two),
+            Some(PaneKind::Native),
+            "both views flip"
+        );
+        assert!(
+            panes.show(&two, PaneView::Rich),
+            "back to rich from the other"
+        );
+        assert_eq!(kind(&panes, &one), Some(PaneKind::Web));
+        assert!(panes.show(&two, PaneView::Source));
+        panes.follow(&layout::Layout::default(), "");
+        panes.follow(&layout_with(json!({"path": README})), "");
+        assert_eq!(
+            kind(&panes, &one),
+            Some(PaneKind::Web),
+            "a reopened file is rich"
+        );
     }
 
     #[test]

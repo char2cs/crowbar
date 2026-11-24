@@ -96,6 +96,9 @@ impl EditorPanes {
             .filter(|target| self.uri_of(target).is_none_or(|uri| !held.contains(&uri)))
             .cloned()
             .collect();
+        for uri in released.iter().filter_map(|target| self.uri_of(target)) {
+            self.source_shown.forget(&uri);
+        }
         self.forget_drafts(&released);
     }
 

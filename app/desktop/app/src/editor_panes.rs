@@ -30,6 +30,7 @@ mod save_as_panes;
 mod saving;
 mod saving_as;
 mod sharing;
+mod source_shown;
 mod sweep;
 mod unavailable_panel;
 mod view_events;
@@ -46,6 +47,7 @@ use keyboard::Keyboard;
 pub(crate) use landing::Landing;
 use pane_phase::PanePhase;
 pub(crate) use pane_view::PaneView;
+use source_shown::SourceShown;
 use sweep::Sweep;
 
 pub(crate) struct EditorPanes {
@@ -54,6 +56,7 @@ pub(crate) struct EditorPanes {
     drafts: RefCell<editor::Drafts>,
     sweep: Cell<Sweep>,
     panes: RefCell<BTreeMap<PaneId, Followed>>,
+    source_shown: SourceShown,
     requests: async_channel::Sender<ShellRequest>,
 }
 
@@ -70,6 +73,7 @@ impl EditorPanes {
             drafts: RefCell::new(drafts),
             sweep: Cell::new(Sweep::Due),
             panes: RefCell::default(),
+            source_shown: SourceShown::default(),
             requests,
         }
     }
@@ -164,7 +168,7 @@ impl EditorPanes {
     ) -> Option<AnyElement> {
         self.join(pane, window, cx);
         let mut panes = self.panes.borrow_mut();
-        let followed = panes.get_mut(pane).filter(|f| viewing::draws_natively(f))?;
+        let followed = panes.get_mut(pane).filter(|f| self.draws_natively(f))?;
         Some(followed.drawn((pane, &self.requests), window, cx))
     }
 

@@ -13,7 +13,10 @@ impl EditorPanes {
         cx: &mut App,
     ) {
         let mut panes = self.panes.borrow_mut();
-        let Some(followed) = panes.get_mut(pane).filter(|f| f.view == PaneView::Source) else {
+        let Some(followed) = panes
+            .get_mut(pane)
+            .filter(|f| self.view_of(f) == PaneView::Source)
+        else {
             return;
         };
         match followed.view() {

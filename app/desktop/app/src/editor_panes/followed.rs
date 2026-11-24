@@ -17,7 +17,6 @@ use super::keyboard::Keyboard;
 use super::landed::Landed;
 use super::landing::Landing;
 use super::pane_phase::PanePhase;
-use super::pane_view::PaneView;
 use super::retry::Retry;
 use super::unavailable_panel;
 use super::view_events::listen;
@@ -26,7 +25,6 @@ pub(super) struct Followed {
     pub(super) target: EditorTarget,
     pub(super) phase: PanePhase,
     pub(super) keyboard: Keyboard,
-    pub(super) view: PaneView,
     access: editorview::Access,
     server: Rc<dyn editorview::LanguageServer>,
     pub(super) told: Option<Subscription>,
@@ -42,12 +40,10 @@ impl Followed {
             Some(_) => PanePhase::Waiting,
             None => PanePhase::Read(Landed::default()),
         };
-        let view = target.view();
         Self {
             target,
             phase,
             keyboard,
-            view,
             access,
             server,
             told: None,
