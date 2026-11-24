@@ -107,7 +107,7 @@ fn link_of((path, range): (String, Range)) -> Option<LocationLink> {
         origin_selection_range: None,
         target_uri: uri,
         target_range: range,
-        target_selection_range: range,
+        target_selection_range: Range::new(range.start, range.start),
     })
 }
 
@@ -165,13 +165,15 @@ mod tests {
     }
 
     #[gpui::test]
-    fn a_definition_in_the_same_file_past_an_emoji_selects_it_in_place(cx: &mut TestAppContext) {
+    fn a_definition_in_the_same_file_past_an_emoji_puts_the_caret_at_its_start(
+        cx: &mut TestAppContext
+    ) {
         let (view, window, server) = served(("src/a.ts", "\"😀\"; let b = 1"), cx);
         server.answer("definition", json!([at("src/a.ts", (0, 10, 11))]));
         let heard = listened(&view, window);
         window.simulate_keystrokes("f12");
         window.run_until_parked();
         assert_eq!(heard.take(), []);
-        assert_eq!(selected_of(&view, window), 12..13);
+        assert_eq!(selected_of(&view, window), 12..12);
     }
 }
