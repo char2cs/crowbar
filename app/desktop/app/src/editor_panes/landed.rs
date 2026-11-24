@@ -8,7 +8,7 @@ use crate::shell_request::ShellRequest;
 
 #[derive(Debug, Default)]
 pub(crate) struct Landed {
-    pub(crate) disk: String,
+    pub(crate) disk: Option<String>,
     pub(crate) draft: Option<editor::Draft>,
 }
 
@@ -20,7 +20,7 @@ impl Landed {
     ) -> Opening {
         let (text, saved) = match &self.draft {
             Some(draft) => (draft.text.clone(), Some(draft.saved_text.clone())),
-            None => (self.disk.clone(), None),
+            None => (self.disk.clone().unwrap_or_default(), None),
         };
         Opening {
             text,
@@ -31,23 +31,37 @@ impl Landed {
         }
     }
 
-    pub(super) fn restored(
+    pub(super) fn text(&self) -> Option<String> {
+        let draft = self.draft.as_ref().map(|draft| draft.text.clone());
+        draft.or_else(|| self.disk.clone())
+    }
+
+    pub(super) fn tell_dirty(
         &self,
-        since: SaveMark,
         (pane, requests): (&PaneId, &Requests),
     ) {
-        let Some(draft) = &self.draft else {
+        if self.draft.is_none() {
             return;
-        };
+        }
         let dirty = DocumentRequest::Dirty {
             pane: pane.clone(),
             dirty: true,
         };
         send(requests, ShellRequest::Document(dirty));
-        if draft.saved_text == self.disk {
+    }
+
+    pub(super) fn restored(
+        &self,
+        since: SaveMark,
+        (pane, requests): (&PaneId, &Requests),
+    ) {
+        let (Some(draft), Some(disk)) = (&self.draft, &self.disk) else {
+            return;
+        };
+        if draft.saved_text == *disk {
             return;
         }
-        let (pane, text) = (pane.clone(), self.disk.clone());
+        let (pane, text) = (pane.clone(), disk.clone());
         let read = DocumentRequest::DiskRead { pane, text, since };
         send(requests, ShellRequest::Document(read));
     }
@@ -104,5 +118,25 @@ mod tests {
             }),
         ];
         assert_eq!(heard_all(&heard), told);
+    }
+
+    #[gpui::test]
+    fn a_restored_dirty_file_says_so_before_its_tab_is_first_drawn(cx: &mut TestAppContext) {
+        cx.update(|cx| ui::init(cx).unwrap());
+        cx.update(editorview::init);
+        let documents = Rc::new(FakeDocuments::default());
+        documents.loading("c1");
+        documents.holding(PATH, TEXT);
+        drop(typed_and_kept(&documents, cx));
+        let (panes, heard) = super::super::tests::panes_over(&documents);
+        panes.follow(&super::super::tests::layout_with(
+            serde_json::json!({"path": PATH}),
+        ));
+        super::super::tests::landed(&panes, &heard);
+        let dirty = ShellRequest::Document(DocumentRequest::Dirty {
+            pane: PaneId::new(PANE).unwrap(),
+            dirty: true,
+        });
+        assert_eq!(heard_all(&heard), [dirty]);
     }
 }

@@ -146,7 +146,7 @@ impl EditorPanes {
 
 fn landed_text(followed: &Followed) -> Option<String> {
     match &followed.phase {
-        PanePhase::Read(landed) => Some(landed.disk.clone()),
+        PanePhase::Read(landed) => landed.text(),
         _ => None,
     }
 }

@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
@@ -26,6 +26,7 @@ mod pane_view;
 mod retry;
 mod saving;
 mod saving_as;
+mod sweep;
 mod unavailable_panel;
 mod viewing;
 
@@ -38,11 +39,13 @@ use keyboard::Keyboard;
 pub(crate) use landing::Landing;
 use pane_phase::PanePhase;
 pub(crate) use pane_view::PaneView;
+use sweep::Sweep;
 
 pub(crate) struct EditorPanes {
     documents: Rc<dyn DocumentSource>,
     chats: ChatReads,
     drafts: RefCell<editor::Drafts>,
+    sweep: Cell<Sweep>,
     panes: RefCell<BTreeMap<PaneId, Followed>>,
     requests: async_channel::Sender<ShellRequest>,
 }
@@ -58,6 +61,7 @@ impl EditorPanes {
             documents,
             chats,
             drafts: RefCell::new(drafts),
+            sweep: Cell::new(Sweep::Due),
             panes: RefCell::default(),
             requests,
         }
@@ -103,6 +107,7 @@ impl EditorPanes {
         drop(panes);
         self.forget_drafts(&gone);
         self.read_waiting();
+        self.sweep_drafts();
     }
 
     pub(crate) fn data_changed(
@@ -110,6 +115,7 @@ impl EditorPanes {
         cx: &mut App,
     ) {
         self.read_waiting();
+        self.sweep_drafts();
         self.follow_locks(cx);
     }
 
@@ -132,7 +138,10 @@ impl EditorPanes {
         let Some(followed) = panes.get_mut(pane) else {
             return Landing::Quiet;
         };
-        let landed = read.map(|disk| self.landed(&followed.target, disk));
+        let landed = self.landed(&followed.target, read);
+        if let Ok(landed) = &landed {
+            landed.tell_dirty((pane, &self.requests));
+        }
         followed.land(landed)
     }
 
@@ -179,7 +188,7 @@ impl EditorPanes {
         }
     }
 
-    fn start_read(
+    pub(super) fn start_read(
         &self,
         pane: &PaneId,
         target: &EditorTarget,
@@ -216,11 +225,18 @@ mod tests {
     pub(super) const TEXT: &str = "export const price = 1\n";
 
     pub(super) fn layout_with(state: serde_json::Value) -> Layout {
+        layout_in("c1", state)
+    }
+
+    pub(super) fn layout_in(
+        chat: &str,
+        state: serde_json::Value,
+    ) -> Layout {
         let mut layout = Layout::default();
         let instance = PaneInstance {
             pane_id: PaneId::new(PANE).unwrap(),
             type_id: PaneTypeId::new(EDITOR).unwrap(),
-            params: Params::default().with("threadId", "c1").unwrap(),
+            params: Params::default().with("threadId", chat).unwrap(),
             state: PaneState::new(state).unwrap(),
         };
         let commands = [

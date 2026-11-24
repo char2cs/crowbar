@@ -1,10 +1,12 @@
+use std::collections::BTreeSet;
+
 use editor::Draft;
 use gpui::App;
 use protocol::PaneId;
 
 use super::followed::Followed;
 use super::landed::Landed;
-use super::{EditorPanes, EditorTarget};
+use super::{EditorPanes, EditorTarget, Sweep};
 
 impl EditorPanes {
     pub(crate) fn keep_draft(
@@ -70,18 +72,51 @@ impl EditorPanes {
     pub(super) fn landed(
         &self,
         target: &EditorTarget,
-        disk: String,
-    ) -> Landed {
-        let uri = self.uri_of(target).filter(|_| target.preview.is_none());
-        let Some(uri) = uri else {
-            return Landed { disk, draft: None };
-        };
+        read: Result<String, editor::OpenFailure>,
+    ) -> Result<Landed, editor::OpenFailure> {
+        let draft = self.draft_over(target, read.as_deref().ok());
+        match (read, draft) {
+            (Ok(disk), draft) => Ok(Landed {
+                disk: Some(disk),
+                draft,
+            }),
+            (Err(failure), None) => Err(failure),
+            (Err(_), draft) => Ok(Landed { disk: None, draft }),
+        }
+    }
+
+    fn draft_over(
+        &self,
+        target: &EditorTarget,
+        disk: Option<&str>,
+    ) -> Option<Draft> {
+        let uri = self.uri_of(target).filter(|_| target.preview.is_none())?;
         let draft = self.drafts.borrow().get(&uri).cloned();
-        let draft = draft.filter(|draft| draft.unsaved(Some(&disk)));
+        let draft = draft.filter(|draft| draft.unsaved(disk));
         if draft.is_none() {
             self.forget_drafts(std::slice::from_ref(target));
         }
-        Landed { disk, draft }
+        draft
+    }
+
+    pub(super) fn sweep_drafts(&self) {
+        if self.sweep.get() == Sweep::Done {
+            return;
+        }
+        let held: Option<BTreeSet<String>> = self
+            .panes
+            .borrow()
+            .values()
+            .filter(|followed| followed.target.file.is_some() && followed.target.preview.is_none())
+            .map(|followed| self.uri_of(&followed.target))
+            .collect();
+        let Some(held) = held else {
+            return;
+        };
+        self.sweep.set(Sweep::Done);
+        if let Err(error) = self.drafts.borrow_mut().keep_only(&held) {
+            tracing::warn!(%error, "the drafts of tabs not restored stayed on disk");
+        }
     }
 
     fn uri_of(
@@ -103,9 +138,14 @@ mod tests {
 
     use gpui::TestAppContext;
 
-    use super::super::tests::{Opened, PANE, PATH, TEXT, opened, typed_and_kept};
+    use serde_json::json;
+
+    use super::super::Landing;
+    use super::super::tests::{
+        Opened, PANE, PATH, TEXT, landed, layout_in, opened, panes_over, shown_in, typed_and_kept,
+    };
     use super::*;
-    use crate::test_support::FakeDocuments;
+    use crate::test_support::{FakeDocuments, memory_drafts};
 
     type Ending<'a> = dyn Fn(&EditorPanes) + 'a;
 
@@ -127,5 +167,50 @@ mod tests {
             let Opened { view, window, .. } = opened(&documents, cx);
             assert_eq!(window.read(|cx| view.read(cx).text(cx)), TEXT, "{end}");
         }
+    }
+
+    fn kept(documents: &FakeDocuments) -> bool {
+        let uri = editor::workspace_uri("w1", PATH);
+        memory_drafts(&documents.drafts()).get(&uri).is_some()
+    }
+
+    #[gpui::test]
+    fn a_draft_goes_at_startup_once_no_restored_tab_holds_it(cx: &mut TestAppContext) {
+        cx.update(|cx| ui::init(cx).unwrap());
+        cx.update(editorview::init);
+        let documents = Rc::new(FakeDocuments::default());
+        documents.loading("c1");
+        documents.holding(PATH, TEXT);
+        drop(typed_and_kept(&documents, cx));
+        let (panes, _heard) = panes_over(&documents);
+        panes.follow(&layout_in("c2", json!({"path": PATH})));
+        assert!(kept(&documents), "its tab's workspace is not known yet");
+        documents.loading("c2");
+        cx.update(|cx| panes.data_changed(cx));
+        drop(panes);
+        assert!(
+            kept(&documents),
+            "a tab of another chat on its workspace holds it"
+        );
+        let (panes, _heard) = panes_over(&documents);
+        panes.follow(&layout::Layout::default());
+        assert!(!kept(&documents), "no tab holds it");
+    }
+
+    #[gpui::test]
+    fn a_draft_opens_when_its_file_cannot_be_read(cx: &mut TestAppContext) {
+        cx.update(|cx| ui::init(cx).unwrap());
+        cx.update(editorview::init);
+        let documents = Rc::new(FakeDocuments::default());
+        documents.loading("c1");
+        documents.holding(PATH, TEXT);
+        drop(typed_and_kept(&documents, cx));
+        documents.refusing(PATH, 404);
+        let (panes, heard) = panes_over(&documents);
+        panes.follow(&layout_in("c1", json!({"path": PATH})));
+        assert_eq!(landed(&panes, &heard), Landing::Shown, "the draft opens");
+        let (view, window) = shown_in(&panes, cx);
+        assert_eq!(window.read(|cx| view.read(cx).text(cx)), format!("x{TEXT}"));
+        assert!(window.read(|cx| view.read(cx).is_dirty(cx)));
     }
 }

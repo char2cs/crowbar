@@ -86,6 +86,23 @@ impl Drafts {
         Ok(adopted)
     }
 
+    /// Drops every draft whose document is not in `held`: the drafts of tabs that were not
+    /// restored, as develop's `restoreDocuments` clears them.
+    ///
+    /// # Errors
+    /// When the drafts file cannot be written; the drafts are still dropped for this run.
+    pub fn keep_only(
+        &mut self,
+        held: &std::collections::BTreeSet<String>,
+    ) -> std::io::Result<()> {
+        let before = self.kept.len();
+        self.kept.retain(|uri, _| held.contains(uri));
+        if self.kept.len() == before {
+            return Ok(());
+        }
+        self.write()
+    }
+
     /// Drops the draft of `uri`: its document is clean or closed.
     ///
     /// # Errors
@@ -160,7 +177,7 @@ mod tests {
         drafts.discard("b").unwrap();
         let old = vec![draft("a", "old"), draft("c", "first"), draft("c", "second")];
         assert_eq!(drafts.adopt(old).unwrap(), 1, "only c is new");
-        let (restarted, _) = Drafts::open(Box::new(file));
+        let (restarted, _) = Drafts::open(Box::new(file.clone()));
         assert_eq!(
             restarted.get("a"),
             Some(&draft("a", "two")),
@@ -172,6 +189,11 @@ mod tests {
             Some(&draft("c", "first")),
             "the first of a pair"
         );
+        let mut restarted = restarted;
+        restarted.keep_only(&["a".to_owned()].into()).unwrap();
+        let (swept, _) = Drafts::open(Box::new(file));
+        assert_eq!(swept.get("a"), Some(&draft("a", "two")), "its tab holds it");
+        assert_eq!(swept.get("c"), None, "no tab holds it");
     }
 
     #[test]
