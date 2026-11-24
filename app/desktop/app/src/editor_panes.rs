@@ -157,7 +157,7 @@ impl EditorPanes {
         cx: &mut App,
     ) -> Option<AnyElement> {
         let mut panes = self.panes.borrow_mut();
-        let followed = panes.get_mut(pane).filter(|f| f.view == PaneView::Source)?;
+        let followed = panes.get_mut(pane).filter(|f| viewing::draws_natively(f))?;
         Some(followed.drawn((pane, &self.requests), window, cx))
     }
 

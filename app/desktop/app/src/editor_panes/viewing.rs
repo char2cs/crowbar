@@ -12,11 +12,12 @@ impl EditorPanes {
         &self,
         pane: &PaneId,
     ) -> Option<PaneKind> {
-        let view = self.panes.borrow().get(pane)?.view;
-        match view {
-            PaneView::Source => Some(PaneKind::Native),
-            PaneView::Rich | PaneView::Preview => Some(PaneKind::Web),
+        let panes = self.panes.borrow();
+        let followed = panes.get(pane)?;
+        if draws_natively(followed) {
+            return Some(PaneKind::Native);
         }
+        Some(PaneKind::Web)
     }
 
     pub(crate) fn draws(
@@ -151,6 +152,10 @@ fn landed_text(followed: &Followed) -> Option<String> {
     }
 }
 
+pub(super) fn draws_natively(followed: &Followed) -> bool {
+    followed.view == PaneView::Source || followed.phase.says_why()
+}
+
 #[cfg(test)]
 mod tests {
     use std::rc::Rc;
@@ -194,6 +199,22 @@ mod tests {
             panes.follow(&layout_with(state.clone()));
             assert_eq!(kind(&panes, &pane), expected, "{state}");
         }
+    }
+
+    #[test]
+    fn a_restored_markdown_file_that_is_gone_says_why_natively_until_it_reads() {
+        let documents = Rc::new(FakeDocuments::default());
+        documents.loading("c1");
+        let (panes, heard) = panes_over(&documents);
+        panes.follow(&layout_with(json!({"path": README})));
+        landed(&panes, &heard);
+        let pane = PaneId::new(PANE).unwrap();
+        assert_eq!(kind(&panes, &pane), Some(PaneKind::Native), "gone");
+        documents.holding(README, TITLE);
+        panes.retry(&pane);
+        assert_eq!(kind(&panes, &pane), Some(PaneKind::Native), "trying again");
+        landed(&panes, &heard);
+        assert_eq!(kind(&panes, &pane), Some(PaneKind::Web), "read");
     }
 
     fn rich_pane(
