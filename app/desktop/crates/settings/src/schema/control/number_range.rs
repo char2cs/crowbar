@@ -77,6 +77,18 @@ impl NumberRange {
         ((snapped * scale).round() / scale).clamp(self.min, self.max)
     }
 
+    /// A stored `value` as develop's settings store loads it: a snapping range is one develop
+    /// normalizes on load, so its value is rounded, snapped and clamped; any other is kept.
+    pub fn loaded(
+        &self,
+        value: f64,
+    ) -> f64 {
+        if !self.snaps {
+            return value;
+        }
+        self.normalize(value)
+    }
+
     /// The number typed in `text`, if it is one.
     pub fn parse(
         &self,

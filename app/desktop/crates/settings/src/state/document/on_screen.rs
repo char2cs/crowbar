@@ -87,6 +87,24 @@ mod tests {
     }
 
     #[test]
+    fn a_stored_line_height_shows_as_develop_loads_it() {
+        let schema = crate::default_schema().unwrap();
+        let row = schema
+            .rows()
+            .find(|row| row.key().as_str() == "editorLineHeight")
+            .cloned()
+            .unwrap();
+        let stored_as = |number: f64| Values::default().with("editorLineHeight", number);
+        let cases = [(None, "1.4"), (Some(1.43), "1.4"), (Some(14.0), "2")];
+        for (stored, shown) in cases {
+            let values = stored.map_or_else(Values::default, stored_as);
+            let snapshot = crate::values::Snapshot::new(values);
+            let state = crate::State::new(schema.clone(), snapshot, None, chord::Primary::Control);
+            assert_eq!(state.field_text(&row), shown, "{stored:?}");
+        }
+    }
+
+    #[test]
     fn text_is_kept_as_typed_but_flagged_and_describes_itself() {
         let mut state = state_with(
             Values::default().with("engine", "custom"),

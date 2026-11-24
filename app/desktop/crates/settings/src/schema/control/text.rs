@@ -10,7 +10,9 @@ impl Control {
         value: Option<&Value>,
     ) -> String {
         match (self, value) {
-            (Self::Number { range, .. }, Some(Value::Number(number))) => range.format(*number),
+            (Self::Number { range, .. }, Some(Value::Number(number))) => {
+                range.format(range.loaded(*number))
+            },
             (Self::Text { .. }, Some(Value::Text(text))) => text.clone(),
             (Self::TextList { .. }, Some(Value::List(items))) => items.join(", "),
             _ => String::new(),
