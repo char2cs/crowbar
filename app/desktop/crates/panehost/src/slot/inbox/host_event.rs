@@ -73,6 +73,23 @@ pub enum HostEvent {
         /// Mark them viewed, or clear their marks.
         viewed: bool,
     },
+    /// A file pane's page now holds `text` for the document the shell owns.
+    DocumentEdited {
+        /// The pane.
+        pane: PaneId,
+        /// The whole text.
+        text: String,
+    },
+    /// A file pane's page asked to show its document in the source editor.
+    SourceRequested {
+        /// The pane.
+        pane: PaneId,
+    },
+    /// A file pane's page asked to save its document.
+    DocumentSaveRequested {
+        /// The pane.
+        pane: PaneId,
+    },
     /// A pane asked the shell to store a setting; the shell writes it and pushes the set back.
     SettingRequested {
         /// The pane.

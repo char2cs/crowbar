@@ -23,6 +23,22 @@ pub(crate) fn opened<'cx>(
     cx.add_window_view(|window, cx| EditorView::new(opening, window, cx))
 }
 
+pub(crate) fn opened_at<'cx>(
+    path: &str,
+    cx: &'cx mut TestAppContext,
+) -> (Entity<EditorView>, &'cx mut VisualTestContext) {
+    cx.update(|cx| ui::init(cx).unwrap());
+    cx.update(crate::init);
+    let opening = Opening {
+        text: "# Title\n".to_owned(),
+        path: path.to_owned(),
+        line: None,
+        access: Access::Editable,
+        saved: None,
+    };
+    cx.add_window_view(|window, cx| EditorView::new(opening, window, cx))
+}
+
 pub(crate) fn find_of(
     view: &Entity<EditorView>,
     window: &mut VisualTestContext,

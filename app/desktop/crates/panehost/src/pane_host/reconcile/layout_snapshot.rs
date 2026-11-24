@@ -3,11 +3,12 @@ use protocol::PaneId;
 use webview::ParentWindow;
 
 use crate::pane_host::reconcile::keyboard::Keyboard;
+use crate::pane_host::reconcile::pane_kinds::PaneKinds;
 use crate::pane_host::reconcile::visible_pane::VisiblePane;
 
 /// What the pane host needs from the shell to reconcile: the layout it reads panes and their
-/// state from (borrowed, never copied), the window, the holes panes are shown in, and the
-/// focused pane.
+/// state from (borrowed, never copied), the window, the holes panes are shown in, the focused
+/// pane, and who draws each pane.
 #[derive(Debug, Clone)]
 pub struct LayoutSnapshot<'a> {
     /// The model. Pane state is read from here and nowhere else.
@@ -20,6 +21,8 @@ pub struct LayoutSnapshot<'a> {
     pub focused: Option<PaneId>,
     /// Who the keys go to while that pane is shown.
     pub keyboard: Keyboard,
+    /// Whether a page or a native view draws each pane.
+    pub kinds: &'a dyn PaneKinds,
 }
 
 impl<'a> LayoutSnapshot<'a> {
@@ -36,6 +39,7 @@ impl<'a> LayoutSnapshot<'a> {
             visible,
             focused: layout.active_tab().and_then(|tab| tab.focused().cloned()),
             keyboard: Keyboard::default(),
+            kinds: &(),
         }
     }
 
@@ -46,6 +50,16 @@ impl<'a> LayoutSnapshot<'a> {
         keyboard: Keyboard,
     ) -> Self {
         self.keyboard = keyboard;
+        self
+    }
+
+    /// The same snapshot with `kinds` deciding who draws each pane.
+    #[must_use]
+    pub fn with_kinds(
+        mut self,
+        kinds: &'a dyn PaneKinds,
+    ) -> Self {
+        self.kinds = kinds;
         self
     }
 

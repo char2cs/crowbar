@@ -42,10 +42,18 @@ impl Toolbar {
         self.language
     }
 
+    pub(crate) fn previews(&self) -> bool {
+        editor::Preview::of_path(&self.path).is_some()
+    }
+
+    pub(crate) fn has_rich_view(&self) -> bool {
+        editor::Preview::has_rich_view(&self.path)
+    }
+
     pub(crate) fn element(
         &self,
         caret: Caret,
-        actions: AnyElement,
+        (actions, after_language): (AnyElement, Option<AnyElement>),
         cx: &mut App,
     ) -> AnyElement {
         let palette = *Theme::of(cx).palette(Surface::Window);
@@ -61,7 +69,8 @@ impl Toolbar {
             .child(actions)
             .child(divider)
             .child(chip(format!("{}:{}", caret.line, caret.column), &palette))
-            .child(chip(self.language.display_name().to_owned(), &palette));
+            .child(chip(self.language.display_name().to_owned(), &palette))
+            .children(after_language);
         div()
             .flex()
             .flex_none()

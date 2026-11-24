@@ -140,6 +140,21 @@ pub enum PaneFrame {
     /// same key by this pane is rewritten in place. Nothing is answered.
     #[serde(rename = "shell.toast")]
     Toast(PaneToast),
+    /// `document.edit`: the page's view of its file pane's document now holds `text`. The shell
+    /// owns the text and takes it as one edit; dirty state and saving stay with the shell.
+    #[serde(rename = "document.edit")]
+    DocumentEdit {
+        /// The whole text.
+        text: String,
+    },
+    /// `document.showSource`: asks the shell to show its file pane's document in the source
+    /// editor instead of the page.
+    #[serde(rename = "document.showSource")]
+    DocumentShowSource,
+    /// `document.save`: the user asked to save the file pane's document (mod+s in the page). The
+    /// page sends its pending edit first; the shell saves what it then holds.
+    #[serde(rename = "document.save")]
+    DocumentSave,
     /// `shell.toastClose`: takes down the toast this pane showed under `key`.
     #[serde(rename = "shell.toastClose")]
     ToastClose {
@@ -163,6 +178,9 @@ mod tests {
             r#"{"kind":"shell.toastClose","key":"t2"}"#,
             r#"{"kind":"pane.openRefused","title":"File not found","message":"src/a.ts"}"#,
             r#"{"kind":"pane.openRefused","message":"This project is no longer in your list"}"#,
+            r#"{"kind":"document.edit","text":"Title\n"}"#,
+            r#"{"kind":"document.showSource"}"#,
+            r#"{"kind":"document.save"}"#,
         ];
         for text in cases {
             let frame: PaneFrame = serde_json::from_str(text).unwrap();

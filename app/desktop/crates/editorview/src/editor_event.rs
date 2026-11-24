@@ -8,4 +8,8 @@ pub enum EditorEvent {
     /// Edits paused for the quiet period while the text differs from the saved text: the
     /// moment develop writes a draft and, with Auto Save on, saves.
     EditsPaused,
+    /// The user asked to preview the document (the toolbar's Preview button).
+    PreviewRequested,
+    /// The user asked to show the document in its rich view instead (Markdown only).
+    RichViewRequested,
 }

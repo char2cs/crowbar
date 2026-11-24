@@ -120,6 +120,13 @@ pub enum ShellFrame {
         /// Path relative to the repository.
         path: String,
     },
+    /// `document.text`: the text of the document a file pane's page shows, which the shell owns;
+    /// sent on mount and whenever it changes from outside the page.
+    #[serde(rename = "document.text")]
+    DocumentText {
+        /// The whole text.
+        text: String,
+    },
 }
 
 #[cfg(test)]
@@ -133,6 +140,7 @@ mod tests {
             r#"{"kind":"review.reveal","path":"src/a.ts"}"#,
             r#"{"kind":"breakpoints","cleared":["sm","md"]}"#,
             r#"{"kind":"chat.zoom","percent":120}"#,
+            r#"{"kind":"document.text","text":"Title\n"}"#,
         ];
         for text in cases {
             let frame: ShellFrame = serde_json::from_str(text).unwrap();

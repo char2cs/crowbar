@@ -14,6 +14,7 @@ mod goto_target;
 mod language;
 mod line_edit;
 mod open_failure;
+mod preview;
 mod vertical;
 mod word;
 
@@ -28,5 +29,6 @@ pub use goto_target::GotoTarget;
 pub use language::Language;
 pub use line_edit::LineEdit;
 pub use open_failure::OpenFailure;
+pub use preview::Preview;
 pub use vertical::Vertical;
 pub use word::{is_separator, word_at};

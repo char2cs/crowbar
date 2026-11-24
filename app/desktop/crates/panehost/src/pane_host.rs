@@ -5,7 +5,7 @@ mod reconcile;
 mod refusals;
 
 pub use browser::BrowseAction;
-pub use reconcile::{Keyboard, LayoutSnapshot, PaneDisplay, SyncReport, VisiblePane};
+pub use reconcile::{Keyboard, LayoutSnapshot, PaneDisplay, PaneKinds, SyncReport, VisiblePane};
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -16,7 +16,7 @@ use protocol::{
     encode,
 };
 
-use crate::catalog::PaneRegistry;
+use crate::catalog::{PaneKind, PaneRegistry};
 use crate::error::{Error, Result};
 use crate::pane_host::lifecycle::pane_phase::PanePhase;
 use crate::pane_host::lifecycle::pane_runtime::PaneRuntime;
@@ -155,7 +155,7 @@ impl PaneHost {
             _ if self.registry.get(type_id).is_none() => PaneDisplay::Placeholder {
                 type_id: type_id.clone(),
             },
-            _ if self.is_native(type_id) => PaneDisplay::Native,
+            _ if runtime.kind == PaneKind::Native => PaneDisplay::Native,
             PanePhase::Failed(message) => PaneDisplay::Error {
                 message: message.clone(),
             },
@@ -176,7 +176,7 @@ impl PaneHost {
         let mut failures = Failures::default();
         self.retire_removed(snapshot, &mut failures);
         for id in snapshot.pane_ids() {
-            self.track(snapshot.layout, &id);
+            self.track(snapshot, &id);
         }
         self.hide_unlisted(snapshot, &mut events, &mut failures);
         for visible in &snapshot.visible {

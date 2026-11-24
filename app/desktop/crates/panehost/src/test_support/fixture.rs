@@ -16,6 +16,7 @@ use crate::catalog::PaneType;
 use crate::pane_host::Keyboard;
 use crate::pane_host::LayoutSnapshot;
 use crate::pane_host::PaneHost;
+use crate::pane_host::PaneKinds;
 use crate::pane_host::VisiblePane;
 use crate::scheme::OriginTable;
 use crate::slot::Config;
@@ -53,10 +54,21 @@ impl Fixture {
             visible: visible.iter().map(|id| visible_pane(id)).collect(),
             focused: focused.map(|id| PaneId::new(id).unwrap()),
             keyboard,
+            kinds: &(),
         };
-        let report = self.host.sync(&snapshot);
-        assert!(report.failure.is_none(), "{:?}", report.failure);
-        report.events
+        synced(&mut self.host, &snapshot)
+    }
+
+    pub(crate) fn sync_kinds(
+        &mut self,
+        panes: &[PaneInstance],
+        visible: &[&str],
+        kinds: &dyn PaneKinds,
+    ) -> Vec<HostEvent> {
+        self.layout = layout_of(panes, None);
+        let visible = visible.iter().map(|id| visible_pane(id)).collect();
+        let snapshot = LayoutSnapshot::from_layout(&self.layout, WINDOW, visible).with_kinds(kinds);
+        synced(&mut self.host, &snapshot)
     }
 
     pub(crate) fn ipc(
@@ -65,6 +77,15 @@ impl Fixture {
     ) -> Vec<HostEvent> {
         self.host.handle_ipc(message, &self.layout).unwrap()
     }
+}
+
+fn synced(
+    host: &mut PaneHost,
+    snapshot: &LayoutSnapshot<'_>,
+) -> Vec<HostEvent> {
+    let report = host.sync(snapshot);
+    assert!(report.failure.is_none(), "{:?}", report.failure);
+    report.events
 }
 
 fn visible_pane(id: &str) -> VisiblePane {

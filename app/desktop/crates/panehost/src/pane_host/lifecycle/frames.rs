@@ -103,6 +103,9 @@ impl PaneHost {
                 files,
                 viewed,
             },
+            PaneFrame::DocumentEdit { text } => HostEvent::DocumentEdited { pane, text },
+            PaneFrame::DocumentShowSource => HostEvent::SourceRequested { pane },
+            PaneFrame::DocumentSave => HostEvent::DocumentSaveRequested { pane },
             frame @ (PaneFrame::Toast(_)
             | PaneFrame::ToastClose { .. }
             | PaneFrame::OpenRefused { .. }) => return Ok(toast_events(pane, frame)),
@@ -334,6 +337,34 @@ mod tests {
                     files: vec![viewed_file()],
                     viewed: true,
                 },
+            ),
+        ];
+        assert_events(cases);
+    }
+
+    #[test]
+    fn a_file_page_s_document_frames_become_their_events() {
+        let pane = PaneId::new("p1").unwrap();
+        let cases: Vec<Case> = vec![
+            (
+                "a rich view's edit",
+                PaneFrame::DocumentEdit {
+                    text: "Title\n".into(),
+                },
+                HostEvent::DocumentEdited {
+                    pane: pane.clone(),
+                    text: "Title\n".into(),
+                },
+            ),
+            (
+                "a rich view's ask for the source",
+                PaneFrame::DocumentShowSource,
+                HostEvent::SourceRequested { pane: pane.clone() },
+            ),
+            (
+                "a rich view's save",
+                PaneFrame::DocumentSave,
+                HostEvent::DocumentSaveRequested { pane },
             ),
         ];
         assert_events(cases);

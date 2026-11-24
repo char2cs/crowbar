@@ -33,15 +33,21 @@ impl PaneHost {
 
     pub(crate) fn track(
         &mut self,
-        layout: &Layout,
+        snapshot: &LayoutSnapshot<'_>,
         id: &PaneId,
     ) {
-        let Some(instance) = layout.pane(id) else {
+        let Some(instance) = snapshot.layout.pane(id) else {
             return;
         };
-        self.panes
+        let kind = snapshot
+            .kinds
+            .kind_of(id)
+            .unwrap_or_else(|| self.type_kind(&instance.type_id));
+        let runtime = self
+            .panes
             .entry(id.clone())
             .or_insert_with(|| PaneRuntime::new(instance.type_id.clone()));
+        runtime.kind = kind;
     }
 
     pub(crate) fn hide_unlisted(
@@ -63,13 +69,13 @@ impl PaneHost {
         }
     }
 
-    pub(crate) fn is_native(
+    fn type_kind(
         &self,
         type_id: &PaneTypeId,
-    ) -> bool {
+    ) -> PaneKind {
         self.registry
             .get(type_id)
-            .is_some_and(|pane_type| pane_type.kind == PaneKind::Native)
+            .map_or(PaneKind::Web, |pane_type| pane_type.kind)
     }
 
     pub(crate) fn lifecycle_of(
@@ -181,7 +187,7 @@ mod tests {
     use webview::Call;
 
     use super::*;
-    use crate::pane_host::reconcile::PaneDisplay;
+    use crate::pane_host::reconcile::{PaneDisplay, PaneKinds};
     use crate::test_support::*;
 
     #[test]
@@ -247,6 +253,40 @@ mod tests {
             .skip(before)
             .any(|call| matches!(call, Call::FocusParent { .. }));
         assert!(returned, "{calls:?}");
+    }
+
+    #[derive(Debug)]
+    struct Says(&'static str, PaneKind);
+
+    impl PaneKinds for Says {
+        fn kind_of(
+            &self,
+            pane: &PaneId,
+        ) -> Option<PaneKind> {
+            (pane.as_str() == self.0).then_some(self.1)
+        }
+    }
+
+    #[test]
+    fn the_shell_decides_per_pane_whether_a_page_or_a_native_view_draws_it() {
+        let cases = [
+            ("n1", "core.native", PaneKind::Web, 1, PaneDisplay::Web),
+            ("c1", "core.chat", PaneKind::Native, 0, PaneDisplay::Native),
+        ];
+        for (id, type_id, kind, views, display) in cases {
+            let mut f = fixture();
+            let mut native = pane_type("core.native", PaneLifecycle::KeepAlive);
+            native.kind = PaneKind::Native;
+            f.host.registry_mut().register(native).unwrap();
+            let pane = instance(id, type_id);
+            f.sync_kinds(std::slice::from_ref(&pane), &[id], &Says(id, kind));
+            assert_eq!(
+                f.host.web_view_count(),
+                views,
+                "{type_id} drawn as {kind:?}"
+            );
+            assert_eq!(f.host.display(&pane.pane_id), display, "{type_id}");
+        }
     }
 
     const CASES: &[(&str, &str, Lifecycle)] = &[

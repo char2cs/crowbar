@@ -24,9 +24,11 @@ mod goto_action;
 mod line_command;
 mod line_commands;
 mod occurrences;
+mod page_text;
 mod quiet;
 #[cfg(test)]
 pub(crate) mod test_support;
+mod view_buttons;
 
 /// One pane's editor: the gpui-kit `Editor` drawn over the document text it holds, under the
 /// toolbar of its file.
@@ -205,8 +207,9 @@ impl Render for EditorView {
     ) -> impl IntoElement {
         let read_only = self.access == Access::ReadOnly;
         let caret = self.caret(cx);
-        let find_button = Self::find_button(cx);
-        let toolbar = self.toolbar.element(caret, find_button, cx);
+        let actions = self.toolbar_actions(cx);
+        let rich_view = self.rich_view_button(cx);
+        let toolbar = self.toolbar.element(caret, (actions, rich_view), cx);
         let root = div()
             .size_full()
             .flex()
