@@ -1,20 +1,9 @@
-use gpui::{
-    AnyElement, ClickEvent, Context, InteractiveElement as _, IntoElement as _, ParentElement as _,
-    StatefulInteractiveElement as _, Styled as _, div, px,
-};
-use ui::{Icon, IconName, Surface, Theme, Tooltip};
+use gpui::{AnyElement, Context, IntoElement as _, ParentElement as _, Styled as _, div, px};
 
 use super::EditorView;
-use crate::EditorEvent;
+use super::view_button::ViewButton;
 
-const BUTTON_SIZE: f32 = 20.0;
-const ICON_SIZE: f32 = 14.0;
-const BUTTON_RADIUS: f32 = 4.0;
 const ACTION_GAP: f32 = 4.0;
-const PREVIEW: &str = "editor-preview";
-const RICH_VIEW: &str = "editor-rich-view";
-const PREVIEW_LABEL: &str = "Preview";
-const RICH_VIEW_LABEL: &str = "View rich editor";
 
 impl EditorView {
     pub(super) fn toolbar_actions(
@@ -36,45 +25,17 @@ impl EditorView {
     ) -> Option<AnyElement> {
         self.toolbar
             .previews()
-            .then(|| button((PREVIEW, PREVIEW_LABEL), EditorEvent::PreviewRequested, cx))
+            .then(|| ViewButton::PREVIEW.element(cx))
     }
 
     pub(super) fn rich_view_button(
         &self,
         cx: &mut Context<'_, Self>,
     ) -> Option<AnyElement> {
-        self.toolbar.has_rich_view().then(|| {
-            button(
-                (RICH_VIEW, RICH_VIEW_LABEL),
-                EditorEvent::RichViewRequested,
-                cx,
-            )
-        })
+        self.toolbar
+            .has_rich_view()
+            .then(|| ViewButton::RICH_VIEW.element(cx))
     }
-}
-
-fn button(
-    (id, label): (&'static str, &'static str),
-    event: EditorEvent,
-    cx: &mut Context<'_, EditorView>,
-) -> AnyElement {
-    let palette = *Theme::of(cx).palette(Surface::Window);
-    let trigger = div()
-        .id(id)
-        .debug_selector(|| id.to_owned())
-        .flex()
-        .size(px(BUTTON_SIZE))
-        .items_center()
-        .justify_center()
-        .rounded(px(BUTTON_RADIUS))
-        .hover(|style| style.bg(palette.accent()))
-        .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(event)))
-        .child(
-            Icon::new(IconName::Eye)
-                .size(px(ICON_SIZE))
-                .color(palette.muted_foreground()),
-        );
-    Tooltip::new(id, label, trigger).into_any_element()
 }
 
 #[cfg(test)]
@@ -82,6 +43,7 @@ mod tests {
     use gpui::{Modifiers, TestAppContext, VisualTestContext};
 
     use super::*;
+    use crate::EditorEvent;
     use crate::editor_view::test_support::{listened, opened_at};
 
     fn click(
@@ -122,8 +84,8 @@ mod tests {
         for (path, expected) in cases {
             let (view, window) = opened_at(path, cx);
             let heard = listened(&view, window);
-            click(window, PREVIEW);
-            click(window, RICH_VIEW);
+            click(window, ViewButton::PREVIEW.id);
+            click(window, ViewButton::RICH_VIEW.id);
             assert_eq!(*heard.borrow(), expected, "{path}");
         }
     }

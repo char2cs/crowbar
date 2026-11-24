@@ -4,7 +4,7 @@ use gpui::{
     ParentElement as _, StatefulInteractiveElement as _, Styled as _, Window, div, px,
 };
 use gpui_kit::base::input::{Replace, Search};
-use ui::{Icon, IconName, Surface, Theme};
+use ui::{Icon, IconName, Surface, Theme, Tooltip};
 
 use super::EditorView;
 use crate::Access;
@@ -15,17 +15,22 @@ use crate::keys::{
 };
 use crate::reveal::Reveal;
 
-const FIND_BUTTON_SIZE: f32 = 20.0;
-const FIND_ICON_SIZE: f32 = 14.0;
+const FIND_BUTTON_WIDTH: f32 = 36.0;
+const FIND_BUTTON_HEIGHT: f32 = 32.0;
+const FIND_ICON_SIZE: f32 = 16.0;
 const FIND_BUTTON_RADIUS: f32 = 4.0;
+const FIND_BUTTON_LABEL: &str = "Find in file";
+pub(super) const FIND_BUTTON: &str = "find-in-file";
 
 impl EditorView {
     pub(super) fn find_button(cx: &mut Context<'_, Self>) -> AnyElement {
         let palette = *Theme::of(cx).palette(Surface::Window);
-        div()
-            .id("find-in-file")
+        let trigger = div()
+            .id(FIND_BUTTON)
+            .debug_selector(|| FIND_BUTTON.to_owned())
             .flex()
-            .size(px(FIND_BUTTON_SIZE))
+            .w(px(FIND_BUTTON_WIDTH))
+            .h(px(FIND_BUTTON_HEIGHT))
             .items_center()
             .justify_center()
             .rounded(px(FIND_BUTTON_RADIUS))
@@ -37,8 +42,8 @@ impl EditorView {
                 Icon::new(IconName::MagnifyingGlass)
                     .size(px(FIND_ICON_SIZE))
                     .color(palette.muted_foreground()),
-            )
-            .into_any_element()
+            );
+        Tooltip::new(FIND_BUTTON, FIND_BUTTON_LABEL, trigger).into_any_element()
     }
 
     pub(super) fn find_actions(

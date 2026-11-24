@@ -106,6 +106,8 @@ The editor engine (`gpui-base`: `InputBaseState`, the rope, tree-sitter highligh
 
 `whitespace-modes` (`gpui-base`, `src/input/base/layout.rs`, `src/input/base/state.rs`, `src/input/base/element.rs`, `src/input/editor/display_map/text_wrapper.rs`), applied on top of `editor-commands`: `WhitespaceMode` (`None`, `Boundary`, `Trailing`, `All`) says which spaces and tabs a code editor marks, as develop's `renderWhitespace` setting does through Monaco: boundary skips a single space between two words, trailing marks only what follows a line's last other character, judged over the whole line when it soft-wraps. `set_whitespace_mode` sets it and `whitespace_mode` reads it; upstream's `show_whitespaces` bool still means all or none. Drop it when upstream marks whitespace by mode.
 
+`monaco-markdown-classes` (`gpui-component`, `src/highlighter/languages/markdown/highlights.scm`): a Markdown heading is one `@title` from its `#` marker on, a setext heading only by its underline, and a quote marker is a `@comment`, as develop's Monaco grammar tokenizes them (a whole heading line and a setext underline as `keyword`, `>` as `comment`); the shell's highlight theme then paints `@title` as a keyword. Upstream follows nvim-treesitter: the marker is punctuation and the heading text a title. Keep it while the editor matches develop's Monaco colours.
+
 Drop the vendored copies when the editor needs no patch of its own and upstream keeps pace with gpui-pre.
 
 ## Updating

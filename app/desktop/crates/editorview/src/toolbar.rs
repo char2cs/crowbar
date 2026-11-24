@@ -1,7 +1,11 @@
 use gpui::{
-    AnyElement, App, FontWeight, Hsla, IntoElement as _, ParentElement as _, Styled as _, div, px,
+    AnyElement, App, FontWeight, Hsla, IntoElement as _, ParentElement as _, Pixels, Styled as _,
+    div, px,
 };
-use ui::{Icon, IconName, MaterialIcon, Palette, ProviderGlyph, Surface, Theme, text_size};
+use ui::{
+    Icon, IconName, MaterialIcon, Palette, ProviderGlyph, ScaledText, Surface, Theme, radius,
+    text_size,
+};
 
 use crate::caret::Caret;
 
@@ -12,14 +16,14 @@ const BAR_PADDING_Y: f32 = 4.0;
 const LEFT_GAP: f32 = 8.0;
 const RIGHT_GAP: f32 = 4.0;
 const SEGMENT_GAP: f32 = 2.0;
+const SEGMENT_HEIGHT: f32 = 32.0;
 const SEGMENT_PADDING_X: f32 = 4.0;
 const SEGMENT_PADDING_Y: f32 = 2.0;
 const ICON_BOX: f32 = 20.0;
 const ICON_SIZE: f32 = 16.0;
-const CHEVRON_SIZE: f32 = 12.0;
+const CHEVRON_MARGIN_X: f32 = 2.0;
 const CHIP_HEIGHT: f32 = 20.0;
 const CHIP_PADDING_X: f32 = 6.0;
-const CHIP_RADIUS: f32 = 6.0;
 const CORNER: f32 = 4.0;
 const DIVIDER_MARGIN_X: f32 = 4.0;
 const DIVIDER_HEIGHT: f32 = 14.0;
@@ -57,6 +61,7 @@ impl Toolbar {
         cx: &mut App,
     ) -> AnyElement {
         let palette = *Theme::of(cx).palette(Surface::Window);
+        let xs = ScaledText::Xs.size(Theme::of(cx));
         let divider = div()
             .mx(px(DIVIDER_MARGIN_X))
             .h(px(DIVIDER_HEIGHT))
@@ -68,8 +73,17 @@ impl Toolbar {
             .gap(px(RIGHT_GAP))
             .child(actions)
             .child(divider)
-            .child(chip(format!("{}:{}", caret.line, caret.column), &palette))
-            .child(chip(self.language.display_name().to_owned(), &palette))
+            .child(
+                chip(format!("{}:{}", caret.line, caret.column), &palette)
+                    .text_size(xs)
+                    .into_any_element(),
+            )
+            .child(
+                chip(self.language.display_name().to_owned(), &palette)
+                    .text_size(text_size::SM)
+                    .font_weight(FontWeight::MEDIUM)
+                    .into_any_element(),
+            )
             .children(after_language);
         div()
             .flex()
@@ -89,6 +103,7 @@ impl Toolbar {
         palette: &Palette,
         cx: &mut App,
     ) -> AnyElement {
+        let xs = ScaledText::Xs.size(Theme::of(cx));
         let segments = segments(&self.path);
         let file_name = segments.last().copied().unwrap_or(self.path.as_str());
         let svg = MaterialIcon::of(file_name, cx).monochrome();
@@ -100,16 +115,21 @@ impl Toolbar {
             .justify_center()
             .child(ProviderGlyph::new(svg, palette.muted_foreground()).size(px(ICON_SIZE)));
         let last = segments.len().saturating_sub(1);
-        let drawn = segments
-            .iter()
-            .enumerate()
-            .map(|(index, segment)| segment_element((index, segment), last, palette));
+        let drawn = segments.iter().enumerate().map(|(index, segment)| {
+            div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(px(SEGMENT_GAP))
+                .children((index > 0).then(|| chevron(xs, palette)))
+                .child(segment_label((index, segment), last, palette))
+        });
         div()
             .flex()
             .min_w_0()
             .items_center()
             .gap(px(LEFT_GAP))
-            .text_size(text_size::XS)
+            .text_size(xs)
             .child(
                 div()
                     .flex()
@@ -129,59 +149,62 @@ fn segments(path: &str) -> Vec<&str> {
         .collect()
 }
 
-fn segment_element(
-    (index, segment): (usize, &str),
-    last: usize,
+fn chevron(
+    size: Pixels,
     palette: &Palette,
 ) -> AnyElement {
-    let (ink, weight) = segment_look((index, last), palette);
-    let chevron = (index > 0).then(|| {
-        Icon::new(IconName::CaretRight)
-            .size(px(CHEVRON_SIZE))
-            .color(palette.muted_foreground())
-    });
     div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(SEGMENT_GAP))
-        .children(chevron)
+        .mx(px(CHEVRON_MARGIN_X))
         .child(
-            div()
-                .px(px(SEGMENT_PADDING_X))
-                .py(px(SEGMENT_PADDING_Y))
-                .rounded(px(CORNER))
-                .text_color(ink)
-                .font_weight(weight)
-                .child(segment.to_owned()),
+            Icon::new(IconName::CaretRight)
+                .size(size)
+                .color(palette.muted_foreground()),
         )
         .into_any_element()
 }
 
-fn segment_look(
+fn segment_label(
+    (index, segment): (usize, &str),
+    last: usize,
+    palette: &Palette,
+) -> AnyElement {
+    div()
+        .flex()
+        .flex_none()
+        .h(px(SEGMENT_HEIGHT))
+        .items_center()
+        .px(px(SEGMENT_PADDING_X))
+        .py(px(SEGMENT_PADDING_Y))
+        .rounded(px(CORNER))
+        .text_size(text_size::SM)
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(segment_ink((index, last), palette))
+        .child(segment.to_owned())
+        .into_any_element()
+}
+
+fn segment_ink(
     (index, last): (usize, usize),
     palette: &Palette,
-) -> (Hsla, FontWeight) {
+) -> Hsla {
     if index == last {
-        return (palette.foreground(), FontWeight::MEDIUM);
+        return palette.foreground();
     }
-    (palette.muted_foreground(), FontWeight::NORMAL)
+    palette.muted_foreground()
 }
 
 fn chip(
     text: String,
     palette: &Palette,
-) -> AnyElement {
+) -> gpui::Div {
     div()
         .flex()
         .h(px(CHIP_HEIGHT))
         .items_center()
         .px(px(CHIP_PADDING_X))
-        .rounded(px(CHIP_RADIUS))
-        .text_size(text_size::XS)
+        .rounded(radius::MD)
         .text_color(palette.muted_foreground())
         .child(text)
-        .into_any_element()
 }
 
 #[cfg(test)]

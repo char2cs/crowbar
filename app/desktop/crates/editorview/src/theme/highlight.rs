@@ -1,10 +1,15 @@
 //! develop's editor colours, matched per token class (D3), as gpui-kit's highlight style.
+//!
+//! Markdown takes the classes develop's Monaco grammar gives it, not the `--syntax-markdown-*`
+//! tokens, which develop's editor never reads: headings and list markers are keywords, link
+//! targets and code blocks strings, and bold and italic keep the text colour.
 
 use gpui_kit::component::highlighter::HighlightThemeStyle;
 use serde_json::{Map, Value, json};
 use ui::Palette;
 
 const ACTIVE_LINE_ALPHA: f32 = 0.08;
+const BOLD: u16 = 700;
 
 pub(super) fn highlight_style(palette: &Palette) -> Result<HighlightThemeStyle, serde_json::Error> {
     let mut active_line = palette.border();
@@ -36,23 +41,29 @@ fn syntax(palette: &Palette) -> Map<String, Value> {
         ("property", palette.syntax_property()),
         ("tag", palette.syntax_tag()),
         ("attribute", palette.syntax_attribute()),
-        ("title", palette.syntax_markdown_heading()),
-        ("emphasis.strong", palette.syntax_markdown_bold()),
-        ("emphasis", palette.syntax_markdown_italic()),
-        ("link_uri", palette.syntax_markdown_link()),
-        ("link_text", palette.syntax_markdown_link_text()),
-        ("text.literal", palette.syntax_markdown_code()),
-        ("punctuation.list_marker", palette.syntax_markdown_list()),
+        ("title", palette.syntax_keyword()),
+        ("link_uri", palette.syntax_string()),
+        ("text.literal", palette.syntax_string()),
+        ("punctuation.list_marker", palette.syntax_keyword()),
     ];
-    classes
+    let painted = classes
         .into_iter()
-        .map(|(capture, color)| (capture.to_owned(), json!({ "color": color })))
-        .collect()
+        .map(|(capture, color)| (capture.to_owned(), json!({ "color": color })));
+    let faced = [
+        ("emphasis.strong", json!({ "font_weight": BOLD })),
+        ("emphasis", json!({ "font_style": "italic" })),
+    ]
+    .into_iter()
+    .map(|(capture, face)| (capture.to_owned(), face));
+    painted.chain(faced).collect()
 }
 
 #[cfg(test)]
 mod tests {
-    use gpui::Hsla;
+    use gpui::{FontStyle, FontWeight, HighlightStyle, Hsla};
+    use gpui_kit::base::input::HighlightStyleResolver;
+    use gpui_kit::component::Rope;
+    use gpui_kit::component::highlighter::SyntaxHighlighter;
     use ui::{Surface, Theme, ThemeMode};
 
     use super::*;
@@ -61,14 +72,17 @@ mod tests {
 
     #[test]
     fn each_token_class_takes_develop_s_colour_and_dotted_captures_fall_back_to_their_class() {
-        const CASES: [(&str, Token); 7] = [
+        const CASES: [(&str, Token); 10] = [
             ("keyword", Palette::syntax_keyword),
             ("string", Palette::syntax_string),
             ("comment", Palette::syntax_comment),
             ("function.method", Palette::syntax_function),
             ("type.builtin", Palette::syntax_type),
             ("punctuation.bracket", Palette::syntax_punctuation),
-            ("title", Palette::syntax_markdown_heading),
+            ("title", Palette::syntax_keyword),
+            ("punctuation.list_marker", Palette::syntax_keyword),
+            ("link_uri", Palette::syntax_string),
+            ("text.literal", Palette::syntax_string),
         ];
         let modes = [ThemeMode::Dark, ThemeMode::Light];
         for (mode, (capture, token)) in modes
@@ -83,5 +97,74 @@ mod tests {
                 "{mode:?} {capture}"
             );
         }
+    }
+
+    struct Painted(HighlightThemeStyle);
+
+    impl HighlightStyleResolver for Painted {
+        fn style(
+            &self,
+            name: &str,
+        ) -> Option<HighlightStyle> {
+            self.0.syntax.style(name)
+        }
+    }
+
+    fn markdown_styles(
+        text: &str,
+        palette: &Palette,
+    ) -> Vec<(std::ops::Range<usize>, HighlightStyle)> {
+        let mut highlighter = SyntaxHighlighter::new("markdown");
+        highlighter.update(None, &Rope::from(text), None);
+        let painted = Painted(highlight_style(palette).unwrap());
+        highlighter.styles(&(0..text.len()), &painted)
+    }
+
+    fn style_at(
+        styles: &[(std::ops::Range<usize>, HighlightStyle)],
+        offset: usize,
+    ) -> HighlightStyle {
+        styles
+            .iter()
+            .rev()
+            .find(|(range, _)| range.contains(&offset))
+            .map_or_else(HighlightStyle::default, |(_, style)| *style)
+    }
+
+    #[test]
+    fn a_markdown_heading_is_a_keyword_from_its_marker_on_as_develop_s_editor_paints_it() {
+        let palette = Theme::default()
+            .with_mode(ThemeMode::Dark)
+            .palette(Surface::Window);
+        let text = "# checkout\n\nTitle\n=====\n";
+        let styles = markdown_styles(text, palette);
+        let cases = [
+            ("the marker", 0, Some(palette.syntax_keyword())),
+            ("the heading text", 2, Some(palette.syntax_keyword())),
+            ("a setext heading's text", 12, None),
+            ("its underline", 18, Some(palette.syntax_keyword())),
+        ];
+        for (what, offset, color) in cases {
+            assert_eq!(style_at(&styles, offset).color, color, "{what}");
+        }
+    }
+
+    #[test]
+    fn markdown_bold_and_italic_keep_the_text_colour_as_develop_s_editor_draws_them() {
+        let palette = Theme::default()
+            .with_mode(ThemeMode::Dark)
+            .palette(Surface::Window);
+        let text = "**bold** and *it*\n";
+        let styles = markdown_styles(text, palette);
+        let bold = style_at(&styles, 3);
+        let italic = style_at(&styles, 15);
+        assert_eq!(
+            (bold.color, bold.font_weight),
+            (None, Some(FontWeight::BOLD))
+        );
+        assert_eq!(
+            (italic.color, italic.font_style),
+            (None, Some(FontStyle::Italic))
+        );
     }
 }

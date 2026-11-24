@@ -4,6 +4,7 @@ use gpui::{
     Task, Window, div, px,
 };
 use gpui_kit::base::input::{InputEvent, Rope};
+use gpui_kit::component::Sizable as _;
 use gpui_kit::component::input::{Editor, EditorState};
 
 use crate::find_widget::FindWidget;
@@ -13,6 +14,8 @@ use crate::save_key::{CONTEXT, Save};
 use crate::theme::ink;
 use crate::toolbar::Toolbar;
 use crate::{Access, Caret, EditorEvent, Opening, SaveMark, Settings};
+
+const BODY: &str = "editor-body";
 
 mod access_change;
 mod command_actions;
@@ -29,6 +32,7 @@ mod quiet;
 mod settings_follow;
 #[cfg(test)]
 pub(crate) mod test_support;
+mod view_button;
 mod view_buttons;
 
 /// One pane's editor: the gpui-kit `Editor` drawn over the document text it holds, under the
@@ -216,6 +220,8 @@ impl Render for EditorView {
         let toolbar = self.toolbar.element(caret, (actions, rich_view), cx);
         let settings = Settings::of(cx);
         let editor = Editor::new(&self.state)
+            .appearance(false)
+            .xsmall()
             .readonly(read_only)
             .size_full()
             .font_family(ui::Theme::of(cx).mono_family())
@@ -230,6 +236,7 @@ impl Render for EditorView {
         let root = Self::command_actions(root, cx).on_action(cx.listener(Self::go_to_line));
         Self::find_actions(root, cx).child(toolbar).child(
             div()
+                .debug_selector(|| BODY.to_owned())
                 .relative()
                 .flex_1()
                 .min_h_0()
@@ -370,5 +377,16 @@ mod tests {
         let rows = window.read(|cx| view.read(cx).state.read(cx).visible_row_range());
         let shown = rows.map_or(0, |rows| rows.len());
         assert!(shown > 10, "only {shown} rows show");
+    }
+
+    #[gpui::test]
+    fn the_first_line_sits_at_the_top_of_the_editor_with_no_frame_as_develop_s_does(
+        cx: &mut TestAppContext
+    ) {
+        let (view, window) = opened(("a\nb", None), Access::Editable, cx);
+        window.run_until_parked();
+        let first = window.read(|cx| view.read(cx).state.read(cx).range_to_bounds(&(0..1)));
+        let body = window.debug_bounds(BODY);
+        assert_eq!(first.map(|first| first.top()), body.map(|body| body.top()));
     }
 }
