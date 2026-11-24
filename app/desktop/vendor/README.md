@@ -122,6 +122,8 @@ The editor engine (`gpui-base`: `InputBaseState`, the rope, tree-sitter highligh
 
 `code-editor-no-left-inset` (`gpui-component`, `src/input/input.rs`): a code editor's line numbers start at its left edge, as Monaco's do with no glyph margin. Upstream insets them by the size tier's horizontal padding (up to 6px). Keep it with `monaco-gutter`.
 
+`bracket-pair-colors` (`gpui-component`, `src/highlighter/highlighter.rs`): every `()[]{}` outside a string, comment, code block or link target is painted as `punctuation.bracket`, over the token it sits in, as Monaco's bracket pair colorization paints develop's brackets (so `()` in markdown inline code is not the code's colour). Unmatched brackets are not told apart. Keep it while the editor matches develop's Monaco colours.
+
 Drop the vendored copies when the editor needs no patch of its own and upstream keeps pace with gpui-pre.
 
 ## Updating

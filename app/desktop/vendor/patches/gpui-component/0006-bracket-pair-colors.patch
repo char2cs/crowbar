@@ -1,0 +1,61 @@
+--- a/src/highlighter/highlighter.rs
++++ b/src/highlighter/highlighter.rs
+@@ -1187,6 +1187,7 @@
+         let start_offset = range.start;
+ 
+         let highlights = self.match_styles(range.clone());
++        let brackets = self.bracket_ranges(range, &highlights);
+ 
+         // let mut iter_count = 0;
+         for item in highlights {
+@@ -1213,6 +1214,9 @@
+             styles.push((node_range, theme.style(name.as_ref()).unwrap_or_default()));
+         }
+ 
++        let bracket = theme.style(BRACKET_CAPTURE).unwrap_or_default();
++        styles.extend(brackets.into_iter().map(|range| (range, bracket)));
++
+         // If the matched styles is empty, return a default range.
+         if styles.len() == 0 {
+             return vec![(start_offset..range.end, HighlightStyle::default())];
+@@ -1230,6 +1234,40 @@
+     }
+ }
+ 
++/// The capture Monaco's bracket pair colorization paints every bracket with.
++const BRACKET_CAPTURE: &str = "punctuation.bracket";
++const BRACKETS: &[u8] = b"()[]{}";
++/// Captures whose brackets Monaco leaves alone: its strings, comments and
++/// markdown's code blocks and link targets.
++const UNBRACKETED: &[&str] = &["string", "comment", "text.literal", "link_uri"];
++
++impl SyntaxHighlighter {
++    /// The brackets in `range` outside strings and comments, which Monaco's
++    /// bracket pair colorization paints over whatever token they sit in.
++    fn bracket_ranges(
++        &self,
++        range: &Range<usize>,
++        highlights: &[HighlightItem],
++    ) -> Vec<Range<usize>> {
++        let quiet: Vec<&Range<usize>> = highlights
++            .iter()
++            .filter(|item| UNBRACKETED.iter().any(|name| item.name.starts_with(name)))
++            .map(|item| &item.range)
++            .collect();
++        let end = range.end.min(self.text.len());
++        let start = range.start.min(end);
++        self.text
++            .slice(start..end)
++            .bytes()
++            .enumerate()
++            .filter(|(_, byte)| BRACKETS.contains(byte))
++            .map(|(index, _)| start + index)
++            .filter(|offset| !quiet.iter().any(|quiet| quiet.contains(offset)))
++            .map(|offset| offset..offset + 1)
++            .collect()
++    }
++}
++
+ /// To merge intersection ranges, let the subsequent range cover
+ /// the previous overlapping range and split the previous range.
+ ///

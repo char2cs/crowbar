@@ -3,7 +3,7 @@
 //! Markdown takes the classes develop's Monaco grammar gives it, not the `--syntax-markdown-*`
 //! tokens, which develop's editor never reads: headings and list markers are keywords, link
 //! targets and code blocks strings, inline code a variable, and bold and italic keep the text
-//! colour.
+//! colour. Brackets outside strings and comments take develop's muted bracket pair colour.
 
 use gpui_kit::component::highlighter::HighlightThemeStyle;
 use serde_json::{Map, Value, json};
@@ -29,6 +29,7 @@ fn syntax(palette: &Palette) -> Map<String, Value> {
     let classes = [
         ("comment", palette.syntax_comment()),
         ("punctuation", palette.syntax_punctuation()),
+        ("punctuation.bracket", palette.muted_foreground()),
         ("operator", palette.syntax_operator()),
         ("keyword", palette.syntax_keyword()),
         ("string", palette.syntax_string()),
@@ -80,7 +81,7 @@ mod tests {
             ("comment", Palette::syntax_comment),
             ("function.method", Palette::syntax_function),
             ("type.builtin", Palette::syntax_type),
-            ("punctuation.bracket", Palette::syntax_punctuation),
+            ("punctuation.bracket", Palette::muted_foreground),
             ("title", Palette::syntax_keyword),
             ("punctuation.list_marker", Palette::syntax_keyword),
             ("link_uri", Palette::syntax_string),
@@ -196,6 +197,36 @@ mod tests {
             let palette = Theme::default().with_mode(mode).palette(Surface::Window);
             let styles = styles_of(source, palette);
             let color = style_at(&styles, offset).color;
+            assert_eq!(
+                color,
+                Some(token(palette)),
+                "{mode:?} {source:?} at {offset}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_bracket_takes_monaco_s_bracket_pair_colour_outside_strings_and_comments() {
+        let cases = [
+            (
+                ("markdown", "a `f()` b\n"),
+                3,
+                Palette::syntax_variable as Token,
+            ),
+            (("markdown", "a `f()` b\n"), 4, Palette::muted_foreground),
+            (("markdown", "a `f()` b\n"), 5, Palette::muted_foreground),
+            (("markdown", "a `f()` b\n"), 6, Palette::syntax_variable),
+            (("typescript", "f(\"(\")\n"), 1, Palette::muted_foreground),
+            (("typescript", "f(\"(\")\n"), 3, Palette::syntax_string),
+            (("typescript", "// (\n"), 3, Palette::syntax_comment),
+        ];
+        let modes = [ThemeMode::Dark, ThemeMode::Light];
+        for (mode, (source, offset, token)) in modes
+            .into_iter()
+            .flat_map(|mode| cases.map(|case| (mode, case)))
+        {
+            let palette = Theme::default().with_mode(mode).palette(Surface::Window);
+            let color = style_at(&styles_of(source, palette), offset).color;
             assert_eq!(
                 color,
                 Some(token(palette)),
