@@ -103,7 +103,7 @@ impl ShellView {
             Landing::Refused(failure) => return self.refuse_read(pane, &failure, cx),
             Landing::Quiet => {},
         }
-        self.layout.update(cx, |_, cx| cx.notify());
+        self.refresh(cx);
     }
 
     fn retry_document(
@@ -159,9 +159,11 @@ mod tests {
     use gpui::TestAppContext;
 
     use super::*;
-    use crate::shell_view::tests::{Opened, open_shell};
+    use crate::pane_spec::PaneSpec;
+    use crate::shell_view::tests::{Opened, PLACED, open_shell};
 
     const PATH: &str = "src/pricing.ts";
+    const README: &str = "README.md";
 
     fn opened_file(opened: &mut Opened) -> PaneId {
         opened.shell.update(&mut opened.window, |shell, cx| {
@@ -216,5 +218,49 @@ mod tests {
             assert_eq!(toasts(&mut opened) - before, said, "toasts");
             assert_eq!(pane_state(&mut opened, &pane), expected);
         }
+    }
+
+    fn shows(call: &webview::Call) -> bool {
+        let webview::Call::SetVisibility { visibility, .. } = call else {
+            return false;
+        };
+        *visibility == webview::Visibility::Shown
+    }
+
+    fn shown_pages(opened: &Opened) -> usize {
+        opened
+            .mock
+            .calls()
+            .iter()
+            .filter(|call| shows(call))
+            .count()
+    }
+
+    fn restored_readme(opened: &mut Opened) -> PaneId {
+        opened.shell.update(&mut opened.window, |shell, cx| {
+            shell.placement = Some((webview::ParentWindow::X11(9), PLACED));
+            let chat = shell.chat_for("a file").expect("a chat to read from");
+            let mut spec = PaneSpec::editor(&chat, README).expect("a file spec");
+            spec.state = protocol::PaneState::new(serde_json::json!({"path": README}))
+                .expect("a restored file's state");
+            shell.open_spec(Ok(spec), cx);
+            let layout = shell.state.layout();
+            let focused = layout.active_tab().and_then(layout::Tab::focused);
+            focused.cloned().expect("the file pane has focus")
+        })
+    }
+
+    #[gpui::test]
+    fn a_markdown_file_that_comes_back_on_try_again_shows_its_rich_page(cx: &mut TestAppContext) {
+        let mut opened = open_shell(cx);
+        let pane = restored_readme(&mut opened);
+        let gone = editor::OpenFailure::of(README, 404, None);
+        land(&mut opened, &pane, Err(gone));
+        opened.shell.update(&mut opened.window, |shell, cx| {
+            shell.retry_document(&pane, cx);
+        });
+        let before = shown_pages(&opened);
+        land(&mut opened, &pane, Ok("# Title\n".to_owned()));
+        assert!(shown_pages(&opened) > before, "the rich page is shown");
     }
 }
