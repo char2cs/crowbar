@@ -202,7 +202,7 @@ impl Render for View {
 mod tests {
     use std::cell::RefCell;
 
-    use gpui::{TestAppContext, VisualTestContext};
+    use gpui::{AppContext as _, InteractiveElement as _, TestAppContext, VisualTestContext};
 
     use super::*;
 
@@ -338,6 +338,74 @@ mod tests {
         nothing_dismisses_the_dialog_while_the_host_answers,
         a_finished_pairing_is_announced_once_and_done_closes,
     ];
+
+    struct Layers {
+        held: gpui::FocusHandle,
+        dialog: Option<Entity<View>>,
+    }
+
+    impl Render for Layers {
+        fn render(
+            &mut self,
+            _: &mut Window,
+            cx: &mut Context<'_, Self>,
+        ) -> impl IntoElement {
+            let me = cx.entity();
+            div()
+                .size_full()
+                .child(ui::Portal::cover("layers", move |_, cx| shown(me.read(cx))))
+        }
+    }
+
+    fn shown(layers: &Layers) -> Div {
+        div()
+            .size_full()
+            .child(div().size(gpui::px(10.0)).track_focus(&layers.held))
+            .children(layers.dialog.clone())
+    }
+
+    #[gpui::test]
+    fn a_dialog_opened_while_the_top_layer_holds_the_keyboard_types_into_its_name(
+        cx: &mut TestAppContext
+    ) {
+        cx.update(|cx| ui::init(cx).unwrap());
+        let window = cx.add_window(|_, cx| Layers {
+            held: cx.focus_handle(),
+            dialog: None,
+        });
+        let owner: gpui::AnyWindowHandle = window.into();
+        let shown = cx
+            .update(|cx| owner.update(cx, |_, window, cx| ui::TopLayer::open(window, cx)))
+            .unwrap()
+            .unwrap();
+        let (mut owner, mut top) = (
+            VisualTestContext::from_window(owner, cx),
+            VisualTestContext::from_window(shown, cx),
+        );
+        let layers = window.entity(&owner).unwrap();
+        layers.update_in(&mut owner, |layers, window, cx| {
+            window.focus(&layers.held, cx);
+            cx.notify();
+        });
+        owner.run_until_parked();
+        let source: Rc<dyn Source> = Rc::new(Fake::default());
+        let dialog = owner.update(|window, cx| {
+            let dialog = cx.new(|cx| View::over(source, window, cx));
+            layers.update(cx, |layers, cx| {
+                layers.dialog = Some(dialog.clone());
+                cx.notify();
+            });
+            // The X11 top layer can draw the new dialog before its owner's next frame.
+            shown
+                .update(cx, |_, window, cx| window.draw(cx).clear(cx))
+                .unwrap();
+            dialog
+        });
+        owner.run_until_parked();
+        top.simulate_input("如同我");
+        let name = dialog.read_with(&top, |view, cx| view.name.read(cx).text().to_owned());
+        assert_eq!(name, "如同我", "the name field holds the keyboard");
+    }
 
     #[gpui::test]
     fn every_step_ends_as_the_session_allows(cx: &mut TestAppContext) {

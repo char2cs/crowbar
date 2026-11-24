@@ -2840,7 +2840,7 @@ impl Window {
         self.focus_generation = self.focus_generation.wrapping_add(1);
         self.keys_for_unrendered_focus.clear();
         self.clear_pending_keystrokes(cx);
-        self.take_keys_back_from_overlays(handle.id, cx);
+        self.share_focus_with_overlays(handle.id, cx);
         self.share_focus_with_owner(handle, cx);
 
         self.refresh();
@@ -2857,16 +2857,17 @@ impl Window {
             .log_err();
     }
 
-    /// The owner moved its focus to an element it renders itself: its overlays let go of theirs,
+    /// The owner moved its focus. To an element it renders itself, its overlays let go of theirs,
     /// so a key typed before they draw again reaches the owner, not an element that just closed.
-    fn take_keys_back_from_overlays(&mut self, focus: FocusId, cx: &mut App) {
-        if self.rendered_frame.dispatch_tree.focus_path(focus).is_empty() {
-            return;
-        }
+    /// To any other element, they hold it at once, so one that an overlay draws before the
+    /// owner's next frame, such as an opening dialog's field, is focused there already.
+    fn share_focus_with_overlays(&mut self, focus: FocusId, cx: &mut App) {
+        let rendered_here = !self.rendered_frame.dispatch_tree.focus_path(focus).is_empty();
         let handle = self.handle;
         for overlay in cx.windows.values_mut().flatten() {
             if overlay.overlay_of == Some(handle) {
-                overlay.focus = None;
+                overlay.focus = (!rendered_here).then_some(focus);
+                overlay.focus_generation = overlay.focus_generation.wrapping_add(1);
                 overlay.refresh();
             }
         }

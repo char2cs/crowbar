@@ -86,6 +86,10 @@ Drop it with `overlay-window`.
 
 Drop it with `overlay-window`.
 
+`overlay-focus-unrendered` (`gpui-pre`, `src/window.rs`), applied on top of `rounded-images`: when the owner focuses an element it does not render, its overlays hold that focus at once instead of keeping their old one until the owner's next frame. The X11 top layer can draw a dialog the owner just opened before the owner draws again; the dialog then found the overlay's old focus (the Settings search) outside it and moved the keyboard to its close button, so the Add Host name field the owner had focused took no typing and no IME text. Focus on an element the owner renders still clears its overlays' focus.
+
+Drop it with `overlay-window`.
+
 `xdnd-relay` (`gpui-pre-linux`, `src/linux/x11/xdnd_relay.rs` (new), `x11.rs`, `x11/client.rs`), applied on top of `unpainted-exposure`: a drag source talks only to the top-level window under the pointer, so the native web views the shell embeds as child windows never heard an OS file drag or a page's own text drag, and the window swallowed both. While the drag's point is over an XDND-aware child window, the window passes the drag on to the child's deepest window at that point (GTK takes drops only on its own windows, not on wry's foreign container) as the source's stand-in, at the point in that window's parent, where GTK reads it. The child is found from the point the source sends, as the source finds the window, since the pointer itself is over the source's drag icon: XdndEnter (its type list copied onto the window when the source has more than three types), XdndPosition, XdndDrop and XdndLeave go to it naming the window as their source, and its XdndStatus and XdndFinished go back to the source naming the window. Moving between the child and the window's own area leaves one and enters the other. Over its own area the window keeps upstream's drop.
 
 Drop it when upstream gpui forwards XDND to child windows, or when the shell no longer embeds web views as child windows.
