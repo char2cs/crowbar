@@ -117,6 +117,7 @@ mod saved_file;
 mod search_engine_setting;
 mod serials;
 mod settings_modal;
+mod shared_documents;
 mod shell_pane_source;
 mod shell_parts;
 mod shell_request;
