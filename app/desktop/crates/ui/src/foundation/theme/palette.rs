@@ -95,13 +95,6 @@ palette! {
     syntax_attribute => "--syntax-attribute",
     syntax_boolean => "--syntax-boolean",
     syntax_regex => "--syntax-regex",
-    syntax_markdown_heading => "--syntax-markdown-heading",
-    syntax_markdown_bold => "--syntax-markdown-bold",
-    syntax_markdown_italic => "--syntax-markdown-italic",
-    syntax_markdown_link => "--syntax-markdown-link",
-    syntax_markdown_link_text => "--syntax-markdown-link-text",
-    syntax_markdown_code => "--syntax-markdown-code",
-    syntax_markdown_list => "--syntax-markdown-list",
 }
 
 impl Palette {
