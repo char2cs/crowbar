@@ -11,21 +11,26 @@ use crate::document_request::DocumentRequest;
 use crate::pending_close::PendingClose;
 use crate::request_queue::send;
 use crate::shell_request::ShellRequest;
+use crate::tab_looks::tab_look;
 use crate::titles::Titles;
 use crate::unsaved_dialog::UnsavedDialog;
 
 pub(super) fn names_of(
     panes: &[PaneId],
-    titles: &Titles,
+    known: (&layout::Layout, &Titles),
 ) -> Vec<String> {
-    panes
-        .iter()
-        .map(|pane| {
-            titles
-                .get(pane)
-                .map_or_else(|| pane.to_string(), |title| title.to_string())
-        })
-        .collect()
+    panes.iter().map(|pane| name_of(pane, known)).collect()
+}
+
+fn name_of(
+    pane: &PaneId,
+    (layout, titles): (&layout::Layout, &Titles),
+) -> String {
+    let title = titles.get(pane).map(|title| title.to_string());
+    let Some(instance) = layout.pane(pane) else {
+        return title.unwrap_or_else(|| pane.to_string());
+    };
+    tab_look(instance, title.as_deref()).label.to_string()
 }
 
 impl ShellView {
@@ -64,7 +69,7 @@ impl ShellView {
         pending: PendingClose,
         cx: &mut Context<'_, Self>,
     ) {
-        let names = names_of(pending.dirty(), &self.state.titles());
+        let names = names_of(pending.dirty(), (self.state.layout(), &self.state.titles()));
         let dialog = cx.new(|_| UnsavedDialog::new(&names));
         self.subscriptions.push(
             cx.subscribe(&dialog, |this, source, choice: &CloseChoice, cx| {
@@ -206,10 +211,18 @@ mod tests {
     }
 
     #[test]
-    fn a_pane_is_named_by_its_title_or_by_its_id_before_it_has_one() {
+    fn a_pane_is_named_as_its_tab_is_and_by_its_id_when_it_has_no_tab() {
+        let mut layout = layout::Layout::default();
+        let serials = crate::serials::Serials::above(&layout);
+        let file = crate::pane_spec::PaneSpec::editor("c1", "src/pricing.ts").unwrap();
+        for command in file.open_commands((&layout, ""), &serials).unwrap() {
+            layout.apply(command).unwrap();
+        }
+        let editor = layout.tabs()[0].pane_ids()[0].clone();
         let titles = Titles::default();
-        let (titled, bare) = (PaneId::new("p1").unwrap(), PaneId::new("p2").unwrap());
+        let (titled, gone) = (PaneId::new("p7").unwrap(), PaneId::new("p8").unwrap());
         titles.set(titled.clone(), PaneTitle::new("a.rs").unwrap());
-        assert_eq!(names_of(&[titled, bare], &titles), ["a.rs", "p2"]);
+        let names = names_of(&[editor, titled, gone], (&layout, &titles));
+        assert_eq!(names, ["pricing.ts", "a.rs", "p8"]);
     }
 }
