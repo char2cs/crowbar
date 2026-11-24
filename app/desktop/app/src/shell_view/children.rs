@@ -7,7 +7,6 @@ use layoutview::LayoutView;
 use ptysession::TerminalSessions;
 use sidebar::{FilesSource as _, Preferences};
 use sidebarview::Sidebar;
-use startup::MonotonicClock;
 use viewtabs::TabBar;
 
 use super::built::Built;
@@ -141,15 +140,7 @@ pub(super) fn build_startup<V: 'static>(
     requests: &async_channel::Sender<ShellRequest>,
     cx: &mut Context<'_, V>,
 ) -> Entity<startup::View> {
-    cx.new(|cx| {
-        let actions = Rc::new(StartupRequests(requests.clone()));
-        startup::View::new(
-            startup::Timing::default(),
-            Rc::new(MonotonicClock::start()),
-            actions,
-            cx,
-        )
-    })
+    cx.new(|_| startup::View::new(Rc::new(StartupRequests(requests.clone()))))
 }
 
 fn preferences_or_default(loaded: Result<Preferences, sidebar::Error>) -> Preferences {

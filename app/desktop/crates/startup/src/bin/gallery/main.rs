@@ -1,24 +1,19 @@
-//! Shows the startup view in one phase, or plays a whole start-up.
+//! Shows the halt gate.
 //!
-//! Usage: `startupgallery [--phase starting|migrating|halted|restarting|unresponsive|gave-up|stopped|demo]
-//! [--theme crowbar|frosted] [--mode light|dark] [--size WxH]`.
+//! Usage: `startupgallery [--theme crowbar|frosted] [--mode light|dark] [--size WxH]`.
 
 mod phases;
 
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::time::Duration;
 
-use gpui::{
-    App, AppContext as _, AsyncApp, Bounds, Context, Entity, WindowBounds, WindowOptions, px, size,
-};
-use startup::{Command, Event, Input, MonotonicClock, View};
+use gpui::{App, AppContext as _, Bounds, Context, WindowBounds, WindowOptions, px, size};
+use startup::{Command, View};
 use ui::{Theme, ThemeId, ThemeMode};
 
-use crate::phases::{DEMO_PHASE, STEPS, migrating, phase_input, timing_for};
+use crate::phases::halted;
 
 const DEFAULT_SIZE: (f32, f32) = (1200.0, 800.0);
-const STEP_TIME: Duration = Duration::from_millis(1200);
 
 struct Actions {
     quits_on: Command,
@@ -49,70 +44,12 @@ fn parse_size(value: &str) -> Option<(f32, f32)> {
     Some((width.parse().ok()?, height.parse().ok()?))
 }
 
-fn play(
-    view: &Entity<View>,
-    cx: &mut App,
-) {
-    let view = view.clone();
-    cx.spawn(async move |cx| play_sequence(&view, cx).await)
-        .detach();
-}
-
-async fn play_sequence(
-    view: &Entity<View>,
-    cx: &mut AsyncApp,
-) {
-    let sequence = std::iter::once(Input::Starting)
-        .chain((1..=STEPS).map(migrating))
-        .chain(std::iter::once(Input::Ready));
-    play_all(view, sequence, cx).await;
-}
-
-async fn play_all(
-    view: &Entity<View>,
-    sequence: impl Iterator<Item = Input>,
-    cx: &mut AsyncApp,
-) {
-    for input in sequence {
-        step(view, input, cx).await;
-    }
-}
-
-async fn step(
-    view: &Entity<View>,
-    input: Input,
-    cx: &mut AsyncApp,
-) {
-    cx.background_executor().timer(STEP_TIME).await;
-    view.update(cx, |view, cx| view.apply(input, cx));
-}
-
-fn build(
-    phase: &str,
-    cx: &mut Context<'_, View>,
-) -> View {
-    let timing = timing_for(phase);
-    let mut view = View::new(
-        timing,
-        Rc::new(MonotonicClock::start()),
-        Rc::new(Actions {
-            quits_on: Command::Quit,
-        }),
-        cx,
-    );
-    for input in phase_input(phase) {
-        view.apply(input, cx);
-    }
+fn build(cx: &mut Context<'_, View>) -> View {
+    let mut view = View::new(Rc::new(Actions {
+        quits_on: Command::Quit,
+    }));
+    view.apply(halted(), cx);
     view
-}
-
-fn quit_when_handed_over(
-    event: Event,
-    cx: &mut App,
-) {
-    if event == Event::HandedOver {
-        cx.quit();
-    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -127,7 +64,6 @@ type FailureSlot = Rc<RefCell<Option<Failure>>>;
 
 fn open(
     cx: &mut App,
-    phase: &str,
     failure: &FailureSlot,
 ) {
     let (width, height) = flag("size")
@@ -139,23 +75,13 @@ fn open(
         window_bounds: Some(WindowBounds::Windowed(bounds)),
         ..WindowOptions::default()
     };
-    let opened = cx.open_window(options, |_, cx| cx.new(|cx| build(phase, cx)));
-    let Ok(view) = opened.and_then(|window| window.entity(cx)) else {
+    if cx.open_window(options, |_, cx| cx.new(build)).is_err() {
         *failure.borrow_mut() = Some(Failure::OpenWindow);
         cx.quit();
-        return;
-    };
-    cx.subscribe(&view, |_view, event: &Event, cx| {
-        quit_when_handed_over(*event, cx);
-    })
-    .detach();
-    if phase == DEMO_PHASE {
-        play(&view, cx);
     }
 }
 
 fn main() -> Result<(), Failure> {
-    let phase = flag("phase").unwrap_or_else(|| DEMO_PHASE.to_owned());
     let id = match flag("theme").as_deref() {
         Some("frosted") => ThemeId::Frosted,
         _ => ThemeId::Crowbar,
@@ -168,7 +94,7 @@ fn main() -> Result<(), Failure> {
     let slot = Rc::clone(&failure);
     gpui_platform::application()
         .with_assets(ui::assets())
-        .run(move |cx: &mut App| start(cx, &phase, &Look { id, mode }, &slot));
+        .run(move |cx: &mut App| start(cx, &Look { id, mode }, &slot));
     failure.take().map_or(Ok(()), Err)
 }
 
@@ -179,7 +105,6 @@ struct Look {
 
 fn start(
     cx: &mut App,
-    phase: &str,
     look: &Look,
     failure: &FailureSlot,
 ) {
@@ -192,6 +117,6 @@ fn start(
         .with_id(look.id)
         .with_mode(look.mode)
         .install(cx);
-    open(cx, phase, failure);
+    open(cx, failure);
     cx.activate(true);
 }

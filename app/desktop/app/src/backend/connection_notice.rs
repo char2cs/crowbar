@@ -68,8 +68,7 @@ fn migrating(step: Option<&MigrationStep>) -> ToastContent {
     let Some(step) = step else {
         return ToastContent::new(ToastKind::Info, STARTING);
     };
-    let detail = format!("Step {} of {}: {}", step.index(), step.total(), step.name());
-    ToastContent::new(ToastKind::Info, detail).titled(UPGRADING)
+    ToastContent::new(ToastKind::Info, step.label()).titled(UPGRADING)
 }
 
 #[cfg(test)]

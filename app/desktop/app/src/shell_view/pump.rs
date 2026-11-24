@@ -93,10 +93,8 @@ impl ShellView {
         _: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        match &self.startup {
-            Some(startup) => startup.update(cx, |startup, cx| startup.apply(input, cx)),
-            None => self.track_daemon(&input, cx),
-        }
+        self.track_daemon(&input, cx);
+        self.startup.update(cx, |gate, cx| gate.apply(input, cx));
     }
 
     fn handle(
@@ -246,6 +244,38 @@ mod tests {
                 gear.is_focused(window)
             });
         assert!(on_gear, "the keyboard went back to the gear");
+    }
+
+    fn feed(
+        opened: &mut crate::shell_view::tests::Opened,
+        input: startup::Input,
+    ) {
+        opened
+            .shell
+            .update_in(&mut opened.window, |shell, window, cx| {
+                shell.feed_startup(input, window, cx);
+            });
+    }
+
+    #[gpui::test]
+    fn the_startup_view_takes_only_failures_and_the_window_hears_of_the_rest(
+        cx: &mut TestAppContext
+    ) {
+        let mut opened = crate::shell_view::tests::open_shell(cx);
+        let shown = |opened: &mut crate::shell_view::tests::Opened| {
+            opened.window.run_until_parked();
+            opened
+                .shell
+                .read_with(&opened.window, |shell, cx| shell.notices.read(cx).len())
+        };
+        for input in [
+            startup::Input::Restarted,
+            startup::Input::Unavailable(startup::Outage::Unresponsive),
+        ] {
+            let before = shown(&mut opened);
+            feed(&mut opened, input.clone());
+            assert_eq!(shown(&mut opened), before + 1, "{input:?} is a toast");
+        }
     }
 
     #[gpui::test]

@@ -1,18 +1,17 @@
-//! The full-screen native startup and data-migration view of the Crowbar shell.
+//! The halt gate of the Crowbar shell: what replaces the window's content once the daemon halts.
 //!
-//! Entry: [`View`]. The shell feeds it [`Input`]s derived from the daemon
-//! supervisor's events, answers its [`Command`]s through [`Actions`], and removes
-//! it when it emits [`Event::HandedOver`]. A pure state machine underneath turns the inputs
-//! into the screen to show and never reads a clock.
+//! Entry: [`View`]. The shell feeds it every [`Input`] derived from the daemon supervisor's
+//! events and answers its [`Command`]s through [`Actions`]; the gate covers the window from a
+//! halt until the daemon is started again.
 
 mod actions;
 mod command;
-mod machine;
+mod report;
 mod screens;
 mod test_support;
 mod view;
 
 pub use actions::Actions;
 pub use command::Command;
-pub use machine::{AppPhase, HaltReason, Input, MigrationStep, Outage, Timing};
-pub use view::{Clock, Event, MonotonicClock, View};
+pub use report::{HaltReason, Input, MigrationStep, Outage};
+pub use view::View;

@@ -33,9 +33,6 @@ impl ShellView {
                     this.on_sidebar(source, event, cx);
                 },
             ),
-            cx.subscribe_in(&built.startup, window, |this, _, event, window, cx| {
-                this.on_startup(*event, window, cx);
-            }),
             cx.observe_window_activation(window, |this, window, cx| {
                 this.on_window_activation(window, cx);
             }),
@@ -81,7 +78,7 @@ impl ShellView {
         cx: &mut App,
     ) {
         let something_else_holds_the_keys =
-            self.modal_open() || ui::TopLayer::holds_keys(window, cx);
+            self.modal_open(cx) || ui::TopLayer::holds_keys(window, cx);
         if !window.is_window_active() || something_else_holds_the_keys {
             return;
         }
@@ -216,20 +213,6 @@ impl ShellView {
         }
         let closing = panes.into_iter().map(|pane| Command::ClosePane { pane });
         self.apply_guarded(closing.collect(), cx);
-    }
-
-    fn on_startup(
-        &mut self,
-        event: startup::Event,
-        window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        if !matches!(event, startup::Event::HandedOver) {
-            return;
-        }
-        window.set_window_title(&self.window_title);
-        self.startup = None;
-        cx.notify();
     }
 }
 

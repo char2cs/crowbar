@@ -82,7 +82,7 @@ pub(crate) struct ShellView {
     sidebar: Entity<Sidebar>,
     tabs: Entity<TabBar>,
     layout: Entity<LayoutView>,
-    startup: Option<Entity<startup::View>>,
+    startup: Entity<startup::View>,
     settings: Option<Entity<SettingsModal>>,
     branch_import: Option<Entity<branchimport::View>>,
     remote_folders: Option<Entity<folderpicker::View>>,
@@ -142,7 +142,7 @@ impl ShellView {
             tabs: built.tabs,
             layout: built.layout,
             source: built.source,
-            startup: Some(built.startup),
+            startup: built.startup,
             settings: None,
             branch_import: None,
             remote_folders: None,
@@ -193,8 +193,11 @@ impl ShellView {
         self.flush_settings_on_quit(cx);
     }
 
-    fn modal_open(&self) -> bool {
-        self.startup.is_some()
+    fn modal_open(
+        &self,
+        cx: &App,
+    ) -> bool {
+        self.startup.read(cx).covers()
             || self.settings.is_some()
             || self.branch_import.is_some()
             || self.remote_folders.is_some()
@@ -209,7 +212,7 @@ impl ShellView {
         &self,
         cx: &mut Context<'_, Self>,
     ) -> Option<Portal> {
-        let shown = self.modal_open()
+        let shown = self.modal_open(cx)
             || self.readout.view.is_some()
             || self.floats_toasts(cx)
             || self.backend.crash.is_some();
@@ -236,7 +239,9 @@ impl ShellView {
             .children(layer(self.first_run.as_ref().map(|(_, oobe)| oobe)))
             .children(layer(self.pairing.as_ref()))
             .children(layer(self.unsaved.as_ref()))
-            .children(layer(self.startup.as_ref()))
+            .children(layer(
+                Some(&self.startup).filter(|gate| gate.read(cx).covers()),
+            ))
             .children(self.readout.view.clone())
             .children(self.backend.crash.as_ref().map(|(panel, _)| panel.clone()))
             .children(self.floats_toasts(cx).then(|| self.notices.clone()))
@@ -527,9 +532,12 @@ mod tests {
     fn open_tab_menu(cx: &mut TestAppContext) -> Opened {
         let mut opened = open_shell(cx);
         register_chat(&mut opened);
-        opened
-            .shell
-            .update(&mut opened.window, |shell, _| shell.startup = None);
+        opened.shell.update(&mut opened.window, |shell, cx| {
+            let restarted = startup::Input::Restarted;
+            shell
+                .startup
+                .update(cx, |gate, cx| gate.apply(restarted, cx));
+        });
         opened.window.run_until_parked();
         let tab = opened
             .window

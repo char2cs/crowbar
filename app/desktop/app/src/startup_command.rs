@@ -14,7 +14,6 @@ pub(crate) fn perform<V: 'static>(
     cx: &mut Context<'_, V>,
 ) {
     match action_for(command) {
-        StartupAction::Relaunch => drop(link.restart()),
         StartupAction::ShowLog => open_log(link),
         StartupAction::QuitApp => cx.quit(),
         StartupAction::Nothing => {},
@@ -23,7 +22,6 @@ pub(crate) fn perform<V: 'static>(
 
 fn action_for(command: startup::Command) -> StartupAction {
     match command {
-        startup::Command::Retry => StartupAction::Relaunch,
         startup::Command::OpenLog => StartupAction::ShowLog,
         startup::Command::Quit => StartupAction::QuitApp,
         _ => StartupAction::Nothing,
@@ -51,27 +49,13 @@ mod tests {
 
     #[test]
     fn each_command_maps_to_its_action() {
-        const CASES: [(startup::Command, StartupAction); 3] = [
-            (startup::Command::Retry, StartupAction::Relaunch),
+        const CASES: [(startup::Command, StartupAction); 2] = [
             (startup::Command::OpenLog, StartupAction::ShowLog),
             (startup::Command::Quit, StartupAction::QuitApp),
         ];
         for (command, action) in CASES {
             assert_eq!(action_for(command), action);
         }
-    }
-
-    #[gpui::test]
-    fn retry_after_a_failed_launch_reports_a_new_attempt(cx: &mut TestAppContext) {
-        let link = link_without_daemon();
-        let phases = link.phases();
-        while phases.try_recv().is_ok() {}
-        let view = cx.new(|_: &mut Context<'_, Empty>| Empty);
-        view.update(cx, |_, cx| perform(startup::Command::Retry, &link, cx));
-        assert!(
-            phases.recv_blocking().is_ok(),
-            "the outage screen hears of it"
-        );
     }
 
     #[gpui::test]

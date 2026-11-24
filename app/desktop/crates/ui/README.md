@@ -44,7 +44,7 @@ Status: `verified` = implemented, unit tested and rendered in the gallery (crowb
 | Controls | `Button` (with `loading()`), `ButtonVariant`, `ButtonSize`, `Switch`, `Checkbox`, `TextInput`, `Select`, `Tabs`, `TabItem`, `TabsStyle` | verified |
 | Text area | `TextArea`, `TextAreaSize`, `TextAreaCondition` | unverified (no React golden at component level) |
 | Overlays | `TopLayer`, `Portal`, `DragGhost`, `click_away`, `popup_at`, `Menu`, `MenuItem`, `MenuAction`, `DropdownMenu`, `ContextMenu` (right click, `MenuAction::submenu`, arrow/left/right keys), `Popover`, `Dialog`, `DialogSize`, `Tooltip`, `TooltipSide` | unverified |
-| Display | `Badge`, `Kbd`, `Toast`, `ToastKind`, `ToastQueue`, `ToastContent`, `ToastId`, `ToastLifetime`, `ToastPlacement`, `ToastSide`, `ToastQueueEvent`, `Separator`, `Skeleton`, `Spinner`, `ProgressBar`, `EmptyState`, `ScrollArea`, `Sash`, `SashDrag`, `DragHandle`, `Axis` | verified |
+| Display | `Badge`, `Kbd`, `Toast`, `ToastKind`, `ToastQueue`, `ToastContent`, `ToastId`, `ToastLifetime`, `ToastPlacement`, `ToastSide`, `ToastQueueEvent`, `Separator`, `Skeleton`, `Spinner`, `EmptyState`, `ScrollArea`, `Sash`, `SashDrag`, `DragHandle`, `Axis` | verified |
 
 ## Depends on
 

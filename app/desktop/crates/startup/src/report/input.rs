@@ -1,5 +1,5 @@
-use crate::machine::migration_step::MigrationStep;
-use crate::machine::outage::Outage;
+use crate::report::migration_step::MigrationStep;
+use crate::report::outage::Outage;
 
 /// What the daemon supervisor tells the shell, in the shape the view needs. The app crate
 /// converts each supervisor event into one of these; this crate stays independent of it.

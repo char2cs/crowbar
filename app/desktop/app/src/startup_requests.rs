@@ -27,10 +27,10 @@ mod tests {
     fn a_startup_command_becomes_a_shell_request(cx: &mut TestAppContext) {
         let (requests, queue) = async_channel::unbounded();
         let actions = StartupRequests(requests);
-        cx.update(|cx| actions.perform(startup::Command::Retry, cx));
+        cx.update(|cx| actions.perform(startup::Command::OpenLog, cx));
         assert_eq!(
             queue.try_recv(),
-            Ok(ShellRequest::Startup(startup::Command::Retry)),
+            Ok(ShellRequest::Startup(startup::Command::OpenLog)),
             "queued for the shell"
         );
     }

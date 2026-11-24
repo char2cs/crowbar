@@ -14,7 +14,6 @@ impl ShellView {
     ) {
         match daemon_notice(input) {
             DaemonNotice::Nothing => {},
-            DaemonNotice::Clear => self.clear_notice(NoticeKey::Daemon, cx),
             DaemonNotice::Show(key, content) => self.show_toast(key, content, cx),
         }
         self.follow_backend(cx);
