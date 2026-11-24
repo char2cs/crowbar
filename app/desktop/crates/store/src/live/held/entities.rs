@@ -52,6 +52,7 @@ pub(crate) struct Entities {
     epoch: Option<String>,
     unread: Vec<String>,
     fresh: Option<HashSet<String>>,
+    snapshot_rows: Vec<Frame>,
     synced: bool,
     departed: Vec<String>,
 }
@@ -67,9 +68,11 @@ impl Entities {
 
     pub(crate) fn begin_snapshot(&mut self) {
         self.fresh = Some(HashSet::new());
+        self.snapshot_rows.clear();
     }
 
     pub(crate) fn abandon_snapshot(&mut self) -> bool {
+        self.snapshot_rows.clear();
         self.fresh.take().is_some()
     }
 
@@ -79,6 +82,10 @@ impl Entities {
     ) {
         match frame {
             Frame::Ready { epoch } => self.new_epoch(epoch),
+            // SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/core/entities/entity-store.ts (heardEntity)
+            Frame::Entity { ref scope, .. } if scope == PROJECTS_SCOPE && self.fresh.is_some() => {
+                self.snapshot_rows.push(frame);
+            },
             Frame::Entity { ref scope, .. } if scope == PROJECTS_SCOPE => self.entity_frame(frame),
             Frame::Synced { scope, unread } if scope == PROJECTS_SCOPE => self.finish(&unread),
             _ => {},
@@ -178,6 +185,9 @@ impl Entities {
         &mut self,
         unread: &[String],
     ) {
+        for frame in std::mem::take(&mut self.snapshot_rows) {
+            self.entity_frame(frame);
+        }
         if let Some(fresh) = self.fresh.take() {
             self.prune(&fresh, unread);
         }
@@ -267,6 +277,11 @@ mod tests {
         store.apply(entity("project", "p", 1, json!({"id": "p", "name": "A"})));
     }
 
+    fn abandoned(store: &mut Entities) {
+        landing(store);
+        store.abandon_snapshot();
+    }
+
     fn landed(store: &mut Entities) {
         landing(store);
         store.apply(synced(&[]));
@@ -322,11 +337,16 @@ mod tests {
 
     type Case = (&'static str, fn(&mut Entities), &'static str);
 
-    const CASES: [Case; 8] = [
+    const CASES: [Case; 9] = [
         (
-            "rows arrive before the sync",
+            "a snapshot's rows wait for its sync",
             landing,
-            r#"synced=false projects=["A"] chats=[]"#,
+            "synced=false projects=[] chats=[]",
+        ),
+        (
+            "an abandoned snapshot lands none of its rows",
+            abandoned,
+            "synced=false projects=[] chats=[]",
         ),
         (
             "a snapshot lands and syncs",
