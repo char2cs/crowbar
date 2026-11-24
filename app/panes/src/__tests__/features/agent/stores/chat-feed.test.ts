@@ -3,7 +3,8 @@ import { attachFeed as attachReal, loadOlder } from '@/features/agent/stores/cha
 import { forgetEntities } from '@/core/entities/entity-store'
 import { followChatLifecycle } from '@/features/agent/stores/chat-lifecycle'
 import { chatStore } from '@/features/agent/stores/chat-store'
-import { heldScopes, streamDaemon } from '@/__tests__/__fixtures__/stream-daemon'
+import { heldScopes, streamDaemon, streamDaemonFor } from '@/__tests__/__fixtures__/stream-daemon'
+import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 import { writeChat } from '@/__tests__/__fixtures__/agent-chat'
 import { delta, ledger } from '@/__tests__/__fixtures__/ledger-rows'
 import { IDBFactory, IDBObjectStore } from 'fake-indexeddb'
@@ -38,6 +39,7 @@ beforeEach(async () => {
 afterEach(async () => {
   held.splice(0).forEach((detach) => detach())
   forgetEntities('chat', ['chat-1', 'chat-2']) // a kept feed would answer the next test's attach
+  resetHostWorld()
   await settled()
   vi.useRealTimers()
 })
@@ -127,6 +129,25 @@ describe('attachFeed', () => {
     detach()
     held.push(attachReal('host-9', 'chat-1'))
     expect(feed()).toMatchObject({ status: 'connecting', order: [] })
+  })
+
+  it('subs on its paired host and resumes from its seq when that host reconnects, not local', async () => {
+    const host1 = streamDaemonFor('host-1')
+    const subsOn = () => host1.sent.filter((r) => r.op === 'sub' && r.scope === SCOPE)
+    pairRemoteHost('host-1')
+    await Promise.resolve()
+    host1.answer = () => []
+    held.push(attachReal('host-1', 'chat-1'))
+    await vi.waitFor(() => expect(subsOn()).toEqual([{ op: 'sub', scope: SCOPE, since: -1500 }]))
+    expect(subs()).toEqual([])
+    host1.deliver({ t: 'row', scope: SCOPE, row: ledger().prompt('r1', 'hi') })
+    host1.deliver({ t: 'synced', scope: SCOPE, seq: 1 })
+    streamDaemon.drop()
+    streamDaemon.deliver({ t: 'ready', epoch: 'e1' })
+    expect(subs()).toEqual([])
+    host1.drop()
+    host1.deliver({ t: 'ready', epoch: 'h1' })
+    expect(subsOn().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: 1 })
   })
 
   it('publishes replayed rows once, at synced', async () => {
@@ -474,11 +495,14 @@ describe('the stored feed', () => {
     expect(feed()).toMatchObject({ seq: 3, order: shown(3) })
   })
 
-  it('replays the window when the daemon holds fewer rows than the copy', async () => {
+  it.each([
+    { answer: 'holds fewer rows than the copy', frame: { t: 'synced', seq: 1 } },
+    { answer: 'answers with a resync', frame: { t: 'closed', reason: 'resync', seq: 1 } },
+  ])('replays the window when the daemon $answer', async ({ frame }) => {
     await store(3)
     await attachFeed('chat-1')
     await vi.waitFor(() => expect(feed()?.order).toEqual(shown(3)))
-    push({ t: 'synced', seq: 1 })
+    push(frame)
     expect(feed()?.order).toEqual(shown(3))
     expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: window() })
     push({ t: 'row', row: rowsOf(1)[0], from: 0 })
@@ -486,18 +510,6 @@ describe('the stored feed', () => {
     expect(feed()).toMatchObject({ seq: 1, order: shown(1) })
     await settled()
     expect((await entry())?.seq).toBe(1)
-  })
-
-  it('replays the window when the daemon answers the cursor with a resync', async () => {
-    await store(3)
-    await attachFeed('chat-1')
-    await vi.waitFor(() => expect(feed()?.order).toEqual(shown(3)))
-    push({ t: 'closed', reason: 'resync', seq: 1 })
-    expect(feed()?.order).toEqual(shown(3))
-    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: window() })
-    push({ t: 'row', row: rowsOf(1)[0], from: 0 })
-    push({ t: 'synced', seq: 1 })
-    expect(feed()).toMatchObject({ seq: 1, order: shown(1) })
   })
 
   it('writes the feed through as its replay settles and as live rows land', async () => {

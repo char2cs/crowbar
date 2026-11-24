@@ -5,7 +5,7 @@ import {
   type StagedSelection,
 } from '@/features/agent/lib/staged-selection'
 import { useStore } from 'zustand'
-import { isChatRecalled } from '@/lib/host-resolve-cached'
+import { isChatRecalled } from '@/features/hosts/lib/host-resolve-cached'
 import { TrashIcon } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { ComposerSignpost } from '@/features/agent/composer/composer-signpost'

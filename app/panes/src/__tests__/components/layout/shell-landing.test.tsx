@@ -17,7 +17,7 @@ import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pa
 import { seedChatPaneRecord } from '@/__tests__/__fixtures__/view-state'
 
 // Which chats the last run's placements vouch for is host-placements' business, not the landing's.
-vi.mock('@/lib/host-resolve-cached', () => ({
+vi.mock('@/features/hosts/lib/host-resolve-cached', () => ({
   isChatRecalled: (chatId: string) => chatId === 'c-recalled',
 }))
 

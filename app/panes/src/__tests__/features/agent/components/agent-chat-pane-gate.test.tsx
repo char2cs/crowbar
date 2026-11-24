@@ -17,7 +17,10 @@ import { hostIdForWorkspace } from '@/lib/host-resolve'
 import { entityStore } from '@/core/entities/entity-store'
 import { getDB } from '@/lib/persistence/idb'
 import { IDBFactory } from 'fake-indexeddb'
-import { hydrateHostPlacements, startHostPlacementCache } from '@/lib/persistence/host-placements'
+import {
+  hydrateHostPlacements,
+  startHostPlacementCache,
+} from '@/features/hosts/lib/host-placements'
 import { chatEntity, putEntities, workspaceDTO } from '@/__tests__/__fixtures__/sidebar-entities'
 import {
   loadProjects,

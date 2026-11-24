@@ -16,7 +16,6 @@ import {
 
 const MAX_ITEMS = 500
 const MAX_CHATS = 100
-// A delete queues behind every write already queued, so its settling is theirs.
 const settled = async () => {
   await Promise.resolve()
   await forgetFeed('~', '~')
@@ -29,7 +28,7 @@ const feedOf = (n: number, epoch = 'e1') => applyReady(applyRows(emptyFeed(), pr
 const entries = async () => (await getDB()).getAll('chat-feeds')
 
 beforeEach(() => {
-  globalThis.indexedDB = new IDBFactory()
+  vi.stubGlobal('indexedDB', new IDBFactory())
 })
 
 describe('feed cache', () => {
@@ -161,39 +160,47 @@ describe('feed cache', () => {
     vi.spyOn(broken, 'open').mockImplementation(() => {
       throw new DOMException('denied', 'SecurityError')
     })
-    globalThis.indexedDB = broken
+    vi.stubGlobal('indexedDB', broken)
     saveFeed('h', 'chat-1', feedOf(1))
     await expect(settled()).resolves.toBeUndefined()
     await expect(loadFeed('h', 'chat-1')).resolves.toBeUndefined()
     await expect(forgetChatFeeds('chat-1')).resolves.toBeUndefined()
   })
 
-  it('leaves no unhandled rejection when the database aborts a write', async () => {
-    const watch = watchUnhandled()
-    try {
-      abortDuring('count')
-      saveFeed('h', 'chat-1', feedOf(1))
-      await settled()
-      await watch.flush()
-      expect(watch.seen).toEqual([])
-    } finally {
-      watch.stop()
-    }
-  })
-
-  it('leaves no unhandled rejection when forgetting a chat finds its transaction aborted', async () => {
-    saveFeed('h', 'chat-1', feedOf(1))
-    await settled()
-    const watch = watchUnhandled()
-    try {
-      abortDuring('delete')
-      await forgetChatFeeds('chat-1')
-      await watch.flush()
-      expect(watch.seen).toEqual([])
-    } finally {
-      watch.stop()
-    }
-  })
+  it.each([
+    {
+      write: 'a save',
+      method: 'count' as const,
+      before: async () => {},
+      act: async () => {
+        saveFeed('h', 'chat-1', feedOf(1))
+        await settled()
+      },
+    },
+    {
+      write: 'forgetting a chat',
+      method: 'delete' as const,
+      before: async () => {
+        saveFeed('h', 'chat-1', feedOf(1))
+        await settled()
+      },
+      act: () => forgetChatFeeds('chat-1'),
+    },
+  ])(
+    'leaves no unhandled rejection when the database aborts $write',
+    async ({ method, before, act }) => {
+      await before()
+      const watch = watchUnhandled()
+      try {
+        abortDuring(method)
+        await act()
+        await watch.flush()
+        expect(watch.seen).toEqual([])
+      } finally {
+        watch.stop()
+      }
+    },
+  )
 
   it('keeps a running subagent whose card is older than the newest items', async () => {
     const l = ledger()

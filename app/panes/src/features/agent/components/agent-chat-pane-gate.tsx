@@ -7,7 +7,7 @@ import { AgentChatUnavailable } from '@/features/agent/components/agent-chat-una
 import { DraftChatPane } from '@/features/agent/components/draft-chat-pane'
 import { isDraftChatId } from '@/features/agent/lib/draft-chat'
 import { pendingChatSurfaces } from '@/features/panes/stores/pending-chat-surfaces'
-import { useChatPaneHost } from '@/lib/host-resolve-cached'
+import { useChatPaneHost } from '@/features/hosts/lib/host-resolve-cached'
 import { useHostUnavailable } from '@/lib/host-unavailability'
 
 // Mounts the chat body only once its workspace's host resolves, or is recalled from the last run

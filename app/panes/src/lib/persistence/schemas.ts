@@ -2,8 +2,8 @@ import type { DBSchema } from 'idb'
 import type { PaneGroup, LayoutNode, ViewRecord } from '@/features/panes/types/pane'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import type { ChatDTO, ProjectDTO, RepoDTO, WorkspaceDTO, FolderDTO } from '@/lib/types'
-import type { CachedFeed } from '@/features/agent/stores/lib/feed-cache'
-import type { PlacementRecord } from '@/lib/persistence/host-placements'
+import type { CachedFeed } from '@/features/agent/stores/lib/cached-feed'
+import type { PlacementRecord } from '@/lib/persistence/placement-record'
 import type { EditorDraft } from '@/features/editor/documents/draft-store'
 
 interface BranchReviewPersistedState {

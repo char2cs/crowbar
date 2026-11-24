@@ -9,7 +9,10 @@ import { showingLayout } from '@/features/panes/lib/view-state'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { markStart } from '@/lib/perf/instrumentation'
-import { hydrateHostPlacements, startHostPlacementCache } from '@/lib/persistence/host-placements'
+import {
+  hydrateHostPlacements,
+  startHostPlacementCache,
+} from '@/features/hosts/lib/host-placements'
 import { retireOrphanedStorage } from '@/lib/persistence/retired-storage'
 import { hostsRegistered } from '@/features/hosts/lib/host-registration'
 import { hasPairedRemote, useHostConfigStore } from '@/features/hosts/stores/host-config-store'

@@ -4,7 +4,10 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { createLeaf } from '@/features/panes/utils/pane-layout'
 import { IDBFactory } from 'fake-indexeddb'
 import { getDB } from '@/lib/persistence/idb'
-import { hydrateHostPlacements, startHostPlacementCache } from '@/lib/persistence/host-placements'
+import {
+  hydrateHostPlacements,
+  startHostPlacementCache,
+} from '@/features/hosts/lib/host-placements'
 import { chatEntity, putEntities, resetEntities } from '@/__tests__/__fixtures__/sidebar-entities'
 import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 import { seedChats } from '@/__tests__/__fixtures__/agent-chat'

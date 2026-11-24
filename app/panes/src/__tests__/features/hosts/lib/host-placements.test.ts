@@ -8,7 +8,7 @@ import {
   hydrateHostPlacements,
   persistedHostOf,
   startHostPlacementCache,
-} from '@/lib/persistence/host-placements'
+} from '@/features/hosts/lib/host-placements'
 import {
   chatEntity,
   markProjectsSynced,
@@ -20,7 +20,7 @@ import {
 let stop: () => void
 
 beforeEach(async () => {
-  globalThis.indexedDB = new IDBFactory()
+  vi.stubGlobal('indexedDB', new IDBFactory())
   resetEntities()
   await hydrateHostPlacements()
   stop = startHostPlacementCache()
@@ -98,37 +98,42 @@ describe('host placements', () => {
     expect(await stored()).toBe(1)
   })
 
-  it('leaves no unhandled rejection when the database aborts a placement write', async () => {
-    const watch = watchUnhandled()
-    try {
-      const put = abortDuring('put')
-      putEntities('workspace', [workspaceDTO({ id: 'w1' })], 'host-1')
-      await vi.waitFor(() => expect(put).toHaveBeenCalled())
-      await watch.flush()
-      expect(watch.seen).toEqual([])
-    } finally {
-      watch.stop()
-    }
-  })
-
-  it('leaves no unhandled rejection when forgetting a host finds its transaction aborted', async () => {
-    putEntities('workspace', [workspaceDTO({ id: 'w1' })], 'host-1')
-    await vi.waitFor(async () => expect(await stored()).toBe(1))
-    pairRemoteHost('host-1')
-    const watch = watchUnhandled()
-    try {
-      const del = abortDuring('delete')
-      useHostConfigStore.getState().removeHost('host-1')
-      await vi.waitFor(() => expect(del).toHaveBeenCalled())
-      await watch.flush()
-      expect(watch.seen).toEqual([])
-    } finally {
-      watch.stop()
-    }
-  })
+  it.each([
+    {
+      write: 'a placement write',
+      method: 'put' as const,
+      before: async () => {},
+      act: () => putEntities('workspace', [workspaceDTO({ id: 'w1' })], 'host-1'),
+    },
+    {
+      write: "forgetting a removed host's placements",
+      method: 'delete' as const,
+      before: async () => {
+        putEntities('workspace', [workspaceDTO({ id: 'w1' })], 'host-1')
+        await vi.waitFor(async () => expect(await stored()).toBe(1))
+        pairRemoteHost('host-1')
+      },
+      act: () => useHostConfigStore.getState().removeHost('host-1'),
+    },
+  ])(
+    'leaves no unhandled rejection when the database aborts $write',
+    async ({ method, before, act }) => {
+      await before()
+      const watch = watchUnhandled()
+      try {
+        const aborted = abortDuring(method)
+        act()
+        await vi.waitFor(() => expect(aborted).toHaveBeenCalled())
+        await watch.flush()
+        expect(watch.seen).toEqual([])
+      } finally {
+        watch.stop()
+      }
+    },
+  )
 
   it('reads as empty when IndexedDB is unavailable', async () => {
-    globalThis.indexedDB = undefined as unknown as IDBFactory
+    vi.stubGlobal('indexedDB', undefined)
 
     await expect(hydrateHostPlacements()).resolves.toBeUndefined()
 

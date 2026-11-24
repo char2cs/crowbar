@@ -3,7 +3,7 @@ import { showingLayout } from '@/features/panes/lib/view-state'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { subscribeHostResolution } from '@/lib/host-resolve'
-import { feedHostOf } from '@/lib/host-resolve-cached'
+import { feedHostOf } from '@/features/hosts/lib/host-resolve-cached'
 
 const held = new Map<string, () => void>()
 let started: Promise<void> | null = null

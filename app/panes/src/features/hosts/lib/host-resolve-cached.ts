@@ -10,10 +10,8 @@ import {
   useChatHost,
   useResolvedHost,
 } from '@/lib/host-resolve'
-import { persistedHostOf } from '@/lib/persistence/host-placements'
+import { persistedHostOf } from '@/features/hosts/lib/host-placements'
 
-// Only until that host lists: after it, its rows are the answer and absence means gone. Reads
-// only; every call that creates data keeps resolving through the daemons' lists.
 function cachedHost(wsId: string, chatId: string): string | null {
   const hostId =
     (wsId ? persistedHostOf('workspace', wsId) : null) ?? persistedHostOf('chat', chatId)
@@ -24,7 +22,9 @@ function cachedHost(wsId: string, chatId: string): string | null {
 }
 
 /** The host a chat pane reads from: the one its workspace resolves to, else the one that held
- *  the chat last run while that host has not listed yet. Null while neither is known. */
+ *  the chat last run while that host has not listed yet. Null while neither is known. The recall
+ *  only reads: once that host lists, its rows are the answer and absence means gone, and every
+ *  call that creates data keeps resolving through the daemons' lists. */
 export function useChatPaneHost(wsId: string, chatId: string): string | null {
   const resolved = useResolvedHost({ wsId })
   const subscribe = useCallback(

@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { attachFeed } from '@/features/agent/stores/chat-feed'
-import { useFeedHost } from '@/lib/host-resolve-cached'
+import { useFeedHost } from '@/features/hosts/lib/host-resolve-cached'
 import { useChatStore } from '@/features/agent/stores/chat-store'
 import {
   liveKey,
