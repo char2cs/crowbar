@@ -1,12 +1,19 @@
 //! The desktop's own context menu, which the shell installs at start in place of the drawn one.
 
+mod menu_edge;
 mod native_entry;
 mod native_request;
 
 use std::rc::Rc;
 
-use gpui::{App, Global, InteractiveElement, MouseButton, Pixels, Point, Task, Window};
+use std::cell::Cell;
 
+use gpui::{
+    App, Bounds, Global, InteractiveElement, IntoElement, MouseButton, Pixels, Point, Styled as _,
+    Task, Window, canvas,
+};
+
+pub use menu_edge::MenuEdge;
 pub use native_entry::NativeEntry;
 pub use native_request::NativeRequest;
 
@@ -54,16 +61,19 @@ impl NativeMenu {
         (self.0)(request, window, cx)
     }
 
-    /// Pops `items` up at `at` and runs the chosen row's action, as a drawn menu would.
+    /// Pops `items` up with `edge` at `at` and runs the chosen row's action, as a drawn menu
+    /// would.
     pub fn open(
         &self,
         items: &Rc<[MenuItem]>,
-        at: Point<Pixels>,
+        anchor: (Point<Pixels>, MenuEdge),
         (window, cx): (&Window, &mut App),
     ) {
+        let (at, edge) = anchor;
         let request = NativeRequest {
             entries: entries(items),
             at,
+            edge,
         };
         let chosen = self.popup(request, window, cx);
         let items = Rc::clone(items);
@@ -75,6 +85,13 @@ impl NativeMenu {
             })
             .detach();
     }
+}
+
+pub(crate) fn trigger_probe() -> (Rc<Cell<Bounds<Pixels>>>, impl IntoElement) {
+    let laid_out: Rc<Cell<Bounds<Pixels>>> = Rc::default();
+    let measured = Rc::clone(&laid_out);
+    let probe = canvas(move |bounds, _, _| measured.set(bounds), |_, (), _, _| {});
+    (laid_out, probe.absolute().top_0().left_0().size_full())
 }
 
 /// Calls `open` with the pointer when `element` is right-clicked: on release when a native menu
@@ -169,9 +186,9 @@ fn action_at(
 
 #[cfg(test)]
 mod tests {
-    use std::cell::{Cell, RefCell};
+    use std::cell::RefCell;
 
-    use gpui::{Modifiers, MouseButton, Styled as _, TestAppContext, div, point, px};
+    use gpui::{Modifiers, MouseButton, TestAppContext, div, point, px};
 
     use super::*;
     use crate::floating::menu::ContextMenu;
@@ -217,7 +234,7 @@ mod tests {
     fn right_click(
         cx: &mut TestAppContext,
         chosen: &Rc<Cell<u32>>,
-    ) -> Option<gpui::Bounds<Pixels>> {
+    ) -> Option<Bounds<Pixels>> {
         let chosen = Rc::clone(chosen);
         let cx = open(cx, move |_, _| {
             let area = div().w(px(200.0)).h(px(100.0));
@@ -248,6 +265,7 @@ mod tests {
         let want = NativeRequest {
             entries,
             at: point(px(30.0), px(20.0)),
+            edge: MenuEdge::Start,
         };
         assert_eq!(*asked.borrow(), [want]);
         assert_eq!(drawn, None, "nothing is drawn in the window");

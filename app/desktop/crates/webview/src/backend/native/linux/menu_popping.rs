@@ -12,7 +12,7 @@ use gtk::prelude::{
 use crate::backend::menu_popping::{ChosenEntry, MenuPopping};
 use crate::backend::native::linux::gtk_platform::GtkPlatform;
 use crate::error::{Error, Result};
-use crate::menu::{MenuEntry, MenuRequest};
+use crate::menu::{MenuEdge, MenuEntry, MenuRequest};
 use crate::view::ParentWindow;
 use wry::dpi::LogicalPosition;
 
@@ -44,7 +44,7 @@ async fn pop(
     let menu = build(&request.entries, &[], &picked);
     let (closed, wait) = async_channel::bounded(1);
     menu.connect_deactivate(on_close(closed));
-    let shown = show(&menu, top, (request.x, request.y));
+    let shown = show(&menu, top, &request);
     if shown && wait.recv().await.is_err() {
         tracing::debug!("context menu: gone before it closed");
     }
@@ -65,7 +65,7 @@ fn tell_closed(closed: &async_channel::Sender<()>) {
 fn show(
     menu: &gtk::Menu,
     top: u32,
-    (x, y): (f64, f64),
+    request: &MenuRequest,
 ) -> bool {
     let display = menu.display();
     let Ok(display) = display.downcast::<gdkx11::X11Display>() else {
@@ -73,11 +73,18 @@ fn show(
         return false;
     };
     let shell = gdkx11::X11Window::foreign_new_for_display(&display, top.into());
-    let at = LogicalPosition::new(x, y).cast::<i32>();
+    let at = LogicalPosition::new(request.x, request.y).cast::<i32>();
     let at = gtk::gdk::Rectangle::new(at.x, at.y, 1, 1);
-    let gravity = gtk::gdk::Gravity::NorthWest;
+    let gravity = gravity_of(request.edge);
     menu.popup_at_rect(shell.upcast_ref(), &at, gravity, gravity, None);
     menu.is_visible()
+}
+
+fn gravity_of(edge: MenuEdge) -> gtk::gdk::Gravity {
+    match edge {
+        MenuEdge::Start => gtk::gdk::Gravity::NorthWest,
+        MenuEdge::End => gtk::gdk::Gravity::NorthEast,
+    }
 }
 
 fn build(
@@ -167,6 +174,7 @@ mod tests {
             entries: vec![MenuEntry::Separator],
             x: 0.0,
             y: 0.0,
+            edge: MenuEdge::Start,
         };
         let posted = platform.popup_menu(parent, request, Box::new(|_| ()));
         (posted.is_ok(), inbox.len())

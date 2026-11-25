@@ -23,7 +23,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
-    use crate::menu::MenuEntry;
+    use crate::menu::{MenuEdge, MenuEntry};
 
     #[test]
     fn a_menu_is_recorded_and_answers_the_entry_it_was_given() {
@@ -36,6 +36,7 @@ mod tests {
             entries: vec![MenuEntry::Separator],
             x: 1.0,
             y: 2.0,
+            edge: MenuEdge::Start,
         };
         mock.popup_menu(ParentWindow::X11(9), request.clone(), answer)
             .unwrap();

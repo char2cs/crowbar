@@ -46,7 +46,7 @@ mod tests {
     use crate::backend::Call;
     use crate::backend::MockPlatform;
     use crate::host::Host;
-    use crate::menu::MenuEntry;
+    use crate::menu::{MenuEdge, MenuEntry};
 
     use super::*;
 
@@ -58,6 +58,7 @@ mod tests {
             entries: vec![MenuEntry::Separator],
             x: 4.0,
             y: 8.0,
+            edge: MenuEdge::Start,
         };
         let parent = ParentWindow::X11(4);
         host.native_menu()

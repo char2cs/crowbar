@@ -47,7 +47,7 @@ mod trigger;
 
 pub use menu_item::{MenuAction, MenuItem};
 pub use native_menu::{
-    MenuPath, NativeEntry, NativeMenu, NativeRequest, PopupMenu, on_context_click,
+    MenuEdge, MenuPath, NativeEntry, NativeMenu, NativeRequest, PopupMenu, on_context_click,
 };
 pub(crate) use navigation::bindings;
 pub(crate) use option_row::{

@@ -4,7 +4,7 @@ impl PaneHost {
     /// The desktop's context menu, popped up on the web views' platform thread.
     #[must_use]
     pub fn native_menu(&self) -> webview::NativeMenu {
-        self.factory.native_menu()
+        self.factory.webviews().native_menu()
     }
 
     /// The native menus pages ask for. Await it on the main thread, pop each up over its pane
@@ -17,7 +17,7 @@ impl PaneHost {
 
 #[cfg(test)]
 mod tests {
-    use webview::{Call, MenuEntry, MenuRequest, ParentWindow};
+    use webview::{Call, MenuEdge, MenuEntry, MenuRequest, ParentWindow};
 
     use crate::test_support::fixture;
 
@@ -28,6 +28,7 @@ mod tests {
             entries: vec![MenuEntry::Separator],
             x: 3.0,
             y: 5.0,
+            edge: MenuEdge::Start,
         };
         let parent = ParentWindow::X11(7);
         f.host

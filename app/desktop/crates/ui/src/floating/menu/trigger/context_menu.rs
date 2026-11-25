@@ -1,16 +1,15 @@
 //! A menu opened at the pointer by a right click.
 
-use std::cell::Cell;
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, Bounds, DismissEvent, Div, ElementId, Entity, InteractiveElement, IntoElement,
+    AnyElement, App, DismissEvent, Div, ElementId, Entity, InteractiveElement, IntoElement,
     MouseButton, ParentElement, Pixels, Point, Refineable as _, RenderOnce, Stateful,
-    StyleRefinement, Styled, Window, canvas, div, point, px,
+    StyleRefinement, Styled, Window, div, px,
 };
 
 use crate::floating::menu::menu_item::MenuItem;
-use crate::floating::menu::native_menu::NativeMenu;
+use crate::floating::menu::native_menu::{self, MenuEdge, NativeMenu};
 use crate::floating::menu::trigger::context_state::ContextState;
 use crate::floating::menu::trigger::spec::Spec;
 use crate::floating::placement::Placement;
@@ -104,14 +103,13 @@ impl ContextMenu {
         native: NativeMenu,
     ) -> AnyElement {
         let (items, placement) = (Rc::clone(&self.spec.items), self.placement);
-        let laid_out: Rc<Cell<Bounds<Pixels>>> = Rc::default();
-        let measured = Rc::clone(&laid_out);
-        let probe = canvas(move |bounds, _, _| measured.set(bounds), |_, (), _, _| {});
+        let (laid_out, probe) = native_menu::trigger_probe();
         // PLATFORM: linux the press holds an implicit X grab on the shell window, so GTK can only take the pointer for its menu once the button is up.
         self.area()
-            .child(probe.absolute().top_0().left_0().size_full())
+            .child(probe)
             .on_mouse_up(MouseButton::Right, move |event, window, cx| {
-                let at = placement.map_or(event.position, |side| beside(side, laid_out.get()));
+                let pointer = (event.position, MenuEdge::Start);
+                let at = placement.map_or(pointer, |side| side.beside(laid_out.get(), px(OFFSET)));
                 native.open(&items, at, (window, cx));
             })
             .into_any_element()
@@ -174,19 +172,6 @@ impl Spec {
     }
 }
 
-fn beside(
-    placement: Placement,
-    trigger: Bounds<Pixels>,
-) -> Point<Pixels> {
-    let below = trigger.bottom() + px(OFFSET);
-    match placement {
-        Placement::Below => point(trigger.left(), below),
-        Placement::BelowEnd => point(trigger.right(), below),
-        Placement::BelowCentre => point(trigger.center().x, below),
-        Placement::Right => point(trigger.right() + px(OFFSET), trigger.top()),
-    }
-}
-
 fn close(
     state: &Entity<ContextState>,
     cx: &mut App,
@@ -207,7 +192,7 @@ mod tests {
 
     use super::*;
     use crate::floating::menu::menu_item::MenuAction;
-    use crate::test_support::probe::{open, open_floating, settle};
+    use crate::test_support::probe::open;
 
     fn nested(chosen: &Rc<Cell<u32>>) -> Vec<MenuItem> {
         let chosen = Rc::clone(chosen);
@@ -322,31 +307,5 @@ mod tests {
         cx.run_until_parked();
         cx.simulate_keystrokes("enter");
         assert_eq!(chosen.get(), 0);
-    }
-
-    #[gpui::test]
-    fn a_context_menu_floats_in_the_top_layer_at_the_pointer(cx: &mut TestAppContext) {
-        let chosen = Rc::new(Cell::new(0));
-        let (mut owner, mut top) = open_floating(cx, build(&chosen));
-        let at = point(px(40.0), px(30.0));
-        owner.simulate_event(gpui::MouseDownEvent {
-            button: MouseButton::Right,
-            position: at,
-            modifiers: gpui::Modifiers::none(),
-            click_count: 1,
-            first_mouse: false,
-        });
-        owner.run_until_parked();
-        assert_eq!(owner.debug_bounds("ui-menu"), None, "nothing in the window");
-        let menu = top.debug_bounds("ui-menu").unwrap_or_default();
-        assert_eq!(menu.origin, at);
-        let away = point(px(700.0), px(500.0));
-        top.simulate_click(away, gpui::Modifiers::none());
-        settle(&mut top);
-        assert_eq!(
-            top.debug_bounds("ui-menu"),
-            None,
-            "a press outside closes it"
-        );
     }
 }

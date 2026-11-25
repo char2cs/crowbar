@@ -50,7 +50,7 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) {
         if let Some(native) = ui::NativeMenu::installed(cx) {
-            return native.open(&items.into(), at, (window, cx));
+            return native.open(&items.into(), (at, ui::MenuEdge::Start), (window, cx));
         }
         let menu = cx.new(|cx| Menu::new(items, window, cx));
         cx.subscribe(&menu, |this, _, _: &DismissEvent, cx| {
@@ -222,6 +222,7 @@ mod tests {
                 row("Copy Link"),
             ],
             at: position,
+            edge: ui::MenuEdge::Start,
         };
         assert_eq!(*popped.borrow(), [want]);
         let copied = opened

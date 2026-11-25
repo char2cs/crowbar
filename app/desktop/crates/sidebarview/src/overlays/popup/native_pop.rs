@@ -2,7 +2,7 @@
 
 use gpui::{Context, Pixels, Point, Window};
 use sidebar::Intent;
-use ui::{NativeEntry, NativeMenu, NativeRequest};
+use ui::{MenuEdge, NativeEntry, NativeMenu, NativeRequest};
 
 use crate::overlays::popup::check::Check;
 use crate::overlays::popup::menu_entry::MenuEntry;
@@ -24,6 +24,7 @@ impl Sidebar {
         let request = NativeRequest {
             entries: native_entries(&entries),
             at,
+            edge: MenuEdge::Start,
         };
         let chosen = native.popup(request, window, cx);
         cx.spawn_in(window, async move |this, cx| {

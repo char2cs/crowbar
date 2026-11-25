@@ -20,6 +20,7 @@ impl ShellView {
             entries: ask.entries.clone(),
             x: f64::from(f32::from(at.x)),
             y: f64::from(f32::from(at.y)),
+            edge: webview::MenuEdge::Start,
         };
         let menu = self.state.host().native_menu();
         let popped = menu.popup(parent, request, Box::new(move |path| ask.answer(path)));
