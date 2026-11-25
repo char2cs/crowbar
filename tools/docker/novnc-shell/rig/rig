@@ -221,7 +221,10 @@ shot() { # shot <app> <file>
 activate() {
   local w
   w=$(winid "$1") || die "$1 has no window"
-  xdotool windowactivate --sync "$w" 2>/dev/null || xdotool windowfocus --sync "$w"
+  # Leave an active window alone: activating it again moves X focus off an embedded page and ends an input method composition.
+  if [[ $(xdotool getactivewindow 2>/dev/null) != "$w" ]]; then
+    xdotool windowactivate --sync "$w" 2>/dev/null || xdotool windowfocus --sync "$w"
+  fi
   echo "$w"
 }
 
