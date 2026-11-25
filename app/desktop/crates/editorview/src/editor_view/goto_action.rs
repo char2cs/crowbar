@@ -37,7 +37,7 @@ impl EditorView {
         cx: &mut Context<'_, Self>,
     ) {
         let text = self.state.read(cx).text().clone();
-        let position = crate::lsp_position::from_lsp(&text, Position::new(line, character));
+        let position = crate::lsp::lsp_position::from_lsp(&text, Position::new(line, character));
         self.state.update(cx, |state, cx| {
             state.set_cursor_position(position, window, cx);
         });

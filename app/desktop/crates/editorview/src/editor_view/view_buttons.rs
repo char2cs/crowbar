@@ -1,7 +1,9 @@
+mod view_button;
+
 use gpui::{AnyElement, Context, IntoElement as _, ParentElement as _, Styled as _, div, px};
 
 use super::EditorView;
-use super::view_button::ViewButton;
+use crate::editor_view::view_buttons::view_button::ViewButton;
 
 const ACTION_GAP: f32 = 4.0;
 

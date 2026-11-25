@@ -6,14 +6,14 @@ use gpui::{
 use gpui_kit::base::input::{InputEditsEvent, Rope};
 use gpui_kit::component::input::EditorState;
 
+use crate::chrome::find_widget::FindWidget;
+use crate::chrome::goto_line::GotoLine;
+use crate::chrome::toolbar::Toolbar;
 use crate::document::Document;
-use crate::find_widget::FindWidget;
-use crate::goto_line::GotoLine;
-use crate::highlight_name;
-use crate::occurrence_session::OccurrenceSession;
-use crate::save_key::{CONTEXT, Save};
+use crate::editor_view::find::occurrence_session::OccurrenceSession;
+use crate::keys::save_key::{CONTEXT, Save};
+use crate::theme::highlight_name;
 use crate::theme::{ground, ink};
-use crate::toolbar::Toolbar;
 use crate::{Access, Caret, DocumentEvent, EditorEvent, Opening, Settings};
 use bracket_colours::BracketColours;
 
@@ -22,24 +22,18 @@ const TEXT: &str = "editor-text";
 
 mod access_change;
 mod bracket_colours;
-mod command_actions;
-mod find_actions;
-mod fold_command;
-mod folding;
+mod command;
+mod find;
 mod goto_action;
 mod gutter_gap;
 mod language;
-mod line_command;
-mod line_commands;
-mod occurrences;
 mod preedit_dropping;
 pub(crate) mod replay;
-mod selections;
+pub(crate) mod reveal;
 mod settings_follow;
 #[cfg(test)]
 pub(crate) mod test_support;
 mod text_area;
-mod view_button;
 mod view_buttons;
 mod whitespace_marks;
 

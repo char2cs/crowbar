@@ -1,7 +1,7 @@
 use editor::Vertical;
 
 #[derive(Clone, Copy)]
-pub(super) enum LineCommand {
+pub(in crate::editor_view) enum LineCommand {
     Move(Vertical),
     Copy(Vertical),
     Delete,

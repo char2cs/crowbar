@@ -4,28 +4,28 @@ use gpui::{
 };
 use ui::{Icon, IconName, Surface, Theme, Tooltip};
 
-use super::EditorView;
 use crate::EditorEvent;
+use crate::editor_view::EditorView;
 
 const ICON_SIZE: f32 = 16.0;
 
-pub(super) struct ViewButton {
-    pub(super) id: &'static str,
-    pub(super) label: &'static str,
-    pub(super) size: (f32, f32),
-    pub(super) radius: f32,
-    pub(super) event: EditorEvent,
+pub(in crate::editor_view) struct ViewButton {
+    pub(in crate::editor_view) id: &'static str,
+    pub(in crate::editor_view) label: &'static str,
+    pub(in crate::editor_view) size: (f32, f32),
+    pub(in crate::editor_view) radius: f32,
+    pub(in crate::editor_view) event: EditorEvent,
 }
 
 impl ViewButton {
-    pub(super) const PREVIEW: Self = Self {
+    pub(in crate::editor_view) const PREVIEW: Self = Self {
         id: "editor-preview",
         label: "Preview",
         size: (36.0, 32.0),
         radius: 4.0,
         event: EditorEvent::PreviewRequested,
     };
-    pub(super) const RICH_VIEW: Self = Self {
+    pub(in crate::editor_view) const RICH_VIEW: Self = Self {
         id: "editor-rich-view",
         label: "View rich editor",
         size: (32.0, 28.0),
@@ -33,7 +33,7 @@ impl ViewButton {
         event: EditorEvent::RichViewRequested,
     };
 
-    pub(super) fn element(
+    pub(in crate::editor_view) fn element(
         self,
         cx: &mut Context<'_, EditorView>,
     ) -> AnyElement {
@@ -69,8 +69,8 @@ impl ViewButton {
 mod tests {
     use gpui::TestAppContext;
 
-    use super::super::find_actions::FIND_BUTTON;
     use super::*;
+    use crate::editor_view::find::find_actions::FIND_BUTTON;
     use crate::editor_view::test_support::opened_at;
 
     #[gpui::test]

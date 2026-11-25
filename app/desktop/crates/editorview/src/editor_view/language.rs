@@ -3,10 +3,10 @@ use std::rc::Rc;
 use gpui::Context;
 
 use super::EditorView;
-use crate::lsp_completion::LspCompletion;
-use crate::lsp_definition::{LspDefinition, elsewhere};
-use crate::lsp_hover::LspHover;
-use crate::lsp_link::LspLink;
+use crate::lsp::lsp_completion::LspCompletion;
+use crate::lsp::lsp_definition::{LspDefinition, elsewhere};
+use crate::lsp::lsp_hover::LspHover;
+use crate::lsp::lsp_link::LspLink;
 
 impl EditorView {
     pub(super) fn ask_language_server(

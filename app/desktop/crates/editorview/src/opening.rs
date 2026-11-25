@@ -1,3 +1,5 @@
+pub(crate) mod access;
+
 /// Where a view over a document puts its caret, and whether typing edits it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Opening {

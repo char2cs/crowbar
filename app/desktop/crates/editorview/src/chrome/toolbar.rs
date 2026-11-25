@@ -1,3 +1,5 @@
+pub(crate) mod caret;
+
 use gpui::{
     AnyElement, App, FontWeight, Hsla, IntoElement as _, ParentElement as _, Pixels, Styled as _,
     div, px,
@@ -7,7 +9,7 @@ use ui::{
     text_size,
 };
 
-use crate::caret::Caret;
+use crate::chrome::toolbar::caret::Caret;
 
 const SEPARATOR: char = '/';
 const BAR_HEIGHT: f32 = 28.0;

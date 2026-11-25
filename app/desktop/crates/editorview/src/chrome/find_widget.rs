@@ -6,7 +6,7 @@ use gpui_kit::base::input::InputEvent;
 use gpui_kit::component::input::{EditorState, RangeDecorationCollection};
 use ui::{TextInput, TextInputEvent, TextInputStyle};
 
-use crate::reveal::Reveal;
+use crate::editor_view::reveal::Reveal;
 
 mod count;
 mod highlights;
@@ -231,8 +231,8 @@ mod tests {
 
     use super::FindWidget;
     use crate::Access;
+    use crate::editor_view::reveal::Reveal;
     use crate::editor_view::test_support::{find_of, on_find, opened};
-    use crate::reveal::Reveal;
     use gpui::{Context, Entity, VisualTestContext, Window};
 
     #[derive(Clone, Copy)]

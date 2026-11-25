@@ -6,8 +6,8 @@ use gpui::{
 };
 
 use super::EditorView;
+use crate::chrome::find_widget::FindWidget;
 use crate::document::Document;
-use crate::find_widget::FindWidget;
 use crate::{Access, DocumentOpening, EditorEvent, Opening};
 
 pub(crate) fn opened<'cx>(
@@ -145,7 +145,7 @@ pub(crate) fn on_find<R>(
 
 pub(crate) fn open_find(
     find: &Entity<FindWidget>,
-    reveal: crate::reveal::Reveal,
+    reveal: crate::editor_view::reveal::Reveal,
     window: &mut VisualTestContext,
 ) {
     on_find(find, window, |find, window, cx| {

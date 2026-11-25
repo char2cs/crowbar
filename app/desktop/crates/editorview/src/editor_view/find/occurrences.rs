@@ -3,13 +3,13 @@ use std::ops::Range;
 use editor::{FindOption, FindOptions, FindQuery};
 use gpui::Context;
 
-use super::EditorView;
-use crate::occurrence_session::OccurrenceSession;
+use crate::editor_view::EditorView;
+use crate::editor_view::find::occurrence_session::OccurrenceSession;
 
 const WORD_SEARCH: &[FindOption] = &[FindOption::MatchCase, FindOption::WholeWord];
 
 impl EditorView {
-    pub(super) fn add_next_occurrence(
+    pub(in crate::editor_view) fn add_next_occurrence(
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
@@ -37,7 +37,7 @@ impl EditorView {
         self.occurrences = Some(OccurrenceSession { query, selections });
     }
 
-    pub(super) fn select_all_occurrences(
+    pub(in crate::editor_view) fn select_all_occurrences(
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {

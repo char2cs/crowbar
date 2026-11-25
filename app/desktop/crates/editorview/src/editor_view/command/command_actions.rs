@@ -1,16 +1,16 @@
 use editor::Vertical;
 use gpui::{Action, App, Context, Div, InteractiveElement as _, Window};
 
-use super::EditorView;
 use super::fold_command::FoldCommand;
 use super::line_command::LineCommand;
+use crate::editor_view::EditorView;
 use crate::keys::{
     AddNextOccurrence, CopyLinesDown, CopyLinesUp, DeleteLines, Fold, FoldAll, MoveLinesDown,
     MoveLinesUp, SelectAllOccurrences, Unfold, UnfoldAll,
 };
 
 impl EditorView {
-    pub(super) fn command_actions(
+    pub(in crate::editor_view) fn command_actions(
         element: Div,
         cx: &mut Context<'_, Self>,
     ) -> Div {

@@ -7,8 +7,8 @@ use gpui::{
 use ui::{Icon, IconName, Palette, Surface, TextInput, Theme, shadow};
 
 use super::{COUNT_MARGIN, FindWidget, LABEL_SIZE};
+use crate::editor_view::reveal::Reveal;
 use crate::keys::FIND_CONTEXT;
-use crate::reveal::Reveal;
 
 // SPEC: https://github.com/microsoft/vscode/blob/main/src/vs/editor/contrib/find/browser/findWidget.css
 const WIDTH: f32 = 419.0;
@@ -277,9 +277,9 @@ mod tests {
 
     use super::WIDTH;
     use crate::Access;
+    use crate::chrome::find_widget::strip::{FIND_HEIGHT, REPLACE_HEIGHT};
+    use crate::editor_view::reveal::Reveal;
     use crate::editor_view::test_support::{find_of, open_find, opened};
-    use crate::find_widget::strip::{FIND_HEIGHT, REPLACE_HEIGHT};
-    use crate::reveal::Reveal;
 
     #[gpui::test]
     fn the_widget_takes_monaco_s_size_and_grows_a_row_for_replace(cx: &mut TestAppContext) {

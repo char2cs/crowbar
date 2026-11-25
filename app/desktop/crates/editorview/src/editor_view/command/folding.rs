@@ -1,11 +1,11 @@
 use gpui::Context;
 use gpui_kit::component::input::{FoldRange, RopeExt as _};
 
-use super::EditorView;
 use super::fold_command::FoldCommand;
+use crate::editor_view::EditorView;
 
 impl EditorView {
-    pub(super) fn run_fold_command(
+    pub(in crate::editor_view) fn run_fold_command(
         &mut self,
         command: FoldCommand,
         cx: &mut Context<'_, Self>,

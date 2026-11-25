@@ -10,8 +10,8 @@ use lsp_types::{LocationLink, Position, Range, Uri};
 use serde_json::{Map, Value, json};
 
 use crate::EditorEvent;
-use crate::lsp_link::LspLink;
-use crate::lsp_position::{range_from_lsp, to_lsp};
+use crate::lsp::lsp_link::LspLink;
+use crate::lsp::lsp_position::{range_from_lsp, to_lsp};
 
 const WORKSPACE_SCHEME: &str = "crowbar-workspace";
 const OUTSIDE_SCHEME: &str = "file";

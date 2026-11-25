@@ -1,7 +1,9 @@
+pub(crate) mod save_key;
+
 use gpui::{KeyBinding, actions};
 use gpui_kit::base::input::{GoToDefinition, Redo, Replace, Search, ShowCompletions};
 
-use crate::save_key::CONTEXT;
+use crate::keys::save_key::CONTEXT;
 
 actions!(
     editorview,

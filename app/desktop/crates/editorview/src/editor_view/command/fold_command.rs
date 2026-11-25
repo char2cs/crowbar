@@ -1,5 +1,5 @@
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum FoldCommand {
+pub(in crate::editor_view) enum FoldCommand {
     Fold,
     Unfold,
     FoldAll,

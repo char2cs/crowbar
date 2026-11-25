@@ -74,12 +74,15 @@ fn reveal_if_hidden(
     range: &Range<usize>,
     cx: &mut Context<'_, EditorState>,
 ) {
-    if crate::reveal::centring::shows_line_with_context(state, range.start, STICKY_LINES)
-        == Some(true)
+    if crate::editor_view::reveal::centring::shows_line_with_context(
+        state,
+        range.start,
+        STICKY_LINES,
+    ) == Some(true)
     {
         return;
     }
-    crate::reveal::centring::reveal_centered(state, range.start, cx);
+    crate::editor_view::reveal::centring::reveal_centered(state, range.start, cx);
 }
 
 #[cfg(test)]
@@ -88,11 +91,11 @@ mod tests {
     use gpui::TestAppContext;
 
     use crate::Access;
+    use crate::chrome::find_widget::FindWidget;
+    use crate::editor_view::reveal::Reveal;
     use crate::editor_view::test_support::{
         body_of, find_of, line_height_of, on_find, opened, scroll_top_of, selected_of,
     };
-    use crate::find_widget::FindWidget;
-    use crate::reveal::Reveal;
 
     type Case = (&'static [Vertical], std::ops::Range<usize>);
 

@@ -2,6 +2,7 @@
 
 mod grammars;
 mod highlight;
+pub(crate) mod highlight_name;
 
 use gpui::{App, Hsla};
 use gpui_kit::component::{Theme as KitTheme, ThemeMode as KitMode};

@@ -4,7 +4,7 @@ use std::ops::Range;
 
 use gpui_kit::component::input::EditorState;
 
-pub(super) fn of(state: &EditorState) -> Vec<Range<usize>> {
+pub(in crate::editor_view) fn of(state: &EditorState) -> Vec<Range<usize>> {
     vec![state.selected_range()]
 }
 

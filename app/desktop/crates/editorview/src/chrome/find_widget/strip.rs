@@ -4,7 +4,7 @@
 use gpui::Context;
 
 use super::FindWidget;
-use crate::reveal::Reveal;
+use crate::editor_view::reveal::Reveal;
 
 pub(super) const FIND_HEIGHT: f32 = 33.0;
 pub(super) const REPLACE_HEIGHT: f32 = 62.0;
@@ -35,9 +35,9 @@ mod tests {
 
     use super::FIND_HEIGHT;
     use crate::Access;
+    use crate::chrome::find_widget::FindWidget;
+    use crate::editor_view::reveal::Reveal;
     use crate::editor_view::test_support::{find_of, on_find, opened, text_top_of};
-    use crate::find_widget::FindWidget;
-    use crate::reveal::Reveal;
 
     const LINES: usize = 200;
 

@@ -4,12 +4,12 @@ use editor::LineEdit;
 use gpui::{Context, Window};
 use gpui_kit::component::input::EditorState;
 
-use super::EditorView;
 use super::line_command::LineCommand;
 use crate::Access;
+use crate::editor_view::EditorView;
 
 impl EditorView {
-    pub(super) fn run_line_command(
+    pub(in crate::editor_view) fn run_line_command(
         &mut self,
         command: LineCommand,
         window: &mut Window,
@@ -36,7 +36,7 @@ impl EditorView {
         self.select_all_of(edit.selections(), cx);
     }
 
-    pub(super) fn select_all_of(
+    pub(in crate::editor_view) fn select_all_of(
         &self,
         ranges: &[Range<usize>],
         cx: &mut Context<'_, Self>,
@@ -65,7 +65,7 @@ fn select_with_active(
     if shown {
         return state.set_scroll_offset(scroll, cx);
     }
-    crate::reveal::centring::reveal_centered(state, active.start, cx);
+    crate::editor_view::reveal::centring::reveal_centered(state, active.start, cx);
 }
 
 #[cfg(test)]

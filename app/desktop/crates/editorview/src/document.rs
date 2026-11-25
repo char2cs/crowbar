@@ -7,11 +7,15 @@ use std::rc::Rc;
 use gpui::{App, AppContext as _, Context, Entity, EventEmitter, Subscription, Task};
 use gpui_kit::base::input::Rope;
 
-use crate::lsp_link::LspLink;
+use crate::lsp::lsp_link::LspLink;
 use crate::{DocumentEvent, DocumentOpening, LanguageServer, SaveMark};
 
+pub(crate) mod disk_take;
 mod disk_text;
+pub(crate) mod document_event;
+pub(crate) mod document_opening;
 mod quiet;
+pub(crate) mod save_mark;
 mod shared_text;
 
 pub(crate) use shared_text::SharedText;

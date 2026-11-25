@@ -79,9 +79,9 @@ mod tests {
     use editor::FindOption;
     use gpui::TestAppContext;
 
+    use crate::chrome::find_widget::FindWidget;
+    use crate::editor_view::reveal::Reveal;
     use crate::editor_view::test_support::{find_of, on_find, opened};
-    use crate::find_widget::FindWidget;
-    use crate::reveal::Reveal;
     use crate::{Access, EditorView};
 
     const TEXT: &str = "ab x ab";

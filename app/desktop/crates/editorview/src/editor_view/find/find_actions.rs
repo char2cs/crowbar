@@ -6,24 +6,24 @@ use gpui::{
 use gpui_kit::base::input::{Replace, Search};
 use ui::{Icon, IconName, Surface, Theme, Tooltip};
 
-use super::EditorView;
 use crate::Access;
-use crate::find_widget::FindWidget;
+use crate::chrome::find_widget::FindWidget;
+use crate::editor_view::EditorView;
+use crate::editor_view::reveal::Reveal;
 use crate::keys::{
     CloseFind, FindNext, FindPrevious, ReplaceAll, ReplaceOne, ToggleFindInSelection,
     ToggleMatchCase, ToggleRegex, ToggleWholeWord,
 };
-use crate::reveal::Reveal;
 
 const FIND_BUTTON_WIDTH: f32 = 36.0;
 const FIND_BUTTON_HEIGHT: f32 = 32.0;
 const FIND_ICON_SIZE: f32 = 16.0;
 const FIND_BUTTON_RADIUS: f32 = 4.0;
 const FIND_BUTTON_LABEL: &str = "Find in file";
-pub(super) const FIND_BUTTON: &str = "find-in-file";
+pub(in crate::editor_view) const FIND_BUTTON: &str = "find-in-file";
 
 impl EditorView {
-    pub(super) fn find_button(cx: &mut Context<'_, Self>) -> AnyElement {
+    pub(in crate::editor_view) fn find_button(cx: &mut Context<'_, Self>) -> AnyElement {
         let palette = *Theme::of(cx).palette(Surface::Window);
         let trigger = div()
             .id(FIND_BUTTON)
@@ -46,7 +46,7 @@ impl EditorView {
         Tooltip::new(FIND_BUTTON, FIND_BUTTON_LABEL, trigger).into_any_element()
     }
 
-    pub(super) fn find_actions(
+    pub(in crate::editor_view) fn find_actions(
         element: Div,
         cx: &mut Context<'_, Self>,
     ) -> Div {
@@ -86,7 +86,7 @@ impl EditorView {
             .on_action(cx.listener(Self::close_find))
     }
 
-    pub(super) fn open_find(
+    pub(in crate::editor_view) fn open_find(
         &mut self,
         reveal: Reveal,
         window: &mut Window,

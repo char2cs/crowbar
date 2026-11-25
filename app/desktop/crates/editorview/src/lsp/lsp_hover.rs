@@ -6,8 +6,8 @@ use gpui::{App, AppContext as _, Task, Window};
 use gpui_kit::base::input::{HoverProvider, Rope};
 use serde_json::{Map, json};
 
-use crate::lsp_link::LspLink;
-use crate::lsp_position::{range_from_lsp, to_lsp};
+use crate::lsp::lsp_link::LspLink;
+use crate::lsp::lsp_position::{range_from_lsp, to_lsp};
 
 pub(crate) struct LspHover {
     pub(crate) link: Rc<LspLink>,

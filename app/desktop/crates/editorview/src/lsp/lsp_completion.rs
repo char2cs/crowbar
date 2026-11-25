@@ -11,8 +11,8 @@ use lsp_types::{
 };
 use serde_json::{Map, json};
 
-use crate::lsp_link::LspLink;
-use crate::lsp_position::{range_from_lsp, to_lsp};
+use crate::lsp::lsp_link::LspLink;
+use crate::lsp::lsp_position::{range_from_lsp, to_lsp};
 
 const TRIGGER_CHARACTERS: [char; 9] = ['.', ':', '<', '"', '\'', '/', '@', '>', '#'];
 
