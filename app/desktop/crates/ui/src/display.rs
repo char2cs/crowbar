@@ -1,4 +1,5 @@
-//! Components that show state: scroll areas, badges, skeletons, toasts, keys and spinners.
+//! Components that show state: scroll areas, badges, skeletons, toasts, keys, spinners and
+//! tracked text.
 
 mod badge;
 mod empty_state;
@@ -8,6 +9,7 @@ mod scroll_area;
 mod skeleton;
 mod spinner;
 mod toast;
+mod tracked_text;
 
 pub use badge::{Badge, BadgeSize, BadgeVariant};
 pub use empty_state::EmptyState;
@@ -21,3 +23,4 @@ pub use toast::{
     Toast, ToastContent, ToastId, ToastKind, ToastLifetime, ToastPlacement, ToastQueue,
     ToastQueueEvent, ToastSide,
 };
+pub use tracked_text::TrackedText;

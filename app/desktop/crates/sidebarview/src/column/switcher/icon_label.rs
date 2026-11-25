@@ -1,19 +1,25 @@
 //! The "ICON" label over a space's icon popover, set as develop's.
 
 use gpui::{Div, FontWeight, ParentElement, Styled, div};
-use ui::{Palette, tracking};
+use ui::{Palette, TrackedText, tracking};
 
 use crate::sidebar::scale::TEXT_MICRO;
 
 const LABEL: &str = "ICON";
 
 pub(super) fn section_label(palette: &Palette) -> Div {
+    spaced_label(palette, tracking::WIDER)
+}
+
+fn spaced_label(
+    palette: &Palette,
+    em: f32,
+) -> Div {
     div()
         .text_size(TEXT_MICRO)
         .font_weight(FontWeight::SEMIBOLD)
-        .letter_spacing(tracking::at(tracking::WIDER, TEXT_MICRO))
         .text_color(palette.muted_foreground())
-        .child(LABEL)
+        .child(TrackedText::new(LABEL, em))
 }
 
 #[cfg(test)]
@@ -28,14 +34,10 @@ mod tests {
 
     fn label_width(
         cx: &mut TestAppContext,
-        spacing: Option<f32>,
+        em: f32,
     ) -> f32 {
         let window = crate::test_support::mount(cx, move |_, cx| {
-            let label = section_label(Theme::of(cx).palette(Surface::Window));
-            let label = match spacing {
-                Some(spacing) => label.letter_spacing(px(spacing)),
-                None => label,
-            };
+            let label = spaced_label(Theme::of(cx).palette(Surface::Window), em);
             div().flex().child(
                 gpui::InteractiveElement::debug_selector(div().flex_none(), || "label".into())
                     .child(label),
@@ -46,8 +48,8 @@ mod tests {
 
     #[gpui::test]
     fn the_section_label_is_set_wider_as_develop_does(cx: &mut TestAppContext) {
-        let wider = label_width(cx, None);
-        let loose = label_width(cx, Some(0.0));
+        let wider = label_width(cx, WIDER);
+        let loose = label_width(cx, 0.0);
         let glyphs = f32::from(u16::try_from(LABEL.chars().count()).expect("a short label"));
         let expected = glyphs * WIDER * f32::from(TEXT_MICRO);
         assert!(
@@ -61,7 +63,7 @@ mod tests {
 
     #[gpui::test]
     fn the_section_label_is_set_at_develops_ten_pixels(cx: &mut TestAppContext) {
-        let label = label_width(cx, Some(0.0));
+        let label = label_width(cx, 0.0);
         let window = crate::test_support::mount(cx, move |_, _| {
             let develop = div()
                 .text_size(px(DEVELOP_LABEL))

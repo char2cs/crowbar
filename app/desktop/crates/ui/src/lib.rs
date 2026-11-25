@@ -18,7 +18,7 @@ pub use control::{
 pub use display::{
     Badge, BadgeSize, BadgeVariant, EmptyState, FlickerSpinner, Kbd, ScrollArea, Skeleton, Spinner,
     Toast, ToastContent, ToastId, ToastKind, ToastLifetime, ToastPlacement, ToastQueue,
-    ToastQueueEvent, ToastSide,
+    ToastQueueEvent, ToastSide, TrackedText,
 };
 pub use error::Error;
 pub use floating::{

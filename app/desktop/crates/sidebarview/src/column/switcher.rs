@@ -14,7 +14,9 @@ use gpui::{
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
 use sidebar::{Command, Host, HostKind, Intent, Project};
-use ui::{HoverFill, Palette, Placement, Popover, Surface, Theme, Tooltip, radius, tracking};
+use ui::{
+    HoverFill, Palette, Placement, Popover, Surface, Theme, Tooltip, TrackedText, radius, tracking,
+};
 
 use crate::column::switcher::edit_pencil::{GROUP, edit_pencil};
 
@@ -159,17 +161,24 @@ fn name_cell(
     family: &'static str,
     palette: &Palette,
 ) -> Div {
+    spaced_name_cell(current, (family, tracking::TIGHT), palette)
+}
+
+fn spaced_name_cell(
+    current: &Project,
+    (family, em): (&'static str, f32),
+    palette: &Palette,
+) -> Div {
     div()
         .flex_1()
         .min_w_0()
         .truncate()
         .font_family(family)
         .text_size(px(NAME_SIZE))
-        .letter_spacing(tracking::at(tracking::TIGHT, px(NAME_SIZE)))
         .line_height(px(NAME_LINE))
         .font_weight(FontWeight::NORMAL)
         .text_color(palette.foreground())
-        .child(current.name.clone())
+        .child(TrackedText::new(current.name.clone(), em))
 }
 
 fn editable_tile(
@@ -255,7 +264,7 @@ mod tests {
     use sidebar::{HostId, Intent, Mark, Project};
     use ui::{Surface, Theme};
 
-    use super::{NAME_SIZE, name_cell};
+    use super::{NAME_SIZE, spaced_name_cell};
     use crate::test_support::mount;
     use crate::test_support::prelude::*;
 
@@ -265,7 +274,7 @@ mod tests {
 
     fn name_width(
         cx: &mut TestAppContext,
-        spacing: Option<f32>,
+        em: f32,
     ) -> f32 {
         let seed = Project {
             id: ProjectId::from("seed"),
@@ -275,15 +284,11 @@ mod tests {
         };
         let window = mount(cx, move |_, cx| {
             let theme = Theme::of(cx);
-            let cell = name_cell(
+            let cell = spaced_name_cell(
                 &seed,
-                theme.heading_family(),
+                (theme.heading_family(), em),
                 theme.palette(Surface::Chrome),
             );
-            let cell = match spacing {
-                Some(spacing) => cell.letter_spacing(px(spacing)),
-                None => cell,
-            };
             div().flex().child(
                 div()
                     .flex_none()
@@ -297,8 +302,8 @@ mod tests {
 
     #[gpui::test]
     fn the_space_name_is_set_tight_as_develop_does(cx: &mut TestAppContext) {
-        let tight = name_width(cx, None);
-        let loose = name_width(cx, Some(0.0));
+        let tight = name_width(cx, TIGHT);
+        let loose = name_width(cx, 0.0);
         let glyphs = f32::from(u16::try_from(SEED.chars().count()).expect("a short name"));
         let narrower = loose - tight;
         let expected = glyphs * -TIGHT * NAME_SIZE;

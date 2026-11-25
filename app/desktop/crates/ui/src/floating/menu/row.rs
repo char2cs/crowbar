@@ -8,6 +8,7 @@ use gpui::{
 
 use crate::floating::menu::menu_item::MenuAction;
 use crate::floating::menu::menu_item::Tone;
+use crate::display::TrackedText;
 use crate::floating::menu::row_handlers::RowHandlers;
 use crate::foundation::Appearance;
 use crate::foundation::Icon;
@@ -21,6 +22,7 @@ use crate::foundation::opaque_debug;
 use crate::foundation::tokens::radius;
 use crate::foundation::tokens::spacing;
 use crate::foundation::tokens::text_size;
+use crate::foundation::tokens::tracking;
 
 const DISABLED_OPACITY: f32 = 0.5;
 const DESTRUCTIVE_TINT_LIGHT: f32 = 0.1;
@@ -86,7 +88,7 @@ fn hint(
             .pl(spacing::STEP_3)
             .text_size(text_size::XS)
             .text_color(palette.muted_foreground().opacity(SHORTCUT_OPACITY))
-            .child(keys),
+            .child(TrackedText::new(keys, tracking::WIDEST)),
     )
 }
 
