@@ -12,8 +12,6 @@ mod popup;
 mod portal;
 mod tab_preview;
 mod tooltip;
-mod tooltip_claim;
-mod tooltip_side;
 
 pub(crate) use dialog::bindings as dialog_bindings;
 pub use dialog::{Dialog, DialogExtent, DialogSize, DialogStyle, HeaderFlow};
@@ -34,4 +32,4 @@ pub use popup::{click_away, popup_at};
 pub use portal::{Float, Portal};
 pub use tab_preview::TabPreview;
 pub use tooltip::Tooltip;
-pub use tooltip_side::TooltipSide;
+pub use tooltip::tooltip_side::TooltipSide;

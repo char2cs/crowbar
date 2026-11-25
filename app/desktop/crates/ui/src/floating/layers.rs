@@ -3,12 +3,9 @@
 
 mod drag_forward;
 mod float_host;
-mod float_region;
 mod opening;
 mod owner;
 mod owners;
-mod part;
-mod raw_handle;
 mod registry;
 mod root;
 mod shaped;
@@ -16,7 +13,7 @@ mod slot;
 mod stack;
 
 pub use float_host::FloatHost;
-pub use float_region::FloatRegion;
+pub use float_host::float_region::FloatRegion;
 pub use registry::install_float_host;
 pub use shaped::Shaped;
 

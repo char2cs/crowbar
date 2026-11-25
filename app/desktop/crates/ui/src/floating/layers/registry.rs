@@ -6,8 +6,8 @@ use std::rc::Rc;
 use gpui::{App, Global, WindowId};
 
 use crate::floating::layers::float_host::FloatHost;
-use crate::floating::layers::float_region::FloatRegion;
-use crate::floating::layers::part::{Cards, Part};
+use crate::floating::layers::float_host::float_region::FloatRegion;
+use crate::floating::layers::float_host::part::{Cards, Part};
 
 #[derive(Default)]
 pub(crate) struct Registry {

@@ -10,7 +10,7 @@ use gpui::{
 use gpui_kit::component::input::EditorState;
 
 // PLATFORM: linux only; on macos stock unmarking commits the preedit, as WebKit does there.
-pub(super) fn layer(state: &Entity<EditorState>) -> impl IntoElement {
+pub(in crate::editor_view) fn layer(state: &Entity<EditorState>) -> impl IntoElement {
     let state = state.clone();
     canvas(
         |_, _, _| (),

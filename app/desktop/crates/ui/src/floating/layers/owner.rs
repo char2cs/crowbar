@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use gpui::{AnyWindowHandle, App, Context, EntityId, Subscription, Window};
 use raw_window_handle::RawWindowHandle;
 
-use crate::floating::layers::raw_handle::raw_handle;
+use crate::floating::layers::float_host::raw_handle::raw_handle;
 use crate::floating::layers::registry::Registry;
 use crate::floating::layers::stack::Stack;
 use crate::floating::portal::float::Float;

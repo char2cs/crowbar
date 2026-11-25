@@ -9,7 +9,7 @@ const KIT_MIN_DIGITS: usize = 3;
 const KIT_FOLD_STRIP: Pixels = px(22.);
 const DIGITS: &str = "0123456789";
 
-pub(super) fn monaco_gap(
+pub(in crate::editor_view) fn monaco_gap(
     lines: usize,
     (font, size): (&Font, Pixels),
     window: &Window,

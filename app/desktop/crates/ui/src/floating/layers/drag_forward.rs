@@ -8,8 +8,8 @@ use gpui::{
     PlatformInput, Point, Window,
 };
 
-use crate::floating::layers::float_region::FloatRegion;
-use crate::floating::layers::part::Part;
+use crate::floating::layers::float_host::float_region::FloatRegion;
+use crate::floating::layers::float_host::part::Part;
 
 pub(crate) struct DragForward {
     owner: AnyWindowHandle,

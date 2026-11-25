@@ -1,3 +1,5 @@
+mod gutter_gap;
+
 use gpui::{App, Context, Styled as _, Window, px};
 use gpui_kit::base::input::{RopeExt as _, TabSize};
 use gpui_kit::component::Sizable as _;
@@ -29,7 +31,7 @@ impl EditorView {
             gpui::font(ui::Theme::of(cx).mono_family()),
             px(settings.font_size),
         );
-        let gap = super::gutter_gap::monaco_gap(lines, (&mono.0, mono.1), window);
+        let gap = gutter_gap::monaco_gap(lines, (&mono.0, mono.1), window);
         Editor::new(&self.state)
             .appearance(false)
             .xsmall()

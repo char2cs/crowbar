@@ -25,9 +25,7 @@ mod bracket_colours;
 mod command;
 mod find;
 mod goto_action;
-mod gutter_gap;
 mod language;
-mod preedit_dropping;
 pub(crate) mod replay;
 pub(crate) mod reveal;
 mod settings_follow;
@@ -35,7 +33,6 @@ mod settings_follow;
 pub(crate) mod test_support;
 mod text_area;
 mod view_buttons;
-mod whitespace_marks;
 
 /// One pane's editor: the gpui-kit `Editor` drawn over a document, under the toolbar of its
 /// file. Several views over one document share its text, each with its own carets and history.

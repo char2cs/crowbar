@@ -1,3 +1,6 @@
+mod preedit_dropping;
+mod whitespace_marks;
+
 use gpui::prelude::FluentBuilder as _;
 use gpui::{App, Div, InteractiveElement as _, ParentElement as _, Styled as _, Window, div, px};
 
@@ -19,12 +22,9 @@ impl EditorView {
             .font_family(ui::Theme::of(cx).mono_family())
             .text_size(px(settings.font_size))
             .child(self.editor(window, cx))
-            .child(super::whitespace_marks::layer(
-                &self.state,
-                settings.whitespace,
-            ))
+            .child(whitespace_marks::layer(&self.state, settings.whitespace))
             .when(cfg!(target_os = "linux"), |text| {
-                text.child(super::preedit_dropping::layer(&self.state))
+                text.child(preedit_dropping::layer(&self.state))
             })
     }
 }

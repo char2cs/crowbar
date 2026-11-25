@@ -6,7 +6,7 @@ use gpui::{
     canvas, point, px,
 };
 
-use crate::foundation::modality::pressed;
+use crate::foundation::focus::modality::pressed;
 
 const OUTSIDE: f32 = -1.0;
 

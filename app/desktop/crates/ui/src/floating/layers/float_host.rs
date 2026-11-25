@@ -1,8 +1,12 @@
 //! The platform side of float windows, which the binary installs.
 
+pub(super) mod float_region;
+pub(super) mod part;
+pub(super) mod raw_handle;
+
 use raw_window_handle::RawWindowHandle;
 
-use crate::floating::layers::float_region::FloatRegion;
+use crate::floating::layers::float_host::float_region::FloatRegion;
 use crate::floating::portal::float::Float;
 
 /// Places, shapes and focuses the stock windows that float above an owner window. Without

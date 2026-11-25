@@ -1,5 +1,8 @@
 //! Whether the last press was a key or a pointer button, across every window of the app.
 
+pub(in crate::foundation) mod hearing;
+pub(crate) mod kept_focus;
+
 use gpui::{App, DispatchPhase, FocusHandle, Global, MouseDownEvent, Window};
 
 /// The input modality focus rings follow, as develop's `:focus-visible` does: a key press

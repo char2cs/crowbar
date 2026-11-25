@@ -8,10 +8,10 @@ use gpui::{
 use raw_window_handle::RawWindowHandle;
 
 use crate::floating::layers::drag_forward::DragForward;
-use crate::floating::layers::float_region::FloatRegion;
+use crate::floating::layers::float_host::float_region::FloatRegion;
+use crate::floating::layers::float_host::part::Part;
+use crate::floating::layers::float_host::raw_handle::raw_handle;
 use crate::floating::layers::owner::Owner;
-use crate::floating::layers::part::Part;
-use crate::floating::layers::raw_handle::raw_handle;
 use crate::floating::layers::registry::Registry;
 use crate::floating::portal::float::Float;
 use crate::foundation::opaque_debug;

@@ -1,5 +1,8 @@
 //! Tooltips shown after a short hover delay.
 
+mod tooltip_claim;
+pub(super) mod tooltip_side;
+
 use gpui::StatefulInteractiveElement as _;
 use gpui::prelude::FluentBuilder;
 use gpui::{
@@ -9,8 +12,8 @@ use gpui::{
 
 use crate::display::Kbd;
 use crate::floating::portal::Portal;
-use crate::floating::tooltip_claim::TooltipClaim;
-use crate::floating::tooltip_side::TooltipSide;
+use crate::floating::tooltip::tooltip_claim::TooltipClaim;
+use crate::floating::tooltip::tooltip_side::TooltipSide;
 use crate::foundation::CubicBezier;
 use crate::foundation::Motion;
 use crate::foundation::Pose;

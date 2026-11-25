@@ -12,7 +12,7 @@ use gpui_kit::component::input::EditorState;
 const SPACE: &str = "•";
 const TAB: &str = "→";
 
-pub(super) fn layer(
+pub(in crate::editor_view) fn layer(
     state: &Entity<EditorState>,
     mode: WhitespaceMode,
 ) -> impl IntoElement {
