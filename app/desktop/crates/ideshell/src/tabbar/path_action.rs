@@ -46,8 +46,7 @@ impl PathAction {
         match self {
             Self::CopyPath => "Copy Path",
             Self::CopyRelativePath => "Copy Relative Path",
-            Self::Reveal if cfg!(target_os = "macos") => "Reveal in Finder",
-            Self::Reveal => "Show in Files",
+            Self::Reveal => "Reveal in Finder",
             Self::OpenInTerminal => "Open in Terminal",
         }
     }
@@ -84,6 +83,11 @@ mod tests {
         for (path, offered) in cases {
             assert_eq!(PathAction::offered_for(path), offered, "{path}");
         }
+    }
+
+    #[test]
+    fn reveal_keeps_develops_label_on_every_desktop() {
+        assert_eq!(PathAction::Reveal.label(), "Reveal in Finder");
     }
 
     #[test]

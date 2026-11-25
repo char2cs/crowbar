@@ -1,11 +1,12 @@
 //! A menu opened at the pointer by a right click.
 
+use std::cell::Cell;
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, DismissEvent, Div, ElementId, Entity, InteractiveElement, IntoElement,
+    AnyElement, App, Bounds, DismissEvent, Div, ElementId, Entity, InteractiveElement, IntoElement,
     MouseButton, ParentElement, Pixels, Point, Refineable as _, RenderOnce, Stateful,
-    StyleRefinement, Styled, Window, div,
+    StyleRefinement, Styled, Window, canvas, div, point, px,
 };
 
 use crate::floating::menu::menu_item::MenuItem;
@@ -48,8 +49,8 @@ impl ContextMenu {
         }
     }
 
-    /// Opens the drawn menu at `placement` of the wrapped element instead of at the pointer; a
-    /// native menu opens at the pointer, as develop's do.
+    /// Opens the menu at `placement` of the wrapped element instead of at the pointer; a native
+    /// menu starts there, as develop pops its tab menu under the tab's centre.
     #[must_use]
     pub fn placement(
         mut self,
@@ -102,11 +103,16 @@ impl ContextMenu {
         mut self,
         native: NativeMenu,
     ) -> AnyElement {
-        let items = Rc::clone(&self.spec.items);
+        let (items, placement) = (Rc::clone(&self.spec.items), self.placement);
+        let laid_out: Rc<Cell<Bounds<Pixels>>> = Rc::default();
+        let measured = Rc::clone(&laid_out);
+        let probe = canvas(move |bounds, _, _| measured.set(bounds), |_, (), _, _| {});
         // PLATFORM: linux the press holds an implicit X grab on the shell window, so GTK can only take the pointer for its menu once the button is up.
         self.area()
+            .child(probe.absolute().top_0().left_0().size_full())
             .on_mouse_up(MouseButton::Right, move |event, window, cx| {
-                native.open(&items, event.position, (window, cx));
+                let at = placement.map_or(event.position, |side| beside(side, laid_out.get()));
+                native.open(&items, at, (window, cx));
             })
             .into_any_element()
     }
@@ -165,6 +171,19 @@ impl Spec {
             state.at = at;
             cx.notify();
         });
+    }
+}
+
+fn beside(
+    placement: Placement,
+    trigger: Bounds<Pixels>,
+) -> Point<Pixels> {
+    let below = trigger.bottom() + px(OFFSET);
+    match placement {
+        Placement::Below => point(trigger.left(), below),
+        Placement::BelowEnd => point(trigger.right(), below),
+        Placement::BelowCentre => point(trigger.center().x, below),
+        Placement::Right => point(trigger.right() + px(OFFSET), trigger.top()),
     }
 }
 

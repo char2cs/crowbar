@@ -254,6 +254,26 @@ mod tests {
     }
 
     #[gpui::test]
+    fn a_placed_menu_starts_under_the_centre_of_its_trigger_as_develops_tab_menu(
+        cx: &mut TestAppContext
+    ) {
+        let asked = answering(cx, None);
+        let cx = open(cx, |_, _| {
+            let area = div().w(px(200.0)).h(px(100.0));
+            let rows = vec![MenuItem::Action(MenuAction::new("Close", |_, _| {}))];
+            ContextMenu::new("tab", area, rows).placement(crate::Placement::BelowCentre)
+        });
+        let at = point(px(30.0), px(20.0));
+        cx.simulate_mouse_down(at, MouseButton::Right, Modifiers::none());
+        cx.simulate_mouse_up(at, MouseButton::Right, Modifiers::none());
+        cx.run_until_parked();
+        let area = cx.debug_bounds("probe").unwrap_or_default();
+        let opened_at = asked.borrow().first().map(|request| request.at);
+        let under = point(area.origin.x + px(100.0), area.bottom() + px(4.0));
+        assert_eq!(opened_at, Some(under));
+    }
+
+    #[gpui::test]
     fn the_chosen_entry_runs_its_action_even_inside_a_submenu(cx: &mut TestAppContext) {
         let chosen = Rc::new(Cell::new(0));
         answering(cx, Some(vec![2, 0]));
