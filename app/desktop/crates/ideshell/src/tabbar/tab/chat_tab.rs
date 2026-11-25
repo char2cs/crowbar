@@ -5,10 +5,10 @@ use gpui::{
 use protocol::PaneId;
 use ui::{IconName, Surface, Theme};
 
+use crate::tabbar::tab::tab_frame::HEIGHT;
+use crate::tabbar::tab::tab_glyph::tab_glyph;
+use crate::tabbar::tab::tab_state::TabState;
 use crate::tabbar::tab_actions::TabAction;
-use crate::tabbar::tab_frame::HEIGHT;
-use crate::tabbar::tab_glyph::tab_glyph;
-use crate::tabbar::tab_state::TabState;
 
 const PAD_X: f32 = 10.0;
 const GAP: f32 = 6.0;

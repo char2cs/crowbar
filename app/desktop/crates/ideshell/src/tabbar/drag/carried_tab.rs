@@ -9,12 +9,12 @@ use std::time::Duration;
 
 use ui::{CubicBezier, Motion, TabPreview};
 
-use crate::tabbar::strip_seat::StripSeat;
+use crate::tabbar::drag::strip_seat::StripSeat;
+use crate::tabbar::drag::tab_drag::TabDrag;
+use crate::tabbar::drag::tab_ghost::TabGhost;
 use crate::tabbar::strip_state::StripState;
-use crate::tabbar::strip_tab::StripTab;
+use crate::tabbar::tab::strip_tab::StripTab;
 use crate::tabbar::tab_actions::TabAction;
-use crate::tabbar::tab_drag::TabDrag;
-use crate::tabbar::tab_ghost::TabGhost;
 
 const LIFTED_OPACITY: f32 = 0.4;
 const SLIDE: Duration = Duration::from_millis(250);
@@ -157,9 +157,9 @@ mod tests {
 
     /// The fixed 160px pill the strip lifted before it took develop's preview.
     const WIDE_PILL: f32 = 160.0;
-    use crate::tabbar::tab_end::TabEnd;
-    use crate::tabbar::tab_look::TabLook;
-    use crate::tabbar::tab_state::TabState;
+    use crate::tabbar::look::tab_look::TabLook;
+    use crate::tabbar::tab::tab_end::TabEnd;
+    use crate::tabbar::tab::tab_state::TabState;
     use crate::test_support::dragged;
 
     fn tab(name: &str) -> StripTab {
@@ -183,7 +183,7 @@ mod tests {
 
     fn seated_order(
         cx: &mut TestAppContext,
-        drag: Option<crate::tabbar::strip_drag::StripDrag>,
+        drag: Option<crate::tabbar::drag::strip_drag::StripDrag>,
     ) -> Vec<String> {
         let strip = cx.update(|cx| cx.new(StripState::new));
         strip.update(cx, |state, _| state.drag = drag);

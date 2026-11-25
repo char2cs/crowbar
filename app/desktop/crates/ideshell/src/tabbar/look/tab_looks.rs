@@ -2,7 +2,7 @@
 
 use layout::PaneInstance;
 
-use crate::tabbar::tab_look::TabLook;
+use crate::tabbar::look::tab_look::TabLook;
 
 /// Gives the tab bar the look of each pane's tab; the shell implements it from the pane's title,
 /// type and unsaved work.

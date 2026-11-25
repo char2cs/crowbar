@@ -1,8 +1,8 @@
 use gpui::SharedString;
 use ui::{IconName, TabPreview};
 
-use crate::tabbar::tab_access::TabAccess;
-use crate::tabbar::tab_keep::TabKeep;
+use crate::tabbar::look::tab_access::TabAccess;
+use crate::tabbar::look::tab_keep::TabKeep;
 
 /// The label and glyph of a pane's tab in a strip.
 #[derive(Debug, Clone, PartialEq)]

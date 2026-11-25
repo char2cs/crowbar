@@ -1,7 +1,7 @@
 use gpui::Hsla;
 use ui::{IconName, IconWeight, Palette};
 
-use crate::tabbar::tab_state::TabState;
+use crate::tabbar::tab::tab_state::TabState;
 
 const CLOSE_GLYPH: f32 = 12.0;
 const PIN_GLYPH: f32 = 14.0;

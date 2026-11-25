@@ -4,9 +4,9 @@
 use gpui::{AnyElement, InteractiveElement, IntoElement, ParentElement, Styled, div, px};
 use ui::{Icon, IconName, Palette};
 
-use crate::tabbar::tab_access::TabAccess;
-use crate::tabbar::tab_look::TabLook;
-use crate::tabbar::tab_state::TabState;
+use crate::tabbar::look::tab_access::TabAccess;
+use crate::tabbar::look::tab_look::TabLook;
+use crate::tabbar::tab::tab_state::TabState;
 
 const DOT: f32 = 8.0;
 const LOCK: f32 = 12.0;

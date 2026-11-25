@@ -1,8 +1,10 @@
+pub(crate) mod input_mode;
+
 use gpui::{App, Context, Entity, FocusHandle, Pixels, Point, ScrollHandle, Window, px};
 use protocol::PaneId;
 
-use crate::tabbar::input_mode::InputMode;
-use crate::tabbar::strip_drag::StripDrag;
+use crate::tabbar::drag::strip_drag::StripDrag;
+use crate::tabbar::strip_state::input_mode::InputMode;
 use crate::tabbar::tab_actions::TabAction;
 
 const OVERFLOW_SLACK: f32 = 1.0;

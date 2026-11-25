@@ -3,7 +3,7 @@
 use gpui::{Bounds, point, px, size};
 use protocol::PaneId;
 
-use crate::tabbar::strip_drag::StripDrag;
+use crate::tabbar::drag::strip_drag::StripDrag;
 
 const CENTRES: [f32; 3] = [50.0, 150.0, 250.0];
 const WIDTH: f32 = 100.0;

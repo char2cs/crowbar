@@ -5,16 +5,16 @@ use gpui::{
 use protocol::PaneId;
 use ui::{IconName, MenuAction, MenuItem, Palette, Placement, Surface, Theme};
 
-use crate::tabbar::carried_tab::CarriedTab;
-use crate::tabbar::chat_tab::ChatTab;
-use crate::tabbar::input_mode::InputMode;
+use crate::tabbar::drag::carried_tab::CarriedTab;
+use crate::tabbar::drag::strip_pointer;
 use crate::tabbar::overflow_entry::OverflowEntry;
 use crate::tabbar::review_button::review_button;
-use crate::tabbar::strip_pointer;
 use crate::tabbar::strip_state::StripState;
-use crate::tabbar::strip_tab::StripTab;
+use crate::tabbar::strip_state::input_mode::InputMode;
+use crate::tabbar::tab::chat_tab::ChatTab;
+use crate::tabbar::tab::strip_tab::StripTab;
+use crate::tabbar::tab::tab_state::TabState;
 use crate::tabbar::tab_actions::{StripKeys, TabAction, TabMove};
-use crate::tabbar::tab_state::TabState;
 use crate::toprow::row_button::RowButton;
 use crate::toprow::row_ink::RowInk;
 use crate::toprow::split_toggle::SplitToggle;
@@ -245,10 +245,10 @@ mod tests {
     use ui::{Motion, Theme};
 
     use super::*;
+    use crate::tabbar::look::tab_look::TabLook;
+    use crate::tabbar::tab::tab_end::TabEnd;
+    use crate::tabbar::tab::tab_frame::HEIGHT as TAB_HEIGHT;
     use crate::tabbar::tab_actions::{TabActions, TabMove};
-    use crate::tabbar::tab_end::TabEnd;
-    use crate::tabbar::tab_frame::HEIGHT as TAB_HEIGHT;
-    use crate::tabbar::tab_look::TabLook;
 
     #[test]
     fn the_strip_row_holds_a_tab_with_its_padding() {

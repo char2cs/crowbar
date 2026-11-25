@@ -95,7 +95,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::tabbar::strip_drag::StripDrag;
+    use crate::tabbar::drag::strip_drag::StripDrag;
     use crate::test_support::dragged;
 
     type Moves = Rc<RefCell<Vec<usize>>>;

@@ -9,17 +9,17 @@ use std::rc::Rc;
 
 use ui::{ContextMenu, MenuItem, Palette, Placement, Surface, Theme, Tooltip, TooltipSide};
 
-use crate::tabbar::close_button::CloseButton;
-use crate::tabbar::marks::Marks;
-use crate::tabbar::tab_access::TabAccess;
+use crate::tabbar::look::tab_access::TabAccess;
+use crate::tabbar::look::tab_keep::TabKeep;
+use crate::tabbar::look::tab_look::TabLook;
+use crate::tabbar::tab::close_button::CloseButton;
+use crate::tabbar::tab::marks::Marks;
+use crate::tabbar::tab::tab_end::TabEnd;
+use crate::tabbar::tab::tab_frame::{HEIGHT, group_of};
+use crate::tabbar::tab::tab_glyph::tab_glyph;
+use crate::tabbar::tab::tab_state::TabState;
+use crate::tabbar::tab::tab_trail::after_label;
 use crate::tabbar::tab_actions::{TabAction, TabActions};
-use crate::tabbar::tab_end::TabEnd;
-use crate::tabbar::tab_frame::{HEIGHT, group_of};
-use crate::tabbar::tab_glyph::tab_glyph;
-use crate::tabbar::tab_keep::TabKeep;
-use crate::tabbar::tab_look::TabLook;
-use crate::tabbar::tab_state::TabState;
-use crate::tabbar::tab_trail::after_label;
 
 const MAX_WIDTH: f32 = 200.0;
 const PAD_LEFT: f32 = 10.0;

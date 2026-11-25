@@ -1,7 +1,7 @@
 use gpui::{Context, Entity, IntoElement, ParentElement, Render, Window, div};
 use ui::TabPreview;
 
-use crate::tabbar::strip_drag::StripDrag;
+use crate::tabbar::drag::strip_drag::StripDrag;
 use crate::tabbar::strip_state::StripState;
 
 pub(crate) struct TabGhost {
