@@ -194,6 +194,7 @@ impl ShellView {
         self.watch_keymap();
         self.forward_bindings(window, cx);
         self.watch_appearance(cx);
+        self.follow_system_appearance(window.appearance(), cx);
         self.watch_pane_settings();
         self.flush_settings_on_quit(cx);
     }

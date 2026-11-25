@@ -91,6 +91,16 @@ pub(super) fn themed(
 }
 
 impl ShellView {
+    pub(super) fn follow_system_appearance(
+        &mut self,
+        appearance: gpui::WindowAppearance,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let system = ui::Appearance::from(appearance);
+        Theme::of(cx).with_system(system).install(cx);
+        self.apply_appearance(cx);
+    }
+
     pub(super) fn watch_appearance(
         &mut self,
         cx: &mut Context<'_, Self>,
@@ -175,5 +185,27 @@ mod tests {
             (unset.id(), unset.mode()),
             (ThemeId::Crowbar, ThemeMode::System)
         );
+    }
+
+    fn shown_after(
+        opened: &mut crate::shell_view::tests::Opened,
+        reported: gpui::WindowAppearance,
+    ) -> ui::Appearance {
+        opened.shell.update(&mut opened.window, |shell, cx| {
+            shell.follow_system_appearance(reported, cx);
+            Theme::of(cx).appearance()
+        })
+    }
+
+    #[gpui::test]
+    fn system_mode_follows_the_colour_scheme_the_window_reports(cx: &mut gpui::TestAppContext) {
+        let mut opened = crate::shell_view::tests::open_shell(cx);
+        let schemes = [
+            (gpui::WindowAppearance::Dark, ui::Appearance::Dark),
+            (gpui::WindowAppearance::Light, ui::Appearance::Light),
+        ];
+        for (reported, shown) in schemes {
+            assert_eq!(shown_after(&mut opened, reported), shown, "{reported:?}");
+        }
     }
 }

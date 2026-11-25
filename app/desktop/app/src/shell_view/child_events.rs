@@ -36,6 +36,9 @@ impl ShellView {
             cx.observe_window_activation(window, |this, window, cx| {
                 this.on_window_activation(window, cx);
             }),
+            cx.observe_window_appearance(window, |this, window, cx| {
+                this.follow_system_appearance(window.appearance(), cx);
+            }),
             cx.on_app_quit(|this, _| this.close_before_quitting()),
             cx.observe_overlay_keys(window, |this, window, cx| {
                 this.return_keyboard(window, cx);
