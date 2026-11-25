@@ -1,9 +1,9 @@
 //! The overlay scrollbar element.
 
 use gpui::{
-    App, BorderStyle, Bounds, Element, ElementId, GlobalElementId, Hsla, InspectorElementId,
-    IntoElement, LayoutId, Pixels, ScrollHandle, Style, Window, point, px, quad, relative, size,
-    transparent_black,
+    App, BorderStyle, Bounds, Corners, Element, ElementId, GlobalElementId, Hsla,
+    InspectorElementId, IntoElement, LayoutId, PaintQuad, Pixels, ScrollHandle, Style, Window,
+    point, px, quad, relative, size, transparent_black,
 };
 
 use crate::display::scroll_area::thumb::Thumb;
@@ -95,16 +95,24 @@ impl Element for Scrollbar {
         let Some(thumb) = *prepaint else {
             return;
         };
-        window.paint_quad(quad(
-            thumb,
-            radius::FULL,
-            self.color,
-            0.0,
-            transparent_black(),
-            BorderStyle::default(),
-        ));
+        window.paint_quad(thumb_quad(thumb, self.color));
         ThumbDrag::new(self.handle.clone(), f32::from(bounds.size.height), thumb).install(window);
     }
+}
+
+fn thumb_quad(
+    thumb: Bounds<Pixels>,
+    color: Hsla,
+) -> PaintQuad {
+    let ends = Corners::all(radius::FULL).clamp_radii_for_quad_size(thumb.size);
+    quad(
+        thumb,
+        ends,
+        color,
+        0.0,
+        transparent_black(),
+        BorderStyle::default(),
+    )
 }
 
 #[cfg(test)]
@@ -128,5 +136,24 @@ mod tests {
                 )))
         });
         assert_eq!(f32::from(bounds.size.width), 50.0);
+    }
+
+    #[test]
+    fn the_thumb_rounds_its_ends_within_its_own_width() {
+        let thumb = Bounds::new(point(px(0.0), px(0.0)), size(px(WIDTH), px(40.0)));
+        let painted = thumb_quad(thumb, hsla(0.0, 0.0, 0.5, 0.5));
+        let widest = [
+            painted.corner_radii.top_left,
+            painted.corner_radii.top_right,
+            painted.corner_radii.bottom_right,
+            painted.corner_radii.bottom_left,
+        ]
+        .into_iter()
+        .fold(px(0.0), Pixels::max);
+        assert_eq!(
+            widest,
+            px(WIDTH / 2.0),
+            "an unclamped radius past half the width leaves the quad unpainted"
+        );
     }
 }
