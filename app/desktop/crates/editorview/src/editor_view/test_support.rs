@@ -86,6 +86,24 @@ pub(crate) fn rows_of(
     window.read(|cx| view.read(cx).state.read(cx).visible_row_range())
 }
 
+pub(crate) fn line_height_of(
+    view: &Entity<EditorView>,
+    window: &mut VisualTestContext,
+) -> Option<gpui::Pixels> {
+    window.read(|cx| view.read(cx).state.read(cx).line_height())
+}
+
+pub(crate) fn scroll_top_of(
+    view: &Entity<EditorView>,
+    window: &mut VisualTestContext,
+) -> gpui::Pixels {
+    window.read(|cx| view.read(cx).state.read(cx).scroll_offset().y)
+}
+
+pub(crate) fn body_of(window: &mut VisualTestContext) -> Option<gpui::Bounds<gpui::Pixels>> {
+    window.debug_bounds(super::BODY)
+}
+
 pub(crate) fn listened(
     view: &Entity<EditorView>,
     window: &mut VisualTestContext,
