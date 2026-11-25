@@ -1481,18 +1481,33 @@ impl X11Client {
                     px(event.event_y as f32 / u16::MAX as f32 / state.scale_factor),
                 ) + shift;
 
-                if state.composing && state.ximc.is_some() {
-                    drop(state);
-                    self.reset_ime();
-                    window.handle_ime_unmark();
-                    state = self.0.borrow_mut();
-                } else if let Some(text) = state.pre_edit_text.take() {
-                    if let Some(compose_state) = state.compose_state.as_mut() {
-                        compose_state.reset();
+                let xim_composing = state.composing && state.ximc.is_some();
+                let compose_text = (!xim_composing)
+                    .then(|| state.pre_edit_text.take())
+                    .flatten();
+                match press_on_composition(xim_composing, compose_text) {
+                    PressOnComposition::DropPreedit => {
+                        drop(state);
+                        self.reset_ime();
+                        window.handle_ime_delete();
+                        // The press is hit-tested against the last frame, which still lays out the preedit.
+                        window.refresh(RequestFrameOptions {
+                            require_presentation: true,
+                            force_render: false,
+                            signal_at: None,
+                            signal_source: FrameRequestSource::NativeCallback,
+                        });
+                        state = self.0.borrow_mut();
                     }
-                    drop(state);
-                    window.handle_ime_commit(text);
-                    state = self.0.borrow_mut();
+                    PressOnComposition::CommitCompose(text) => {
+                        if let Some(compose_state) = state.compose_state.as_mut() {
+                            compose_state.reset();
+                        }
+                        drop(state);
+                        window.handle_ime_commit(text);
+                        state = self.0.borrow_mut();
+                    }
+                    PressOnComposition::Untouched => {}
                 }
                 match button_or_scroll_from_event_detail(event.detail) {
                     Some(ButtonOrScroll::Button(button)) => {
@@ -2920,6 +2935,23 @@ fn scroll_data_to_axis_state(
     }
 }
 
+/// What a button press does to text still being composed when it lands.
+#[derive(Debug, PartialEq)]
+enum PressOnComposition {
+    /// The input method's preedit is dropped, as GTK's fcitx context drops it on a click.
+    DropPreedit,
+    /// A compose (dead key) sequence's text so far is committed.
+    CommitCompose(String),
+    Untouched,
+}
+
+fn press_on_composition(xim_composing: bool, compose_text: Option<String>) -> PressOnComposition {
+    if xim_composing {
+        return PressOnComposition::DropPreedit;
+    }
+    compose_text.map_or(PressOnComposition::Untouched, PressOnComposition::CommitCompose)
+}
+
 fn reset_all_pointer_device_scroll_positions(
     pointer_device_states: &mut BTreeMap<xinput::DeviceId, PointerDeviceState>,
 ) {
@@ -3292,6 +3324,19 @@ fn xkb_state_for_key_event(xkb: &xkbc::State, event_state: xproto::KeyButMask) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_press_during_an_input_method_composition_drops_the_preedit() {
+        assert_eq!(
+            press_on_composition(true, None),
+            PressOnComposition::DropPreedit
+        );
+        assert_eq!(
+            press_on_composition(false, Some("´".into())),
+            PressOnComposition::CommitCompose("´".into())
+        );
+        assert_eq!(press_on_composition(false, None), PressOnComposition::Untouched);
+    }
 
     fn test_keymap(layouts: &str) -> xkbc::Keymap {
         test_keymap_with_variant(layouts, "")

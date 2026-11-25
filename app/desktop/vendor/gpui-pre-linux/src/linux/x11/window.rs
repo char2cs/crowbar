@@ -1427,19 +1427,6 @@ impl X11WindowStatePtr {
         }
     }
 
-    pub fn handle_ime_unmark(&self) {
-        if self.is_blocked() {
-            return;
-        }
-        let mut state = self.state.borrow_mut();
-        if let Some(mut input_handler) = state.input_handler.take() {
-            drop(state);
-            input_handler.unmark_text();
-            let mut state = self.state.borrow_mut();
-            state.input_handler = Some(input_handler);
-        }
-    }
-
     pub fn handle_ime_delete(&self) {
         if self.is_blocked() {
             return;

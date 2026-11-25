@@ -110,6 +110,10 @@ Drop it when upstream gpui names its windows as GTK does.
 
 Drop it with `overlay-window`.
 
+`press-drops-preedit` (`gpui-pre-linux`, `src/linux/x11/client.rs`, `x11/window.rs`), applied on top of `drag-over-painted-overlay`: a button press during an input method's composition resets the input context and drops the preedit, as GTK's fcitx context does in develop's web views, whether the click lands in the field or elsewhere in the window. Upstream commits the preedit as typed text, so a click on the sidebar left the half-typed `ni hao` in the editor. The window then draws a frame before it dispatches the press, which is hit-tested against the last frame's layout: with the preedit still laid out there, a click on line 15 put the caret on line 16. A compose (dead key) sequence is still committed, as upstream. `handle_ime_unmark` had no other caller and is gone.
+
+Drop it when upstream gpui drops the preedit on a click.
+
 ## calloop 0.14.5
 
 `tracing-without-log` (`Cargo.toml`): calloop, reached through `gpui-pre-linux`, asks for tracing's `log` feature, and cargo turns a feature on for every crate that uses tracing. With `log` on, each `tracing` macro also expands to its `log` fallback, which quadruples `clippy::cognitive_complexity` in every function that logs. Nothing in the shell reads `log` records (no `log` logger or bridge is installed), so calloop loses only output nobody received.
