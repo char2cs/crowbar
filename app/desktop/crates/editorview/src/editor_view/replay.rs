@@ -25,7 +25,7 @@ pub(crate) fn replace_keeping_selections(
     };
     state.set_selected_range(span.clone(), cx);
     state.replace(inserted.to_owned(), window, cx);
-    let moved = |offset| moved_offset(offset, &span, inserted.len());
+    let moved = |offset| text.floor_char_boundary(moved_offset(offset, &span, inserted.len()));
     let kept = moved(selected.start)..moved(selected.end);
     state.set_selected_range_with_direction(kept, reversed, cx);
     state.set_scroll_offset(scroll, cx);
@@ -67,7 +67,7 @@ fn moved_offset(
     if offset >= span.end {
         return offset - span.end + span.start + inserted;
     }
-    span.start + inserted
+    offset.min(span.start + inserted)
 }
 
 #[cfg(test)]
@@ -89,10 +89,16 @@ mod tests {
     }
 
     #[test]
-    fn carets_before_the_span_stay_and_after_it_move_with_the_text() {
+    fn carets_before_the_span_stay_inside_it_keep_their_place_and_after_it_move_with_the_text() {
         let span = 4..7;
-        assert_eq!(moved_offset(2, &span, 5), 2);
-        assert_eq!(moved_offset(8, &span, 5), 10);
-        assert_eq!(moved_offset(5, &span, 5), 9);
+        let cases = [
+            ("before", 2, 5, 2),
+            ("after", 8, 5, 10),
+            ("inside a longer insert", 5, 5, 5),
+            ("inside a shorter insert", 6, 1, 5),
+        ];
+        for (case, offset, inserted, expected) in cases {
+            assert_eq!(moved_offset(offset, &span, inserted), expected, "{case}");
+        }
     }
 }
