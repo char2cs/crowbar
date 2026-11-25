@@ -7,6 +7,7 @@ use gpui::{
 };
 use raw_window_handle::RawWindowHandle;
 
+use crate::WindowActivity;
 use crate::floating::layers::drag_forward::DragForward;
 use crate::floating::layers::float_host::float_region::FloatRegion;
 use crate::floating::layers::float_host::part::Part;
@@ -176,10 +177,10 @@ impl Root {
         windows.extend(owner.floats().into_iter().map(|(_, float)| float));
         let active = |other: gpui::AnyWindowHandle, cx: &mut App| {
             other
-                .update(cx, |_, window, _| window.is_window_active())
+                .update(cx, |_, window, cx| WindowActivity::of(window, cx))
                 .unwrap_or_default()
         };
-        window.is_window_active() || windows.into_iter().any(|other| active(other, cx))
+        WindowActivity::of(window, cx) || windows.into_iter().any(|other| active(other, cx))
     }
 }
 
@@ -260,6 +261,27 @@ mod tests {
     use crate::test_support::probe::{open_floating, settle};
     use crate::testing::newest_window;
     use crate::{Float, Portal};
+
+    #[gpui::test]
+    fn a_passive_window_shows_its_cards_while_its_owner_s_keyboard_is_in_a_child_window(
+        cx: &mut TestAppContext
+    ) {
+        let mut owner = open_floating(cx, |_, _| {
+            Portal::here("p", |_, _| crate::Shaped::solid(floated(), gpui::px(4.0)))
+                .float(Float::Passive)
+        });
+        let mut top = newest_window(&mut owner);
+        owner.deactivate_window();
+        top.deactivate_window();
+        let id = owner.update(|window, _| window.window_handle().window_id());
+        owner.update(|_, cx| crate::WindowActivity::gained(id, cx));
+        settle(&mut owner);
+        let seen = top.update(|window, cx| {
+            let root = window.root::<super::Root>().flatten();
+            root.map(|root| root.update(cx, |root, cx| root.shape(window, cx).0))
+        });
+        assert_eq!(seen.map(|seen| seen.len()), Some(1), "the toast stays seen");
+    }
 
     #[gpui::test]
     fn a_passive_window_stays_open_once_its_last_portal_stops_rendering(cx: &mut TestAppContext) {
