@@ -7,7 +7,7 @@ use gpui::{
 use protocol::PaneId;
 use ui::{DragGhost, Portal, layer};
 
-use crate::pane_source::PaneSource;
+use crate::host::pane_source::PaneSource;
 
 const GHOST: &str = "grip-ghost";
 const PILL_WIDTH: f32 = 160.0;
@@ -73,7 +73,7 @@ mod tests {
     use gpui::{Modifiers, MouseButton, Point, TestAppContext, point, px};
     use layout::Edge;
 
-    use crate::hover_source::HoverSource;
+    use crate::layout_view::hover_source::HoverSource;
     use crate::test_support::{
         FakeSource, Floating, PREVIEW, PREVIEW_HEIGHT, PREVIEW_WIDTH, layout_of,
         open_floating_with, pane_id,

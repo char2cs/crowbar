@@ -1,9 +1,9 @@
 use layout::Rect;
 
-use crate::chrome_context::ChromeContext;
-use crate::corners::Corners;
-use crate::insets::Insets;
-use crate::sidebar_edge::SidebarEdge;
+use crate::geometry::chrome_context::ChromeContext;
+use crate::geometry::corners::Corners;
+use crate::geometry::insets::Insets;
+use crate::geometry::sidebar_edge::SidebarEdge;
 
 const RADIUS: f32 = 10.0;
 const BORDER: f32 = 1.0;
@@ -79,7 +79,7 @@ mod tests {
     use layout::Rect;
 
     use super::EdgeContact;
-    use crate::chrome_context::ChromeContext;
+    use crate::geometry::chrome_context::ChromeContext;
 
     const CONTENT: Rect = Rect {
         x: 0.0,

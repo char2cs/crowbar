@@ -3,9 +3,9 @@ use layout::{DragSubject, TabId};
 use protocol::PaneId;
 use ui::DraggedRow;
 
-use crate::drop_hit::DropHit;
-use crate::drop_target::DropTarget;
 use crate::layout_view::LayoutView;
+use crate::layout_view::drag::drop_hit::DropHit;
+use crate::layout_view::drag::drop_target::DropTarget;
 
 impl LayoutView {
     pub(crate) fn drag_over(

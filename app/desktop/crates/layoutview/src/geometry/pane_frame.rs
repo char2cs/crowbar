@@ -1,9 +1,9 @@
 use layout::Rect;
 
-use crate::chrome_context::ChromeContext;
-use crate::corners::Corners;
-use crate::edge_contact::EdgeContact;
-use crate::insets::Insets;
+use crate::geometry::chrome_context::ChromeContext;
+use crate::geometry::corners::Corners;
+use crate::geometry::edge_contact::EdgeContact;
+use crate::geometry::insets::Insets;
 
 /// The box a pane is drawn in: margins, 1px border and corner radii, from where the pane's slot
 /// sits against the layout's bounds. The web view fills `hole`.
@@ -56,7 +56,7 @@ mod tests {
     use layout::Rect;
 
     use super::*;
-    use crate::sidebar_edge::SidebarEdge;
+    use crate::geometry::sidebar_edge::SidebarEdge;
 
     const CONTENT: Rect = Rect {
         x: 296.0,

@@ -7,10 +7,10 @@ use gpui::{
 use layout::{PaneInstance, TabId};
 use protocol::PaneId;
 
-use crate::branch_review::BranchReview;
-use crate::pane_chrome::PaneChrome;
-use crate::pane_content::PaneContent;
-use crate::pane_detach::PaneDetach;
+use crate::host::branch_review::BranchReview;
+use crate::host::pane_chrome::PaneChrome;
+use crate::host::pane_content::PaneContent;
+use crate::host::pane_detach::PaneDetach;
 use ideshell::{TabLook, TabLooks};
 
 pub(crate) struct FakeSource {

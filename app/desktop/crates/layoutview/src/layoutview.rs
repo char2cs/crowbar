@@ -1,10 +1,10 @@
 use layout::{DEFAULT_CHAT_SHARE, PaneGroup, Presentation, Rect, Tab};
 use protocol::PaneId;
 
-use crate::chrome_context::ChromeContext;
-use crate::pane_frame::PaneFrame;
-use crate::pane_hole::PaneHole;
-use crate::pane_source::PaneSource;
+use crate::geometry::chrome_context::ChromeContext;
+use crate::geometry::pane_frame::PaneFrame;
+use crate::host::pane_hole::PaneHole;
+use crate::host::pane_source::PaneSource;
 
 /// The content hole of every pane of `tab` when the layout fills `content`. The shell gives
 /// these rectangles to the pane host in place of the model's raw slots, so web views sit inside
@@ -79,7 +79,7 @@ mod tests {
     use layout::{Edge, Rect};
 
     use super::*;
-    use crate::sidebar_edge::SidebarEdge;
+    use crate::geometry::sidebar_edge::SidebarEdge;
     use crate::test_support::{FakeSource, layout_of, pane_id};
 
     const CONTENT: Rect = Rect {

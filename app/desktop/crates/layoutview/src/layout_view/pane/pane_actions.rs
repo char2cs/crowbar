@@ -3,10 +3,10 @@ use std::rc::Rc;
 use gpui::Context;
 use protocol::PaneId;
 
-use crate::handle_button::HandleAction;
-use crate::hover_source::HoverSource;
 use crate::layout_view::LayoutView;
-use crate::pane_cell::CellAction;
+use crate::layout_view::hover_source::HoverSource;
+use crate::layout_view::pane::handle_button::HandleAction;
+use crate::layout_view::pane::pane_cell::CellAction;
 
 impl LayoutView {
     pub(crate) fn enter_action(

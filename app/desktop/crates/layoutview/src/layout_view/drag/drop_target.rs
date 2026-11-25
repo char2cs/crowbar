@@ -1,7 +1,7 @@
 use layout::{Command, DragSubject, Edge, PaneSlot, Placement, Rect, Tab};
 use protocol::PaneId;
 
-use crate::pane_zone::PaneZone;
+use crate::layout_view::drag::pane_zone::PaneZone;
 
 const PREVIEW_INSET: f32 = 4.0;
 

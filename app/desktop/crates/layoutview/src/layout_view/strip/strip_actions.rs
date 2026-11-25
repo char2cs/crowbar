@@ -6,8 +6,8 @@ use protocol::PaneId;
 
 use crate::layout_event::LayoutEvent;
 use crate::layout_view::LayoutView;
-use crate::strip_input::state_in;
-use crate::strip_keyboard::StripKeyboard;
+use crate::layout_view::strip::strip_input::state_in;
+use crate::layout_view::strip::strip_keyboard::StripKeyboard;
 use ideshell::OverflowEntry;
 use ideshell::{StripKeys, TabAction, TabMove};
 

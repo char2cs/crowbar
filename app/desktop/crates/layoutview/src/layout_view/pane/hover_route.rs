@@ -1,6 +1,6 @@
 use gpui::{App, Window};
 
-use crate::handle_button::HandleAction;
+use crate::layout_view::pane::handle_button::HandleAction;
 
 pub(crate) fn route(
     actions: [&HandleAction; 2],

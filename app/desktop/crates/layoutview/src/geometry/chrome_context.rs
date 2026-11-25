@@ -1,6 +1,6 @@
 use layout::SidebarSide;
 
-use crate::sidebar_edge::SidebarEdge;
+use crate::geometry::sidebar_edge::SidebarEdge;
 
 /// What surrounds the pane layout and so decides how its outer panes are framed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

@@ -8,12 +8,12 @@ use layout::{Axis, DragSubject, Sash as ModelSash};
 use protocol::PaneId;
 use ui::{DraggedRow, Motion, Portal, Sash, SashDrag, Surface, Theme, Wordmark};
 
-use crate::drop_preview::drop_preview;
-use crate::hover_source::HoverSource;
+use crate::geometry::pane_frame::PaneFrame;
 use crate::layout_view::LayoutView;
-use crate::pane_cell::pane_box;
-use crate::pane_frame::PaneFrame;
-use crate::pane_handle::PaneHandle;
+use crate::layout_view::drag::drop_preview::drop_preview;
+use crate::layout_view::hover_source::HoverSource;
+use crate::layout_view::pane::pane_cell::pane_box;
+use crate::layout_view::pane::pane_handle::PaneHandle;
 use ideshell::STRIP_HEIGHT;
 
 const LOGO_SHARE: f32 = 0.14;

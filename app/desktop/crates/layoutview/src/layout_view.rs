@@ -1,3 +1,13 @@
+pub(crate) mod clock;
+pub(crate) mod drag;
+mod hover_source;
+mod layout_drag;
+mod layout_input;
+mod layout_render;
+mod leaf_cell;
+mod pane;
+mod strip;
+
 use std::rc::Rc;
 use std::time::Instant;
 
@@ -6,15 +16,15 @@ use layout::{Rect, Tab, TabId};
 use protocol::PaneId;
 use ui::Motion;
 
-use crate::chrome_context::ChromeContext;
-use crate::clock::Clock;
-use crate::drop_hover::DropHover;
-use crate::hover_source::HoverSource;
+use crate::geometry::chrome_context::ChromeContext;
+use crate::host::pane_source::PaneSource;
 use crate::layout_event::LayoutEvent;
-use crate::pane_fades::PaneFades;
-use crate::pane_hover::PaneHover;
-use crate::pane_source::PaneSource;
-use crate::sash_grab::SashGrab;
+use crate::layout_view::clock::Clock;
+use crate::layout_view::drag::drop_hover::DropHover;
+use crate::layout_view::drag::sash_grab::SashGrab;
+use crate::layout_view::hover_source::HoverSource;
+use crate::layout_view::pane::pane_fades::PaneFades;
+use crate::layout_view::pane::pane_hover::PaneHover;
 
 /// The active tab's panes: their frames, the sashes between them, the accent ring, the pane
 /// handle and the drop preview. It owns no layout state: it renders the [`Tab`] it was last

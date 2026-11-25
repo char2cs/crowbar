@@ -8,12 +8,12 @@ use layout::Rect;
 use protocol::PaneId;
 use ui::{Appearance, Palette, Portal, Surface, Theme};
 
-use crate::hover_route::route;
-use crate::insets::Insets;
+use crate::geometry::insets::Insets;
+use crate::layout_view::pane::hover_route::route;
 
-use crate::pane_frame::PaneFrame;
-use crate::pane_handle::PaneHandle;
-use crate::ring_paint::RingPaint;
+use crate::geometry::pane_frame::PaneFrame;
+use crate::layout_view::pane::pane_handle::PaneHandle;
+use crate::layout_view::pane::ring_paint::RingPaint;
 
 const RING_WIDTH_LIGHT: f32 = 2.0;
 const RING_WIDTH_DARK: f32 = 1.0;
@@ -169,7 +169,7 @@ mod tests {
     use layout::Rect;
 
     use super::*;
-    use crate::chrome_context::ChromeContext;
+    use crate::geometry::chrome_context::ChromeContext;
 
     #[test]
     fn the_handle_sits_centred_on_the_top_edge_of_the_box() {

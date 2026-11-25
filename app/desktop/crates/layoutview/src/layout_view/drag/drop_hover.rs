@@ -4,10 +4,10 @@ use gpui::App;
 use layout::{DragSubject, PaneSlot, Rect, Tab};
 use ui::Motion;
 
-use crate::drop_hit::DropHit;
-use crate::drop_target::DropTarget;
 use crate::layout_event::LayoutEvent;
-use crate::rect_tween::RectTween;
+use crate::layout_view::drag::drop_hit::DropHit;
+use crate::layout_view::drag::drop_target::DropTarget;
+use crate::layout_view::drag::rect_tween::RectTween;
 
 #[derive(Debug, Default)]
 pub(crate) struct DropHover {

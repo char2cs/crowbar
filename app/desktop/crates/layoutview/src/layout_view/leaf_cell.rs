@@ -8,10 +8,10 @@ use ui::{Motion, Surface, Theme};
 
 use ideshell::PaneStrip;
 
-use crate::hover_source::HoverSource;
+use crate::geometry::pane_frame::PaneFrame;
 use crate::layout_view::LayoutView;
-use crate::pane_cell::PaneCell;
-use crate::pane_frame::PaneFrame;
+use crate::layout_view::hover_source::HoverSource;
+use crate::layout_view::pane::pane_cell::PaneCell;
 
 impl LayoutView {
     pub(crate) fn pane_cells(

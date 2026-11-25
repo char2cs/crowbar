@@ -1,6 +1,6 @@
 use protocol::PaneId;
 
-use crate::hover_source::HoverSource;
+use crate::layout_view::hover_source::HoverSource;
 
 #[derive(Debug, Default)]
 pub(crate) struct PaneHover {

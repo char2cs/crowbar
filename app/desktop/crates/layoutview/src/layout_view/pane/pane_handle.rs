@@ -1,9 +1,9 @@
 use std::rc::Rc;
 
-use crate::grip_ghost::GripGhost;
-use crate::handle_button::{HandleAction, HandleButton};
-use crate::hover_route::route;
-use crate::pane_source::PaneSource;
+use crate::host::pane_source::PaneSource;
+use crate::layout_view::drag::grip_ghost::GripGhost;
+use crate::layout_view::pane::handle_button::{HandleAction, HandleButton};
+use crate::layout_view::pane::hover_route::route;
 use gpui::{
     App, CursorStyle, ElementId, Hsla, InteractiveElement, IntoElement, MouseButton, ParentElement,
     RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window, div, px,

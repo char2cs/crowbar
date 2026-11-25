@@ -1,7 +1,7 @@
-use crate::branch_review::BranchReview;
-use crate::pane_chrome::PaneChrome;
-use crate::pane_content::PaneContent;
-use crate::pane_detach::PaneDetach;
+use crate::host::branch_review::BranchReview;
+use crate::host::pane_chrome::PaneChrome;
+use crate::host::pane_content::PaneContent;
+use crate::host::pane_detach::PaneDetach;
 use ideshell::TabLooks;
 
 /// What the layout view asks of the shell about a pane; the shell implements it, the view never

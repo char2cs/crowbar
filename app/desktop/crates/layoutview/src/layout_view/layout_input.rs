@@ -3,10 +3,10 @@ use layout::{Command, Sash};
 use protocol::PaneId;
 use ui::SashDrag;
 
-use crate::hover_source::HoverSource;
 use crate::layout_event::LayoutEvent;
 use crate::layout_view::LayoutView;
-use crate::sash_grab::SashGrab;
+use crate::layout_view::drag::sash_grab::SashGrab;
+use crate::layout_view::hover_source::HoverSource;
 
 impl LayoutView {
     pub(crate) fn grab_sash(
@@ -136,7 +136,7 @@ mod tests {
     use gpui::TestAppContext;
     use layout::Edge;
 
-    use crate::hover_source::HoverSource;
+    use crate::layout_view::hover_source::HoverSource;
     use crate::test_support::{layout_of, open, pane_id};
 
     #[gpui::test]

@@ -4,7 +4,7 @@ use protocol::PaneId;
 
 use crate::layout_event::LayoutEvent;
 use crate::layout_view::LayoutView;
-use crate::strip_key::{StripKey, strip_command};
+use crate::layout_view::strip::strip_key::{StripKey, strip_command};
 
 pub(crate) struct StripKeyboard {
     group: PaneGroup,
