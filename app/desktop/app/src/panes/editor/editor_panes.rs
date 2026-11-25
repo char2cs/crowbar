@@ -346,6 +346,7 @@ mod tests {
 
     #[gpui::test]
     fn a_file_pane_shows_its_document_once_its_chat_loads(cx: &mut TestAppContext) {
+        cx.update(|cx| ui::init(cx).unwrap());
         cx.update(editorview::init);
         let documents = Rc::new(FakeDocuments::default());
         documents.holding(PATH, TEXT);
