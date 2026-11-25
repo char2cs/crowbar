@@ -4,12 +4,12 @@ use sidebar::HostState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum LinkState {
-    /// Opening, or reopening after a drop.
+    /// Opening for the first time.
     #[default]
     Connecting,
     /// Its `ready` frame has arrived.
     Live,
-    /// The socket is gone and the next attempt waits.
+    /// The socket is gone; it stays down while it is dialled again, until `ready`.
     Down,
 }
 

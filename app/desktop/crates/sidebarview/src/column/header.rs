@@ -100,13 +100,8 @@ impl Sidebar {
         &self,
         hosts: &[Host],
     ) -> Option<Host> {
-        let active = self.data.active_project()?;
-        let project = self
-            .data
-            .projects()
-            .into_iter()
-            .find(|project| project.id == active)?;
-        hosts.iter().find(|host| host.id == project.host).cloned()
+        let shown = self.data.shown_host()?;
+        hosts.iter().find(|host| host.id == shown).cloned()
     }
 }
 
@@ -179,6 +174,16 @@ mod tests {
             this.current_host(&hosts).map(|host| host.name)
         });
         assert!(name.is_some());
+    }
+
+    #[gpui::test]
+    fn the_picker_names_a_down_host_that_lists_no_space(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoShell::showing_down_host());
+        let name = sidebar.read_with(cx, |this, _| {
+            let hosts = this.data.hosts();
+            this.current_host(&hosts).map(|host| host.name)
+        });
+        assert_eq!(name.as_deref(), Some("devbox"));
     }
 
     #[gpui::test]

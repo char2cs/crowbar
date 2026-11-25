@@ -9,6 +9,10 @@ pub(crate) fn hosts(state: &State) -> Vec<Host> {
     state.hosts.iter().map(host_of_slot).collect()
 }
 
+pub(crate) fn shown_host(state: &State) -> Option<HostId> {
+    crate::reads::shown(state).map(|slot| HostId::from(slot.spec.id.as_str()))
+}
+
 fn host_of_slot(slot: &HostSlot) -> Host {
     Host {
         id: HostId::from(slot.spec.id.as_str()),

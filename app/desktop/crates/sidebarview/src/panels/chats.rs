@@ -19,7 +19,7 @@ use gpui::{
     AnyElement, Context, DragMoveEvent, InteractiveElement, IntoElement, ParentElement,
     SharedString, Styled, Window, div, px,
 };
-use sidebar::{EdgeScroll, Notice, Project, ProjectTree, Row, ScopeSync};
+use sidebar::{EdgeScroll, HostTone, Notice, Project, ProjectTree, Row, ScopeSync};
 use ui::{DraggedRow, Motion, ScrollArea};
 
 use crate::panels::chats::kinds::notice_row::NoticeRow;
@@ -62,7 +62,7 @@ impl Sidebar {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> AnyElement {
-        if self.data.sync() == ScopeSync::Pending {
+        if self.waits_for_spaces() {
             return skeleton_rows(width - SKELETON_MARGIN).into_any_element();
         }
         let projects = self.data.projects();
@@ -90,6 +90,16 @@ impl Sidebar {
             .overflow_hidden()
             .child(strip)
             .into_any_element()
+    }
+
+    fn waits_for_spaces(&self) -> bool {
+        if self.data.sync() == ScopeSync::Ready {
+            return false;
+        }
+        let shown = self.data.shown_host();
+        let hosts = self.data.hosts();
+        let host = hosts.iter().find(|host| Some(&host.id) == shown.as_ref());
+        !host.is_some_and(|host| host.state.tone() == HostTone::Offline)
     }
 
     fn carousel_offset(
@@ -296,6 +306,26 @@ mod tests {
             cx.run_until_parked();
         }
         assert_eq!(panes_renders(&sidebar, cx), before);
+    }
+
+    fn shows_skeleton(
+        cx: &mut TestAppContext,
+        data: DemoShell,
+    ) -> bool {
+        let (_, _, cx) = open(cx, data);
+        cx.run_until_parked();
+        cx.debug_bounds(kinds::skeleton_rows::SELECTOR).is_some()
+    }
+
+    #[gpui::test]
+    fn a_shown_host_that_is_down_holds_no_skeleton(cx: &mut TestAppContext) {
+        let waiting = shows_skeleton(cx, DemoShell::loading());
+        let down = shows_skeleton(cx, DemoShell::showing_down_host());
+        assert_eq!(
+            (waiting, down),
+            (true, false),
+            "(waiting for a host, its host down)"
+        );
     }
 
     #[gpui::test]

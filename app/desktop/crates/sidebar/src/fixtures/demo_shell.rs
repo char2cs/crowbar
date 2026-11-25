@@ -7,6 +7,7 @@ use crate::error::Error;
 use crate::fixtures::rows::{reference_rows, rich_rows};
 use crate::shell::Command;
 use crate::shell::Focus;
+use crate::shell::HostId;
 use crate::shell::IconTarget;
 use crate::shell::MergeBox;
 use crate::shell::ProjectId;
@@ -26,6 +27,7 @@ pub struct DemoShell {
     pub(crate) active: RefCell<ProjectId>,
     pub(crate) spaces: usize,
     pub(crate) hosts: usize,
+    pub(crate) shown: HostId,
     pub(crate) sync: ScopeSync,
     pub(crate) focus: Focus,
     pub(crate) refused: Vec<Command>,
@@ -58,6 +60,7 @@ impl DemoShell {
             active: RefCell::new(ProjectId::from("inv")),
             spaces,
             hosts,
+            shown: HostId::from("local"),
             sync: ScopeSync::Ready,
             focus: Focus::Repository,
             refused: Vec::new(),

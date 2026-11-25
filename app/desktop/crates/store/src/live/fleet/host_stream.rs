@@ -44,6 +44,7 @@ impl HostStream {
         mut controls: mpsc::UnboundedReceiver<StreamControl>,
     ) {
         let mut backoff = Backoff::default();
+        self.set_link(LinkState::Connecting);
         while !matches!(
             self.cycle(&mut controls, &mut backoff).await,
             Ended::Stopped
@@ -55,7 +56,6 @@ impl HostStream {
         controls: &mut mpsc::UnboundedReceiver<StreamControl>,
         backoff: &mut Backoff,
     ) -> Ended {
-        self.set_link(LinkState::Connecting);
         let ended = self.connect_once(controls, backoff).await;
         if matches!(ended, Ended::Stopped) {
             return ended;
@@ -289,6 +289,13 @@ mod tests {
         connections: Vec<Connection>,
         daemon: Arc<FakeDaemon>,
     ) -> Rig {
+        start_dialling(Arc::new(Script(Mutex::new(connections.into()))), daemon)
+    }
+
+    fn start_dialling(
+        dial: Arc<dyn Dial>,
+        daemon: Arc<FakeDaemon>,
+    ) -> Rig {
         let changed = Arc::new(Notify::new());
         let wake = Arc::clone(&changed);
         let client = daemonapi::Client::new(daemon, local());
@@ -305,7 +312,7 @@ mod tests {
         let stream = HostStream {
             hub: Arc::clone(&hub),
             host: "local".into(),
-            dial: Arc::new(Script(Mutex::new(connections.into()))),
+            dial,
             client,
             outcome: Arc::new(|_| {}),
         };
@@ -441,5 +448,45 @@ mod tests {
     async fn a_stream_that_cannot_dial_is_down_and_one_without_controls_stops() {
         let cases = [Ending::NoConnection, Ending::ControlsDropped];
         each_holds(cases).await;
+    }
+
+    /// Refuses every dial, noting the host's link as each one starts.
+    #[derive(Default)]
+    struct Unreachable {
+        hub: std::sync::OnceLock<Arc<Hub>>,
+        seen: Mutex<Vec<LinkState>>,
+        dialled: Notify,
+    }
+
+    impl Dial for Unreachable {
+        fn open(&self) -> Opening<'_> {
+            let link = self
+                .hub
+                .get()
+                .map(|hub| hub.read(|state| state.hosts[0].link));
+            self.seen.lock().unwrap().extend(link);
+            self.dialled.notify_one();
+            Box::pin(std::future::ready(refused_when_empty(None)))
+        }
+    }
+
+    async fn links_at(
+        dial: &Unreachable,
+        dials: usize,
+    ) -> Vec<LinkState> {
+        while dial.seen.lock().unwrap().len() < dials {
+            dial.dialled.notified().await;
+        }
+        dial.seen.lock().unwrap().clone()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_host_stays_down_while_it_is_dialled_again() {
+        let dial = Arc::new(Unreachable::default());
+        let rig = start_dialling(Arc::clone(&dial) as Arc<dyn Dial>, FakeDaemon::shared());
+        dial.hub.set(Arc::clone(&rig.hub)).ok();
+        let seen = links_at(&dial, 3).await;
+        let down = LinkState::Down;
+        assert_eq!(seen, [LinkState::Connecting, down, down]);
     }
 }

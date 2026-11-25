@@ -1,6 +1,7 @@
 //! What the sidebar reads from the shell.
 
 use crate::shell::command::RowActions;
+use crate::shell::daemons::HostChoice;
 use crate::shell::git::ChangesSource;
 use crate::shell::listing::FileAccess;
 use crate::shell::listing::FilesSource;
@@ -14,6 +15,7 @@ use crate::shell::switcher::SpaceList;
 /// small source below. The view calls it on every render and never keeps a copy of what it returns.
 pub trait Source:
     SpaceList
+    + HostChoice
     + ActiveSpace
     + Requests
     + PaneFocus
@@ -27,6 +29,7 @@ pub trait Source:
 
 impl<T> Source for T where
     T: SpaceList
+        + HostChoice
         + ActiveSpace
         + Requests
         + PaneFocus

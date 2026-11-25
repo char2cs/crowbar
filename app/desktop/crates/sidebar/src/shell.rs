@@ -14,7 +14,7 @@ pub use chats::{
     WorkspaceStatus, Worktree,
 };
 pub use command::{ClipMode, Command, Intent, NewEntry, Question, RowActions, Sink};
-pub use daemons::{Host, HostId, HostKind, HostState, HostTone};
+pub use daemons::{Host, HostChoice, HostId, HostKind, HostState, HostTone};
 pub use git::{
     AfterMerge, ChangedFile, ChangedRow, Changes, ChangesSource, MergeBox, MergeFacts,
     MergeStrategy, MergeWork,

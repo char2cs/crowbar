@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use gpui::{AppContext as _, AsyncApp, Context, WeakEntity};
 use settings::{Key, Read as _};
-use sidebar::{HostKind, PaneFocus as _, SpaceList as _};
+use sidebar::{HostChoice as _, HostKind, PaneFocus as _};
 
 use super::ShellView;
 use crate::core_panes::TERMINAL;

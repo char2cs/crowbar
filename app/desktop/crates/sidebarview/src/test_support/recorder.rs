@@ -4,8 +4,9 @@ use std::cell::RefCell;
 
 use sidebar::{
     ActiveSpace, Changes, ChangesSource, Command, DemoShell, Error, FileAccess, FileRow,
-    FilesSource, Focus, FolderPhase, FolderSource, Host, MergeBox, MoveTarget, PaneFocus, Project,
-    ProjectId, ProjectTree, RowActions, RowId, RunningAgent, ScopeSync, SpaceList,
+    FilesSource, Focus, FolderPhase, FolderSource, Host, HostChoice, HostId, MergeBox, MoveTarget,
+    PaneFocus, Project, ProjectId, ProjectTree, RowActions, RowId, RunningAgent, ScopeSync,
+    SpaceList,
 };
 
 fn refusal(reason: &str) -> Error {
@@ -61,12 +62,18 @@ impl SpaceList for Recorder {
         self.data.sync()
     }
 
+    fn projects(&self) -> Vec<Project> {
+        self.data.projects()
+    }
+}
+
+impl HostChoice for Recorder {
     fn hosts(&self) -> Vec<Host> {
         self.data.hosts()
     }
 
-    fn projects(&self) -> Vec<Project> {
-        self.data.projects()
+    fn shown_host(&self) -> Option<HostId> {
+        self.data.shown_host()
     }
 }
 

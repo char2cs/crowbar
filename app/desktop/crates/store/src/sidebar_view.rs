@@ -4,12 +4,12 @@ mod file_tree;
 mod hosts;
 mod icons;
 mod panels;
+mod space_list;
 
 use std::sync::Arc;
 
 use sidebar::{
-    ActiveSpace, Focus, Host, MoveTarget, PaneFocus, Project, ProjectId, ProjectTree, RowActions,
-    RowId, ScopeSync, SpaceList,
+    ActiveSpace, Focus, MoveTarget, PaneFocus, ProjectId, ProjectTree, RowActions, RowId,
 };
 
 use crate::live::Hub;
@@ -17,7 +17,6 @@ use crate::live::SettingsSlot;
 use crate::{
     reads,
     reads::{files as files_reads, space_icons},
-    sidebar_view::hosts as host_reads,
 };
 
 /// What `sidebar::Source` reads, answered from the entities the streams delivered.
@@ -33,20 +32,6 @@ impl SidebarView {
         settings: SettingsSlot,
     ) -> Self {
         Self { hub, settings }
-    }
-}
-
-impl SpaceList for SidebarView {
-    fn sync(&self) -> ScopeSync {
-        self.hub.read(reads::sync)
-    }
-
-    fn hosts(&self) -> Vec<Host> {
-        self.hub.read(host_reads::hosts)
-    }
-
-    fn projects(&self) -> Vec<Project> {
-        self.hub.read(reads::projects)
     }
 }
 
@@ -103,7 +88,7 @@ impl RowActions for SidebarView {
 
 #[cfg(test)]
 mod tests {
-    use sidebar::{Changes, ChangesSource as _, FilesSource as _};
+    use sidebar::{Changes, ChangesSource as _, FilesSource as _, ScopeSync, SpaceList as _};
 
     use super::*;
     use crate::test_support::state;

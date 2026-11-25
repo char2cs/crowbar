@@ -103,6 +103,15 @@ impl DemoShell {
     pub fn empty() -> Self {
         Self::with_rows(Vec::new(), (0, 1))
     }
+
+    /// The rich data with the down `devbox` shown, which has listed no space and never synced.
+    pub fn showing_down_host() -> Self {
+        Self {
+            shown: crate::shell::HostId::from("devbox"),
+            sync: crate::shell::ScopeSync::Pending,
+            ..Self::rich()
+        }
+    }
 }
 
 #[cfg(test)]

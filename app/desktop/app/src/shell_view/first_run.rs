@@ -1,5 +1,5 @@
 use gpui::{AppContext as _, Context, Entity, Window};
-use sidebar::{Host, HostId, HostKind, SpaceList as _};
+use sidebar::{Host, HostChoice as _, HostId, HostKind, SpaceList as _};
 
 use super::ShellView;
 use crate::hosts::Hosts;
