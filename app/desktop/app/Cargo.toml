@@ -26,6 +26,7 @@ browser.workspace = true
 branchimport.workspace = true
 oobe.workspace = true
 pairing.workspace = true
+folderimport.workspace = true
 folderpicker.workspace = true
 supervisor.workspace = true
 gpui.workspace = true

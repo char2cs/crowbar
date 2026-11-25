@@ -15,13 +15,6 @@ const OPEN_FILES: ui::FileChoice = ui::FileChoice {
     filter: None,
 };
 
-// SPEC: docs/triage/2026-11-18-side-by-side-audit/16-dlg.md DLG-048: rfd's GTK folder chooser.
-const REPO_FOLDER: ui::FileChoice = ui::FileChoice {
-    title: "Select Folder",
-    kind: ui::ChoiceKind::Folder,
-    filter: None,
-};
-
 impl ShellView {
     pub(in crate::shell_view) fn reveal_workspace_path(
         &self,
@@ -130,18 +123,6 @@ impl ShellView {
         .detach();
     }
 
-    pub(in crate::shell_view) fn import_repo(
-        window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        let picked = ui::FileChooser::choose(REPO_FOLDER, window, cx);
-        cx.spawn_in(window, async move |this, cx| {
-            let path = first_path(&picked.await)?;
-            this.update(cx, |this, _| this.add_repo(&path)).ok()
-        })
-        .detach();
-    }
-
     fn open_host_files(
         &mut self,
         chat: &str,
@@ -152,21 +133,6 @@ impl ShellView {
             self.open_spec(PaneSpec::host_file(chat, &path.to_string_lossy()), cx);
         }
     }
-
-    pub(in crate::shell_view) fn add_repo(
-        &self,
-        path: &str,
-    ) {
-        if let Err(error) = self.data.commands().import_repo(path) {
-            tracing::warn!(%error, "the repository was not added");
-        }
-    }
-}
-
-fn first_path(paths: &[PathBuf]) -> Option<String> {
-    paths
-        .first()
-        .map(|path| path.to_string_lossy().into_owned())
 }
 
 #[cfg(test)]
@@ -189,29 +155,5 @@ mod tests {
         assert_eq!(*asked.borrow(), [OPEN_FILES]);
         let editors = shell.read_with(&opened.window, |shell, _| panes_of(shell, EDITOR).len());
         assert_eq!(editors, 2, "one editor per picked file");
-    }
-
-    #[gpui::test]
-    fn adding_a_repository_asks_develop_s_folder_chooser(cx: &mut TestAppContext) {
-        let asked = answer_choices_with(cx, &[]);
-        let mut opened = open_shell(cx);
-        let shell = opened.shell.clone();
-        shell.update_in(&mut opened.window, |_, window, cx| {
-            ShellView::import_repo(window, cx);
-        });
-        opened.window.run_until_parked();
-        assert_eq!(*asked.borrow(), [REPO_FOLDER]);
-    }
-
-    type FirstPath = (&'static [&'static str], Option<&'static str>);
-
-    const FIRST_PATHS: [FirstPath; 2] = [(&["/a/one", "/a/two"], Some("/a/one")), (&[], None)];
-
-    #[test]
-    fn the_first_picked_path_is_the_one_added_and_an_empty_pick_adds_nothing() {
-        for (picked, first) in FIRST_PATHS {
-            let picked: Vec<PathBuf> = picked.iter().map(PathBuf::from).collect();
-            assert_eq!(first_path(&picked).as_deref(), first, "{picked:?}");
-        }
     }
 }

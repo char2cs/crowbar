@@ -145,7 +145,7 @@ impl ShellView {
         }
     }
 
-    fn on_sidebar_command(
+    pub(super) fn on_sidebar_command(
         &mut self,
         command: &sidebar::Command,
         window: &mut Window,
@@ -164,7 +164,9 @@ impl ShellView {
             Ok(SidebarAction::OpenFile(path)) => self.open_workspace_file(&path, cx),
             Ok(SidebarAction::PreviewFile(path)) => self.preview_workspace_file(&path, cx),
             Ok(SidebarAction::OpenReview(path)) => self.open_review_at(&path, cx),
-            Ok(SidebarAction::ImportRepo) => self.choose_repo_folder(window, cx),
+            Ok(SidebarAction::ImportRepo) => {
+                self.show_folder_import(folderimport::Kind::Repo, window, cx);
+            },
             Ok(SidebarAction::ChooseSpaceFolder(host)) => self.choose_space_folder(&host, cx),
             Ok(SidebarAction::ImportBranches(row)) => self.show_branch_import(&row, window, cx),
             Ok(SidebarAction::Reveal(path)) => self.reveal_workspace_path(&path),

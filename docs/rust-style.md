@@ -91,7 +91,7 @@ The map of `docs/plans/2026-11-18-rust-tree.md` section 1. `tools/scripts/rust-l
 | Layer | Kind | Crates |
 |---|---|---|
 | L4 binary | composes everything below | `crowbar` |
-| L3 gpui views | gpui | `sidebarview`, `settingsview`, `terminalview`, `layoutview`, `viewtabs`, `ideshell`, `browserbar`, `startup`, `oobe`, `pairing`, `branchimport`, `folderpicker` |
+| L3 gpui views | gpui | `sidebarview`, `settingsview`, `terminalview`, `layoutview`, `viewtabs`, `ideshell`, `browserbar`, `startup`, `oobe`, `pairing`, `branchimport`, `folderpicker`, `folderimport` |
 | L2 services | logic | `panehost`, `store`, `ptysession` |
 | L1 domain | logic | `layout`, `transport`, `browseragent`, `keymap`, `windowstate`, `daemonapi`, `webview`, `sidebar`, `settings` |
 | L0 foundation | logic, except `ui` (gpui) | `protocol`, `atomicfile`, `browser`, `terminal`, `supervisor`, `diagnostics`, `platform`, `chord`, `ui` |

@@ -1,26 +1,9 @@
 use folderpicker::PickerEvent;
-use gpui::{AppContext as _, Context, Entity, Window};
-use store::FolderChoice;
+use gpui::{AppContext as _, Context, Entity};
 
 use super::ShellView;
 
-fn on_host(choice: FolderChoice) -> bool {
-    matches!(choice, FolderChoice::OnHost)
-}
-
 impl ShellView {
-    pub(super) fn choose_repo_folder(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        if on_host(self.data.folder_choice()) {
-            self.show_remote_folders(cx);
-            return;
-        }
-        Self::import_repo(window, cx);
-    }
-
     pub(super) fn choose_space_folder(
         &mut self,
         host: &str,
@@ -55,60 +38,25 @@ impl ShellView {
         let PickerEvent::Chosen(path) = event else {
             return;
         };
-        if self.first_run.is_some() {
-            self.create_first_space(path, cx);
-            return;
-        }
         let path = path.clone();
         self.sidebar
             .update(cx, |sidebar, cx| sidebar.set_space_folder(path, cx));
-    }
-
-    fn show_remote_folders(
-        &mut self,
-        cx: &mut Context<'_, Self>,
-    ) {
-        if self.remote_folders.is_some() {
-            return;
-        }
-        let (signal, _) = crate::data_signal::callbacks(&self.requests, &self.data_queued);
-        let opened = self
-            .data
-            .folder_browse(signal)
-            .inspect_err(|error| tracing::warn!(%error, "the folder picker could not open"));
-        let Ok(browse) = opened else {
-            return;
-        };
-        let picker = cx.new(|_| folderpicker::View::new(browse));
-        self.subscriptions
-            .push(cx.subscribe(&picker, Self::on_remote_folder));
-        self.remote_folders = Some(picker);
-        cx.notify();
-    }
-
-    fn on_remote_folder(
-        &mut self,
-        _: Entity<folderpicker::View>,
-        event: &PickerEvent,
-        cx: &mut Context<'_, Self>,
-    ) {
-        self.remote_folders = None;
-        cx.notify();
-        if let PickerEvent::Chosen(path) = event {
-            self.add_repo(path);
-        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use store::FolderChoice;
+    use gpui::TestAppContext;
 
-    use super::*;
+    use crate::shell_view::tests::open_shell;
 
-    #[test]
-    fn only_a_space_on_a_host_opens_the_remote_picker() {
-        assert!(!on_host(FolderChoice::Native));
-        assert!(on_host(FolderChoice::OnHost));
+    #[gpui::test]
+    fn an_unknown_host_opens_no_folder_picker(cx: &mut TestAppContext) {
+        let mut opened = open_shell(cx);
+        let shown = opened.shell.update(&mut opened.window, |shell, cx| {
+            shell.choose_space_folder("ghost", cx);
+            shell.remote_folders.is_some()
+        });
+        assert!(!shown, "no daemon answers for that host");
     }
 }

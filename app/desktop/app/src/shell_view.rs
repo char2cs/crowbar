@@ -33,6 +33,7 @@ mod file_actions;
 mod file_tree_flag;
 mod first_run;
 mod focus_follow;
+mod folder_import;
 mod keymap_settings;
 mod new_tab;
 mod notices;
@@ -91,6 +92,7 @@ pub(crate) struct ShellView {
     settings: Option<Entity<SettingsModal>>,
     branch_import: Option<Entity<branchimport::View>>,
     remote_folders: Option<Entity<folderpicker::View>>,
+    folder_import: Option<Entity<folderimport::View>>,
     file_prompt: Option<Entity<crate::file_prompt::FilePrompt>>,
     name_prompt: Option<(protocol::PaneId, Entity<crate::name_prompt::NamePrompt>)>,
     pairing: Option<Entity<pairing::View>>,
@@ -149,6 +151,7 @@ impl ShellView {
             settings: None,
             branch_import: None,
             remote_folders: None,
+            folder_import: None,
             file_prompt: None,
             name_prompt: None,
             pairing: None,
@@ -203,6 +206,7 @@ impl ShellView {
             || self.settings.is_some()
             || self.branch_import.is_some()
             || self.remote_folders.is_some()
+            || self.folder_import.is_some()
             || self.file_prompt.is_some()
             || self.name_prompt.is_some()
             || self.pairing.is_some()
@@ -239,6 +243,7 @@ impl ShellView {
             .children(self.prompt_layer())
             .children(layer(self.name_prompt.as_ref().map(|(_, prompt)| prompt)))
             .children(layer(self.first_run.as_ref().map(|(_, oobe)| oobe)))
+            .children(layer(self.folder_import.as_ref()))
             .children(layer(self.pairing.as_ref()))
             .children(
                 self.question

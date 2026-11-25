@@ -38,6 +38,7 @@ browserbar = { path = "desktop/crates/browserbar" }
 branchimport = { path = "desktop/crates/branchimport" }
 pairing = { path = "desktop/crates/pairing" }
 oobe = { path = "desktop/crates/oobe" }
+folderimport = { path = "desktop/crates/folderimport" }
 folderpicker = { path = "desktop/crates/folderpicker" }
 windowstate = { path = "desktop/crates/windowstate" }
 platform = { path = "desktop/crates/platform" }

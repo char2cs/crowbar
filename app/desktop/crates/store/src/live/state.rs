@@ -35,6 +35,7 @@ pub(crate) struct State {
     pub(crate) watched_chats: BTreeSet<String>,
     pub(crate) marking: BTreeSet<sidebar::IconTarget>,
     pub(crate) left: LeftBehind,
+    pub(crate) adding: BTreeSet<String>,
 }
 
 impl State {
@@ -52,6 +53,7 @@ impl State {
             watched_chats: BTreeSet::new(),
             marking: BTreeSet::new(),
             left: LeftBehind::default(),
+            adding: BTreeSet::new(),
         }
     }
 

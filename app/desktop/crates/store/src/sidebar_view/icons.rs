@@ -1,15 +1,22 @@
-//! The icon requests the sidebar reads.
+//! The running requests the sidebar reads.
 
-use sidebar::{IconRequests, IconTarget};
+use sidebar::{IconTarget, Requests};
 
 use crate::sidebar_view::SidebarView;
 
-impl IconRequests for SidebarView {
+impl Requests for SidebarView {
     fn icon_busy(
         &self,
         target: &IconTarget,
     ) -> bool {
         self.hub.read(|state| state.marking.contains(target))
+    }
+
+    fn adding(
+        &self,
+        folder: &str,
+    ) -> bool {
+        self.hub.read(|state| state.adding.contains(folder))
     }
 }
 

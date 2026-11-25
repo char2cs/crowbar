@@ -19,6 +19,8 @@ use crate::plan::after::After;
 use crate::plan::host_unanswered;
 use crate::plan::settle;
 
+mod hold;
+
 const FOLDER: &str = "folder";
 const ID: &str = "id";
 const TITLE: &str = "title";
@@ -35,12 +37,15 @@ pub(crate) async fn run(
     if let Some(row) = plan.pending.clone() {
         hub.edit(|state| state.add_local(row));
     }
-    let holding = plan.committing || plan.marking.is_some();
+    let holding = hold::holds(&plan);
     if holding {
-        hub.edit(|state| hold(state, &plan));
+        hub.edit(|state| hold::hold(state, &plan));
     }
     match (carry_out(hub, &plan).await, &plan.removal) {
-        (Ok(answer), _) => finish(hub, (&plan, &answer), outcome).await,
+        (Ok(answer), _) => {
+            finish(hub, (&plan, &answer), outcome).await;
+            hold::announce(&plan, outcome);
+        },
         (Err(PlanError::HostUnanswered(notice)), _) => {
             host_unanswered::tell(hub, &plan, outcome, notice);
         },
@@ -48,27 +53,7 @@ pub(crate) async fn run(
         (Err(reason), None) => fail(hub, &plan, outcome, reason.to_string()),
     }
     if holding {
-        hub.edit(|state| release(state, &plan));
-    }
-}
-
-fn hold(
-    state: &mut State,
-    plan: &Plan,
-) {
-    state.panels.committing |= plan.committing;
-    state.marking.extend(plan.marking.clone());
-}
-
-fn release(
-    state: &mut State,
-    plan: &Plan,
-) {
-    if plan.committing {
-        state.panels.committing = false;
-    }
-    if let Some(target) = &plan.marking {
-        state.marking.remove(target);
+        hub.edit(|state| hold::release(state, &plan));
     }
 }
 

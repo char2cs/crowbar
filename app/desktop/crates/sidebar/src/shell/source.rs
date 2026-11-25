@@ -6,8 +6,8 @@ use crate::shell::listing::FileAccess;
 use crate::shell::listing::FilesSource;
 use crate::shell::listing::FolderSource;
 use crate::shell::switcher::ActiveSpace;
-use crate::shell::switcher::IconRequests;
 use crate::shell::switcher::PaneFocus;
+use crate::shell::switcher::Requests;
 use crate::shell::switcher::SpaceList;
 
 /// The read side of the sidebar, implemented by the shell over the daemon's entity streams: every
@@ -15,7 +15,7 @@ use crate::shell::switcher::SpaceList;
 pub trait Source:
     SpaceList
     + ActiveSpace
-    + IconRequests
+    + Requests
     + PaneFocus
     + RowActions
     + FilesSource
@@ -28,7 +28,7 @@ pub trait Source:
 impl<T> Source for T where
     T: SpaceList
         + ActiveSpace
-        + IconRequests
+        + Requests
         + PaneFocus
         + RowActions
         + FilesSource

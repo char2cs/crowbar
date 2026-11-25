@@ -81,6 +81,8 @@ pub enum Outcome {
         /// Why it was not removed.
         reason: String,
     },
+    /// The daemon added `folder` as a space or a repository: the form that asked closes.
+    Added(String),
     /// A chat delete's git cascade also took chats the user never selected, named by `titles`.
     AlsoRemoved {
         /// The title of each chat taken, in the daemon's order.

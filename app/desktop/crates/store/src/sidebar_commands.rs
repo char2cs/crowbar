@@ -103,21 +103,19 @@ impl SidebarCommands {
         });
     }
 
-    /// Adds the repository at `path`, a folder of the open space's own host, to that space.
+    /// Adds the repository at `path`, a folder of the open space's own host, to that space under
+    /// `name`, or the folder's own name when `name` is blank. `Outcome::Added` answers success;
+    /// a failure is a toast titled "Add “name” failed".
     ///
     /// # Errors
     /// [`Error::Refused`] when no space is open, its host is not loaded, or the folder has no name.
     pub fn import_repo(
         &self,
-        path: &str,
+        (path, name): (&str, &str),
     ) -> Result<(), Error> {
         let plan = self.hub.read(|state| {
             let project = active_project(state);
-            plan_create::repo(
-                state,
-                project.as_ref(),
-                (path, &daemonapi::Uuid::random().to_string()),
-            )
+            plan_create::repo(state, project.as_ref(), (path, name))
         });
         self.run(plan)
     }

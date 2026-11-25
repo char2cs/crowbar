@@ -62,6 +62,17 @@ impl ShellView {
         self.show_keyed(key.slug(), (content, key.lifetime()), cx);
     }
 
+    pub(super) fn show_refusal(
+        &mut self,
+        title: String,
+        reason: String,
+        cx: &mut Context<'_, Self>,
+    ) {
+        tracing::warn!(%title, %reason, "a command failed");
+        let (key, notice) = crate::notices::failure_notice(title, reason);
+        self.show_keyed(&key, notice, cx);
+    }
+
     pub(super) fn show_keyed(
         &self,
         key: &str,

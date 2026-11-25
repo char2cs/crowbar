@@ -28,11 +28,11 @@ pub use shell::{
 pub use shell::{
     DropMode, Expansion, FileAccess, FileDensity, FileKind, FileRow, FileTreeFlag, FileTreeView,
     FilesSource, Focus, FolderPhase, FolderSource, GitStatus, Host, HostId, HostKind, HostState,
-    HostTone, IconRequests, IconTarget, IconTheme, IndentGuides, Intent, Lock, Mark, MergeBox,
-    MergeFacts, MergeStrategy, MergeWork, MoveTarget, Nesting, NewEntry, Notice, Operation,
-    OperationPhase, PaneFocus, PathText, Presence, Project, ProjectId, ProjectTree, Question,
-    Reach, Row, RowActions, RowId, RowKind, RunningAgent, ScopeSync, Source, SpaceFacts, SpaceIcon,
-    SpaceList, Titling, Workspace, WorkspaceStatus, Worktree,
+    HostTone, IconTarget, IconTheme, IndentGuides, Intent, Lock, Mark, MergeBox, MergeFacts,
+    MergeStrategy, MergeWork, MoveTarget, Nesting, NewEntry, Notice, Operation, OperationPhase,
+    PaneFocus, PathText, Presence, Project, ProjectId, ProjectTree, Question, Reach, Requests, Row,
+    RowActions, RowId, RowKind, RunningAgent, ScopeSync, Source, SpaceFacts, SpaceIcon, SpaceList,
+    Titling, Workspace, WorkspaceStatus, Worktree,
 };
 pub use tree::{Confirmation, Deadline};
 pub use tree::{

@@ -35,6 +35,7 @@ pub(crate) struct Plan {
     pub(crate) landing: Surface,
     pub(crate) committing: bool,
     pub(crate) marking: Option<sidebar::IconTarget>,
+    pub(crate) adding: Option<String>,
     pub(crate) removal: Option<Removal>,
     pub(crate) failure: Option<String>,
     pub(crate) explained: Option<String>,
@@ -56,6 +57,7 @@ impl Plan {
             landing: Surface::Default,
             committing: false,
             marking: None,
+            adding: None,
             removal: None,
             failure: None,
             explained: None,
@@ -120,6 +122,15 @@ impl Plan {
         target: sidebar::IconTarget,
     ) -> Self {
         self.marking = Some(target);
+        self
+    }
+
+    #[must_use]
+    pub(crate) fn adding(
+        mut self,
+        folder: &str,
+    ) -> Self {
+        self.adding = Some(folder.to_owned());
         self
     }
 

@@ -1,9 +1,9 @@
 use gpui::{AppContext as _, Context, Entity, Window};
-use sidebar::{Command, Host, HostId, HostKind, Sink as _, SpaceList as _};
+use sidebar::{Host, HostId, HostKind, SpaceList as _};
 
 use super::ShellView;
 use crate::hosts::Hosts;
-use crate::landing::{Landing, landing_for, space_name};
+use crate::landing::{Landing, landing_for};
 use crate::request_queue::send;
 use crate::shell_request::ShellRequest;
 
@@ -78,47 +78,16 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) {
         match event {
-            oobe::Event::ChooseFolder => self.choose_first_space(cx),
+            oobe::Event::ChooseFolder => {
+                self.show_folder_import(folderimport::Kind::Space, window, cx);
+            },
             oobe::Event::AddHost => self.queue_pairing(),
             oobe::Event::MoveWindow => window.start_window_move(),
             _ => {},
         }
     }
 
-    pub(super) fn create_first_space(
-        &mut self,
-        folder: &str,
-        cx: &mut Context<'_, Self>,
-    ) {
-        let Some(host) = self.local_host_id() else {
-            return;
-        };
-        let name = space_name(folder).unwrap_or_else(|| folder.to_owned());
-        let command = Command::CreateSpace {
-            name,
-            folder: folder.to_owned(),
-            host,
-        };
-        if let Err(error) = self.data.commands().dispatch(command) {
-            tracing::warn!(%error, "the first space could not be created");
-            self.show_notice(
-                crate::notice_key::NoticeKey::Command,
-                (ui::ToastKind::Error, error.to_string()),
-                cx,
-            );
-        }
-    }
-
-    fn choose_first_space(
-        &mut self,
-        cx: &mut Context<'_, Self>,
-    ) {
-        if let Some(host) = self.local_host_id() {
-            self.choose_space_folder(host.as_str(), cx);
-        }
-    }
-
-    fn local_host_id(&self) -> Option<HostId> {
+    pub(super) fn local_host_id(&self) -> Option<HostId> {
         local_host(self.data.view().hosts())
     }
 

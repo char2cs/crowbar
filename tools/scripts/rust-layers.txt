@@ -36,4 +36,5 @@ oobe           L3     gpui
 pairing        L3     gpui
 branchimport   L3     gpui
 folderpicker   L3     gpui
+folderimport   L3     gpui
 crowbar        L4     binary

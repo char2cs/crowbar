@@ -34,6 +34,7 @@ pub struct DemoShell {
     pub(crate) git_error: Option<String>,
     pub(crate) running: Vec<RunningAgent>,
     pub(crate) busy_icons: Vec<IconTarget>,
+    pub(crate) adding: Vec<String>,
 }
 
 impl DemoShell {
@@ -65,6 +66,7 @@ impl DemoShell {
             git_error: None,
             running: Vec::new(),
             busy_icons: Vec::new(),
+            adding: Vec::new(),
         }
     }
 

@@ -120,24 +120,32 @@ pub(crate) fn space(
     let call = Call::post("/v0/projects")
         .json(json!({NAME: name, "path": folder}))
         .idempotent(id);
-    Plan::of(host.as_str(), vec![call]).then(After::SelectProject(id.to_owned()))
+    Plan::of(host.as_str(), vec![call])
+        .then(After::SelectProject(id.to_owned()))
+        .adding(folder)
 }
 
 pub(crate) fn repo(
     state: &State,
     project: Option<&ProjectId>,
-    (path, id): (&str, &str),
+    (path, name): (&str, &str),
 ) -> Result<Plan, PlanError> {
     let project = project.ok_or(PlanError::NoSpaceOpen)?;
     let slot = host_of(state, project.as_str()).ok_or(PlanError::SpaceNotLoaded)?;
-    let name = std::path::Path::new(path)
+    let base = std::path::Path::new(path)
         .file_name()
-        .and_then(std::ffi::OsStr::to_str)
+        .and_then(std::ffi::OsStr::to_str);
+    let name = Some(name.trim())
+        .filter(|name| !name.is_empty())
+        .or(base)
         .ok_or(PlanError::FolderHasNoName)?;
     let call = Call::post(daemonapi::Route::repos(project.as_str()))
         .json(json!({NAME: name, "path": path}))
-        .idempotent(id);
-    Ok(Plan::of(&slot.spec.id, vec![call]))
+        .idempotent(&daemonapi::Uuid::random().to_string());
+    let title = format!("Add \u{201c}{name}\u{201d} failed");
+    Ok(Plan::of(&slot.spec.id, vec![call])
+        .adding(path)
+        .failing_as(Some(title)))
 }
 
 pub(crate) fn workspace_for(
@@ -245,7 +253,7 @@ mod tests {
             let (state, _) = spec.map_or_else(state, state_on);
             let host = state.hosts[0].spec.id.clone();
             let project = ProjectId::from("p");
-            let plan = repo(&state, Some(&project), ("/srv/app/", "k1")).unwrap();
+            let plan = repo(&state, Some(&project), ("/srv/app/", " ")).unwrap();
             let call = &plan.calls[0];
             assert_eq!(plan.host, host);
             assert_eq!(call.path, "/v0/projects/p/repos");
@@ -254,15 +262,28 @@ mod tests {
         }
     }
 
-    fn a_repo_needs_an_open_space_and_a_named_folder() {
+    fn a_named_repo_is_added_under_its_name_and_fails_under_develop_s_title() {
         let (state, _) = state();
-        assert!(repo(&state, None, ("/srv/app", "k")).is_err());
-        assert!(repo(&state, Some(&ProjectId::from("p")), ("/", "k")).is_err());
-        assert!(repo(&state, Some(&ProjectId::from("gone")), ("/srv/app", "k")).is_err());
+        let project = ProjectId::from("p");
+        let plan = repo(&state, Some(&project), ("/srv/app", "Web")).unwrap();
+        assert_eq!(plan.calls[0].body.clone().unwrap()["name"], "Web");
+        assert_eq!(
+            plan.failure.as_deref(),
+            Some("Add \u{201c}Web\u{201d} failed")
+        );
+        assert_eq!(plan.adding.as_deref(), Some("/srv/app"));
     }
 
-    const CASES: [fn(); 5] = [
+    fn a_repo_needs_an_open_space_and_a_named_folder() {
+        let (state, _) = state();
+        assert!(repo(&state, None, ("/srv/app", "")).is_err());
+        assert!(repo(&state, Some(&ProjectId::from("p")), ("/", "")).is_err());
+        assert!(repo(&state, Some(&ProjectId::from("gone")), ("/srv/app", "")).is_err());
+    }
+
+    const CASES: [fn(); 6] = [
         a_repo_is_added_on_the_host_of_its_space_local_or_remote,
+        a_named_repo_is_added_under_its_name_and_fails_under_develop_s_title,
         a_repo_needs_an_open_space_and_a_named_folder,
         a_thread_under_a_chat_runs_in_its_workspace_and_a_home_thread_in_the_home,
         a_fork_of_a_home_row_is_refused,

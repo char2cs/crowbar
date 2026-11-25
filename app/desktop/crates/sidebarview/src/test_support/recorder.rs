@@ -83,12 +83,19 @@ impl ActiveSpace for Recorder {
     }
 }
 
-impl sidebar::IconRequests for Recorder {
+impl sidebar::Requests for Recorder {
     fn icon_busy(
         &self,
         target: &sidebar::IconTarget,
     ) -> bool {
         self.data.icon_busy(target)
+    }
+
+    fn adding(
+        &self,
+        folder: &str,
+    ) -> bool {
+        self.data.adding(folder)
     }
 }
 

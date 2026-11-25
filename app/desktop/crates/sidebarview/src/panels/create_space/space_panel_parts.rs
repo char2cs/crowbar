@@ -1,8 +1,10 @@
-use gpui::{Div, FontWeight, ParentElement, Styled, div, px};
-use sidebar::SpaceIcon;
-use ui::{Icon, IconName, Palette, radius};
+use gpui::prelude::FluentBuilder as _;
+use gpui::{Context, Div, FontWeight, ParentElement, Styled, div, px};
+use sidebar::{SpaceFacts, SpaceIcon};
+use ui::{Button, ButtonVariant, Icon, IconName, Palette, radius};
 
-use crate::sidebar::{ICON_LARGE, SPACE_LG, SPACE_MD, SPACE_XS, TEXT_LARGE};
+use crate::sidebar::Sidebar;
+use crate::sidebar::{ICON_LARGE, SPACE_LG, SPACE_MD, SPACE_XL, SPACE_XS, TEXT_LARGE, TEXT_SMALL};
 
 const TITLE_SIZE: f32 = 16.0;
 const TITLE_LINE: f32 = 24.0;
@@ -10,6 +12,7 @@ const SUBTITLE_LINE: f32 = 20.0;
 const TILE: f32 = 36.0;
 const ROW_PADDING: f32 = 10.0;
 const TITLE: &str = "Create a Space";
+const CREATE: &str = "Create Space";
 const SUBTITLE: &str = "Spaces are used to organize your tabs and sessions.";
 
 pub(crate) fn field_row(
@@ -87,6 +90,34 @@ pub(crate) fn icon_tile(
         .border_dashed()
         .border_color(palette.border())
         .child(glyph)
+}
+
+pub(crate) fn space_footer(
+    (facts, creating): (&SpaceFacts, Option<&'static str>),
+    palette: &Palette,
+    cx: &mut Context<'_, Sidebar>,
+) -> Div {
+    let label = creating.unwrap_or(CREATE);
+    let create = Button::new("space-create", label)
+        .on_click(cx.listener(|this, _, _, cx| this.create_space(cx)))
+        .when(!facts.can_create || creating.is_some(), Button::disabled);
+    let cancel = Button::new("space-cancel", "Cancel")
+        .variant(ButtonVariant::Ghost)
+        .on_click(cx.listener(|this, _, window, cx| this.cancel_create_space(window, cx)));
+    let hint = facts.hint.clone().map(|text| {
+        div()
+            .text_size(TEXT_SMALL)
+            .text_color(palette.muted_foreground())
+            .child(text)
+    });
+    div()
+        .flex()
+        .flex_col()
+        .gap(SPACE_MD)
+        .pb(SPACE_XL)
+        .children(hint)
+        .child(create)
+        .child(cancel)
 }
 
 #[cfg(test)]

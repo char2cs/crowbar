@@ -11,7 +11,6 @@ use crate::byte_source::ByteSource;
 use crate::core_panes::{chat_params, chat_type, draft_params};
 use crate::logged::{closed_view, logged};
 use crate::notice_key::NoticeKey;
-use crate::notices::failure_notice;
 use crate::settings_modal::{open_settings, settings_config};
 
 // SPEC: docs/triage/2026-11-18-side-by-side-audit/15-set.md SET-094: WebKit's chooser for the descriptor `<input accept=…>`.
@@ -74,6 +73,9 @@ impl ShellView {
         if let Some(dialog) = &self.remote_folders {
             dialog.update(cx, |_, cx| cx.notify());
         }
+        if let Some(dialog) = &self.folder_import {
+            dialog.update(cx, |_, cx| cx.notify());
+        }
         if let Some(dialog) = &self.pairing {
             dialog.update(cx, pairing::View::changed);
         }
@@ -102,11 +104,7 @@ impl ShellView {
                 tracing::warn!(%reason, "a command failed");
                 self.show_notice(NoticeKey::Command, (ToastKind::Error, reason), cx);
             },
-            DataOutcome::Refused { title, reason } => {
-                tracing::warn!(%title, %reason, "a command failed");
-                let (key, notice) = failure_notice(title, reason);
-                self.show_keyed(&key, notice, cx);
-            },
+            DataOutcome::Refused { title, reason } => self.show_refusal(title, reason, cx),
             DataOutcome::ReviewViewed { workspace, viewed } => {
                 self.push_review_viewed(&workspace, &viewed);
             },
@@ -122,6 +120,7 @@ impl ShellView {
             DataOutcome::AlsoRemoved { titles } => self
                 .sidebar
                 .update(cx, |sidebar, cx| sidebar.also_removed(&titles, cx)),
+            DataOutcome::Added(folder) => self.folder_added(&folder, cx),
         }
     }
 

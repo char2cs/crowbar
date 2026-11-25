@@ -10,28 +10,28 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use gpui::TaskExt as _;
-use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AnyElement, AppContext as _, Context, Div, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled, Window, div, px,
 };
 use sidebar::{Command, HostKind, Mode, PathText, SpaceFacts, SpaceIcon};
 use ui::{
-    Button, ButtonVariant, ChoiceKind, FileChoice, FileChooser, IconName, Palette, Placement,
-    Popover, Surface, TextInput, TextInputEvent, Theme,
+    ChoiceKind, FileChoice, FileChooser, IconName, Palette, Placement, Popover, Surface, TextInput,
+    TextInputEvent, Theme,
 };
 
 use crate::column::IconEditor;
 use crate::panels::create_space::daemon_picker::daemon_picker;
 use crate::panels::create_space::space_draft::create_command;
-use crate::panels::create_space::space_panel_parts::{field_row, heading, icon_tile};
+use crate::panels::create_space::space_panel_parts::{field_row, heading, icon_tile, space_footer};
+use crate::sidebar::SPACE_LG;
 use crate::sidebar::Sidebar;
-use crate::sidebar::{SPACE_LG, SPACE_MD, SPACE_XL, TEXT_SMALL};
 
 const HEAD_GAP: f32 = 10.0;
 const PANEL_GAP: f32 = 20.0;
 const PANEL_TOP: f32 = 16.0;
 const CHOOSE_FOLDER: &str = "Choose…";
+const CREATING: &str = "Creating…";
 
 // SPEC: docs/triage/2026-11-18-side-by-side-audit/16-dlg.md DLG-048: rfd's GTK folder chooser.
 const SPACE_FOLDER: FileChoice = FileChoice {
@@ -173,12 +173,29 @@ impl Sidebar {
         if !SpaceFacts::of(host, &folder).can_create {
             return;
         }
+        if self.data.adding(&folder) {
+            return;
+        }
         let name = draft.name.read(cx).text().to_owned();
         let command = create_command((&name, &folder), host.id.clone(), draft.icon.clone());
-        if self.send_checked(command, cx) {
+        self.send_checked(command, cx);
+    }
+
+    /// Closes the create-space panel once the daemon added its folder; the answer to
+    /// `store::Outcome::Added`. A failed create keeps the panel for another try, as develop's.
+    pub fn space_added(
+        &mut self,
+        folder: &str,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if self
+            .space
+            .as_ref()
+            .is_some_and(|draft| draft.folder == folder)
+        {
             self.space = None;
+            cx.notify();
         }
-        cx.notify();
     }
 
     pub(crate) fn create_space_panel(
@@ -190,9 +207,10 @@ impl Sidebar {
         let hosts = self.data.hosts();
         let host = hosts.get(draft.host)?;
         let facts = SpaceFacts::of(host, &draft.folder);
+        let creating = self.data.adding(&draft.folder).then_some(CREATING);
         let picker = daemon_picker((&hosts, draft.host), palette, cx);
         let head = space_head(draft, palette);
-        let footer = space_footer(&facts, palette, cx);
+        let footer = space_footer((&facts, creating), palette, cx);
         Some(
             div()
                 .flex()
@@ -255,33 +273,6 @@ fn space_head(
         .child(div().flex_1().child(draft.name.clone()))
 }
 
-fn space_footer(
-    facts: &SpaceFacts,
-    palette: &Palette,
-    cx: &mut Context<'_, Sidebar>,
-) -> Div {
-    let create = Button::new("space-create", "Create Space")
-        .on_click(cx.listener(|this, _, _, cx| this.create_space(cx)))
-        .when(!facts.can_create, Button::disabled);
-    let cancel = Button::new("space-cancel", "Cancel")
-        .variant(ButtonVariant::Ghost)
-        .on_click(cx.listener(|this, _, window, cx| this.cancel_create_space(window, cx)));
-    let hint = facts.hint.clone().map(|text| {
-        div()
-            .text_size(TEXT_SMALL)
-            .text_color(palette.muted_foreground())
-            .child(text)
-    });
-    div()
-        .flex()
-        .flex_col()
-        .gap(SPACE_MD)
-        .pb(SPACE_XL)
-        .children(hint)
-        .child(create)
-        .child(cancel)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -290,7 +281,7 @@ mod tests {
     use crate::test_support::prelude::*;
 
     #[gpui::test]
-    fn creating_a_space_needs_a_folder_then_sends_and_closes(cx: &mut TestAppContext) {
+    fn creating_a_space_needs_a_folder_then_sends_and_closes_once_added(cx: &mut TestAppContext) {
         let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
         sidebar.update_in(cx, |this, window, cx| {
             this.apply(Intent::StartCreateSpace, window, cx);
@@ -305,7 +296,23 @@ mod tests {
             host: sidebar::HostId::from("local"),
         };
         assert_eq!(recorder.sent(), vec![want]);
+        assert!(
+            sidebar.read_with(cx, |this, _| this.space.is_some()),
+            "the panel waits for the space, as develop's Creating…"
+        );
+        sidebar.update(cx, |this, cx| this.space_added("/w/other", cx));
+        assert!(sidebar.read_with(cx, |this, _| this.space.is_some()));
+        sidebar.update(cx, |this, cx| this.space_added("/w/app", cx));
         assert!(sidebar.read_with(cx, |this, _| this.space.is_none()));
+    }
+
+    #[gpui::test]
+    fn a_space_being_created_is_not_sent_again(cx: &mut TestAppContext) {
+        let (recorder, sidebar, cx) = open(cx, DemoShell::reference().with_adding("/w/app"));
+        assert!(start(&sidebar, cx));
+        sidebar.update(cx, |this, cx| this.set_space_folder("/w/app".into(), cx));
+        sidebar.update(cx, Sidebar::create_space);
+        assert!(recorder.sent().is_empty(), "Creating… is disabled");
     }
 
     fn start(
