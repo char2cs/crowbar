@@ -3,7 +3,7 @@
 use sidebar::Command;
 
 use crate::live::State;
-use crate::target::{Kind, resolve};
+use crate::rows::target::{Kind, resolve};
 
 pub(crate) fn failure_title(
     state: &State,

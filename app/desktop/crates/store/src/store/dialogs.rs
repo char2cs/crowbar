@@ -11,7 +11,7 @@ use crate::store::Store;
 use crate::store::branch_import::BranchImport;
 use crate::store::folder_browse::FolderBrowse;
 use crate::store::folder_browse::{FolderChoice, folder_choice};
-use crate::store::pairing_session::PairingSession;
+use crate::store::pairing::pairing_session::PairingSession;
 use crate::store::settings_core::JsonFile;
 use crate::store::settings_core::Parts;
 use crate::store::settings_core::SystemFonts;

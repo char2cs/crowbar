@@ -21,7 +21,7 @@ use crate::live::ChangeSignal;
 
 use crate::live::Fleet;
 use crate::live::HostDesk;
-use crate::store::pairing_session::held::Held;
+use crate::store::pairing::pairing_session::held::Held;
 
 const CODE_SHAPE_NOTICE: &str = "A pairing code is exactly 6 digits.";
 

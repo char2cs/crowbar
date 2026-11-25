@@ -16,10 +16,10 @@ use crate::live::{Outcome, OutcomeSink};
 use crate::live::{fleet::catalog as providers, panel_loader::changes_reload};
 use crate::plan::Plan;
 use crate::plan::after::After;
-use crate::plan::host_unanswered;
-use crate::plan::settle;
 
 mod hold;
+mod host_unanswered;
+mod settle;
 
 const FOLDER: &str = "folder";
 const ID: &str = "id";

@@ -1,10 +1,9 @@
 //! Daemon-backed data for the native shell: the sidebar's entities and commands, and the settings
 //! and records the settings modal edits.
 
-mod documents;
+mod editing;
 mod error;
 mod journal_sink;
-mod language_servers;
 mod live;
 mod plan;
 mod reads;
@@ -12,14 +11,13 @@ mod rows;
 mod sidebar_commands;
 mod sidebar_view;
 mod store;
-mod target;
 #[cfg(test)]
 mod test_support;
 
 pub use daemonapi::EntryKind;
-pub use documents::Documents;
+pub use editing::documents::Documents;
+pub use editing::language_servers::LanguageServers;
 pub use error::{Error, Result};
-pub use language_servers::LanguageServers;
 pub use live::{
     BookError, BookFuture, ChangeSignal, DraftThread, HostBook, HostDesk, HostNotes, HostSpec,
     Note, Outcome, OutcomeSink, PairingRequest,

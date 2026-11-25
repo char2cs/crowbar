@@ -5,14 +5,12 @@ pub(crate) mod agent;
 pub(crate) mod create;
 mod edit;
 mod failure_title;
-mod host_unanswered;
 mod icon;
 mod merge;
 pub(crate) mod planner;
 mod relocate;
 pub(crate) mod removal;
 pub(crate) mod runner;
-mod settle;
 
 pub(crate) use agent::running;
 pub(crate) use failure_title::failure_title;

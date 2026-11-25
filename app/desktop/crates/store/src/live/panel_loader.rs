@@ -4,10 +4,8 @@ pub(crate) mod changes_reload;
 mod document_body;
 pub(crate) mod file_target;
 pub(crate) mod followed_ask;
-mod git_diff_body;
 mod git_status_body;
 mod ignore_files;
-mod line_counts;
 mod listed_directory;
 mod panel_loader_event;
 mod reload_target;
@@ -21,9 +19,9 @@ pub(crate) use reload_target::ReloadTarget;
 use crate::journal_sink::emit;
 use crate::live::held::FileEntry;
 use crate::live::held::OpenThreads;
-use crate::live::panel_loader::git_diff_body::GitDiffBody;
 use crate::live::panel_loader::git_status_body::GitStatusBody;
-use crate::live::panel_loader::line_counts::LineCounts;
+use crate::live::panel_loader::git_status_body::git_diff_body::GitDiffBody;
+use crate::live::panel_loader::git_status_body::line_counts::LineCounts;
 use crate::live::panel_loader::listed_directory::ListedDirectory;
 use crate::live::panel_loader::panel_loader_event::PanelLoaderEvent;
 use crate::live::panel_loader::review_files_body::ReviewFilesBody;
@@ -180,7 +178,7 @@ async fn load_counts(
 ) -> LineCounts {
     let mut diffs = diff_of(client, chat, "false").await;
     diffs.extend(diff_of(client, chat, "true").await);
-    line_counts::of(&diffs)
+    git_status_body::line_counts::of(&diffs)
 }
 
 async fn diff_of(

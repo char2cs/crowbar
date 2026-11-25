@@ -12,8 +12,8 @@ use crate::plan::after::After;
 use crate::plan::removal::{Removal, Taken};
 use crate::reads::host_of;
 use crate::rows::pending as pending_rows;
-use crate::target::Kind;
-use crate::target::{Target, resolve};
+use crate::rows::target::Kind;
+use crate::rows::target::{Target, resolve};
 
 pub(crate) fn locate(
     state: &State,

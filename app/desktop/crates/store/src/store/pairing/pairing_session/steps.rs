@@ -9,12 +9,12 @@ use crate::journal_sink::emit;
 use crate::live::HostSpec;
 use crate::live::Note;
 use crate::live::PairingRequest;
-use crate::store::pairing_session::PairingSession;
-use crate::store::pairing_session::pairing_pending::PairingPending;
-use crate::store::pairing_session::pairing_stage::PairingStage;
-use crate::store::pairing_session::steps::pairing_event::PairingEvent;
-use crate::store::pairing_session::words::Words;
-use crate::store::pairing_session::words::{already_paired, failure as pairing_failure};
+use crate::store::pairing::pairing_session::PairingSession;
+use crate::store::pairing::pairing_session::pairing_pending::PairingPending;
+use crate::store::pairing::pairing_session::pairing_stage::PairingStage;
+use crate::store::pairing::pairing_session::steps::pairing_event::PairingEvent;
+use crate::store::pairing::pairing_session::words::Words;
+use crate::store::pairing::pairing_session::words::{already_paired, failure as pairing_failure};
 
 impl PairingSession {
     pub(crate) async fn probe(

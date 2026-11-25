@@ -17,8 +17,8 @@ use crate::plan::Plan;
 use crate::plan::after::After;
 use crate::reads::host_of;
 use crate::rows::default_workspace;
-use crate::target::Kind;
-use crate::target::{Target, resolve};
+use crate::rows::target::Kind;
+use crate::rows::target::{Target, resolve};
 
 const NEW_THREAD: &str = "New thread";
 const NEW_WORKSPACE: &str = "New workspace";

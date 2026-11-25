@@ -1,7 +1,7 @@
 //! What the pairing dialog shows.
 
-use crate::store::pairing_session::pairing_pending::PairingPending;
-use crate::store::pairing_session::pairing_stage::PairingStage;
+use crate::store::pairing::pairing_session::pairing_pending::PairingPending;
+use crate::store::pairing::pairing_session::pairing_stage::PairingStage;
 
 /// The stage, the fingerprint to confirm, and why the last step failed, if it did.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

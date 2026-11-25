@@ -1,10 +1,10 @@
 //! What a pairing attempt keeps between its stages.
 
 use crate::live::PairingRequest;
-use crate::store::pairing_session::host_id_text;
-use crate::store::pairing_session::pairing_pending::PairingPending;
-use crate::store::pairing_session::pairing_stage::PairingStage;
-use crate::store::pairing_session::pairing_state::PairingState;
+use crate::store::pairing::pairing_session::host_id_text;
+use crate::store::pairing::pairing_session::pairing_pending::PairingPending;
+use crate::store::pairing::pairing_session::pairing_stage::PairingStage;
+use crate::store::pairing::pairing_session::pairing_state::PairingState;
 
 #[derive(Debug, Default)]
 pub(crate) struct Held {

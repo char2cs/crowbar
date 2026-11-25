@@ -10,8 +10,8 @@ use crate::plan::Plan;
 use crate::plan::after::After;
 use crate::plan::create::{PARENT_ID, host_id};
 use crate::reads::host_of;
-use crate::target::Kind;
-use crate::target::{Target, resolve};
+use crate::rows::target::Kind;
+use crate::rows::target::{Target, resolve};
 
 const NEW_FOLDER: &str = "New folder";
 const NAME: &str = "name";

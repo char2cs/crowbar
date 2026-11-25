@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::live::panel_loader::git_diff_body::GitDiffBody;
+use crate::live::panel_loader::git_status_body::git_diff_body::GitDiffBody;
 
 pub(crate) type LineCounts = HashMap<String, (u32, u32)>;
 

@@ -17,8 +17,8 @@ use crate::plan::relocate::branch_drop::BranchDrop;
 use crate::plan::relocate::placement::slot_for;
 use crate::plan::relocate::slot::Slot;
 use crate::reads::{active_project, host_of, tree};
-use crate::target::Kind;
-use crate::target::resolve;
+use crate::rows::target::Kind;
+use crate::rows::target::resolve;
 
 pub(crate) fn drop_row(
     state: &State,

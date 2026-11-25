@@ -11,7 +11,7 @@ use crate::plan::after::After;
 use crate::plan::create::{host_id, parent_chat, thread, workspace_for};
 use crate::reads::host_of;
 use crate::rows::default_workspace;
-use crate::target::{Kind, resolve};
+use crate::rows::target::{Kind, resolve};
 
 pub(crate) fn home(
     state: &State,

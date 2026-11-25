@@ -6,9 +6,9 @@ mod ipv6_form;
 
 use std::net::Ipv6Addr;
 
-use crate::store::pairing_session::endpoint_text::error::EndpointError;
-use crate::store::pairing_session::endpoint_text::host_port::HostPort;
-use crate::store::pairing_session::endpoint_text::ipv6_form::Ipv6Form;
+use crate::store::pairing::pairing_session::endpoint_text::error::EndpointError;
+use crate::store::pairing::pairing_session::endpoint_text::host_port::HostPort;
+use crate::store::pairing::pairing_session::endpoint_text::ipv6_form::Ipv6Form;
 
 const DEFAULT_PORT: u16 = 3737;
 const MAX_NAME: usize = 253;
