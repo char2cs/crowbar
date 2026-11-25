@@ -5,17 +5,20 @@
 use std::rc::Rc;
 
 use gpui::{App, AppContext as _, Context, Entity, EventEmitter, Subscription, Task};
-use gpui_kit::base::input::{Rope, TextModel, TextModelEdit};
+use gpui_kit::base::input::Rope;
 
 use crate::lsp_link::LspLink;
 use crate::{DocumentEvent, DocumentOpening, LanguageServer, SaveMark};
 
 mod disk_text;
 mod quiet;
+mod shared_text;
+
+pub(crate) use shared_text::SharedText;
 
 /// One open document, shared by every view that shows it.
 pub struct Document {
-    model: Entity<TextModel>,
+    text: Entity<SharedText>,
     path: String,
     saved: Rope,
     save_mark: SaveMark,
@@ -37,16 +40,16 @@ impl Document {
         let DocumentOpening { text, path, saved } = opening;
         let saved = Rope::from(saved.as_deref().unwrap_or(&text));
         let reported_dirty = saved != text.as_str();
-        let model = cx.new(|_| TextModel::new(&text));
-        let edits = cx.subscribe(&model, Self::on_edit);
-        let lsp = server.map(|server| LspLink::new(server, model.downgrade()));
+        let shared = cx.new(|_| SharedText::new(&text));
+        let edits = cx.subscribe(&shared, Self::on_edit);
+        let lsp = server.map(|server| LspLink::new(server, shared.downgrade()));
         if let Some(link) = &lsp {
             link.open(&path, cx);
         }
         cx.on_release(|document, cx| document.lsp_close(cx))
             .detach();
         Self {
-            model,
+            text: shared,
             path,
             saved,
             save_mark: SaveMark::default(),
@@ -58,8 +61,8 @@ impl Document {
         }
     }
 
-    pub(crate) const fn model(&self) -> &Entity<TextModel> {
-        &self.model
+    pub(crate) const fn shared_text(&self) -> &Entity<SharedText> {
+        &self.text
     }
 
     pub(crate) fn lsp(&self) -> Option<Rc<LspLink>> {
@@ -78,7 +81,7 @@ impl Document {
         &self,
         cx: &App,
     ) -> String {
-        self.model.read(cx).text().to_string()
+        self.text.read(cx).text().to_string()
     }
 
     /// Whether the text differs from the text last saved (or opened).
@@ -87,7 +90,7 @@ impl Document {
         &self,
         cx: &App,
     ) -> bool {
-        self.model.read(cx).text() != &self.saved
+        self.text.read(cx).text() != &self.saved
     }
 
     /// The document is now the file at `path`: its language and its language server follow it.
@@ -122,8 +125,8 @@ impl Document {
 
     fn on_edit(
         &mut self,
-        _: Entity<TextModel>,
-        _: &TextModelEdit,
+        _: Entity<SharedText>,
+        _: &Rope,
         cx: &mut Context<'_, Self>,
     ) {
         self.report_dirty(cx);
@@ -177,10 +180,11 @@ mod tests {
         Window, div,
     };
     use gpui_kit::base::input::Position;
-    use gpui_kit::component::input::{Editor, EditorState};
+    use gpui::Focusable as _;
+    use gpui_kit::component::input::EditorState;
 
     use super::*;
-    use crate::editor_view::test_support::{listened, press};
+    use crate::editor_view::test_support::{listened, press, state_of};
 
     const TEXT: &str = "one\ntwo\n";
 
@@ -192,52 +196,25 @@ mod tests {
         }
     }
 
-    struct Pair {
-        a: Entity<EditorState>,
-        b: Entity<EditorState>,
-    }
-
-    impl Render for Pair {
-        fn render(
-            &mut self,
-            _: &mut Window,
-            _: &mut Context<'_, Self>,
-        ) -> impl IntoElement {
-            div()
-                .size_full()
-                .child(Editor::new(&self.a))
-                .child(Editor::new(&self.b))
-        }
-    }
-
-    fn over(
-        document: &Entity<Document>,
-        (window, cx): (&mut Window, &mut Context<'_, Pair>),
-    ) -> Entity<EditorState> {
-        let model = document.read(cx).model().clone();
-        cx.new(|cx| {
-            let mut state = EditorState::new(window, cx);
-            state.share_text(model, window, cx);
-            state
-        })
-    }
-
-    fn pair(cx: &mut TestAppContext) -> (Entity<Pair>, &mut VisualTestContext) {
-        cx.update(|cx| ui::init(cx).unwrap());
-        cx.update(crate::init);
-        cx.add_window_view(|window, cx| {
-            let document = cx.new(|cx| Document::new(opening(TEXT), None, cx));
-            let a = over(&document, (window, cx));
-            let b = over(&document, (window, cx));
-            Pair { a, b }
-        })
+    fn pair(cx: &mut TestAppContext) -> (Entity<Views>, &mut VisualTestContext) {
+        two_views(None, cx)
     }
 
     fn states(
-        pair: &Entity<Pair>,
+        views: &Entity<Views>,
         window: &mut VisualTestContext,
     ) -> (Entity<EditorState>, Entity<EditorState>) {
-        window.read(|cx| (pair.read(cx).a.clone(), pair.read(cx).b.clone()))
+        window.read(|cx| {
+            let views = views.read(cx);
+            (state_of(&views.a, cx), state_of(&views.b, cx))
+        })
+    }
+
+    fn focus(
+        state: &Entity<EditorState>,
+        window: &mut VisualTestContext,
+    ) {
+        window.update(|window, cx| window.focus(&state.read(cx).focus_handle(cx), cx));
     }
 
     fn put_caret(
@@ -265,13 +242,14 @@ mod tests {
     }
 
     #[gpui::test]
-    fn two_states_over_one_model_show_each_others_edits_and_keep_their_own_carets(
+    fn two_views_over_one_document_show_each_others_edits_and_keep_their_own_carets(
         cx: &mut TestAppContext
     ) {
         let (pair, window) = pair(cx);
         let (a, b) = states(&pair, window);
         put_caret(&b, (1, 2), window);
         put_caret(&a, (1, 0), window);
+        focus(&a, window);
         window.simulate_input("xy");
         assert_eq!(text(&b, window), "one\nxytwo\n", "b shows a's typing");
         assert_eq!(
@@ -297,8 +275,10 @@ mod tests {
         let (pair, window) = pair(cx);
         let (a, b) = states(&pair, window);
         put_caret(&a, (0, 0), window);
+        focus(&a, window);
         window.simulate_input("x");
         put_caret(&b, (1, 0), window);
+        focus(&b, window);
         press("@input::Undo", window);
         assert_eq!(text(&a, window), TEXT, "b undid a's typing");
         assert_eq!(text(&b, window), TEXT);
@@ -307,11 +287,13 @@ mod tests {
     #[gpui::test]
     fn a_replacement_of_the_whole_text_keeps_every_states_caret(cx: &mut TestAppContext) {
         let (pair, window) = pair(cx);
-        let (a, b) = states(&pair, window);
+        let (_, b) = states(&pair, window);
         put_caret(&b, (1, 1), window);
-        a.update_in(window, |state, window, cx| {
-            state.replace_all_keeping_selections("one\ntwo\nthree\n", window, cx);
+        let document = window.read(|cx| pair.read(cx).a.read(cx).document().clone());
+        document.update(window, |document, cx| {
+            document.take_page_text("one\ntwo\nthree\n", cx);
         });
+        window.run_until_parked();
         assert_eq!(text(&b, window), "one\ntwo\nthree\n");
         assert_eq!(
             caret(&b, window),

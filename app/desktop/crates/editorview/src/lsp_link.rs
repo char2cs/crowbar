@@ -7,9 +7,9 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use gpui::{App, AppContext as _, Task, WeakEntity};
-use gpui_kit::base::input::TextModel;
 use serde_json::{Map, Value, json};
 
+use crate::document::SharedText;
 use crate::{LanguageServer, LspError};
 
 const CHANGE_DEBOUNCE: Duration = Duration::from_millis(400);
@@ -19,7 +19,7 @@ const PATH: &str = "path";
 
 pub(crate) struct LspLink {
     server: Rc<dyn LanguageServer>,
-    model: WeakEntity<TextModel>,
+    text: WeakEntity<SharedText>,
     path: RefCell<Option<String>>,
     pending: RefCell<Option<Task<()>>>,
 }
@@ -27,11 +27,11 @@ pub(crate) struct LspLink {
 impl LspLink {
     pub(crate) fn new(
         server: Rc<dyn LanguageServer>,
-        model: WeakEntity<TextModel>,
+        text: WeakEntity<SharedText>,
     ) -> Rc<Self> {
         Rc::new(Self {
             server,
-            model,
+            text,
             path: RefCell::default(),
             pending: RefCell::default(),
         })
@@ -145,8 +145,8 @@ impl LspLink {
         &self,
         cx: &App,
     ) -> Option<String> {
-        let model = self.model.upgrade()?;
-        Some(model.read(cx).text().to_string())
+        let shared = self.text.upgrade()?;
+        Some(shared.read(cx).text().to_string())
     }
 }
 

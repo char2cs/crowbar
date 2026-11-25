@@ -1,4 +1,7 @@
-use gpui::{Context, px};
+//! The strip the find widget takes above the editor while it shows: Monaco floats it over the
+//! first lines and adds that much space on top; the shell lays it out above the text instead.
+
+use gpui::Context;
 
 use super::FindWidget;
 use crate::reveal::Reveal;
@@ -13,9 +16,7 @@ impl FindWidget {
         cx: &mut Context<'_, Self>,
     ) {
         self.reveal = reveal;
-        let space = px(height(reveal));
-        self.editor
-            .update(cx, |state, cx| state.set_top_space(space, cx));
+        cx.notify();
     }
 }
 
@@ -34,14 +35,14 @@ mod tests {
 
     use super::FIND_HEIGHT;
     use crate::Access;
-    use crate::editor_view::test_support::{find_of, on_find, opened, scroll_top_of};
+    use crate::editor_view::test_support::{find_of, on_find, opened, text_top_of};
     use crate::find_widget::FindWidget;
     use crate::reveal::Reveal;
 
     const LINES: usize = 200;
 
     #[gpui::test]
-    fn a_match_on_the_first_line_shows_the_space_the_widget_opens_over_it(cx: &mut TestAppContext) {
+    fn the_open_widget_lays_the_text_out_below_it(cx: &mut TestAppContext) {
         let mut lines = vec!["line"; LINES];
         lines[0] = "first";
         let (view, window) = opened((&lines.join("\n"), Some(1)), Access::Editable, cx);
@@ -54,10 +55,10 @@ mod tests {
             find.typed(cx);
         });
         window.run_until_parked();
-        let open = f32::from(scroll_top_of(&view, window));
+        let open = f32::from(text_top_of(window));
         on_find(&find, window, FindWidget::close);
         window.run_until_parked();
-        let closed = f32::from(scroll_top_of(&view, window));
-        assert_eq!((open, closed), (FIND_HEIGHT, 0.0));
+        let closed = f32::from(text_top_of(window));
+        assert_eq!(open - closed, FIND_HEIGHT);
     }
 }

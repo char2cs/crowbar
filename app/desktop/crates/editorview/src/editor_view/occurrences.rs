@@ -15,7 +15,7 @@ impl EditorView {
     ) {
         let state = self.state.read(cx);
         let text = state.value();
-        let selections = state.selection_ranges();
+        let selections = super::selections::of(state);
         let active = state.selected_range();
         if active.is_empty() {
             return self.start_from_word(active.start, cx);
@@ -100,7 +100,7 @@ impl EditorView {
         query: FindQuery,
         cx: &Context<'_, Self>,
     ) {
-        let selections = self.state.read(cx).selection_ranges();
+        let selections = super::selections::of(self.state.read(cx));
         self.occurrences = Some(OccurrenceSession { query, selections });
     }
 }

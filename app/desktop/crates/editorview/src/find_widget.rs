@@ -13,7 +13,7 @@ mod highlights;
 mod render;
 mod replacing;
 mod stepping;
-mod top_space;
+mod strip;
 
 // SPEC: https://github.com/microsoft/vscode/blob/main/src/vs/editor/contrib/find/browser/findWidget.css
 const LABEL_SIZE: f32 = 12.0;

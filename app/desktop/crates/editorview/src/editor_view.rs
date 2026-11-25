@@ -4,6 +4,7 @@ use gpui::{
     Window, div, px,
 };
 use gpui_kit::component::Sizable as _;
+use gpui_kit::base::input::{InputEditsEvent, Rope};
 use gpui_kit::component::input::{Editor, EditorState};
 
 use crate::document::Document;
@@ -16,6 +17,7 @@ use crate::toolbar::Toolbar;
 use crate::{Access, Caret, DocumentEvent, EditorEvent, Opening, Settings};
 
 const BODY: &str = "editor-body";
+const TEXT: &str = "editor-text";
 
 mod access_change;
 mod command_actions;
@@ -27,6 +29,8 @@ mod language;
 mod line_command;
 mod line_commands;
 mod occurrences;
+pub(crate) mod replay;
+mod selections;
 mod settings_follow;
 #[cfg(test)]
 pub(crate) mod test_support;
@@ -34,7 +38,7 @@ mod view_button;
 mod view_buttons;
 
 /// One pane's editor: the gpui-kit `Editor` drawn over a document, under the toolbar of its
-/// file. Several views over one document share its text and history, each with its own carets.
+/// file. Several views over one document share its text, each with its own carets and history.
 pub struct EditorView {
     document: Entity<Document>,
     state: Entity<EditorState>,
@@ -44,6 +48,8 @@ pub struct EditorView {
     find: Entity<FindWidget>,
     goto: Entity<GotoLine>,
     _caret_moves: Subscription,
+    _typed: Subscription,
+    _replayed: Subscription,
     _document: Subscription,
     _settings: Subscription,
 }
@@ -59,14 +65,21 @@ impl EditorView {
         let Opening { line, access } = opening;
         let toolbar = Toolbar::of(document.read(cx).path());
         let language = toolbar.language();
-        let model = document.read(cx).model().clone();
-        let state = cx.new(|cx| editor_state(language, model, (window, cx)));
+        let shared = document.read(cx).shared_text().clone();
+        let text = shared.read(cx).text().to_string();
+        let state = cx.new(|cx| editor_state(language, text, (window, cx)));
         if let Some(line) = line {
             goto_action::reveal_line(&state, line, (window, cx));
         }
         let find = cx.new(|cx| FindWidget::new(state.clone(), window, cx));
         let goto = cx.new(|cx| GotoLine::new(state.clone(), window, cx));
         let caret_moves = cx.observe(&state, |_, _, cx| cx.notify());
+        let typed = cx.subscribe(&state, |view, state, _: &InputEditsEvent, cx| {
+            view.typed(&state, cx);
+        });
+        let replayed = cx.subscribe_in(&shared, window, |view, _, text: &Rope, window, cx| {
+            view.replay(text, window, cx);
+        });
         let followed = cx.subscribe(&document, |view, _, event, cx| {
             view.follow_document(*event, cx);
         });
@@ -80,6 +93,8 @@ impl EditorView {
             find,
             goto,
             _caret_moves: caret_moves,
+            _typed: typed,
+            _replayed: replayed,
             _document: followed,
             _settings: settings,
         };
@@ -115,6 +130,28 @@ impl EditorView {
             .update(cx, |state, cx| state.set_highlighter(language, cx));
         self.toolbar = toolbar;
         cx.notify();
+    }
+
+    fn typed(
+        &self,
+        state: &Entity<EditorState>,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let text = state.read(cx).text().clone();
+        let shared = self.document.read(cx).shared_text().clone();
+        shared.update(cx, |shared, cx| shared.set(text, cx));
+    }
+
+    fn replay(
+        &self,
+        text: &Rope,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let text = text.to_string();
+        self.state.update(cx, |state, cx| {
+            replay::replace_keeping_selections(state, &text, window, cx);
+        });
     }
 
     /// The text the view holds now.
@@ -191,15 +228,22 @@ impl Render for EditorView {
             .key_context(CONTEXT)
             .on_action(cx.listener(|_, _: &Save, _, cx| cx.emit(EditorEvent::SaveRequested)));
         let root = Self::command_actions(root, cx).on_action(cx.listener(Self::go_to_line));
+        let text = div()
+            .debug_selector(|| TEXT.to_owned())
+            .flex_1()
+            .min_h_0()
+            .child(editor);
         Self::find_actions(root, cx).child(toolbar).child(
             div()
                 .debug_selector(|| BODY.to_owned())
                 .relative()
+                .flex()
+                .flex_col()
                 .flex_1()
                 .min_h_0()
                 .text_color(ink(cx))
-                .child(editor)
                 .child(self.find.clone())
+                .child(text)
                 .child(self.goto.clone()),
         )
     }
@@ -207,14 +251,14 @@ impl Render for EditorView {
 
 fn editor_state(
     language: editor::Language,
-    model: Entity<gpui_kit::base::input::TextModel>,
+    text: String,
     (window, cx): (&mut Window, &mut Context<'_, EditorState>),
 ) -> EditorState {
     let mut state = EditorState::new(window, cx)
         .language(crate::highlight_name::of(language))
         .context_menu(false)
         .searchable(false);
-    state.share_text(model, window, cx);
+    state.set_value(text, window, cx);
     settings_follow::apply(&mut state, &Settings::of(cx), (window, cx));
     state
 }

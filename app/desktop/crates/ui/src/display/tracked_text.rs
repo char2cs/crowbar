@@ -62,7 +62,8 @@ impl Element for TrackedText {
                             _: &mut Window,
                             _: &mut App| {
             let width = known.width.unwrap_or(natural);
-            size(fitted(width, available.width, truncates), height)
+            let limit = definite(available.width).filter(|_| truncates);
+            size(limit.map_or(width, |limit| width.min(limit)), height)
         };
         (window.request_measured_layout(Style::default(), measure), ())
     }
@@ -94,15 +95,15 @@ impl Element for TrackedText {
         let baseline = baseline(bounds, &line, &style, window);
         let fits = tracked_width(&line, spacing) <= bounds.size.width;
         if fits || style.text_overflow.is_none() {
-            paint_glyphs(&line, spacing, glyph_count(&line), baseline, window);
+            paint_glyphs((&line, spacing), glyph_count(&line), baseline, window);
             return;
         }
         let ellipsis = shape(ELLIPSIS.into(), &style, window);
         let room = bounds.size.width - tracked_width(&ellipsis, spacing);
         let kept = kept_glyphs(&line, spacing, room);
-        paint_glyphs(&line, spacing, kept, baseline, window);
+        paint_glyphs((&line, spacing), kept, baseline, window);
         let after = point(baseline.x + glyph_x(&line, spacing, kept), baseline.y);
-        paint_glyphs(&ellipsis, spacing, glyph_count(&ellipsis), after, window);
+        paint_glyphs((&ellipsis, spacing), glyph_count(&ellipsis), after, window);
     }
 }
 
@@ -126,18 +127,11 @@ fn spacing(
     tracking::at(em, style.font_size.to_pixels(window.rem_size()))
 }
 
-fn fitted(
-    width: Pixels,
-    available: AvailableSpace,
-    truncates: bool,
-) -> Pixels {
-    let AvailableSpace::Definite(limit) = available else {
-        return width;
+fn definite(space: AvailableSpace) -> Option<Pixels> {
+    let AvailableSpace::Definite(limit) = space else {
+        return None;
     };
-    if truncates {
-        return width.min(limit);
-    }
-    width
+    Some(limit)
 }
 
 fn glyphs(line: &ShapedLine) -> impl Iterator<Item = (FontId, &ShapedGlyph)> {
@@ -198,8 +192,7 @@ fn baseline(
 }
 
 fn paint_glyphs(
-    line: &ShapedLine,
-    spacing: Pixels,
+    (line, spacing): (&ShapedLine, Pixels),
     count: usize,
     origin: gpui::Point<Pixels>,
     window: &mut Window,
@@ -208,15 +201,14 @@ fn paint_glyphs(
     for (index, (font_id, glyph)) in glyphs(line).take(count).enumerate() {
         let x = origin.x + glyph.position.x + spacing * glyphs_before(index);
         let at = point(x, origin.y + glyph.position.y);
-        log_failure(paint_glyph(at, (font_id, glyph), line.font_size, color, window));
+        log_failure(paint_glyph(at, (font_id, glyph), (line.font_size, color), window));
     }
 }
 
 fn paint_glyph(
     at: gpui::Point<Pixels>,
     (font_id, glyph): (FontId, &ShapedGlyph),
-    font_size: Pixels,
-    color: gpui::Hsla,
+    (font_size, color): (Pixels, gpui::Hsla),
     window: &mut Window,
 ) -> gpui::Result<()> {
     if glyph.is_emoji {

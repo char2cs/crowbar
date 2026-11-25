@@ -1,9 +1,7 @@
 //! The user's editor settings, in develop's units and with develop's defaults.
 
 use gpui::{App, Global, Pixels, px};
-use gpui_kit::base::input::WhitespaceMode;
-
-use crate::WordWrap;
+use crate::{WhitespaceMode, WordWrap};
 
 const DEFAULT_FONT_SIZE: f32 = 14.0;
 const DEFAULT_LINE_HEIGHT: f32 = 1.4;

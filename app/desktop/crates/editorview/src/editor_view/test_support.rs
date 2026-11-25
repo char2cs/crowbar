@@ -104,6 +104,21 @@ pub(crate) fn body_of(window: &mut VisualTestContext) -> Option<gpui::Bounds<gpu
     window.debug_bounds(super::BODY)
 }
 
+pub(crate) fn state_of(
+    view: &Entity<EditorView>,
+    cx: &App,
+) -> Entity<gpui_kit::component::input::EditorState> {
+    view.read(cx).state.clone()
+}
+
+pub(crate) fn text_top_of(window: &mut VisualTestContext) -> gpui::Pixels {
+    window
+        .debug_bounds(super::TEXT)
+        .unwrap_or_default()
+        .origin
+        .y
+}
+
 pub(crate) fn listened(
     view: &Entity<EditorView>,
     window: &mut VisualTestContext,

@@ -26,8 +26,7 @@ impl EditorView {
         let state = self.state.read(cx);
         let map = state.display_map();
         let all = |ranges: &[FoldRange]| ranges.iter().map(|range| range.start_line).collect();
-        let caret_lines: Vec<usize> = state
-            .selection_ranges()
+        let caret_lines: Vec<usize> = super::selections::of(state)
             .iter()
             .map(|range| state.text().offset_to_point(range.start).row)
             .collect();

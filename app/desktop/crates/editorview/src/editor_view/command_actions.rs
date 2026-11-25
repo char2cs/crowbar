@@ -58,6 +58,7 @@ mod tests {
 
     const TEXT: &str = "ab x ab\nab";
 
+    /// gpui-kit reads only the active selection, which is the last match each chord added.
     #[gpui::test]
     fn the_occurrence_chords_select_the_caret_word_s_matches(cx: &mut TestAppContext) {
         let cases = [
@@ -74,9 +75,9 @@ mod tests {
         for (keys, expected) in cases {
             let (view, window) = opened((TEXT, Some(1)), Access::Editable, cx);
             press(keys, window);
-            let selected = window.read(|cx| view.read(cx).state.read(cx).selection_ranges());
-            let expected: Vec<_> = expected.iter().map(|(start, end)| *start..*end).collect();
-            assert_eq!(selected, expected, "{keys}");
+            let active = window.read(|cx| view.read(cx).state.read(cx).selected_range());
+            let last = expected.last().map(|(start, end)| *start..*end);
+            assert_eq!(Some(active), last, "{keys}");
         }
     }
 }

@@ -17,7 +17,7 @@ impl EditorView {
         }
         let state = self.state.read(cx);
         let text = state.value();
-        let selections = state.selection_ranges();
+        let selections = super::selections::of(state);
         let edit = match command {
             LineCommand::Move(toward) => LineEdit::moved(&text, &selections, toward),
             LineCommand::Copy(toward) => LineEdit::copied(&text, &selections, toward),
@@ -94,11 +94,11 @@ mod tests {
     }
 
     #[gpui::test]
-    fn selecting_several_ranges_leaves_every_one_selected(cx: &mut TestAppContext) {
+    fn selecting_several_ranges_leaves_the_last_one_active(cx: &mut TestAppContext) {
         let (view, window) = opened(("ab ab ab", Some(1)), Access::Editable, cx);
         let ranges = [0..2, 3..5, 6..8];
         view.update(window, |view, cx| view.select_all_of(&ranges, cx));
-        let selected = window.read(|cx| view.read(cx).state.read(cx).selection_ranges());
-        assert_eq!(selected, ranges);
+        let active = window.read(|cx| view.read(cx).state.read(cx).selected_range());
+        assert_eq!(active, 6..8);
     }
 }

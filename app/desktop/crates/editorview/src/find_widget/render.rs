@@ -41,9 +41,9 @@ impl Render for FindWidget {
             return div().into_any_element();
         }
         let palette = *Theme::of(cx).palette(Surface::Window);
-        let height = super::top_space::height(self.reveal);
+        let height = super::strip::height(self.reveal);
         let replace_row = (self.reveal == Reveal::Replace).then(|| self.replace_row(&palette, cx));
-        div()
+        let widget = div()
             .id("find-widget")
             .debug_selector(|| "find-widget".into())
             .key_context(FIND_CONTEXT)
@@ -69,7 +69,13 @@ impl Render for FindWidget {
                     .ml(px(PART_LEFT))
                     .child(self.find_row(&palette, cx))
                     .children(replace_row),
-            )
+            );
+        div()
+            .relative()
+            .flex_none()
+            .w_full()
+            .h(px(height))
+            .child(widget)
             .into_any_element()
     }
 }
@@ -265,7 +271,7 @@ mod tests {
     use super::WIDTH;
     use crate::Access;
     use crate::editor_view::test_support::{find_of, open_find, opened};
-    use crate::find_widget::top_space::{FIND_HEIGHT, REPLACE_HEIGHT};
+    use crate::find_widget::strip::{FIND_HEIGHT, REPLACE_HEIGHT};
     use crate::reveal::Reveal;
 
     #[gpui::test]

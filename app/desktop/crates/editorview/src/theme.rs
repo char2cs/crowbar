@@ -42,6 +42,10 @@ fn install(cx: &mut App) {
         Appearance::Dark => KitMode::Dark,
     };
     KitTheme::change(mode, None, cx);
+    paint_highlights(cx);
+}
+
+fn paint_highlights(cx: &mut App) {
     match highlight_style(Theme::of(cx).palette(Surface::Window)) {
         Ok(style) => paint_with(style, cx),
         Err(error) => tracing::warn!("editor highlight colours: {error}"),

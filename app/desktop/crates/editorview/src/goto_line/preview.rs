@@ -32,7 +32,7 @@ impl GotoLine {
             .with_color(fill);
         self.highlight.set(vec![decoration], cx);
         self.editor
-            .update(cx, |state, cx| state.reveal_centered(offset, cx));
+            .update(cx, |state, cx| crate::centring::reveal_centered(state, offset, cx));
         cx.notify();
     }
 }

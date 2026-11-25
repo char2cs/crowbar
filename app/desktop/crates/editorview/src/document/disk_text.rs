@@ -30,7 +30,7 @@ impl Document {
         if !self.is_dirty(cx) {
             return self.take_clean(disk, cx);
         }
-        let moved = self.saved != disk && self.model.read(cx).text() != disk;
+        let moved = self.saved != disk && self.text.read(cx).text() != disk;
         if !moved || self.disk_conflict {
             return DiskTake::Kept;
         }
@@ -58,8 +58,8 @@ impl Document {
         text: &str,
         cx: &mut Context<'_, Self>,
     ) {
-        self.model
-            .update(cx, |model, cx| model.replace_all(text, cx));
+        let text = gpui_kit::base::input::Rope::from(text);
+        self.text.update(cx, |shared, cx| shared.set(text, cx));
     }
 
     fn take_clean(
@@ -81,8 +81,8 @@ impl Document {
         self.saved = gpui_kit::base::input::Rope::from(disk);
         self.save_mark = next_mark(self.save_mark);
         self.disk_conflict = false;
-        self.model
-            .update(cx, |model, cx| model.replace_all(disk, cx));
+        let disk = gpui_kit::base::input::Rope::from(disk);
+        self.text.update(cx, |shared, cx| shared.set(disk, cx));
         self.report_dirty(cx);
         DiskTake::Taken
     }

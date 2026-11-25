@@ -2,6 +2,7 @@
 
 mod access;
 mod caret;
+mod centring;
 mod disk_take;
 mod document;
 mod document_event;
@@ -28,6 +29,7 @@ mod save_mark;
 mod settings;
 mod theme;
 mod toolbar;
+mod whitespace_mode;
 mod word_wrap;
 
 pub use access::Access;
@@ -39,10 +41,10 @@ pub use document_opening::DocumentOpening;
 pub use editor_event::EditorEvent;
 pub use editor_view::EditorView;
 pub use editorview::init;
-pub use gpui_kit::base::input::WhitespaceMode;
 pub use language_server::LanguageServer;
 pub use lsp_error::LspError;
 pub use opening::Opening;
 pub use save_mark::SaveMark;
 pub use settings::Settings;
+pub use whitespace_mode::WhitespaceMode;
 pub use word_wrap::WordWrap;
