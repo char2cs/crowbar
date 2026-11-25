@@ -68,6 +68,13 @@ describe('ChatPaneHost', () => {
     expect(runCommand.mock.calls).toEqual(buttons ? [['panes.toggleEditor']] : [])
   })
 
+  it('draws the identity row and the waiting chat while its host has not named the workspace', () => {
+    chatSession.setState({ chatId: 'chat-1', active: true })
+    render(<ChatPaneHost client={{ setTitle: vi.fn(), runCommand: vi.fn() }} />)
+    expect(screen.queryByTestId('header')).not.toBeNull()
+    expect(screen.queryByTestId('gate')).not.toBeNull()
+  })
+
   it('draws a draft, which has no chat yet, in the workspace its pane names, under its open editor row', () => {
     windowPaneStore.setState((state) => {
       Object.assign(state, initialViewState())

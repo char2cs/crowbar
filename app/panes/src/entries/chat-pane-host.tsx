@@ -6,6 +6,7 @@ import { useChatField } from '@/features/agent/hooks/use-chat-entity'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import {
+  detachedWorkspaceStore,
   getOrCreateWorkspaceStore,
   setActiveWorkspaceId,
 } from '@/features/workspace/stores/workspace-store-registry'
@@ -32,9 +33,9 @@ export function ChatPaneHost({ client }: { client: Pick<PaneClient, 'setTitle' |
     if (wsId) setActiveWorkspaceId(wsId)
   }, [wsId])
 
-  if (!chatId || !wsId) return null
+  if (!chatId) return null
   return (
-    <WorkspaceStoreContext.Provider value={getOrCreateWorkspaceStore(wsId)}>
+    <WorkspaceStoreContext.Provider value={paneStore(wsId)}>
       <ChatHeaderSlotProvider>
         <div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden">
           <ChatPaneHeader
@@ -45,7 +46,7 @@ export function ChatPaneHost({ client }: { client: Pick<PaneClient, 'setTitle' |
           <AgentChatPaneGate
             chatId={chatId}
             runnerId=""
-            wsId={wsId}
+            wsId={wsId ?? ''}
             paneId={ROOT_PANE_ID}
             isActivePane={active}
             isVisible
@@ -55,6 +56,10 @@ export function ChatPaneHost({ client }: { client: Pick<PaneClient, 'setTitle' |
       </ChatHeaderSlotProvider>
     </WorkspaceStoreContext.Provider>
   )
+}
+
+function paneStore(wsId: string | null) {
+  return wsId ? getOrCreateWorkspaceStore(wsId) : detachedWorkspaceStore()
 }
 
 function usePaneWorkspace(chatId: string | null): string | null {
