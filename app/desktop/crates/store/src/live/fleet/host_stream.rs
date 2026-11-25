@@ -5,10 +5,10 @@ mod ended;
 mod file_change;
 mod files_hold;
 mod files_wire;
+mod host_stream_event;
 mod icon_ask;
 mod icon_fetch;
 mod step;
-mod stream_warnings;
 mod terminal_offer;
 
 use std::sync::Arc;
@@ -17,10 +17,12 @@ use daemonapi::{Connection, Dial, Frame};
 use serde_json::json;
 use tokio::sync::mpsc;
 
+use crate::journal_sink::emit;
 use crate::live::OutcomeSink;
 use crate::live::fleet::host_stream::backoff::Backoff;
 use crate::live::fleet::host_stream::ended::Ended;
 use crate::live::fleet::host_stream::files_hold::FilesHold;
+use crate::live::fleet::host_stream::host_stream_event::HostStreamEvent;
 use crate::live::fleet::host_stream::step::{Step, next_step};
 use crate::live::fleet::host_stream::terminal_offer::read_terminal_support;
 use crate::live::fleet::stream_control::StreamControl;
@@ -74,13 +76,15 @@ impl HostStream {
         controls: &mut mpsc::UnboundedReceiver<StreamControl>,
         backoff: &mut Backoff,
     ) -> Ended {
-        match self.dial.open().await {
-            Ok(connection) => self.session(connection, controls, backoff).await,
-            Err(error) => {
-                stream_warnings::unopened(&self.host, &error);
-                Ended::Dropped
-            },
-        }
+        let error = match self.dial.open().await {
+            Ok(connection) => return self.session(connection, controls, backoff).await,
+            Err(error) => error,
+        };
+        emit(&HostStreamEvent::Unopened {
+            host: &self.host,
+            error: &error,
+        });
+        Ended::Dropped
     }
 
     fn set_link(
@@ -145,12 +149,10 @@ impl HostStream {
         frame: Frame,
         (outgoing, files): Wire<'_>,
     ) {
-        if files
-            .as_ref()
-            .is_some_and(|held| held.hear(&frame, outgoing))
-        {
+        if files.iter().any(|held| held.hear(&frame, outgoing)) {
             return;
         }
+        let host = self.host.as_str();
         match &frame {
             Frame::Ready { .. } => self.on_ready(frame, (outgoing, files)),
             Frame::Closed { scope, reason, .. } if scope == PROJECTS_SCOPE && reason == RESYNC => {
@@ -160,8 +162,13 @@ impl HostStream {
                 scope,
                 reason,
                 problem,
-            } => stream_warnings::closed(&self.host, scope, reason, problem.as_ref()),
-            Frame::Error { problem } => stream_warnings::refused(&self.host, problem),
+            } => emit(&HostStreamEvent::Closed {
+                host,
+                scope,
+                reason,
+                problem: problem.as_ref(),
+            }),
+            Frame::Error { problem } => emit(&HostStreamEvent::Refused { host, problem }),
             _ => {
                 self.apply(frame);
                 FilesHold::sync_held(files, outgoing);

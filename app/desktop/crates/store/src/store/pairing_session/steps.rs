@@ -2,13 +2,17 @@
 //! A redeemed pairing that cannot be remembered is undone, because a host without its client id
 //! could never be revoked.
 
-use crate::live::BookError;
+mod pairing_event;
+
+use crate::error::Error;
+use crate::journal_sink::emit;
 use crate::live::HostSpec;
 use crate::live::Note;
 use crate::live::PairingRequest;
 use crate::store::pairing_session::PairingSession;
 use crate::store::pairing_session::pairing_pending::PairingPending;
 use crate::store::pairing_session::pairing_stage::PairingStage;
+use crate::store::pairing_session::steps::pairing_event::PairingEvent;
 use crate::store::pairing_session::words::Words;
 use crate::store::pairing_session::words::{already_paired, failure as pairing_failure};
 
@@ -68,11 +72,16 @@ impl PairingSession {
         request: &PairingRequest,
         client_id: String,
     ) -> Result<(), Words> {
-        let Err(text) = self.remember(request, client_id) else {
+        let Err(error) = self.remember(request, client_id) else {
             return Ok(());
         };
-        warn_unkept(&text, &request.host_id);
-        self.undo_pairing(&request.host_id).await;
+        emit(&PairingEvent::Unkept {
+            error: &error,
+            host: &request.host_id,
+        });
+        if let Err(error) = self.desk.book.unpair(&request.host_id).await {
+            emit(&PairingEvent::NotUndone { error: &error });
+        }
         Err(Words::new(pairing_failure::words(
             "",
             &request.endpoint,
@@ -84,7 +93,7 @@ impl PairingSession {
         &self,
         request: &PairingRequest,
         client_id: String,
-    ) -> Result<(), String> {
+    ) -> Result<(), Error> {
         let note = Note {
             name: request.name.clone(),
             client_id,
@@ -95,32 +104,9 @@ impl PairingSession {
             name: request.name.clone(),
             endpoint: Some(request.endpoint.clone()),
         };
-        let saved = self.desk.notes.put(&request.host_id, note);
-        saved
-            .map_err(|error| error.to_string())
-            .and_then(|()| self.fleet.follow(spec).map_err(|error| error.to_string()))
+        self.desk.notes.put(&request.host_id, note)?;
+        self.fleet.follow(spec)
     }
-
-    async fn undo_pairing(
-        &self,
-        host: &str,
-    ) {
-        let Err(error) = self.desk.book.unpair(host).await else {
-            return;
-        };
-        warn_not_undone(&error);
-    }
-}
-
-fn warn_unkept(
-    text: &str,
-    host: &str,
-) {
-    tracing::warn!(error = %text, host = %host, "a paired host could not be kept");
-}
-
-fn warn_not_undone(error: &BookError) {
-    tracing::warn!(%error, "the pairing could not be undone");
 }
 
 #[cfg(test)]

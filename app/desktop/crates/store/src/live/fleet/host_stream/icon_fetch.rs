@@ -1,11 +1,15 @@
 //! Bringing the daemon's space and repository images to disk when a record says it has one.
 
+mod icon_fetch_event;
+
 use daemonapi::Call;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::journal_sink::emit;
 use crate::live::Entities;
 use crate::live::fleet::host_stream::icon_ask::IconAsk;
+use crate::live::fleet::host_stream::icon_fetch::icon_fetch_event::IconFetchEvent;
 use crate::live::state::Hub;
 use crate::live::state::State;
 
@@ -87,48 +91,19 @@ async fn save(
     url: &str,
     path: PathBuf,
 ) -> Option<PathBuf> {
-    let bytes = download(client, url).await?;
-    if bytes.len() > MAX_ICON_BYTES {
-        warn_too_large(url);
-        return None;
-    }
-    keep(path, bytes).await
-}
-
-async fn download(
-    client: &daemonapi::Client,
-    url: &str,
-) -> Option<Vec<u8>> {
-    client
+    let bytes = client
         .bytes(Call::get(url))
         .await
-        .inspect_err(|error| warn_unfetched(error, url))
-        .ok()
-}
-
-fn warn_unfetched(
-    error: &daemonapi::Error,
-    url: &str,
-) {
-    tracing::warn!(%error, url, "a space image could not be fetched");
-}
-
-fn warn_too_large(url: &str) {
-    tracing::warn!(url, "a space image is larger than allowed");
-}
-
-async fn keep(
-    path: PathBuf,
-    bytes: Vec<u8>,
-) -> Option<PathBuf> {
+        .inspect_err(|error| emit(&IconFetchEvent::Unfetched { error, url }))
+        .ok()?;
+    if bytes.len() > MAX_ICON_BYTES {
+        emit(&IconFetchEvent::TooLarge { url });
+        return None;
+    }
     tokio::task::spawn_blocking(move || write_atomically(&path, &bytes))
         .await
-        .inspect_err(warn_unkept)
+        .inspect_err(|error| emit(&IconFetchEvent::Unkept { error }))
         .ok()?
-}
-
-fn warn_unkept(error: &tokio::task::JoinError) {
-    tracing::warn!(%error, "keeping a space image failed");
 }
 
 fn write_atomically(

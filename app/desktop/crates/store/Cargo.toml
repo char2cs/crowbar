@@ -14,6 +14,7 @@ fake = []
 
 [dependencies]
 atomicfile.workspace = true
+journal.workspace = true
 daemonapi.workspace = true
 editor.workspace = true
 base64 = "0.22"

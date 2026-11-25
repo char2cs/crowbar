@@ -3,6 +3,7 @@
 
 mod documents;
 mod error;
+mod journal_sink;
 mod language_servers;
 mod live;
 mod plan;

@@ -1,5 +1,7 @@
 //! One terminal session from creation to the end of its stream.
 
+mod terminal_session_event;
+
 use std::sync::Arc;
 
 use async_channel::Sender;
@@ -11,6 +13,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 use crate::connection::Connection;
 use crate::error::{Error, Result};
+use crate::journal_sink::emit;
 use crate::readiness::Readiness;
 use crate::report::Report;
 use crate::rest::Binding;
@@ -23,6 +26,7 @@ use crate::stream::pump;
 use crate::stream::recover;
 use crate::stream::{CONNECT_TIMEOUT, header, stream_error, within};
 use crate::stream::{Dial, tcp_dial};
+use crate::terminal_sessions::terminal_session_event::TerminalSessionEvent;
 
 const RELAY_SUBPROTOCOL: &str = "crowbar.relay.v1";
 const TOKEN_PREFIX: &str = "crowbar.token.";
@@ -133,7 +137,8 @@ impl TerminalSessions {
             return;
         }
         if let Err(error) = self.attach((base, binding), &attachment, &reports).await {
-            report_failure(&reports, &error).await;
+            emit(&TerminalSessionEvent::Failed { error: &error });
+            report(&reports, Report::Failed(error.to_string())).await;
         }
         self.rest.transport.revoke_pane(&attachment.scope);
     }
@@ -192,7 +197,7 @@ impl TerminalSessions {
             Ok(end) => return Some(end),
             Err(error) => error.to_string(),
         };
-        warn_stream_lost(&reason);
+        emit(&TerminalSessionEvent::StreamLost { reason: &reason });
         let recovered = recover(&attachment.ends, reconnect, &reason).await;
         (!recovered).then_some(End::Lost)
     }
@@ -218,18 +223,6 @@ impl TerminalSessions {
         let (socket, _) = within(client_async(request, tcp)).await?;
         Ok(pump(socket, attachment.ends.clone()).await)
     }
-}
-
-async fn report_failure(
-    reports: &Sender<Report>,
-    error: &Error,
-) {
-    tracing::warn!(%error, "terminal session failed");
-    report(reports, Report::Failed(error.to_string())).await;
-}
-
-fn warn_stream_lost(reason: &str) {
-    tracing::warn!(%reason, "terminal stream lost");
 }
 
 async fn report(

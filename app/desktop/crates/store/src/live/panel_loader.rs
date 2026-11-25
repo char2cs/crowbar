@@ -9,6 +9,7 @@ mod git_status_body;
 mod ignore_files;
 mod line_counts;
 mod listed_directory;
+mod panel_loader_event;
 mod reload_target;
 mod review_files_body;
 mod thread_body;
@@ -17,12 +18,14 @@ pub(crate) use document_body::DocumentBody;
 pub(crate) use file_target::FileTarget;
 pub(crate) use reload_target::ReloadTarget;
 
+use crate::journal_sink::emit;
 use crate::live::held::FileEntry;
 use crate::live::held::OpenThreads;
 use crate::live::panel_loader::git_diff_body::GitDiffBody;
 use crate::live::panel_loader::git_status_body::GitStatusBody;
 use crate::live::panel_loader::line_counts::LineCounts;
 use crate::live::panel_loader::listed_directory::ListedDirectory;
+use crate::live::panel_loader::panel_loader_event::PanelLoaderEvent;
 use crate::live::panel_loader::review_files_body::ReviewFilesBody;
 use crate::live::panel_loader::thread_body::ThreadBody;
 use crate::live::state::Hub;
@@ -106,10 +109,11 @@ pub(crate) async fn load_changes(
 ) {
     let answer = client
         .read::<GitStatusBody>(format!("/v0/chats/{chat}/git/status"))
-        .await;
+        .await
+        .inspect_err(|error| emit(&PanelLoaderEvent::StatusUnread { chat, error }));
     let body = match answer {
         Ok(body) => body,
-        Err(error) => return fail_changes(hub, chat, &error),
+        Err(error) => return hub.edit(|state| state.panels.fail(chat, error.to_string())),
     };
     let counts = load_counts(client, chat).await;
     let open = load_open_threads(hub, client, chat).await;
@@ -123,15 +127,6 @@ pub(crate) async fn load_changes(
             .panels
             .staged_and_threads(chat, (body.staged_paths(), open));
     });
-}
-
-fn fail_changes(
-    hub: &Hub,
-    chat: &str,
-    error: &daemonapi::Error,
-) {
-    tracing::warn!(chat, %error, "git status could not be read");
-    hub.edit(|state| state.panels.fail(chat, error.to_string()));
 }
 
 async fn load_summary(
