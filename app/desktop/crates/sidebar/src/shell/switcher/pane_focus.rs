@@ -1,7 +1,10 @@
 //! What the focused pane and the running agents say.
 
-use crate::shell::switcher::focus::Focus;
-use crate::shell::switcher::running_agent::RunningAgent;
+pub(super) mod focus;
+pub(super) mod running_agent;
+
+use crate::shell::switcher::pane_focus::focus::Focus;
+use crate::shell::switcher::pane_focus::running_agent::RunningAgent;
 
 /// What the focused pane and the running agents say.
 pub trait PaneFocus {

@@ -1,6 +1,8 @@
 //! Single-child folder chains that share one row when "compact folders" is on.
 
-use crate::explorer::shifts::Shifts;
+mod shifts;
+
+use crate::explorer::folder_chain::shifts::Shifts;
 use crate::shell::Expansion;
 use crate::shell::FileKind;
 use crate::shell::FileRow;

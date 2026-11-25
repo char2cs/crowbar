@@ -1,7 +1,9 @@
 //! The spaces the sidebar lists.
 
+pub(super) mod scope_sync;
+
 use crate::shell::switcher::project::Project;
-use crate::shell::switcher::scope_sync::ScopeSync;
+use crate::shell::switcher::space_list::scope_sync::ScopeSync;
 
 /// The spaces the sidebar lists.
 pub trait SpaceList {

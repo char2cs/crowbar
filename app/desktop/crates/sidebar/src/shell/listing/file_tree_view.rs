@@ -1,11 +1,16 @@
 //! How the shell's settings shape the Files and Changes panels.
 
+pub(super) mod file_density;
+pub(super) mod file_tree_flag;
+pub(super) mod icon_theme;
+pub(super) mod indent_guides;
+
 use std::collections::BTreeSet;
 
-use crate::shell::listing::file_density::FileDensity;
-use crate::shell::listing::file_tree_flag::FileTreeFlag;
-use crate::shell::listing::icon_theme::IconTheme;
-use crate::shell::listing::indent_guides::IndentGuides;
+use crate::shell::listing::file_tree_view::file_density::FileDensity;
+use crate::shell::listing::file_tree_view::file_tree_flag::FileTreeFlag;
+use crate::shell::listing::file_tree_view::icon_theme::IconTheme;
+use crate::shell::listing::file_tree_view::indent_guides::IndentGuides;
 
 const DEFAULT_INDENT: f32 = 16.0;
 

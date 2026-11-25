@@ -1,6 +1,8 @@
 //! The requests the shell is still carrying out.
 
-use crate::shell::switcher::icon_target::IconTarget;
+pub(super) mod icon_target;
+
+use crate::shell::switcher::requests::icon_target::IconTarget;
 
 /// The requests the shell is still carrying out.
 pub trait Requests {

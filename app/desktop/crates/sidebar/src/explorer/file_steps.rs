@@ -1,6 +1,8 @@
 //! What a key does to the rows of the Files panel.
 
-use crate::explorer::file_key::FileKey;
+pub(super) mod file_key;
+
+use crate::explorer::file_steps::file_key::FileKey;
 use crate::shell::ClipMode;
 use crate::shell::Command;
 use crate::shell::Expansion;
