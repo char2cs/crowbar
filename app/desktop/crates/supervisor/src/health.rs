@@ -122,18 +122,25 @@ async fn attempt<D: Dial>(
             announce.report(progress, on_migrating);
             Attempt::Waiting
         },
-        Ok(Err(error)) => {
-            tracing::debug!("daemon health: {error}");
-            Attempt::Failed
-        },
-        Err(elapsed) => {
-            tracing::debug!(
-                "daemon health: no answer in {:?} ({elapsed})",
-                timings.health_probe_timeout
-            );
-            Attempt::Failed
-        },
+        Ok(Err(error)) => unreadable(&error),
+        Err(elapsed) => unanswered(timings, &elapsed),
     }
+}
+
+fn unreadable(error: &Error) -> Attempt {
+    tracing::debug!("daemon health: {error}");
+    Attempt::Failed
+}
+
+fn unanswered(
+    timings: &Timings,
+    elapsed: &tokio::time::error::Elapsed,
+) -> Attempt {
+    tracing::debug!(
+        "daemon health: no answer in {:?} ({elapsed})",
+        timings.health_probe_timeout
+    );
+    Attempt::Failed
 }
 
 #[cfg(test)]

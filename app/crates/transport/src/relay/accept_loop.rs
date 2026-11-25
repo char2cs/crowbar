@@ -5,6 +5,7 @@ use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Semaphore;
+use tokio::time::error::Elapsed;
 
 use crate::relay::acceptor::Acceptor;
 use crate::relay::session;
@@ -70,11 +71,17 @@ async fn refuse_busy<S>(
         b"HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
     match tokio::time::timeout(grace, stream.write_all(BUSY)).await {
         Ok(Ok(())) => {},
-        Ok(Err(e)) => tracing::debug!("relay is busy and the refusal was not delivered: {e}"),
-        Err(elapsed) => {
-            tracing::debug!("relay is busy and the refusal was not taken in time: {elapsed}");
-        },
+        Ok(Err(e)) => refusal_not_delivered(&e),
+        Err(elapsed) => refusal_not_taken(&elapsed),
     }
+}
+
+fn refusal_not_delivered(e: &io::Error) {
+    tracing::debug!("relay is busy and the refusal was not delivered: {e}");
+}
+
+fn refusal_not_taken(elapsed: &Elapsed) {
+    tracing::debug!("relay is busy and the refusal was not taken in time: {elapsed}");
 }
 
 #[cfg(test)]

@@ -10,18 +10,33 @@ pub(crate) async fn refuse(
     child: &mut Child,
     reason: String,
 ) -> Phase {
-    tracing::error!("{reason}");
+    log_refusal(&reason);
     supervision.note("===", &reason);
-    if let Err(error) = stop_with(
+    stop_stale(supervision, child).await;
+    Phase::Recover { reason }
+}
+
+async fn stop_stale(
+    supervision: &Supervision,
+    child: &mut Child,
+) {
+    let stopped = stop_with(
         child,
         Signal::TERM,
         supervision.config.timings.sigterm_grace,
     )
-    .await
-    {
-        tracing::warn!("stopping the daemon that lost the socket: {error}");
+    .await;
+    if let Err(error) = stopped {
+        warn_unstopped(&error);
     }
-    Phase::Recover { reason }
+}
+
+fn log_refusal(reason: &str) {
+    tracing::error!("{reason}");
+}
+
+fn warn_unstopped(error: &std::io::Error) {
+    tracing::warn!("stopping the daemon that lost the socket: {error}");
 }
 
 #[cfg(test)]

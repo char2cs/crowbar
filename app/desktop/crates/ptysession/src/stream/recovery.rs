@@ -1,6 +1,7 @@
 //! What a session tells the terminal when its stream is lost, and how it waits to reattach.
 
 use std::pin::pin;
+use std::time::Duration;
 
 use async_channel::Receiver;
 use futures_util::StreamExt;
@@ -23,20 +24,35 @@ pub(crate) async fn recover(
         return false;
     }
     let Some(delay) = reconnect.next_delay() else {
-        notice(
-            ends,
-            &format!(
-                "{WARNING_COLOR}terminal disconnected ({reason}); press a key to reconnect{RESET}"
-            ),
-        )
-        .await;
-        let pressed = next_input(&ends.messages).await;
-        reconnect.connected();
-        return pressed;
+        return wait_for_key(ends, reconnect, reason).await;
     };
-    tracing::debug!(%reason, ?delay, "reattaching the terminal");
+    report_reattaching(reason, delay);
     sleep(delay).await;
     true
+}
+
+async fn wait_for_key(
+    ends: &Ends,
+    reconnect: &mut Reconnect,
+    reason: &str,
+) -> bool {
+    notice(
+        ends,
+        &format!(
+            "{WARNING_COLOR}terminal disconnected ({reason}); press a key to reconnect{RESET}"
+        ),
+    )
+    .await;
+    let pressed = next_input(&ends.messages).await;
+    reconnect.connected();
+    pressed
+}
+
+fn report_reattaching(
+    reason: &str,
+    delay: Duration,
+) {
+    tracing::debug!(%reason, ?delay, "reattaching the terminal");
 }
 
 async fn next_input(messages: &Receiver<ClientMessage>) -> bool {

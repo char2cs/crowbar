@@ -113,8 +113,12 @@ async fn farewell_then_close<S>(
         return;
     }
     if sink.close().await.is_err() {
-        tracing::debug!("peer was already gone at close");
+        report_gone_at_close();
     }
+}
+
+fn report_gone_at_close() {
+    tracing::debug!("peer was already gone at close");
 }
 
 pub(crate) async fn finish<C, U>(

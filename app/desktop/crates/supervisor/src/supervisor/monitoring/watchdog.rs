@@ -56,10 +56,20 @@ async fn confirmed_wedge(
     ctx: &WatchContext,
     state: &mut WatchState,
 ) -> bool {
-    let suspended = match ctx.pid {
-        Some(pid) => is_suspended(pid).await,
-        None => false,
-    };
+    let exonerations = gather_exonerations(ctx, state).await;
+    if should_kill_wedged(&exonerations) {
+        return true;
+    }
+    warn_not_wedged(&exonerations);
+    state.tracker.reset();
+    false
+}
+
+async fn gather_exonerations(
+    ctx: &WatchContext,
+    state: &mut WatchState,
+) -> Vec<Exoneration> {
+    let suspended = daemon_suspended(ctx).await;
     let exonerated =
         !suspended && probe_within(ctx, ctx.timings.grace_probe_timeout).await != Probe::Unserved;
     let (silent_at, before) = state
@@ -67,24 +77,30 @@ async fn confirmed_wedge(
         .take()
         .unwrap_or(((ctx.clock.instant)(), None));
     let working = made_progress(before, daemon_cpu(ctx).await, silent_at.elapsed());
-    let mut exonerations = Vec::new();
-    if suspended {
-        exonerations.push(Exoneration::Suspended);
+    [
+        (suspended, Exoneration::Suspended),
+        (exonerated, Exoneration::Answering),
+        (working, Exoneration::Busy),
+    ]
+    .into_iter()
+    .filter_map(|(held, exoneration)| held.then_some(exoneration))
+    .collect()
+}
+
+async fn daemon_suspended(ctx: &WatchContext) -> bool {
+    match ctx.pid {
+        Some(pid) => is_suspended(pid).await,
+        None => false,
     }
-    if exonerated {
-        exonerations.push(Exoneration::Answering);
-    }
-    if working {
-        exonerations.push(Exoneration::Busy);
-    }
-    if should_kill_wedged(&exonerations) {
-        return true;
-    }
+}
+
+fn warn_not_wedged(exonerations: &[Exoneration]) {
+    let suspended = exonerations.contains(&Exoneration::Suspended);
+    let exonerated = exonerations.contains(&Exoneration::Answering);
+    let working = exonerations.contains(&Exoneration::Busy);
     tracing::warn!(
         "daemon failed its probes but is not wedged (suspended: {suspended}, answering: {exonerated}, busy: {working})"
     );
-    state.tracker.reset();
-    false
 }
 
 fn report_healthy(
@@ -123,13 +139,17 @@ async fn cycle(
     }
     let outcome = probe_within(ctx, ctx.timings.probe_timeout).await;
     if outcome == Probe::LocalDescriptorExhaustion {
-        tracing::error!("out of file descriptors, cannot dial the daemon; not restarting it");
-        state.forget();
+        give_up_on_descriptors(state);
         return false;
     }
     report_healthy(ctx, outcome);
     track_silence(ctx, state, outcome).await;
     state.tracker.observe(outcome) && confirmed_wedge(ctx, state).await
+}
+
+fn give_up_on_descriptors(state: &mut WatchState) {
+    tracing::error!("out of file descriptors, cannot dial the daemon; not restarting it");
+    state.forget();
 }
 
 pub(crate) async fn watch(ctx: WatchContext) {
@@ -162,8 +182,12 @@ async fn announce_wedge(ctx: &WatchContext) {
     }
     ctx.bus.emit(DaemonEvent::Unhealthy);
     if ctx.wedged.send(()).await.is_err() {
-        tracing::debug!("the supervisor stopped listening for wedge reports");
+        note_unheard_wedge();
     }
+}
+
+fn note_unheard_wedge() {
+    tracing::debug!("the supervisor stopped listening for wedge reports");
 }
 
 #[cfg(test)]

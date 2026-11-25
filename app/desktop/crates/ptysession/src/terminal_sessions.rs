@@ -133,8 +133,7 @@ impl TerminalSessions {
             return;
         }
         if let Err(error) = self.attach((base, binding), &attachment, &reports).await {
-            tracing::warn!(%error, "terminal session failed");
-            report(&reports, Report::Failed(error.to_string())).await;
+            report_failure(&reports, &error).await;
         }
         self.rest.transport.revoke_pane(&attachment.scope);
     }
@@ -193,7 +192,7 @@ impl TerminalSessions {
             Ok(end) => return Some(end),
             Err(error) => error.to_string(),
         };
-        tracing::warn!(%reason, "terminal stream lost");
+        warn_stream_lost(&reason);
         let recovered = recover(&attachment.ends, reconnect, &reason).await;
         (!recovered).then_some(End::Lost)
     }
@@ -219,6 +218,18 @@ impl TerminalSessions {
         let (socket, _) = within(client_async(request, tcp)).await?;
         Ok(pump(socket, attachment.ends.clone()).await)
     }
+}
+
+async fn report_failure(
+    reports: &Sender<Report>,
+    error: &Error,
+) {
+    tracing::warn!(%error, "terminal session failed");
+    report(reports, Report::Failed(error.to_string())).await;
+}
+
+fn warn_stream_lost(reason: &str) {
+    tracing::warn!(%reason, "terminal stream lost");
 }
 
 async fn report(

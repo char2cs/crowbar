@@ -87,19 +87,48 @@ async fn save(
     url: &str,
     path: PathBuf,
 ) -> Option<PathBuf> {
-    let bytes = client
-        .bytes(Call::get(url))
-        .await
-        .inspect_err(|error| tracing::warn!(%error, url, "a space image could not be fetched"))
-        .ok()?;
+    let bytes = download(client, url).await?;
     if bytes.len() > MAX_ICON_BYTES {
-        tracing::warn!(url, "a space image is larger than allowed");
+        warn_too_large(url);
         return None;
     }
+    keep(path, bytes).await
+}
+
+async fn download(
+    client: &daemonapi::Client,
+    url: &str,
+) -> Option<Vec<u8>> {
+    client
+        .bytes(Call::get(url))
+        .await
+        .inspect_err(|error| warn_unfetched(error, url))
+        .ok()
+}
+
+fn warn_unfetched(
+    error: &daemonapi::Error,
+    url: &str,
+) {
+    tracing::warn!(%error, url, "a space image could not be fetched");
+}
+
+fn warn_too_large(url: &str) {
+    tracing::warn!(url, "a space image is larger than allowed");
+}
+
+async fn keep(
+    path: PathBuf,
+    bytes: Vec<u8>,
+) -> Option<PathBuf> {
     tokio::task::spawn_blocking(move || write_atomically(&path, &bytes))
         .await
-        .inspect_err(|error| tracing::warn!(%error, "keeping a space image failed"))
+        .inspect_err(warn_unkept)
         .ok()?
+}
+
+fn warn_unkept(error: &tokio::task::JoinError) {
+    tracing::warn!(%error, "keeping a space image failed");
 }
 
 fn write_atomically(

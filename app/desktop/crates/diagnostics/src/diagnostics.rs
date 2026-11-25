@@ -71,11 +71,17 @@ fn record_panic(
     dir: &Path,
 ) {
     match report.write(&DiskFiles::default(), dir, system_clock::now()) {
-        Ok(path) => tracing::error!(report = %path.display(), "the shell panicked"),
-        Err(error) => {
-            tracing::error!(%error, "the shell panicked and the report could not be written");
-        },
+        Ok(path) => log_panic_reported(&path),
+        Err(error) => log_panic_unreported(&error),
     }
+}
+
+fn log_panic_reported(path: &Path) {
+    tracing::error!(report = %path.display(), "the shell panicked");
+}
+
+fn log_panic_unreported(error: &std::io::Error) {
+    tracing::error!(%error, "the shell panicked and the report could not be written");
 }
 
 fn report_for(

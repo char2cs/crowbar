@@ -62,15 +62,19 @@ where
 {
     match tokio::time::timeout(limit, write.send(message)).await {
         Ok(Ok(())) => Ok(()),
-        Ok(Err(refused)) => {
-            tracing::debug!("peer refused a message: {refused:?}");
-            Err(Ending::Gone)
-        },
-        Err(elapsed) => {
-            tracing::debug!("peer stopped reading: {elapsed}");
-            Err(Ending::Stalled)
-        },
+        Ok(Err(refused)) => Err(peer_refused(&refused)),
+        Err(elapsed) => Err(peer_stopped_reading(&elapsed)),
     }
+}
+
+fn peer_refused<E: Debug>(refused: &E) -> Ending {
+    tracing::debug!("peer refused a message: {refused:?}");
+    Ending::Gone
+}
+
+fn peer_stopped_reading(elapsed: &Elapsed) -> Ending {
+    tracing::debug!("peer stopped reading: {elapsed}");
+    Ending::Stalled
 }
 
 async fn forward<W>(
@@ -114,15 +118,17 @@ where
     W: Sink<Message, Error: Debug> + Unpin,
 {
     let ending = match next_within(read, idle).await {
-        Err(elapsed) => {
-            tracing::debug!("peer went silent: {elapsed}");
-            Some(Ending::Idle)
-        },
+        Err(elapsed) => Some(peer_went_silent(&elapsed)),
         Ok(None) => Some(Ending::Gone),
         Ok(Some(Err(e))) => Some(ending_of(&e)),
         Ok(Some(Ok(message))) => forward(message, write, write_timeout).await,
     };
     ending.map_or(Ok(()), Err)
+}
+
+fn peer_went_silent(elapsed: &Elapsed) -> Ending {
+    tracing::debug!("peer went silent: {elapsed}");
+    Ending::Idle
 }
 
 async fn run<R, W>(

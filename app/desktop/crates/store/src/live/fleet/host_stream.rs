@@ -8,6 +8,7 @@ mod files_wire;
 mod icon_ask;
 mod icon_fetch;
 mod step;
+mod stream_warnings;
 mod terminal_offer;
 
 use std::sync::Arc;
@@ -76,7 +77,7 @@ impl HostStream {
         match self.dial.open().await {
             Ok(connection) => self.session(connection, controls, backoff).await,
             Err(error) => {
-                tracing::warn!(host = %self.host, %error, "the stream could not be opened");
+                stream_warnings::unopened(&self.host, &error);
                 Ended::Dropped
             },
         }
@@ -159,12 +160,8 @@ impl HostStream {
                 scope,
                 reason,
                 problem,
-            } => {
-                tracing::warn!(host = %self.host, scope, reason, ?problem, "the daemon ended a stream scope");
-            },
-            Frame::Error { problem } => {
-                tracing::warn!(host = %self.host, ?problem, "the daemon refused a stream request");
-            },
+            } => stream_warnings::closed(&self.host, scope, reason, problem.as_ref()),
+            Frame::Error { problem } => stream_warnings::refused(&self.host, problem),
             _ => {
                 self.apply(frame);
                 FilesHold::sync_held(files, outgoing);

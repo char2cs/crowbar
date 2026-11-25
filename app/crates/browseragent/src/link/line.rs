@@ -54,10 +54,7 @@ impl<'a> Line<'a> {
             Ok(()) => self.report(stream).await,
             Err(error) => Err(error),
         };
-        if let Err(error) = &reported {
-            tracing::debug!(%error, "the daemon connection ended");
-        }
-        reported.map_or(ControlFlow::Break(Ending::Lost), ControlFlow::Continue)
+        reported.map_or_else(|error| connection_ended(&error), ControlFlow::Continue)
     }
 
     fn on_frame(
@@ -98,6 +95,11 @@ async fn next_event<S: PeerStream>(
         Some(done) = requests.join_next() => done_event(done),
         changed = tabs.changed() => tabs_event(changed),
     }
+}
+
+fn connection_ended(error: &Error) -> ControlFlow<Ending> {
+    tracing::debug!(%error, "the daemon connection ended");
+    ControlFlow::Break(Ending::Lost)
 }
 
 fn done_event(done: Result<Finished, JoinError>) -> ConnectionEvent {

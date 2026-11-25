@@ -88,16 +88,26 @@ async fn after_startup(
             stop_child(supervision, &mut child).await;
             halt(supervision, reason, message)
         },
-        Startup::NeverHealthy => {
-            tracing::warn!("the daemon is not serving yet; it keeps running under the watchdog");
-            monitor(supervision, start_watchdog(supervision, child), commands).await
-        },
+        Startup::NeverHealthy => watch_unserved(supervision, child, commands).await,
         Startup::Exited(reason) => Phase::Recover { reason },
         Startup::Stopped => {
             stop_child(supervision, &mut child).await;
             stop_idle(supervision, None)
         },
     }
+}
+
+async fn watch_unserved(
+    supervision: &mut Supervision,
+    child: tokio::process::Child,
+    commands: &mut Commands,
+) -> Phase {
+    warn_unserved();
+    monitor(supervision, start_watchdog(supervision, child), commands).await
+}
+
+fn warn_unserved() {
+    tracing::warn!("the daemon is not serving yet; it keeps running under the watchdog");
 }
 
 fn halt(

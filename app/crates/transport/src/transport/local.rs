@@ -9,7 +9,7 @@ pub use socket_locator::SocketLocator;
 use std::future::Future;
 use std::time::Duration;
 
-use http::{Method, Request, StatusCode};
+use http::{Method, Request, Response, StatusCode};
 use tokio::net::UnixStream;
 
 use crate::error::Error;
@@ -116,29 +116,38 @@ where
 {
     let stream = match connect_for(request.method(), locator, wait).await {
         Ok(stream) => stream,
-        Err(e) => {
-            tracing::debug!("local daemon unreachable: {e}");
-            return proxy_answer(marked_response(
-                StatusCode::SERVICE_UNAVAILABLE,
-                DAEMON_UNAVAILABLE,
-                UNREACHABLE_TEXT,
-            ));
-        },
+        Err(e) => return daemon_unreachable(&e),
     };
-    match exchange(Box::new(stream), request, limit).await {
+    let exchanged = exchange(Box::new(stream), request, limit).await;
+    local_answer(exchanged)
+}
+
+fn daemon_unreachable(e: &Error) -> Forwarded {
+    tracing::debug!("local daemon unreachable: {e}");
+    proxy_answer(marked_response(
+        StatusCode::SERVICE_UNAVAILABLE,
+        DAEMON_UNAVAILABLE,
+        UNREACHABLE_TEXT,
+    ))
+}
+
+fn local_answer(exchanged: Result<Response<Vec<u8>>, Error>) -> Forwarded {
+    match exchanged {
         Ok(response) => Ok(response),
         Err(Error::TooLarge) => proxy_answer(error_response(
             StatusCode::BAD_GATEWAY,
             "local response too large",
         )),
-        Err(e) => {
-            tracing::debug!("local daemon exchange failed: {e}");
-            proxy_answer(error_response(
-                StatusCode::BAD_GATEWAY,
-                "crowbar proxy error",
-            ))
-        },
+        Err(e) => exchange_failed(&e),
     }
+}
+
+fn exchange_failed(e: &Error) -> Forwarded {
+    tracing::debug!("local daemon exchange failed: {e}");
+    proxy_answer(error_response(
+        StatusCode::BAD_GATEWAY,
+        "crowbar proxy error",
+    ))
 }
 
 #[cfg(test)]

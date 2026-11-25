@@ -95,20 +95,27 @@ pub(crate) async fn forward_remote(
         Ok(tls) => tls,
         Err(e) => return proxy_answer(dial_response(&e)),
     };
-    match exchange(Box::new(tls), request, REMOTE_BODY_LIMIT).await {
+    let exchanged = exchange(Box::new(tls), request, REMOTE_BODY_LIMIT).await;
+    remote_answer(exchanged)
+}
+
+fn remote_answer(exchanged: Result<Response<Vec<u8>>, Error>) -> Forwarded {
+    match exchanged {
         Ok(response) => Ok(response),
         Err(Error::TooLarge) => proxy_answer(error_response(
             StatusCode::BAD_GATEWAY,
             "remote response too large",
         )),
-        Err(e) => {
-            tracing::debug!("remote exchange failed: {e}");
-            proxy_answer(error_response(
-                StatusCode::BAD_GATEWAY,
-                "crowbar proxy error",
-            ))
-        },
+        Err(e) => exchange_failed(&e),
     }
+}
+
+fn exchange_failed(e: &Error) -> Forwarded {
+    tracing::debug!("remote exchange failed: {e}");
+    proxy_answer(error_response(
+        StatusCode::BAD_GATEWAY,
+        "crowbar proxy error",
+    ))
 }
 
 #[cfg(test)]

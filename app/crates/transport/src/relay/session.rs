@@ -7,6 +7,8 @@ use std::sync::Arc;
 use futures_util::SinkExt;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{OwnedSemaphorePermit, oneshot};
+use tokio::time::error::Elapsed;
+use tokio_tungstenite::tungstenite::Error as WsError;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::{WebSocketStream, accept_hdr_async_with_config};
 use tokio_util::sync::CancellationToken;
@@ -31,18 +33,49 @@ pub(crate) async fn run<S>(
 {
     let (admitted, admission) = oneshot::channel();
     let gate = Gate::new(Arc::clone(&state), admitted);
-    let config = ws_config(state.config.max_message_bytes);
-    let handshake = accept_hdr_async_with_config(stream, gate, Some(config));
-    let client = match tokio::time::timeout(state.config.handshake_timeout, handshake).await {
-        Ok(Ok(client)) => client,
-        Ok(Err(e)) => return tracing::debug!("relay handshake refused: {e}"),
-        Err(elapsed) => return tracing::debug!("relay handshake timed out: {elapsed}"),
+    let Some(client) = accept_within_deadline(&state, stream, gate).await else {
+        return;
     };
     drop(handshake_slot);
     let Ok(admission) = admission.await else {
-        return tracing::debug!("relay handshake finished without an admission");
+        return report_no_admission();
     };
     serve(&state, client, admission).await;
+}
+
+async fn accept_within_deadline<S>(
+    state: &State,
+    stream: S,
+    gate: Gate,
+) -> Option<WebSocketStream<S>>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let config = ws_config(state.config.max_message_bytes);
+    let handshake = accept_hdr_async_with_config(stream, gate, Some(config));
+    match tokio::time::timeout(state.config.handshake_timeout, handshake).await {
+        Ok(Ok(client)) => Some(client),
+        Ok(Err(e)) => {
+            report_handshake_refused(&e);
+            None
+        },
+        Err(elapsed) => {
+            report_handshake_timed_out(&elapsed);
+            None
+        },
+    }
+}
+
+fn report_handshake_refused(e: &WsError) {
+    tracing::debug!("relay handshake refused: {e}");
+}
+
+fn report_handshake_timed_out(elapsed: &Elapsed) {
+    tracing::debug!("relay handshake timed out: {elapsed}");
+}
+
+fn report_no_admission() {
+    tracing::debug!("relay handshake finished without an admission");
 }
 
 async fn open_unless_revoked(
@@ -109,8 +142,12 @@ async fn farewell<S>(
         return;
     }
     if let Err(e) = client.close(None).await {
-        tracing::debug!("close not delivered: {e}");
+        report_close_not_delivered(&e);
     }
+}
+
+fn report_close_not_delivered(e: &WsError) {
+    tracing::debug!("close not delivered: {e}");
 }
 
 async fn say_close<S>(

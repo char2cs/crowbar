@@ -10,6 +10,7 @@ pub(crate) use stale_daemon::refuse;
 pub(crate) use watchdog::{Guard, WatchContext, watch};
 
 use std::process::ExitStatus;
+use std::time::Duration;
 
 use rustix::process::Signal;
 use tokio::sync::mpsc;
@@ -159,6 +160,12 @@ async fn kill_wedged(
     supervision: &Supervision,
     child: &mut tokio::process::Child,
 ) {
+    dump_goroutines(supervision).await;
+    send(child, Signal::QUIT);
+    kill_unless_quit(supervision.config.timings.sigquit_grace, child).await;
+}
+
+async fn dump_goroutines(supervision: &Supervision) {
     let t = &supervision.config.timings;
     let dump = tokio::time::timeout(
         t.dump_timeout,
@@ -174,17 +181,36 @@ async fn kill_wedged(
             "=== watchdog goroutine dump",
             &String::from_utf8_lossy(&body),
         ),
-        Ok(Err(e)) => tracing::debug!("no goroutine dump: {e}"),
-        Err(elapsed) => tracing::debug!("no goroutine dump within {:?}: {elapsed}", t.dump_timeout),
+        Ok(Err(e)) => no_dump(&e),
+        Err(elapsed) => no_dump_in_time(t.dump_timeout, &elapsed),
     }
-    send(child, Signal::QUIT);
-    if tokio::time::timeout(t.sigquit_grace, child.wait())
-        .await
-        .is_err()
-        && let Err(e) = child.kill().await
-    {
-        tracing::warn!("cannot kill the wedged daemon: {e}");
+}
+
+fn no_dump(e: &Error) {
+    tracing::debug!("no goroutine dump: {e}");
+}
+
+fn no_dump_in_time(
+    timeout: Duration,
+    elapsed: &tokio::time::error::Elapsed,
+) {
+    tracing::debug!("no goroutine dump within {timeout:?}: {elapsed}");
+}
+
+async fn kill_unless_quit(
+    grace: Duration,
+    child: &mut tokio::process::Child,
+) {
+    if tokio::time::timeout(grace, child.wait()).await.is_ok() {
+        return;
     }
+    if let Err(e) = child.kill().await {
+        warn_unkillable(&e);
+    }
+}
+
+fn warn_unkillable(e: &std::io::Error) {
+    tracing::warn!("cannot kill the wedged daemon: {e}");
 }
 
 #[cfg(test)]

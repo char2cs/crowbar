@@ -41,6 +41,14 @@ fn stopped(why: impl std::fmt::Display) -> Error {
     Error::Stopped
 }
 
+fn note_unconfirmed_stop() {
+    tracing::debug!("the supervision task ended without confirming the stop");
+}
+
+fn warn_failed_task(e: &tokio::task::JoinError) {
+    tracing::warn!("the supervision task failed: {e}");
+}
+
 impl Supervisor {
     /// Starts the daemon and supervises it until [`Supervisor::stop`].
     #[must_use]
@@ -93,12 +101,20 @@ impl Supervisor {
     /// Stops the daemon gracefully (SIGTERM, then SIGKILL after the grace period) and ends
     /// supervision.
     pub async fn stop(mut self) {
+        self.ask_to_stop().await;
+        self.join_task().await;
+    }
+
+    async fn ask_to_stop(&self) {
         let (done, finished) = oneshot::channel();
         if self.commands.send(Command::Stop(done)).await.is_ok() && finished.await.is_err() {
-            tracing::debug!("the supervision task ended without confirming the stop");
+            note_unconfirmed_stop();
         }
+    }
+
+    async fn join_task(&mut self) {
         if let Some(Err(e)) = self.finished().await {
-            tracing::warn!("the supervision task failed: {e}");
+            warn_failed_task(&e);
         }
     }
 

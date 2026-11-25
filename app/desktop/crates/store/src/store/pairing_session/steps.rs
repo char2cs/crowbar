@@ -2,6 +2,7 @@
 //! A redeemed pairing that cannot be remembered is undone, because a host without its client id
 //! could never be revoked.
 
+use crate::live::BookError;
 use crate::live::HostSpec;
 use crate::live::Note;
 use crate::live::PairingRequest;
@@ -67,6 +68,23 @@ impl PairingSession {
         request: &PairingRequest,
         client_id: String,
     ) -> Result<(), Words> {
+        let Err(text) = self.remember(request, client_id) else {
+            return Ok(());
+        };
+        warn_unkept(&text, &request.host_id);
+        self.undo_pairing(&request.host_id).await;
+        Err(Words::new(pairing_failure::words(
+            "",
+            &request.endpoint,
+            &request.name,
+        )))
+    }
+
+    fn remember(
+        &self,
+        request: &PairingRequest,
+        client_id: String,
+    ) -> Result<(), String> {
         let note = Note {
             name: request.name.clone(),
             client_id,
@@ -78,22 +96,31 @@ impl PairingSession {
             endpoint: Some(request.endpoint.clone()),
         };
         let saved = self.desk.notes.put(&request.host_id, note);
-        let followed = saved
+        saved
             .map_err(|error| error.to_string())
-            .and_then(|()| self.fleet.follow(spec).map_err(|error| error.to_string()));
-        let Err(text) = followed else {
-            return Ok(());
-        };
-        tracing::warn!(error = %text, host = %request.host_id, "a paired host could not be kept");
-        if let Err(error) = self.desk.book.unpair(&request.host_id).await {
-            tracing::warn!(%error, "the pairing could not be undone");
-        }
-        Err(Words::new(pairing_failure::words(
-            "",
-            &request.endpoint,
-            &request.name,
-        )))
+            .and_then(|()| self.fleet.follow(spec).map_err(|error| error.to_string()))
     }
+
+    async fn undo_pairing(
+        &self,
+        host: &str,
+    ) {
+        let Err(error) = self.desk.book.unpair(host).await else {
+            return;
+        };
+        warn_not_undone(&error);
+    }
+}
+
+fn warn_unkept(
+    text: &str,
+    host: &str,
+) {
+    tracing::warn!(error = %text, host = %host, "a paired host could not be kept");
+}
+
+fn warn_not_undone(error: &BookError) {
+    tracing::warn!(%error, "the pairing could not be undone");
 }
 
 #[cfg(test)]

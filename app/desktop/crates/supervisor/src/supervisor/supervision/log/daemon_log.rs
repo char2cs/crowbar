@@ -147,9 +147,13 @@ impl DaemonLog {
     pub(crate) async fn flush(&self) {
         let (done, written) = oneshot::channel();
         if self.queue.send(Message::Flush(done)).await.is_ok() && written.await.is_err() {
-            tracing::debug!("the daemon log writer ended before a flush finished");
+            note_unfinished_flush();
         }
     }
+}
+
+fn note_unfinished_flush() {
+    tracing::debug!("the daemon log writer ended before a flush finished");
 }
 
 #[cfg(test)]

@@ -1,10 +1,13 @@
+use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
 use rustls::crypto::aws_lc_rs;
 use rustls::pki_types::ServerName;
 use tokio::io::AsyncWriteExt;
+use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
+use tokio_rustls::client::TlsStream;
 
 use crate::error::Error;
 use crate::hosts::Endpoint;
@@ -31,6 +34,21 @@ pub async fn probe_fingerprint(endpoint: &str) -> Result<String, Error> {
 }
 
 async fn read_fingerprint(endpoint: &Endpoint) -> Result<String, Error> {
+    let mut tls = connect_unpinned(endpoint).await?;
+    let fingerprint = tls
+        .get_ref()
+        .1
+        .peer_certificates()
+        .and_then(|chain| chain.first())
+        .map(|cert| fingerprint_of(cert))
+        .ok_or_else(|| Error::NoCertificate(endpoint.to_string()))?;
+    if let Err(error) = tls.shutdown().await {
+        report_unclean_close(&error);
+    }
+    Ok(fingerprint)
+}
+
+async fn connect_unpinned(endpoint: &Endpoint) -> Result<TlsStream<TcpStream>, Error> {
     let handshake = |reason: String| Error::Handshake {
         endpoint: endpoint.to_string(),
         reason,
@@ -41,21 +59,14 @@ async fn read_fingerprint(endpoint: &Endpoint) -> Result<String, Error> {
     let algorithms = provider.signature_verification_algorithms;
     let verifier = Arc::new(UnpinnedProbeVerifier { algorithms });
     let config = client_config_with(provider, verifier).map_err(|e| handshake(e.to_string()))?;
-    let mut tls = TlsConnector::from(config)
+    TlsConnector::from(config)
         .connect(name, tcp)
         .await
-        .map_err(|e| handshake(e.to_string()))?;
-    let fingerprint = tls
-        .get_ref()
-        .1
-        .peer_certificates()
-        .and_then(|chain| chain.first())
-        .map(|cert| fingerprint_of(cert))
-        .ok_or_else(|| Error::NoCertificate(endpoint.to_string()))?;
-    if let Err(error) = tls.shutdown().await {
-        tracing::debug!("probe connection did not close cleanly: {error}");
-    }
-    Ok(fingerprint)
+        .map_err(|e| handshake(e.to_string()))
+}
+
+fn report_unclean_close(error: &io::Error) {
+    tracing::debug!("probe connection did not close cleanly: {error}");
 }
 
 #[cfg(test)]

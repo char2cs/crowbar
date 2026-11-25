@@ -109,10 +109,7 @@ pub(crate) async fn load_changes(
         .await;
     let body = match answer {
         Ok(body) => body,
-        Err(error) => {
-            tracing::warn!(chat, %error, "git status could not be read");
-            return hub.edit(|state| state.panels.fail(chat, error.to_string()));
-        },
+        Err(error) => return fail_changes(hub, chat, &error),
     };
     let counts = load_counts(client, chat).await;
     let open = load_open_threads(hub, client, chat).await;
@@ -126,6 +123,15 @@ pub(crate) async fn load_changes(
             .panels
             .staged_and_threads(chat, (body.staged_paths(), open));
     });
+}
+
+fn fail_changes(
+    hub: &Hub,
+    chat: &str,
+    error: &daemonapi::Error,
+) {
+    tracing::warn!(chat, %error, "git status could not be read");
+    hub.edit(|state| state.panels.fail(chat, error.to_string()));
 }
 
 async fn load_summary(

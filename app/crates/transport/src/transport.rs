@@ -106,7 +106,7 @@ impl Transport {
     ) -> Result<(), Error> {
         self.registry.remove(host_id.clone()).await?;
         if self.removed.send(host_id.clone()).is_err() {
-            tracing::debug!("no relay is following host removals");
+            report_unfollowed_removal();
         }
         credential_io::forget(&self.tokens, host_id)
             .await
@@ -170,6 +170,10 @@ impl Transport {
         })
         .await
     }
+}
+
+fn report_unfollowed_removal() {
+    tracing::debug!("no relay is following host removals");
 }
 
 fn timed_out() -> Response<Vec<u8>> {

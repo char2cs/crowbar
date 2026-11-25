@@ -22,11 +22,11 @@ async fn ps(
     let finished = match tokio::time::timeout(PS_TIMEOUT, run).await {
         Ok(Ok(finished)) => finished,
         Ok(Err(e)) => {
-            tracing::debug!("{PS}: {e}");
+            ps_failed(&e);
             return None;
         },
         Err(elapsed) => {
-            tracing::warn!("{PS} did not answer within {PS_TIMEOUT:?}: {elapsed}");
+            ps_timed_out(&elapsed);
             return None;
         },
     };
@@ -34,6 +34,14 @@ async fn ps(
         .status
         .success()
         .then(|| String::from_utf8_lossy(&finished.stdout).into_owned())
+}
+
+fn ps_failed(e: &std::io::Error) {
+    tracing::debug!("{PS}: {e}");
+}
+
+fn ps_timed_out(elapsed: &tokio::time::error::Elapsed) {
+    tracing::warn!("{PS} did not answer within {PS_TIMEOUT:?}: {elapsed}");
 }
 
 pub(crate) async fn cpu_time(pid: u32) -> Option<Duration> {
