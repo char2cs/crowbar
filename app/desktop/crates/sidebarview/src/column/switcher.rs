@@ -1,6 +1,7 @@
 //! The 44px space switcher: active space name, add button and the other spaces.
 
 pub(crate) mod edit_pencil;
+mod host_line;
 mod hover_glide;
 pub(crate) mod icon_editor;
 mod icon_label;
@@ -12,7 +13,7 @@ use gpui::{
     AnyElement, Context, Div, ElementId, Entity, FontWeight, InteractiveElement, IntoElement,
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
-use sidebar::{Command, Intent, Project};
+use sidebar::{Command, Host, HostKind, Intent, Project};
 use ui::{HoverFill, Palette, Placement, Popover, Surface, Theme, Tooltip, radius, tracking};
 
 use crate::column::switcher::edit_pencil::{GROUP, edit_pencil};
@@ -86,7 +87,21 @@ impl Sidebar {
         let theme = *Theme::of(cx);
         self.sync_space_icon(cx);
         let editor = self.offers_space_icon().then(|| self.icon_editor.clone());
-        active_block(current, (slot, editor), theme)
+        let line = self
+            .remote_host_of(current)
+            .map(|host| Self::host_line(&host, &theme, cx));
+        let tile = space_tile(current, editor, theme);
+        let name = name_column(current, line, theme);
+        active_block((tile, name, slot))
+    }
+
+    fn remote_host_of(
+        &self,
+        project: &Project,
+    ) -> Option<Host> {
+        let hosts = self.data.hosts();
+        let host = hosts.into_iter().find(|host| host.id == project.host)?;
+        (host.kind == HostKind::Remote).then_some(host)
     }
 
     fn add_button(cx: &mut Context<'_, Self>) -> IconButton {
@@ -190,13 +205,12 @@ fn add_slot(
         .child(add)
 }
 
-fn active_block(
+fn space_tile(
     current: &Project,
-    (slot, editor): (Div, Option<Entity<IconEditor>>),
+    editor: Option<Entity<IconEditor>>,
     theme: Theme,
-) -> Div {
-    let (family, palette) = (theme.heading_family(), theme.palette(Surface::Chrome));
-    let mark = mark_view(&current.mark, px(MARK), palette);
+) -> AnyElement {
+    let mark = mark_view(&current.mark, px(MARK), theme.palette(Surface::Chrome));
     let tile = div()
         .flex()
         .flex_none()
@@ -205,8 +219,25 @@ fn active_block(
         .size(px(TILE))
         .ml(px(TILE_PULL))
         .rounded(radius::MD);
-    let tile = editable_tile(tile, mark, editor);
-    let name = name_cell(current, family, palette);
+    editable_tile(tile, mark, editor)
+}
+
+fn name_column(
+    current: &Project,
+    line: Option<AnyElement>,
+    theme: Theme,
+) -> Div {
+    let (family, palette) = (theme.heading_family(), theme.palette(Surface::Chrome));
+    div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_w_0()
+        .child(name_cell(current, family, palette))
+        .children(line)
+}
+
+fn active_block((tile, name, slot): (AnyElement, Div, Div)) -> Div {
     div()
         .flex()
         .flex_1()
@@ -306,6 +337,22 @@ mod tests {
             17.0,
             "the panel's border and padding sit above the editor, the panel's top on the mark's"
         );
+    }
+
+    fn shows_host_line(
+        cx: &mut TestAppContext,
+        data: DemoShell,
+    ) -> bool {
+        let (_, _, cx) = open(cx, data);
+        cx.run_until_parked();
+        cx.debug_bounds(super::host_line::SELECTOR).is_some()
+    }
+
+    #[gpui::test]
+    fn only_a_remote_space_names_its_host_under_its_name(cx: &mut TestAppContext) {
+        let remote = shows_host_line(cx, DemoShell::on_down_host());
+        let local = shows_host_line(cx, DemoShell::rich());
+        assert_eq!((remote, local), (true, false), "(remote, local)");
     }
 
     #[gpui::test]

@@ -107,8 +107,16 @@ impl DemoShell {
     /// The rich data with the down `devbox` shown, which has listed no space and never synced.
     pub fn showing_down_host() -> Self {
         Self {
-            shown: crate::shell::HostId::from("devbox"),
+            spaces: 0,
             sync: crate::shell::ScopeSync::Pending,
+            ..Self::on_down_host()
+        }
+    }
+
+    /// The rich data with its spaces on the down `devbox`.
+    pub fn on_down_host() -> Self {
+        Self {
+            shown: crate::shell::HostId::from("devbox"),
             ..Self::rich()
         }
     }

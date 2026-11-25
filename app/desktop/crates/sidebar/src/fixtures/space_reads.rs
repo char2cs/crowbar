@@ -46,9 +46,8 @@ impl SpaceList for DemoShell {
                 id: ProjectId::from(name),
                 name: name.to_owned(),
                 mark,
-                host: HostId::from("local"),
+                host: self.shown.clone(),
             })
-            .filter(|project| project.host == self.shown)
             .collect()
     }
 }
