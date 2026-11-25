@@ -3,20 +3,31 @@
 use std::rc::Rc;
 
 use gpui::{App, AppContext as _, Context, Entity};
-use sidebar::{Command, SpaceIcon};
+use sidebar::{Command, IconTarget, SpaceIcon};
 
 use crate::column::switcher::icon_editor::IconEditor;
 use crate::sidebar::Sidebar;
 
 impl Sidebar {
     pub(crate) fn space_icon_editor(cx: &mut Context<'_, Self>) -> Entity<IconEditor> {
-        let sidebar = cx.weak_entity();
+        let (sidebar, reader) = (cx.weak_entity(), cx.weak_entity());
         let pick = Rc::new(move |icon: SpaceIcon, cx: &mut App| {
             sidebar
                 .update(cx, |this, cx| this.set_space_icon(icon, cx))
                 .unwrap_or_else(|error| tracing::debug!(%error, "sidebar closed before the icon"));
         });
-        cx.new(|cx| IconEditor::new(pick, cx))
+        let busy = Rc::new(move |cx: &App| {
+            reader
+                .upgrade()
+                .is_some_and(|this| this.read(cx).space_icon_busy())
+        });
+        cx.new(|cx| IconEditor::new((pick, busy), cx))
+    }
+
+    fn space_icon_busy(&self) -> bool {
+        self.data
+            .active_project()
+            .is_some_and(|project| self.data.icon_busy(&IconTarget::Space(project)))
     }
 
     fn set_space_icon(

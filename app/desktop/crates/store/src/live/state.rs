@@ -32,6 +32,7 @@ pub(crate) struct State {
     pub(crate) settings: SettingsSlot,
     pub(crate) viewed: ViewedFiles,
     pub(crate) watched_chats: BTreeSet<String>,
+    pub(crate) marking: BTreeSet<sidebar::IconTarget>,
 }
 
 impl State {
@@ -47,6 +48,7 @@ impl State {
             settings: SettingsSlot::default(),
             viewed: ViewedFiles::default(),
             watched_chats: BTreeSet::new(),
+            marking: BTreeSet::new(),
         }
     }
 

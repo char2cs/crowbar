@@ -6,6 +6,7 @@ use crate::shell::listing::FileAccess;
 use crate::shell::listing::FilesSource;
 use crate::shell::listing::FolderSource;
 use crate::shell::switcher::ActiveSpace;
+use crate::shell::switcher::IconRequests;
 use crate::shell::switcher::PaneFocus;
 use crate::shell::switcher::SpaceList;
 
@@ -14,6 +15,7 @@ use crate::shell::switcher::SpaceList;
 pub trait Source:
     SpaceList
     + ActiveSpace
+    + IconRequests
     + PaneFocus
     + RowActions
     + FilesSource
@@ -26,6 +28,7 @@ pub trait Source:
 impl<T> Source for T where
     T: SpaceList
         + ActiveSpace
+        + IconRequests
         + PaneFocus
         + RowActions
         + FilesSource

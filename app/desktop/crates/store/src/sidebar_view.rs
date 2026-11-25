@@ -2,6 +2,7 @@
 
 mod file_tree;
 mod hosts;
+mod icons;
 mod panels;
 
 use std::sync::Arc;

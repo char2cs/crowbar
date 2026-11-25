@@ -7,6 +7,7 @@ use crate::error::Error;
 use crate::fixtures::rows::{reference_rows, rich_rows};
 use crate::shell::Command;
 use crate::shell::Focus;
+use crate::shell::IconTarget;
 use crate::shell::MergeBox;
 use crate::shell::ProjectId;
 use crate::shell::Row;
@@ -32,6 +33,7 @@ pub struct DemoShell {
     pub(crate) merge: Option<MergeBox>,
     pub(crate) git_error: Option<String>,
     pub(crate) running: Vec<RunningAgent>,
+    pub(crate) busy_icons: Vec<IconTarget>,
 }
 
 impl DemoShell {
@@ -62,6 +64,7 @@ impl DemoShell {
             merge: None,
             git_error: None,
             running: Vec::new(),
+            busy_icons: Vec::new(),
         }
     }
 

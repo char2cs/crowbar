@@ -25,12 +25,14 @@ const WIDTH: f32 = 222.0;
 
 pub(crate) type Pick = Rc<dyn Fn(SpaceIcon, &mut App)>;
 pub(crate) type Act = Rc<dyn Fn(&mut App)>;
+pub(crate) type Busy = Rc<dyn Fn(&App) -> bool>;
 
 pub(crate) struct IconEditor {
     pub(crate) current: SpaceIcon,
     emoji: gpui::Entity<TextInput>,
     typing: bool,
     pick: Pick,
+    busy: Busy,
     fallback: Mark,
     github: Option<Act>,
     _typed: Subscription,
@@ -38,7 +40,7 @@ pub(crate) struct IconEditor {
 
 impl IconEditor {
     pub(crate) fn new(
-        pick: Pick,
+        (pick, busy): (Pick, Busy),
         cx: &mut Context<'_, Self>,
     ) -> Self {
         let emoji = cx.new(|cx| {
@@ -55,6 +57,7 @@ impl IconEditor {
             emoji,
             typing: false,
             pick,
+            busy,
             fallback: Mark::Fallback,
             github: None,
             _typed: typed,
@@ -126,6 +129,15 @@ impl IconEditor {
     }
 }
 
+impl IconEditor {
+    pub(super) fn busy(
+        &self,
+        cx: &App,
+    ) -> bool {
+        (self.busy)(cx)
+    }
+}
+
 fn first_image(paths: &[PathBuf]) -> Option<SpaceIcon> {
     paths.first().and_then(|path| SpaceIcon::image(path))
 }
@@ -140,6 +152,7 @@ impl IconEditor {
             .size(ButtonSize::Xs)
             .variant(ButtonVariant::Muted)
             .grow()
+            .when(self.busy(cx), Button::disabled)
             .on_click(cx.listener(|_, _, _, cx| Self::upload(cx)));
         let emoji = Button::new("icon-emoji", "Emoji")
             .icon(IconName::Smiley)
@@ -147,6 +160,7 @@ impl IconEditor {
             .variant(ButtonVariant::Muted)
             .grow()
             .when(self.typing, |emoji| emoji.variant(ButtonVariant::Secondary))
+            .when(self.busy(cx), Button::disabled)
             .on_click(cx.listener(|this, _, window, cx| this.toggle_typing(window, cx)));
         div()
             .flex()
@@ -165,7 +179,7 @@ impl IconEditor {
             .size(ButtonSize::Sm)
             .on_click(cx.listener(|this, _, _, cx| this.set_emoji(cx)));
         let set = set.when(
-            self.emoji.read(cx).text().trim().is_empty(),
+            self.busy(cx) || self.emoji.read(cx).text().trim().is_empty(),
             Button::disabled,
         );
         self.typing.then(|| {
@@ -186,6 +200,7 @@ impl IconEditor {
             .size(ButtonSize::Xs)
             .variant(ButtonVariant::Faint)
             .grow()
+            .when(self.busy(cx), Button::disabled)
             .on_click(cx.listener(|this, _, _, cx| this.choose(SpaceIcon::Default, cx)));
         (self.current != SpaceIcon::Default).then(|| div().flex().child(reset))
     }
@@ -227,7 +242,7 @@ mod tests {
     ) -> gpui::Entity<IconEditor> {
         let sink = Rc::clone(seen);
         let pick: Pick = Rc::new(move |icon, _| sink.borrow_mut().push(icon));
-        cx.update(|cx| cx.new(|cx| IconEditor::new(pick, cx)))
+        cx.update(|cx| cx.new(|cx| IconEditor::new((pick, Rc::new(|_| false)), cx)))
     }
 
     #[gpui::test]
@@ -256,7 +271,8 @@ mod tests {
         let sink = Rc::clone(&seen);
         let pick: Pick = Rc::new(move |icon, _| sink.borrow_mut().push(icon));
         cx.update(|cx| ui::init(cx).expect("ui installs"));
-        let (editor, cx) = cx.add_window_view(|_, cx| IconEditor::new(pick, cx));
+        let (editor, cx) =
+            cx.add_window_view(|_, cx| IconEditor::new((pick, Rc::new(|_| false)), cx));
         editor.update_in(cx, IconEditor::toggle_typing);
         let focused = editor.update_in(cx, |this, window, cx| {
             gpui::Focusable::focus_handle(this.emoji.read(cx), cx).is_focused(window)
@@ -284,7 +300,8 @@ mod tests {
     ) {
         let pick: Pick = Rc::new(|_, _| {});
         cx.update(|cx| ui::init(cx).expect("ui installs"));
-        let (editor, cx) = cx.add_window_view(|_, cx| IconEditor::new(pick, cx));
+        let (editor, cx) =
+            cx.add_window_view(|_, cx| IconEditor::new((pick, Rc::new(|_| false)), cx));
         cx.run_until_parked();
         let root = cx.debug_bounds("icon-editor").unwrap_or_default();
         assert_eq!(

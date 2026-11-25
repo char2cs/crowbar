@@ -83,6 +83,15 @@ impl ActiveSpace for Recorder {
     }
 }
 
+impl sidebar::IconRequests for Recorder {
+    fn icon_busy(
+        &self,
+        target: &sidebar::IconTarget,
+    ) -> bool {
+        self.data.icon_busy(target)
+    }
+}
+
 impl PaneFocus for Recorder {
     fn focus(&self) -> Focus {
         self.data.focus()

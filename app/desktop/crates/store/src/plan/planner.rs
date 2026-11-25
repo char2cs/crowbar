@@ -115,18 +115,6 @@ fn creation(
     }
 }
 
-fn space_icon(
-    (state, files): (&State, &dyn Files),
-    project: &sidebar::ProjectId,
-    icon: &sidebar::SpaceIcon,
-) -> Result<Plan, PlanError> {
-    let slot = crate::reads::host_of(state, project.as_str()).ok_or(PlanError::SpaceNotLoaded)?;
-    Ok(Plan::of(
-        &slot.spec.id,
-        plan_icon::calls(files, &plan_icon::space_route(project.as_str()), icon)?,
-    ))
-}
-
 fn edit(
     (state, files): (&State, &dyn Files),
     command: &Command,
@@ -148,7 +136,7 @@ fn edit(
         ),
         Command::Detach(row) => plan_edit::verb(state, row.as_str(), ("detach-holder", None)),
         Command::Retry(row) => plan_edit::verb(state, row.as_str(), ("retry-provision", None)),
-        Command::SetSpaceIcon { project, icon } => space_icon((state, files), project, icon),
+        Command::SetSpaceIcon { project, icon } => plan_icon::space((state, files), project, icon),
         Command::SetRepoIcon { row, icon } => plan_icon::repo((state, files), (row.as_str(), icon)),
         Command::UseGithubAvatar(row) => plan_icon::github(state, row.as_str()),
         Command::SetMergeStrategy(strategy) => plan_merge::set_strategy(state, *strategy),

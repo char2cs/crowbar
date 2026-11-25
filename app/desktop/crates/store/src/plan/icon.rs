@@ -4,7 +4,7 @@ use std::path::Path;
 
 use daemonapi::Call;
 use serde_json::json;
-use sidebar::SpaceIcon;
+use sidebar::{IconTarget, ProjectId, RowId, SpaceIcon};
 
 use crate::live::Files;
 use crate::live::PlanError;
@@ -65,6 +65,16 @@ pub(crate) fn space_route(project: &str) -> String {
     daemonapi::Route::project(project).to_string()
 }
 
+pub(crate) fn space(
+    (state, files): (&State, &dyn Files),
+    project: &ProjectId,
+    icon: &SpaceIcon,
+) -> Result<Plan, PlanError> {
+    let slot = crate::reads::host_of(state, project.as_str()).ok_or(PlanError::SpaceNotLoaded)?;
+    let calls = calls(files, &space_route(project.as_str()), icon)?;
+    Ok(Plan::of(&slot.spec.id, calls).marking(IconTarget::Space(project.clone())))
+}
+
 fn repo_route(
     state: &State,
     row: &str,
@@ -79,7 +89,8 @@ pub(crate) fn repo(
     (row, icon): (&str, &SpaceIcon),
 ) -> Result<Plan, PlanError> {
     let (route, host) = repo_route(state, row)?;
-    Ok(Plan::of(&host, calls(files, &route, icon)?))
+    let target = IconTarget::Repo(RowId::from(row));
+    Ok(Plan::of(&host, calls(files, &route, icon)?).marking(target))
 }
 
 pub(crate) fn github(
@@ -88,13 +99,16 @@ pub(crate) fn github(
 ) -> Result<Plan, PlanError> {
     let (route, host) = repo_route(state, row)?;
     let call = Call::put(format!("{route}/icon/github"));
-    Ok(Plan::of(&host, vec![call]).explaining(GITHUB_HELP))
+    let target = IconTarget::Repo(RowId::from(row));
+    Ok(Plan::of(&host, vec![call])
+        .explaining(GITHUB_HELP)
+        .marking(target))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sidebar::{Command, RowId};
+    use sidebar::Command;
 
     use crate::test_support::FakeFiles;
 
@@ -138,9 +152,11 @@ mod tests {
         );
     }
 
-    fn summary(plan: Plan) -> (&'static str, String, Option<String>) {
+    type Summary = (&'static str, String, Option<String>, Option<IconTarget>);
+
+    fn summary(plan: Plan) -> Summary {
         let call = &plan.calls[0];
-        (call.method, call.path.clone(), plan.failure)
+        (call.method, call.path.clone(), plan.failure, plan.marking)
     }
 
     #[test]
@@ -170,13 +186,27 @@ mod tests {
                 "Could not fetch the GitHub avatar",
             ),
         ];
+        let repo = Some(IconTarget::Repo(RowId::from("rdo")));
         for (command, (method, path), title) in cases {
             let got = plan_of(command.clone()).map(summary);
-            let want = (method, path.to_owned(), Some(title.to_owned()));
+            let want = (method, path.into(), Some(title.into()), repo.clone());
             assert_eq!(got, Some(want), "{command:?}");
         }
         let github = plan_of(Command::UseGithubAvatar(RowId::from("rdo")));
         let explained = github.and_then(|plan| plan.explained);
         assert_eq!(explained.as_deref(), Some(GITHUB_HELP));
+    }
+
+    #[test]
+    fn a_space_icon_marks_its_space_busy_while_it_runs() {
+        let (state, _) = crate::test_support::state();
+        let files = FakeFiles::default();
+        let command = Command::SetSpaceIcon {
+            project: ProjectId::from("p"),
+            icon: SpaceIcon::Default,
+        };
+        let plan = crate::plan::planner::plan((&state, &files), &command).ok();
+        let marked = plan.and_then(|plan| plan.marking);
+        assert_eq!(marked, Some(IconTarget::Space(ProjectId::from("p"))));
     }
 }

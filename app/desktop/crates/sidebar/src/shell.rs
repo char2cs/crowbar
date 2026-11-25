@@ -25,6 +25,6 @@ pub use listing::{
 };
 pub use source::Source;
 pub use switcher::{
-    ActiveSpace, Focus, PaneFocus, Project, ProjectId, RunningAgent, ScopeSync, SpaceFacts,
-    SpaceIcon, SpaceList,
+    ActiveSpace, Focus, IconRequests, IconTarget, PaneFocus, Project, ProjectId, RunningAgent,
+    ScopeSync, SpaceFacts, SpaceIcon, SpaceList,
 };

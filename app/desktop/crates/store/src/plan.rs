@@ -33,6 +33,7 @@ pub(crate) struct Plan {
     pub(crate) needs_provider: bool,
     pub(crate) landing: Surface,
     pub(crate) committing: bool,
+    pub(crate) marking: Option<sidebar::IconTarget>,
     pub(crate) removal: Option<Removal>,
     pub(crate) failure: Option<String>,
     pub(crate) explained: Option<String>,
@@ -53,6 +54,7 @@ impl Plan {
             needs_provider: false,
             landing: Surface::Default,
             committing: false,
+            marking: None,
             removal: None,
             failure: None,
             explained: None,
@@ -108,6 +110,15 @@ impl Plan {
     #[must_use]
     pub(crate) fn committing(mut self) -> Self {
         self.committing = true;
+        self
+    }
+
+    #[must_use]
+    pub(crate) fn marking(
+        mut self,
+        target: sidebar::IconTarget,
+    ) -> Self {
+        self.marking = Some(target);
         self
     }
 

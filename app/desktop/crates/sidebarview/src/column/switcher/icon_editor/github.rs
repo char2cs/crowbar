@@ -3,6 +3,7 @@
 use std::rc::Rc;
 
 use gpui::Context;
+use gpui::prelude::FluentBuilder as _;
 use ui::{Button, ButtonSize, ButtonVariant, IconName};
 
 use super::{Act, IconEditor};
@@ -27,6 +28,7 @@ impl IconEditor {
             .size(ButtonSize::Xs)
             .variant(ButtonVariant::Muted)
             .grow()
+            .when(self.busy(cx), Button::disabled)
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.typing = false;
                 fetch(cx);
@@ -52,8 +54,9 @@ mod tests {
         let sink = Rc::clone(&fetched);
         let fetch: Act = Rc::new(move |_| sink.set(sink.get() + 1));
         cx.update(|cx| ui::init(cx).expect("ui installs"));
-        let (editor, cx) =
-            cx.add_window_view(|_, cx| IconEditor::new(Rc::new(|_, _| {}), cx).with_github(fetch));
+        let (editor, cx) = cx.add_window_view(|_, cx| {
+            IconEditor::new((Rc::new(|_, _| {}), Rc::new(|_| false)), cx).with_github(fetch)
+        });
         cx.run_until_parked();
         let row = cx.debug_bounds("icon-actions").unwrap_or_default();
         editor.update(cx, |this, _| this.typing = true);

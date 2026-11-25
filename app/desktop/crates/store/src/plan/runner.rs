@@ -34,16 +34,37 @@ pub(crate) async fn run(
     if let Some(row) = plan.pending.clone() {
         hub.edit(|state| state.add_local(row));
     }
-    if plan.committing {
-        hub.edit(|state| state.panels.committing = true);
+    let holding = plan.committing || plan.marking.is_some();
+    if holding {
+        hub.edit(|state| hold(state, &plan));
     }
     match (carry_out(hub, &plan).await, &plan.removal) {
         (Ok(answer), _) => finish(hub, (&plan, &answer), outcome).await,
         (Err(error), Some(removal)) => outcome(removal.refused(&error)),
         (Err(reason), None) => fail(hub, &plan, outcome, reason.to_string()),
     }
+    if holding {
+        hub.edit(|state| release(state, &plan));
+    }
+}
+
+fn hold(
+    state: &mut State,
+    plan: &Plan,
+) {
+    state.panels.committing |= plan.committing;
+    state.marking.extend(plan.marking.clone());
+}
+
+fn release(
+    state: &mut State,
+    plan: &Plan,
+) {
     if plan.committing {
-        hub.edit(|state| state.panels.committing = false);
+        state.panels.committing = false;
+    }
+    if let Some(target) = &plan.marking {
+        state.marking.remove(target);
     }
 }
 
@@ -369,6 +390,29 @@ mod tests {
         }
     }
 
+    async fn an_icon_target_is_busy_while_its_request_runs_and_free_when_it_ends_either_way() {
+        let (state, daemon) = state();
+        daemon.ok("PUT", "/v0/projects/p/icon/emoji", "{}");
+        let hub_of = Arc::new(std::sync::OnceLock::<std::sync::Weak<Hub>>::new());
+        let marks = Arc::new(Mutex::new(Vec::new()));
+        let (reader, heard) = (Arc::clone(&hub_of), Arc::clone(&marks));
+        let target = sidebar::IconTarget::Space(sidebar::ProjectId::from("p"));
+        let watched = target.clone();
+        let signal: crate::live::ChangeSignal = Arc::new(move || {
+            let hub = reader.get().and_then(std::sync::Weak::upgrade);
+            let busy = hub.map(|hub| hub.read(|state| state.marking.contains(&watched)));
+            heard.lock().unwrap().extend(busy);
+        });
+        let hub = Hub::new(state, signal);
+        hub_of.set(Arc::downgrade(&hub)).unwrap();
+        for path in ["emoji", "refused"] {
+            let call = Call::put(format!("/v0/projects/p/icon/{path}"));
+            let plan = Plan::of("local", vec![call]).marking(target.clone());
+            run(&hub, plan, &sink().0).await;
+        }
+        assert_eq!(*marks.lock().unwrap(), [true, false, true, false]);
+    }
+
     async fn a_created_folder_opens_its_name_for_editing() {
         let (state, daemon) = state();
         let made = r#"{"folder":{"id":"nf","title":"New folder"},"shifted":[]}"#;
@@ -411,7 +455,7 @@ mod tests {
 
     type Case = fn() -> std::pin::Pin<Box<dyn Future<Output = ()>>>;
 
-    const CASES: [Case; 9] = [
+    const CASES: [Case; 10] = [
         || Box::pin(a_branch_name_closes_its_input_when_taken_and_keeps_it_over_a_refusal()),
         || Box::pin(a_create_picks_an_agent_sends_its_call_and_opens_the_chat()),
         || {
@@ -425,6 +469,11 @@ mod tests {
         || Box::pin(selecting_a_created_space_makes_it_active()),
         || Box::pin(a_commit_is_marked_while_it_runs_and_unmarked_when_it_ends_either_way()),
         || Box::pin(a_created_folder_opens_its_name_for_editing()),
+        || {
+            Box::pin(
+                an_icon_target_is_busy_while_its_request_runs_and_free_when_it_ends_either_way(),
+            )
+        },
     ];
 
     async fn run_all() {

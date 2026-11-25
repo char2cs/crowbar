@@ -46,7 +46,7 @@ impl Sidebar {
                 .update(cx, |this, cx| this.stage_space_icon(icon, cx))
                 .unwrap_or_else(|error| tracing::debug!(%error, "sidebar closed before staging"));
         });
-        let editor = cx.new(|cx| IconEditor::new(staged, cx));
+        let editor = cx.new(|cx| IconEditor::new((staged, Rc::new(|_| false)), cx));
         let subscription = cx.subscribe_in(
             &name,
             window,

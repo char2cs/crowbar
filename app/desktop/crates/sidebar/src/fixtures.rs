@@ -3,6 +3,8 @@
 #[cfg(feature = "fixtures")]
 mod demo_shell;
 #[cfg(feature = "fixtures")]
+mod icon_reads;
+#[cfg(feature = "fixtures")]
 mod panel_reads;
 #[cfg(feature = "fixtures")]
 mod rows;

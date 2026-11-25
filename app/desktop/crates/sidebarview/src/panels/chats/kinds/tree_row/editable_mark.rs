@@ -6,7 +6,7 @@ use gpui::{
     AnyElement, App, Context, ElementId, Entity, InteractiveElement as _, IntoElement, MouseButton,
     ParentElement, Pixels, SharedString, Styled, WeakEntity, Window, div,
 };
-use sidebar::{AvatarTint, Command, Mark, Row, RowId, SpaceIcon};
+use sidebar::{AvatarTint, Command, IconTarget, Mark, Row, RowId, SpaceIcon};
 use ui::{Placement, Popover};
 
 use crate::column::switcher::IconEditor;
@@ -51,7 +51,13 @@ fn repo_editor(
     row: RowId,
     cx: &mut Context<'_, IconEditor>,
 ) -> IconEditor {
-    let (picker, fetcher) = (sidebar.clone(), row.clone());
+    let (picker, fetcher, reader) = (sidebar.clone(), row.clone(), sidebar.clone());
+    let target = IconTarget::Repo(row.clone());
+    let busy = Rc::new(move |cx: &App| {
+        reader
+            .upgrade()
+            .is_some_and(|this| this.read(cx).data.icon_busy(&target))
+    });
     let pick = Rc::new(move |icon: SpaceIcon, cx: &mut App| {
         let row = row.clone();
         send(&picker, Command::SetRepoIcon { row, icon }, cx);
@@ -59,7 +65,7 @@ fn repo_editor(
     let fetch = Rc::new(move |cx: &mut App| {
         send(&sidebar, Command::UseGithubAvatar(fetcher.clone()), cx);
     });
-    IconEditor::new(pick, cx).with_github(fetch)
+    IconEditor::new((pick, busy), cx).with_github(fetch)
 }
 
 fn keyed_editor(
@@ -144,6 +150,37 @@ mod tests {
             icon: SpaceIcon::Emoji("⭐".into()),
         };
         assert_eq!(floating.recorder.sent(), vec![want]);
+    }
+
+    #[gpui::test]
+    fn a_repo_popover_takes_no_press_while_a_request_for_its_icon_runs(cx: &mut TestAppContext) {
+        let busy = IconTarget::Repo(RowId::from("demo"));
+        let data = DemoShell::reference().with_busy_icon(busy);
+        let mut floating = crate::test_support::open_floating(cx, data);
+        let mark = floating
+            .window
+            .debug_bounds("repo-mark")
+            .unwrap_or_default();
+        floating
+            .window
+            .simulate_click(mark.center(), Modifiers::none());
+        floating.window.run_until_parked();
+        let actions = floating
+            .top
+            .debug_bounds("icon-actions")
+            .unwrap_or_default();
+        let github = point(actions.right() - px(4.0), actions.center().y);
+        for press in [actions.center(), github] {
+            floating.top.simulate_click(press, Modifiers::none());
+        }
+        floating.top.simulate_input("⭐");
+        floating.top.simulate_keystrokes("enter");
+        floating.top.run_until_parked();
+        assert_eq!(
+            floating.recorder.sent(),
+            Vec::new(),
+            "Emoji and GitHub are disabled, as develop's while loading"
+        );
     }
 
     #[test]
