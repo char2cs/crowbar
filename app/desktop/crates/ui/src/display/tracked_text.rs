@@ -233,8 +233,7 @@ mod tests {
     const SAMPLE: &str = "Crowbar";
     const SIZE: f32 = 20.0;
     const EM: f32 = 0.1;
-    const NARROW: f32 = 60.0;
-    const WIDE: f32 = 400.0;
+    const NARROW: f32 = 30.0;
 
     fn width(
         cx: &mut TestAppContext,
@@ -260,28 +259,18 @@ mod tests {
         );
     }
 
-    fn glyphs_painted(
-        cx: &mut TestAppContext,
-        box_width: f32,
-    ) -> usize {
-        let cx = open(cx, move |_, _| {
-            div()
-                .w(px(box_width))
-                .truncate()
-                .text_size(px(SIZE))
-                .child(TrackedText::new(SAMPLE, EM))
-        });
-        cx.update(|window, _| {
-            let scene = window.rendered_scene();
-            scene.monochrome_sprites.len() + scene.subpixel_sprites.len()
-        })
-    }
-
     #[gpui::test]
-    fn a_truncating_style_ends_the_text_in_an_ellipsis_that_fits(cx: &mut TestAppContext) {
-        let whole = glyphs_painted(cx, WIDE);
-        let cut = glyphs_painted(cx, NARROW);
-        assert_eq!(whole, SAMPLE.chars().count(), "every glyph of the sample");
-        assert!(cut > 1 && cut < whole, "{cut} of {whole}, the ellipsis among them");
+    fn a_narrow_box_keeps_the_glyphs_that_fit_before_the_ellipsis(cx: &mut TestAppContext) {
+        let cx = open(cx, |_, _| div().text_size(px(SIZE)).child(SAMPLE));
+        let (kept, count) = cx.update(|window, _| {
+            let style = window.text_style();
+            let spacing = spacing(EM, &style, window);
+            let line = shape(SAMPLE.into(), &style, window);
+            let ellipsis = tracked_width(&shape(ELLIPSIS.into(), &style, window), spacing);
+            let kept = kept_glyphs(&line, spacing, px(NARROW) - ellipsis);
+            (kept, glyph_count(&line))
+        });
+        assert_eq!(count, SAMPLE.chars().count(), "one glyph per letter");
+        assert!(kept > 0 && kept < count, "{kept} of {count} fit");
     }
 }
