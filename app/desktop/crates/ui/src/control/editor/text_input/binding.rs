@@ -1,9 +1,10 @@
 //! Wires the keyboard actions of [`TextInput`] to its commands.
 
+pub(crate) mod actions;
+
 use gpui::{Context, Div, InteractiveElement, Stateful};
 
 use crate::control::editor::text_input::TextInput;
-use crate::control::editor::text_input::actions;
 use crate::control::editor::text_input_event::TextInputEvent;
 use crate::foundation::Direction;
 

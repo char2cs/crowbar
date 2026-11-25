@@ -1,6 +1,8 @@
 //! Where the toast column of a [`crate::ToastQueue`] sits.
 
-use crate::display::toast::toast_queue::toast_side::ToastSide;
+pub(super) mod toast_side;
+
+use crate::display::toast::toast_queue::toast_placement::toast_side::ToastSide;
 
 const DOCKED_LIMIT: usize = 3;
 

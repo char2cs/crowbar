@@ -1,9 +1,11 @@
 //! What a toast column shows and the swipe that dismisses a toast.
 
+pub(super) mod swipe;
+
 use gpui::{Context, Pixels, Point};
 
 use super::ToastQueue;
-use crate::display::toast::toast_queue::swipe::Swipe;
+use crate::display::toast::toast_queue::surface::swipe::Swipe;
 use crate::display::toast::toast_queue::toast_id::ToastId;
 use crate::display::toast::toast_queue::toast_placement::ToastPlacement;
 

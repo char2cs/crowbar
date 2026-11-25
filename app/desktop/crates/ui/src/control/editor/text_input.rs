@@ -1,25 +1,20 @@
 //! A single-line text field with selection, clipboard and input-method support.
 
-pub(crate) mod actions;
-mod binding;
-mod caret_scroll;
+pub(crate) mod binding;
 mod commands;
 mod fields;
 mod input_method;
-mod layout;
 mod line_element;
-mod line_surface;
 mod mouse;
 mod render;
-mod scroll;
 mod select_all;
 
-pub(crate) use actions::{
+pub(crate) use binding::actions::{
     Backspace, Cancel, Copy, Cut, Delete, End, Home, Left, Paste, Right, SelectAll, SelectLeft,
     SelectRight, Submit, bindings, word_bindings,
 };
-pub(crate) use caret_scroll::CARET_WIDTH;
 pub(crate) use line_element::PLACEHOLDER_OPACITY;
+pub(crate) use line_element::caret_scroll::CARET_WIDTH;
 
 use gpui::AppContext as _;
 use gpui::{

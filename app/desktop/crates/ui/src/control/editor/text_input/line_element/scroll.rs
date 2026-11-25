@@ -2,7 +2,7 @@
 
 use gpui::{Bounds, ContentMask, Pixels, ShapedLine, point, px, size};
 
-use crate::control::editor::text_input::caret_scroll::{CARET_WIDTH, CaretScroll};
+use crate::control::editor::text_input::line_element::caret_scroll::{CARET_WIDTH, CaretScroll};
 
 const CLIP_LINES: f32 = 3.0;
 

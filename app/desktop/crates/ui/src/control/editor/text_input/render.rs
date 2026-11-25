@@ -71,7 +71,7 @@ impl TextInput {
     ) -> gpui::Stateful<gpui::Div> {
         div()
             .id("ui-text-input")
-            .key_context(crate::control::editor::text_input::actions::CONTEXT)
+            .key_context(crate::control::editor::text_input::binding::actions::CONTEXT)
             .track_focus(&self.focus_handle)
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))

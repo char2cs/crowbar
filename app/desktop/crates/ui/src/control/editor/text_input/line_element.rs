@@ -1,5 +1,10 @@
 //! Paints the text, selection and caret of a text field and registers its input handler.
 
+pub(super) mod caret_scroll;
+pub(super) mod layout;
+pub(super) mod line_surface;
+mod scroll;
+
 use std::ops::Range;
 
 use gpui::{
@@ -12,9 +17,8 @@ use crate::control::editor::field::Frame;
 use crate::control::editor::field::capture_pointer;
 use crate::control::editor::field::native_selection;
 use crate::control::editor::field::{band_frame, blinks, caret_frame, runs_for, tend};
-use crate::control::editor::text_input::caret_scroll::CARET_WIDTH;
-use crate::control::editor::text_input::line_surface::LineSurface;
-use crate::control::editor::text_input::scroll;
+use crate::control::editor::text_input::line_element::caret_scroll::CARET_WIDTH;
+use crate::control::editor::text_input::line_element::line_surface::LineSurface;
 use crate::foundation::Palette;
 use crate::foundation::Pose;
 use crate::foundation::WindowActivity;

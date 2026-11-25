@@ -3,7 +3,7 @@
 use gpui::{Pixels, Point, px};
 
 use crate::display::toast::toast_queue::toast_id::ToastId;
-use crate::display::toast::toast_queue::toast_side::ToastSide;
+use crate::display::toast::toast_queue::toast_placement::toast_side::ToastSide;
 
 const THRESHOLD: f32 = 40.0;
 

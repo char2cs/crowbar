@@ -12,7 +12,7 @@ use gpui::{Context, Div, InteractiveElement, Stateful};
 use crate::control::editor::text_area::TextArea;
 use crate::control::editor::text_area::binding::actions as area;
 use crate::control::editor::text_area::enter_key::EnterKey;
-use crate::control::editor::text_input::actions as shared;
+use crate::control::editor::text_input::binding::actions as shared;
 use crate::control::editor::text_input_event::TextInputEvent;
 use crate::foundation::Direction;
 

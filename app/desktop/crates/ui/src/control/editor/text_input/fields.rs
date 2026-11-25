@@ -8,9 +8,9 @@ use crate::control::editor::field::Focus;
 use crate::control::editor::field::Selection;
 use crate::control::editor::field::Text;
 use crate::control::editor::text_input::TextInput;
-use crate::control::editor::text_input::caret_scroll::CaretScroll;
-use crate::control::editor::text_input::layout::Layout;
-use crate::control::editor::text_input::line_surface::LineSurface;
+use crate::control::editor::text_input::line_element::caret_scroll::CaretScroll;
+use crate::control::editor::text_input::line_element::layout::Layout;
+use crate::control::editor::text_input::line_element::line_surface::LineSurface;
 
 impl LineSurface for TextInput {}
 

@@ -3,8 +3,8 @@
 use gpui::{Context, EventEmitter, SharedString};
 
 use crate::display::toast::toast_queue::entry::Entry;
-use crate::display::toast::toast_queue::swipe::Swipe;
-use crate::display::toast::toast_queue::toast_hold::ToastHold;
+use crate::display::toast::toast_queue::surface::swipe::Swipe;
+use crate::display::toast::toast_queue::timer::toast_hold::ToastHold;
 use crate::foundation::opaque_debug;
 use crate::foundation::tokens::timing;
 
@@ -23,25 +23,21 @@ pub struct ToastQueue {
 }
 
 mod entry;
-mod selection;
 mod surface;
-mod swipe;
 mod timer;
 mod toast_content;
-mod toast_hold;
 mod toast_id;
 mod toast_lifetime;
 mod toast_placement;
 mod toast_queue_event;
-mod toast_side;
 mod view;
 
 pub use toast_content::ToastContent;
 pub use toast_id::ToastId;
 pub use toast_lifetime::ToastLifetime;
 pub use toast_placement::ToastPlacement;
+pub use toast_placement::toast_side::ToastSide;
 pub use toast_queue_event::ToastQueueEvent;
-pub use toast_side::ToastSide;
 
 impl EventEmitter<ToastQueueEvent> for ToastQueue {}
 

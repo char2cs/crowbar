@@ -1,10 +1,12 @@
+pub(super) mod toast_hold;
+
 use std::time::{Duration, Instant};
 
 use gpui::{Context, Task, Window};
 
 use crate::display::toast::toast_queue::ToastQueue;
 use crate::display::toast::toast_queue::entry::Entry;
-use crate::display::toast::toast_queue::toast_hold::ToastHold;
+use crate::display::toast::toast_queue::timer::toast_hold::ToastHold;
 use crate::display::toast::toast_queue::toast_id::ToastId;
 use crate::foundation::Pose;
 use crate::foundation::WindowActivity;
@@ -146,7 +148,7 @@ mod tests {
     use gpui::TestAppContext;
 
     use crate::display::toast::test_support::{advance, push, queue};
-    use crate::display::toast::toast_queue::toast_hold::ToastHold;
+    use crate::display::toast::toast_queue::timer::toast_hold::ToastHold;
     use crate::display::toast::toast_queue::toast_id::ToastId;
     use crate::display::toast::toast_queue::toast_lifetime::ToastLifetime;
     use crate::foundation::tokens::timing;
