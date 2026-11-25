@@ -320,7 +320,7 @@ mod tests {
         cx.run_until_parked();
         cx.update(|window, cx| {
             let ring = Theme::of(cx).palette(Surface::default()).ring();
-            let shadows = window.painted_shadows();
+            let shadows = &window.rendered_scene().shadows;
             shadows.iter().filter(|s| s.color == ring).count()
         })
     }

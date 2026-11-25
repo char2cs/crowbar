@@ -1,5 +1,5 @@
-//! The patches in `app/desktop/vendor/patches/gpui` that only a real X11 window shows (CI's
-//! Xvfb), pinned so that a gpui upgrade which drops one fails here by name.
+//! What the shell needs of GPUI that only a real X11 window shows (CI's Xvfb), pinned so that a
+//! gpui upgrade which breaks one fails here by name.
 
 #[path = "xdnd_relay.rs"]
 mod xdnd_relay;
@@ -27,10 +27,6 @@ const WINDOW_PIXELS: u16 = 200;
 const ICON_SIDE: f32 = 96.0;
 const SAMPLE: &str = "Crowbar";
 const SAMPLE_SIZE: f32 = 32.0;
-const BRANCH: &str = "feature/pricing-rounding";
-/// The mono sizes of the tree's branch line and the branch pill, and `WebKitGTK`'s widths for
-/// `BRANCH` at them: each 0.6em advance rounded to a whole pixel (6.3 to 6, 7.8 to 8).
-const MONO_WIDTHS: [(f32, f32); 2] = [(10.5, 144.0), (13.0, 192.0)];
 const FRAME_WAIT: Duration = Duration::from_secs(20);
 const RED: u32 = 0x00ff_0000;
 /// A pixel counts as red when its red channel is at least this and the others at most `DARK`.
@@ -107,56 +103,6 @@ fn a_real_window_parents_paints_inherited_icon_colour_and_each_weight() {
         [true],
         "the window went inactive while its own child window held the keyboard"
     );
-}
-
-/// `whole-pixel-mono` (gpui-pre-wgpu): a fixed-pitch face advances a whole pixel per glyph, as
-/// `WebKitGTK` lays out the Tauri build's mono text, while proportional faces keep fractions.
-#[test]
-#[ignore = "needs display"]
-fn a_fixed_pitch_face_advances_a_whole_pixel_per_glyph() {
-    let (sender, measured) = mpsc::channel();
-    gpui_platform::application().run(move |cx| measure_mono(&sender, cx));
-    let widths = measured
-        .try_recv()
-        .expect("the probe window ran")
-        .expect("the probe window opened");
-    let webkit: Vec<f32> = MONO_WIDTHS.iter().map(|(_, width)| *width).collect();
-    assert_eq!(widths, webkit);
-}
-
-type Widths = mpsc::Sender<Result<Vec<f32>, String>>;
-
-fn measure_mono(
-    sender: &Widths,
-    cx: &mut App,
-) {
-    let opened = ui::font::register(cx)
-        .map_err(|error| format!("the embedded fonts: {error}"))
-        .and_then(|()| open_mono_window(sender, cx));
-    if let Err(error) = opened {
-        sender.send(Err(error)).unwrap_or_default();
-        cx.quit();
-    }
-}
-
-fn open_mono_window(
-    sender: &Widths,
-    cx: &mut App,
-) -> Result<(), String> {
-    cx.open_window(WindowOptions::default(), |window, cx| {
-        sender.send(Ok(mono_widths(window))).unwrap_or_default();
-        window.on_next_frame(|_, cx| cx.quit());
-        cx.new(|_| IconProbe { colour: RED })
-    })
-    .map(|_| ())
-    .map_err(|error| format!("opening the probe window: {error}"))
-}
-
-fn mono_widths(window: &Window) -> Vec<f32> {
-    MONO_WIDTHS
-        .iter()
-        .map(|(size, _)| text_width(window, (font(ui::font::MONO_FAMILY), BRANCH, *size)))
-        .collect()
 }
 
 type Report = mpsc::Sender<Result<Seen, String>>;
@@ -415,7 +361,6 @@ fn text_width(
         background_color: None,
         underline: None,
         strikethrough: None,
-        letter_spacing: gpui::Pixels::ZERO,
     };
     let layout = window
         .text_system()

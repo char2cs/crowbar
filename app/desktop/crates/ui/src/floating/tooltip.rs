@@ -145,7 +145,7 @@ impl Tooltip {
             .focus
             .as_ref()
             .is_some_and(|focus| focus.is_focused(window));
-        focused && window.last_press_was_keyboard()
+        focused && window.last_input_was_keyboard()
     }
 }
 
@@ -456,47 +456,6 @@ mod tests {
         assert!(
             card.origin.y >= trigger.bottom(),
             "{card:?} below {trigger:?}"
-        );
-        assert!(top.update(|window, _| window.input_region().is_empty()));
-    }
-
-    #[gpui::test]
-    fn without_a_compositor_the_card_shows_to_its_rounded_corners(cx: &mut TestAppContext) {
-        let (mut owner, mut top) = open_floating(cx, |_, _| {
-            Tooltip::new("t", "Settings", Button::icon_only("b", IconName::Gear))
-        });
-        owner.update(|_, cx| cx.set_global(Motion::reduced()));
-        owner.simulate_mouse_move(point(px(10.0), px(10.0)), None, gpui::Modifiers::none());
-        owner.run_until_parked();
-        owner.simulate_mouse_move(point(px(11.0), px(11.0)), None, gpui::Modifiers::none());
-        owner.run_until_parked();
-        let card = top.debug_bounds("tooltip-card").unwrap_or_default();
-        let content = top.update(|window, _| window.content_region().to_vec());
-        let shows = |x: f32, y: f32| {
-            let at = point(card.left() + px(x), card.top() + px(y));
-            content.iter().any(|bounds| bounds.contains(&at))
-        };
-        let (width, height) = (f32::from(card.size.width), f32::from(card.size.height));
-        let inside = [
-            (width / 2.0, height / 2.0),
-            (0.5, height / 2.0),
-            (width - 0.5, height / 2.0),
-            (width / 2.0, 0.5),
-            (width / 2.0, height - 0.5),
-        ];
-        let corners = [
-            (0.5, 0.5),
-            (width - 0.5, 0.5),
-            (0.5, height - 0.5),
-            (width - 0.5, height - 0.5),
-        ];
-        assert!(
-            inside.iter().all(|(x, y)| shows(*x, *y)),
-            "{card:?} shows to its edges: {content:?}"
-        );
-        assert!(
-            !corners.iter().any(|(x, y)| shows(*x, *y)),
-            "{card:?} leaves out its corner pixels: {content:?}"
         );
     }
 }

@@ -220,7 +220,7 @@ mod tests {
         owner.run_until_parked();
         assert!(owner.debug_bounds("popover-body").is_none());
         assert!(top.debug_bounds("popover-body").is_some());
-        assert!(top.update(|window, _| window.takes_keys()));
+        assert!(top.update(|window, cx| window.focused(cx).is_some()));
         top.simulate_keystrokes("escape");
         settle(&mut top);
         assert!(top.debug_bounds("popover-body").is_none());

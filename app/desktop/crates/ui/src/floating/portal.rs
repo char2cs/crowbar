@@ -1,19 +1,19 @@
-//! The element through which a floating element reaches the top layer.
+//! The element through which a floating element paints above the rest of its window.
 
 use std::rc::Rc;
 
-use gpui::{
-    App, Bounds, ElementId, Entity, IntoElement, Pixels, RenderOnce, Styled, Window, canvas, div,
-};
+use gpui::{App, Bounds, ElementId, IntoElement, Pixels, RenderOnce, Window};
 
-use crate::floating::TopLayer;
-use crate::floating::top_layer::{Build, Layer, Reach, Registry, Slot};
+use crate::floating::portal::layer::{Build, Layer};
+use crate::floating::portal::reach::Reach;
 use crate::foundation::opaque_debug;
-use crate::foundation::tokens::layer;
+use crate::foundation::tokens::layer as paint_order;
 
-/// Paints what it builds in the window's [`crate::TopLayer`], above native web views, either
-/// where the portal itself sits or over the whole window. A window without a top layer, such
-/// as the top layer itself or a test window, paints it above the rest of the window instead.
+mod layer;
+mod reach;
+
+/// Paints what it builds above the rest of its window, either where the portal itself sits or
+/// over the whole window. It paints in the window itself, so native web views still cover it.
 ///
 /// The content is built in the window that paints it, so it captures entities and values,
 /// not elements.
@@ -31,7 +31,7 @@ impl Portal {
         id: impl Into<ElementId>,
         build: impl Fn(&mut Window, &mut App) -> E + 'static,
     ) -> Self {
-        Self::new(id.into(), Reach::Here(Bounds::default()), build)
+        Self::new(id.into(), Reach::Here, build)
     }
 
     pub(crate) fn here_sized<E: IntoElement>(
@@ -40,12 +40,11 @@ impl Portal {
     ) -> Self {
         let build: Build =
             Rc::new(move |bounds, window, cx| build(bounds, window, cx).into_any_element());
-        Self::built(id.into(), Reach::Here(Bounds::default()), build)
+        Self::built(id.into(), Reach::Here, build)
     }
 
     /// Paints `build` at the portal's own bounds like [`Portal::here`], for the view a drag
-    /// shows under the pointer. Every window draws the dragged view, so it paints only in the
-    /// owner's top layer, or in place in a window without one.
+    /// shows under the pointer; it paints in place, not deferred.
     pub fn lifted<E: IntoElement>(
         id: impl Into<ElementId>,
         build: impl Fn(&mut Window, &mut App) -> E + 'static,
@@ -61,8 +60,8 @@ impl Portal {
         Self::new(id.into(), Reach::Window, build)
     }
 
-    /// Paints `build` over the whole window like [`Portal::window`], but without a top layer it
-    /// paints in place rather than deferred, so `build` may hold portals of its own: make it
+    /// Paints `build` over the whole window like [`Portal::window`], but in place rather than
+    /// deferred, so `build` may hold portals of its own: make it
     /// the last child of the window's root, as a modal layer is.
     pub fn cover<E: IntoElement>(
         id: impl Into<ElementId>,
@@ -88,7 +87,7 @@ impl Portal {
         Self {
             id,
             reach,
-            priority: layer::OVERLAY,
+            priority: paint_order::OVERLAY,
             build,
         }
     }
@@ -119,30 +118,7 @@ impl RenderOnce for Portal {
         cx: &mut App,
     ) -> impl IntoElement {
         let layer = self.layer();
-        let in_top_layer = window.root::<TopLayer>().flatten().is_some();
-        if in_top_layer && layer.reach == Reach::Lifted {
-            return div().into_any_element();
-        }
-        let Some(layers) = Registry::of(window, cx) else {
-            return layer.inline(window, cx);
-        };
-        let held = Rc::clone(&layers);
-        let slot: Entity<Slot> = window.use_keyed_state(self.id, cx, |_, cx| Slot::new(held, cx));
-        let slot = slot.entity_id();
-        canvas(
-            move |bounds, window, cx| {
-                let reach = match layer.reach {
-                    Reach::Here(_) | Reach::Lifted => Reach::Here(bounds),
-                    reach => reach,
-                };
-                let layer = Layer { reach, ..layer };
-                layers.place((slot, layer), window.focused(cx), cx);
-            },
-            |_, (), _, _| {},
-        )
-        .absolute()
-        .size_full()
-        .into_any_element()
+        window.with_element_namespace(self.id, |window| layer.inline(window, cx))
     }
 }
 
@@ -151,7 +127,7 @@ opaque_debug!(Portal);
 #[cfg(test)]
 mod tests {
     use gpui::{
-        InteractiveElement, MouseButton, ParentElement, Point, TestAppContext, div, point, px,
+        InteractiveElement, ParentElement, Point, Styled, TestAppContext, div, point, px,
     };
 
     use super::*;
@@ -190,16 +166,6 @@ mod tests {
     }
 
     #[gpui::test]
-    fn the_top_layer_takes_clicks_only_where_a_floating_element_does(cx: &mut TestAppContext) {
-        let clickable =
-            |_: &mut Window, _: &mut App| floated().on_mouse_down(MouseButton::Left, |_, _, _| {});
-        let (_, mut top) = open_floating(cx, move |_, _| trigger(Portal::here("p", clickable)));
-        let region = top.update(|window, _| window.input_region().to_vec());
-        let painted = top.debug_bounds("floated").unwrap_or_default();
-        assert_eq!(region, vec![painted]);
-    }
-
-    #[gpui::test]
     fn a_portal_that_stops_rendering_leaves_the_top_layer(cx: &mut TestAppContext) {
         let shown = Rc::new(std::cell::Cell::new(true));
         let showing = Rc::clone(&shown);
@@ -215,60 +181,10 @@ mod tests {
     }
 
     #[gpui::test]
-    fn the_top_layer_is_shown_only_while_a_portal_floats_something(cx: &mut TestAppContext) {
-        let shown = Rc::new(std::cell::Cell::new(false));
-        let showing = Rc::clone(&shown);
-        let (mut owner, mut top) = open_floating(cx, move |_, _| {
-            let portal = showing.get().then(|| Portal::here("p", |_, _| floated()));
-            div().children(portal)
-        });
-        assert!(
-            !top.update(|window, _| window.is_overlay_shown()),
-            "idle: hidden"
-        );
-        shown.set(true);
-        owner.update(|window, _| window.refresh());
-        settle(&mut owner);
-        assert!(
-            top.update(|window, _| window.is_overlay_shown()),
-            "floating: shown"
-        );
-        shown.set(false);
-        owner.update(|window, _| window.refresh());
-        settle(&mut owner);
-        assert!(
-            !top.update(|window, _| window.is_overlay_shown()),
-            "idle again: hidden"
-        );
-    }
-
-    #[gpui::test]
     fn without_a_top_layer_the_window_paints_the_portal_itself(cx: &mut TestAppContext) {
         let cx = crate::test_support::probe::open(cx, |_, _| {
             trigger(Portal::here("p", |_, _| floated()))
         });
         assert!(cx.debug_bounds("floated").is_some());
-    }
-
-    fn underline(alpha: f32) -> impl IntoElement {
-        let style = gpui::UnderlineStyle {
-            thickness: px(2.0),
-            color: Some(gpui::hsla(0.0, 0.0, 1.0, alpha)),
-            wavy: false,
-        };
-        let paint = move |bounds: Bounds<Pixels>, (), window: &mut Window, _: &mut App| {
-            window.paint_underline(bounds.origin, bounds.size.width, &style);
-        };
-        canvas(|_, _, _| {}, paint).w(px(30.0)).h(px(10.0))
-    }
-
-    #[gpui::test]
-    fn translucent_ink_is_left_out_of_the_top_layer_s_content(cx: &mut TestAppContext) {
-        for (alpha, shows) in [(1.0, true), (0.5, false)] {
-            let ink = move |_: &mut Window, _: &mut App| underline(alpha);
-            let (_, mut top) = open_floating(cx, move |_, _| trigger(Portal::here("p", ink)));
-            let content = top.update(|window, _| window.content_region().to_vec());
-            assert_eq!(!content.is_empty(), shows, "alpha {alpha}: {content:?}");
-        }
     }
 }

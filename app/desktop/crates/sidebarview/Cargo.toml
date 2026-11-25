@@ -26,7 +26,7 @@ ui.workspace = true
 
 [dev-dependencies]
 sidebar = { workspace = true, features = ["fixtures"] }
-gpui = { workspace = true, features = ["test-support"] }
+gpui = { workspace = true, features = ["bench-support", "test-support"] }
 
 [lints]
 workspace = true

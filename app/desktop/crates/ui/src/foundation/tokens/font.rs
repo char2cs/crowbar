@@ -138,7 +138,6 @@ mod tests {
         let run = gpui::FontRun {
             len: SNOWMAN.len_utf8(),
             font_id: primary,
-            letter_spacing: gpui::px(0.0),
         };
         let line = system.layout_line(&SNOWMAN.to_string(), gpui::px(16.0), &[run]);
         let face = line.runs.first().map(|run| run.font_id).expect("one run");

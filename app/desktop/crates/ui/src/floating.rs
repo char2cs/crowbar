@@ -1,7 +1,6 @@
-//! Everything painted above the window: the top layer and its portals, popovers, dialogs, menus,
+//! Everything painted above the window: portals, popovers, dialogs, menus,
 //! tooltips and drag ghosts.
 
-mod backdrop;
 mod dialog;
 mod drag_ghost;
 mod menu;
@@ -13,9 +12,7 @@ mod tab_preview;
 mod tooltip;
 mod tooltip_claim;
 mod tooltip_side;
-mod top_layer;
 
-pub use backdrop::Backdrop;
 pub(crate) use dialog::bindings as dialog_bindings;
 pub use dialog::{Dialog, DialogExtent, DialogSize, DialogStyle, HeaderFlow};
 pub use drag_ghost::DragGhost;
@@ -32,4 +29,3 @@ pub use portal::Portal;
 pub use tab_preview::TabPreview;
 pub use tooltip::Tooltip;
 pub use tooltip_side::TooltipSide;
-pub use top_layer::TopLayer;

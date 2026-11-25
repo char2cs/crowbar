@@ -4,7 +4,7 @@ use std::ops::Range;
 
 use gpui::{
     App, Bounds, Element, ElementId, ElementInputHandler, Entity, GlobalElementId, Hsla,
-    InspectorElementId, IntoElement, LayoutId, Pixels, Point, ShapedLine, SharedString, Style,
+    InspectorElementId, LayoutId, Pixels, Point, ShapedLine, SharedString, Style,
     TextAlign, TextRun, Window, fill, point, px, relative, size,
 };
 
@@ -95,7 +95,6 @@ impl<S: LineSurface> LineElement<S> {
             background_color: None,
             underline: None,
             strikethrough: None,
-            letter_spacing: Pixels::ZERO,
         };
         let marked = input.marked_range().filter(|_| !empty);
         let runs = runs_for(shown.len(), marked, &base);
@@ -105,14 +104,6 @@ impl<S: LineSurface> LineElement<S> {
             &runs,
             None,
         )
-    }
-}
-
-impl<S: LineSurface> IntoElement for LineElement<S> {
-    type Element = Self;
-
-    fn into_element(self) -> Self::Element {
-        self
     }
 }
 

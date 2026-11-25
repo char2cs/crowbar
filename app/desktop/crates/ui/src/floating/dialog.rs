@@ -249,7 +249,7 @@ impl RenderOnce for Dialog {
             focus.clone(),
             self.on_close.clone(),
         );
-        let (still, veil) = veil::layers((id.clone(), "backdrop"), viewport, window, cx);
+        let veil = veil::layer(viewport);
         let mut dialog = self;
         dialog.header.close_focus = Some(focus.close);
         let popup = dialog.popup(theme, viewport);
@@ -271,7 +271,7 @@ impl RenderOnce for Dialog {
             .with_animation((id, "fade"), fade(cx), Styled::opacity);
         anchored()
             .position(point(px(0.0), px(0.0)))
-            .child(div().children(still).child(layer))
+            .child(layer)
     }
 }
 
@@ -488,7 +488,7 @@ mod tests {
     fn focus_starts_on_the_close_button_where_return_does_nothing(cx: &mut TestAppContext) {
         let (log, mut top) = open_confirm(cx);
         assert!(
-            top.update(|window, _| window.takes_keys()),
+            top.update(|window, cx| window.focused(cx).is_some()),
             "the dialog has focus"
         );
         press(&mut top, "enter");

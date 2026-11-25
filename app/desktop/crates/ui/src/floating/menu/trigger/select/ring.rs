@@ -47,7 +47,7 @@ mod tests {
         cx.update(|window, cx| {
             let ring = Theme::of(cx).palette(Surface::default()).ring();
             let ring = ring.opacity(opacity::PERCENT_24);
-            let shadows = window.painted_shadows();
+            let shadows = &window.rendered_scene().shadows;
             shadows.iter().filter(|shadow| shadow.color == ring).count()
         })
     }

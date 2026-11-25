@@ -1,6 +1,5 @@
-//! What the shell takes from the patches in `app/desktop/vendor/patches/gpui`, pinned so that a
-//! gpui upgrade which drops one fails here by name. Each test names the patch it pins; the ones
-//! that need a real window are in `support/on_x11.rs`.
+//! What the shell needs of GPUI, pinned so that a gpui upgrade which breaks one fails here by
+//! name. The ones that need a real window are in `support/on_x11.rs`.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -22,8 +21,6 @@ const ELLIPSIS: char = '…';
 const ROW_WIDTH: f32 = 120.0;
 const PROBE_SIDE: f32 = 40.0;
 const INSIDE: f32 = 10.0;
-const SPACED: &str = "Crowbar Seed";
-const LETTER_SPACING: f32 = 2.0;
 /// `WebKitGTK`'s wheel step (`Scrollbar::pixelsPerLineStep`) for a click: `pow(h, 2/3)` of the
 /// view's height, measured on the rig at 800 and 600 px.
 #[cfg(target_os = "linux")]
@@ -105,43 +102,6 @@ fn leaving_the_window_ends_the_hover(cx: &mut TestAppContext) {
         modifiers: Modifiers::none(),
     });
     assert!(!hovered.get(), "the pointer left the window");
-}
-
-struct SpacedLines(Rc<RefCell<Vec<TextLayout>>>);
-
-impl Render for SpacedLines {
-    fn render(
-        &mut self,
-        _: &mut Window,
-        _: &mut Context<'_, Self>,
-    ) -> impl IntoElement {
-        let plain = StyledText::new(SPACED);
-        let spaced = StyledText::new(SPACED);
-        *self.0.borrow_mut() = vec![plain.layout().clone(), spaced.layout().clone()];
-        div()
-            .flex()
-            .flex_col()
-            .items_start()
-            .child(plain)
-            .child(div().letter_spacing(px(LETTER_SPACING)).child(spaced))
-    }
-}
-
-/// `letter-spacing`: a text with letter spacing grows by the spacing after each glyph, as CSS
-/// `letter-spacing` lays it out (develop's `tracking-*`).
-#[gpui::test]
-fn letter_spacing_adds_its_space_after_every_glyph(cx: &mut TestAppContext) {
-    let layouts = Rc::new(RefCell::new(Vec::new()));
-    let (_, cx) = cx.add_window_view(|_, _| SpacedLines(Rc::clone(&layouts)));
-    cx.run_until_parked();
-    let widths: Vec<f32> = layouts
-        .borrow()
-        .iter()
-        .map(|layout| f32::from(layout.bounds().size.width))
-        .collect();
-    let glyphs = f32::from(u16::try_from(SPACED.chars().count()).expect("a short sample"));
-    assert_eq!(widths.len(), 2);
-    assert_eq!(widths[1] - widths[0], glyphs * LETTER_SPACING, "{widths:?}");
 }
 
 #[cfg(target_os = "linux")]

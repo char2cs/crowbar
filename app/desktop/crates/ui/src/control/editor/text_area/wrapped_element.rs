@@ -16,7 +16,7 @@ pub(crate) use wrapped_surface::WrappedSurface;
 
 use gpui::{
     App, AvailableSpace, Bounds, ContentMask, Element, ElementId, ElementInputHandler, Entity,
-    GlobalElementId, InspectorElementId, IntoElement, LayoutId, Pixels, Size, Style, Window, fill,
+    GlobalElementId, InspectorElementId, LayoutId, Pixels, Size, Style, Window, fill,
     point, px, relative, size,
 };
 
@@ -125,14 +125,6 @@ fn wrap_width(
         AvailableSpace::Definite(width) => Some(width),
         AvailableSpace::MinContent | AvailableSpace::MaxContent => None,
     })
-}
-
-impl<S: WrappedSurface> IntoElement for WrappedElement<S> {
-    type Element = Self;
-
-    fn into_element(self) -> Self::Element {
-        self
-    }
 }
 
 impl<S: WrappedSurface> Element for WrappedElement<S> {

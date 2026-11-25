@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, AnyWindowHandle, App, Bounds, Context, InteractiveElement, IntoElement,
+    AnyElement, App, Bounds, Context, InteractiveElement, IntoElement,
     ParentElement, Pixels, Render, Styled, TestAppContext, VisualTestContext, Window, div,
 };
 
@@ -52,38 +52,21 @@ pub(crate) fn open<E: IntoElement>(
     cx
 }
 
-/// Opens a window showing `build()` and its top layer; returns the window, then the top layer.
+/// Opens a window showing `build()`; returns the window, then the window its floating elements
+/// paint in. Both are the same window until floating elements get windows of their own
+/// (`docs/plans/2026-11-25-drop-vendored-gpui.md`, stage 2).
 pub(crate) fn open_floating<E: IntoElement>(
     cx: &mut TestAppContext,
     build: impl Fn(&mut Window, &mut App) -> E + 'static,
 ) -> (VisualTestContext, VisualTestContext) {
-    cx.update(|cx| {
-        cx.set_global(Theme::default());
-        cx.set_global(Motion::default());
-        cx.bind_keys(crate::floating::menu_bindings());
-        cx.bind_keys(crate::floating::popover_bindings());
-        cx.bind_keys(crate::floating::dialog_bindings());
-        cx.bind_keys(crate::control::text_input_bindings());
-    });
-    let build: Build = Rc::new(move |window, cx| build(window, cx).into_any_element());
-    let top = Rc::new(std::cell::RefCell::new(None));
-    let slot = Rc::clone(&top);
-    let owner: AnyWindowHandle = cx
-        .add_window(move |window, cx| {
-            slot.replace(Some(crate::floating::TopLayer::open(window, cx)));
-            Probe { build }
-        })
-        .into();
-    let top = top.take().expect("the owner was built");
-    let top = top.unwrap_or_else(|error| panic!("open the top layer: {error}"));
-    cx.run_until_parked();
+    let window = open(cx, build).update(|window, _| window.window_handle());
     (
-        VisualTestContext::from_window(owner, cx),
-        VisualTestContext::from_window(top, cx),
+        VisualTestContext::from_window(window, cx),
+        VisualTestContext::from_window(window, cx),
     )
 }
 
-/// Lets a closed floating element leave the top layer: the test platform draws inside an effect
+/// Lets a closed floating element go: the test platform draws inside an effect
 /// flush, so the state of a portal that stopped rendering is released on the next one.
 pub(crate) fn settle(cx: &mut VisualTestContext) {
     cx.update(|_, _| {});

@@ -15,7 +15,6 @@ fn run_of(text: &str) -> TextRun {
         background_color: None,
         underline: None,
         strikethrough: None,
-        letter_spacing: gpui::Pixels::ZERO,
     }
 }
 

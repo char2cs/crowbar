@@ -2,7 +2,7 @@
 
 use gpui::{
     App, BorderStyle, Bounds, Corners, Element, ElementId, GlobalElementId, Hsla,
-    InspectorElementId, IntoElement, LayoutId, PaintQuad, Pixels, ScrollHandle, Style, Window,
+    InspectorElementId, LayoutId, PaintQuad, Pixels, ScrollHandle, Style, Window,
     point, px, quad, relative, size, transparent_black,
 };
 
@@ -26,14 +26,6 @@ impl Scrollbar {
         color: Hsla,
     ) -> Self {
         Self { handle, color, id }
-    }
-}
-
-impl IntoElement for Scrollbar {
-    type Element = Self;
-
-    fn into_element(self) -> Self::Element {
-        self
     }
 }
 
