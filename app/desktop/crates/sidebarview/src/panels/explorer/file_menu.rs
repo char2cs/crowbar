@@ -1,7 +1,9 @@
 //! The context menu of a Files row.
 
 use gpui::{ClipboardItem, SharedString};
-use sidebar::{ClipMode, Command, FileAction, FileKind, Intent, MenuScope, NewEntry, PathText};
+use sidebar::{
+    ClipMode, Command, CopyNote, FileAction, FileKind, Intent, MenuScope, NewEntry, PathText,
+};
 use ui::{MenuAction, MenuItem};
 
 use crate::panels::explorer::file_tree_entry::FileTreeEntry;
@@ -92,11 +94,10 @@ fn shared_items(
     lines: &mut MenuLines,
     (entry, scope): (&FileTreeEntry, &MenuScope),
 ) {
-    lines.copy(
-        "Copy Path",
-        PathText::new(&entry.path).absolute(scope.root.as_deref()),
-    );
-    lines.copy("Copy Relative Path", relative(&entry.path));
+    let absolute = PathText::new(&entry.path).absolute(scope.root.as_deref());
+    lines.copy("Copy Path", (absolute, CopyNote::Path));
+    let relative = relative(&entry.path);
+    lines.copy("Copy Relative Path", (relative, CopyNote::RelativePath));
     let reveal = Command::RevealFile {
         path: entry.path.clone(),
     };
@@ -169,7 +170,7 @@ pub(crate) fn file_menu(
     file_items(entry, scope)
         .into_iter()
         .map(|item| match item {
-            Some(file_entry) => menu_row(file_entry, handler),
+            Some(file_entry) => menu_row(file_entry, (&entry.path, handler)),
             None => MenuItem::Separator,
         })
         .collect()
@@ -177,13 +178,14 @@ pub(crate) fn file_menu(
 
 fn menu_row(
     (label, action): FileEntry,
-    handler: &RowHandler,
+    (path, handler): (&str, &RowHandler),
 ) -> MenuItem {
-    let handler = std::rc::Rc::clone(handler);
+    let (path, handler) = (path.to_owned(), std::rc::Rc::clone(handler));
     let row = MenuAction::new(SharedString::from(label), move |window, cx| match &action {
         FileAction::Do(intent) => handler(RowAction::Intent(intent.clone()), window, cx),
-        FileAction::CopyText(text) => {
+        FileAction::CopyText(text, note) => {
             cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
+            handler(RowAction::Copied(path.clone(), *note), window, cx);
         },
     });
     MenuItem::Action(row)
@@ -356,10 +358,13 @@ mod tests {
     fn entries_carry_the_path_and_the_kind_of_the_row() {
         let file = entry(FileKind::File, "src/a.rs");
         let cases = [
-            ("Copy Path", FileAction::CopyText("/work/src/a.rs".into())),
+            (
+                "Copy Path",
+                FileAction::CopyText("/work/src/a.rs".into(), CopyNote::Path),
+            ),
             (
                 "Copy Relative Path",
-                FileAction::CopyText("src/a.rs".into()),
+                FileAction::CopyText("src/a.rs".into(), CopyNote::RelativePath),
             ),
             (
                 "Delete",
@@ -396,11 +401,11 @@ mod tests {
         let root = directory("");
         assert_eq!(
             action_of(&root, "Copy Path"),
-            Some(FileAction::CopyText("/work".into()))
+            Some(FileAction::CopyText("/work".into(), CopyNote::Path))
         );
         assert_eq!(
             action_of(&root, "Copy Relative Path"),
-            Some(FileAction::CopyText(".".into()))
+            Some(FileAction::CopyText(".".into(), CopyNote::RelativePath))
         );
     }
 

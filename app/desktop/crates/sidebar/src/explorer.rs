@@ -1,5 +1,6 @@
 //! The Files panel's behaviour: actions, clipboard, dialogs, keys, filtering and folder chains.
 
+mod copy_note;
 mod file_action;
 mod file_clipboard;
 mod file_dialog;
@@ -13,6 +14,7 @@ mod menu_scope;
 mod shell_answers;
 mod shifts;
 
+pub use copy_note::CopyNote;
 pub use file_action::FileAction;
 pub use file_clipboard::FileClipboard;
 pub use file_dialog::FileDialog;

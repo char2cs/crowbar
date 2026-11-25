@@ -1,5 +1,6 @@
 //! The Files panel.
 
+mod copy_flash;
 mod file_dialog_view;
 mod file_drop;
 mod file_menu;
@@ -120,6 +121,7 @@ impl Sidebar {
             input: self.row_input(),
             selected: self.highlighted(window, cx),
             cut: self.cut_paths(),
+            copied: self.copied.clone(),
             look: TreeLook::of(
                 &self.data.file_tree_view(),
                 self.search.as_ref().map(|search| search.query.as_str()),

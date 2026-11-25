@@ -31,6 +31,7 @@ impl Sidebar {
                 self.open_menu((foot_menu(&project), at), window, cx);
             },
             RowAction::Intent(intent) => self.apply(intent, window, cx),
+            RowAction::Copied(path, note) => self.flash_copied((path, note), cx),
             RowAction::Edge(pull) => self.pull_edge(pull, cx),
             RowAction::Press(press) => self.press_row(press),
             RowAction::DragOver(point) => self.drag_over(&point, cx),

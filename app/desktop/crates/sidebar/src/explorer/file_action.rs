@@ -1,5 +1,6 @@
 //! What choosing an entry of a file row's menu does.
 
+use crate::explorer::CopyNote;
 use crate::shell::Command;
 use crate::shell::Intent;
 use crate::shell::NewEntry;
@@ -9,8 +10,8 @@ use crate::shell::NewEntry;
 pub enum FileAction {
     /// Carry out the intent.
     Do(Intent),
-    /// Put the text, such as a path, on the system clipboard.
-    CopyText(String),
+    /// Put the path on the system clipboard, and note on the row which one it was.
+    CopyText(String, CopyNote),
 }
 
 fn create_probe(entry: NewEntry) -> Command {
@@ -65,7 +66,10 @@ mod tests {
             delete.command(),
             Some(Command::DeleteFile { path: "a".into() })
         );
-        assert_eq!(FileAction::CopyText("a".into()).command(), None);
+        assert_eq!(
+            FileAction::CopyText("a".into(), CopyNote::Path).command(),
+            None
+        );
         assert_eq!(
             FileAction::Do(Intent::ShowProperties("a".into())).command(),
             None

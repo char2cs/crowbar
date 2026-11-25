@@ -3,6 +3,7 @@
 pub(crate) mod badges;
 pub(crate) mod file_glyph;
 mod glyph;
+mod row_name;
 mod tree_guides;
 pub(crate) mod tree_look;
 
@@ -10,15 +11,13 @@ pub(crate) use tree_look::TreeLook;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, ClickEvent, Div, ElementId, FontWeight, HighlightStyle, InteractiveElement, IntoElement,
-    ParentElement, RenderOnce, SharedString, Stateful, StatefulInteractiveElement, Styled,
-    StyledText, Window, div, px,
+    App, ClickEvent, Div, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement,
+    RenderOnce, SharedString, Stateful, StatefulInteractiveElement, Styled, Window, div, px,
 };
-use sidebar::{Command, Expansion, FileKind, GitStatus, Intent, MenuScope};
+use sidebar::{Command, CopyNote, Expansion, FileKind, GitStatus, Intent, MenuScope};
 use ui::{ContextMenu, Icon, IconName, IconWeight, Palette, Surface, Theme, radius};
 
 use crate::panels::chats::RowInput;
-use crate::panels::chats::input_view;
 use crate::panels::chats::{ringed, row_focus};
 use crate::panels::explorer::file_drop;
 use crate::panels::explorer::file_menu::file_menu;
@@ -28,16 +27,18 @@ use crate::panels::explorer::file_tree_row::badges::{
 };
 pub use crate::panels::explorer::file_tree_row::file_glyph::FileGlyph;
 pub(crate) use crate::panels::explorer::file_tree_row::glyph::{glyph, pictured};
+use crate::panels::explorer::file_tree_row::row_name::shown_name;
 pub(crate) use crate::panels::explorer::file_tree_row::tree_guides::tree_guides;
 use crate::panels::explorer::search::highlight;
-use crate::sidebar::{ICON_MEDIUM, ICON_TINY, SPACE_SM, TEXT_BODY};
+use crate::sidebar::{ICON_MEDIUM, ICON_TINY, SPACE_SM, TEXT_BODY, TEXT_SMALL};
 use crate::sidebar::{RowAction, RowHandler};
 
 const BASE_PADDING: f32 = 6.0;
 const IGNORED_OPACITY: f32 = 0.5;
 const MATCH_TINT: f32 = 0.07;
-const HIGHLIGHT_TINT: f32 = 0.3;
 const CUT_OPACITY: f32 = 0.4;
+// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/file-explorer/file-explorer/components/file-explorer-tree-item.tsx
+const COPIED_INK: u32 = 0x0022_c55e;
 
 #[derive(IntoElement)]
 pub(crate) struct FileTreeRow {
@@ -46,9 +47,27 @@ pub(crate) struct FileTreeRow {
     pub(crate) input: Option<RowInput>,
     pub(crate) selected: bool,
     pub(crate) cut: bool,
+    pub(crate) note: Option<CopyNote>,
     pub(crate) look: TreeLook,
     pub(crate) scope: std::rc::Rc<MenuScope>,
     pub(crate) handler: RowHandler,
+}
+
+impl FileTreeRow {
+    fn filled(
+        &self,
+        row: Stateful<Div>,
+        matched: Option<&(String, std::ops::Range<usize>)>,
+        palette: &Palette,
+    ) -> Stateful<Div> {
+        let row = row.when(self.selected, |row| {
+            row.bg(palette.sidebar_element_idle())
+                .debug_selector(|| "file-selected".to_owned())
+        });
+        row.when(matched.is_some() && !self.selected, |row| {
+            row.bg(palette.accent().opacity(MATCH_TINT))
+        })
+    }
 }
 
 impl RenderOnce for FileTreeRow {
@@ -59,32 +78,28 @@ impl RenderOnce for FileTreeRow {
     ) -> impl IntoElement {
         let mono = Theme::of(cx).mono_family();
         let palette = Theme::of(cx).palette(Surface::Chrome);
-        let entry = self.entry;
+        let entry = self.entry.clone();
         let id = ElementId::from(SharedString::from(format!("file-{}", entry.path)));
-        let letter = entry.status.letter().map(|l| letter_badge(l, mono));
         let matched = matched_range(&entry.name, &self.look);
-        let name = name_cell(&entry, self.input.as_ref(), (mono, palette));
-        let name = match (&matched, self.input.is_some()) {
-            (Some((_, range)), false) => highlighted(&entry.name, range.clone(), palette),
-            _ => name,
-        };
+        let name = shown_name(
+            (&entry, self.input.as_ref()),
+            matched.as_ref(),
+            (mono, palette),
+        );
         let pictured = pictured(&entry, self.input.as_ref());
         let focus = row_focus(&id, window, cx);
-        let shaped = frame(id, &entry, (&self.look, palette)).when(self.selected, |row| {
-            row.bg(palette.sidebar_element_idle())
-                .debug_selector(|| "file-selected".to_owned())
-        });
-        let tinted = shaped.when(matched.is_some() && !self.selected, |row| {
-            row.bg(palette.accent().opacity(MATCH_TINT))
-        });
-        let tinted = tinted.when(self.cut, |row| row.italic().opacity(CUT_OPACITY));
+        let shaped = frame(id, &entry, (&self.look, palette));
+        let tinted = self.filled(shaped, matched.as_ref(), palette);
+        let letter = entry.status.letter().map(|l| letter_badge(l, mono));
         let guides = tree_guides((entry.depth, self.neighbours), (&self.look, palette));
         let row = ringed(tinted, &focus, palette)
+            .when(self.cut, |row| row.italic().opacity(CUT_OPACITY))
             .children(guides)
             .child(chevron(&pictured, palette))
             .child(glyph(&pictured, (&self.look, palette), cx))
             .child(labelled(name, letter))
             .children(trailing_counts(&entry, (mono, &self.look), palette))
+            .children(self.note.map(copy_note))
             .on_drop(file_drop::on_drop(
                 &self.handler,
                 file_drop::drop_directory(&entry),
@@ -105,6 +120,14 @@ fn trailing_counts(
 ) -> Option<Div> {
     let counts = entry.counts?;
     Some(counts_view(counts, (mono, count_gap(look)), palette))
+}
+
+fn copy_note(note: CopyNote) -> Div {
+    div()
+        .flex_none()
+        .text_size(TEXT_SMALL)
+        .text_color(gpui::rgb(COPIED_INK))
+        .child(note.text())
 }
 
 fn menu_id(entry: &FileTreeEntry) -> SharedString {
@@ -136,21 +159,6 @@ pub(crate) fn frame(
         .hover(move |style| style.bg(palette.sidebar_element_idle()))
 }
 
-fn name_cell(
-    entry: &FileTreeEntry,
-    input: Option<&RowInput>,
-    look: (&'static str, &Palette),
-) -> Div {
-    match input {
-        Some(input) => div().flex_1().min_w_0().child(input_view(input, look)),
-        None => div()
-            .debug_selector(|| "file-name".into())
-            .min_w_0()
-            .truncate()
-            .child(entry.name.clone()),
-    }
-}
-
 fn select_then(
     handler: &RowHandler,
     entry: FileTreeEntry,
@@ -172,19 +180,6 @@ fn matched_range(
     let query = look.query.as_deref()?;
     let range = highlight(name, query)?;
     Some((query.to_owned(), range))
-}
-
-fn highlighted(
-    name: &str,
-    range: std::ops::Range<usize>,
-    palette: &Palette,
-) -> Div {
-    let style = HighlightStyle {
-        background_color: Some(palette.accent().opacity(HIGHLIGHT_TINT)),
-        ..HighlightStyle::default()
-    };
-    let text = StyledText::new(name.to_owned()).with_highlights([(range, style)]);
-    div().min_w_0().truncate().child(text)
 }
 
 fn faded(status: GitStatus) -> f32 {
@@ -260,6 +255,7 @@ mod tests {
             input: None,
             selected: false,
             cut: false,
+            note: None,
             look: TreeLook::default(),
             scope: std::rc::Rc::default(),
             handler: std::rc::Rc::new(|_, _, _| {}),
@@ -280,6 +276,7 @@ mod tests {
             input: None,
             selected: false,
             cut: false,
+            note: None,
             look: TreeLook::default(),
             scope: std::rc::Rc::default(),
             handler: std::rc::Rc::new(|_, _, _| {}),

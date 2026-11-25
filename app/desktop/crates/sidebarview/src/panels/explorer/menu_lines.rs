@@ -1,6 +1,6 @@
 //! The ordered entries and separators of a file row's menu.
 
-use sidebar::{Command, FileAction, Intent, ShellAnswers};
+use sidebar::{Command, CopyNote, FileAction, Intent, ShellAnswers};
 
 pub(crate) type FileEntry = (&'static str, FileAction);
 
@@ -27,9 +27,9 @@ impl MenuLines {
     pub(crate) fn copy(
         &mut self,
         label: &'static str,
-        text: String,
+        (text, note): (String, CopyNote),
     ) {
-        self.0.push(Some((label, FileAction::CopyText(text))));
+        self.0.push(Some((label, FileAction::CopyText(text, note))));
     }
 
     pub(crate) fn rule(&mut self) {
@@ -73,7 +73,7 @@ mod tests {
         let mut lines = MenuLines::default();
         lines.send("A", Command::UploadFile { path: "a".into() });
         lines.rule();
-        lines.copy("B", "text".into());
+        lines.copy("B", ("text".into(), CopyNote::Path));
         let labels: Vec<&str> = lines
             .0
             .iter()

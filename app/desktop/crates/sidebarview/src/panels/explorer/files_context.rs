@@ -1,6 +1,6 @@
 //! What the Files panel needs besides the rows to draw them: the menu scope and the open input.
 
-use sidebar::{Editing, Expansion, FileKind, FileRow, GitStatus, MenuScope, NewEntry};
+use sidebar::{CopyNote, Editing, Expansion, FileKind, FileRow, GitStatus, MenuScope, NewEntry};
 use std::rc::Rc;
 
 use crate::panels::chats::RowInput;
@@ -16,6 +16,7 @@ pub(crate) struct FilesContext {
     pub(crate) input: Option<RowInput>,
     pub(crate) selected: Option<String>,
     pub(crate) cut: Vec<String>,
+    pub(crate) copied: Option<(String, CopyNote)>,
     pub(crate) look: TreeLook,
 }
 
@@ -48,6 +49,7 @@ impl FilesContext {
         FileTreeRow {
             selected: self.selected.as_deref() == Some(entry.path.as_str()),
             cut: self.cut.contains(&entry.path),
+            note: self.note_of(&entry.path),
             entry,
             neighbours: (0, 0),
             input,
@@ -55,6 +57,14 @@ impl FilesContext {
             scope: Rc::clone(&self.scope),
             handler: Rc::clone(&self.handler),
         }
+    }
+
+    fn note_of(
+        &self,
+        path: &str,
+    ) -> Option<CopyNote> {
+        let (copied, note) = self.copied.as_ref()?;
+        (copied == path).then_some(*note)
     }
 
     fn rename_input(
@@ -141,6 +151,7 @@ mod tests {
             input: None,
             selected: None,
             cut: Vec::new(),
+            copied: None,
             look: TreeLook::default(),
         }
     }

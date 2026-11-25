@@ -76,6 +76,7 @@ pub struct Sidebar {
     pub(crate) row_bounds: RowBounds,
     pub(crate) open_chats: OpenChats,
     pub(crate) active_file: Option<String>,
+    pub(crate) copied: Option<(String, sidebar::CopyNote)>,
 }
 
 impl EventEmitter<Event> for Sidebar {}
@@ -121,6 +122,7 @@ impl Sidebar {
             row_bounds: RowBounds::default(),
             open_chats: OpenChats::default(),
             active_file: None,
+            copied: None,
         }
     }
 

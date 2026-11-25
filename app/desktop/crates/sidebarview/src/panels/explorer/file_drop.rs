@@ -108,6 +108,7 @@ mod tests {
             input: None,
             selected: false,
             cut: false,
+            note: None,
             look: TreeLook::default(),
             scope: std::rc::Rc::default(),
             handler: std::rc::Rc::clone(&handler),
