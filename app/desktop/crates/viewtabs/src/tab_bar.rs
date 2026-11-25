@@ -3,7 +3,6 @@ mod geometry;
 mod ghost;
 mod held;
 mod incoming;
-mod menu;
 mod pointer;
 mod preview;
 mod render;
@@ -17,9 +16,8 @@ pub use sidebar_state::SidebarState;
 use std::rc::Rc;
 use std::time::Instant;
 
-use gpui::{Bounds, Context, Entity, EventEmitter, Pixels, Point, ScrollHandle};
+use gpui::{Bounds, Context, EventEmitter, Pixels, ScrollHandle};
 use layout::TabId;
-use ui::Menu;
 
 use crate::event::Event;
 use crate::gesture::DragSession;
@@ -45,8 +43,6 @@ pub struct TabBar {
     pub(crate) incoming: Option<IncomingDrop>,
     pub(crate) gap: Option<HeldGap>,
     pub(crate) settle: Option<Settle>,
-    pub(crate) menu: Option<Entity<Menu>>,
-    pub(crate) menu_at: Point<Pixels>,
     pub(crate) clock: Rc<dyn Clock>,
 }
 
@@ -95,8 +91,6 @@ impl TabBar {
             incoming: None,
             gap: None,
             settle: None,
-            menu: None,
-            menu_at: Point::default(),
             clock,
         }
     }

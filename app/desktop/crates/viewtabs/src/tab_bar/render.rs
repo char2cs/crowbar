@@ -3,8 +3,8 @@ use std::time::Instant;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, Context, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
-    ParentElement, Render, StatefulInteractiveElement, Styled, Window, canvas, div, px,
+    AnyElement, App, Context, InteractiveElement, IntoElement, MouseButton, ParentElement, Render,
+    StatefulInteractiveElement, Styled, Window, canvas, div, px,
 };
 use layout::{Command, DragSubject, TabId};
 use ui::{DraggedRow, Motion, Surface, Theme};
@@ -55,7 +55,6 @@ impl Render for TabBar {
             .child(self.row(now, motion, cx))
             .children(self.ghost())
             .children(self.drop_line(now, motion, cx))
-            .children(self.menu_layers(cx))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::released))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::released))
             .on_drag_move::<DragSubject>(cx.listener(Self::drag_over))
@@ -186,12 +185,6 @@ impl TabBar {
                 MouseButton::Left,
                 cx.listener(move |this, event, _, cx| this.pressed(index, event, cx)),
             )
-            .on_mouse_down(
-                MouseButton::Right,
-                cx.listener(move |this, event: &MouseDownEvent, window, cx| {
-                    this.open_menu((index, event.position), window, cx);
-                }),
-            )
             .child(TabShell {
                 id: ("tab", index).into(),
                 members: tab.members.clone(),
@@ -305,6 +298,23 @@ mod tests {
     use crate::gesture::TabDrop;
     use crate::pill::ShellLook;
     use crate::test_support::{open, view};
+
+    #[gpui::test]
+    fn right_clicking_a_view_tab_opens_no_menu(cx: &mut TestAppContext) {
+        let harness = open(cx, vec![view(1, &["a"]), view(2, &["b"])], 1);
+        let cx = harness.cx;
+        cx.simulate_mouse_down(
+            gpui::point(gpui::px(100.0), gpui::px(21.0)),
+            gpui::MouseButton::Right,
+            gpui::Modifiers::none(),
+        );
+        cx.run_until_parked();
+        assert_eq!(
+            cx.debug_bounds("ui-menu"),
+            None,
+            "develop offers no tab menu"
+        );
+    }
 
     #[gpui::test]
     fn the_active_tab_is_raised_and_a_merge_target_is_marked(cx: &mut TestAppContext) {
