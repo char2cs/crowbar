@@ -13624,18 +13624,22 @@ impl InputBaseState<crate::input::EditorMode> {
         ranges
     }
 
-    /// Whether the line holding `offset` shows whole in the viewport of the last layout, the test
-    /// Monaco's `revealRangeInCenterIfOutsideViewport` makes before it scrolls; `None` before
-    /// the first layout.
-    pub fn shows_line_whole(&self, offset: usize) -> Option<bool> {
-        let line_height = self.last_layout.as_ref()?.line_height;
+    /// Whether the line holding `offset` shows in the viewport of the last layout with `context`
+    /// lines above it and one fewer below, at most half the viewport each, the test Monaco's
+    /// `revealRangeInCenterIfOutsideViewport` makes before it scrolls; `None` before the first
+    /// layout.
+    pub fn shows_line_with_context(&self, offset: usize, context: u8) -> Option<bool> {
+        let line_height = f32::from(self.last_layout.as_ref()?.line_height);
         let row = self
             .display_map
             .offset_to_display_row(offset, self.line_end_affinity_at(offset));
-        let top = line_height * row;
-        let scroll = self.scroll_handle.offset().y;
-        let viewport = self.input_bounds.size.height;
-        Some(top >= -scroll && top + line_height <= viewport - scroll)
+        let viewport = f32::from(self.input_bounds.size.height);
+        let above = (line_height * f32::from(context)).min(viewport / 2.0);
+        let below = (above - line_height).max(0.0);
+        let top = line_height * row as f32 - above;
+        let bottom = line_height * (row as f32 + 1.0) + below;
+        let scroll = -f32::from(self.scroll_handle.offset().y);
+        Some(top >= scroll && bottom <= scroll + viewport)
     }
 
     /// Scroll so the line holding `offset` sits in the middle of the viewport, as Monaco's

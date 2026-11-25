@@ -66,12 +66,15 @@ impl FindWidget {
     }
 }
 
+// SPEC: https://github.com/microsoft/vscode/blob/main/src/vs/editor/common/config/editorOptions.ts (stickyScroll.maxLineCount 5, develop's Monaco keeps the default)
+const STICKY_LINES: u8 = 5;
+
 fn reveal_if_hidden(
     state: &mut EditorState,
     range: &Range<usize>,
     cx: &mut Context<'_, EditorState>,
 ) {
-    if state.shows_line_whole(range.start) == Some(true) {
+    if state.shows_line_with_context(range.start, STICKY_LINES) == Some(true) {
         return;
     }
     state.reveal_centered(range.start, cx);
@@ -144,18 +147,30 @@ mod tests {
         window.run_until_parked();
     }
 
+    fn centred_top(
+        row: usize,
+        (body, line): (f32, f32),
+    ) -> f32 {
+        let row = f32::from(u16::try_from(row).unwrap_or(0));
+        (body - line) / 2.0 - row * line
+    }
+
     #[gpui::test]
-    fn a_match_shown_whole_stays_put_and_one_cut_by_the_fold_is_centred(cx: &mut TestAppContext) {
+    fn a_match_with_monaco_s_context_in_view_stays_put_and_any_other_is_centred(
+        cx: &mut TestAppContext
+    ) {
         let (body, line) = viewport(cx);
         let rows = (0_u16..u16::MAX)
             .take_while(|row| f32::from(row + 1) * line <= body)
             .count();
-        let whole = f32::from(u16::try_from(rows).unwrap_or(0));
-        let centred = whole * line - (body - line) / 2.0;
-        for (word, top) in [("whole", 0.0), ("cut", -centred)] {
+        let cases = [
+            ("context", rows - 5, 0.0),
+            ("whole", rows - 1, centred_top(rows - 1, (body, line))),
+            ("cut", rows, centred_top(rows, (body, line))),
+        ];
+        for (word, row, top) in cases {
             let mut lines = vec!["line"; LINES];
-            lines[rows - 1] = "whole";
-            lines[rows] = "cut";
+            lines[row] = word;
             let (view, window) = opened((&lines.join("\n"), Some(1)), Access::Editable, cx);
             searched(&view, word, window);
             let shown = f32::from(scroll_top_of(&view, window));
