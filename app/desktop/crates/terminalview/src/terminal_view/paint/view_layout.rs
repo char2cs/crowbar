@@ -32,7 +32,7 @@ impl ViewLayout {
         };
         let track = Bounds::new(
             point(bounds.right() - px(SCROLLBAR_WIDTH), bounds.top()),
-            size(px(SCROLLBAR_WIDTH), bounds.size.height),
+            size(px(SCROLLBAR_WIDTH), px(whole_lines(metrics, height))),
         );
         Self {
             origin: bounds.origin + point(px(inset), px(0.0)),
@@ -68,18 +68,30 @@ impl ViewLayout {
     }
 }
 
+fn whole_lines(
+    metrics: CellMetrics,
+    height: f32,
+) -> f32 {
+    u16::try_from(metrics.lines).map_or(height, |lines| f32::from(lines) * metrics.line_height)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn the_grid_fits_between_the_inset_and_the_scrollbar() {
-        let bounds = Bounds::new(point(px(100.0), px(50.0)), size(px(430.0), px(400.0)));
+        let bounds = Bounds::new(point(px(100.0), px(50.0)), size(px(430.0), px(410.0)));
         let layout = ViewLayout::new(bounds, (8.0, 16.0), ViewLayout::default_inset());
         assert_eq!((layout.metrics.columns, layout.metrics.lines), (50, 25));
         assert_eq!(layout.origin, point(px(116.0), px(50.0)));
         assert_eq!(layout.track.size.width, px(14.0), "xterm 6's scrollbar");
         assert_eq!(layout.track.origin.x, px(516.0));
+        assert_eq!(
+            layout.track.size.height,
+            px(400.0),
+            "the track ends at the last whole line, as xterm's scrollable element"
+        );
         let thumb = layout.thumb_bounds(0.0, 10.0);
         assert_eq!(
             (thumb.origin.x, thumb.size.width),
