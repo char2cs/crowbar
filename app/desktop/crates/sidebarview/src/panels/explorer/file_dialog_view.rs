@@ -65,7 +65,7 @@ impl Sidebar {
             FileDialog::Delete { .. } => {
                 let question = dialog.question().unwrap_or_default();
                 let cancel = Button::new("file-delete-cancel", "Cancel")
-                    .variant(ButtonVariant::Ghost)
+                    .variant(ButtonVariant::Primary)
                     .on_click(cx.listener(|this, _, _, cx| this.close_file_dialog(cx)));
                 let delete = Button::new("file-delete-confirm", "Delete")
                     .variant(ButtonVariant::Destructive)
