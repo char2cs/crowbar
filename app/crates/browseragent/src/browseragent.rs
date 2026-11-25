@@ -1,6 +1,9 @@
+mod attach_event;
+
 use std::time::Duration;
 
-use crate::error::Error;
+use attach_event::AttachEvent;
+
 use crate::link::Ending;
 use crate::link::PeerConnector;
 use crate::link::PeerSession;
@@ -31,13 +34,11 @@ async fn attach_once<C: PeerConnector>(
 ) -> Ending {
     match connector.connect().await {
         Ok(mut stream) => serve(&mut stream, session).await,
-        Err(error) => daemon_unreachable(&error),
+        Err(error) => {
+            crate::journal_sink::emit(&AttachEvent::DaemonUnreachable { error: &error });
+            Ending::Lost
+        },
     }
-}
-
-fn daemon_unreachable(error: &Error) -> Ending {
-    tracing::debug!(%error, "the browser peer could not reach the daemon");
-    Ending::Lost
 }
 
 #[cfg(test)]

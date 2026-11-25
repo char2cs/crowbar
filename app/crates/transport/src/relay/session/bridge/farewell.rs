@@ -1,3 +1,5 @@
+mod farewell_event;
+
 use std::fmt::Debug;
 use std::future::Future;
 use std::time::Duration;
@@ -6,6 +8,9 @@ use futures_util::{Sink, SinkExt};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
+use farewell_event::FarewellEvent;
+
+use crate::journal_sink::emit;
 use crate::relay::session::bridge::close_message::close_message;
 use crate::relay::session::bridge::ending::Ending;
 use crate::relay::session::bridge::limits::Limits;
@@ -32,7 +37,7 @@ async fn await_pump<P: Future + Unpin>(
     pump: &mut P,
 ) {
     if tokio::time::timeout(grace, pump).await.is_err() {
-        tracing::debug!("the other direction did not finish within the grace period");
+        emit(&FarewellEvent::OtherDirectionLate);
     }
 }
 
@@ -97,7 +102,7 @@ async fn say_and_close<S>(
         .await
         .is_err()
     {
-        tracing::debug!("peer did not take the close within the grace period");
+        emit(&FarewellEvent::CloseNotTaken);
     }
 }
 
@@ -113,12 +118,8 @@ async fn farewell_then_close<S>(
         return;
     }
     if sink.close().await.is_err() {
-        report_gone_at_close();
+        emit(&FarewellEvent::GoneAtClose);
     }
-}
-
-fn report_gone_at_close() {
-    tracing::debug!("peer was already gone at close");
 }
 
 pub(crate) async fn finish<C, U>(

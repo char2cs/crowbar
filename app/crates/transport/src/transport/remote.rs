@@ -1,6 +1,7 @@
 mod dial;
 mod host;
 mod paired_host;
+mod remote_event;
 pub(crate) mod secrets;
 mod tls;
 
@@ -26,6 +27,7 @@ use crate::hosts::HostRegistry;
 use crate::response::{Forwarded, error_response, marked_response, proxy_answer};
 use crate::transport::http_conn::exchange;
 use crate::transport::remote::paired_host::PairedHost;
+use crate::transport::remote::remote_event::RemoteEvent;
 use crate::transport::remote::secrets::credential_io::load;
 
 pub(crate) const REMOTE_BODY_LIMIT: usize = 256 * 1024 * 1024;
@@ -95,27 +97,20 @@ pub(crate) async fn forward_remote(
         Ok(tls) => tls,
         Err(e) => return proxy_answer(dial_response(&e)),
     };
-    let exchanged = exchange(Box::new(tls), request, REMOTE_BODY_LIMIT).await;
-    remote_answer(exchanged)
-}
-
-fn remote_answer(exchanged: Result<Response<Vec<u8>>, Error>) -> Forwarded {
-    match exchanged {
+    match exchange(Box::new(tls), request, REMOTE_BODY_LIMIT).await {
         Ok(response) => Ok(response),
         Err(Error::TooLarge) => proxy_answer(error_response(
             StatusCode::BAD_GATEWAY,
             "remote response too large",
         )),
-        Err(e) => exchange_failed(&e),
+        Err(error) => {
+            crate::journal_sink::emit(&RemoteEvent::ExchangeFailed { error: &error });
+            proxy_answer(error_response(
+                StatusCode::BAD_GATEWAY,
+                "crowbar proxy error",
+            ))
+        },
     }
-}
-
-fn exchange_failed(e: &Error) -> Forwarded {
-    tracing::debug!("remote exchange failed: {e}");
-    proxy_answer(error_response(
-        StatusCode::BAD_GATEWAY,
-        "crowbar proxy error",
-    ))
 }
 
 #[cfg(test)]

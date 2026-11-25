@@ -9,6 +9,7 @@
 
 mod browseragent;
 mod error;
+mod journal_sink;
 mod link;
 mod shell;
 #[cfg(test)]

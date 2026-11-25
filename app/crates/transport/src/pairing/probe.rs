@@ -1,4 +1,5 @@
-use std::io;
+mod probe_event;
+
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,10 +12,12 @@ use tokio_rustls::client::TlsStream;
 
 use crate::error::Error;
 use crate::hosts::Endpoint;
+use crate::journal_sink::emit;
 use crate::transport::SERVER_NAME;
 use crate::transport::UnpinnedProbeVerifier;
 use crate::transport::client_config_with;
 use crate::transport::fingerprint_of;
+use probe_event::ProbeEvent;
 
 pub(crate) const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -43,7 +46,7 @@ async fn read_fingerprint(endpoint: &Endpoint) -> Result<String, Error> {
         .map(|cert| fingerprint_of(cert))
         .ok_or_else(|| Error::NoCertificate(endpoint.to_string()))?;
     if let Err(error) = tls.shutdown().await {
-        report_unclean_close(&error);
+        emit(&ProbeEvent::UncleanClose { error: &error });
     }
     Ok(fingerprint)
 }
@@ -63,10 +66,6 @@ async fn connect_unpinned(endpoint: &Endpoint) -> Result<TlsStream<TcpStream>, E
         .connect(name, tcp)
         .await
         .map_err(|e| handshake(e.to_string()))
-}
-
-fn report_unclean_close(error: &io::Error) {
-    tracing::debug!("probe connection did not close cleanly: {error}");
 }
 
 #[cfg(test)]

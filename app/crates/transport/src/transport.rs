@@ -4,6 +4,7 @@ mod http_conn;
 mod local;
 mod port;
 pub(crate) mod remote;
+mod removal_event;
 mod websocket;
 
 pub use access_scope::EXTENSION_HEADER;
@@ -37,6 +38,7 @@ use crate::transport::http_conn::strip_pane_headers;
 use crate::transport::local::{connect_retry_delay, forward_local};
 use crate::transport::remote::forward_remote;
 use crate::transport::remote::secrets::credential_io;
+use crate::transport::removal_event::RemovalEvent;
 
 pub(crate) const PROXY_TIMEOUT: Duration = Duration::from_secs(300);
 const REMOVAL_BACKLOG: usize = 16;
@@ -106,7 +108,7 @@ impl Transport {
     ) -> Result<(), Error> {
         self.registry.remove(host_id.clone()).await?;
         if self.removed.send(host_id.clone()).is_err() {
-            report_unfollowed_removal();
+            crate::journal_sink::emit(&RemovalEvent::Unfollowed);
         }
         credential_io::forget(&self.tokens, host_id)
             .await
@@ -170,10 +172,6 @@ impl Transport {
         })
         .await
     }
-}
-
-fn report_unfollowed_removal() {
-    tracing::debug!("no relay is following host removals");
 }
 
 fn timed_out() -> Response<Vec<u8>> {

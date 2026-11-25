@@ -1,25 +1,26 @@
 mod admission;
 mod bridge;
 mod gate;
+mod session_event;
 
 use std::sync::Arc;
 
 use futures_util::SinkExt;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{OwnedSemaphorePermit, oneshot};
-use tokio::time::error::Elapsed;
-use tokio_tungstenite::tungstenite::Error as WsError;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::{WebSocketStream, accept_hdr_async_with_config};
 use tokio_util::sync::CancellationToken;
 
 use crate::error::Error;
 use crate::hosts::Target;
+use crate::journal_sink::emit;
 use crate::relay::session::admission::Admission;
 use crate::relay::session::bridge::bridge;
 use crate::relay::session::bridge::close_message::close_message;
 use crate::relay::session::bridge::limits::Limits;
 use crate::relay::session::gate::Gate;
+use crate::relay::session::session_event::SessionEvent;
 use crate::relay::state::State;
 use crate::transport::UpstreamRequest;
 use crate::transport::{UpstreamSocket, ws_config};
@@ -33,49 +34,18 @@ pub(crate) async fn run<S>(
 {
     let (admitted, admission) = oneshot::channel();
     let gate = Gate::new(Arc::clone(&state), admitted);
-    let Some(client) = accept_within_deadline(&state, stream, gate).await else {
-        return;
+    let config = ws_config(state.config.max_message_bytes);
+    let handshake = accept_hdr_async_with_config(stream, gate, Some(config));
+    let client = match tokio::time::timeout(state.config.handshake_timeout, handshake).await {
+        Ok(Ok(client)) => client,
+        Ok(Err(error)) => return emit(&SessionEvent::HandshakeRefused { error: &error }),
+        Err(elapsed) => return emit(&SessionEvent::HandshakeTimedOut { elapsed: &elapsed }),
     };
     drop(handshake_slot);
     let Ok(admission) = admission.await else {
-        return report_no_admission();
+        return emit(&SessionEvent::NoAdmission);
     };
     serve(&state, client, admission).await;
-}
-
-async fn accept_within_deadline<S>(
-    state: &State,
-    stream: S,
-    gate: Gate,
-) -> Option<WebSocketStream<S>>
-where
-    S: AsyncRead + AsyncWrite + Unpin,
-{
-    let config = ws_config(state.config.max_message_bytes);
-    let handshake = accept_hdr_async_with_config(stream, gate, Some(config));
-    match tokio::time::timeout(state.config.handshake_timeout, handshake).await {
-        Ok(Ok(client)) => Some(client),
-        Ok(Err(e)) => {
-            report_handshake_refused(&e);
-            None
-        },
-        Err(elapsed) => {
-            report_handshake_timed_out(&elapsed);
-            None
-        },
-    }
-}
-
-fn report_handshake_refused(e: &WsError) {
-    tracing::debug!("relay handshake refused: {e}");
-}
-
-fn report_handshake_timed_out(elapsed: &Elapsed) {
-    tracing::debug!("relay handshake timed out: {elapsed}");
-}
-
-fn report_no_admission() {
-    tracing::debug!("relay handshake finished without an admission");
 }
 
 async fn open_unless_revoked(
@@ -96,7 +66,7 @@ async fn refuse_upstream<S>(
 ) where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    tracing::debug!("relay upstream refused: {error}");
+    emit(&SessionEvent::UpstreamRefused { error });
     let reason = error.marker().unwrap_or("daemon-unavailable");
     say_close(client, CloseCode::Error, reason, state).await;
 }
@@ -141,13 +111,9 @@ async fn farewell<S>(
     if client.send(close_message(code, reason)).await.is_err() {
         return;
     }
-    if let Err(e) = client.close(None).await {
-        report_close_not_delivered(&e);
+    if let Err(error) = client.close(None).await {
+        emit(&SessionEvent::CloseNotDelivered { error: &error });
     }
-}
-
-fn report_close_not_delivered(e: &WsError) {
-    tracing::debug!("close not delivered: {e}");
 }
 
 async fn say_close<S>(
@@ -163,7 +129,7 @@ async fn say_close<S>(
         .await
         .is_err()
     {
-        tracing::debug!("client did not take the close within the grace period");
+        emit(&SessionEvent::CloseNotTaken);
     }
 }
 

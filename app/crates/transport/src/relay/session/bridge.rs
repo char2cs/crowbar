@@ -1,3 +1,4 @@
+mod bridge_event;
 pub(crate) mod close_message;
 mod ending;
 mod farewell;
@@ -18,6 +19,8 @@ use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::{Error as WsError, Message};
 use tokio_util::sync::CancellationToken;
 
+use crate::journal_sink::emit;
+use crate::relay::session::bridge::bridge_event::BridgeEvent;
 use crate::relay::session::bridge::ending::Ending;
 use crate::relay::session::bridge::farewell::{finish, settle};
 use crate::relay::session::bridge::limits::Limits;
@@ -62,19 +65,15 @@ where
 {
     match tokio::time::timeout(limit, write.send(message)).await {
         Ok(Ok(())) => Ok(()),
-        Ok(Err(refused)) => Err(peer_refused(&refused)),
-        Err(elapsed) => Err(peer_stopped_reading(&elapsed)),
+        Ok(Err(refused)) => {
+            emit(&BridgeEvent::PeerRefused { refused: &refused });
+            Err(Ending::Gone)
+        },
+        Err(elapsed) => {
+            emit(&BridgeEvent::PeerStoppedReading { elapsed: &elapsed });
+            Err(Ending::Stalled)
+        },
     }
-}
-
-fn peer_refused<E: Debug>(refused: &E) -> Ending {
-    tracing::debug!("peer refused a message: {refused:?}");
-    Ending::Gone
-}
-
-fn peer_stopped_reading(elapsed: &Elapsed) -> Ending {
-    tracing::debug!("peer stopped reading: {elapsed}");
-    Ending::Stalled
 }
 
 async fn forward<W>(
@@ -103,7 +102,7 @@ async fn echo_close<W>(
     W: Sink<Message, Error: Debug> + Unpin,
 {
     if let Err(why) = send_within(write, echoed_close(frame), limit).await {
-        tracing::debug!("close echo not delivered: {why:?}");
+        emit(&BridgeEvent::CloseEchoNotDelivered { why });
     }
 }
 
@@ -118,17 +117,15 @@ where
     W: Sink<Message, Error: Debug> + Unpin,
 {
     let ending = match next_within(read, idle).await {
-        Err(elapsed) => Some(peer_went_silent(&elapsed)),
+        Err(elapsed) => {
+            emit(&BridgeEvent::PeerWentSilent { elapsed: &elapsed });
+            Some(Ending::Idle)
+        },
         Ok(None) => Some(Ending::Gone),
         Ok(Some(Err(e))) => Some(ending_of(&e)),
         Ok(Some(Ok(message))) => forward(message, write, write_timeout).await,
     };
     ending.map_or(Ok(()), Err)
-}
-
-fn peer_went_silent(elapsed: &Elapsed) -> Ending {
-    tracing::debug!("peer went silent: {elapsed}");
-    Ending::Idle
 }
 
 async fn run<R, W>(
