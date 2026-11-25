@@ -50,8 +50,8 @@ impl Factory {
         self.webviews.clear_browsing_data()
     }
 
-    pub(crate) const fn webviews(&self) -> &webview::Host {
-        &self.webviews
+    pub(crate) fn desktop(&self) -> webview::Desktop {
+        self.webviews.desktop()
     }
 
     pub(crate) fn settle(&self) -> webview::Result<()> {

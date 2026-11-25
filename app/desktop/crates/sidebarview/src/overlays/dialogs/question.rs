@@ -12,8 +12,6 @@ use ui::{
 use crate::sidebar::Sidebar;
 use crate::sidebar::{SPACE_MD, TEXT_LARGE};
 
-pub(crate) const ACCEPTED: Option<usize> = Some(1);
-
 impl Sidebar {
     pub(crate) fn question_layer(
         &self,
@@ -65,7 +63,7 @@ impl Sidebar {
     ) {
         let (answer, command) = asked;
         cx.spawn_in(window, async move |this, cx| {
-            let accepted = (answer.await == ACCEPTED).then_some(command);
+            let accepted = (answer.await == Some(AlertRequest::GO)).then_some(command);
             this.update(cx, |this, cx| this.send_answered(accepted, cx))
         })
         .detach_and_log_err(cx);
@@ -105,14 +103,13 @@ fn question_request(question: &Question) -> AlertRequest {
         Stakes::Disruptive => AlertRole::Accept,
         Stakes::Destructive => AlertRole::Destructive,
     };
-    AlertRequest {
-        title: Some(question.title.clone().into()),
-        message: question.body.clone().into(),
-        buttons: vec![
-            AlertButton::new(question.cancel, AlertRole::Cancel),
-            AlertButton::new(question.confirm, accept),
-        ],
-    }
+    let go = AlertButton::new(question.confirm, accept);
+    AlertRequest::confirm(
+        question.title.clone(),
+        question.body.clone(),
+        question.cancel,
+        go,
+    )
 }
 
 fn accept_variant(stakes: Stakes) -> ButtonVariant {

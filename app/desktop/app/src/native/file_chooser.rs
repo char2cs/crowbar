@@ -6,7 +6,7 @@ use std::rc::Rc;
 use gpui::{App, Task, Window};
 
 pub(super) fn install(
-    chooser: webview::FileChooser,
+    chooser: webview::Desktop,
     cx: &mut App,
 ) {
     let choose: ui::ChooseFiles =
@@ -15,7 +15,7 @@ pub(super) fn install(
 }
 
 fn ask(
-    (chooser, choice): (&webview::FileChooser, webview::FileChoice),
+    (chooser, choice): (&webview::Desktop, webview::FileChoice),
     window: &Window,
     cx: &mut App,
 ) -> Task<Vec<PathBuf>> {

@@ -11,9 +11,10 @@ pub(crate) fn install(
     host: &panehost::PaneHost,
     cx: &mut App,
 ) {
-    file_chooser::install(host.file_chooser(), cx);
-    menu::install(host.native_menu(), cx);
-    alert::install(host.native_alert(), cx);
+    let desktop = host.desktop();
+    file_chooser::install(desktop.clone(), cx);
+    menu::install(desktop.clone(), cx);
+    alert::install(desktop, cx);
 }
 
 #[cfg(test)]

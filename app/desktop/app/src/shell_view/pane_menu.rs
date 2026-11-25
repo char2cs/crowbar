@@ -22,7 +22,7 @@ impl ShellView {
             y: f64::from(f32::from(at.y)),
             edge: webview::MenuEdge::Start,
         };
-        let menu = self.state.host().native_menu();
+        let menu = self.state.host().desktop();
         let popped = menu.popup(parent, request, Box::new(move |path| ask.answer(path)));
         if let Err(error) = popped {
             tracing::warn!(%error, "a pane's context menu could not open");

@@ -1,9 +1,7 @@
-mod alert_asking;
 mod browser;
 mod context;
-mod file_choosing;
+mod desktop;
 mod lifecycle;
-mod menu_popping;
 mod reconcile;
 mod refusals;
 

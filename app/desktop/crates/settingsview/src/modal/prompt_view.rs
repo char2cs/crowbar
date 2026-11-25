@@ -8,17 +8,14 @@ use crate::frame::spacing;
 use crate::intent::Intent;
 use crate::intent::Sink;
 
-pub(crate) const ACCEPTED: Option<usize> = Some(1);
-
 pub(crate) fn prompt_request(prompt: &Prompt) -> AlertRequest {
-    AlertRequest {
-        title: Some(prompt.title().to_owned().into()),
-        message: prompt.message().to_owned().into(),
-        buttons: vec![
-            AlertButton::new("Cancel", AlertRole::Cancel),
-            AlertButton::new(prompt.confirm().action().to_owned(), AlertRole::Destructive),
-        ],
-    }
+    let go = AlertButton::new(prompt.confirm().action().to_owned(), AlertRole::Destructive);
+    AlertRequest::confirm(
+        prompt.title().to_owned(),
+        prompt.message().to_owned(),
+        "Cancel",
+        go,
+    )
 }
 
 pub(crate) fn prompt_view(

@@ -16,11 +16,7 @@ impl ShellView {
         let requests = self.requests.clone();
         let answered: webview::ChosenButton =
             Box::new(move |pressed| forward(&requests, answer(pressed)));
-        let asked = self
-            .state
-            .host()
-            .native_alert()
-            .ask(parent, request, answered);
+        let asked = self.state.host().desktop().ask(parent, request, answered);
         if let Err(error) = &asked {
             tracing::debug!(%error, "the shell draws its own dialog");
         }

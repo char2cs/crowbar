@@ -10,8 +10,6 @@ use ui::{
     NativeAlert, Palette, Surface, Theme,
 };
 
-use crate::overlays::dialogs::ACCEPTED;
-
 use crate::sidebar::Sidebar;
 use crate::sidebar::{SPACE_MD, SPACE_XL, SPACE_XS, TEXT_LARGE};
 
@@ -70,14 +68,9 @@ fn confirmation_request(confirmation: &Confirmation) -> AlertRequest {
         .at_risk
         .iter()
         .map(|work| format!("\n\n{}\n{}", work.branch, work.summary()));
-    AlertRequest {
-        title: Some(confirmation.title().into()),
-        message: format!("{strong} {rest}{}", risks.collect::<String>()).into(),
-        buttons: vec![
-            AlertButton::new("Cancel", AlertRole::Cancel),
-            AlertButton::new(confirmation.confirm_label(), AlertRole::Destructive),
-        ],
-    }
+    let message = format!("{strong} {rest}{}", risks.collect::<String>());
+    let go = AlertButton::new(confirmation.confirm_label(), AlertRole::Destructive);
+    AlertRequest::confirm(confirmation.title(), message, "Cancel", go)
 }
 
 impl Sidebar {
@@ -147,7 +140,7 @@ impl Sidebar {
         pressed: Option<usize>,
         cx: &mut Context<'_, Self>,
     ) {
-        if pressed == ACCEPTED {
+        if pressed == Some(AlertRequest::GO) {
             return self.accept_confirmation(cx);
         }
         self.cancel_confirmation(cx);

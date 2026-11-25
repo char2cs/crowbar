@@ -50,14 +50,13 @@ fn properties_body(
 }
 
 fn delete_request(dialog: &FileDialog) -> AlertRequest {
-    AlertRequest {
-        title: Some(dialog.title().into()),
-        message: dialog.question().unwrap_or_default().into(),
-        buttons: vec![
-            AlertButton::new("Cancel", AlertRole::Cancel),
-            AlertButton::new("Delete", AlertRole::Destructive),
-        ],
-    }
+    let go = AlertButton::new("Delete", AlertRole::Destructive);
+    AlertRequest::confirm(
+        dialog.title(),
+        dialog.question().unwrap_or_default(),
+        "Cancel",
+        go,
+    )
 }
 
 impl Sidebar {

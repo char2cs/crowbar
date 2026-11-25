@@ -5,7 +5,7 @@ use std::rc::Rc;
 use gpui::{App, Task, Window};
 
 pub(super) fn install(
-    alert: webview::NativeAlert,
+    alert: webview::Desktop,
     cx: &mut App,
 ) {
     let ask: ui::AskAlert = Rc::new(move |request, window, cx| ask(&alert, &request, (window, cx)));
@@ -13,7 +13,7 @@ pub(super) fn install(
 }
 
 fn ask(
-    alert: &webview::NativeAlert,
+    alert: &webview::Desktop,
     request: &ui::AlertRequest,
     (window, cx): (&Window, &mut App),
 ) -> Task<Option<usize>> {

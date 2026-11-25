@@ -62,7 +62,7 @@ pub use backend::{
 };
 pub use chooser::{ChoiceKind, FileChoice, FileFilter};
 pub use error::{Error, Result};
-pub use host::{FileChooser, Handle, Host, NativeAlert, NativeMenu};
+pub use host::{Desktop, Handle, Host};
 pub use menu::{MenuEdge, MenuEntry, MenuRequest};
 pub use scheme::{ProtocolHandler, ProtocolRequest, ProtocolResponder, ProtocolResponse};
 pub use view::{

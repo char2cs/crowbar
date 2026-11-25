@@ -5,7 +5,7 @@ use std::rc::Rc;
 use gpui::{App, Task, Window};
 
 pub(super) fn install(
-    menu: webview::NativeMenu,
+    menu: webview::Desktop,
     cx: &mut App,
 ) {
     let popup: ui::PopupMenu =
@@ -14,7 +14,7 @@ pub(super) fn install(
 }
 
 fn ask(
-    menu: &webview::NativeMenu,
+    menu: &webview::Desktop,
     request: &ui::NativeRequest,
     (window, cx): (&Window, &mut App),
 ) -> Task<Option<ui::MenuPath>> {

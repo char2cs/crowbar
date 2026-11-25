@@ -1,13 +1,8 @@
-mod file_chooser;
+mod desktop;
 mod handle;
-mod native_alert;
-mod native_menu;
-mod native_ui;
 
-pub use file_chooser::FileChooser;
+pub use desktop::Desktop;
 pub use handle::Handle;
-pub use native_alert::NativeAlert;
-pub use native_menu::NativeMenu;
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -71,6 +66,12 @@ impl Host {
         report: crate::backend::CaretReport,
     ) -> Result<()> {
         self.platform.follow_caret(report)
+    }
+
+    /// The desktop's own chooser, menu and dialog, shown on this host's platform thread.
+    #[must_use]
+    pub fn desktop(&self) -> Desktop {
+        Desktop::new(Rc::clone(&self.platform))
     }
 
     /// Returns once every view destroyed before it is gone from the platform.

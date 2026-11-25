@@ -7,6 +7,7 @@ use objc2_foundation::MainThreadMarker;
 use platform::AppkitParent;
 use wry::{WebView, WebViewBuilder, WebViewBuilderExtDarwin};
 
+use crate::backend::alert_asking::AlertAsking;
 use crate::backend::host_config::HostConfig;
 use crate::backend::native::macos::data_store::{BROWSER_STORE, store_identifier};
 use crate::backend::native::wry_builder::{common_attributes, register_scheme, to_rect};
@@ -166,6 +167,9 @@ impl PageControl for AppkitPlatform {
 impl Platform for AppkitPlatform {}
 
 impl ViewCapture for AppkitPlatform {}
+
+// PLATFORM: macos the shell keeps its drawn dialogs until NSAlert is wired.
+impl AlertAsking for AppkitPlatform {}
 
 impl ViewFocus for AppkitPlatform {
     fn focus(

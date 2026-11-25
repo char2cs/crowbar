@@ -1,11 +1,11 @@
 //! Asks the settings' confirmations as the desktop's message dialog, when the shell installed one.
 
 use gpui::{Context, TaskExt as _, Window};
-use ui::NativeAlert;
+use ui::{AlertRequest, NativeAlert};
 
 use crate::intent::Intent;
 use crate::intent::Runner as _;
-use crate::modal::{ACCEPTED, prompt_request};
+use crate::modal::prompt_request;
 use crate::settings_modal::SettingsModal;
 
 impl SettingsModal {
@@ -20,7 +20,7 @@ impl SettingsModal {
         let answer = native.ask(prompt_request(prompt), window, cx);
         cx.spawn_in(window, async move |this, cx| {
             let intent = match answer.await {
-                ACCEPTED => Intent::Accept,
+                Some(AlertRequest::GO) => Intent::Accept,
                 _ => Intent::Dismiss,
             };
             this.update_in(cx, |this, window, cx| this.run(intent, window, cx))
