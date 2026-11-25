@@ -269,9 +269,7 @@ impl RenderOnce for Dialog {
             .child(popup.on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()))
             .child(spacer(BOTTOM_SHARE))
             .with_animation((id, "fade"), fade(cx), Styled::opacity);
-        anchored()
-            .position(point(px(0.0), px(0.0)))
-            .child(layer)
+        anchored().position(point(px(0.0), px(0.0))).child(layer)
     }
 }
 

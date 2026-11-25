@@ -7,8 +7,7 @@ use gpui::{
 use windowstate::{DEFAULT_SIZE, Placement, Rect, WindowState, WindowStore};
 
 pub(crate) const WINDOW_TITLE: &str = "Crowbar";
-// SPEC: https://github.com/char2cs/crowbar/blob/develop/desktop/src-tauri/Cargo.toml
-pub(crate) const APP_ID: &str = "crowbar-desktop";
+pub(crate) const APP_ID: &str = "Crowbar";
 
 pub(crate) struct WindowMemory {
     store: WindowStore,
@@ -175,11 +174,9 @@ mod tests {
     }
 
     #[gpui::test]
-    fn the_window_is_classed_as_develops_binary_for_the_desktop_file(
-        cx: &mut gpui::TestAppContext
-    ) {
+    fn the_window_is_classed_crowbar_for_the_desktop_file(cx: &mut gpui::TestAppContext) {
         let memory = WindowMemory::new(Path::new("/nonexistent/crowbar/window.json"));
         let app_id = cx.update(|cx| memory.options(cx).app_id);
-        assert_eq!(app_id.as_deref(), Some("crowbar-desktop"));
+        assert_eq!(app_id.as_deref(), Some("Crowbar"));
     }
 }

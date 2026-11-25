@@ -2,8 +2,7 @@
 
 use gpui::{
     App, AvailableSpace, Bounds, Element, ElementId, FontId, GlobalElementId, InspectorElementId,
-    LayoutId, Pixels, ShapedGlyph, ShapedLine, SharedString, Style, TextStyle, Window, point,
-    size,
+    LayoutId, Pixels, ShapedGlyph, ShapedLine, SharedString, Style, TextStyle, Window, point, size,
 };
 
 use crate::foundation::tokens::tracking;
@@ -65,7 +64,10 @@ impl Element for TrackedText {
             let limit = definite(available.width).filter(|_| truncates);
             size(limit.map_or(width, |limit| width.min(limit)), height)
         };
-        (window.request_measured_layout(Style::default(), measure), ())
+        (
+            window.request_measured_layout(Style::default(), measure),
+            (),
+        )
     }
 
     fn prepaint(
@@ -144,8 +146,6 @@ fn glyph_count(line: &ShapedLine) -> usize {
     glyphs(line).count()
 }
 
-/// Where glyph `index` starts once every glyph before it carries its spacing; `index` may be
-/// the glyph count, for the end of the line.
 fn glyph_x(
     line: &ShapedLine,
     spacing: Pixels,
@@ -168,7 +168,6 @@ fn tracked_width(
     glyph_x(line, spacing, glyph_count(line))
 }
 
-/// How many glyphs, from the start, end within `room`, not counting the last one's spacing.
 fn kept_glyphs(
     line: &ShapedLine,
     spacing: Pixels,
@@ -201,7 +200,12 @@ fn paint_glyphs(
     for (index, (font_id, glyph)) in glyphs(line).take(count).enumerate() {
         let x = origin.x + glyph.position.x + spacing * glyphs_before(index);
         let at = point(x, origin.y + glyph.position.y);
-        log_failure(paint_glyph(at, (font_id, glyph), (line.font_size, color), window));
+        log_failure(paint_glyph(
+            at,
+            (font_id, glyph),
+            (line.font_size, color),
+            window,
+        ));
     }
 }
 

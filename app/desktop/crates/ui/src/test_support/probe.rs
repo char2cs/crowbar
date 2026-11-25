@@ -3,8 +3,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, Bounds, Context, InteractiveElement, IntoElement,
-    ParentElement, Pixels, Render, Styled, TestAppContext, VisualTestContext, Window, div,
+    AnyElement, App, Bounds, Context, InteractiveElement, IntoElement, ParentElement, Pixels,
+    Render, Styled, TestAppContext, VisualTestContext, Window, div,
 };
 
 use crate::foundation::Motion;

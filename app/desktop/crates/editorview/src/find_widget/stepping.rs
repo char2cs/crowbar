@@ -74,7 +74,9 @@ fn reveal_if_hidden(
     range: &Range<usize>,
     cx: &mut Context<'_, EditorState>,
 ) {
-    if crate::reveal::centring::shows_line_with_context(state, range.start, STICKY_LINES) == Some(true) {
+    if crate::reveal::centring::shows_line_with_context(state, range.start, STICKY_LINES)
+        == Some(true)
+    {
         return;
     }
     crate::reveal::centring::reveal_centered(state, range.start, cx);

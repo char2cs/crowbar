@@ -2,8 +2,8 @@
 
 use gpui::{
     App, BorderStyle, Bounds, Corners, Element, ElementId, GlobalElementId, Hsla,
-    InspectorElementId, LayoutId, PaintQuad, Pixels, ScrollHandle, Style, Window,
-    point, px, quad, relative, size, transparent_black,
+    InspectorElementId, LayoutId, PaintQuad, Pixels, ScrollHandle, Style, Window, point, px, quad,
+    relative, size, transparent_black,
 };
 
 use crate::display::scroll_area::thumb::Thumb;

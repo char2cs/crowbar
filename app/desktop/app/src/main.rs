@@ -211,6 +211,8 @@ fn start(
     file_chooser::install(parts.state.host().file_chooser(), cx);
     #[cfg(target_os = "linux")]
     native_menu::install(parts.state.host().native_menu(), cx);
+    #[cfg(target_os = "linux")]
+    adapters::key_places::install(cx);
     app_menu::install(cx);
     last_window::quit_with_last_window(cx, |cx| cx.quit());
     let memory = WindowMemory::new(&options.state_dir().join("window.json"));

@@ -4,7 +4,6 @@
 use gpui::{Context, EventEmitter};
 use gpui_kit::base::input::Rope;
 
-/// The document's text; it emits the new text whenever it changes.
 pub(crate) struct SharedText {
     text: Rope,
 }
@@ -20,8 +19,6 @@ impl SharedText {
         &self.text
     }
 
-    /// The text is now `text`; the same text again changes nothing, so a view replaying an edit
-    /// it was sent does not send it back.
     pub(crate) fn set(
         &mut self,
         text: Rope,

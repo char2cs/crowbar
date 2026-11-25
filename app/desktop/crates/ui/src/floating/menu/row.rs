@@ -6,9 +6,9 @@ use gpui::{
     StatefulInteractiveElement, Styled, Window, div, hsla,
 };
 
+use crate::display::TrackedText;
 use crate::floating::menu::menu_item::MenuAction;
 use crate::floating::menu::menu_item::Tone;
-use crate::display::TrackedText;
 use crate::floating::menu::row_handlers::RowHandlers;
 use crate::foundation::Appearance;
 use crate::foundation::Icon;

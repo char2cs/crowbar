@@ -126,9 +126,7 @@ opaque_debug!(Portal);
 
 #[cfg(test)]
 mod tests {
-    use gpui::{
-        InteractiveElement, ParentElement, Point, Styled, TestAppContext, div, point, px,
-    };
+    use gpui::{InteractiveElement, ParentElement, Point, Styled, TestAppContext, div, point, px};
 
     use super::*;
     use crate::test_support::probe::{open_floating, settle};

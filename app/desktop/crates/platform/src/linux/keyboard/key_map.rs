@@ -115,34 +115,26 @@ mod tests {
 
     fn us_digit_row() -> GetKeyboardMappingReply {
         let mut rows = vec![[0, 0]; usize::from(FIRST_DIGIT - FIRST)];
-        rows.extend([[u32::from('1'), u32::from('!')], [u32::from('2'), u32::from('@')]]);
+        rows.extend([
+            [u32::from('1'), u32::from('!')],
+            [u32::from('2'), u32::from('@')],
+        ]);
         rows.resize(usize::from(Q - FIRST), [0, 0]);
         rows.push([u32::from('q'), u32::from('Q')]);
         mapping(&rows)
     }
 
     #[test]
-    fn a_shifted_symbol_names_the_digit_under_it() {
-        let found = place_of(&us_digit_row(), FIRST, keysym_of('@'));
-        let expected = UsKey {
-            key: '2',
-            shifted: true,
-        };
-        assert_eq!(found, Some(expected));
-    }
-
-    #[test]
-    fn a_letter_names_its_own_key_unshifted() {
-        let found = place_of(&us_digit_row(), FIRST, keysym_of('q'));
-        let expected = UsKey {
-            key: 'q',
-            shifted: false,
-        };
-        assert_eq!(found, Some(expected));
-    }
-
-    #[test]
-    fn a_character_no_key_types_has_no_place() {
-        assert_eq!(place_of(&us_digit_row(), FIRST, keysym_of('€')), None);
+    fn a_typed_character_names_the_us_key_under_it() {
+        let place = |key, shifted| Some(UsKey { key, shifted });
+        let cases = [
+            ("a shifted symbol names its digit", '@', place('2', true)),
+            ("a letter names its own key", 'q', place('q', false)),
+            ("a character no key types", '€', None),
+        ];
+        for (case, typed, expected) in cases {
+            let found = place_of(&us_digit_row(), FIRST, keysym_of(typed));
+            assert_eq!(found, expected, "{case}");
+        }
     }
 }

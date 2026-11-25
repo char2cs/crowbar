@@ -6,9 +6,6 @@ use std::ops::Range;
 use gpui::{Context, Window};
 use gpui_kit::component::input::EditorState;
 
-/// Replaces `state`'s text with `text`, editing only the span between their common prefix and
-/// suffix. A caret before the span stays, one after it moves with the text, and one inside it
-/// goes to the span's new end. Other carets collapse into the active one.
 pub(crate) fn replace_keeping_selections(
     state: &mut EditorState,
     text: &str,
@@ -34,15 +31,16 @@ pub(crate) fn replace_keeping_selections(
     state.set_scroll_offset(scroll, cx);
 }
 
-/// The byte range of `old` that differs from `new`, between their common prefix and suffix,
-/// both cut at character boundaries.
 fn changed_span(
     old: &str,
     new: &str,
 ) -> Range<usize> {
     let prefix = common_len(old.char_indices(), new.chars());
     let longest_suffix = old.len().min(new.len()) - prefix;
-    let (old_rest, new_rest) = (old.get(prefix..).unwrap_or(""), new.get(prefix..).unwrap_or(""));
+    let (old_rest, new_rest) = (
+        old.get(prefix..).unwrap_or(""),
+        new.get(prefix..).unwrap_or(""),
+    );
     let suffix = common_len(old_rest.char_indices().rev(), new_rest.chars().rev());
     let suffix = suffix.min(longest_suffix);
     prefix..old.len() - suffix

@@ -1,7 +1,7 @@
 //! The user's editor settings, in develop's units and with develop's defaults.
 
-use gpui::{App, Global, Pixels, px};
 use crate::WordWrap;
+use gpui::{App, Global, Pixels, px};
 
 mod whitespace_mode;
 

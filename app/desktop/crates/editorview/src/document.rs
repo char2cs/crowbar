@@ -175,12 +175,12 @@ impl std::fmt::Debug for Document {
 
 #[cfg(test)]
 mod tests {
+    use gpui::Focusable as _;
     use gpui::{
         IntoElement, ParentElement as _, Render, Styled as _, TestAppContext, VisualTestContext,
         Window, div,
     };
     use gpui_kit::base::input::Position;
-    use gpui::Focusable as _;
     use gpui_kit::component::input::EditorState;
 
     use super::*;

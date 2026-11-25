@@ -31,8 +31,9 @@ impl GotoLine {
             .with_style(RangeDecorationStyle::Fill)
             .with_color(fill);
         self.highlight.set(vec![decoration], cx);
-        self.editor
-            .update(cx, |state, cx| crate::reveal::centring::reveal_centered(state, offset, cx));
+        self.editor.update(cx, |state, cx| {
+            crate::reveal::centring::reveal_centered(state, offset, cx);
+        });
         cx.notify();
     }
 }

@@ -1,6 +1,5 @@
 //! How far a floating layer reaches over its window.
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Reach {
     /// At the place its portal took in the window.

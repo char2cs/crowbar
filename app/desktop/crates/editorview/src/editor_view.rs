@@ -3,8 +3,8 @@ use gpui::{
     InteractiveElement as _, IntoElement, ParentElement as _, Render, Styled as _, Subscription,
     Window, div, px,
 };
-use gpui_kit::component::Sizable as _;
 use gpui_kit::base::input::{InputEditsEvent, Rope};
+use gpui_kit::component::Sizable as _;
 use gpui_kit::component::input::{Editor, EditorState};
 
 use crate::document::Document;

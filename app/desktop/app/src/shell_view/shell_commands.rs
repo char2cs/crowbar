@@ -27,7 +27,7 @@ impl ShellView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        let stroke = keystroke_of(&event.keystroke, None);
+        let stroke = heard(&event.keystroke, cx);
         let Some(command) = self.keymap.resolve(&stroke) else {
             return self.on_unbound_key(&stroke, window, cx);
         };
@@ -127,11 +127,10 @@ impl ShellView {
         create: fn(sidebar::ProjectId) -> sidebar::Command,
     ) {
         let Some(project) = self.data.view().active_project() else {
-            tracing::info!("a new chat needs a project to be selected first");
-            return;
+            return note_chat_needs_project();
         };
         if let Err(error) = self.data.commands().dispatch(create(project)) {
-            tracing::warn!(%error, "the new chat was refused");
+            warn_chat_refused(&error);
         }
     }
 
@@ -176,8 +175,18 @@ impl ShellView {
     }
 }
 
-/// The chord keystroke of `stroke`, with the key at its place on an unshifted US layout when
-/// `physical` names it, so a shifted digit still names its digit.
+pub(super) fn heard(
+    stroke: &gpui::Keystroke,
+    cx: &gpui::App,
+) -> Keystroke {
+    #[cfg(target_os = "linux")]
+    let physical = crate::adapters::key_places::of(stroke, modifiers_of(stroke.modifiers), cx);
+    // PLATFORM: macos names a shifted key by its own place already; no lookup is needed there.
+    #[cfg(not(target_os = "linux"))]
+    let physical = None;
+    keystroke_of(stroke, physical)
+}
+
 pub(super) fn keystroke_of(
     stroke: &gpui::Keystroke,
     physical: Option<PhysicalKey>,
@@ -187,6 +196,14 @@ pub(super) fn keystroke_of(
         key: stroke.key.clone(),
         physical,
     }
+}
+
+fn note_chat_needs_project() {
+    tracing::info!("a new chat needs a project to be selected first");
+}
+
+fn warn_chat_refused(error: &sidebar::Error) {
+    tracing::warn!(%error, "the new chat was refused");
 }
 
 fn modifiers_of(modifiers: gpui::Modifiers) -> Modifiers {

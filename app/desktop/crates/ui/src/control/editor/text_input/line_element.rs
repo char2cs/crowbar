@@ -4,8 +4,8 @@ use std::ops::Range;
 
 use gpui::{
     App, Bounds, Element, ElementId, ElementInputHandler, Entity, GlobalElementId, Hsla,
-    InspectorElementId, LayoutId, Pixels, Point, ShapedLine, SharedString, Style,
-    TextAlign, TextRun, Window, fill, point, px, relative, size,
+    InspectorElementId, LayoutId, Pixels, Point, ShapedLine, SharedString, Style, TextAlign,
+    TextRun, Window, fill, point, px, relative, size,
 };
 
 use crate::control::editor::field::Frame;

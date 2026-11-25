@@ -16,8 +16,8 @@ pub(crate) use wrapped_surface::WrappedSurface;
 
 use gpui::{
     App, AvailableSpace, Bounds, ContentMask, Element, ElementId, ElementInputHandler, Entity,
-    GlobalElementId, InspectorElementId, LayoutId, Pixels, Size, Style, Window, fill,
-    point, px, relative, size,
+    GlobalElementId, InspectorElementId, LayoutId, Pixels, Size, Style, Window, fill, point, px,
+    relative, size,
 };
 
 use crate::control::editor::field::capture_pointer;

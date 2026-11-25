@@ -4,14 +4,15 @@ use gpui::Context;
 use gpui_kit::base::input::{BufferPoint, RopeExt as _};
 use gpui_kit::component::input::EditorState;
 
-/// Scrolls so the line holding `offset` sits in the middle of the viewport, as Monaco's
-/// `revealRangeInCenter`; does nothing before the editor's first layout.
 pub(crate) fn reveal_centered(
     state: &mut EditorState,
     offset: usize,
     cx: &mut Context<'_, EditorState>,
 ) {
-    let Some(line_height) = state.line_height().map(|height| f64::from(f32::from(height))) else {
+    let Some(line_height) = state
+        .line_height()
+        .map(|height| f64::from(f32::from(height)))
+    else {
         return;
     };
     let row = display_row(state, offset);
@@ -21,10 +22,6 @@ pub(crate) fn reveal_centered(
     state.set_scroll_y_f64((-centre).clamp(lowest, 0.0), cx);
 }
 
-/// Whether the line holding `offset` shows in the viewport with `context` lines above it and one
-/// fewer below, at most half the viewport each: the test Monaco's
-/// `revealRangeInCenterIfOutsideViewport` makes before it scrolls. `None` before the first
-/// layout.
 pub(crate) fn shows_line_with_context(
     state: &EditorState,
     offset: usize,
