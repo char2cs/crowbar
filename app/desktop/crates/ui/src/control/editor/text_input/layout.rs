@@ -7,6 +7,6 @@ pub(crate) trait Layout {
     fn record_layout(
         &mut self,
         line: ShapedLine,
-        bounds: Bounds<Pixels>,
+        placed: (Bounds<Pixels>, Pixels),
     );
 }

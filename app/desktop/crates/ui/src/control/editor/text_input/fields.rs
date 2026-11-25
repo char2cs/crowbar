@@ -8,6 +8,7 @@ use crate::control::editor::field::Focus;
 use crate::control::editor::field::Selection;
 use crate::control::editor::field::Text;
 use crate::control::editor::text_input::TextInput;
+use crate::control::editor::text_input::caret_scroll::CaretScroll;
 use crate::control::editor::text_input::layout::Layout;
 use crate::control::editor::text_input::line_surface::LineSurface;
 
@@ -49,6 +50,16 @@ impl Blinking for TextInput {
     }
 }
 
+impl CaretScroll for TextInput {
+    fn caret(&self) -> usize {
+        self.buffer.cursor()
+    }
+
+    fn scrolled(&self) -> Pixels {
+        self.scroll
+    }
+}
+
 impl Layout for TextInput {
     fn centered(&self) -> bool {
         self.style.centered()
@@ -57,10 +68,11 @@ impl Layout for TextInput {
     fn record_layout(
         &mut self,
         line: ShapedLine,
-        bounds: Bounds<Pixels>,
+        (bounds, scroll): (Bounds<Pixels>, Pixels),
     ) {
         self.layout = Some(line);
         self.bounds = Some(bounds);
+        self.scroll = scroll;
     }
 }
 

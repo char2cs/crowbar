@@ -2,6 +2,7 @@
 
 pub(crate) mod actions;
 mod binding;
+mod caret_scroll;
 mod commands;
 mod fields;
 mod input_method;
@@ -10,13 +11,15 @@ mod line_element;
 mod line_surface;
 mod mouse;
 mod render;
+mod scroll;
 mod select_all;
 
 pub(crate) use actions::{
     Backspace, Cancel, Copy, Cut, Delete, End, Home, Left, Paste, Right, SelectAll, SelectLeft,
     SelectRight, Submit, bindings, word_bindings,
 };
-pub(crate) use line_element::{CARET_WIDTH, PLACEHOLDER_OPACITY};
+pub(crate) use caret_scroll::CARET_WIDTH;
+pub(crate) use line_element::PLACEHOLDER_OPACITY;
 
 use gpui::AppContext as _;
 use gpui::{
@@ -39,6 +42,7 @@ pub struct TextInput {
     pub(crate) focus_handle: FocusHandle,
     pub(crate) layout: Option<ShapedLine>,
     pub(crate) bounds: Option<Bounds<Pixels>>,
+    pub(crate) scroll: Pixels,
     pub(crate) selecting: bool,
     pub(crate) surface: Surface,
     pub(crate) style: TextInputStyle,
@@ -69,6 +73,7 @@ impl TextInput {
             focus_handle: cx.focus_handle().tab_stop(true),
             layout: None,
             bounds: None,
+            scroll: Pixels::ZERO,
             selecting: false,
             surface: Surface::default(),
             style: TextInputStyle::default(),

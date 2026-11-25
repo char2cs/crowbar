@@ -21,6 +21,7 @@ use gpui::{
 };
 
 use crate::control::editor::field::capture_pointer;
+use crate::control::editor::field::native_selection;
 use crate::control::editor::field::{blinks, tend};
 use crate::control::editor::text_area::layout::Layout;
 use crate::control::editor::text_area::wrapped_element::frame::Frame;
@@ -83,7 +84,7 @@ impl<S: WrappedSurface> WrappedElement<S> {
             .map(|band| {
                 fill(
                     Bounds::new(origin + band.origin, band.size),
-                    self.palette.editor_selection(),
+                    native_selection(),
                 )
             })
             .collect();
