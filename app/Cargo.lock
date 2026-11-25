@@ -1549,6 +1549,7 @@ dependencies = [
  "platform",
  "protocol",
  "ptysession",
+ "raw-window-handle",
  "serde_json",
  "settings",
  "settingsview",

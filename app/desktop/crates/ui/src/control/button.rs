@@ -18,6 +18,7 @@ use crate::foundation::Pose;
 use crate::foundation::Surface;
 use crate::foundation::Theme;
 use crate::foundation::focus_ring;
+use crate::foundation::kept_focus::or_kept;
 use crate::foundation::motion::hover;
 use crate::foundation::opaque_debug;
 use crate::foundation::tokens::text_size;
@@ -185,6 +186,8 @@ impl RenderOnce for Button {
         let colors = Colors::resolve(self.variant, palette, theme.appearance());
         let (ring, enabled) = (focus_ring(palette), self.enabled());
         let hover = hover::track(&self.id, Pose::Off, window, cx);
+        let focus = or_kept(self.focus.clone(), &self.id, window, cx);
+        let rung = crate::Modality::rings(&focus, window, cx);
         let colors = colors.inked(&hover, (window, &*cx));
         let background = colors.fill(&hover, (window, cx));
         let content = self.content_color(&colors);
@@ -201,15 +204,14 @@ impl RenderOnce for Button {
             .on_hover(hover::listener(&hover))
             .when(enabled, |d| {
                 d.cursor_pointer()
-                    .focusable()
                     .tab_stop(true)
                     .active(colors.pressed())
-                    .when_some(self.focus, |d, focus| d.track_focus(&focus))
+                    .track_focus(&focus)
             })
             .when(!enabled, |d| {
                 d.opacity(DISABLED_OPACITY).bg(colors.background)
             })
-            .focus_visible(move |s| s.shadow(ring))
+            .when(rung, |d| d.shadow(ring))
             .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
             .children(icon)
             .children(self.label)

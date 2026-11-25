@@ -24,6 +24,7 @@ pub fn init(cx: &mut App) -> Result<(), Error> {
     let system = Appearance::from(cx.window_appearance());
     cx.set_global(Theme::default().with_system(system));
     cx.set_global(Motion::default());
+    crate::foundation::Modality::install(cx);
     cx.set_global(ShimmerClock::starting_now());
     cx.bind_keys(crate::floating::menu_bindings());
     cx.bind_keys(crate::floating::popover_bindings());

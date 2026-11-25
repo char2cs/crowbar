@@ -7,8 +7,9 @@ use gpui::{
     MouseButton, ParentElement, Pixels, Point, Styled, Window, anchored, div, px, relative,
 };
 
+use crate::floating::layers::Shaped;
 use crate::floating::placement::Placement;
-use crate::floating::portal::Portal;
+use crate::floating::portal::{Float, Portal};
 use crate::foundation::tokens::layer;
 
 const WINDOW_MARGIN: f32 = 8.0;
@@ -39,7 +40,8 @@ pub(crate) fn placed(
             .snap_to_window_with_margin(px(WINDOW_MARGIN))
             .child(content(window, cx))
     })
-    .priority(layer::MENU);
+    .priority(layer::MENU)
+    .float(Float::Popover);
     anchor.child(portal).into_any_element()
 }
 
@@ -59,7 +61,8 @@ pub(crate) fn over(
             .snap_to_window_with_margin(px(WINDOW_MARGIN))
             .child(list)
     })
-    .priority(layer::MENU);
+    .priority(layer::MENU)
+    .float(Float::Popover);
     div()
         .absolute()
         .top(offset.y)
@@ -98,6 +101,7 @@ pub fn popup_at<E: IntoElement>(
             .child(content(window, cx))
     })
     .priority(layer::MENU)
+    .float(Float::Popover)
     .into_any_element()
 }
 
@@ -108,8 +112,9 @@ pub fn click_away(
     on_press: impl Fn(&mut Window, &mut App) + 'static,
 ) -> AnyElement {
     let on_press = Rc::new(on_press);
-    Portal::window(id, move |_, _| away_layer(&on_press))
+    Portal::window(id, move |_, _| Shaped::catch(away_layer(&on_press)))
         .priority(layer::MENU - 1)
+        .float(Float::Popover)
         .into_any_element()
 }
 

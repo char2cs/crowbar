@@ -217,7 +217,7 @@ impl RenderOnce for Toast {
         );
         let faded = div()
             .when(self.fill, Styled::w_full)
-            .child(replayed)
+            .child(crate::Shaped::solid(replayed, radius::LG))
             .with_animation(
                 (self.id, format!("fade-{phase:?}")),
                 motion.animation(timing::SLOW, CubicBezier::DEFAULT),

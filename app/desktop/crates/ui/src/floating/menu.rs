@@ -182,7 +182,7 @@ impl Render for Menu {
             .iter()
             .enumerate()
             .map(|entry| self.entry(entry, palette, &handlers));
-        div()
+        let card = div()
             .id("ui-menu")
             .debug_selector(|| "ui-menu".into())
             .key_context(CONTEXT)
@@ -210,7 +210,8 @@ impl Render for Menu {
             .text_color(palette.foreground())
             .font_family(Theme::of(cx).ui_family())
             .shadow(shadow::md(opacity::PERCENT_10))
-            .children(rows)
+            .children(rows);
+        crate::Shaped::solid(card, radius::LG)
     }
 }
 

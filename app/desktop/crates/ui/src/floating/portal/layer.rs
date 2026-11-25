@@ -16,9 +16,30 @@ pub(crate) struct Layer {
     pub(crate) reach: Reach,
     pub(crate) priority: usize,
     pub(crate) build: Build,
+    pub(crate) bounds: Bounds<Pixels>,
 }
 
 impl Layer {
+    pub(crate) fn paint(
+        &self,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> AnyElement {
+        if let Reach::Window | Reach::Cover = self.reach {
+            let content = (self.build)(whole(window), window, cx);
+            return div().absolute().inset_0().child(content).into_any_element();
+        }
+        let content = (self.build)(self.bounds, window, cx);
+        div()
+            .absolute()
+            .left(self.bounds.origin.x)
+            .top(self.bounds.origin.y)
+            .w(self.bounds.size.width)
+            .h(self.bounds.size.height)
+            .child(content)
+            .into_any_element()
+    }
+
     pub(crate) fn inline(
         &self,
         window: &mut Window,
@@ -81,7 +102,10 @@ mod tests {
     use gpui::{InteractiveElement, TestAppContext};
 
     use super::*;
-    use crate::test_support::probe::open;
+    use crate::Portal;
+    use crate::test_support::floats::floated;
+    use crate::test_support::probe::{open, open_floating};
+    use crate::testing::newest_window;
 
     const OFFSET: f32 = 24.0;
 
@@ -97,6 +121,7 @@ mod tests {
             reach,
             priority: 0,
             build,
+            bounds: Bounds::default(),
         }
     }
 
@@ -126,5 +151,13 @@ mod tests {
             let painted = window.debug_bounds("floated").unwrap_or_default();
             assert_eq!(painted.origin, point(px(expected), px(expected)), "{case}");
         }
+    }
+
+    #[gpui::test]
+    fn a_window_layer_covers_the_float_window_from_its_origin(cx: &mut TestAppContext) {
+        let mut owner = open_floating(cx, |_, _| Portal::window("p", |_, _| floated()));
+        let mut top = newest_window(&mut owner);
+        let painted = top.debug_bounds("floated").unwrap_or_default();
+        assert_eq!(painted.origin, window_origin());
     }
 }

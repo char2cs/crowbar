@@ -107,7 +107,7 @@ fn preview(
         .line_height(relative(LINE))
         .when_some(tab.width, Styled::w)
         .child(label);
-    div().flex().child(pill)
+    div().flex().child(crate::Shaped::seen(pill, radius::LG))
 }
 
 opaque_debug!(TabPreview);
@@ -118,6 +118,7 @@ mod tests {
 
     use super::*;
     use crate::test_support::probe::{measure, open_floating, settle};
+    use crate::testing::newest_window;
 
     #[gpui::test]
     fn the_preview_fits_its_name_on_an_eleven_pixel_line(cx: &mut TestAppContext) {
@@ -139,10 +140,11 @@ mod tests {
     #[gpui::test]
     fn a_widened_preview_keeps_its_width_when_its_holder_has_none(cx: &mut TestAppContext) {
         let tab = gpui::size(px(116.0), px(32.0));
-        let (_, mut top) = open_floating(cx, move |_, cx| {
+        let mut owner = open_floating(cx, move |_, cx| {
             let preview = cx.new(|_| TabPreview::new("Untitled").wide(tab.width));
             div().relative().size_0().child(preview)
         });
+        let mut top = newest_window(&mut owner);
         settle(&mut top);
         let ghost = top.debug_bounds("drag-ghost").unwrap_or_default();
         assert_eq!(

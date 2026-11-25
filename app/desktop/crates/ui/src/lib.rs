@@ -8,6 +8,7 @@ mod error;
 mod floating;
 mod foundation;
 mod test_support;
+pub mod testing;
 mod ui;
 
 pub use control::{
@@ -22,16 +23,13 @@ pub use display::{
 };
 pub use error::Error;
 pub use floating::{
-    AlertButton, AlertRequest, AlertRole, AskAlert, ContextMenu, Dialog, DialogExtent, DialogSize,
-    DialogStyle, DragGhost, DropdownMenu, HeaderFlow, Menu, MenuAction, MenuEdge, MenuItem,
-    MenuPath, NativeAlert, NativeEntry, NativeMenu, NativeRequest, Placement, Popover, PopupMenu,
-    Portal, Select, TabPreview, Tooltip, TooltipSide, click_away, on_context_click, popup_at,
+    AlertButton, AlertRequest, AlertRole, AskAlert, ContextMenu, Dialog, DialogExtent, DialogSize, DialogStyle, DragGhost, DropdownMenu, Float, FloatHost, FloatRegion, HeaderFlow, Menu, MenuAction, MenuEdge, MenuItem, MenuPath, NativeAlert, NativeEntry, NativeMenu, NativeRequest, Placement, Popover, PopupMenu, Portal, Select, Shaped, TabPreview, Tooltip, TooltipSide, click_away, holds_keys, install_float_host, on_context_click, popup_at,
 };
 pub use foundation::{
     Appearance, Breakpoint, CaretBlink, ChoiceKind, ChooseFiles, CubicBezier, FileChoice,
     FileChooser, FileFilter, Glide, HoverFill, Icon, IconName, IconWeight, MaterialIcon,
-    MaterialTable, Motion, Palette, Pose, ProviderGlyph, ScaledText, Surface, Theme, ThemeId,
-    ThemeMode, Vibrancy, Wordmark, app_window_width, assets, focus_ring,
+    MaterialTable, Modality, Motion, Palette, Pose, ProviderGlyph, ScaledText, Surface, Theme,
+    ThemeId, ThemeMode, Vibrancy, Wordmark, app_window_width, assets, focus_ring, hear,
 };
 pub use foundation::{font, layer, radius, shadow, spacing, text_size, timing, tracking};
 pub use ui::init;

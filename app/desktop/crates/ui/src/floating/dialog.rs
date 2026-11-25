@@ -252,6 +252,7 @@ impl RenderOnce for Dialog {
         let veil = veil::layer(viewport);
         let mut dialog = self;
         dialog.header.close_focus = Some(focus.close);
+        let corner = dialog.style.corner();
         let popup = dialog.popup(theme, viewport);
         let layer = keyed
             .occlude()
@@ -266,7 +267,10 @@ impl RenderOnce for Dialog {
             })
             .child(veil)
             .child(spacer(TOP_SHARE))
-            .child(popup.on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()))
+            .child(crate::Shaped::solid(
+                popup.on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()),
+                corner,
+            ))
             .child(spacer(BOTTOM_SHARE))
             .with_animation((id, "fade"), fade(cx), Styled::opacity);
         anchored().position(point(px(0.0), px(0.0))).child(layer)
@@ -283,7 +287,9 @@ mod tests {
     use gpui::{InteractiveElement, ParentElement, TestAppContext, div, point, px};
 
     use super::*;
+    use crate::floating::Float;
     use crate::test_support::probe::{open, open_floating};
+    use crate::testing::newest_window;
 
     #[gpui::test]
     fn close_button_and_scrim_both_call_on_close(cx: &mut TestAppContext) {
@@ -421,11 +427,12 @@ mod tests {
     fn open_confirm(cx: &mut TestAppContext) -> (Log, gpui::VisualTestContext) {
         let log = Log::default();
         let shown = Rc::clone(&log);
-        let (_, top) = open_floating(cx, move |_, _| {
+        let mut owner = open_floating(cx, move |_, _| {
             let shown = Rc::clone(&shown);
             crate::floating::Portal::window("dialog", move |_, _| confirm(&shown))
+                .float(Float::Modal)
         });
-        (log, top)
+        (log, newest_window(&mut owner))
     }
 
     fn press(
@@ -460,10 +467,12 @@ mod tests {
         let log = Log::default();
         let first = cx.update(|cx| cx.focus_handle());
         let (shown, held) = (Rc::clone(&log), first.clone());
-        let (_, mut top) = open_floating(cx, move |_, _| {
+        let mut owner = open_floating(cx, move |_, _| {
             let (shown, held) = (Rc::clone(&shown), held.clone());
             crate::floating::Portal::window("dialog", move |_, _| alert(&shown, &held))
+                .float(Float::Modal)
         });
+        let mut top = newest_window(&mut owner);
         top.run_until_parked();
         press(&mut top, "enter");
         assert_eq!(*log.borrow(), vec!["cancel"], "return answers Cancel");
@@ -519,12 +528,14 @@ mod tests {
         let field = cx.update(|cx| cx.focus_handle());
         let (inner, typed) = (field.clone(), Rc::new(Cell::new(0)));
         let count = Rc::clone(&typed);
-        let (mut owner, mut top) = open_floating(cx, move |_, _| {
+        let mut owner = open_floating(cx, move |_, _| {
             let (inner, count) = (inner.clone(), Rc::clone(&count));
             crate::floating::Portal::window("dialog", move |_, _| counting_dialog(&inner, &count))
+                .float(Float::Modal)
         });
         owner.update(|window, cx| window.focus(&field, cx));
-        owner.run_until_parked();
+        let mut top = newest_window(&mut owner);
+        top.run_until_parked();
         top.simulate_keystrokes("a");
         assert_eq!(typed.get(), 1);
     }

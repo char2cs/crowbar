@@ -192,7 +192,8 @@ mod tests {
 
     use super::*;
     use crate::floating::menu::menu_item::MenuAction;
-    use crate::test_support::probe::open;
+    use crate::test_support::probe::{open, open_floating, settle};
+    use crate::testing::newest_window;
 
     fn nested(chosen: &Rc<Cell<u32>>) -> Vec<MenuItem> {
         let chosen = Rc::clone(chosen);
@@ -307,5 +308,32 @@ mod tests {
         cx.run_until_parked();
         cx.simulate_keystrokes("enter");
         assert_eq!(chosen.get(), 0);
+    }
+
+    #[gpui::test]
+    fn a_context_menu_floats_in_the_top_layer_at_the_pointer(cx: &mut TestAppContext) {
+        let chosen = Rc::new(Cell::new(0));
+        let mut owner = open_floating(cx, build(&chosen));
+        let at = point(px(40.0), px(30.0));
+        owner.simulate_event(gpui::MouseDownEvent {
+            button: MouseButton::Right,
+            position: at,
+            modifiers: gpui::Modifiers::none(),
+            click_count: 1,
+            first_mouse: false,
+        });
+        owner.run_until_parked();
+        assert_eq!(owner.debug_bounds("ui-menu"), None, "nothing in the window");
+        let mut top = newest_window(&mut owner);
+        let menu = top.debug_bounds("ui-menu").unwrap_or_default();
+        assert_eq!(menu.origin, at);
+        let away = point(px(700.0), px(500.0));
+        top.simulate_click(away, gpui::Modifiers::none());
+        settle(&mut owner);
+        assert_eq!(
+            newest_window(&mut owner).debug_bounds("ui-menu"),
+            None,
+            "a press outside closes it"
+        );
     }
 }

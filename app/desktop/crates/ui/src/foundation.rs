@@ -6,8 +6,11 @@ mod close_handler;
 mod control_scale;
 mod direction;
 mod file_chooser;
+mod hearing;
 mod icon;
 mod index_handler;
+pub(crate) mod kept_focus;
+mod modality;
 pub(crate) mod motion;
 mod opaque_debug;
 mod theme;
@@ -20,10 +23,12 @@ pub(crate) use close_handler::CloseHandler;
 pub(crate) use control_scale::ControlScale;
 pub(crate) use direction::Direction;
 pub use file_chooser::{ChoiceKind, ChooseFiles, FileChoice, FileChooser, FileFilter};
+pub use hearing::hear;
 pub use icon::{
     Icon, IconName, IconWeight, MaterialIcon, MaterialTable, ProviderGlyph, Wordmark, assets,
 };
 pub(crate) use index_handler::IndexHandler;
+pub use modality::Modality;
 pub(crate) use motion::Keyframes;
 pub use motion::{CubicBezier, Glide, HoverFill, Motion, Pose};
 pub(crate) use motion::{ToggleState, Tween};

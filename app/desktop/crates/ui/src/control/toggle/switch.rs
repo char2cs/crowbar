@@ -14,6 +14,7 @@ use crate::foundation::Surface;
 use crate::foundation::Theme;
 use crate::foundation::Tween;
 use crate::foundation::focus_ring;
+use crate::foundation::kept_focus::kept_focus;
 use crate::foundation::mix;
 use crate::foundation::motion::hover;
 use crate::foundation::opaque_debug;
@@ -101,6 +102,8 @@ impl RenderOnce for Switch {
         window: &mut Window,
         cx: &mut App,
     ) -> impl IntoElement {
+        let focus = kept_focus(&self.id, window, cx);
+        let rung = crate::Modality::rings(&focus, window, cx);
         let palette = Theme::of(cx).palette(self.surface);
         let pose = Pose::from(self.checked);
         let state = hover::track(&self.id, pose, window, cx);
@@ -128,9 +131,9 @@ impl RenderOnce for Switch {
             .p(px(1.0))
             .rounded(radius::FULL)
             .bg(mix(palette.input(), palette.primary(), fade))
-            .when(enabled, |d| d.cursor_pointer().tab_stop(true))
+            .when(enabled, |d| d.cursor_pointer().track_focus(&focus))
             .when(!enabled, |d| d.opacity(DISABLED_OPACITY))
-            .focus_visible(move |s| s.shadow(focus_ring(palette)))
+            .when(rung, |d| d.shadow(focus_ring(palette)))
             .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
             .child(thumb(slide, palette))
             .when_some(self.on_change.filter(|_| enabled), move |d, handler| {

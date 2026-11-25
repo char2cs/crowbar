@@ -18,6 +18,7 @@ use crate::foundation::Icon;
 use crate::foundation::IconName;
 use crate::foundation::IndexHandler;
 use crate::foundation::Palette;
+use crate::foundation::Pose;
 use crate::foundation::Surface;
 use crate::foundation::Theme;
 use crate::foundation::opaque_debug;
@@ -97,7 +98,7 @@ impl Select {
         &self,
         theme: Theme,
         breakpoint: ControlScale,
-        focus: &FocusHandle,
+        focus: (&FocusHandle, Pose),
     ) -> gpui::Stateful<gpui::Div> {
         let palette = theme.palette(self.surface);
         let fill = match theme.appearance() {
@@ -105,11 +106,8 @@ impl Select {
             Appearance::Dark => palette.input().opacity(opacity::DARK_INPUT),
         };
         let (label, color) = self.shown(palette);
-        let caret = Icon::new(IconName::CaretUpDown)
-            .size(breakpoint.icon())
-            .color(palette.foreground().opacity(CARET_OPACITY));
-        let trigger = div().id((self.id.clone(), "trigger"));
-        ring::focusable(trigger, focus, palette.ring())
+        let trigger = div()
+            .id((self.id.clone(), "trigger"))
             .flex()
             .items_center()
             .justify_between()
@@ -136,7 +134,8 @@ impl Select {
                     .whitespace_nowrap()
                     .child(label),
             )
-            .child(caret)
+            .child(caret(breakpoint, palette));
+        ring::focusable(trigger, focus, palette.ring())
     }
 
     fn shown(
@@ -196,6 +195,15 @@ fn over_chosen(
     point(x, (trigger - row) / 2.0 - (MENU_EDGE + rows))
 }
 
+fn caret(
+    breakpoint: ControlScale,
+    palette: &Palette,
+) -> Icon {
+    Icon::new(IconName::CaretUpDown)
+        .size(breakpoint.icon())
+        .color(palette.foreground().opacity(CARET_OPACITY))
+}
+
 fn index_f32(index: usize) -> f32 {
     u16::try_from(index).map_or(f32::from(u16::MAX), f32::from)
 }
@@ -211,7 +219,8 @@ impl RenderOnce for Select {
             cx.focus_handle()
         });
         let focus = focus.read(cx).clone();
-        let trigger = self.trigger(*Theme::of(cx), breakpoint, &focus);
+        let rung = Pose::from(crate::Modality::rings(&focus, window, cx));
+        let trigger = self.trigger(*Theme::of(cx), breakpoint, (&focus, rung));
         let growth = breakpoint.growth();
         let heights = (self.height + growth, OPTION_HEIGHT + growth);
         let items: Vec<MenuItem> = self

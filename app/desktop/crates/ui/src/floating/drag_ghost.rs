@@ -46,8 +46,10 @@ impl Render for DragGhost {
         _cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
         let (label, width) = (self.label.clone(), self.width);
-        Portal::lifted("drag-ghost", move |_, cx| pill(label.clone(), width, cx))
-            .priority(layer::TOOLTIP)
+        Portal::lifted("drag-ghost", move |_, cx| {
+            crate::Shaped::seen(pill(label.clone(), width, cx), radius::FULL)
+        })
+        .priority(layer::TOOLTIP)
     }
 }
 
@@ -89,6 +91,7 @@ mod tests {
 
     use super::*;
     use crate::test_support::probe::{measure, open_floating};
+    use crate::testing::newest_window;
 
     #[gpui::test]
     fn the_ghost_is_a_thirty_two_pixel_pill_of_the_requested_width(cx: &mut TestAppContext) {
@@ -113,7 +116,7 @@ mod tests {
 
     #[gpui::test]
     fn the_ghost_follows_the_pointer_in_the_top_layer(cx: &mut TestAppContext) {
-        let (mut owner, mut top) = open_floating(cx, |_, _| {
+        let mut owner = open_floating(cx, |_, _| {
             div()
                 .id("source")
                 .w(px(50.0))
@@ -130,6 +133,7 @@ mod tests {
             None,
             "nothing in the window"
         );
+        let mut top = newest_window(&mut owner);
         let ghost = top.debug_bounds("drag-ghost").unwrap_or_default();
         assert_eq!(ghost.size.width, px(100.0), "{ghost:?}");
         assert_eq!(

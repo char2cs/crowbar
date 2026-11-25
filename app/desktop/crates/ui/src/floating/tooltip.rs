@@ -102,7 +102,7 @@ fn card(
     let edge = palette
         .card()
         .blend(palette.border().opacity(BORDER_OPACITY));
-    div()
+    let card = div()
         .flex()
         .items_center()
         .gap(spacing::STEP_2)
@@ -120,7 +120,13 @@ fn card(
         .opacity(opacity)
         .debug_selector(|| "tooltip-card".into())
         .child(text)
-        .children(shortcut.map(Kbd::new))
+        .children(shortcut.map(Kbd::new));
+    let card = crate::Shaped::seen(card, radius::LG);
+    div().w_full().flex().justify_center().child(
+        anchored()
+            .snap_to_window_with_margin(px(WINDOW_MARGIN))
+            .child(card),
+    )
 }
 
 impl Tooltip {
@@ -140,12 +146,13 @@ impl Tooltip {
     fn keyboard_focused(
         &self,
         window: &Window,
+        cx: &App,
     ) -> bool {
         let focused = self
             .focus
             .as_ref()
             .is_some_and(|focus| focus.is_focused(window));
-        focused && window.last_input_was_keyboard()
+        focused && crate::Modality::is_keyboard(cx)
     }
 }
 
@@ -156,7 +163,7 @@ impl RenderOnce for Tooltip {
         cx: &mut App,
     ) -> impl IntoElement {
         let theme = *Theme::of(cx);
-        let keyboard_focused = self.keyboard_focused(window);
+        let keyboard_focused = self.keyboard_focused(window, cx);
         let hover_state = hover::track(&self.id, Pose::Off, window, cx);
         let entry =
             window.use_keyed_state((self.id.clone(), "entry"), cx, |_, _| None::<Point<Pixels>>);
@@ -174,12 +181,7 @@ impl RenderOnce for Tooltip {
             .debug_selector(move || format!("tooltip-{id}"));
         let (text, shortcut) = (self.text, self.shortcut);
         let floating = Portal::here((self.id.clone(), "card"), move |_, _| {
-            let card = card((text.clone(), shortcut.clone()), theme, opacity);
-            div().w_full().flex().justify_center().child(
-                anchored()
-                    .snap_to_window_with_margin(px(WINDOW_MARGIN))
-                    .child(card),
-            )
+            card((text.clone(), shortcut.clone()), theme, opacity)
         })
         .priority(layer::TOOLTIP);
         div()
@@ -248,9 +250,11 @@ mod tests {
 
     use super::*;
     use crate::control::Button;
+    use crate::floating::Float;
     use crate::floating::Portal;
     use crate::foundation::IconName;
     use crate::test_support::probe::{measure, open, open_floating, settle};
+    use crate::testing::newest_window;
 
     #[gpui::test]
     fn wrapping_does_not_change_the_trigger_size(cx: &mut TestAppContext) {
@@ -314,13 +318,11 @@ mod tests {
             Tooltip::new("t", "Settings", Button::icon_only("b", IconName::Gear))
         });
         cx.update(|_, cx| cx.set_global(Motion::reduced()));
-        cx.simulate_mouse_move(point(px(10.0), px(10.0)), None, gpui::Modifiers::none());
-        cx.run_until_parked();
-        cx.simulate_mouse_move(point(px(10.0), px(10.0)), None, gpui::Modifiers::none());
+        cx.simulate_mouse_move(point(px(0.0), px(0.0)), None, gpui::Modifiers::none());
         cx.run_until_parked();
         assert!(
             cx.debug_bounds("tooltip-card").is_none(),
-            "the pointer has not moved"
+            "the trigger gained the test pointer at the window's origin, where it still rests"
         );
         cx.simulate_mouse_move(point(px(11.0), px(11.0)), None, gpui::Modifiers::none());
         cx.run_until_parked();
@@ -404,20 +406,23 @@ mod tests {
     ) {
         let (gear, field) = cx.update(|cx| (cx.focus_handle(), cx.focus_handle()));
         let (held, inner) = (gear.clone(), field.clone());
-        let (mut owner, mut top) = open_floating(cx, move |_, _| {
+        let mut owner = open_floating(cx, move |_, _| {
             let trigger = Button::icon_only("b", IconName::Gear).focus_handle(held.clone());
             let inner = inner.clone();
-            let dialog = Portal::here("d", move |_, _| div().size(px(10.0)).track_focus(&inner));
+            let dialog = Portal::here("d", move |_, _| div().size(px(10.0)).track_focus(&inner))
+                .float(Float::Modal);
             div()
                 .child(Tooltip::new("t", "Settings", trigger).focused_by(&held))
                 .child(dialog)
         });
         owner.update(|_, cx| cx.set_global(Motion::reduced()));
-        top.update(|window, cx| window.focus(&field, cx));
-        settle(&mut top);
-        top.simulate_keystrokes("escape");
+        let mut dialog = newest_window(&mut owner);
+        dialog.update(|window, cx| window.focus(&field, cx));
+        settle(&mut dialog);
+        dialog.simulate_keystrokes("escape");
         owner.update(|window, cx| window.focus(&gear, cx));
         settle(&mut owner);
+        let mut top = newest_window(&mut owner);
         settle(&mut top);
         assert!(
             top.debug_bounds("tooltip-card").is_some(),
@@ -438,7 +443,7 @@ mod tests {
 
     #[gpui::test]
     fn a_resting_tooltip_floats_in_the_top_layer_and_lets_clicks_through(cx: &mut TestAppContext) {
-        let (mut owner, mut top) = open_floating(cx, |_, _| {
+        let mut owner = open_floating(cx, |_, _| {
             Tooltip::new("t", "Settings", Button::icon_only("b", IconName::Gear))
         });
         owner.update(|_, cx| cx.set_global(Motion::reduced()));
@@ -451,6 +456,7 @@ mod tests {
             None,
             "nothing in the window"
         );
+        let mut top = newest_window(&mut owner);
         let card = top.debug_bounds("tooltip-card").unwrap_or_default();
         let trigger = owner.debug_bounds("probe").unwrap_or_default();
         assert!(

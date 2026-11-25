@@ -7,6 +7,7 @@ use gpui::{
     Render, Styled, TestAppContext, VisualTestContext, Window, div,
 };
 
+use crate::foundation::Modality;
 use crate::foundation::Motion;
 use crate::foundation::Theme;
 
@@ -24,12 +25,17 @@ impl Render for Probe {
         cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
         let element = (self.build)(window, cx);
-        div().size_full().flex().items_start().child(
-            div()
-                .flex_none()
-                .debug_selector(|| "probe".into())
-                .child(element),
-        )
+        div()
+            .size_full()
+            .flex()
+            .items_start()
+            .child(crate::hear())
+            .child(
+                div()
+                    .flex_none()
+                    .debug_selector(|| "probe".into())
+                    .child(element),
+            )
     }
 }
 
@@ -41,6 +47,7 @@ pub(crate) fn open<E: IntoElement>(
     cx.update(|cx| {
         cx.set_global(Theme::default());
         cx.set_global(Motion::default());
+        Modality::install(cx);
         cx.bind_keys(crate::floating::menu_bindings());
         cx.bind_keys(crate::floating::popover_bindings());
         cx.bind_keys(crate::floating::dialog_bindings());
@@ -52,18 +59,15 @@ pub(crate) fn open<E: IntoElement>(
     cx
 }
 
-/// Opens a window showing `build()`; returns the window, then the window its floating elements
-/// paint in. Both are the same window until floating elements get windows of their own
-/// (`docs/plans/2026-11-25-drop-vendored-gpui.md`, stage 2).
+/// Opens a window showing `build()` with a float host installed, so its floating elements
+/// paint in float windows of their own; [`floating`] finds the newest one.
 pub(crate) fn open_floating<E: IntoElement>(
     cx: &mut TestAppContext,
     build: impl Fn(&mut Window, &mut App) -> E + 'static,
-) -> (VisualTestContext, VisualTestContext) {
+) -> VisualTestContext {
+    cx.update(crate::testing::open_float_windows);
     let window = open(cx, build).update(|window, _| window.window_handle());
-    (
-        VisualTestContext::from_window(window, cx),
-        VisualTestContext::from_window(window, cx),
-    )
+    VisualTestContext::from_window(window, cx)
 }
 
 /// Lets a closed floating element go: the test platform draws inside an effect
