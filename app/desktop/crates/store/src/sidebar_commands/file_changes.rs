@@ -26,10 +26,12 @@ async fn change_and_reload(
     hub: &Hub,
     plan: Plan,
     outcome: &OutcomeSink,
-    reload: ReloadTarget,
+    reloads: Vec<ReloadTarget>,
 ) {
     runner::run(hub, plan, outcome).await;
-    reload.load(hub).await;
+    for reload in reloads {
+        reload.load(hub).await;
+    }
 }
 
 async fn say_content(
@@ -51,20 +53,22 @@ impl SidebarCommands {
     fn change_files(
         &self,
         failure: Option<&str>,
-        make: impl FnOnce(&FileTarget) -> (Call, String),
+        make: impl FnOnce(&FileTarget) -> (Call, Vec<String>),
     ) -> Result<(), Error> {
         let target = self.hub.read(file_target::of).map_err(Error::from)?;
-        let (call, directory) = make(&target);
+        let (call, mut directories) = make(&target);
+        directories.dedup();
         let plan = Plan::of(&target.host, vec![call]).failing_as(failure.map(str::to_owned));
         let (hub, outcome) = (Arc::clone(&self.hub), Arc::clone(&self.outcome));
         let client = self.hub.read(|state| state.client_of_chat(&target.chat));
-        let reload = ReloadTarget {
-            client,
-            chat: target.chat,
+        let reload = |directory| ReloadTarget {
+            client: client.clone(),
+            chat: target.chat.clone(),
             directory,
         };
+        let reloads = directories.into_iter().map(reload).collect();
         self.handle
-            .spawn(async move { change_and_reload(&hub, plan, &outcome, reload).await });
+            .spawn(async move { change_and_reload(&hub, plan, &outcome, reloads).await });
         Ok(())
     }
 
@@ -75,7 +79,10 @@ impl SidebarCommands {
     ) -> Result<(), Error> {
         self.change_files(None, |target| {
             let body = json!({PATH_KEY: path, "type": entry.kind()});
-            (Call::post(files_route(target)).json(body), parent_of(path))
+            (
+                Call::post(files_route(target)).json(body),
+                vec![parent_of(path)],
+            )
         })
     }
 
@@ -87,7 +94,7 @@ impl SidebarCommands {
         self.change_files(Some(failure), |target| {
             let body = json!({"sourcePath": source, "destPath": destination});
             let route = format!("{}/copy", files_route(target));
-            (Call::post(route).json(body), parent_of(destination))
+            (Call::post(route).json(body), vec![parent_of(destination)])
         })
     }
 
@@ -98,9 +105,10 @@ impl SidebarCommands {
     ) -> Result<(), Error> {
         self.change_files(Some("Rename failed"), |target| {
             let body = json!({PATH_KEY: path, "newPath": new_path});
+            let left_and_entered = vec![parent_of(path), parent_of(new_path)];
             (
                 Call::patch(files_route(target)).json(body),
-                parent_of(new_path),
+                left_and_entered,
             )
         })
     }
@@ -113,7 +121,7 @@ impl SidebarCommands {
             let body = json!({PATH_KEY: path});
             (
                 Call::delete(files_route(target)).json(body),
-                parent_of(path),
+                vec![parent_of(path)],
             )
         })
     }
@@ -207,6 +215,65 @@ mod tests {
         );
         assert_eq!(moved, Some(json!({"path": "src/b", "newPath": "src/c"})));
         assert_eq!(gone, Some(json!({"path": "src/c"})));
+    }
+
+    async fn listed_after(
+        daemon: &FakeDaemon,
+        last: &str,
+    ) -> Vec<String> {
+        let tree = "/v0/chats/hc/files/tree?path=";
+        let listed = || -> Vec<String> {
+            let calls = daemon
+                .seen()
+                .into_iter()
+                .filter(|call| call.method == "GET");
+            let paths = calls.filter_map(|call| call.path.strip_prefix(tree).map(str::to_owned));
+            paths.collect()
+        };
+        while !listed().iter().any(|path| path == last) {
+            tokio::task::yield_now().await;
+        }
+        listed()
+    }
+
+    fn serve_listings(
+        daemon: &FakeDaemon,
+        directories: &[&str],
+    ) {
+        for directory in directories {
+            daemon.ok(
+                "GET",
+                &format!("/v0/chats/hc/files/tree?path={directory}"),
+                "[]",
+            );
+        }
+    }
+
+    type Move = (&'static str, &'static str, &'static [&'static str]);
+
+    const MOVE_CASES: [Move; 2] = [
+        ("src/a.rs", "lib/a.rs", &["src", "lib"]),
+        ("src/a.rs", "src/b.rs", &["src"]),
+    ];
+
+    async fn listed_after_move((path, new_path, want): Move) -> Vec<String> {
+        let (commands, daemon, _) = commands();
+        daemon.ok("PATCH", "/v0/chats/hc/files", "{}");
+        serve_listings(&daemon, want);
+        commands.rename_file(path, new_path).unwrap();
+        listed_after(&daemon, want.last().copied().unwrap_or_default()).await
+    }
+
+    #[test]
+    fn a_move_lists_again_the_folder_it_left_and_the_one_it_entered() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        for case in MOVE_CASES {
+            let listed = runtime.block_on(listed_after_move(case));
+            assert_eq!(listed, case.2, "{}", case.1);
+        }
     }
 
     #[tokio::test]
