@@ -11,7 +11,8 @@ use crate::foundation::Motion;
 use crate::foundation::tokens::timing;
 
 const SCRIM: f32 = 0.32;
-const BACKDROP_BLUR: f32 = 4.0;
+// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/components/ui/dialog.tsx (DialogBackdrop backdrop-blur-sm: blur(8px), sigma 8px)
+const BACKDROP_BLUR: f32 = 8.0;
 
 pub(super) fn layers(
     id: (ElementId, &'static str),

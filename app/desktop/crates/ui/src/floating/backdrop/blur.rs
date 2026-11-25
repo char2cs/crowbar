@@ -136,6 +136,38 @@ mod tests {
         assert_eq!(blurred(&flat, 4), expected);
     }
 
+    fn spread(
+        soft: &RgbaImage,
+        factor: f64,
+    ) -> f64 {
+        let reds: Vec<f64> = (0..soft.width())
+            .map(|x| f64::from(soft.get_pixel(x, 0)[0]))
+            .collect();
+        let steps: Vec<f64> = reds.windows(2).map(|pair| pair[1] - pair[0]).collect();
+        let total: f64 = steps.iter().sum();
+        let at = |(index, step): (usize, &f64)| {
+            let index = f64::from(u32::try_from(index).unwrap_or(u32::MAX));
+            (index, step / total)
+        };
+        let mean: f64 = steps.iter().enumerate().map(at).map(|(x, w)| x * w).sum();
+        let spread = steps.iter().enumerate().map(at);
+        let variance: f64 = spread.map(|(x, w)| (x - mean).powi(2) * w).sum();
+        variance.sqrt() * factor
+    }
+
+    const CASES: [u32; 3] = [4, 8, 16];
+
+    #[test]
+    fn sigma_is_the_standard_deviation_css_blur_takes() {
+        for sigma in CASES {
+            let edge = RgbaImage::from_fn(400, 4, |x, _| Rgba([200 * u8::from(x >= 200); 4]));
+            let factor = usize::try_from(sigma).unwrap_or(1);
+            let deviation = spread(&blurred(&edge, factor), f64::from(sigma));
+            let off = (deviation - f64::from(sigma)).abs();
+            assert!(off <= f64::from(sigma) / 4.0, "sigma {sigma}: {deviation}");
+        }
+    }
+
     #[test]
     fn a_hard_edge_softens_symmetrically_around_it() {
         let edge = RgbaImage::from_fn(80, 8, |x, _| Rgba([200 * u8::from(x >= 40); 4]));
