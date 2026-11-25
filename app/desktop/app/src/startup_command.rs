@@ -1,7 +1,11 @@
 use gpui::Context;
 
 use crate::daemon_link::DaemonLink;
+use crate::logged::emit;
 use crate::startup_action::StartupAction;
+
+mod log_open_event;
+use log_open_event::LogOpenEvent;
 
 #[cfg(target_os = "macos")]
 const OPENER: &str = "open";
@@ -30,19 +34,11 @@ fn action_for(command: startup::Command) -> StartupAction {
 
 fn open_log(link: &DaemonLink) {
     let Some(log) = link.log() else {
-        return warn_no_log();
+        return emit(&LogOpenEvent::NoLog);
     };
     if let Err(error) = std::process::Command::new(OPENER).arg(&log).spawn() {
-        warn_log_unopened(&error);
+        emit(&LogOpenEvent::Unopened { error: &error });
     }
-}
-
-fn warn_no_log() {
-    tracing::warn!("there is no daemon log to open");
-}
-
-fn warn_log_unopened(error: &std::io::Error) {
-    tracing::warn!(%error, "opening the daemon log failed");
 }
 
 #[cfg(test)]

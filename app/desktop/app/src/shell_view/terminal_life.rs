@@ -5,8 +5,12 @@ use ptysession::Report;
 use ui::{ToastContent, ToastKind};
 
 use super::ShellView;
+use crate::logged::emit;
 use crate::notice_key::NoticeKey;
 use crate::terminal_ids::SESSION_KEY;
+
+mod session_event;
+use session_event::SessionEvent;
 
 const UNAVAILABLE: &str = "Terminal unavailable";
 const TRY_AGAIN: &str = "Could not start the terminal. Try reopening the tab.";
@@ -24,8 +28,8 @@ impl ShellView {
         match report {
             Report::Bound(session) => self.remember_session(pane, &session),
             Report::Gone => self.close_terminal(pane, cx),
-            Report::Failed(reason) => warn_not_started(&reason),
-            Report::StopFailed(words) => warn_kept_running(&words),
+            Report::Failed(reason) => emit(&SessionEvent::NotStarted { reason: &reason }),
+            Report::StopFailed(words) => emit(&SessionEvent::KeptRunning { words: &words }),
         }
     }
 
@@ -60,14 +64,6 @@ impl ShellView {
         self.state
             .apply(vec![Command::SetPaneState { pane, state }]);
     }
-}
-
-fn warn_not_started(reason: &str) {
-    tracing::warn!(%reason, "a terminal could not start");
-}
-
-fn warn_kept_running(words: &str) {
-    tracing::warn!(%words, "a closed terminal kept running");
 }
 
 fn notice_of(report: &Report) -> Option<ToastContent> {

@@ -2,11 +2,12 @@ use chord::{Keystroke, Modifier, Modifiers, PhysicalKey};
 use gpui::{Context, KeyDownEvent, Window};
 use keymap::ShellCommand;
 use layout::Command;
-use sidebar::{ActiveSpace as _, Mode, PaneFocus as _, Sink as _, SpaceList as _};
+use sidebar::{Mode, Sink as _, SpaceList as _};
 
 use super::ShellView;
 
 mod dialogs;
+mod new_chats;
 use crate::direction::Direction;
 use crate::focus_neighbour::focus_neighbour;
 use crate::project_slot::project_at;
@@ -104,36 +105,6 @@ impl ShellView {
         }
     }
 
-    fn new_chat(
-        &mut self,
-        cx: &mut Context<'_, Self>,
-    ) {
-        if crate::group_focus::editor_focused(self.state.layout(), &self.state.space()) {
-            return self.new_tab(cx);
-        }
-        self.start_chat(sidebar::Command::NewChat);
-    }
-
-    fn new_terminal_chat(&self) {
-        let terminal_ok = self.data.view().can_start_terminal_thread();
-        if terminal_ok {
-            return self.start_chat(sidebar::Command::NewTerminalThread);
-        }
-        self.start_chat(sidebar::Command::NewChat);
-    }
-
-    fn start_chat(
-        &self,
-        create: fn(sidebar::ProjectId) -> sidebar::Command,
-    ) {
-        let Some(project) = self.data.view().active_project() else {
-            return note_chat_needs_project();
-        };
-        if let Err(error) = self.data.commands().dispatch(create(project)) {
-            warn_chat_refused(&error);
-        }
-    }
-
     fn focus_towards(
         &mut self,
         direction: Direction,
@@ -196,14 +167,6 @@ pub(super) fn keystroke_of(
         key: stroke.key.clone(),
         physical,
     }
-}
-
-fn note_chat_needs_project() {
-    tracing::info!("a new chat needs a project to be selected first");
-}
-
-fn warn_chat_refused(error: &sidebar::Error) {
-    tracing::warn!(%error, "the new chat was refused");
 }
 
 fn modifiers_of(modifiers: gpui::Modifiers) -> Modifiers {

@@ -184,18 +184,17 @@ impl ShellView {
         event: &sidebarview::Event,
         cx: &mut Context<'_, Self>,
     ) {
-        if let sidebarview::Event::Held(rows) = event {
-            return self.close_held(rows, cx);
-        }
-        if !matches!(event, sidebarview::Event::PreferencesChanged) {
-            return;
+        match event {
+            sidebarview::Event::Held(rows) => return self.close_held(rows, cx),
+            sidebarview::Event::PreferencesChanged => {},
+            _ => return,
         }
         let preferences = self.sidebar.read(cx).preferences();
         let saved = self.ports.preferences.save(&preferences);
         match save_failure(&saved) {
             None => self.clear_notice(NoticeKey::Preferences, cx),
             Some(text) => {
-                warn_preferences_unsaved(&text);
+                tracing::warn!(%text, "saving the sidebar preferences failed");
                 self.show_notice(NoticeKey::Preferences, (ToastKind::Error, text), cx);
             },
         }
@@ -223,10 +222,6 @@ impl ShellView {
         let closing = panes.into_iter().map(|pane| Command::ClosePane { pane });
         self.apply_guarded(closing.collect(), cx);
     }
-}
-
-fn warn_preferences_unsaved(text: &str) {
-    tracing::warn!(%text, "saving the sidebar preferences failed");
 }
 
 fn save_failure<E: std::fmt::Display>(saved: &Result<(), E>) -> Option<String> {

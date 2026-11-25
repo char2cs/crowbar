@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+journal::sink!("crowbar");
+
 pub(crate) fn logged<T, E: Display>(
     result: Result<T, E>,
     what: &str,

@@ -1,6 +1,10 @@
 use settings::{Key, Value, Write as _};
 
 use super::ShellView;
+use crate::logged::emit;
+
+mod zoom_event;
+use zoom_event::ZoomEvent;
 
 const FONT_SIZE: &str = "terminalFontSize";
 
@@ -10,20 +14,12 @@ impl ShellView {
         size: f32,
     ) {
         let Some(backend) = self.settings_backend() else {
-            return warn_settings_closed();
+            return emit(&ZoomEvent::SettingsClosed);
         };
         if let Err(error) = backend.set(&Key::new(FONT_SIZE), Value::Number(f64::from(size))) {
-            warn_zoom_unkept(&error);
+            emit(&ZoomEvent::Unkept { error: &error });
         }
     }
-}
-
-fn warn_settings_closed() {
-    tracing::warn!("the settings are not open; a terminal zoom is not kept");
-}
-
-fn warn_zoom_unkept(error: &settings::Error) {
-    tracing::warn!(%error, "keeping the terminal zoom failed");
 }
 
 #[cfg(test)]

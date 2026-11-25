@@ -1,4 +1,8 @@
 use super::ShellState;
+use crate::logged::emit;
+
+mod theme_event;
+use theme_event::ThemeEvent;
 
 impl ShellState {
     pub(crate) fn set_keybindings(
@@ -16,14 +20,14 @@ impl ShellState {
     ) {
         let tokens = match crate::pane_theme::tokens_of(theme) {
             Ok(tokens) => tokens,
-            Err(error) => return warn_theme_undescribed(&error),
+            Err(error) => return emit(&ThemeEvent::Undescribed { error: &error }),
         };
         if let Err(error) = self.host.set_theme(tokens) {
-            warn_theme_unsent(&error);
+            emit(&ThemeEvent::Unsent { error: &error });
         }
         let surface = crate::pane_theme::surface_color(theme);
         if let Err(error) = self.host.set_background(surface) {
-            warn_views_uncoloured(&error);
+            emit(&ThemeEvent::Uncoloured { error: &error });
         }
     }
 
@@ -48,18 +52,6 @@ impl ShellState {
             tracing::warn!(%error, "sending the settings to panes failed");
         }
     }
-}
-
-fn warn_theme_undescribed(error: &protocol::Error) {
-    tracing::warn!(%error, "the theme could not be described to panes");
-}
-
-fn warn_theme_unsent(error: &panehost::Error) {
-    tracing::warn!(%error, "sending the theme to panes failed");
-}
-
-fn warn_views_uncoloured(error: &panehost::Error) {
-    tracing::warn!(%error, "colouring the pane web views failed");
 }
 
 #[cfg(test)]

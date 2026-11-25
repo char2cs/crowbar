@@ -4,7 +4,11 @@ use gpui::{ClipboardItem, Context, Window};
 use ideshell::PathAction;
 
 use super::ShellView;
+use crate::logged::emit;
 use crate::pane_spec::PaneSpec;
+
+mod reveal_event;
+use reveal_event::RevealEvent;
 
 const A_FILE: &str = "a file";
 
@@ -21,13 +25,13 @@ impl ShellView {
         relative: &str,
     ) {
         let Some(root) = self.data.workspace_root() else {
-            return note_reveal_needs_workspace();
+            return emit(&RevealEvent::NeedsWorkspace);
         };
         let Some(target) = crate::reveal_target::reveal_target(&root, relative) else {
-            return warn_reveal_left_workspace(relative);
+            return emit(&RevealEvent::LeftWorkspace { path: relative });
         };
         if let Err(error) = platform::reveal_in_file_manager(&target) {
-            warn_file_manager_unopened(&error);
+            emit(&RevealEvent::Unopened { error: &error });
         }
     }
 
@@ -131,18 +135,6 @@ impl ShellView {
             self.open_spec(PaneSpec::host_file(chat, &path.to_string_lossy()), cx);
         }
     }
-}
-
-fn note_reveal_needs_workspace() {
-    tracing::info!("revealing needs a workspace on this computer");
-}
-
-fn warn_reveal_left_workspace(relative: &str) {
-    tracing::warn!(path = relative, "a reveal path left the workspace");
-}
-
-fn warn_file_manager_unopened(error: &platform::Error) {
-    tracing::warn!(%error, "the file manager could not be opened");
 }
 
 #[cfg(test)]

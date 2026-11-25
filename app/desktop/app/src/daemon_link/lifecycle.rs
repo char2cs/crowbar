@@ -1,5 +1,9 @@
 use std::sync::Arc;
 
+mod answer_event;
+
+use answer_event::AnswerEvent;
+
 use super::DaemonLink;
 use super::launch::try_launch;
 use crate::app_options::AppOptions;
@@ -43,7 +47,7 @@ impl DaemonLink {
 
 fn relaunched(answer: &async_channel::Sender<Result<(), supervisor::Error>>) {
     if answer.try_send(Ok(())).is_err() {
-        tracing::debug!("nobody waits on the daemon's relaunch");
+        crate::logged::emit(&AnswerEvent::RelaunchUnheard);
     }
 }
 
@@ -52,12 +56,8 @@ async fn answer_restart(
     answer: async_channel::Sender<Result<(), supervisor::Error>>,
 ) {
     if answer.send(supervisor.restart().await).await.is_err() {
-        restart_unheard();
+        crate::logged::emit(&AnswerEvent::RestartUnheard);
     }
-}
-
-fn restart_unheard() {
-    tracing::debug!("nobody waits on the daemon's restart");
 }
 
 async fn relaunch_unless_running(

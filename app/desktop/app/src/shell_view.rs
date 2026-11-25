@@ -20,6 +20,7 @@ mod backend;
 mod browsing;
 mod browsing_data;
 mod built;
+mod change_unseen_event;
 mod chat_zoom;
 mod child_events;
 mod children;

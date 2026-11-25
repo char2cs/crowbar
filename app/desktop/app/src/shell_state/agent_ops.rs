@@ -10,6 +10,10 @@ use super::agent_call::AgentCall;
 use super::agent_progress::AgentProgress;
 use super::navigation_target::NavigationTarget;
 use crate::browser_tabs::{chat_browser, chat_tab, owned_browser};
+use crate::logged::emit;
+
+mod page_answer_event;
+use page_answer_event::PageAnswerEvent;
 
 const CHAT_NOT_OPEN: &str =
     "this chat is not open in the Crowbar window, so it has no pane to hold a browser";
@@ -176,21 +180,10 @@ impl ShellState {
     ) {
         match self.replies.from_page(pane.as_str(), id, answer) {
             Delivery::Delivered => {},
-            Delivery::NotWaiting => note_unawaited(id),
-            Delivery::Refused => warn_other_tab(id, pane),
+            Delivery::NotWaiting => emit(&PageAnswerEvent::NotAwaited { id }),
+            Delivery::Refused => emit(&PageAnswerEvent::OtherTab { id, pane }),
         }
     }
-}
-
-fn note_unawaited(id: &str) {
-    tracing::debug!(id, "a page answered a request nobody awaits");
-}
-
-fn warn_other_tab(
-    id: &str,
-    pane: &PaneId,
-) {
-    tracing::warn!(id, pane = %pane, "a page answered for another tab");
 }
 
 fn only_the_fragment_differs(

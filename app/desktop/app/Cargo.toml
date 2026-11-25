@@ -34,6 +34,7 @@ gpui_platform.workspace = true
 image = { workspace = true, features = ["png"] }
 base64 = "0.22"
 ideshell.workspace = true
+journal.workspace = true
 layoutview.workspace = true
 layout.workspace = true
 panehost.workspace = true

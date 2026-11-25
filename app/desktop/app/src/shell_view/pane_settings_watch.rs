@@ -1,8 +1,13 @@
 use settings::{Change, Follow as _, Read as _};
 
 use super::ShellView;
+use super::change_unseen_event::ChangeUnseenEvent;
+use crate::logged::emit;
 use crate::pane_settings::{follows, value_of, values_of};
 use crate::shell_request::ShellRequest;
+
+mod pane_setting_event;
+use pane_setting_event::PaneSettingEvent;
 
 const MAX_OPEN_TABS: &str = "maxOpenTabs";
 const AUTO_SAVE: &str = "autoSave";
@@ -17,12 +22,8 @@ fn notify_when_a_followed_setting_moves(
             .try_send(ShellRequest::PaneSettingsChanged)
             .is_err()
     {
-        pane_setting_change_unseen();
+        emit(&ChangeUnseenEvent::PaneSetting);
     }
-}
-
-fn pane_setting_change_unseen() {
-    tracing::debug!("the shell is closing; a pane setting change goes unseen");
 }
 
 fn store_one(
@@ -31,22 +32,11 @@ fn store_one(
     json: &serde_json::Value,
 ) {
     let Some(value) = value_of(json) else {
-        return warn_unknown_shape(key);
+        return emit(&PaneSettingEvent::UnknownShape { key });
     };
     if let Err(error) = backend.set(&settings::Key::new(key.as_str()), value) {
-        warn_setting_unstored(key, &error);
+        emit(&PaneSettingEvent::Unstored { key, error: &error });
     }
-}
-
-fn warn_unknown_shape(key: &protocol::SettingKey) {
-    tracing::warn!(%key, "a pane wrote a setting value of no known shape");
-}
-
-fn warn_setting_unstored(
-    key: &protocol::SettingKey,
-    error: &settings::Error,
-) {
-    tracing::warn!(%key, %error, "storing a pane's setting failed");
 }
 
 impl ShellView {
