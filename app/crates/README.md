@@ -1,6 +1,6 @@
 # Rust workspace crates
 
-`app/Cargo.toml` is the workspace root. Shared crates (no GPUI, no platform code) live here in `app/crates`; desktop crates live in `app/desktop/crates`, the binary in `app/desktop/app`, patched third-party crates in `app/desktop/vendor` (see its README). `app/mobile` is a separate workspace.
+`app/Cargo.toml` is the workspace root. Shared crates (no GPUI, no platform code) live here in `app/crates`; desktop crates live in `app/desktop/crates` and the binary in `app/desktop/app`. `app/mobile` is a separate workspace.
 
 Rules for every crate: `docs/rust-style.md` and `docs/rabbyte-manifest.md`. Check with `tools/scripts/check-rust-rules.sh` and `tools/scripts/check-standards.sh`; CI is `.github/workflows/rust.yml`.
 

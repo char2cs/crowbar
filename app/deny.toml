@@ -58,6 +58,7 @@ deny = [
     "gdk-pixbuf",             # gtk-rs 0.18 under wry
     "gio",                    # gtk-rs 0.18 under wry
     "glib",                   # gtk-rs 0.18 under wry
+    "gpui-component",         # gpui-kit 0.11 theme colours; owner approved 2026-11-25
     "is-docker",              # gpui
     "is-wsl",                 # gpui
     "naga",                   # wgpu under gpui

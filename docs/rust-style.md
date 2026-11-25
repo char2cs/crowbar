@@ -1,6 +1,6 @@
 # Rust style manifest
 
-Applies to every Rust crate under `app/` (`app/crates`, `app/desktop`, `app/mobile/ios-plugin`, `app/mobile/src-tauri`). Vendored code (`app/desktop/vendor`) is exempt. It is the Rust translation of the owner's Rabbyte manifest: the language-independent rules carry over, the Go-only rules are replaced by the Rust mechanism that does the same job. Swift: `docs/swift-style.md`. Review: `docs/plans/2026-11-14-code-review-checklist.md`.
+Applies to every Rust crate under `app/` (`app/crates`, `app/desktop`, `app/mobile/ios-plugin`, `app/mobile/src-tauri`). It is the Rust translation of the owner's Rabbyte manifest: the language-independent rules carry over, the Go-only rules are replaced by the Rust mechanism that does the same job. Swift: `docs/swift-style.md`. Review: `docs/plans/2026-11-14-code-review-checklist.md`.
 
 Enforcement tags: **fmt** = `cargo fmt --check` (`app/rustfmt.toml`); **lint** = `cargo clippy --workspace --all-targets -- -D warnings` with the lint table below; **script** = `tools/scripts/check-rust-rules.sh`; **deny** = `cargo deny check` (`app/deny.toml`); **review** = reviewer agent with the checklist.
 

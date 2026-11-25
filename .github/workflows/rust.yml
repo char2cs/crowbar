@@ -97,8 +97,6 @@ jobs:
         run: |
           bash tools/scripts/check-rust-rules.sh --self-test
           bash tools/scripts/check-rust-rules.sh --mobile
-      - name: Vendored crates are upstream plus their patch series
-        run: bash app/desktop/vendor/update.sh --check
       - name: fmt
         run: cd app && cargo fmt --all --check
       - name: clippy

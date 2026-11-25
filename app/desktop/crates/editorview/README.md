@@ -20,7 +20,7 @@ develop's toolbar (the path breadcrumb, the caret's line and column, the languag
 - `editor`: the language of a path.
 - `gpui`, `ui` (palette, icons, text sizes).
 - `gpui-kit` (feature `component`): the `Editor` element and its `EditorState` engine, from the
-  vendored `gpui-component` and `gpui-base` (`app/desktop/vendor`).
+  stock `gpui-component` and `gpui-base` crates.
 
 ## Benchmarks
 

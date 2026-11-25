@@ -1,5 +1,8 @@
 # Overlays above native web views (GPUI shell)
 
+Superseded on 2026-11-25 by `docs/plans/2026-11-25-drop-vendored-gpui.md`: the vendored,
+patched crates are gone and the shell builds on stock gpui-pre 0.3.14 and gpui-kit 0.11.
+
 ## Problem
 Web views are native child views painting above GPUI's surface, so a GPUI menu, popover,
 palette or drag ghost is covered by them. `PaneHost::freeze` therefore hides every web view

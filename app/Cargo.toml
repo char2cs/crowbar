@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "desktop/crates/*", "desktop/app"]
-exclude = ["mobile", "desktop/vendor"]
+exclude = ["mobile"]
 
 [workspace.package]
 version = "0.1.0"
@@ -51,8 +51,8 @@ editorview = { path = "desktop/crates/editorview" }
 
 async-channel = "2"
 gdkx11 = "0.18"
-gpui = { package = "gpui-pre", version = "=0.3.12" }
-gpui-kit = { version = "=0.10.0", default-features = false, features = [
+gpui = { package = "gpui-pre", version = "=0.3.14" }
+gpui-kit = { version = "=0.11.0", default-features = false, features = [
     "component",
     "tree-sitter-bash",
     "tree-sitter-css",
@@ -67,8 +67,8 @@ gpui-kit = { version = "=0.10.0", default-features = false, features = [
     "tree-sitter-typescript",
     "tree-sitter-yaml",
 ] }
-gpui_wgpu = { package = "gpui-pre-wgpu", version = "=0.3.12" }
-gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", default-features = false, features = ["font-kit", "wayland", "x11"] }
+gpui_wgpu = { package = "gpui-pre-wgpu", version = "=0.3.14" }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.14", default-features = false, features = ["font-kit", "wayland", "x11"] }
 gtk = "0.18"
 image = { version = "0.25", default-features = false }
 lsp-types = "0.97"
@@ -137,14 +137,6 @@ large_futures = "deny"
 await_holding_lock = "deny"
 await_holding_refcell_ref = "deny"
 
-[patch.crates-io]
-calloop = { path = "desktop/vendor/calloop" }
-gpui-base = { path = "desktop/vendor/gpui-base" }
-gpui-component = { path = "desktop/vendor/gpui-component" }
-gpui-pre = { path = "desktop/vendor/gpui-pre" }
-gpui-pre-linux = { path = "desktop/vendor/gpui-pre-linux" }
-gpui-pre-macos = { path = "desktop/vendor/gpui-pre-macos" }
-gpui-pre-wgpu = { path = "desktop/vendor/gpui-pre-wgpu" }
 
 [profile.dev.package."*"]
 opt-level = 3
