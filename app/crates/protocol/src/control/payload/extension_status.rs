@@ -1,7 +1,9 @@
+pub(super) mod status_kind;
+
 use serde::{Deserialize, Serialize};
 
-use crate::control::payload::display_text::DisplayText;
-use crate::control::payload::status_kind::StatusKind;
+use crate::control::payload::extension_status::status_kind::StatusKind;
+use crate::control::payload::text::display_text::DisplayText;
 use crate::identity::ExtensionId;
 
 /// Payload of an `extension.status` frame.

@@ -1,3 +1,5 @@
+pub(super) mod toast_tone;
+
 use serde::{Deserialize, Serialize};
 
 use crate::control::payload::DisplayText;
