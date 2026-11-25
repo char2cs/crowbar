@@ -3,9 +3,10 @@
 
 mod root_block;
 
-use sidebar::{Row, RowKind, Worktree};
+use sidebar::{Mark, Row, RowKind, Worktree};
 
 use crate::live::Entities;
+use crate::live::IconCache;
 use crate::live::PendingRow;
 use crate::live::RepoRecord;
 use crate::live::WorkspaceRecord;
@@ -22,13 +23,14 @@ pub(crate) fn of(
     store: &Entities,
     project: &str,
     pending: &[PendingRow],
+    icons: &IconCache,
 ) -> Vec<Row> {
     let mut blocks = home_blocks(store, project, pending);
     let repos = store
         .repos
         .values()
         .filter(|repo| repo.project_id == project);
-    blocks.extend(repos.map(|repo| repo_block(store, repo, pending)));
+    blocks.extend(repos.map(|repo| repo_block(store, repo, pending, icons)));
     blocks.sort_by(|a, b| a.key.cmp(&b.key));
     blocks.into_iter().flat_map(|block| block.rows).collect()
 }
@@ -63,9 +65,10 @@ fn repo_block(
     store: &Entities,
     repo: &RepoRecord,
     pending: &[PendingRow],
+    icons: &IconCache,
 ) -> RootBlock {
     let body = repo_rows(store, (&repo.project_id, &repo.id), pending);
-    let mut rows = vec![header(store, repo, body.len())];
+    let mut rows = vec![header(store, repo, body.len(), icons)];
     rows.extend(body);
     RootBlock {
         key: SiblingKey::of_repo(repo.order, &repo.id),
@@ -93,6 +96,7 @@ fn header(
     store: &Entities,
     repo: &RepoRecord,
     children: usize,
+    icons: &IconCache,
 ) -> Row {
     let checkout = scope_items::default_workspace(store, (&repo.project_id, &repo.id));
     let mut row = Row::new(
@@ -101,13 +105,24 @@ fn header(
         0,
         repo.name.as_str(),
     );
-    row.mark = Some(repo_mark::of(
-        (&repo.name, &repo.avatar_label),
-        (&repo.avatar_emoji, &repo.avatar_color),
-    ));
+    row.mark = Some(picture(repo, icons));
     row.activity = activity_of(checkout.map_or_default(|ws| ws.working));
     row.nesting = nesting_for(children);
     row
+}
+
+fn picture(
+    repo: &RepoRecord,
+    icons: &IconCache,
+) -> Mark {
+    let image = icons.file_for(&repo.id, &repo.avatar_url);
+    match image {
+        Some(path) if repo.avatar_emoji.is_empty() => Mark::Image(path.to_owned()),
+        _ => repo_mark::of(
+            (&repo.name, &repo.avatar_label),
+            (&repo.avatar_emoji, &repo.avatar_color),
+        ),
+    }
 }
 
 fn header_id(
@@ -181,6 +196,14 @@ mod tests {
 
     fn store() -> Entities {
         store_of(&ROWS)
+    }
+
+    fn of(
+        store: &Entities,
+        project: &str,
+        pending: &[PendingRow],
+    ) -> Vec<Row> {
+        super::of(store, project, pending, &IconCache::default())
     }
 
     type Line<'a> = (&'a str, RowKind, u8, &'a str);
@@ -262,7 +285,23 @@ mod tests {
         );
     }
 
-    const CASES: [fn(); 4] = [
+    const PICTURED: [(&str, &str, &str); 1] = [(
+        "repo",
+        "r",
+        r#"{"id":"r","projectId":"p","name":"crowbar","avatarUrl":"/v0/projects/p/repos/r/icon?v=1"}"#,
+    )];
+
+    fn a_repo_with_a_fetched_image_wears_it_as_its_mark() {
+        let mut icons = IconCache::in_dir("/c".into());
+        let url = "/v0/projects/p/repos/r/icon?v=1";
+        icons.finish("r", url, Some("/c/r-1".into()));
+        let rows = super::of(&store_of(&PICTURED), "p", &[], &icons);
+        let marks: Vec<_> = rows.iter().map(|row| row.mark.clone()).collect();
+        assert_eq!(marks, [Some(Mark::Image("/c/r-1".into()))]);
+    }
+
+    const CASES: [fn(); 5] = [
+        a_repo_with_a_fetched_image_wears_it_as_its_mark,
         the_home_level_and_the_repos_sort_as_one_sibling_list,
         a_space_lists_its_home_chats_then_each_repo_under_a_header,
         another_space_has_its_own_rows,
