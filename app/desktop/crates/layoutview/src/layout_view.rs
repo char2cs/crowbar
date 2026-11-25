@@ -176,8 +176,9 @@ mod tests {
     #[gpui::test]
     fn the_drop_preview_floats_above_the_panes_until_the_drag_leaves(cx: &mut TestAppContext) {
         let mut floating = crate::test_support::open_floating(cx, &side_by_side());
-        let (view, window) = (floating.view.clone(), &mut floating.window);
+        let view = floating.view.clone();
         let over = DragSubject::Chat("t1".into());
+        let window = &mut floating.window;
         view.update(window, |view, cx| {
             view.hover(&over, point(px(10.0), px(100.0)), cx);
         });
@@ -187,14 +188,15 @@ mod tests {
             None,
             "nothing in the window"
         );
-        assert!(floating.top.debug_bounds("drop-preview").is_some());
+        assert!(floating.top().debug_bounds("drop-preview").is_some());
+        let window = &mut floating.window;
         view.update(window, |view, cx| {
             view.hover(&over, point(px(-5.0), px(-5.0)), cx);
         });
         window.update(|_, _| {});
         window.run_until_parked();
         assert_eq!(
-            floating.top.debug_bounds("drop-preview"),
+            floating.top().debug_bounds("drop-preview"),
             None,
             "gone outside"
         );

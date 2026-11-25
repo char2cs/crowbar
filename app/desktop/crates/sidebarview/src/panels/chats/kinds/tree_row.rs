@@ -78,7 +78,8 @@ impl RenderOnce for TreeRow {
         let live = self.input.is_none() && self.drag.ghost.is_none();
         let buttons = self.shows_buttons(*hover.read(cx)).then(|| cluster(&spec));
         let shell = row_shell(id, self.row.depth, palette);
-        let shell = ringed(hovered_by(shell, &hover), &focus, palette)
+        let rung = Pose::from(ui::Modality::rings(&focus, window, cx));
+        let shell = ringed(hovered_by(shell, &hover), &focus, palette, rung)
             .group(group)
             .hover(move |style| style.bg(idle))
             .when(self.row.presence == Presence::Open, move |d| d.bg(idle))

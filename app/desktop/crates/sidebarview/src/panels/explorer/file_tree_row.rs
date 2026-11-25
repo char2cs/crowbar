@@ -92,7 +92,8 @@ impl RenderOnce for FileTreeRow {
         let tinted = self.filled(shaped, matched.as_ref(), palette);
         let letter = entry.status.letter().map(|l| letter_badge(l, mono));
         let guides = tree_guides((entry.depth, self.neighbours), (&self.look, palette));
-        let row = ringed(tinted, &focus, palette)
+        let rung = ui::Pose::from(ui::Modality::rings(&focus, window, cx));
+        let row = ringed(tinted, &focus, palette, rung)
             .when(self.cut, |row| row.italic().opacity(CUT_OPACITY))
             .children(guides)
             .child(chevron(&pictured, palette))

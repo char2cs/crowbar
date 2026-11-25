@@ -137,12 +137,18 @@ pub(crate) fn open_under_row_source<'a>(
     }
 }
 
-/// A layout view in a window with a top layer, which shows what floats above the panes.
+/// A layout view in a window whose floating elements open windows of their own.
 pub(crate) struct Floating {
     pub(crate) view: Entity<LayoutView>,
     pub(crate) window: VisualTestContext,
-    pub(crate) top: VisualTestContext,
     pub(crate) clock: Rc<Cell<Instant>>,
+}
+
+impl Floating {
+    /// The float window the owner opened last; the owner's own window while it has none.
+    pub(crate) fn top(&mut self) -> VisualTestContext {
+        ui::testing::newest_window(&mut self.window)
+    }
 }
 
 pub(crate) fn open_floating(
@@ -161,6 +167,7 @@ pub(crate) fn open_floating_with(
         ui::init(cx).expect("ui init");
         cx.set_global(Theme::default());
         cx.set_global(Motion::default());
+        ui::testing::open_float_windows(cx);
     });
     let clock = Rc::new(Cell::new(Instant::now()));
     let reading = Rc::clone(&clock);
@@ -178,7 +185,6 @@ pub(crate) fn open_floating_with(
     Floating {
         view,
         window,
-        top: VisualTestContext::from_window(owner, cx),
         clock,
     }
 }

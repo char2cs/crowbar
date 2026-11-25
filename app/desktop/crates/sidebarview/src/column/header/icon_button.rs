@@ -102,13 +102,13 @@ impl RenderOnce for IconButton {
             );
         let (id, ring, focus) = (self.id.clone(), focus_ring(palette), self.focus);
         let pressed = focus.clone();
+        let rung = focus
+            .as_ref()
+            .is_some_and(|focus| ui::Modality::rings(focus, window, cx));
         let button = HoverFill::new(self.id, palette.sidebar_element_hover())
             .apply(base, (window, cx))
-            .when_some(focus.as_ref(), |button, focus| {
-                button
-                    .track_focus(focus)
-                    .focus_visible(move |style| style.shadow(ring))
-            })
+            .when_some(focus.as_ref(), InteractiveElement::track_focus)
+            .when(rung, move |button| button.shadow(ring))
             .on_mouse_down(MouseButton::Left, move |_, window, cx| {
                 window.prevent_default();
                 cx.stop_propagation();

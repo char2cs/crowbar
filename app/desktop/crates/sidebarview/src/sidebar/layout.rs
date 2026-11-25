@@ -57,9 +57,10 @@ impl Render for Sidebar {
             window.request_animation_frame();
         }
         let sidebar = cx.entity();
+        let float = self.float_kind(&geometry);
         let layers = self
             .floats(&geometry, cx)
-            .then(|| floating_layers(sidebar, geometry));
+            .then(|| floating_layers(sidebar, geometry).float(float));
         row.child(Self::exit_listener(cx)).children(layers)
     }
 }
@@ -74,6 +75,22 @@ fn floating_layers(
 }
 
 impl Sidebar {
+    fn float_kind(
+        &self,
+        geometry: &Geometry,
+    ) -> ui::Float {
+        let asks = self.tree.removals().confirmation().is_some()
+            || self.tree.files().dialog().is_some()
+            || self.question.is_some();
+        if asks {
+            return ui::Float::Modal;
+        }
+        if geometry.is_drawer() || self.menu.is_some() {
+            return ui::Float::Popover;
+        }
+        ui::Float::Passive
+    }
+
     fn floats(
         &self,
         geometry: &Geometry,
@@ -173,8 +190,8 @@ impl Sidebar {
             return Some(
                 layer
                     .occlude()
-                    .child(Self::scrim(cx))
-                    .child(drawer)
+                    .child(ui::Shaped::catch(Self::scrim(cx)))
+                    .child(ui::Shaped::solid(drawer, px(0.0)))
                     .into_any_element(),
             );
         }
@@ -183,7 +200,10 @@ impl Sidebar {
             .preferred()
             .min(geometry.container - 2.0 * PEEK_INSET);
         let slide = self.peek.position(motion);
-        let card = self.card((geometry.side, width, slide), window, cx);
+        let card = ui::Shaped::solid(
+            self.card((geometry.side, width, slide), window, cx),
+            ui::radius::XL,
+        );
         let area = self.peek_area(card, window, cx);
         Some(layer.child(area).into_any_element())
     }
@@ -316,7 +336,7 @@ mod tests {
             .simulate_resize(gpui::size(px(600.0), px(800.0)));
         floating.window.run_until_parked();
         let drawer = floating
-            .top
+            .top()
             .debug_bounds("sidebar-drawer")
             .unwrap_or_default();
         let placed = (

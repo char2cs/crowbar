@@ -69,7 +69,8 @@ mod tests {
 
     #[gpui::test]
     fn the_pointer_crossing_onto_the_card_keeps_it(cx: &mut gpui::TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoShell::reference());
+        let mut floating = crate::test_support::open_floating(cx, DemoShell::reference());
+        let (sidebar, cx) = (floating.sidebar.clone(), &mut floating.window);
         sidebar.update_in(cx, Sidebar::toggle);
         sidebar.update(cx, Sidebar::begin_peek);
         cx.simulate_event(MouseExitEvent {

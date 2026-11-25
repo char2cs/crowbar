@@ -332,7 +332,10 @@ mod tests {
             .window
             .simulate_click(mark.center(), gpui::Modifiers::none());
         floating.window.run_until_parked();
-        let editor = floating.top.debug_bounds("icon-editor").unwrap_or_default();
+        let editor = floating
+            .top()
+            .debug_bounds("icon-editor")
+            .unwrap_or_default();
         assert_eq!(
             f32::from(editor.top() - mark.top()),
             17.0,

@@ -66,18 +66,19 @@ impl Render for Layers {
         let modal = self.modal.clone();
         div()
             .size_full()
-            .child(ui::Portal::cover("layers", move |_, _| modal.clone()))
+            .child(ui::Portal::cover("layers", move |_, _| modal.clone()).float(ui::Float::Modal))
     }
 }
 
-/// Opens the modal in a window, as the app shows it; returns the window, then the window the
-/// dialog paints in, which is the same window until floating elements get windows of their own.
+/// Opens the modal in a window, as the app shows it; returns the window, then the float window
+/// the dialog paints in.
 pub(crate) fn open_floating(
     cx: &mut TestAppContext,
     page: &str,
 ) -> (Harness, VisualTestContext, VisualTestContext) {
     cx.update(|cx| {
         ui::init(cx).unwrap();
+        ui::testing::open_float_windows(cx);
         cx.bind_keys(crate::bindings());
     });
     let backend = backend();
@@ -96,11 +97,9 @@ pub(crate) fn open_floating(
         backend,
         closed,
     };
-    (
-        harness,
-        VisualTestContext::from_window(owner, cx),
-        VisualTestContext::from_window(owner, cx),
-    )
+    let mut window = VisualTestContext::from_window(owner, cx);
+    let top = ui::testing::newest_window(&mut window);
+    (harness, window, top)
 }
 
 pub(crate) fn open<'a>(

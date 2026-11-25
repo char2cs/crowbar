@@ -29,7 +29,8 @@ impl Sidebar {
         let chosen = native.popup(request, window, cx);
         cx.spawn_in(window, async move |this, cx| {
             let intent = intent_at(&entries, &chosen.await?)?;
-            this.update_in(cx, |this, window, cx| this.apply(intent, window, cx))
+            cx.update(|window, cx| this.update(cx, |this, cx| this.apply(intent, window, cx)))
+                .flatten()
                 .ok()
         })
         .detach();

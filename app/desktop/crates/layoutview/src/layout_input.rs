@@ -193,6 +193,6 @@ mod tests {
             None,
             "nothing in the window"
         );
-        assert!(floating.top.debug_bounds("pane-handle").is_some());
+        assert!(floating.top().debug_bounds("pane-handle").is_some());
     }
 }

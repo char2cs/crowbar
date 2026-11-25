@@ -25,6 +25,7 @@ tracing.workspace = true
 ui.workspace = true
 
 [dev-dependencies]
+ui = { workspace = true, features = ["test-support"] }
 sidebar = { workspace = true, features = ["fixtures"] }
 gpui = { workspace = true, features = ["bench-support", "test-support"] }
 

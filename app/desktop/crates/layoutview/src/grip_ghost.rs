@@ -46,7 +46,9 @@ impl Render for GripGhost {
             return self.pill.clone().into_any_element();
         }
         let (pane, source, held) = (self.pane.clone(), Rc::clone(&self.source), self.held);
-        let build = move |_: &mut Window, cx: &mut App| centred(source.preview(&pane, cx), held);
+        let build = move |_: &mut Window, cx: &mut App| {
+            ui::Shaped::seen(centred(source.preview(&pane, cx), held), ui::radius::LG)
+        };
         Portal::lifted(GHOST, build)
             .priority(layer::TOOLTIP)
             .into_any_element()
@@ -101,9 +103,12 @@ mod tests {
         floating: &mut Floating,
         to: Point<gpui::Pixels>,
     ) {
-        let handle = floating.top.debug_bounds("pane-handle").expect("a handle");
+        let handle = floating
+            .top()
+            .debug_bounds("pane-handle")
+            .expect("a handle");
         let grip = handle.origin + point(px(GRIP_CENTRE.0), px(GRIP_CENTRE.1));
-        let (top, none) = (&mut floating.top, Modifiers::none());
+        let (mut top, none) = (floating.top(), Modifiers::none());
         top.simulate_mouse_down(grip, MouseButton::Left, none);
         top.simulate_mouse_move(grip + point(px(20.0), px(0.0)), MouseButton::Left, none);
         top.simulate_mouse_move(to, MouseButton::Left, none);
@@ -119,12 +124,12 @@ mod tests {
         let pointer = point(px(300.0), px(200.0));
         drag_grip(&mut floating, pointer);
         let preview = floating
-            .top
+            .top()
             .debug_bounds(PREVIEW)
             .expect("the preview is lifted");
         let half = point(px(PREVIEW_WIDTH / 2.0), px(PREVIEW_HEIGHT / 2.0));
         assert_eq!(preview.origin + half, pointer, "held by its centre");
-        assert_eq!(floating.top.debug_bounds("drag-ghost"), None, "no pill");
+        assert_eq!(floating.top().debug_bounds("drag-ghost"), None, "no pill");
     }
 
     #[gpui::test]
@@ -132,9 +137,9 @@ mod tests {
         let mut floating = handle_shown(FakeSource::starting_at_first_tab(), cx);
         drag_grip(&mut floating, point(px(300.0), px(200.0)));
         assert!(
-            floating.top.debug_bounds("drag-ghost").is_some(),
+            floating.top().debug_bounds("drag-ghost").is_some(),
             "the pill"
         );
-        assert_eq!(floating.top.debug_bounds(PREVIEW), None, "no preview");
+        assert_eq!(floating.top().debug_bounds(PREVIEW), None, "no preview");
     }
 }

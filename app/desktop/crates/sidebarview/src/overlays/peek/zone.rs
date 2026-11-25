@@ -1,11 +1,10 @@
-//! The area that keeps the peek card open. It floats with the card in the top layer, above the
-//! page, so it hears the pointer leave where the owner window no longer sees it.
+//! The area that keeps the peek card open. It floats with the card in a float window, above
+//! the page, so it hears the pointer leave where the owner window no longer sees it.
 
 use gpui::StatefulInteractiveElement;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Context, Div, InteractiveElement, IntoElement, ParentElement, Styled, Window, div,
-    px,
+    AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Styled, Window, div, px,
 };
 use sidebar::DockSide;
 use ui::Pose;
@@ -15,7 +14,7 @@ use crate::sidebar::Sidebar;
 impl Sidebar {
     pub(crate) fn peek_area(
         &self,
-        card: Div,
+        card: ui::Shaped,
         window: &Window,
         cx: &mut Context<'_, Self>,
     ) -> AnyElement {
@@ -24,7 +23,7 @@ impl Sidebar {
         }
         let zone = self.peek_zone(window);
         let sidebar = cx.entity();
-        div()
+        let area = div()
             .id("sidebar-peek-zone")
             .absolute()
             .top_0()
@@ -37,8 +36,8 @@ impl Sidebar {
                 let pose = Pose::from(*hovered);
                 sidebar.update(cx, |this, cx| this.follow_peek_hover(pose, cx));
             })
-            .child(card)
-            .into_any_element()
+            .child(card);
+        ui::Shaped::catch(area).into_any_element()
     }
 
     fn follow_peek_hover(

@@ -74,11 +74,16 @@ pub(crate) fn open(
     Harness { bar, cx, events }
 }
 
-/// A strip in its window, and the window its floating elements paint in: the same window until
-/// floating elements get windows of their own.
+/// A strip in its window, whose floating elements open windows of their own.
 pub(crate) struct Floating {
     pub(crate) window: VisualTestContext,
-    pub(crate) top: VisualTestContext,
+}
+
+impl Floating {
+    /// The float window the owner opened last; the owner's own window while it has none.
+    pub(crate) fn top(&mut self) -> VisualTestContext {
+        ui::testing::newest_window(&mut self.window)
+    }
 }
 
 pub(crate) fn open_floating(
@@ -90,6 +95,7 @@ pub(crate) fn open_floating(
         ui::init(cx).expect("ui init");
         cx.set_global(Theme::default());
         cx.set_global(Motion::default());
+        ui::testing::open_float_windows(cx);
     });
     let window = cx.add_window(|_, _| TabBar::new(TabId(50)));
     let bar = window.entity(cx).expect("the strip");
@@ -99,10 +105,7 @@ pub(crate) fn open_floating(
         bar.set_tabs(tabs, Some(TabId(active)), cx);
     });
     window.run_until_parked();
-    Floating {
-        window,
-        top: VisualTestContext::from_window(owner, cx),
-    }
+    Floating { window }
 }
 
 /// Where the row source sits: below the strip, in the window's left column.

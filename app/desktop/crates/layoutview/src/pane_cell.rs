@@ -76,7 +76,7 @@ fn floated_handle(
 ) -> impl IntoElement {
     let (width, height) = PaneHandle::size();
     let id = SharedString::from(format!("pane-handle-{}", handle.pane.as_str()));
-    let floated = Portal::here(id, move |_, _| handle.clone());
+    let floated = Portal::here(id, move |_, _| ui::Shaped::solid(handle.clone(), px(0.0)));
     div()
         .absolute()
         .left(px(left))

@@ -29,8 +29,12 @@ impl TabBar {
         let width = self.slot_spans().first().map_or(0.0, |span| span.width) - 2.0 * SHELL_MARGIN;
         let members = tab.members.clone();
         let place = (left + SHELL_MARGIN, top);
-        let build = move |_: &mut Window, _: &mut App| lifted(members.clone(), width, place);
-        let ghost = Portal::here(GHOST, build).priority(layer::TOOLTIP);
+        let build = move |_: &mut Window, _: &mut App| {
+            ui::Shaped::seen(lifted(members.clone(), width, place), ui::radius::LG)
+        };
+        let ghost = Portal::here(GHOST, build)
+            .priority(layer::TOOLTIP)
+            .float(ui::Float::Drag);
         Some(div().absolute().inset_0().child(ghost).into_any_element())
     }
 }
@@ -76,7 +80,7 @@ mod tests {
             None,
             "nothing in the window"
         );
-        let ghost = floating.top.debug_bounds("tab-ghost");
+        let ghost = floating.top().debug_bounds("tab-ghost");
         assert!(ghost.is_some(), "the ghost is in the top layer");
     }
 
@@ -90,6 +94,6 @@ mod tests {
         window.simulate_mouse_move(point(px(130.0), px(21.0)), MouseButton::Left, none);
         window.simulate_mouse_move(point(px(400.0), px(300.0)), MouseButton::Left, none);
         window.run_until_parked();
-        assert!(floating.top.debug_bounds("tab-ghost").is_some(), "lifted");
+        assert!(floating.top().debug_bounds("tab-ghost").is_some(), "lifted");
     }
 }

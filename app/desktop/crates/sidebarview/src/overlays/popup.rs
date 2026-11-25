@@ -52,12 +52,12 @@ impl Sidebar {
             .position_mode(AnchoredPositionMode::Local)
             .position(menu.at)
             .snap_to_window_with_margin(px(WINDOW_MARGIN))
-            .child(list);
+            .child(ui::Shaped::solid(list, ui::radius::LG));
         Some(
             div()
                 .absolute()
                 .size_full()
-                .child(away)
+                .child(ui::Shaped::catch(away))
                 .child(deferred(popup).with_priority(layer::MENU))
                 .into_any_element(),
         )

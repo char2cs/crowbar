@@ -188,7 +188,7 @@ mod tests {
             None,
             "nothing in the window"
         );
-        let toast = floating.top.debug_bounds("ui-toast").unwrap_or_default();
+        let toast = floating.top().debug_bounds("ui-toast").unwrap_or_default();
         assert!(toast.right() <= px(294.0), "{toast:?} inside the column");
     }
 }
