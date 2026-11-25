@@ -4,6 +4,7 @@ mod assignment;
 mod authorized;
 mod cross_host;
 mod origin_table;
+mod page_caller;
 mod pane_protocol;
 mod policy;
 mod route;
