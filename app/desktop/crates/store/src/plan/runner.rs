@@ -16,6 +16,7 @@ use crate::live::{Outcome, OutcomeSink};
 use crate::live::{fleet::catalog as providers, panel_loader::changes_reload};
 use crate::plan::Plan;
 use crate::plan::after::After;
+use crate::plan::host_unanswered;
 use crate::plan::settle;
 
 const FOLDER: &str = "folder";
@@ -40,6 +41,9 @@ pub(crate) async fn run(
     }
     match (carry_out(hub, &plan).await, &plan.removal) {
         (Ok(answer), _) => finish(hub, (&plan, &answer), outcome).await,
+        (Err(PlanError::HostUnanswered(notice)), _) => {
+            host_unanswered::tell(hub, &plan, outcome, notice);
+        },
         (Err(error), Some(removal)) => outcome(removal.refused(&error)),
         (Err(reason), None) => fail(hub, &plan, outcome, reason.to_string()),
     }
@@ -130,7 +134,9 @@ async fn pick_provider(
     hub: &Hub,
     host: &str,
 ) -> Result<Provider, PlanError> {
-    let all = providers::list(client).await.map_err(PlanError::Daemon)?;
+    let all = providers::list(client)
+        .await
+        .map_err(|error| hub.read(|state| host_unanswered::unanswered(state, host, error)))?;
     let terminal = all.iter().any(Provider::offers_terminal);
     hub.edit(|state| state.set_terminal_threads(host, Some(terminal).into()));
     providers::pick(&all)

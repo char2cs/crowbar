@@ -4,6 +4,7 @@ mod call;
 mod decode;
 mod envelope;
 mod multipart;
+pub(crate) mod proxy_failure;
 mod read;
 
 pub use call::Call;

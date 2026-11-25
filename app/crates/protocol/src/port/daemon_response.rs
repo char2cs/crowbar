@@ -42,6 +42,15 @@ impl DaemonResponse {
         &self.body
     }
 
+    /// The `x-crowbar-proxy` marker, when the shell's transport answered in the daemon's place.
+    #[must_use]
+    pub fn proxy_marker(&self) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case(crate::PROXY_HEADER))
+            .map(|(_, value)| value.as_str())
+    }
+
     /// Takes the body out, so the caller can move it instead of copying it.
     #[must_use]
     pub fn into_body(self) -> Vec<u8> {
@@ -64,5 +73,17 @@ mod tests {
         );
         assert_eq!(response.body(), b"ok", "body");
         assert_eq!(response.into_body(), b"ok".to_vec(), "moved body");
+    }
+
+    #[test]
+    fn a_proxy_answer_names_its_marker_and_a_daemon_answer_none() {
+        let proxied = DaemonResponse::new(
+            503,
+            vec![("X-Crowbar-Proxy".into(), crate::HOST_UNREACHABLE.into())],
+            Vec::new(),
+        );
+        let daemon = DaemonResponse::new(503, Vec::new(), Vec::new());
+        assert_eq!(proxied.proxy_marker(), Some(crate::HOST_UNREACHABLE));
+        assert_eq!(daemon.proxy_marker(), None);
     }
 }

@@ -1,18 +1,9 @@
 use http::{HeaderValue, Response, StatusCode, header};
 
-/// Marks a response that is the proxy's, not the daemon's; the value says why.
-pub const PROXY_HEADER: &str = "x-crowbar-proxy";
-/// The local daemon socket: nothing was listening.
-pub const DAEMON_UNAVAILABLE: &str = "daemon-unavailable";
-/// A remote host did not answer: refused, timed out, or dropped the handshake.
-pub const HOST_UNREACHABLE: &str = "host-unreachable";
-/// A remote host answered, but not with the identity pinned at pairing.
-pub const HOST_IDENTITY_CHANGED: &str = "host-identity-changed";
-
-/// No credential is stored for the host: pairing has to be done again.
-pub const NO_CREDENTIAL: &str = "no-credential";
-/// The host id is not registered.
-pub const UNKNOWN_HOST: &str = "unknown-host";
+pub use protocol::{
+    DAEMON_UNAVAILABLE, HOST_IDENTITY_CHANGED, HOST_UNREACHABLE, NO_CREDENTIAL, PROXY_HEADER,
+    UNKNOWN_HOST,
+};
 
 #[must_use]
 pub(crate) fn error_response(

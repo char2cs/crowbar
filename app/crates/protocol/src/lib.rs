@@ -42,7 +42,8 @@ pub use identity::{
     CommandId, ExtensionId, HostId, PaneId, PaneKind, PaneOrigin, PaneTypeId, SpaceId,
 };
 pub use port::{
-    DaemonRequest, DaemonResponse, DaemonTransport, HttpMethod, MAX_HEADER_BYTES, MAX_HEADERS,
-    MAX_TARGET_BYTES, RelayEndpoint, RelayScope, RequestTarget, Responder,
+    DAEMON_UNAVAILABLE, DaemonRequest, DaemonResponse, DaemonTransport, HOST_IDENTITY_CHANGED,
+    HOST_UNREACHABLE, HttpMethod, MAX_HEADER_BYTES, MAX_HEADERS, MAX_TARGET_BYTES, NO_CREDENTIAL,
+    PROXY_HEADER, RelayEndpoint, RelayScope, RequestTarget, Responder, UNKNOWN_HOST,
 };
 pub use protocol::{MAX_FRAME_BYTES, decode_pane_frame, decode_shell_frame, encode};
