@@ -146,7 +146,7 @@ impl ProtocolHandler for PaneProtocol {
         let Some(route) = parse(&self.scheme, &request.uri) else {
             return respond(error_response(status::BAD_REQUEST, "malformed crowbar url"));
         };
-        if !allows(&origin, &route) || !menu_route::may_ask(caller, &route) {
+        if !allows(&origin, &route) || !menu_route::may_ask(&request, &route) {
             return respond(error_response(
                 status::FORBIDDEN,
                 "not allowed for this pane",

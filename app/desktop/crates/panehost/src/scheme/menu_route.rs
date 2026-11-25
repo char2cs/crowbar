@@ -1,23 +1,29 @@
-//! A page's ask for a native menu: only the shell's own core pages may make it.
+//! A page's ask for a native menu: only the shell's own core pages may make it. WebKit names no
+//! Origin to the scheme, so the ask must be JSON: a sandboxed frame could only send it after a
+//! preflight, which the scheme never grants.
 
 use protocol::PaneId;
 use webview::{ProtocolRequest, ProtocolResponder, ProtocolResponse};
 
 use crate::scheme::menu_ask::MenuAsk;
 use crate::scheme::menu_body::MenuBody;
-use crate::scheme::page_caller::PageCaller;
 use crate::scheme::page_entry::PageEntry;
 use crate::scheme::pane_menus::PaneMenus;
 use crate::scheme::route::Route;
 use crate::scheme::status;
 
 const ASK_METHOD: &str = "POST";
+const ASK_TYPE: &str = "application/json";
 
 pub(crate) fn may_ask(
-    caller: PageCaller,
+    request: &ProtocolRequest,
     route: &Route,
 ) -> bool {
-    *route != Route::Menu || caller == PageCaller::ShellPage
+    *route != Route::Menu
+        || request
+            .headers
+            .iter()
+            .any(|(key, value)| key.eq_ignore_ascii_case("content-type") && value == ASK_TYPE)
 }
 
 pub(crate) fn ask(
@@ -103,9 +109,11 @@ mod tests {
         }
     }
 
+    const JSON: &str = "application/json";
+
     fn ask_from(
         f: &Fixture,
-        (view, origin): (webview::Id, Option<&str>),
+        (view, origin, kind): (webview::Id, Option<&str>, &str),
     ) -> mpsc::Receiver<ProtocolResponse> {
         let (sender, receiver) = mpsc::channel();
         let request = ProtocolRequest {
@@ -115,6 +123,7 @@ mod tests {
             headers: origin
                 .map(|origin| ("Origin".to_owned(), origin.to_owned()))
                 .into_iter()
+                .chain([("Content-Type".to_owned(), kind.to_owned())])
                 .collect(),
             body: BODY.as_bytes().to_vec(),
         };
@@ -132,8 +141,10 @@ mod tests {
     #[test]
     fn a_core_page_asks_for_a_menu_and_hears_the_chosen_entry() {
         let f = fixture();
-        let answered = ask_from(&f, (f.core, Some("crowbar://local")));
-        let ask = f.menus.asks().try_recv().expect("the shell heard the ask");
+        let answered = ask_from(&f, (f.core, None, JSON));
+        let heard = f.menus.asks().try_recv();
+        assert!(heard.is_ok(), "the shell heard the ask");
+        let ask = heard.unwrap();
         assert_eq!(ask.pane, PaneId::new("p1").unwrap());
         assert_eq!(ask.at, (12.0, 34.0));
         let left = MenuEntry::Item {
@@ -165,12 +176,22 @@ mod tests {
     fn only_the_shells_own_core_pages_may_ask() {
         let f = fixture();
         let refused = [
-            ("an extension pane", f.extension, Some("crowbar://local")),
-            ("a sandboxed preview frame", f.core, Some("null")),
-            ("a page that names no origin", f.core, None),
+            ("an extension pane", f.extension, None, JSON),
+            (
+                "a frame that names a null origin",
+                f.core,
+                Some("null"),
+                JSON,
+            ),
+            (
+                "a sandboxed frame's preflight-free post",
+                f.core,
+                None,
+                "text/plain",
+            ),
         ];
-        for (who, view, origin) in refused {
-            let answered = ask_from(&f, (view, origin)).try_recv();
+        for (who, view, origin, kind) in refused {
+            let answered = ask_from(&f, (view, origin, kind)).try_recv();
             let status = answered.map(|response| response.status);
             assert_eq!(status, Ok(403), "{who} is refused at once");
         }
