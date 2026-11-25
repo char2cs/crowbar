@@ -2,10 +2,11 @@
 
 use std::collections::HashMap;
 
-use gpui::{App, AppContext as _, Entity, Global, Subscription, Window, WindowId};
+use gpui::{AnyWindowHandle, App, AppContext as _, Entity, Global, Subscription, Window, WindowId};
 
 use crate::floating::layers::owner::Owner;
 use crate::floating::layers::registry::Registry;
+use crate::floating::portal::float::Float;
 
 #[derive(Default)]
 pub(crate) struct Owners {
@@ -44,6 +45,21 @@ pub fn holds_keys(
     cx.try_global::<Owners>()
         .and_then(|owners| owners.owners.get(&id))
         .is_some_and(|(owner, _)| owner.read(cx).holds_keys().is_some())
+}
+
+/// The float window of kind `float` that `window` has open, if any.
+pub fn open_float_window(
+    window: &Window,
+    float: Float,
+    cx: &App,
+) -> Option<AnyWindowHandle> {
+    let id = window.window_handle().window_id();
+    let (owner, _) = cx.try_global::<Owners>()?.owners.get(&id)?;
+    let floats = owner.read(cx).floats();
+    floats
+        .into_iter()
+        .find(|(kind, _)| *kind == float)
+        .map(|(_, open)| open)
 }
 
 fn forget(

@@ -18,8 +18,9 @@ mod tooltip_side;
 pub(crate) use dialog::bindings as dialog_bindings;
 pub use dialog::{Dialog, DialogExtent, DialogSize, DialogStyle, HeaderFlow};
 pub use drag_ghost::DragGhost;
-pub(crate) use layers::Owners;
-pub use layers::{FloatHost, FloatRegion, Shaped, holds_keys, install_float_host};
+pub use layers::{
+    FloatHost, FloatRegion, Shaped, holds_keys, install_float_host, open_float_window,
+};
 pub(crate) use menu::bindings as menu_bindings;
 pub use menu::{
     ContextMenu, DropdownMenu, Menu, MenuAction, MenuEdge, MenuItem, MenuPath, NativeEntry,

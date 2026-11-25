@@ -22,6 +22,6 @@ pub use shaped::Shaped;
 
 pub(crate) use opening::place;
 pub(crate) use owners::Owners;
-pub use owners::holds_keys;
+pub use owners::{holds_keys, open_float_window};
 pub(crate) use registry::Registry;
 pub(crate) use slot::Slot;

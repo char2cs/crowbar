@@ -4,7 +4,6 @@
 use gpui::{App, VisualTestContext};
 use raw_window_handle::RawWindowHandle;
 
-use crate::floating::Owners;
 use crate::{Float, FloatHost, FloatRegion};
 
 impl FloatHost for () {
@@ -56,14 +55,8 @@ pub fn float_window(
 ) -> VisualTestContext {
     owner.run_until_parked();
     let own = owner.update(|window, _| window.window_handle());
-    let open = owner.update(|window, cx| {
-        let floats = Owners::of(window, cx).map(|of| of.read(cx).floats());
-        floats
-            .unwrap_or_default()
-            .into_iter()
-            .find(|(kind, _)| *kind == float)
-    });
-    let window = open.map_or(own, |(_, window)| window);
+    let open = owner.update(|window, cx| crate::open_float_window(window, float, cx));
+    let window = open.unwrap_or(own);
     VisualTestContext::from_window(window, owner)
 }
 
