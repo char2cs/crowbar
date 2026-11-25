@@ -10,22 +10,9 @@ targets = [
 [advisories]
 version = 2
 yanked = "deny"
-# Every entry is an unmaintained-crate notice with no safe upgrade, reached only through gpui
-# (patched copy in desktop/vendor) or wry/gtk-rs. Each is dropped when the named parent bumps.
-# Review at every gpui or wry upgrade; delete an entry as soon as `cargo deny check` stops needing it.
-ignore = [
-  { id = "RUSTSEC-2025-0052", reason = "async-std discontinued; via gpui_http_client and zed-async-tar. Revisit when gpui bumps." },
-  { id = "RUSTSEC-2026-0441", reason = "pin-utils unmaintained; via async-std, same gpui subtree. Revisit when gpui bumps." },
-  { id = "RUSTSEC-2024-0436", reason = "paste unmaintained; via gpui (metal, core-video). Revisit when gpui bumps." },
-  { id = "RUSTSEC-2026-0173", reason = "proc-macro-error2 unmaintained; via gpui (stacksafe-macro). Revisit when gpui bumps." },
-  { id = "RUSTSEC-2024-0370", reason = "proc-macro-error unmaintained; via glib-macros of gtk-rs 0.18, which wry/webview use on Linux. Revisit when wry moves to gtk4 or a newer gtk-rs." },
-  { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile unmaintained; via gpui's zed-reqwest. Revisit when gpui bumps." },
-  { id = "RUSTSEC-2026-0206", reason = "rustybuzz unmaintained; via gpui (cosmic-text, usvg). Revisit when gpui bumps." },
-  { id = "RUSTSEC-2026-0192", reason = "ttf-parser unmaintained; via gpui (cosmic-text, fontdb, usvg). Revisit when gpui bumps." },
-  { id = "RUSTSEC-2026-0371", reason = "zbus_names unmaintained; via zbus under gpui's ashpd and oo7. Revisit when gpui or zbus bumps." },
-  { id = "RUSTSEC-2026-0370", reason = "zvariant unmaintained; via oo7 and zbus under gpui. Revisit when gpui or zbus bumps." },
-  { id = "RUSTSEC-2026-0372", reason = "zvariant_derive unmaintained; via zvariant under gpui. Revisit when gpui or zbus bumps." },
-]
+# Each entry must name the crate, the parent that pulls it in, and when to revisit it.
+# Delete an entry as soon as `cargo deny check` stops needing it.
+ignore = []
 
 [licenses]
 version = 2
@@ -60,15 +47,11 @@ allow-wildcard-paths = true
 # below, which are third-party crates we cannot change; a new parent fails the check and needs review.
 deny = [
   { crate = "lazy_static", reason = "use std::sync::LazyLock inside a constructor, or pass state in (M24)", wrappers = [
-    "num-bigint-dig",  # oo7 keyring under gpui. Revisit when gpui bumps.
     "sharded-slab",    # tracing-subscriber (diagnostics). Revisit when tracing-subscriber drops it.
     "zed-font-kit",    # gpui. Revisit when gpui bumps.
   ] },
   { crate = "once_cell", reason = "std covers it; global init is banned by M24", wrappers = [
     "ahash",                  # zed-xim under gpui
-    "async-global-executor",  # async-std under gpui
-    "async-std",              # gpui_http_client under gpui
-    "blade-graphics",         # gpui Linux renderer
     "cairo-rs",               # gtk-rs 0.18 under wry (webview)
     "const-random-macro",     # ahash under gpui
     "dbus-secret-service",    # keyring's Linux Secret Service store (transport); upstream
@@ -77,7 +60,8 @@ deny = [
     "glib",                   # gtk-rs 0.18 under wry
     "is-docker",              # gpui
     "is-wsl",                 # gpui
-    "naga",                   # blade-graphics under gpui
+    "naga",                   # wgpu under gpui
+    "num-bigint-dig",         # oo7 keyring under gpui
     "pango",                  # gtk-rs 0.18 under wry
     "proc-macro-crate",       # gtk-rs 0.18 macros
     "read-fonts",             # gpui font stack
@@ -87,10 +71,10 @@ deny = [
     "tracing-subscriber",     # diagnostics
     "wayland-sys",            # gpui Linux
     "webkit2gtk",             # wry on Linux
+    "wgpu-core",              # gpui renderer (gpui-pre-wgpu)
     "wry",                    # the web view crate (webview)
     "x11-dl",                 # gpui Linux
     "yeslogic-fontconfig-sys",  # gpui font stack
-    "zed-reqwest",            # gpui_http_client under gpui
   ] },
   { crate = "ctor", reason = "init magic (M24)", wrappers = [
     "gpui-pre-macos",  # gpui's macOS platform registers its classes at load. Revisit when gpui bumps.
