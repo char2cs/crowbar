@@ -16,11 +16,17 @@ impl ShellState {
         self.open_with((type_id, params), Self::apply);
     }
 
+    // SPEC: app/panes/src/features/agent/composer/composer-field.tsx: a chat mounts focused
     pub(crate) fn open_from_sidebar(
         &mut self,
         view: (PaneTypeId, Params),
     ) {
-        self.open_with(view, Self::apply_from_strip);
+        let apply: fn(&mut Self, Vec<layout::Command>) =
+            match self.history.layout().find_pane(&view.0, &view.1) {
+                Some(_) => Self::apply_from_strip,
+                None => Self::apply,
+            };
+        self.open_with(view, apply);
     }
 
     fn space_of(
@@ -80,8 +86,12 @@ impl ShellState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{open_chat, shell_rig};
+    use crate::test_support::{open_chat, resync, shell_rig, synced_chat};
     use layout::Tab;
+    use protocol::{PaneFrame, encode};
+    use webview::Call;
+
+    use panehost::IpcMessage;
 
     #[test]
     fn a_terminal_opened_from_a_folder_is_titled_by_it() {
@@ -183,5 +193,39 @@ mod tests {
         rig.shell.open_view(chat_type().unwrap(), params);
         let spaces: Vec<&str> = rig.shell.layout().tabs().iter().map(Tab::space).collect();
         assert_eq!(spaces, ["p1"], "the draft's tab is the active space's");
+    }
+
+    #[test]
+    fn a_sidebar_row_hands_the_keyboard_to_a_chat_it_opens_but_not_to_one_already_open() {
+        let cases = [("t2", true), ("t1", false)];
+        for (chat, page_keys) in cases {
+            let mut rig = shell_rig();
+            synced_chat(&mut rig);
+            rig.shell.keep_keyboard_in_shell();
+            let row = (chat_type().unwrap(), chat_params(chat).unwrap());
+            rig.shell.open_from_sidebar(row);
+            resync(&mut rig);
+            let pane = rig.shell.showing().and_then(Tab::focused).cloned().unwrap();
+            let took = page_took_keys(&mut rig, pane);
+            assert_eq!(took, page_keys, "{chat}");
+        }
+    }
+
+    fn page_took_keys(
+        rig: &mut crate::test_support::ShellRig,
+        pane: protocol::PaneId,
+    ) -> bool {
+        let register = PaneFrame::Register {
+            type_id: chat_type().unwrap(),
+            sdk: protocol::SDK_VERSION,
+        };
+        let text = encode(&register).unwrap();
+        rig.shell.handle_ipc(IpcMessage { pane, text });
+        let before = rig.mock.calls().len();
+        rig.shell.apply_keyboard();
+        let calls = rig.mock.calls();
+        calls[before..]
+            .iter()
+            .any(|call| matches!(call, Call::Focus { .. }))
     }
 }
