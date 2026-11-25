@@ -58,4 +58,16 @@ pub enum Error {
     #[cfg(target_os = "linux")]
     #[error("cannot read the X keyboard mapping: {0}")]
     KeyMap(#[source] x11rb::errors::ReplyError),
+    /// The X server would not place, shape or describe a float window.
+    #[cfg(target_os = "linux")]
+    #[error("cannot place a float window: {0}")]
+    Float(#[from] x11rb::errors::ReplyError),
+    /// A float window or its owner is not an X window.
+    #[cfg(target_os = "linux")]
+    #[error("the window is not an X window")]
+    ForeignWindow,
+    /// The connection that places float windows broke.
+    #[cfg(target_os = "linux")]
+    #[error("lost the X server that places float windows: {0}")]
+    FloatConnection(#[from] x11rb::errors::ConnectionError),
 }
