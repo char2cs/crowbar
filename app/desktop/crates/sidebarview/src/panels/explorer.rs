@@ -20,8 +20,8 @@ pub(crate) use search::FileSearch;
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, Context, InteractiveElement, IntoElement, ParentElement, Styled, Window, div,
-    px,
+    AnyElement, App, ClickEvent, Context, InteractiveElement, IntoElement, ParentElement,
+    StatefulInteractiveElement, Styled, Window, div, px,
 };
 use sidebar::{Expansion, FileKind, FolderPhase, GitStatus, Lock, MenuScope, ShellAnswers};
 use ui::{ContextMenu, ScrollArea};
@@ -122,9 +122,7 @@ impl Sidebar {
                 self.search.as_ref().map(|search| search.query.as_str()),
             ),
         };
-        let strip = ContextMenu::new("files-root-menu", div(), root_menu)
-            .flex_1()
-            .min_h(px(ROOT_STRIP));
+        let strip = Self::root_strip(root_menu, cx);
         let list = div()
             .flex()
             .flex_col()
@@ -134,6 +132,21 @@ impl Sidebar {
             .child(strip);
         let scroll = ScrollArea::new("files-scroll", &self.scrolls.files, list);
         self.panel_frame(scroll.into_any_element(), cx)
+    }
+
+    // SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/file-explorer/file-explorer/hooks/use-tree-container-events.ts
+    fn root_strip(
+        root_menu: Vec<ui::MenuItem>,
+        cx: &mut Context<'_, Self>,
+    ) -> ContextMenu {
+        let clear = cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.tree.select_file(None);
+            cx.notify();
+        });
+        let blank = div().id("files-blank").absolute().inset_0().on_click(clear);
+        ContextMenu::new("files-root-menu", blank, root_menu)
+            .flex_1()
+            .min_h(px(ROOT_STRIP))
     }
 
     fn highlighted(
@@ -268,6 +281,24 @@ mod tests {
     }
 
     const FAR_BELOW_THE_ROWS: f32 = 700.0;
+
+    #[gpui::test]
+    fn a_click_on_the_empty_space_under_the_tree_clears_the_selection(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
+        sidebar.update(cx, |this, cx| this.set_mode(Mode::Files, cx));
+        sidebar.update(cx, |this, _| {
+            this.tree.select_file(Some("README.md".into()));
+        });
+        cx.run_until_parked();
+        cx.simulate_click(
+            point(px(120.0), px(FAR_BELOW_THE_ROWS)),
+            gpui::Modifiers::none(),
+        );
+        let selected = sidebar.read_with(cx, |this, _| {
+            this.tree.files().selected().map(str::to_owned)
+        });
+        assert_eq!(selected, None);
+    }
 
     #[gpui::test]
     fn the_empty_space_at_the_foot_of_the_panel_opens_the_root_menu(cx: &mut TestAppContext) {
