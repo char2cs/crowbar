@@ -31,5 +31,5 @@ pub use pane_host::{
     VisiblePane,
 };
 pub use protocol::PaneOrigin;
-pub use scheme::{Assignment, OriginTable, PaneProtocol};
+pub use scheme::{Assignment, MenuAsk, OriginTable, PaneMenus, PaneProtocol, PaneTables};
 pub use slot::{Config, HostEvent, IpcMessage};

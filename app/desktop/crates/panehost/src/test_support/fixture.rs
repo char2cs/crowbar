@@ -18,7 +18,6 @@ use crate::pane_host::LayoutSnapshot;
 use crate::pane_host::PaneHost;
 use crate::pane_host::PaneKinds;
 use crate::pane_host::VisiblePane;
-use crate::scheme::OriginTable;
 use crate::slot::Config;
 use crate::slot::HostEvent;
 use crate::slot::IpcMessage;
@@ -173,7 +172,12 @@ pub(crate) fn fixture() -> Fixture {
     let webviews = webview::Host::with_platform(Rc::<MockPlatform>::clone(&mock));
     let revoked = Arc::<Revocations>::default();
     let transport: Arc<dyn protocol::DaemonTransport> = Arc::<Revocations>::clone(&revoked);
-    let mut host = PaneHost::new(config, webviews, OriginTable::default(), transport);
+    let mut host = PaneHost::new(
+        config,
+        webviews,
+        crate::scheme::PaneTables::default(),
+        transport,
+    );
     host.registry_mut()
         .register(pane_type("core.chat", PaneLifecycle::Parkable))
         .unwrap();

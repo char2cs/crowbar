@@ -40,6 +40,7 @@ mod notices;
 mod outcomes;
 mod page_documents;
 mod pane_commands;
+mod pane_menu;
 mod pane_settings_watch;
 mod pane_toasts;
 mod pane_wiring;

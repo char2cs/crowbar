@@ -8,13 +8,13 @@ pub(crate) fn allows(
 ) -> bool {
     match (origin, route) {
         (_, Route::Relay { .. })
-        | (PaneOrigin::Core, Route::CoreBundle { .. } | Route::Daemon { .. }) => true,
+        | (PaneOrigin::Core, Route::CoreBundle { .. } | Route::Daemon { .. } | Route::Menu) => true,
         (PaneOrigin::Extension(own), Route::ExtensionBundle { extension, .. }) => own == extension,
         (PaneOrigin::Extension(own), Route::Daemon { path_and_query, .. }) => {
             is_plain(path_and_query) && path_and_query.starts_with(&format!("/v0/ext/{own}/"))
         },
         (PaneOrigin::Core, Route::ExtensionBundle { .. })
-        | (PaneOrigin::Extension(_), Route::CoreBundle { .. }) => false,
+        | (PaneOrigin::Extension(_), Route::CoreBundle { .. } | Route::Menu) => false,
     }
 }
 

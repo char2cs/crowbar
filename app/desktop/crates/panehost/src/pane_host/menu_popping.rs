@@ -6,6 +6,13 @@ impl PaneHost {
     pub fn native_menu(&self) -> webview::NativeMenu {
         self.factory.native_menu()
     }
+
+    /// The native menus pages ask for. Await it on the main thread, pop each up over its pane
+    /// and answer it.
+    #[must_use]
+    pub fn menu_asks(&self) -> async_channel::Receiver<crate::scheme::MenuAsk> {
+        self.menus.asks()
+    }
 }
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use panehost::{DirBundle, ExtensionBundles, OriginTable, PaneBundles, PaneHost, PaneProtocol};
+use panehost::{DirBundle, ExtensionBundles, PaneBundles, PaneHost, PaneProtocol, PaneTables};
 use protocol::{DaemonTransport, HostId};
 use webview::HostConfig;
 
@@ -18,14 +18,14 @@ pub(crate) fn build_host(
     (transport, caret): (Arc<dyn DaemonTransport>, webview::CaretReport),
     is_file: impl Fn(&Path) -> bool,
 ) -> Result<PaneHost> {
-    let origins = OriginTable::default();
+    let tables = PaneTables::default();
     let bundles = PaneBundles {
         core: Arc::new(DirBundle::new(
             options.resolve_panes_dir(std::env::current_exe().ok().as_deref(), is_file)?,
         )),
         extensions: ExtensionBundles::default(),
     };
-    let protocol = PaneProtocol::new(SCHEME, Arc::clone(&transport), bundles, origins.clone());
+    let protocol = PaneProtocol::new(SCHEME, Arc::clone(&transport), bundles, tables.clone());
     let webviews = webview::Host::native(HostConfig {
         scheme: SCHEME.into(),
         protocol: Arc::new(protocol),
@@ -41,7 +41,7 @@ pub(crate) fn build_host(
             _ => true,
         })),
     };
-    let mut host = PaneHost::new(config, webviews, origins, transport);
+    let mut host = PaneHost::new(config, webviews, tables, transport);
     register_core_panes(host.registry_mut(), &options.chat_entry)?;
     host.set_keybindings(keymap::Keymap::defaults().forwarded(&[]))?;
     Ok(host)

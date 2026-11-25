@@ -24,6 +24,8 @@ use crate::pane_host::lifecycle::pane_phase::PanePhase;
 use crate::pane_host::lifecycle::pane_runtime::PaneRuntime;
 use crate::pane_host::reconcile::failures::Failures;
 use crate::scheme::OriginTable;
+use crate::scheme::PaneMenus;
+use crate::scheme::PaneTables;
 use crate::slot::Config;
 use crate::slot::Factory;
 use crate::slot::Gate;
@@ -47,6 +49,7 @@ pub struct PaneHost {
     pub(crate) factory: Factory,
     pub(crate) pool: Pool,
     pub(crate) origins: OriginTable,
+    pub(crate) menus: PaneMenus,
     pub(crate) transport: Arc<dyn DaemonTransport>,
     pub(crate) panes: BTreeMap<PaneId, PaneRuntime>,
     pub(crate) keybindings: Vec<KeyBinding>,
@@ -81,15 +84,16 @@ fn hover_report(message: &IpcMessage) -> Option<HostEvent> {
 }
 
 impl PaneHost {
-    /// Builds a host. `origins` must be the table the [`PaneProtocol`](crate::PaneProtocol)
-    /// of `webviews` reads.
+    /// Builds a host. `tables` must be the ones the [`PaneProtocol`](crate::PaneProtocol) of
+    /// `webviews` shares.
     #[must_use]
     pub fn new(
         config: Config,
         webviews: webview::Host,
-        origins: OriginTable,
+        tables: PaneTables,
         transport: Arc<dyn DaemonTransport>,
     ) -> Self {
+        let PaneTables { origins, menus } = tables;
         let (sink, inbox) = async_channel::unbounded();
         let gate = Arc::new(Gate::new(sink));
         Self {
@@ -97,6 +101,7 @@ impl PaneHost {
             pool: Pool::new(config.max_idle_slots),
             factory: Factory::new(webviews, config.clone(), Arc::clone(&gate)),
             origins,
+            menus,
             transport,
             panes: BTreeMap::new(),
             keybindings: Vec::new(),

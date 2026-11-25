@@ -15,6 +15,7 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) {
         let inbox = self.state.host().inbox();
+        let menus = self.state.host().menu_asks();
         let phases = self.link.phases();
         let saves = self.state.save_reports();
         cx.spawn_in(window, async move |this, cx| {
@@ -23,6 +24,10 @@ impl ShellView {
         .detach();
         cx.spawn_in(window, async move |this, cx| {
             drain(phases, this, cx, Self::feed_startup).await;
+        })
+        .detach();
+        cx.spawn_in(window, async move |this, cx| {
+            drain(menus, this, cx, Self::pop_pane_menu).await;
         })
         .detach();
         cx.spawn_in(window, async move |this, cx| {
@@ -63,24 +68,31 @@ impl ShellView {
         let Some((pane, x, y)) = pointer else {
             return;
         };
-        let Some((_, area)) = self.placement else {
+        let Some(position) = self.window_point(&pane, (x, y), cx) else {
             return;
         };
-        let (chrome, _) = self.chrome(cx);
-        let visible = visible_panes(self.state.showing(), area, (chrome, self.source.as_ref()));
-        let Some(origin) = visible.iter().find(|shown| shown.pane == pane) else {
-            return;
-        };
-        let position = point(
-            px(single_precision(origin.bounds.x + x)),
-            px(single_precision(origin.bounds.y + y)),
-        );
         let moved = MouseMoveEvent {
             position,
             pressed_button: None,
             modifiers: window.modifiers(),
         };
         window.dispatch_event(PlatformInput::MouseMove(moved), cx);
+    }
+
+    pub(super) fn window_point(
+        &self,
+        pane: &PaneId,
+        (x, y): (f64, f64),
+        cx: &mut Context<'_, Self>,
+    ) -> Option<gpui::Point<gpui::Pixels>> {
+        let (_, area) = self.placement?;
+        let (chrome, _) = self.chrome(cx);
+        let visible = visible_panes(self.state.showing(), area, (chrome, self.source.as_ref()));
+        let origin = visible.iter().find(|shown| &shown.pane == pane)?;
+        Some(point(
+            px(single_precision(origin.bounds.x + x)),
+            px(single_precision(origin.bounds.y + y)),
+        ))
     }
 
     pub(super) fn feed_known_phases(

@@ -12,8 +12,11 @@ use crate::catalog::PaneBundles;
 use crate::scheme::assignment::Assignment;
 use crate::scheme::authorized::Authorized;
 use crate::scheme::cross_host;
+use crate::scheme::menu_route;
 use crate::scheme::origin_table::OriginTable;
 use crate::scheme::page_caller::PageCaller;
+use crate::scheme::pane_menus::PaneMenus;
+use crate::scheme::pane_tables::PaneTables;
 use crate::scheme::policy::allows;
 use crate::scheme::route::{Route, parse};
 
@@ -27,6 +30,7 @@ pub struct PaneProtocol {
     transport: Arc<dyn DaemonTransport>,
     bundles: PaneBundles,
     origins: OriginTable,
+    menus: PaneMenus,
 }
 
 impl std::fmt::Debug for PaneProtocol {
@@ -41,19 +45,20 @@ impl std::fmt::Debug for PaneProtocol {
 }
 
 impl PaneProtocol {
-    /// A router for `scheme` (without `://`).
+    /// A router for `scheme` (without `://`) over the `tables` it shares with its pane host.
     #[must_use]
     pub fn new(
         scheme: impl Into<String>,
         transport: Arc<dyn DaemonTransport>,
         bundles: PaneBundles,
-        origins: OriginTable,
+        tables: PaneTables,
     ) -> Self {
         Self {
             scheme: scheme.into(),
             transport,
             bundles,
-            origins,
+            origins: tables.origins,
+            menus: tables.menus,
         }
     }
 
@@ -79,6 +84,7 @@ impl PaneProtocol {
                 respond(bundle_response(asset));
             },
             Route::Relay { host } => self.relay(RelayScope::new(host, pane, origin), respond),
+            Route::Menu => menu_route::ask(&self.menus, (pane, request), respond),
             Route::Daemon {
                 host,
                 path_and_query,
@@ -140,7 +146,7 @@ impl ProtocolHandler for PaneProtocol {
         let Some(route) = parse(&self.scheme, &request.uri) else {
             return respond(error_response(status::BAD_REQUEST, "malformed crowbar url"));
         };
-        if !allows(&origin, &route) {
+        if !allows(&origin, &route) || !menu_route::may_ask(caller, &route) {
             return respond(error_response(
                 status::FORBIDDEN,
                 "not allowed for this pane",
@@ -323,7 +329,10 @@ mod tests {
                 core: Arc::new(Files),
                 extensions: ExtensionBundles::default(),
             },
-            origins,
+            PaneTables {
+                origins,
+                menus: PaneMenus::default(),
+            },
         );
         Fixture {
             protocol,
