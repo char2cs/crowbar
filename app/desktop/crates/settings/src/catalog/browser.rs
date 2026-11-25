@@ -1,6 +1,6 @@
 //! The Browser page.
 
-use super::number_setting::NumberSetting;
+use super::rows::number_setting::NumberSetting;
 use super::rows::row;
 use crate::schema::Action;
 use crate::schema::ButtonSpec;

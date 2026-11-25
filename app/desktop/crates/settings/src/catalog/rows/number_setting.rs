@@ -6,14 +6,14 @@ use crate::schema::NumberRange;
 use crate::schema::OnLoad;
 
 #[derive(Debug, Clone, Copy)]
-pub(super) struct NumberSetting {
+pub(in crate::catalog) struct NumberSetting {
     range: (f64, f64, f64),
-    pub(super) default: f64,
+    pub(in crate::catalog) default: f64,
     on_load: OnLoad,
 }
 
 impl NumberSetting {
-    pub(super) const fn new(
+    pub(in crate::catalog) const fn new(
         range: (f64, f64, f64),
         default: f64,
     ) -> Self {
@@ -24,14 +24,14 @@ impl NumberSetting {
         }
     }
 
-    pub(super) const fn normalized(
+    pub(in crate::catalog) const fn normalized(
         range: (f64, f64, f64),
         default: f64,
     ) -> Self {
         Self::new(range, default).loaded_as(OnLoad::Normalized)
     }
 
-    pub(super) const fn loaded_as(
+    pub(in crate::catalog) const fn loaded_as(
         mut self,
         on_load: OnLoad,
     ) -> Self {
@@ -44,14 +44,14 @@ impl NumberSetting {
         NumberRange::new(min, max, step).loaded_as(self.on_load)
     }
 
-    pub(super) fn plain(
+    pub(in crate::catalog) fn plain(
         self,
         width: ControlWidth,
     ) -> Control {
         Control::number(self.number_range(), width)
     }
 
-    pub(super) fn snapped(
+    pub(in crate::catalog) fn snapped(
         self,
         width: ControlWidth,
     ) -> Control {
