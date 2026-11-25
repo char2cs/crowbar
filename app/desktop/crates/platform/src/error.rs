@@ -58,6 +58,13 @@ pub enum Error {
     #[cfg(target_os = "linux")]
     #[error("cannot wait for the X keyboard focus to move: {0}")]
     FocusWait(#[source] x11rb::errors::ConnectionError),
+    /// The X server would not make or name the window that proxies a window's drags.
+    #[cfg(target_os = "linux")]
+    #[error("cannot proxy the drags of an X window: {0}")]
+    Proxy(#[source] x11rb::errors::ReplyOrIdError),
+    /// A thread of the platform layer could not start.
+    #[error("cannot start a platform thread: {0}")]
+    Thread(#[source] std::io::Error),
     /// The X server would not tell its keyboard mapping.
     #[cfg(target_os = "linux")]
     #[error("cannot read the X keyboard mapping: {0}")]

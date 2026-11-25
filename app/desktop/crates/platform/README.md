@@ -20,11 +20,14 @@ desktop app that holds `unsafe` code, one minimal layer per OS: `src/linux/` and
 - `XlibParent` (Linux): an X11 window id presented as an Xlib window handle.
 - `force_x11()` (Linux): drops `WAYLAND_DISPLAY` and sets `GDK_BACKEND=x11`; `main` calls it first.
 - `InputFocus` (Linux): a connection of its own to the X server that gives the keyboard to a window
-  (`give_to`), so a web view takes keys wherever the pointer is.
+  (`give_to`), so a web view takes keys wherever the pointer is; `next_change` waits for a followed
+  window to gain or lose it.
 - `FloatPlacer` (Linux): a connection of its own to the X server that keeps a float window over its
   owner (`cover`), off the taskbar (`pin`), clipped to its cards (`shape`: the input shape always,
   the bounding shape only without a compositor) and focused (`focus`). `Card` is one rounded
   rectangle of a shape, in the float window's pixels.
+- `XdndProxy` (Linux): the `XdndProxy` of a window, on a thread of its own, which hands drags from
+  other applications to the web view under the pointer and its answers back to the source.
 - `AppkitParent` (macOS): an `NSView` of an open window, held by a strong reference, presented as
   an `AppKit` window handle. `AppkitParent::find(address, main_thread)` looks the view up among the
   app's windows, so an address no window shows never becomes a parent.

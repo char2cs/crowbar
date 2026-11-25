@@ -1,9 +1,6 @@
 //! What the shell needs of GPUI that only a real X11 window shows (CI's Xvfb), pinned so that a
 //! gpui upgrade which breaks one fails here by name.
 
-#[path = "xdnd_relay.rs"]
-mod xdnd_relay;
-
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 

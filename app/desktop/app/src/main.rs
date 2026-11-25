@@ -220,6 +220,8 @@ fn start(
         window.set_app_id(window_memory::APP_ID);
         #[cfg(target_os = "linux")]
         adapters::window_activity::follow(window, cx);
+        #[cfg(target_os = "linux")]
+        adapters::drop_relay::install(window, cx);
         let view = cx.new(|cx| ShellView::new(parts, window, cx));
         remember_close(&memory, window, cx, &view);
         view
