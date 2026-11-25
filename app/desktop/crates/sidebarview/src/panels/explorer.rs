@@ -80,7 +80,7 @@ impl Sidebar {
     }
 
     /// Names the file of the focused pane's active editor tab, or `None` without one: the
-    /// tree highlights it while unfocused and its keyboard cursor moves there.
+    /// tree's keyboard cursor moves there when it changes.
     pub fn set_active_file(
         &mut self,
         path: Option<String>,
@@ -210,10 +210,9 @@ impl Sidebar {
         window: &Window,
         cx: &App,
     ) -> Option<String> {
-        if !self.files_focus.contains_focused(window, cx) {
-            return self.active_file.clone();
-        }
-        self.tree.files().selected().map(str::to_owned)
+        let focused = self.files_focus.contains_focused(window, cx);
+        let selected = self.tree.files().selected().filter(|_| focused);
+        selected.map(str::to_owned)
     }
 
     fn panel_frame(
@@ -318,7 +317,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn the_files_tree_highlights_the_active_editor_tabs_file_and_starts_its_cursor_there(
+    fn the_active_editor_tabs_file_takes_the_cursor_but_no_fill_while_the_tree_is_unfocused(
         cx: &mut TestAppContext
     ) {
         let (_, sidebar, cx) = open(cx, DemoShell::reference());
@@ -327,12 +326,10 @@ mod tests {
             this.set_active_file(Some("src/lib.rs".into()), cx);
         });
         cx.run_until_parked();
-        assert_eq!(highlighted(&sidebar, cx).as_deref(), Some("src/lib.rs"));
         let cursor = sidebar.read_with(cx, |this, _| {
             this.tree.files().selected().map(str::to_owned)
         });
         assert_eq!(cursor.as_deref(), Some("src/lib.rs"));
-        sidebar.update(cx, |this, cx| this.set_active_file(None, cx));
         assert_eq!(highlighted(&sidebar, cx), None);
     }
 
