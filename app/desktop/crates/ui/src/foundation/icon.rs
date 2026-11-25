@@ -20,17 +20,20 @@ pub use material_table::MaterialTable;
 pub use provider_glyph::ProviderGlyph;
 pub use wordmark::Wordmark;
 
-use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    App, Hsla, IntoElement, Pixels, RenderOnce, Styled, Transformation, Window, px, radians, svg,
+    App, Bounds, Hsla, IntoElement, Pixels, RenderOnce, Styled as _, TransformationMatrix, Window,
+    canvas, px, radians,
 };
 
+use crate::foundation::icon::file::File;
 use crate::foundation::icon::files::FILES;
 
-const MISSING_PATH: &str = "";
 const DEFAULT_SIZE: Pixels = px(16.0);
 
 /// A Phosphor icon drawn with a colour token; defaults to 16px regular in the text colour.
+///
+/// Without a colour it takes the text colour it is painted in, a parent's hover colour included
+/// (stock `svg()` paints only a colour set on itself).
 #[derive(Debug, Clone, IntoElement)]
 pub struct Icon {
     name: IconName,
@@ -97,10 +100,37 @@ impl Icon {
         name: IconName,
         weight: IconWeight,
     ) -> Option<&'static str> {
-        FILES
-            .iter()
-            .find(|file| file.name == name && file.weight == weight)
-            .map(|file| file.path)
+        file(name, weight).map(|file| file.path)
+    }
+}
+
+fn file(
+    name: IconName,
+    weight: IconWeight,
+) -> Option<&'static File> {
+    FILES
+        .iter()
+        .find(|file| file.name == name && file.weight == weight)
+}
+
+fn paint(
+    icon: &Icon,
+    bounds: Bounds<Pixels>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let Some(file) = file(icon.name, icon.weight) else {
+        return;
+    };
+    let color = icon.color.unwrap_or_else(|| window.text_style().color);
+    let center = bounds.center().scale(window.scale_factor());
+    let turn = TransformationMatrix::unit()
+        .translate(center)
+        .rotate(radians(icon.rotation))
+        .translate(-center);
+    let painted = window.paint_svg(bounds, file.path.into(), Some(file.bytes), turn, color, cx);
+    if let Err(error) = painted {
+        tracing::warn!(%error, path = file.path, "an icon could not be painted");
     }
 }
 
@@ -110,19 +140,36 @@ impl RenderOnce for Icon {
         _window: &mut Window,
         _cx: &mut App,
     ) -> impl IntoElement {
-        let path = Self::path(self.name, self.weight).unwrap_or(MISSING_PATH);
-        svg()
-            .path(path)
-            .size(self.size)
-            .flex_none()
-            .when_some(self.color, Styled::text_color)
-            .with_transformation(Transformation::rotate(radians(self.rotation)))
+        let size = self.size;
+        canvas(
+            |_, _, _| (),
+            move |bounds, (), window, cx| paint(&self, bounds, window, cx),
+        )
+        .size(size)
+        .flex_none()
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use gpui::{ParentElement as _, TestAppContext, div, red};
+
     use super::*;
+    use crate::test_support::probe::open;
+
+    #[gpui::test]
+    fn an_icon_without_a_colour_paints_in_the_text_colour_around_it(cx: &mut TestAppContext) {
+        let cx = open(cx, |_, _| {
+            div()
+                .text_color(red())
+                .child(Icon::new(IconName::Folder).weight(IconWeight::Fill))
+        });
+        let colours: Vec<Hsla> = cx.update(|window, _| {
+            let sprites = &window.rendered_scene().monochrome_sprites;
+            sprites.iter().map(|sprite| sprite.color).collect()
+        });
+        assert_eq!(colours, [red()]);
+    }
 
     #[test]
     fn path_resolves_only_embedded_weights() {
