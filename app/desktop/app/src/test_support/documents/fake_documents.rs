@@ -18,8 +18,8 @@ pub(crate) struct FakeDocuments {
     files: RefCell<BTreeMap<String, Answer>>,
     reads: RefCell<Vec<String>>,
     writes: RefCell<Vec<(String, String)>>,
-    drafts: super::MemoryDraftFile,
-    servers: super::FakeServers,
+    drafts: crate::test_support::MemoryDraftFile,
+    servers: crate::test_support::FakeServers,
 }
 
 impl FakeDocuments {
@@ -56,11 +56,11 @@ impl FakeDocuments {
         self.writes.borrow().clone()
     }
 
-    pub(crate) fn drafts(&self) -> super::MemoryDraftFile {
+    pub(crate) fn drafts(&self) -> crate::test_support::MemoryDraftFile {
         self.drafts.clone()
     }
 
-    pub(crate) fn servers(&self) -> super::FakeServers {
+    pub(crate) fn servers(&self) -> crate::test_support::FakeServers {
         self.servers.clone()
     }
 }
@@ -117,9 +117,10 @@ pub(crate) fn idle_editors() -> EditorPanes {
     let chats = crate::panes::editor::editor_panes::ChatReads {
         locks: Rc::new(|_| false),
         workspaces: Rc::new(|_| None),
-        servers: super::FakeServers::default().servers(),
+        servers: crate::test_support::FakeServers::default().servers(),
     };
-    let drafts = super::memory_drafts(&super::MemoryDraftFile::default());
+    let drafts =
+        crate::test_support::memory_drafts(&crate::test_support::MemoryDraftFile::default());
     EditorPanes::new(
         Rc::new(FakeDocuments::default()),
         chats,
