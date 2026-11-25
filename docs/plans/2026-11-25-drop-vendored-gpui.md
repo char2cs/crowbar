@@ -1,6 +1,6 @@
 # Drop the vendored GPUI: stock crates, own components
 
-Status: PLAN. Investigation only. Nothing here is built.
+Status: IN PROGRESS. The owner closed the open questions on 2026-11-25 (see "Owner decisions").
 
 ## Summary
 `app/desktop/vendor/` holds seven patched crates (412,719 lines of `.rs`, 13 MB) wired in through
@@ -217,7 +217,29 @@ shortest path takes three stages.
 | 2 | Float windows (Linux) | `platform::x11::FloatWindow`, owner capture, shapes and focus; `ui::floating` routes `Portal` to the Modal, Passive and Drag windows; dropdowns and selects go native GTK; popovers become `Floating`; delete the patch-API tests and write new ones (Xvfb display tests, as `ui/tests/support/on_x11.rs` does) | about 2,000 lines | **H**: WM behaviour (openbox, xfwm4, mutter) for transient, undecorated and shaped windows, X focus hand-off, drag grab |
 | 3 | macOS and parity | `webview` macOS via `NativeView`; the rig side-by-side audit against develop for dialogs, menus, toasts, drag, IME, DnD, fonts and wheel; the `rust.yml` macOS job | about 400 lines | M: wry's `WKWebView` ownership under `NativeView` |
 
-## Open questions for the owner
+## Owner decisions (2026-11-25)
+The open questions are closed. No vendored copies, patches, forks or upstream PRs for GPUI,
+gpui-kit, gpui-base, gpui-component or calloop: everything missing is our own code.
+1. **Target:** gpui-pre 0.3.14 and gpui-kit/base/component 0.11 now.
+2. **Fonts:** generate fixed-weight Cal Sans UI instances if the licence allows it. It does:
+   `legal/licenses/CalSans-OFL-1.1.txt` is OFL 1.1 with no Reserved Font Name (the
+   copyright line names none, and the font's `name` table carries only the copyright of
+   Mark Davis DBA Wordmark), so Modified Versions may be made, may keep the name and must
+   stay under the OFL. The file is a variable font (`wght` 400-700, `GEOM` 0-100) with no
+   italic axis, so the oblique instance is a skew of the upright one.
+3. **Bare X11:** no shadows outside cards and no toast fade without a compositor.
+4. **Dialogs:** simple confirms (unsaved changes, reload/discard, confirm, question) are
+   native GTK message dialogs; the rest are `Modal` float windows.
+5. **`deny.toml`:** the `once_cell` ban gains the wrapper `gpui-component` (owner approved).
+6. **WM_CLASS:** the class is `Crowbar` and the desktop file says `StartupWMClass=Crowbar`.
+7. **Focus-ring tests:** gpui's `bench-support` is enabled in dev-dependencies only.
+8. **Editor:** no upstream PRs; the reduced behaviour is accepted:
+   - multi-cursor line commands act on the active selection only, unless gpui-kit ships its
+     own command for them, which we use;
+   - split views of one file share a buffer of our own, without shared undo;
+   - top-space: the find bar is laid out above the editor, not over it.
+
+## Open questions for the owner (closed above)
 1. **Target:** gpui-pre 0.3.14 now, or wait for zed-industries/gpui's own release ("in a few
    weeks")? gpui-kit only follows gpui-pre today.
 2. **Fonts:** commit generated static and oblique instances of Cal Sans UI (check its OFL
