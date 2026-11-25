@@ -36,6 +36,9 @@ impl ShellView {
             cx.observe_window_activation(window, |this, window, cx| {
                 this.on_window_activation(window, cx);
             }),
+            cx.observe_global_in::<ui::WindowActivity>(window, |this, window, cx| {
+                this.on_window_activation(window, cx);
+            }),
             cx.observe_window_appearance(window, |this, window, cx| {
                 this.follow_system_appearance(window.appearance(), cx);
             }),
@@ -69,7 +72,7 @@ impl ShellView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        if !window.is_window_active() {
+        if !ui::WindowActivity::of(window, cx) {
             self.sidebar
                 .update(cx, |sidebar, cx| sidebar.cancel_drag(window, cx));
         }
@@ -84,7 +87,7 @@ impl ShellView {
         cx: &mut App,
     ) {
         let held_elsewhere = self.modal_open(cx) || ui::holds_keys(window, cx);
-        if !window.is_window_active() || held_elsewhere {
+        if !ui::WindowActivity::of(window, cx) || held_elsewhere {
             return;
         }
         self.state.apply_keyboard();

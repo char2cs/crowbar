@@ -54,6 +54,10 @@ pub enum Error {
         #[source]
         source: x11rb::errors::ReplyError,
     },
+    /// The connection that waits for focus changes broke.
+    #[cfg(target_os = "linux")]
+    #[error("cannot wait for the X keyboard focus to move: {0}")]
+    FocusWait(#[source] x11rb::errors::ConnectionError),
     /// The X server would not tell its keyboard mapping.
     #[cfg(target_os = "linux")]
     #[error("cannot read the X keyboard mapping: {0}")]

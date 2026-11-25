@@ -218,6 +218,8 @@ fn start(
     let opened = cx.open_window(window_options, |window, cx| {
         // PLATFORM: linux X11 windows take WM_CLASS only from set_app_id; wayland reads the options.
         window.set_app_id(window_memory::APP_ID);
+        #[cfg(target_os = "linux")]
+        adapters::window_activity::follow(window, cx);
         let view = cx.new(|cx| ShellView::new(parts, window, cx));
         remember_close(&memory, window, cx, &view);
         view

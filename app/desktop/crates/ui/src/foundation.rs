@@ -15,6 +15,7 @@ pub(crate) mod motion;
 mod opaque_debug;
 mod theme;
 pub(crate) mod tokens;
+mod window_activity;
 
 pub(crate) use crate::opaque_debug;
 pub use breakpoint::{Breakpoint, app_window_width};
@@ -37,3 +38,4 @@ pub use theme::{
     Appearance, Palette, ScaledText, Surface, Theme, ThemeId, ThemeMode, Vibrancy, focus_ring,
 };
 pub use tokens::{font, layer, radius, shadow, spacing, text_size, timing, tracking};
+pub use window_activity::WindowActivity;

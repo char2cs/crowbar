@@ -17,6 +17,7 @@ use crate::control::editor::text_input::line_surface::LineSurface;
 use crate::control::editor::text_input::scroll;
 use crate::foundation::Palette;
 use crate::foundation::Pose;
+use crate::foundation::WindowActivity;
 
 pub(crate) const PLACEHOLDER_OPACITY: f32 = 0.72;
 
@@ -198,7 +199,7 @@ impl<S: LineSurface> LineElement<S> {
             cx,
         );
         debug_assert!(painted.is_ok(), "shaped line failed to paint");
-        let lit = focus.is_focused(window) && window.is_window_active();
+        let lit = focus.is_focused(window) && WindowActivity::of(window, cx);
         let caret = prepaint.caret.take().filter(|_| lit);
         let blinks = blinks(Pose::from(caret.is_some()), cx);
         let shown = self.input.read(cx).blink().is_shown() || blinks == Pose::Off;
@@ -261,6 +262,24 @@ mod tests {
         let back = draws.get();
         cx.executor().advance_clock(GTK_DEFAULT_PHASE);
         assert_eq!(draws.get(), back + 1, "and blinks again");
+    }
+
+    #[gpui::test]
+    fn the_caret_blinks_while_a_child_window_holds_the_keyboard(cx: &mut TestAppContext) {
+        let (_, draws, cx) = drawn_field(cx);
+        cx.deactivate_window();
+        cx.update(|window, cx| {
+            let id = window.window_handle().window_id();
+            crate::WindowActivity::gained(id, cx);
+        });
+        cx.run_until_parked();
+        let settled = draws.get();
+        cx.executor().advance_clock(GTK_DEFAULT_PHASE);
+        assert_eq!(
+            draws.get(),
+            settled + 1,
+            "the window still holds the keyboard"
+        );
     }
 
     #[gpui::test]
