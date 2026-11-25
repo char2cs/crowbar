@@ -4,7 +4,7 @@ use x11rb::protocol::xproto::{ConnectionExt as _, GetKeyboardMappingReply, Keyco
 use x11rb::rust_connection::RustConnection;
 
 use crate::error::Error;
-use crate::linux::us_key::UsKey;
+use crate::linux::keyboard::us_key::UsKey;
 
 const UNICODE_KEYSYM: u32 = 0x0100_0000;
 const LATIN_1_END: u32 = 0xff;

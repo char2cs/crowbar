@@ -110,7 +110,7 @@ impl GotoLine {
         };
         self.editor.update(cx, |state, cx| {
             state.set_selected_range(offset..offset, cx);
-            crate::centring::reveal_centered(state, offset, cx);
+            crate::reveal::centring::reveal_centered(state, offset, cx);
         });
         self.hide(window, cx);
     }

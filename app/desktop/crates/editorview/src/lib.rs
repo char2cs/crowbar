@@ -2,7 +2,6 @@
 
 mod access;
 mod caret;
-mod centring;
 mod disk_take;
 mod document;
 mod document_event;
@@ -29,7 +28,6 @@ mod save_mark;
 mod settings;
 mod theme;
 mod toolbar;
-mod whitespace_mode;
 mod word_wrap;
 
 pub use access::Access;
@@ -45,6 +43,5 @@ pub use language_server::LanguageServer;
 pub use lsp_error::LspError;
 pub use opening::Opening;
 pub use save_mark::SaveMark;
-pub use settings::Settings;
-pub use whitespace_mode::WhitespaceMode;
+pub use settings::{Settings, WhitespaceMode};
 pub use word_wrap::WordWrap;
