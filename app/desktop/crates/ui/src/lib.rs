@@ -32,7 +32,9 @@ pub use floating::{
 pub use foundation::{
     Appearance, Breakpoint, CaretBlink, ChoiceKind, ChooseFiles, CubicBezier, FileChoice,
     FileChooser, FileFilter, Glide, HoverFill, Icon, IconName, IconWeight, MaterialIcon,
-    MaterialTable, Modality, Motion, Palette, Pose, ProviderGlyph, ScaledText, Surface, Theme, ThemeId, ThemeMode, Vibrancy, WindowActivity, Wordmark, app_window_width, assets, focus_ring, hear,
+    MaterialTable, Modality, Motion, Palette, Pose, ProviderGlyph, ScaledText, Surface, Theme,
+    ThemeId, ThemeMode, Vibrancy, WindowActivity, Wordmark, app_window_width, assets, focus_ring,
+    hear,
 };
 pub use foundation::{font, layer, radius, shadow, spacing, text_size, timing, tracking};
 pub use ui::init;
