@@ -57,7 +57,7 @@ fn terminal_path(instance: &PaneInstance) -> Option<String> {
         .then(|| format!("{TERMINAL_SCHEME}{}", instance.pane_id.as_str()))
 }
 
-fn file_path(instance: &PaneInstance) -> Option<String> {
+pub(crate) fn file_path(instance: &PaneInstance) -> Option<String> {
     if instance.type_id.as_str() != EDITOR {
         return None;
     }

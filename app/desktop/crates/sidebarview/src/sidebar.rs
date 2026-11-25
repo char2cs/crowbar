@@ -75,6 +75,7 @@ pub struct Sidebar {
     pub(crate) drag: DragState,
     pub(crate) row_bounds: RowBounds,
     pub(crate) open_chats: OpenChats,
+    pub(crate) active_file: Option<String>,
 }
 
 impl EventEmitter<Event> for Sidebar {}
@@ -119,6 +120,7 @@ impl Sidebar {
             drag: DragState::default(),
             row_bounds: RowBounds::default(),
             open_chats: OpenChats::default(),
+            active_file: None,
         }
     }
 

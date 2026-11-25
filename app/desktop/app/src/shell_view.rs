@@ -278,8 +278,11 @@ impl ShellView {
         let open = crate::open_chats::open_chats(layout)
             .into_iter()
             .map(sidebar::RowId::from);
-        self.sidebar
-            .update(cx, |sidebar, cx| sidebar.set_open_chats(open, cx));
+        let active = crate::active_file::active_file(layout, &space);
+        self.sidebar.update(cx, |sidebar, cx| {
+            sidebar.set_open_chats(open, cx);
+            sidebar.set_active_file(active, cx);
+        });
         self.follow_focus(cx);
         self.push_tabs(cx);
         let (chrome, sidebar_state) = self.chrome(cx);

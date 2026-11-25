@@ -71,6 +71,21 @@ impl Sidebar {
         }
     }
 
+    /// Names the file of the focused pane's active editor tab, or `None` without one: the
+    /// tree highlights it while unfocused and its keyboard cursor moves there.
+    pub fn set_active_file(
+        &mut self,
+        path: Option<String>,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if self.active_file == path {
+            return;
+        }
+        self.tree.select_file(path.clone());
+        self.active_file = path;
+        cx.notify();
+    }
+
     fn row_input(&self) -> Option<RowInput> {
         let edit = self.inline.as_ref()?;
         Some(RowInput {
@@ -126,9 +141,10 @@ impl Sidebar {
         window: &Window,
         cx: &App,
     ) -> Option<String> {
-        let focused = self.files_focus.contains_focused(window, cx);
-        let selected = self.tree.files().selected().filter(|_| focused);
-        selected.map(str::to_owned)
+        if !self.files_focus.contains_focused(window, cx) {
+            return self.active_file.clone();
+        }
+        self.tree.files().selected().map(str::to_owned)
     }
 
     fn panel_frame(
@@ -223,6 +239,32 @@ mod tests {
         assert!(started(&sidebar, cx), "no Files row opened an inline input");
         cx.run_until_parked();
         assert!(input_is_focused(&sidebar, cx));
+    }
+
+    fn highlighted(
+        sidebar: &gpui::Entity<Sidebar>,
+        cx: &mut gpui::VisualTestContext,
+    ) -> Option<String> {
+        cx.update(|window, cx| sidebar.read(cx).highlighted(window, cx))
+    }
+
+    #[gpui::test]
+    fn the_files_tree_highlights_the_active_editor_tabs_file_and_starts_its_cursor_there(
+        cx: &mut TestAppContext
+    ) {
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
+        sidebar.update(cx, |this, cx| this.set_mode(Mode::Files, cx));
+        sidebar.update(cx, |this, cx| {
+            this.set_active_file(Some("src/lib.rs".into()), cx);
+        });
+        cx.run_until_parked();
+        assert_eq!(highlighted(&sidebar, cx).as_deref(), Some("src/lib.rs"));
+        let cursor = sidebar.read_with(cx, |this, _| {
+            this.tree.files().selected().map(str::to_owned)
+        });
+        assert_eq!(cursor.as_deref(), Some("src/lib.rs"));
+        sidebar.update(cx, |this, cx| this.set_active_file(None, cx));
+        assert_eq!(highlighted(&sidebar, cx), None);
     }
 
     const FAR_BELOW_THE_ROWS: f32 = 700.0;
