@@ -26,8 +26,11 @@ use crate::live::panel_loader::listed_directory::ListedDirectory;
 use crate::live::panel_loader::review_files_body::ReviewFilesBody;
 use crate::live::panel_loader::thread_body::ThreadBody;
 use crate::live::state::Hub;
+use crate::live::{Outcome, OutcomeSink};
 
 const ROOT_QUERY: &str = ".";
+const LOAD_TREE: &str = "Load the file tree";
+const LOAD_FOLDER: &str = "Load the folder";
 
 pub(crate) fn tree_path(
     chat: &str,
@@ -39,19 +42,14 @@ pub(crate) fn tree_path(
     format!("/v0/chats/{chat}/files/tree?path={dir}")
 }
 
-pub(crate) async fn load_directory(
+async fn list_into(
     hub: &Hub,
     client: &daemonapi::Client,
     (chat, directory): (&str, &str),
-) {
-    let listed = client
+) -> daemonapi::Result<()> {
+    let entries = client
         .read::<Vec<FileEntry>>(tree_path(chat, directory))
-        .await;
-    let Ok(entries) = listed.inspect_err(|error| {
-        tracing::warn!(chat, directory, %error, "a directory could not be listed");
-    }) else {
-        return;
-    };
+        .await?;
     let held = entries.clone();
     hub.edit(|state| state.panels.list(chat, directory, entries));
     let listing = ListedDirectory {
@@ -60,6 +58,45 @@ pub(crate) async fn load_directory(
         entries: &held,
     };
     ignore_files::learn(hub, client, &listing).await;
+    Ok(())
+}
+
+pub(crate) async fn load_directory(
+    hub: &Hub,
+    client: &daemonapi::Client,
+    (chat, directory): (&str, &str),
+) {
+    let listed = list_into(hub, client, (chat, directory)).await;
+    if let Err(error) = listed {
+        tracing::warn!(chat, directory, %error, "a directory could not be listed");
+    }
+}
+
+pub(crate) async fn load_reported(
+    hub: &Hub,
+    (client, outcome): (&daemonapi::Client, &OutcomeSink),
+    at: (&str, &str),
+) {
+    let (chat, directory) = at;
+    let Err(error) = list_into(hub, client, at).await else {
+        return;
+    };
+    tracing::warn!(chat, directory, %error, "a directory could not be listed");
+    if directory.is_empty() {
+        hub.edit(|state| state.panels.list(chat, directory, Vec::new()));
+    }
+    outcome(Outcome::Refused {
+        title: load_action(directory).to_owned(),
+        reason: error.to_string(),
+    });
+}
+
+// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/workspace/stores/hooks/use-workspace-file-tree.ts
+fn load_action(directory: &str) -> &'static str {
+    if directory.is_empty() {
+        return LOAD_TREE;
+    }
+    LOAD_FOLDER
 }
 
 pub(crate) async fn load_changes(
@@ -216,6 +253,59 @@ mod tests {
             (Some("git: status: not a git repository: /gone"), 0, 0),
             "a status git cannot read leaves its error and no files"
         );
+    }
+
+    type Heard = Arc<std::sync::Mutex<Vec<Outcome>>>;
+
+    fn heard() -> (OutcomeSink, Heard) {
+        let heard = Heard::default();
+        let keep = Arc::clone(&heard);
+        let sink: OutcomeSink = Arc::new(move |outcome| keep.lock().unwrap().push(outcome));
+        (sink, heard)
+    }
+
+    fn titles(heard: &Heard) -> Vec<(String, String)> {
+        let heard = heard.lock().unwrap();
+        let refused = heard.iter().filter_map(|outcome| match outcome {
+            Outcome::Refused { title, reason } => Some((title.clone(), reason.clone())),
+            _ => None,
+        });
+        refused.collect()
+    }
+
+    async fn failed(
+        hub: &Hub,
+        client: &daemonapi::Client,
+        directory: &str,
+    ) -> Vec<(String, String)> {
+        let (sink, heard) = heard();
+        load_reported(hub, (client, &sink), ("hc", directory)).await;
+        titles(&heard)
+    }
+
+    const INJECTED: &str = r#"{"success":false,"error":"rig fault: injected 500"}"#;
+
+    const FAILED_LISTING_CASES: [(&str, &str, &str); 2] = [
+        ("", "/v0/chats/hc/files/tree?path=.", "Load the file tree"),
+        ("src", "/v0/chats/hc/files/tree?path=src", "Load the folder"),
+    ];
+
+    #[test]
+    fn a_listing_that_fails_is_toasted_and_an_unlisted_root_reads_as_an_empty_folder() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let (hub, client, daemon) = rig();
+        hub.edit(|state| state.panels.ask());
+        for (directory, route, title) in FAILED_LISTING_CASES {
+            daemon.answer(("GET", route), 500, INJECTED);
+            let heard = runtime.block_on(failed(&hub, &client, directory));
+            let said = (title.to_owned(), "rig fault: injected 500".to_owned());
+            assert_eq!(heard, [said], "{directory:?}");
+        }
+        let phase = hub.read(crate::reads::files::phase);
+        assert_eq!(phase, sidebar::FolderPhase::Listed);
     }
 
     const NOT_A_REPO: &str =

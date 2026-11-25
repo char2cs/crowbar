@@ -97,8 +97,9 @@ impl SidebarCommands {
             return;
         }
         let (hub, path) = (Arc::clone(&self.hub), path.to_owned());
+        let outcome = Arc::clone(&self.outcome);
         self.handle.spawn(async move {
-            panel_loader::load_directory(&hub, &client, (&chat, &path)).await;
+            panel_loader::load_reported(&hub, (&client, &outcome), (&chat, &path)).await;
         });
     }
 
@@ -377,7 +378,7 @@ mod tests {
         commands
             .hub
             .edit(|state| state.panels.follow(Some("hc".into())));
-        panel_loader::followed_ask::ask(&commands.hub, &commands.handle);
+        panel_loader::followed_ask::ask(&commands.hub, (&commands.handle, &commands.outcome));
         until_status_asked(&daemon).await;
         let rows = commands.hub.read(crate::reads::files);
         let paths: Vec<&str> = rows.iter().map(|row| row.path.as_str()).collect();

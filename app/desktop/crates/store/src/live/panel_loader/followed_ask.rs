@@ -4,7 +4,8 @@ use std::sync::Arc;
 
 use tokio::runtime::Handle;
 
-use crate::live::panel_loader::{load_changes, load_directory};
+use crate::live::OutcomeSink;
+use crate::live::panel_loader::{load_changes, load_reported};
 use crate::live::state::{Hub, State};
 
 type Asked = (String, daemonapi::Client, Vec<String>);
@@ -22,25 +23,26 @@ fn begin(state: &mut State) -> Option<Asked> {
 
 pub(crate) fn ask(
     hub: &Arc<Hub>,
-    handle: &Handle,
+    (handle, outcome): (&Handle, &OutcomeSink),
 ) {
-    let Some((chat, client, open)) = hub.edit(begin) else {
+    let Some(asked) = hub.edit(begin) else {
         return;
     };
-    let hub = Arc::clone(hub);
-    handle.spawn(async move { load_all(&hub, &client, (&chat, &open)).await });
+    let (hub, outcome) = (Arc::clone(hub), Arc::clone(outcome));
+    handle.spawn(async move { load_all(&hub, &outcome, asked).await });
 }
 
 async fn load_all(
     hub: &Hub,
-    client: &daemonapi::Client,
-    (chat, open): (&str, &[String]),
+    outcome: &OutcomeSink,
+    asked: Asked,
 ) {
-    load_directory(hub, client, (chat, "")).await;
-    for directory in open {
-        load_directory(hub, client, (chat, directory)).await;
+    let (chat, client, open) = asked;
+    load_reported(hub, (&client, outcome), (&chat, "")).await;
+    for directory in &open {
+        load_reported(hub, (&client, outcome), (&chat, directory)).await;
     }
-    load_changes(hub, client, chat).await;
+    load_changes(hub, &client, &chat).await;
 }
 
 #[cfg(test)]

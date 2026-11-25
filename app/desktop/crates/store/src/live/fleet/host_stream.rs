@@ -207,7 +207,8 @@ impl HostStream {
         if operation {
             changes_reload::follow(&self.hub);
         }
-        followed_ask::ask(&self.hub, &tokio::runtime::Handle::current());
+        let handle = tokio::runtime::Handle::current();
+        followed_ask::ask(&self.hub, (&handle, &self.outcome));
         icon_fetch::follow(&self.hub, &self.host, &self.client);
     }
 

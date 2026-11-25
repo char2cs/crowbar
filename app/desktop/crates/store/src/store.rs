@@ -185,7 +185,7 @@ impl Store {
             .edit(|state| state.panels.follow(chat.map(str::to_owned)));
         self.fleet
             .steer(None, crate::live::StreamControl::FollowFiles);
-        panel_loader::followed_ask::ask(&self.hub, &self.commands.handle);
+        panel_loader::followed_ask::ask(&self.hub, (&self.commands.handle, &self.commands.outcome));
     }
 
     /// Watches the files of every chat an open tab shows, as develop holds the `files:` scope of
