@@ -580,7 +580,7 @@ mod tests {
         });
     }
 
-    fn open_tab_menu(cx: &mut TestAppContext) -> Opened {
+    fn open_drawn_menu(cx: &mut TestAppContext) -> Opened {
         let mut opened = open_shell(cx);
         register_chat(&mut opened);
         opened.shell.update(&mut opened.window, |shell, cx| {
@@ -590,18 +590,16 @@ mod tests {
                 .update(cx, |gate, cx| gate.apply(restarted, cx));
         });
         opened.window.run_until_parked();
-        let tab = opened
-            .window
-            .debug_bounds("tab-label")
-            .unwrap_or_default()
-            .center();
-        let none = gpui::Modifiers::none();
+        let pane = opened.pane.clone();
+        let link = terminalview::Event::OpenUrl {
+            url: "https://example.com".into(),
+            position: gpui::point(gpui::px(400.0), gpui::px(200.0)),
+        };
         opened
-            .window
-            .simulate_mouse_down(tab, gpui::MouseButton::Right, none);
-        opened
-            .window
-            .simulate_mouse_up(tab, gpui::MouseButton::Right, none);
+            .shell
+            .update_in(&mut opened.window, |shell, window, cx| {
+                shell.on_terminal((&pane, link), window, cx);
+            });
         opened.window.run_until_parked();
         assert!(
             opened.top.update(|window, _| window.takes_keys()),
@@ -612,7 +610,7 @@ mod tests {
 
     #[gpui::test]
     fn activating_the_window_leaves_the_keyboard_with_an_open_menu(cx: &mut TestAppContext) {
-        let mut opened = open_tab_menu(cx);
+        let mut opened = open_drawn_menu(cx);
         let before = page_focuses(&opened.mock);
         opened.window.deactivate_window();
         opened.window.update(|window, _| window.activate_window());
@@ -635,7 +633,7 @@ mod tests {
 
     #[gpui::test]
     fn a_press_in_the_top_layer_leaves_the_keyboard_with_the_page(cx: &mut TestAppContext) {
-        let mut opened = open_tab_menu(cx);
+        let mut opened = open_drawn_menu(cx);
         own_keyboard_by_page(&mut opened);
         let before = page_focuses(&opened.mock);
         let away = gpui::point(gpui::px(600.0), gpui::px(400.0));
@@ -659,7 +657,7 @@ mod tests {
 
     #[gpui::test]
     fn a_menu_closed_with_escape_gives_the_keyboard_back_to_the_page(cx: &mut TestAppContext) {
-        let mut opened = open_tab_menu(cx);
+        let mut opened = open_drawn_menu(cx);
         own_keyboard_by_page(&mut opened);
         let before = page_focuses(&opened.mock);
         opened.top.simulate_keystrokes("escape");
