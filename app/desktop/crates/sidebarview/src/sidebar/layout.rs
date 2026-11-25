@@ -1,5 +1,7 @@
 //! The frame: sidebar column, separator and content, plus the narrow overlay and the peek card.
 
+pub(super) mod geometry;
+
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, Div, Entity, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
@@ -9,7 +11,7 @@ use sidebar::{DockSide, Visibility};
 use ui::{HoverFill, Motion, Portal, Surface, Theme};
 
 use crate::sidebar::Sidebar;
-use crate::sidebar::geometry::Geometry;
+use crate::sidebar::layout::geometry::Geometry;
 use crate::sidebar::scale::{HANDLE_HIT, PEEK_INSET};
 
 const FRAME_SHADOW: f32 = 0.2;

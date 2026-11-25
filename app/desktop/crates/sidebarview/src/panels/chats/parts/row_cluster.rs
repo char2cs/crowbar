@@ -1,5 +1,10 @@
 //! The hover-revealed buttons at the end of a tree row.
 
+pub(super) mod cluster_spec;
+pub(super) mod menu_anchor;
+pub(super) mod row_report;
+mod row_verb;
+
 use gpui::{
     Div, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement, SharedString,
     Stateful, StatefulInteractiveElement, StyleRefinement, Styled, div, px,
@@ -7,10 +12,10 @@ use gpui::{
 use sidebar::{Expansion, Intent, Nesting, RowId};
 use ui::{Icon, IconName, IconWeight, radius};
 
-use crate::panels::chats::parts::cluster_spec::ClusterSpec;
-use crate::panels::chats::parts::menu_anchor::MenuAnchor;
-use crate::panels::chats::parts::row_report::report;
-use crate::panels::chats::parts::row_verb::RowVerb;
+use crate::panels::chats::parts::row_cluster::cluster_spec::ClusterSpec;
+use crate::panels::chats::parts::row_cluster::menu_anchor::MenuAnchor;
+use crate::panels::chats::parts::row_cluster::row_report::report;
+use crate::panels::chats::parts::row_cluster::row_verb::RowVerb;
 use crate::sidebar::RowAction;
 
 const BUTTON_PADDING: f32 = 6.0;

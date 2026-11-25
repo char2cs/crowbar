@@ -1,10 +1,12 @@
 //! Which glyph leads a tree row.
 
+pub(super) mod chat_glyph;
+
 use ui::{IconName, IconWeight};
 
 use sidebar::{Activity, Expansion, Row, RowKind};
 
-use crate::panels::chats::parts::chat_glyph::{ChatGlyph, GlyphTone};
+use crate::panels::chats::parts::row_glyph::chat_glyph::{ChatGlyph, GlyphTone};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RowGlyph {

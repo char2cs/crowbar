@@ -1,11 +1,14 @@
 //! The text part of a tree row: title, optional branch line and line counts, or the inline input.
 
+pub(super) mod row_input;
+pub(super) mod trailing;
+
 use gpui::prelude::FluentBuilder;
 use gpui::{Div, FontWeight, ParentElement, Styled, div, px};
 use sidebar::{Row, RowKind, Titling};
 use ui::Palette;
 
-use crate::panels::chats::parts::row_input::RowInput;
+use crate::panels::chats::parts::row_label::row_input::RowInput;
 use crate::sidebar::SPACE_XS;
 
 const TITLE_SIZE: f32 = 13.0;

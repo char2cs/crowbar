@@ -3,11 +3,9 @@
 mod act;
 mod clock;
 mod event;
-mod geometry;
 mod layout;
 mod open_chats;
 mod open_row;
-mod refusal;
 mod removal;
 mod row_action;
 pub(crate) mod scale;

@@ -1,5 +1,7 @@
 //! Turning row interactions into view-state changes and commands.
 
+mod refusal;
+
 use gpui::TaskExt as _;
 use gpui::{Context, Pixels, Point, Window};
 use sidebar::{
@@ -11,7 +13,7 @@ use ui::ToastLifetime;
 use crate::panels::foot_menu;
 use crate::panels::row_menu;
 use crate::sidebar::Sidebar;
-use crate::sidebar::refusal::refusal_toast;
+use crate::sidebar::act::refusal::refusal_toast;
 use crate::sidebar::row_action::RowAction;
 
 impl Sidebar {
