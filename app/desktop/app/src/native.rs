@@ -1,8 +1,9 @@
-//! Installs the desktop's own menus, file choosers and message dialogs, which GTK shows on the web
-//! views' platform thread, in place of the drawn ones.
+//! The shell's hooks into the desktop: its own menus, file choosers and message dialogs, which GTK
+//! shows on the web views' platform thread in place of the drawn ones, and the float windows' placer.
 
 mod alert;
 mod file_chooser;
+pub(crate) mod float;
 mod menu;
 
 use gpui::App;

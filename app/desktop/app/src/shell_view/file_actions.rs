@@ -144,8 +144,9 @@ impl ShellView {
         let directory = directory.to_owned();
         cx.spawn_in(window, async move |this, cx| {
             let paths = picked.await;
-            let uploaded =
-                this.update_in(cx, |view, w, c| view.upload((&directory, paths), (w, c)));
+            let uploaded = cx
+                .update(|w, c| this.update(c, |view, c| view.upload((&directory, paths), (w, c))))
+                .flatten();
             closed_view(&uploaded, "the upload picker's answer");
         })
         .detach();

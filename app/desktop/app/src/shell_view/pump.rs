@@ -223,19 +223,34 @@ async fn stepped<V: 'static, T>(
     let Ok(item) = source.recv().await else {
         return false;
     };
-    this.update_in(cx, |view, window, cx| step(view, item, window, cx))
+    cx.update(|window, cx| this.update(cx, |view, cx| step(view, item, window, cx)))
+        .flatten()
         .is_ok()
 }
 
 #[cfg(test)]
 mod tests {
-    use gpui::{IntoElement, Render, TestAppContext};
+    use gpui::{AppContext as _, IntoElement, Render, TestAppContext};
 
     use super::*;
 
     #[derive(Default)]
     struct Collector {
         seen: Vec<u8>,
+        windows: Vec<gpui::WindowId>,
+    }
+
+    struct Reader(gpui::Entity<Collector>);
+
+    impl Render for Reader {
+        fn render(
+            &mut self,
+            _: &mut Window,
+            cx: &mut Context<'_, Self>,
+        ) -> impl IntoElement {
+            self.0.read(cx);
+            gpui::Empty
+        }
     }
 
     impl Render for Collector {
@@ -251,10 +266,11 @@ mod tests {
     fn collect(
         view: &mut Collector,
         item: u8,
-        _: &mut Window,
+        window: &mut Window,
         _: &mut Context<'_, Collector>,
     ) {
         view.seen.push(item);
+        view.windows.push(window.window_handle().window_id());
     }
 
     #[gpui::test]
@@ -320,5 +336,40 @@ mod tests {
         task.await;
         let seen = view.read_with(cx, |view, _| view.seen.clone());
         assert_eq!(seen, [3, 1, 2]);
+    }
+
+    fn open_reader(
+        read: gpui::Entity<Collector>,
+        cx: &mut gpui::App,
+    ) -> gpui::WindowHandle<Reader> {
+        let options = gpui::WindowOptions::default();
+        cx.open_window(options, |_, cx| cx.new(|_| Reader(read)))
+            .unwrap()
+    }
+
+    #[gpui::test]
+    async fn drain_steps_in_the_window_it_runs_in_though_another_window_drew_the_view_last(
+        cx: &mut TestAppContext
+    ) {
+        let (view, cx) = cx.add_window_view(|_, _| Collector::default());
+        let own = cx.update(|window, _| window.window_handle().window_id());
+        let read = view.clone();
+        let other = cx.update(|_, cx| open_reader(read, cx));
+        other.update(cx, |_, window, _| window.refresh()).unwrap();
+        cx.run_until_parked();
+        let (sender, receiver) = async_channel::unbounded();
+        sender.try_send(1).unwrap();
+        drop(sender);
+        let weak = view.downgrade();
+        let task = cx.update(|window, cx| {
+            window.spawn(cx, async move |cx| drain(receiver, weak, cx, collect).await)
+        });
+        task.await;
+        let windows = view.read_with(cx, |view, _| view.windows.clone());
+        assert_eq!(
+            windows,
+            [own],
+            "a float window drawing a view does not move its tasks"
+        );
     }
 }

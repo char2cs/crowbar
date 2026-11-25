@@ -116,7 +116,7 @@ mod tests {
     use gpui::TestAppContext;
 
     use crate::notice_key::NoticeKey;
-    use crate::shell_view::tests::open_shell;
+    use crate::shell_view::tests::{open_shell, open_started_shell};
 
     #[gpui::test]
     fn a_notice_outlives_hiding_the_sidebar_and_floats_over_the_window_meanwhile(
@@ -148,7 +148,7 @@ mod tests {
     fn a_notice_waits_while_the_window_is_inactive_and_runs_out_once_it_is_active_again(
         cx: &mut TestAppContext
     ) {
-        let mut opened = open_shell(cx);
+        let mut opened = open_started_shell(cx);
         let count = |opened: &mut crate::shell_view::tests::Opened| {
             opened
                 .shell

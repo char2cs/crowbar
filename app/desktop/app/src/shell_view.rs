@@ -222,7 +222,8 @@ impl ShellView {
         &self,
         cx: &mut Context<'_, Self>,
     ) -> Option<Portal> {
-        let shown = self.modal_open(cx)
+        let modal = self.modal_open(cx);
+        let shown = modal
             || self.readout.view.is_some()
             || self.floats_toasts(cx)
             || self.backend.crash.is_some();
@@ -231,7 +232,11 @@ impl ShellView {
         }
         let shell = cx.entity();
         let portal = Portal::cover("shell-layers", move |_, cx| shell.read(cx).layers(cx));
-        Some(portal.priority(layer::MODAL))
+        let portal = portal.priority(layer::MODAL);
+        if !modal {
+            return Some(portal);
+        }
+        Some(portal.float(ui::Float::Modal))
     }
 
     fn layers(
@@ -246,7 +251,7 @@ impl ShellView {
             .children(layer(self.remote_folders.as_ref()))
             .children(self.prompt_layer())
             .children(layer(self.name_prompt.as_ref().map(|(_, prompt)| prompt)))
-            .children(layer(self.first_run.as_ref().map(|(_, oobe)| oobe)))
+            .children(layer(self.first_run.as_ref().map(|(_, oobe)| oobe)).map(solid))
             .children(layer(self.folder_import.as_ref()))
             .children(layer(self.pairing.as_ref()))
             .children(
@@ -254,11 +259,14 @@ impl ShellView {
                     .clone()
                     .map(|view| div().absolute().inset_0().child(view)),
             )
-            .children(layer(
-                Some(&self.startup).filter(|gate| gate.read(cx).covers()),
-            ))
-            .children(self.readout.view.clone())
-            .children(self.backend.crash.as_ref().map(|(panel, _)| panel.clone()))
+            .children(layer(Some(&self.startup).filter(|gate| gate.read(cx).covers())).map(solid))
+            .children(self.readout.view.clone().map(solid))
+            .children(
+                self.backend
+                    .crash
+                    .as_ref()
+                    .map(|(panel, _)| solid(panel.clone())),
+            )
             .children(self.floats_toasts(cx).then(|| self.notices.clone()))
     }
 
@@ -323,6 +331,10 @@ impl ShellView {
     }
 }
 
+fn solid(content: impl IntoElement) -> ui::Shaped {
+    ui::Shaped::solid(content, gpui::px(0.0))
+}
+
 fn layer<V: Render>(view: Option<&Entity<V>>) -> Option<Div> {
     view.map(|view| div().absolute().inset_0().child(view.clone()))
 }
@@ -343,6 +355,7 @@ impl Render for ShellView {
             .capture_any_mouse_down(cx.listener(Self::on_shell_pressed))
             .relative()
             .bg(palette.background())
+            .child(ui::hear())
             .child(self.sidebar.clone())
             .children(self.link_layers(cx))
             .children(self.floating(cx))
@@ -391,11 +404,19 @@ mod tests {
     pub(super) struct Opened {
         pub(super) shell: Entity<ShellView>,
         pub(super) window: gpui::VisualTestContext,
-        top: gpui::VisualTestContext,
         pub(super) mock: Rc<webview::MockPlatform>,
         pub(super) pane: protocol::PaneId,
         preferences: Arc<crate::test_support::MemoryPreferences>,
         pub(super) space: Rc<crate::test_support::FakeSpace>,
+    }
+
+    impl Opened {
+        fn top(
+            &mut self,
+            float: ui::Float,
+        ) -> gpui::VisualTestContext {
+            ui::testing::float_window(&mut self.window, float)
+        }
     }
 
     pub(super) fn open_shell(cx: &mut TestAppContext) -> Opened {
@@ -417,7 +438,10 @@ mod tests {
 
     fn shell_rig(cx: &mut TestAppContext) -> Rig {
         cx.executor().allow_parking();
-        cx.update(|cx| ui::init(cx).expect("ui installs"));
+        cx.update(|cx| {
+            ui::init(cx).expect("ui installs");
+            ui::testing::open_float_windows(cx);
+        });
         cx.update(editorview::init);
         let mut rig = crate::test_support::shell_rig();
         rig.space.select(SPACE);
@@ -466,7 +490,6 @@ mod tests {
         Opened {
             shell,
             window,
-            top: gpui::VisualTestContext::from_window(owner, cx),
             mock,
             pane,
             preferences,
@@ -528,7 +551,12 @@ mod tests {
             None,
             "nothing in the window"
         );
-        assert!(opened.top.debug_bounds("ui-dialog").is_some());
+        assert!(
+            opened
+                .top(ui::Float::Modal)
+                .debug_bounds("ui-dialog")
+                .is_some()
+        );
         assert_eq!(hidden_views(&opened.mock), before, "no web view was hidden");
     }
 
@@ -553,17 +581,27 @@ mod tests {
         let pane = opened.pane.clone();
         let text = r#"{"sdk":1,"kind":"shell.pointer","x":3.5,"y":120.0}"#.to_owned();
         let message = panehost::IpcMessage { pane, text };
+        let shell = opened.shell.clone();
         opened
-            .shell
-            .update_in(&mut opened.window, |shell, window, cx| {
-                shell.placement = Some((webview::ParentWindow::X11(9), PLACED));
-                shell.on_ipc(message, window, cx);
-            });
+            .window
+            .update(|window, cx| tell_placed(&shell, message, window, cx));
         let position = opened.window.update(|window, _| window.mouse_position());
         assert!(
             position.x > gpui::px(303.5) && position.y > gpui::px(160.0),
             "page point plus the page's origin: {position:?}"
         );
+    }
+
+    fn tell_placed(
+        shell: &Entity<ShellView>,
+        message: panehost::IpcMessage,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        shell.update(cx, |shell, cx| {
+            shell.placement = Some((webview::ParentWindow::X11(9), PLACED));
+            shell.on_ipc(message, window, cx);
+        });
     }
 
     fn register_chat(opened: &mut Opened) {
@@ -579,9 +617,9 @@ mod tests {
         });
     }
 
-    fn open_drawn_menu(cx: &mut TestAppContext) -> Opened {
+    /// A shell past its startup dialog, which holds the activation while it is open.
+    pub(super) fn open_started_shell(cx: &mut TestAppContext) -> Opened {
         let mut opened = open_shell(cx);
-        register_chat(&mut opened);
         opened.shell.update(&mut opened.window, |shell, cx| {
             let restarted = startup::Input::Restarted;
             shell
@@ -589,6 +627,12 @@ mod tests {
                 .update(cx, |gate, cx| gate.apply(restarted, cx));
         });
         opened.window.run_until_parked();
+        opened
+    }
+
+    fn open_drawn_menu(cx: &mut TestAppContext) -> Opened {
+        let mut opened = open_started_shell(cx);
+        register_chat(&mut opened);
         let pane = opened.pane.clone();
         let link = terminalview::Event::OpenUrl {
             url: "https://example.com".into(),
@@ -634,10 +678,10 @@ mod tests {
         let away = gpui::point(gpui::px(600.0), gpui::px(400.0));
         let none = gpui::Modifiers::none();
         opened
-            .top
+            .top(ui::Float::Popover)
             .simulate_mouse_down(away, gpui::MouseButton::Left, none);
         opened
-            .top
+            .top(ui::Float::Popover)
             .simulate_mouse_up(away, gpui::MouseButton::Left, none);
         opened.window.run_until_parked();
         assert!(
@@ -651,7 +695,7 @@ mod tests {
         let mut opened = open_drawn_menu(cx);
         own_keyboard_by_page(&mut opened);
         let before = page_focuses(&opened.mock);
-        opened.top.simulate_keystrokes("escape");
+        opened.top(ui::Float::Popover).simulate_keystrokes("escape");
         opened.window.run_until_parked();
         assert!(
             page_focuses(&opened.mock) > before,

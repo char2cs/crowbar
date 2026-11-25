@@ -208,6 +208,8 @@ fn start(
     #[cfg(target_os = "linux")]
     native::install(parts.state.host(), cx);
     #[cfg(target_os = "linux")]
+    native::float::install(cx);
+    #[cfg(target_os = "linux")]
     adapters::key_places::install(cx);
     app_menu::install(cx);
     last_window::quit_with_last_window(cx, |cx| cx.quit());

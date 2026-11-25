@@ -83,7 +83,8 @@ impl ShellView {
         window: &Window,
         cx: &mut App,
     ) {
-        if !window.is_window_active() || self.modal_open(cx) {
+        let held_elsewhere = self.modal_open(cx) || ui::holds_keys(window, cx);
+        if !window.is_window_active() || held_elsewhere {
             return;
         }
         self.state.apply_keyboard();

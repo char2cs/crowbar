@@ -14,10 +14,14 @@ pub(super) async fn deliver<V: 'static, T: Send + 'static>(
         return;
     };
     let Handlers { then, failed } = handlers;
-    let delivered = this.update_in(cx, |this, window, cx| match answer {
-        Ok(value) => then(this, value, window, cx),
-        Err(reason) => failed(this, reason.to_string(), cx),
-    });
+    let delivered = cx
+        .update(|window, cx| {
+            this.update(cx, |this, cx| match answer {
+                Ok(value) => then(this, value, window, cx),
+                Err(reason) => failed(this, reason.to_string(), cx),
+            })
+        })
+        .flatten();
     closed_view(&delivered, "the answer");
 }
 
