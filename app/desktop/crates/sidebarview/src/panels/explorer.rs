@@ -10,6 +10,7 @@ mod file_tree_row;
 mod files_context;
 mod menu_lines;
 mod search;
+mod sticky_ancestors;
 
 pub(crate) use file_tree_entry::FileTreeEntry;
 pub use file_tree_row::FileGlyph;
@@ -32,13 +33,17 @@ use ui::{ContextMenu, ScrollArea};
 use crate::panels::chats::RowInput;
 use crate::panels::chats::Trailing;
 use crate::panels::explorer::file_menu::file_menu;
+use crate::panels::explorer::file_tree_row::FileTreeRow;
 use crate::panels::explorer::files_context::FilesContext;
+use crate::panels::explorer::sticky_ancestors::top_row;
 use crate::panels::message::panel_message;
 use crate::sidebar::SPACE_XS;
 use crate::sidebar::Sidebar;
 
 const ROOT_STRIP: f32 = 48.0;
 const NO_MATCH: &str = "No matching files";
+// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/file-explorer/file-explorer/styles/file-explorer-tree.css
+const STACK_RULE_ALPHA: f32 = 0.406;
 
 fn empty_message(phase: FolderPhase) -> &'static str {
     match phase {
@@ -111,12 +116,31 @@ impl Sidebar {
         if files.is_empty() {
             return self.panel_frame(panel_message(NO_MATCH, cx), cx);
         }
-        let scope = self.menu_scope();
-        let handler = Self::row_handler(cx);
-        let root_menu = file_menu(&root_entry(), &scope, &handler);
-        let context = FilesContext {
-            handler,
-            scope: Rc::new(scope),
+        let context = self.files_context(window, cx);
+        let root_menu = file_menu(&root_entry(), &context.scope, &context.handler);
+        let strip = Self::root_strip(root_menu, cx);
+        let rows = context.rows(files);
+        let stack = self.sticky_stack(&context, &rows, cx);
+        let list = div()
+            .flex()
+            .flex_col()
+            .min_h_full()
+            .py(SPACE_XS)
+            .children(rows)
+            .child(strip);
+        let scroll = ScrollArea::new("files-scroll", &self.scrolls.files, list);
+        let body = div().relative().size_full().child(scroll).children(stack);
+        self.panel_frame(body.into_any_element(), cx)
+    }
+
+    fn files_context(
+        &self,
+        window: &Window,
+        cx: &mut Context<'_, Self>,
+    ) -> FilesContext {
+        FilesContext {
+            handler: Self::row_handler(cx),
+            scope: Rc::new(self.menu_scope()),
             editing: self.tree.editing().clone(),
             input: self.row_input(),
             selected: self.highlighted(window, cx),
@@ -126,17 +150,37 @@ impl Sidebar {
                 &self.data.file_tree_view(),
                 self.search.as_ref().map(|search| search.query.as_str()),
             ),
-        };
-        let strip = Self::root_strip(root_menu, cx);
-        let list = div()
-            .flex()
-            .flex_col()
-            .min_h_full()
-            .py(SPACE_XS)
-            .children(context.rows(files))
-            .child(strip);
-        let scroll = ScrollArea::new("files-scroll", &self.scrolls.files, list);
-        self.panel_frame(scroll.into_any_element(), cx)
+        }
+    }
+
+    // SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/file-explorer/file-explorer/components/file-explorer-sticky-ancestors.tsx
+    fn sticky_stack(
+        &self,
+        context: &FilesContext,
+        rows: &[FileTreeRow],
+        cx: &App,
+    ) -> Option<gpui::Div> {
+        let scrolled = -f32::from(self.scrolls.files.offset().y) - f32::from(SPACE_XS);
+        let top = top_row(scrolled, (context.look.height, rows.len()));
+        let stuck = context.stuck(rows, top);
+        if stuck.is_empty() {
+            return None;
+        }
+        let palette = ui::Theme::of(cx).palette(ui::Surface::Chrome);
+        let stack = div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .right_0()
+            .debug_selector(|| "sticky-ancestors".into());
+        let rule = palette.border().opacity(STACK_RULE_ALPHA);
+        Some(
+            stack
+                .bg(palette.background())
+                .border_b_1()
+                .border_color(rule)
+                .children(stuck),
+        )
     }
 
     // SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/file-explorer/file-explorer/hooks/use-tree-container-events.ts

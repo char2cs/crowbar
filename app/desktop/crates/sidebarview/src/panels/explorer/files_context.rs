@@ -7,6 +7,7 @@ use crate::panels::chats::RowInput;
 use crate::panels::explorer::file_tree_entry::FileTreeEntry;
 use crate::panels::explorer::file_tree_row::FileTreeRow;
 use crate::panels::explorer::file_tree_row::TreeLook;
+use crate::panels::explorer::sticky_ancestors::sticky_ancestors;
 use crate::sidebar::RowHandler;
 
 pub(crate) struct FilesContext {
@@ -106,6 +107,21 @@ impl FilesContext {
         Some(self.row(draft, self.input.clone()))
     }
 
+    pub(crate) fn stuck(
+        &self,
+        rows: &[FileTreeRow],
+        top: usize,
+    ) -> Vec<FileTreeRow> {
+        let depths: Vec<u8> = rows.iter().map(|row| row.entry.depth).collect();
+        let pinned = sticky_ancestors(&depths, top).into_iter();
+        let entries = pinned.filter_map(|at| rows.get(at).map(|row| row.entry.clone()));
+        let row = |entry| FileTreeRow {
+            selected: false,
+            ..self.row(entry, None)
+        };
+        entries.map(row).collect()
+    }
+
     pub(crate) fn rows(
         &self,
         files: Vec<FileRow>,
@@ -154,6 +170,22 @@ mod tests {
             copied: None,
             look: TreeLook::default(),
         }
+    }
+
+    #[test]
+    fn the_folder_of_the_top_row_is_pinned_above_it_without_its_selection() {
+        let selecting = FilesContext {
+            selected: Some("src".into()),
+            ..context(Editing::default())
+        };
+        let rows = selecting.rows(files());
+        let pinned = selecting.stuck(&rows, 1);
+        let drawn: Vec<(&str, bool)> = pinned
+            .iter()
+            .map(|row| (row.entry.path.as_str(), row.selected))
+            .collect();
+        assert_eq!(drawn, [("src", false)]);
+        assert!(selecting.stuck(&rows, 0).is_empty());
     }
 
     #[test]
