@@ -4,7 +4,8 @@ use std::rc::Rc;
 
 use gpui::{
     AnyElement, App, DismissEvent, ElementId, Entity, InteractiveElement, IntoElement, MouseButton,
-    ParentElement, Pixels, Point, RenderOnce, Styled, Window, div,
+    ParentElement, Pixels, Point, Refineable as _, RenderOnce, StyleRefinement, Styled, Window,
+    div,
 };
 
 use crate::floating::menu::menu_item::MenuItem;
@@ -25,6 +26,7 @@ pub struct ContextMenu {
     child: AnyElement,
     spec: Spec,
     placement: Option<Placement>,
+    style: StyleRefinement,
 }
 
 impl ContextMenu {
@@ -39,6 +41,7 @@ impl ContextMenu {
             child: child.into_any_element(),
             spec: Spec::new(items.into()),
             placement: None,
+            style: StyleRefinement::default(),
         }
     }
 
@@ -63,6 +66,13 @@ impl ContextMenu {
     }
 }
 
+/// Styles the area that takes the right click, so it can grow to fill free space.
+impl Styled for ContextMenu {
+    fn style(&mut self) -> &mut StyleRefinement {
+        &mut self.style
+    }
+}
+
 impl RenderOnce for ContextMenu {
     fn render(
         self,
@@ -79,13 +89,13 @@ impl RenderOnce for ContextMenu {
         let (opener, spec) = (state.clone(), self.spec);
         let placement = self.placement;
         let id = self.id.clone();
-        let wrapper = div()
-            .id(self.id)
-            .relative()
-            .child(self.child)
-            .on_mouse_down(MouseButton::Right, move |event, window, cx| {
-                spec.open_at(&opener, event.position, (window, cx));
-            });
+        let mut area = div().id(self.id).relative();
+        area.style().refine(&self.style);
+        let wrapper =
+            area.child(self.child)
+                .on_mouse_down(MouseButton::Right, move |event, window, cx| {
+                    spec.open_at(&opener, event.position, (window, cx));
+                });
         let Some(menu) = open else {
             return wrapper.into_any_element();
         };
@@ -210,6 +220,27 @@ mod tests {
             (menu.origin.y - (area.bottom() + px(4.0))).abs() < px(0.5),
             "{menu:?} in {area:?}"
         );
+    }
+
+    #[gpui::test]
+    fn a_menu_styled_to_grow_takes_a_right_click_anywhere_in_the_space_it_fills(
+        cx: &mut TestAppContext
+    ) {
+        let cx = open(cx, |_, _| {
+            let rows = vec![MenuItem::Action(MenuAction::new("Row", |_, _| {}))];
+            let foot = ContextMenu::new("foot", div(), rows).flex_1();
+            div()
+                .flex()
+                .flex_col()
+                .w(px(200.0))
+                .h(px(300.0))
+                .child(div().h(px(20.0)))
+                .child(foot)
+        });
+        let low = point(px(10.0), px(280.0));
+        cx.simulate_mouse_down(low, MouseButton::Right, gpui::Modifiers::none());
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("ui-menu").is_some());
     }
 
     #[gpui::test]

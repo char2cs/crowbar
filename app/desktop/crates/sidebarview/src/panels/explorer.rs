@@ -107,10 +107,13 @@ impl Sidebar {
                 self.search.as_ref().map(|search| search.query.as_str()),
             ),
         };
-        let strip = ContextMenu::new("files-root-menu", div().h(px(ROOT_STRIP)), root_menu);
+        let strip = ContextMenu::new("files-root-menu", div(), root_menu)
+            .flex_1()
+            .min_h(px(ROOT_STRIP));
         let list = div()
             .flex()
             .flex_col()
+            .min_h_full()
             .py(SPACE_XS)
             .children(context.rows(files))
             .child(strip);
@@ -220,5 +223,19 @@ mod tests {
         assert!(started(&sidebar, cx), "no Files row opened an inline input");
         cx.run_until_parked();
         assert!(input_is_focused(&sidebar, cx));
+    }
+
+    const FAR_BELOW_THE_ROWS: f32 = 700.0;
+
+    #[gpui::test]
+    fn the_empty_space_at_the_foot_of_the_panel_opens_the_root_menu(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
+        sidebar.update(cx, |this, cx| this.set_mode(Mode::Files, cx));
+        cx.run_until_parked();
+        choose_first_item_at(FAR_BELOW_THE_ROWS, cx);
+        assert!(
+            started(&sidebar, cx),
+            "the root menu's New File opened no input"
+        );
     }
 }
