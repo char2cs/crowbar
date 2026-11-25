@@ -143,14 +143,13 @@ scan_cycles() {
 
 scan_module_count() { # a folder holds at most 12 modules; foo.rs + foo/ count once (rust-tree plan 2.1)
   local root=$1
-  # The binary crate (app/desktop/app) is regrouped by its own lane and joins this check when that lands.
   python3 -I - "$root" <<'PY'
 import os, sys
 root = sys.argv[1]
 for d, subs, files in os.walk(root):
     subs[:] = sorted(s for s in subs if s not in ("target", "node_modules"))
     rel = os.path.relpath(d, root)
-    if "src" not in rel.split(os.sep) or rel == "app" or rel.startswith("app" + os.sep): continue
+    if "src" not in rel.split(os.sep): continue
     mods = {f[:-3] for f in files if f.endswith(".rs")}
     mods |= {s for s in subs if any(n.endswith(".rs") for _, _, ns in os.walk(os.path.join(d, s)) for n in ns)}
     if len(mods) > 12:

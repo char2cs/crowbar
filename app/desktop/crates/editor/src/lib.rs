@@ -26,6 +26,7 @@ pub use find_query::find_options::FindOptions;
 pub use find_query::word::{is_separator, word_at};
 pub use goto_target::GotoTarget;
 pub use language::Language;
+pub use language::grammar;
 pub use language::preview::Preview;
 pub use line_edit::LineEdit;
 pub use line_edit::vertical::Vertical;
