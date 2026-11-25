@@ -12,7 +12,7 @@ use crate::editor_view::EditorView;
 use crate::editor_view::reveal::Reveal;
 use crate::keys::{
     CloseFind, FindNext, FindPrevious, ReplaceAll, ReplaceOne, ToggleFindInSelection,
-    ToggleMatchCase, ToggleRegex, ToggleWholeWord,
+    ToggleMatchCase, TogglePreserveCase, ToggleRegex, ToggleWholeWord,
 };
 
 const FIND_BUTTON_WIDTH: f32 = 36.0;
@@ -71,6 +71,9 @@ impl EditorView {
             }))
             .on_action(cx.listener(|view, _: &ToggleRegex, _, cx| {
                 view.find_toggle(FindOption::Regex, cx);
+            }))
+            .on_action(cx.listener(|view, _: &TogglePreserveCase, _, cx| {
+                view.find_toggle(FindOption::PreserveCase, cx);
             }))
             .on_action(cx.listener(|view, _: &ToggleFindInSelection, _, cx| {
                 view.find.update(cx, FindWidget::toggle_scope);

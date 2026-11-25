@@ -103,6 +103,17 @@ mod tests {
         }
     }
 
+    #[gpui::test]
+    fn alt_p_preserves_each_match_s_case_in_replace_all(cx: &mut TestAppContext) {
+        let (view, window) = opened(("Ab x AB x ab", Some(1)), Access::Editable, cx);
+        let find = find_of(&view, window);
+        fill(&find, ("ab", "cd"), window);
+        window.simulate_keystrokes("alt-p");
+        on_find(&find, window, FindWidget::replace_all);
+        let text = view.read_with(window, EditorView::text);
+        assert_eq!(text, "Cd x CD x cd");
+    }
+
     fn regex_when_grouped(
         find: &mut FindWidget,
         query: &str,

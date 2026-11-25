@@ -24,6 +24,7 @@ actions!(
         ToggleMatchCase,
         ToggleWholeWord,
         ToggleRegex,
+        TogglePreserveCase,
         ToggleFindInSelection,
         ReplaceOne,
         ReplaceAll,
@@ -66,6 +67,7 @@ mod chords {
     pub(super) const MATCH_CASE: &str = "alt-cmd-c";
     pub(super) const WHOLE_WORD: &str = "alt-cmd-w";
     pub(super) const REGEX: &str = "alt-cmd-r";
+    pub(super) const PRESERVE_CASE: &str = "alt-cmd-p";
     pub(super) const IN_SELECTION: &str = "alt-cmd-l";
     pub(super) const REPLACE_ONE: &str = "cmd-shift-1";
     pub(super) const REPLACE_ALL: &str = "cmd-alt-enter";
@@ -87,6 +89,7 @@ mod chords {
     pub(super) const MATCH_CASE: &str = "alt-c";
     pub(super) const WHOLE_WORD: &str = "alt-w";
     pub(super) const REGEX: &str = "alt-r";
+    pub(super) const PRESERVE_CASE: &str = "alt-p";
     pub(super) const IN_SELECTION: &str = "alt-l";
     pub(super) const REPLACE_ONE: &str = "ctrl-shift-1";
     pub(super) const REPLACE_ALL: &str = "ctrl-alt-enter";
@@ -122,6 +125,7 @@ pub(crate) fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new(chords::MATCH_CASE, ToggleMatchCase, context),
         KeyBinding::new(chords::WHOLE_WORD, ToggleWholeWord, context),
         KeyBinding::new(chords::REGEX, ToggleRegex, context),
+        KeyBinding::new(chords::PRESERVE_CASE, TogglePreserveCase, context),
         KeyBinding::new(chords::IN_SELECTION, ToggleFindInSelection, context),
         KeyBinding::new(chords::REPLACE_ONE, ReplaceOne, context),
         KeyBinding::new(chords::REPLACE_ALL, ReplaceAll, context),

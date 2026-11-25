@@ -171,8 +171,9 @@ impl FindWidget {
         palette: &Palette,
         cx: &mut Context<'_, Self>,
     ) -> Div {
+        let preserve_case = self.option_toggle((FindOption::PreserveCase, "AB"), palette, cx);
         row()
-            .child(input_box(&self.replace_input, palette))
+            .child(input_box(&self.replace_input, palette).child(preserve_case))
             .child(
                 icon_button("replace-one", IconName::Swap, palette)
                     .ml(px(COUNT_MARGIN))

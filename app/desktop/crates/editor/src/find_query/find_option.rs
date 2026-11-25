@@ -7,4 +7,6 @@ pub enum FindOption {
     WholeWord,
     /// "Use Regular Expression" (alt+r): the query is a regular expression.
     Regex,
+    /// "Preserve Case" (alt+p): a replacement takes the case of the text it replaces.
+    PreserveCase,
 }
