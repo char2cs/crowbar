@@ -4,6 +4,7 @@ mod entities;
 mod host_slot;
 mod host_spec;
 mod icon_cache;
+mod left_behind;
 mod link_state;
 mod open_threads;
 mod panel_state;
@@ -18,6 +19,7 @@ pub(crate) use entities::{
 pub(crate) use host_slot::HostSlot;
 pub use host_spec::HostSpec;
 pub(crate) use icon_cache::IconCache;
+pub(crate) use left_behind::LeftBehind;
 pub(crate) use link_state::LinkState;
 pub(crate) use open_threads::OpenThreads;
 pub(crate) use panel_state::{FileEntry, PanelState};

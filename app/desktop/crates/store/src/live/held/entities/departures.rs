@@ -12,6 +12,12 @@ impl Entities {
         std::mem::take(&mut self.departed_projects)
     }
 
+    pub(crate) fn depart_all(&mut self) -> (Vec<String>, Vec<String>) {
+        self.prune_chats(|_, _| false);
+        self.prune_projects(|_| false);
+        (self.take_departed(), self.take_departed_projects())
+    }
+
     pub(super) fn forget_project(
         &mut self,
         id: &str,

@@ -14,6 +14,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::live::held::HostSlot;
 use crate::live::held::IconCache;
+use crate::live::held::LeftBehind;
 use crate::live::held::LinkState;
 use crate::live::held::PanelState;
 use crate::live::held::PendingRow;
@@ -33,6 +34,7 @@ pub(crate) struct State {
     pub(crate) viewed: ViewedFiles,
     pub(crate) watched_chats: BTreeSet<String>,
     pub(crate) marking: BTreeSet<sidebar::IconTarget>,
+    pub(crate) left: LeftBehind,
 }
 
 impl State {
@@ -49,6 +51,7 @@ impl State {
             viewed: ViewedFiles::default(),
             watched_chats: BTreeSet::new(),
             marking: BTreeSet::new(),
+            left: LeftBehind::default(),
         }
     }
 
@@ -72,6 +75,11 @@ impl State {
                     .find(|slot| slot.store.projects.get(project).is_some())
             })
             .is_some_and(|slot| slot.spec.id == id);
+        if let Some(slot) = self.host_mut(id) {
+            let (chats, projects) = slot.store.depart_all();
+            self.left.chats.extend(chats);
+            self.left.projects.extend(projects);
+        }
         self.hosts.retain(|slot| slot.spec.id != id);
         self.unrevoked.remove(id);
         if self.selected_host.as_deref() == Some(id) {

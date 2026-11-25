@@ -75,27 +75,33 @@ impl Store {
             .read(|state| crate::live::workspace_root::remote_host_of(state, chat))
     }
 
-    /// The chats the daemon deleted since the last call, each named once, so the views showing
-    /// them close as develop's `forgetChat` closes them.
+    /// The chats the daemon deleted, or a removed host held, since the last call, each named
+    /// once, so the views showing them close as develop's `forgetChat` closes them.
     pub fn take_departed_chats(&self) -> Vec<String> {
         self.hub.quietly(|state| {
-            state
-                .hosts
-                .iter_mut()
-                .flat_map(|slot| slot.store.take_departed())
-                .collect()
+            let mut departed = std::mem::take(&mut state.left.chats);
+            departed.extend(
+                state
+                    .hosts
+                    .iter_mut()
+                    .flat_map(|slot| slot.store.take_departed()),
+            );
+            departed
         })
     }
 
-    /// The projects the daemon deleted since the last call, each named once, so the shell
-    /// closes the views of those spaces.
+    /// The projects the daemon deleted, or a removed host held, since the last call, each
+    /// named once, so the shell closes the views of those spaces.
     pub fn take_departed_projects(&self) -> Vec<String> {
         self.hub.quietly(|state| {
-            state
-                .hosts
-                .iter_mut()
-                .flat_map(|slot| slot.store.take_departed_projects())
-                .collect()
+            let mut departed = std::mem::take(&mut state.left.projects);
+            departed.extend(
+                state
+                    .hosts
+                    .iter_mut()
+                    .flat_map(|slot| slot.store.take_departed_projects()),
+            );
+            departed
         })
     }
 
@@ -146,5 +152,24 @@ mod tests {
             data.chat_row("gone").is_none(),
             "an unknown chat has no row"
         );
+    }
+
+    const PROJECT: &str = r#"{"t":"entity","scope":"projects","kind":"project","id":"p","v":1,"data":{"id":"p","name":"Remote"}}"#;
+    const CHAT: &str = r#"{"t":"entity","scope":"projects","kind":"chat","id":"c","v":1,"data":{"id":"c","projectId":"p"}}"#;
+
+    #[tokio::test]
+    async fn a_removed_host_takes_its_chats_and_projects_with_it() {
+        let data = crate::test_support::paired_store("h1");
+        let heard = [PROJECT, CHAT].map(|text| Frame::decode(text).unwrap());
+        data.hub
+            .edit(|state| heard.into_iter().for_each(|frame| state.apply("h1", frame)));
+        data.fleet.forget("h1");
+        assert_eq!(data.take_departed_chats(), ["c"], "its chats' views close");
+        assert_eq!(
+            data.take_departed_projects(),
+            ["p"],
+            "its spaces' views close"
+        );
+        assert!(data.take_departed_chats().is_empty(), "named once");
     }
 }
