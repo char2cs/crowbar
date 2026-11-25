@@ -3,8 +3,8 @@ use store::{Documents, FileDone, FileError};
 
 use crate::panes::editor::document_request::DocumentRequest;
 use crate::panes::editor::saved_file::SavedFile;
-use crate::request_queue::send;
-use crate::shell_request::ShellRequest;
+use crate::shell::inbox::request_queue::send;
+use crate::shell::inbox::shell_request::ShellRequest;
 
 const NOT_FOUND: u16 = 404;
 

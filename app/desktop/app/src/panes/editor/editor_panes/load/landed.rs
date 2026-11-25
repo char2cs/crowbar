@@ -3,8 +3,8 @@ use protocol::PaneId;
 
 use crate::panes::editor::document_request::DocumentRequest;
 use crate::panes::editor::editor_panes::editor_target::EditorTarget;
-use crate::request_queue::{Requests, send};
-use crate::shell_request::ShellRequest;
+use crate::shell::inbox::request_queue::{Requests, send};
+use crate::shell::inbox::shell_request::ShellRequest;
 
 #[derive(Debug, Default)]
 pub(crate) struct Landed {

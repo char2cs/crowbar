@@ -3,7 +3,7 @@ use protocol::PaneId;
 
 use crate::panes::editor::document_source::{save_failed, saved_into};
 use crate::panes::editor::editor_panes::EditorPanes;
-use crate::request_queue::send;
+use crate::shell::inbox::request_queue::send;
 
 impl EditorPanes {
     pub(crate) fn save(
@@ -61,7 +61,7 @@ mod tests {
     use crate::panes::editor::editor_panes::tests::{
         PANE, PATH, TEXT, landed, layout_with, panes_over, shown_in,
     };
-    use crate::shell_request::ShellRequest;
+    use crate::shell::inbox::shell_request::ShellRequest;
     use crate::test_support::FakeDocuments;
 
     #[gpui::test]

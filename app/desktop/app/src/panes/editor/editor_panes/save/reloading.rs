@@ -4,8 +4,8 @@ use protocol::PaneId;
 
 use crate::panes::editor::document_request::DocumentRequest;
 use crate::panes::editor::editor_panes::EditorPanes;
-use crate::request_queue::send;
-use crate::shell_request::ShellRequest;
+use crate::shell::inbox::request_queue::send;
+use crate::shell::inbox::shell_request::ShellRequest;
 use store::FileDone;
 
 // SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/editor/lib/reload-buffer.ts
@@ -92,7 +92,7 @@ mod tests {
     use crate::panes::editor::editor_panes::tests::{
         PANE, PATH, TEXT, landed, layout_with, panes_over, shown_in,
     };
-    use crate::shell_request::ShellRequest;
+    use crate::shell::inbox::shell_request::ShellRequest;
     use crate::test_support::FakeDocuments;
 
     #[gpui::test]

@@ -2,7 +2,7 @@ use std::sync::{Mutex, PoisonError};
 
 use sidebar::Preferences;
 
-use crate::preferences_store::PreferencesStore;
+use crate::shell::ports::preferences_store::PreferencesStore;
 
 #[derive(Debug, Default)]
 pub(crate) struct MemoryPreferences {

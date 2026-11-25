@@ -3,9 +3,9 @@ use std::io::{Error, ErrorKind, Result};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use crate::byte_source::ByteSource;
-use crate::layout_files::LayoutFiles;
-use crate::layout_store::LayoutStore;
+use crate::shell::ports::byte_source::ByteSource;
+use crate::shell::shell_state::persistence::layout_files::LayoutFiles;
+use crate::shell::shell_state::persistence::layout_store::LayoutStore;
 use crate::test_support::FixedClock;
 
 pub(crate) const LAYOUT_PATH: &str = "/state/layout.json";

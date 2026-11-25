@@ -9,7 +9,7 @@ use terminalview::TerminalView;
 use crate::panes::terminals::chat_hosts::ChatHosts;
 use crate::panes::terminals::terminal_ids::TerminalIds;
 use crate::panes::terminals::terminal_owner::TerminalOwner;
-use crate::shell_request::ShellRequest;
+use crate::shell::inbox::shell_request::ShellRequest;
 
 mod wiring;
 

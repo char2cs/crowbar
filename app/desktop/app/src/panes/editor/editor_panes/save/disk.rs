@@ -127,7 +127,7 @@ mod tests {
     use crate::panes::editor::editor_panes::tests::{
         Opened, PANE, PATH, TEXT, landed, layout_with, opened, panes_over, shown_in,
     };
-    use crate::shell_request::ShellRequest;
+    use crate::shell::inbox::shell_request::ShellRequest;
     use crate::test_support::FakeDocuments;
 
     #[gpui::test]

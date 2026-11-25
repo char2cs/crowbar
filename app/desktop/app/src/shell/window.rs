@@ -1,0 +1,13 @@
+//! The window: memory, chrome, menus, vibrancy, notices.
+
+pub(crate) mod app_menu;
+pub(crate) mod caret_follower;
+pub(crate) mod chrome;
+pub(crate) mod last_window;
+pub(crate) mod notice_key;
+pub(crate) mod notices;
+pub(crate) mod pixels;
+pub(crate) mod readout;
+mod traffic_lights;
+pub(crate) mod window_memory;
+pub(crate) mod window_vibrancy;

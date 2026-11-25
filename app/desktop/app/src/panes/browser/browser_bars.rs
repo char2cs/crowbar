@@ -8,7 +8,7 @@ use protocol::PaneId;
 
 use crate::panes::browser::browser_ids::BrowserIds;
 use crate::panes::browser::picking_panes::PickingPanes;
-use crate::shell_request::ShellRequest;
+use crate::shell::inbox::shell_request::ShellRequest;
 
 const CHROME_HEIGHT: f32 = 40.0;
 

@@ -9,7 +9,7 @@ use super::NoDaemon;
 use crate::panes::terminals::chat_hosts::ChatHosts;
 use crate::panes::terminals::terminal_ids::TerminalIds;
 use crate::panes::terminals::terminal_panes::TerminalPanes;
-use crate::shell_request::ShellRequest;
+use crate::shell::inbox::shell_request::ShellRequest;
 
 static UNDRIVEN: OnceLock<Runtime> = OnceLock::new();
 

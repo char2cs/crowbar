@@ -2,7 +2,7 @@ use gpui::{Entity, Subscription, Task};
 
 use crate::daemon::backend::connection_notice::ConnectionNotice;
 use crate::daemon::backend::crash_panel::CrashPanel;
-use crate::workspace::Workspace;
+use crate::shell::shell_view::assembly::workspace::Workspace;
 
 pub(crate) struct BackendWatch {
     pub(crate) connection: ConnectionNotice,

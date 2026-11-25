@@ -7,7 +7,7 @@ use crate::panes::editor::editor_panes::load::arrival::Arrival;
 use crate::panes::editor::editor_panes::view::view_events::listen;
 use crate::panes::editor::editor_panes::{Adoption, EditorPanes, SaveAsPanes};
 use crate::panes::editor::saved_file::SavedFile;
-use crate::request_queue::send;
+use crate::shell::inbox::request_queue::send;
 
 impl EditorPanes {
     pub(crate) fn untitled_chat(
@@ -131,7 +131,7 @@ mod tests {
     use crate::panes::editor::editor_panes::tests::{
         PANE, PATH, TEXT, landed, layout_with, panes_over, shown_in,
     };
-    use crate::shell_request::ShellRequest;
+    use crate::shell::inbox::shell_request::ShellRequest;
     use crate::test_support::FakeDocuments;
 
     fn saved_as_told(

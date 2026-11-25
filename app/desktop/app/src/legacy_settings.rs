@@ -4,7 +4,7 @@ use store::LegacyImport;
 
 use crate::app_options::AppOptions;
 use crate::legacy_drafts::ImportEvent;
-use crate::logged::emit;
+use crate::shell::inbox::logged::emit;
 
 pub(crate) fn import_old_settings(
     user_home: Option<PathBuf>,

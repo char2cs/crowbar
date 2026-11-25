@@ -9,7 +9,7 @@ use crate::panes::content::new_tab::new_tab_action::NewTabAction;
 use crate::panes::content::new_tab::new_tab_view::NewTabView;
 use crate::panes::kinds::core_panes::NEW_TAB;
 use crate::panes::tracking::titles::Titles;
-use crate::shell_request::ShellRequest;
+use crate::shell::inbox::shell_request::ShellRequest;
 
 const LABEL: &str = "New Tab";
 

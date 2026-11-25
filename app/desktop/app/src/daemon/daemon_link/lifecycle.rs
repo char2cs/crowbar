@@ -8,6 +8,7 @@ use super::DaemonLink;
 use super::launch::try_launch;
 use crate::app_options::AppOptions;
 use crate::daemon::daemon_link::link_state::LinkState;
+use crate::shell::inbox::logged;
 
 impl DaemonLink {
     pub(crate) fn shutdown(&self) {
@@ -47,7 +48,7 @@ impl DaemonLink {
 
 fn relaunched(answer: &async_channel::Sender<Result<(), supervisor::Error>>) {
     if answer.try_send(Ok(())).is_err() {
-        crate::logged::emit(&AnswerEvent::RelaunchUnheard);
+        logged::emit(&AnswerEvent::RelaunchUnheard);
     }
 }
 
@@ -56,7 +57,7 @@ async fn answer_restart(
     answer: async_channel::Sender<Result<(), supervisor::Error>>,
 ) {
     if answer.send(supervisor.restart().await).await.is_err() {
-        crate::logged::emit(&AnswerEvent::RestartUnheard);
+        logged::emit(&AnswerEvent::RestartUnheard);
     }
 }
 

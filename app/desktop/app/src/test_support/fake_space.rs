@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 
-use crate::active_space::ActiveSpace;
+use crate::shell::shell_state::active_space::ActiveSpace;
 
 #[derive(Debug, Default)]
 pub(crate) struct FakeSpace {

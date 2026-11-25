@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant, SystemTime};
 
-use crate::clock::Clock;
+use crate::shell::ports::clock::Clock;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct FixedClock {

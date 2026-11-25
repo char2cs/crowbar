@@ -5,7 +5,7 @@ use terminal::DaemonFrame;
 
 use super::TerminalPanes;
 use crate::panes::terminals::terminal_owner::TerminalOwner;
-use crate::shell_request::ShellRequest;
+use crate::shell::inbox::shell_request::ShellRequest;
 
 const NO_CHAT: &str = "Open a chat first: a terminal runs in a chat's workspace.\r\n";
 

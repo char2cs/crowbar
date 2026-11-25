@@ -8,7 +8,7 @@ use layout::{Layout, Tab};
 use protocol::PaneId;
 
 use crate::panes::editor::document_source::{DocumentSource, answer_into};
-use crate::shell_request::ShellRequest;
+use crate::shell::inbox::shell_request::ShellRequest;
 
 mod editor_target;
 mod load;

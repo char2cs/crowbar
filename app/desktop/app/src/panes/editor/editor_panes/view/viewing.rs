@@ -188,7 +188,7 @@ mod tests {
     use crate::panes::editor::editor_panes::tests::{
         PANE, landed, layout_with, panes_over, two_panes_on,
     };
-    use crate::shell_request::ShellRequest;
+    use crate::shell::inbox::shell_request::ShellRequest;
     use crate::test_support::FakeDocuments;
 
     const README: &str = "README.md";

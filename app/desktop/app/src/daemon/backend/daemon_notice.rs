@@ -1,6 +1,6 @@
 use ui::{ToastContent, ToastKind};
 
-use crate::notice_key::NoticeKey;
+use crate::shell::window::notice_key::NoticeKey;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum DaemonNotice {

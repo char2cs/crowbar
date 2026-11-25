@@ -8,8 +8,8 @@ use gpui::{
 use protocol::PaneId;
 
 use crate::panes::editor::document_request::DocumentRequest;
-use crate::request_queue::{Requests, send};
-use crate::shell_request::ShellRequest;
+use crate::shell::inbox::request_queue::{Requests, send};
+use crate::shell::inbox::shell_request::ShellRequest;
 
 use super::arrival::Arrival;
 use super::landed::Landed;

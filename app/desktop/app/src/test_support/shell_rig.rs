@@ -7,7 +7,7 @@ use webview::{Bounds, MockPlatform, ParentWindow};
 
 use super::{FakeSpace, MemoryFiles, mock_host};
 use crate::panes::kinds::core_panes::{chat_params, chat_type};
-use crate::shell_state::ShellState;
+use crate::shell::shell_state::ShellState;
 
 pub(crate) struct ShellRig {
     pub(crate) shell: ShellState,

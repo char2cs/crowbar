@@ -1,94 +1,17 @@
 //! The Crowbar desktop shell: a GPUI window whose content area hosts panes as web views.
 
-mod active_space;
 mod adapters;
-mod agent_requests;
-mod app_menu;
 mod app_options;
-mod browser_homepage;
-mod byte_source;
-mod caret_follower;
-mod chrome;
-mod clock;
-mod close_choice;
-mod close_step;
-mod closing;
 mod daemon;
-mod data_signal;
-mod direction;
-mod editor_preferences;
 mod error;
-mod event_commands;
-mod family_names;
-mod file_prompt;
-mod file_reply;
-mod focus_neighbour;
-mod frame_clock;
-mod frame_stats;
-mod hosts;
-mod installed_fonts;
-mod landing;
-mod last_window;
-mod layout_files;
-mod layout_store;
-mod layout_writer;
 mod legacy_drafts;
 mod legacy_settings;
-mod loaded_layout;
-mod logged;
-mod name_event;
-mod name_prompt;
 #[cfg(target_os = "linux")]
 mod native;
-mod notice_key;
-mod notices;
-mod open_all;
-mod outcome;
-mod pane_settings;
 mod panes;
-mod pending_close;
-mod pending_file;
-mod pending_layout;
-mod pending_loads;
-mod pixels;
-mod ports;
-mod preferences_store;
-mod prefill;
-mod project_slot;
-mod prompt_event;
-mod prompt_words;
-mod readout_dock;
-mod readout_lines;
-mod readout_net;
-mod readout_snapshot;
-mod readout_state;
-mod readout_view;
-mod reconnect_count;
-mod reload_dialog;
-mod request_queue;
-mod reveal_target;
-mod save_health;
-mod save_report;
-mod search_engine_setting;
-mod settings_modal;
-mod shell_parts;
-mod shell_request;
-mod shell_state;
-mod shell_view;
-mod sidebar_action;
-mod sidebar_requests;
-mod sidebar_surface;
-mod startup_requests;
-mod terminal_preferences;
+mod shell;
 #[cfg(test)]
 mod test_support;
-mod traffic_lights;
-mod unsaved_dialog;
-mod view_life;
-mod window_memory;
-mod window_vibrancy;
-mod workspace;
-mod workspace_event;
 
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -102,13 +25,19 @@ use crate::adapters::disk_preferences::DiskPreferences;
 use crate::adapters::system_clock::SystemClock;
 use crate::app_options::AppOptions;
 use crate::daemon::daemon_link::DaemonLink;
-use crate::layout_store::LayoutStore;
 use crate::panes::kinds::host_builder::build_host;
-use crate::ports::Ports;
-use crate::shell_parts::ShellParts;
-use crate::shell_state::ShellState;
-use crate::shell_view::ShellView;
-use crate::window_memory::WindowMemory;
+use crate::shell::inbox::data_signal;
+use crate::shell::ports::Ports;
+use crate::shell::shell_state::ShellState;
+use crate::shell::shell_state::active_space;
+use crate::shell::shell_state::persistence::layout_store::LayoutStore;
+use crate::shell::shell_view::ShellView;
+use crate::shell::shell_view::assembly::shell_parts::ShellParts;
+use crate::shell::window::app_menu;
+use crate::shell::window::caret_follower;
+use crate::shell::window::last_window;
+use crate::shell::window::window_memory::WindowMemory;
+use crate::shell::window::window_vibrancy;
 
 fn quit_after(
     cx: &mut App,
@@ -155,7 +84,7 @@ fn start(
     let window_options = memory.options(cx);
     let opened = cx.open_window(window_options, |window, cx| {
         // PLATFORM: linux X11 windows take WM_CLASS only from set_app_id; wayland reads the options.
-        window.set_app_id(window_memory::APP_ID);
+        window.set_app_id(shell::window::window_memory::APP_ID);
         #[cfg(target_os = "linux")]
         adapters::window_activity::follow(window, cx);
         #[cfg(target_os = "linux")]

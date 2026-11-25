@@ -12,8 +12,8 @@ use crate::panes::editor::document_request::DocumentRequest;
 use crate::panes::editor::editor_panes::view::keyboard::Keyboard;
 use crate::panes::editor::editor_panes::view::view_events::listen;
 use crate::panes::editor::editor_panes::{EditorPanes, EditorTarget, PanePhase};
-use crate::request_queue::send;
-use crate::shell_request::ShellRequest;
+use crate::shell::inbox::request_queue::send;
+use crate::shell::inbox::shell_request::ShellRequest;
 
 impl EditorPanes {
     pub(crate) fn arriving(
@@ -158,7 +158,7 @@ mod tests {
     use crate::panes::editor::editor_panes::tests::{
         PANE, PATH, TEXT, landed, layout_in, panes_over, two_panes_on, with_pane,
     };
-    use crate::shell_request::ShellRequest;
+    use crate::shell::inbox::shell_request::ShellRequest;
     use crate::test_support::FakeDocuments;
 
     const SECOND: &str = "f2";
