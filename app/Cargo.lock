@@ -822,6 +822,7 @@ name = "browseragent"
 version = "0.1.0"
 dependencies = [
  "browser",
+ "journal",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -1538,6 +1539,7 @@ dependencies = [
  "gpui-pre-platform",
  "ideshell",
  "image",
+ "journal",
  "keymap",
  "layout",
  "layoutview",
@@ -4370,6 +4372,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "journal"
+version = "0.1.0"
+dependencies = [
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "js-sys"
 version = "0.3.107"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6452,6 +6462,7 @@ dependencies = [
  "async-channel",
  "daemonapi",
  "futures-util",
+ "journal",
  "protocol",
  "serde_json",
  "terminal",
@@ -7951,6 +7962,7 @@ dependencies = [
  "futures-util",
  "ignore",
  "indexmap",
+ "journal",
  "protocol",
  "rusqlite",
  "serde",
@@ -8043,6 +8055,7 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "journal",
  "rustix",
  "serde_json",
  "supervisor",
@@ -8746,6 +8759,7 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "journal",
  "keyring",
  "protocol",
  "rcgen",

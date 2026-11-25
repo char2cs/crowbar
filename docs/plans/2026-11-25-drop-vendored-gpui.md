@@ -239,6 +239,8 @@ gpui-kit, gpui-base, gpui-component or calloop: everything missing is our own co
    - split views of one file share a buffer of our own, without shared undo;
    - top-space: the find bar is laid out above the editor, not over it.
 
+9. **Logging through typed events.** `cognitive_complexity` stays. Stock calloop forces tracing's `log` fallback, which every tracing macro expands into, so a function that logs from more than one branch emits typed `journal` events and each crate expands the tracing macros once, in its `journal::sink!`. `journal` is a new L0 crate; `supervisor`, which logs through it, moves from L0 to L1 (the binary is its only dependant).
+
 ## Open questions for the owner (closed above)
 1. **Target:** gpui-pre 0.3.14 now, or wait for zed-industries/gpui's own release ("in a few
    weeks")? gpui-kit only follows gpui-pre today.

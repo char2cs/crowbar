@@ -1,0 +1,18 @@
+[package]
+name = "journal"
+description = "Typed log events and the one place a crate turns them into tracing events."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+tracing.workspace = true
+
+[dev-dependencies]
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
+
+[lints]
+workspace = true
