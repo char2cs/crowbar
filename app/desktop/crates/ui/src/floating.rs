@@ -22,7 +22,7 @@ pub use drag_ghost::DragGhost;
 pub(crate) use menu::bindings as menu_bindings;
 pub use menu::{
     ContextMenu, DropdownMenu, Menu, MenuAction, MenuItem, MenuPath, NativeEntry, NativeMenu,
-    NativeRequest, PopupMenu, Select,
+    NativeRequest, PopupMenu, Select, on_context_click,
 };
 pub use placement::Placement;
 pub use popover::Popover;

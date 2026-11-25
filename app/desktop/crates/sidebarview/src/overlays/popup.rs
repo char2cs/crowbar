@@ -8,6 +8,7 @@ mod menu_entry;
 mod menu_list;
 mod menu_ops;
 mod menu_step;
+mod native_pop;
 mod open_menu;
 pub(crate) mod tone;
 

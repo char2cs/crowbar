@@ -4,12 +4,12 @@ use std::rc::Rc;
 
 use gpui::{
     App, Div, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce, SharedString,
-    Stateful, StatefulInteractiveElement, Styled, Window, div, point, px, relative,
+    Stateful, StatefulInteractiveElement, Styled, Window, div, px, relative,
 };
 use sidebar::{Command, Intent, ProjectId};
 use ui::{Icon, IconName, IconWeight, Palette, Surface, Theme, radius};
 
-use crate::panels::chats::parts::report;
+use crate::panels::chats::parts::{MenuAnchor, report};
 use crate::sidebar::{ICON_LARGE, ROW_HEIGHT, ROW_MARGIN_X, ROW_MARGIN_Y, SPACE_SM, TEXT_BODY};
 use crate::sidebar::{RowAction, RowHandler};
 
@@ -18,7 +18,6 @@ const DIVIDER_MARGIN_Y: f32 = 4.0;
 const DIVIDER_ALPHA: f32 = 0.15;
 const ICON_ALPHA: f32 = 0.83;
 const LABEL_NUDGE: f32 = 1.5;
-const MENU_GAP: f32 = 4.0;
 
 #[derive(IntoElement)]
 pub(crate) struct TreeFoot {
@@ -64,12 +63,15 @@ impl TreeFoot {
     ) -> Stateful<Div> {
         let id = format!("foot-more-{}", self.project.as_str());
         let (project, handler) = (self.project.clone(), Rc::clone(&self.handler));
+        let anchor = MenuAnchor::default();
         foot_row(id, palette)
+            .relative()
+            .debug_selector(|| "foot-more".into())
+            .child(anchor.probe())
             .child(foot_icon(IconName::DotsThree, IconWeight::Bold, palette))
             .child(foot_label("More…"))
-            .on_click(move |event, window, cx| {
-                let below = event.position() + point(px(0.0), px(MENU_GAP));
-                handler(foot_menu_action(&project, below), window, cx);
+            .on_click(move |_, window, cx| {
+                handler(foot_menu_action(&project, anchor.below()), window, cx);
             })
     }
 }
@@ -174,5 +176,25 @@ mod tests {
         );
         let expected = RowAction::Intent(Intent::Send(Command::NewThread(ProjectId::from("inv"))));
         assert_eq!(seen.borrow().first(), Some(&expected));
+    }
+
+    #[gpui::test]
+    fn more_opens_its_menu_under_the_left_edge_of_the_row_wherever_it_is_clicked(
+        cx: &mut TestAppContext
+    ) {
+        let (handler, seen) = recording_handler();
+        cx.update(|cx| ui::init(cx).expect("ui installs"));
+        let (_, cx) = cx.add_window_view(|_, _| Foot { handler });
+        let more_y = DIVIDER_MARGIN_Y + 2.0 * (ROW_MARGIN_Y + ROW_HEIGHT) - ROW_HEIGHT / 2.0;
+        cx.simulate_click(point(px(150.0), px(more_y)), gpui::Modifiers::none());
+        let Some(RowAction::FootMenu { at, .. }) = seen.borrow().first().cloned() else {
+            panic!("More… asked for no menu: {:?}", seen.borrow());
+        };
+        let more = cx.debug_bounds("foot-more").unwrap_or_default();
+        let (dx, dy) = (at.x - more.left(), at.y - (more.bottom() + px(4.0)));
+        assert!(
+            dx.abs() <= px(1.0) && dy.abs() <= px(1.0),
+            "{at:?} under {more:?}"
+        );
     }
 }

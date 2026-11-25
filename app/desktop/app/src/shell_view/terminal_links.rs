@@ -49,6 +49,9 @@ impl ShellView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
+        if let Some(native) = ui::NativeMenu::installed(cx) {
+            return native.open(&items.into(), at, (window, cx));
+        }
         let menu = cx.new(|cx| Menu::new(items, window, cx));
         cx.subscribe(&menu, |this, _, _: &DismissEvent, cx| {
             this.close_link_menu(cx);
@@ -195,6 +198,41 @@ mod tests {
             shell.link_menu.as_ref().map(|menu| menu.at)
         });
         assert_eq!(at, Some(position));
+    }
+
+    fn row(label: &'static str) -> ui::NativeEntry {
+        ui::NativeEntry::Item {
+            label: label.into(),
+            enabled: true,
+            checked: false,
+        }
+    }
+
+    #[gpui::test]
+    fn a_url_asks_for_develops_native_link_menu_and_copy_link_copies_it(cx: &mut TestAppContext) {
+        let popped = crate::test_support::answer_menus_with(cx, Some(vec![2]));
+        let (mut opened, terminal) = with_terminal(cx);
+        let position = point(px(120.0), px(80.0));
+        let url = "https://example.com".to_owned();
+        tell(&mut opened, (&terminal, Event::OpenUrl { url, position }));
+        let want = ui::NativeRequest {
+            entries: vec![
+                row("Open in Default Browser"),
+                row("Open in Crowbar Browser"),
+                row("Copy Link"),
+            ],
+            at: position,
+        };
+        assert_eq!(*popped.borrow(), [want]);
+        let copied = opened
+            .window
+            .read_from_clipboard()
+            .and_then(|item| item.text());
+        assert_eq!(copied.as_deref(), Some("https://example.com"));
+        let drawn = opened
+            .shell
+            .update(&mut opened.window, |shell, _| shell.link_menu.is_some());
+        assert!(!drawn, "no menu drawn in the window");
     }
 
     #[gpui::test]

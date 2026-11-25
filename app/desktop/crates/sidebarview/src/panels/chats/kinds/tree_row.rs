@@ -7,9 +7,8 @@ use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, ClickEvent, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    RenderOnce, SharedString, Stateful, StatefulInteractiveElement, Styled, WeakEntity, Window,
-    div, px,
+    App, ClickEvent, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce,
+    SharedString, Stateful, StatefulInteractiveElement, Styled, WeakEntity, Window, div, px,
 };
 use sidebar::{Expansion, Presence, Row, RowId};
 use ui::{FlickerSpinner, Icon, Palette, Pose, Surface};
@@ -157,8 +156,8 @@ fn with_menu(
     handler: &RowHandler,
 ) -> Stateful<gpui::Div> {
     let (row, handler) = (row.clone(), Rc::clone(handler));
-    shell.on_mouse_down(MouseButton::Right, move |event, window, cx| {
-        handler(menu_action(&row, event.position), window, cx);
+    ui::on_context_click(shell, move |at, window, cx| {
+        handler(menu_action(&row, at), window, cx);
     })
 }
 

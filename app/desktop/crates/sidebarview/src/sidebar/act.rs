@@ -28,7 +28,7 @@ impl Sidebar {
                 self.open_row_menu((&row, at), window, cx);
             },
             RowAction::FootMenu { project, at } => {
-                self.open_menu((foot_menu(&project), at), window, cx);
+                self.pop_menu((foot_menu(&project), at), window, cx);
             },
             RowAction::Intent(intent) => self.apply(intent, window, cx),
             RowAction::Copied(path, note) => self.flash_copied((path, note), cx),
@@ -49,7 +49,7 @@ impl Sidebar {
             return;
         };
         let entries = row_menu(&row, &self.menu_context(id));
-        self.open_menu((entries, at), window, cx);
+        self.pop_menu((entries, at), window, cx);
     }
 
     pub(crate) fn apply(

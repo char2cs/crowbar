@@ -5,7 +5,7 @@ mod native_request;
 
 use std::rc::Rc;
 
-use gpui::{App, Global, Pixels, Point, Task, Window};
+use gpui::{App, Global, InteractiveElement, MouseButton, Pixels, Point, Task, Window};
 
 pub use native_entry::NativeEntry;
 pub use native_request::NativeRequest;
@@ -38,11 +38,24 @@ impl NativeMenu {
         Self(popup)
     }
 
-    pub(crate) fn installed(cx: &App) -> Option<Self> {
+    /// The installed native menu, if the shell installed one.
+    #[must_use]
+    pub fn installed(cx: &App) -> Option<Self> {
         cx.try_global::<Self>().cloned()
     }
 
-    pub(crate) fn open(
+    /// Pops `request` up over `window`; the task ends with the chosen entry.
+    pub fn popup(
+        &self,
+        request: NativeRequest,
+        window: &Window,
+        cx: &mut App,
+    ) -> Task<Option<MenuPath>> {
+        (self.0)(request, window, cx)
+    }
+
+    /// Pops `items` up at `at` and runs the chosen row's action, as a drawn menu would.
+    pub fn open(
         &self,
         items: &Rc<[MenuItem]>,
         at: Point<Pixels>,
@@ -52,7 +65,7 @@ impl NativeMenu {
             entries: entries(items),
             at,
         };
-        let chosen = (self.0)(request, window, cx);
+        let chosen = self.popup(request, window, cx);
         let items = Rc::clone(items);
         window
             .spawn(cx, async move |cx| {
@@ -61,6 +74,46 @@ impl NativeMenu {
                 cx.update(|window, cx| run(window, cx)).ok()
             })
             .detach();
+    }
+}
+
+/// Calls `open` with the pointer when `element` is right-clicked: on release when a native menu
+/// is installed, on press otherwise, where a drawn menu opens.
+pub fn on_context_click<E: InteractiveElement>(
+    element: E,
+    open: impl Fn(Point<Pixels>, &mut Window, &mut App) + 'static,
+) -> E {
+    let on_press: Rc<Open> = Rc::new(open);
+    let on_release = Rc::clone(&on_press);
+    // PLATFORM: linux the press holds an implicit X grab on the shell window, so GTK can only take the pointer for its menu once the button is up.
+    element
+        .on_mouse_down(MouseButton::Right, move |event, window, cx| {
+            pressed(&on_press, event.position, (window, cx));
+        })
+        .on_mouse_up(MouseButton::Right, move |event, window, cx| {
+            released(&on_release, event.position, (window, cx));
+        })
+}
+
+type Open = dyn Fn(Point<Pixels>, &mut Window, &mut App);
+
+fn pressed(
+    open: &Rc<Open>,
+    at: Point<Pixels>,
+    (window, cx): (&mut Window, &mut App),
+) {
+    if NativeMenu::installed(cx).is_none() {
+        open(at, window, cx);
+    }
+}
+
+fn released(
+    open: &Rc<Open>,
+    at: Point<Pixels>,
+    (window, cx): (&mut Window, &mut App),
+) {
+    if NativeMenu::installed(cx).is_some() {
+        open(at, window, cx);
     }
 }
 
@@ -206,6 +259,32 @@ mod tests {
         answering(cx, Some(vec![2, 0]));
         right_click(cx, &chosen);
         assert_eq!(chosen.get(), 10);
+    }
+
+    fn press_then_release(cx: &mut TestAppContext) -> (u32, u32) {
+        let heard = Rc::new(Cell::new(0));
+        let count = Rc::clone(&heard);
+        let cx = open(cx, move |_, _| {
+            let count = Rc::clone(&count);
+            let area = div().w(px(200.0)).h(px(100.0));
+            on_context_click(area, move |_, _, _| count.set(count.get() + 1))
+        });
+        let at = point(px(30.0), px(20.0));
+        cx.simulate_mouse_down(at, MouseButton::Right, Modifiers::none());
+        let pressed = heard.get();
+        cx.simulate_mouse_up(at, MouseButton::Right, Modifiers::none());
+        (pressed, heard.get())
+    }
+
+    #[gpui::test]
+    fn without_a_native_menu_a_context_click_opens_on_the_press(cx: &mut TestAppContext) {
+        assert_eq!(press_then_release(cx), (1, 1));
+    }
+
+    #[gpui::test]
+    fn with_a_native_menu_a_context_click_opens_on_the_release(cx: &mut TestAppContext) {
+        answering(cx, None);
+        assert_eq!(press_then_release(cx), (0, 1));
     }
 
     #[test]

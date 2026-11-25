@@ -2,6 +2,7 @@
 
 mod chat_glyph;
 mod cluster_spec;
+mod menu_anchor;
 mod row_bounds;
 mod row_cluster;
 mod row_focus;
@@ -16,6 +17,7 @@ mod trailing;
 
 pub use chat_glyph::{ChatGlyph, GlyphTone};
 pub(crate) use cluster_spec::ClusterSpec;
+pub(crate) use menu_anchor::MenuAnchor;
 pub(crate) use row_bounds::RowBounds;
 pub(crate) use row_cluster::cluster;
 pub(crate) use row_focus::{ringed, row_focus};
