@@ -36,10 +36,36 @@ fn session(
     slot: &HostSlot,
     chat: &ChatRecord,
 ) -> Record {
-    Record::new(chat.id.as_str(), title_of(&chat.title))
+    let title = title_of(&chat.title);
+    Record::new(chat.id.as_str(), title)
         .status(session_tone(chat))
         .line(Line::plain(slot.spec.name.as_str()))
-        .action(RecordAction::new(KILL, "x", "End this session"))
+        .action(kill(chat, title))
+}
+
+fn kill(
+    chat: &ChatRecord,
+    title: &str,
+) -> RecordAction {
+    let question = sidebar::Question::kill(sidebar::RowId::from(chat.id.as_str()), title);
+    let confirm = Confirm::new(question.title, question.body, question.confirm);
+    RecordAction::new(KILL, "skull", format!("Kill the agent on {title}"))
+        .labelled("Kill")
+        .confirm(confirm)
+}
+
+pub(crate) fn session_title(
+    state: &State,
+    chat: &str,
+) -> String {
+    let record = state
+        .hosts
+        .iter()
+        .find_map(|slot| slot.store.chats.get(chat));
+    record.map_or_else(
+        || chat.to_owned(),
+        |record| title_of(&record.title).to_owned(),
+    )
 }
 
 fn session_tone(chat: &ChatRecord) -> Tone {
@@ -121,5 +147,20 @@ mod tests {
             hosts(&state).iter().map(Record::id).collect::<Vec<_>>(),
             ["local"]
         );
+    }
+
+    #[test]
+    fn a_session_is_killed_through_develop_s_question() {
+        let (state, _) = state();
+        let sessions = sessions(&state);
+        let confirm = Confirm::new(
+            "Kill the agent on “Idea”?",
+            "It stops now, even mid-turn. The conversation is kept and resumes when reopened.",
+            "Kill agent",
+        );
+        let want = RecordAction::new(KILL, "skull", "Kill the agent on Idea")
+            .labelled("Kill")
+            .confirm(confirm);
+        assert_eq!(sessions[0].offered_action(), Some(&want));
     }
 }

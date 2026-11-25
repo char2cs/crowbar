@@ -3,6 +3,9 @@
 use crate::shell::chats::RowId;
 use crate::shell::command::Command;
 
+// SPEC: docs/triage/2026-11-18-side-by-side-audit/16-dlg.md DLG-009: develop's message with no client attached.
+const KILL_BODY: &str =
+    "It stops now, even mid-turn. The conversation is kept and resumes when reopened.";
 const DETACH_BODY: &str = "will move to a detached HEAD, releasing the branch so Crowbar can manage it in its own worktree. Your files are safe — only the working directory's current branch changes; uncommitted changes and commits are preserved.";
 
 /// A confirmation dialog whose accept button sends one command.
@@ -46,7 +49,7 @@ impl Question {
     ) -> Self {
         Self {
             title: format!("Kill the agent on “{title}”?"),
-            body: "The agent stops immediately and its running turn is lost.".to_owned(),
+            body: KILL_BODY.to_owned(),
             confirm: "Kill agent",
             command: Command::KillAgent(row),
         }
@@ -79,7 +82,7 @@ mod tests {
             (
                 &kill,
                 "Kill the agent on “Refactor”?",
-                "The agent stops",
+                "It stops now, even mid-turn.",
                 Command::KillAgent(row),
             ),
         ];
