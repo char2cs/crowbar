@@ -6,6 +6,7 @@ mod new_entry;
 mod question;
 mod row_actions;
 mod sink;
+mod stakes;
 
 pub use clip_mode::ClipMode;
 pub use intent::Intent;
@@ -13,6 +14,7 @@ pub use new_entry::NewEntry;
 pub use question::Question;
 pub use row_actions::RowActions;
 pub use sink::Sink;
+pub use stakes::Stakes;
 
 use crate::shell::chats::DropMode;
 use crate::shell::chats::RowId;

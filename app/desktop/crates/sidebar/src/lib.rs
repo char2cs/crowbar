@@ -32,7 +32,7 @@ pub use shell::{
     MergeFacts, MergeStrategy, MergeWork, MoveTarget, Nesting, NewEntry, Notice, Operation,
     OperationPhase, PaneFocus, PathText, Presence, Project, ProjectId, ProjectTree, Question,
     Reach, Requests, Row, RowActions, RowId, RowKind, RunningAgent, ScopeSync, Source, SpaceFacts,
-    SpaceIcon, SpaceList, Titling, Workspace, WorkspaceStatus, Worktree,
+    SpaceIcon, SpaceList, Stakes, Titling, Workspace, WorkspaceStatus, Worktree,
 };
 pub use tree::{Confirmation, Deadline};
 pub use tree::{

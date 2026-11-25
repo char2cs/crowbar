@@ -102,8 +102,8 @@ fn move_entries(
     submenu
         .into_iter()
         .chain(make_branch_entry(row))
-        .chain(kill_entry(row, context))
         .chain(cancel)
+        .chain(kill_entries(context, &row.id).into_iter().flatten())
         .collect()
 }
 
@@ -141,17 +141,14 @@ fn move_submenu(
     }
 }
 
-fn kill_entry(
-    row: &Row,
+fn kill_entries(
     context: &MenuContext,
-) -> Option<MenuEntry> {
+    row: &sidebar::RowId,
+) -> Option<[MenuEntry; 2]> {
     let title = context.running.as_deref()?;
-    let question = Question::kill(row.id.clone(), title);
-    Some(MenuEntry::action(
-        "Kill agent",
-        IconName::XCircle,
-        Intent::Ask(question),
-    ))
+    let question = Question::kill(row.clone(), title);
+    let kill = MenuEntry::destructive("Kill agent", IconName::Skull, Intent::Ask(question));
+    Some([MenuEntry::Separator, kill])
 }
 
 fn make_branch_entry(row: &Row) -> Option<MenuEntry> {
@@ -237,6 +234,16 @@ mod tests {
         (row, context)
     }
 
+    fn running_moving_chat() -> (Row, MenuContext) {
+        let mut row = Row::new("c", RowKind::Chat, 2, "hi");
+        row.pending_move = Some("src".into());
+        let context = MenuContext {
+            running: Some("hi".into()),
+            ..MenuContext::default()
+        };
+        (row, context)
+    }
+
     type Case = (
         &'static str,
         fn() -> (Row, MenuContext),
@@ -280,7 +287,12 @@ mod tests {
         (
             "a running agent can be killed",
             running_chat,
-            &["Rename", "New folder", "Make a branch", "Kill agent"],
+            &["Rename", "New folder", "Make a branch", "---", "Kill agent"],
+        ),
+        (
+            "cancel move comes before the kill, which sits apart",
+            running_moving_chat,
+            &["Rename", "New folder", "Cancel move", "---", "Kill agent"],
         ),
         (
             "a pending move replaces make a branch with cancel",

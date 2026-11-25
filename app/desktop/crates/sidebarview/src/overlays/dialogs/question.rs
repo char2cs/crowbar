@@ -1,6 +1,7 @@
 //! The dialog that asks a [`Question`].
 
 use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, div};
+use sidebar::Stakes;
 use ui::{Button, ButtonVariant, Dialog, DialogSize, IconName, Surface, Theme};
 
 use crate::sidebar::Sidebar;
@@ -14,10 +15,11 @@ impl Sidebar {
         let question = self.question.clone()?;
         let palette = Theme::of(cx).palette(Surface::Window);
         let sidebar = cx.entity();
-        let cancel = Button::new("question-cancel", "Cancel")
+        let cancel = Button::new("question-cancel", question.cancel)
             .variant(ButtonVariant::Ghost)
             .on_click(cx.listener(|this, _, _, cx| this.cancel_question(cx)));
         let accept = Button::new("question-accept", question.confirm)
+            .variant(accept_variant(question.stakes))
             .on_click(cx.listener(|this, _, _, cx| this.accept_question(cx)));
         let body = div()
             .text_size(TEXT_LARGE)
@@ -51,6 +53,13 @@ impl Sidebar {
             self.send(question.command, cx);
         }
         cx.notify();
+    }
+}
+
+fn accept_variant(stakes: Stakes) -> ButtonVariant {
+    match stakes {
+        Stakes::Disruptive => ButtonVariant::Primary,
+        Stakes::Destructive => ButtonVariant::Destructive,
     }
 }
 
