@@ -10,6 +10,8 @@ interface HostConfigState {
   remoteEverPaired: boolean
   addHost: (host: Host) => void
   removeHost: (id: string) => void
+  /** The shell pairs hosts itself: its list replaces this one, which it alone changes. */
+  adoptHosts: (hosts: Host[]) => void
 }
 
 type Saved = Partial<Pick<HostConfigState, 'hosts' | 'remoteEverPaired'>>
@@ -54,6 +56,8 @@ export const useHostConfigStore = create<HostConfigState>()(
           const { hosts, remoteEverPaired } = current(s)
           return { hosts: hosts.filter((h) => h.id !== id), remoteEverPaired }
         }),
+      adoptHosts: (hosts) =>
+        set((s) => ({ hosts, remoteEverPaired: s.remoteEverPaired || hosts.length > 0 })),
     }),
     {
       name: STORAGE_KEY,

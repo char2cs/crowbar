@@ -155,6 +155,7 @@ impl PaneHost {
             self.breakpoints_context(),
             self.chat_zoom_context(),
             self.settings_context(),
+            self.paired_hosts_context(),
         ]
         .into_iter()
         .flatten()

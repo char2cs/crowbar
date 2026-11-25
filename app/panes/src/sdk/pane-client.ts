@@ -12,6 +12,7 @@ import type { ShellFrame } from './shell-frame'
 import type { ThemeTokens } from './theme-tokens'
 import type { Breakpoint } from './breakpoint'
 import type { FileDrop } from './file-drop'
+import type { PairedHost } from './paired-host'
 import {
   MAX_STATE_BYTES,
   REQUEST_TIMEOUT_MS,
@@ -63,6 +64,7 @@ export class PaneClient {
   private readonly saves = new Set<() => void>()
   private readonly groups = new Set<Listener<boolean>>()
   private readonly shellSettings = new Set<Listener<SettingValues>>()
+  private readonly pairedHosts = new Set<Listener<PairedHost[]>>()
   private readonly events = new Map<string, EventSubscription>()
   private readonly reviewViewed = new Set<Listener<ReviewViewedFrame>>()
   private readonly reviewReveals = new Set<Listener<string>>()
@@ -109,6 +111,11 @@ export class PaneClient {
   /** Hears the shell's settings on mount and whenever one changes, the whole set each time; returns the stop. */
   onSettings(listener: Listener<SettingValues>): () => void {
     return this.listen(this.shellSettings, listener)
+  }
+
+  /** Hears the hosts the shell paired, on mount and whenever one is paired or removed; returns the stop. */
+  onHosts(listener: Listener<PairedHost[]>): () => void {
+    return this.listen(this.pairedHosts, listener)
   }
 
   /** Hears the shell's request to save before it closes the pane; returns the stop. */
@@ -310,6 +317,7 @@ export class PaneClient {
       const { paths, x, y } = frame
       this.fileDrops.forEach((listener) => listener({ paths, x, y }))
     }
+    if (frame.kind === 'hosts') this.pairedHosts.forEach((listener) => listener(frame.hosts))
     if (frame.kind === 'settings' && frame.version === SETTINGS_FRAME_VERSION) {
       this.shellSettings.forEach((listener) => listener(frame.values))
     }

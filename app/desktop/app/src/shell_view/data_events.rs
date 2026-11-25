@@ -55,6 +55,7 @@ impl ShellView {
         }
         self.sidebar.update(cx, |_, cx| cx.notify());
         self.backend.workspace.update(cx, |_, cx| cx.notify());
+        self.state.set_paired_hosts(&self.data.paired_hosts());
         let departed = self.data.take_departed_chats();
         self.close_chats(&departed, cx);
         self.source.native().editors().data_changed(cx);

@@ -38,6 +38,7 @@ mod open_requested;
 mod opening;
 mod page_document;
 mod page_step;
+mod paired_hosts;
 mod preview;
 mod renaming;
 mod review_reveal;

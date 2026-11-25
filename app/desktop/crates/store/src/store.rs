@@ -6,6 +6,7 @@ mod dialogs;
 mod folder_browse;
 mod legacy_drafts;
 mod local_link;
+mod paired_hosts;
 mod pairing_session;
 mod ports;
 mod projects_load;

@@ -20,3 +20,9 @@ export function shellConfig(): ShellConfig | null {
   if (!config?.api || !config.host) return null
   return { api: config.api, host: config.host, ws: config.ws ?? null }
 }
+
+/** The base of `hostId`'s daemon calls: the page's own base, under that host's authority. */
+export function hostApi(config: ShellConfig, hostId: string): string {
+  const scheme = config.api.slice(0, config.api.indexOf('://'))
+  return `${scheme}://${hostId}`
+}

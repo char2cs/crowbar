@@ -11,6 +11,7 @@ use crate::scheme::status;
 use crate::catalog::PaneBundles;
 use crate::scheme::assignment::Assignment;
 use crate::scheme::authorized::Authorized;
+use crate::scheme::cross_host;
 use crate::scheme::origin_table::OriginTable;
 use crate::scheme::policy::allows;
 use crate::scheme::route::{Route, parse};
@@ -126,6 +127,9 @@ impl ProtocolHandler for PaneProtocol {
         request: ProtocolRequest,
         respond: ProtocolResponder,
     ) {
+        let page = cross_host::page_origin(&request);
+        let respond: ProtocolResponder =
+            Box::new(move |answer| respond(cross_host::readable_by(page.as_deref(), answer)));
         let Some(Assignment { pane, origin }) = self.origins.get(request.web_view) else {
             return respond(error_response(status::FORBIDDEN, "unknown web view"));
         };
@@ -137,6 +141,9 @@ impl ProtocolHandler for PaneProtocol {
                 status::FORBIDDEN,
                 "not allowed for this pane",
             ));
+        }
+        if let Some(answer) = cross_host::preflight(&request) {
+            return respond(answer);
         }
         self.serve(
             Authorized {

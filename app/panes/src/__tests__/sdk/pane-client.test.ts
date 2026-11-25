@@ -238,6 +238,15 @@ describe('PaneClient', () => {
     expect(heard.mock.calls).toEqual([[120]])
   })
 
+  it('hears the hosts the shell paired', () => {
+    const client = new PaneClient(pane.channel, 'core.chat')
+    const heard = vi.fn()
+    client.onHosts(heard)
+    const hosts = [{ id: 'h1', name: 'rigremote', endpoint: '127.0.0.1:4747' }]
+    pane.deliver({ sdk: 1, kind: 'hosts', hosts })
+    expect(heard.mock.calls).toEqual([[hosts]])
+  })
+
   it('hears the viewed map and the files to reveal the shell sends', () => {
     const client = new PaneClient(pane.channel, 'core.review')
     const viewed = vi.fn()

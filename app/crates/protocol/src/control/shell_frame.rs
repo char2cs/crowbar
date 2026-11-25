@@ -12,6 +12,7 @@ use crate::control::lifecycle::Lifecycle;
 use crate::control::payload::Breakpoint;
 use crate::control::payload::DisplayText;
 use crate::control::payload::ExtensionStatus;
+use crate::control::payload::PairedHost;
 use crate::control::payload::PaneState;
 use crate::control::payload::Params;
 use crate::identity::ExtensionId;
@@ -105,6 +106,12 @@ pub enum ShellFrame {
         /// The values.
         values: SettingValues,
     },
+    /// `hosts`: the hosts the shell paired, which a page reaches as `crowbar://<id>`; sent on
+    /// mount and whenever one is paired or removed. It is the whole list each time.
+    Hosts {
+        /// In the order they were paired.
+        hosts: Vec<PairedHost>,
+    },
     /// `review.viewed`: a workspace's viewed marks, path to signature; sent to its review panes
     /// on mount and whenever a mark changes. It is the whole map each time.
     #[serde(rename = "review.viewed")]
@@ -152,6 +159,7 @@ mod tests {
             r#"{"kind":"review.reveal","path":"src/a.ts"}"#,
             r#"{"kind":"breakpoints","cleared":["sm","md"]}"#,
             r#"{"kind":"chat.zoom","percent":120}"#,
+            r#"{"kind":"hosts","hosts":[{"id":"h1","name":"rigremote","endpoint":"127.0.0.1:4747"}]}"#,
             r#"{"kind":"document.text","text":"Title\n"}"#,
             r#"{"kind":"files.dropped","paths":["/tmp/a b.rs"],"x":12.5,"y":40.0}"#,
         ];

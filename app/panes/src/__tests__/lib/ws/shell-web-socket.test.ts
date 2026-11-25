@@ -97,7 +97,7 @@ describe('ShellWebSocket', () => {
         ? new Response(lookup.body, { status: lookup.status })
         : Promise.reject(new Error('offline'))
     vi.stubGlobal('fetch', vi.fn(answer))
-    new ShellWebSocket('/v0/stream')
+    new ShellWebSocket('/v0/stream', 'local')
     const socket = await dialled()
     expect(socket.url).toBe('ws://127.0.0.1:41233/v0/stream')
     expect(socket.protocols).toEqual(['crowbar.relay.v1', `crowbar.token.${token}`])
@@ -108,7 +108,7 @@ describe('ShellWebSocket', () => {
     hostedByShell({ url: 'ws://127.0.0.1:41233', token: 'expired' })
     relayLookup(lookup.status, lookup.body)
     const seen: string[] = []
-    const shell = new ShellWebSocket('/v0/stream')
+    const shell = new ShellWebSocket('/v0/stream', 'local')
     shell.onerror = () => seen.push('error')
     shell.onclose = () => seen.push('close')
     await vi.waitFor(() => expect(seen).toEqual(['error', 'close']))
@@ -118,7 +118,7 @@ describe('ShellWebSocket', () => {
   it('reports an error then a close when the shell issued no relay endpoint', async () => {
     hostedByShell(null)
     const seen: string[] = []
-    const shell = new ShellWebSocket('/v0/stream')
+    const shell = new ShellWebSocket('/v0/stream', 'local')
     shell.onerror = () => seen.push('error')
     shell.onclose = () => seen.push('close')
     await vi.waitFor(() => expect(seen).toEqual(['error', 'close']))
@@ -126,10 +126,33 @@ describe('ShellWebSocket', () => {
     expect(FakeWebSocket.instances).toHaveLength(0)
   })
 
+  it("asks the named host's relay and never dials it with this host's cached token", async () => {
+    hostedByShell({ url: 'ws://127.0.0.1:41233', token: 'local-token' })
+    const lookup = vi.fn(async () => Promise.reject(new Error('offline')))
+    vi.stubGlobal('fetch', lookup)
+    const seen: string[] = []
+    const shell = new ShellWebSocket('/v0/stream', 'box')
+    shell.onclose = () => seen.push('close')
+    await vi.waitFor(() => expect(seen).toEqual(['close']))
+    expect(lookup).toHaveBeenCalledWith('crowbar://box/__crowbar/relay')
+    expect(FakeWebSocket.instances).toHaveLength(0)
+  })
+
+  it("dials the named host's relay with the token it issued", async () => {
+    hostedByShell({ url: 'ws://127.0.0.1:41233', token: 'local-token' })
+    relayLookup(200, '{"url":"ws://127.0.0.1:41299","token":"box-token"}')
+    new ShellWebSocket('/v0/stream', 'box')
+    const socket = await dialled()
+    expect(socket.url).toBe('ws://127.0.0.1:41299/v0/stream')
+    expect(socket.protocols).toEqual(['crowbar.relay.v1', 'crowbar.token.box-token'])
+    const config = (window as unknown as { __CROWBAR__: { ws: { token: string } } }).__CROWBAR__
+    expect(config.ws.token, "this host's cached relay").toBe('local-token')
+  })
+
   it('forwards the native socket once it is dialled', async () => {
     hostedByShell({ url: 'ws://127.0.0.1:41233', token: 'tok' })
     relayLookup(200, RELAY)
-    const shell = new ShellWebSocket('/v0/stream')
+    const shell = new ShellWebSocket('/v0/stream', 'local')
     shell.binaryType = 'arraybuffer'
     const received: unknown[] = []
     const lifecycle: string[] = []
@@ -155,14 +178,14 @@ describe('ShellWebSocket', () => {
   it('refuses to send before the relay is dialled', () => {
     hostedByShell({ url: 'ws://127.0.0.1:41233', token: 'tok' })
     relayLookup(200, RELAY)
-    expect(() => new ShellWebSocket('/v0/stream').send('early')).toThrow(/not connected/)
+    expect(() => new ShellWebSocket('/v0/stream', 'local').send('early')).toThrow(/not connected/)
   })
 
   it('never dials when closed before the relay answers', async () => {
     hostedByShell({ url: 'ws://127.0.0.1:41233', token: 'tok' })
     const lookup = vi.fn(async () => new Response(RELAY, { status: 200 }))
     vi.stubGlobal('fetch', lookup)
-    const shell = new ShellWebSocket('/v0/stream')
+    const shell = new ShellWebSocket('/v0/stream', 'local')
     shell.close()
     await vi.waitFor(() => expect(lookup).toHaveBeenCalled())
     await lookup.mock.results[0]!.value
