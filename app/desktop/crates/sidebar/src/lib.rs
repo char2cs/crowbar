@@ -37,6 +37,5 @@ pub use shell::{
 pub use tree::{Confirmation, Deadline};
 pub use tree::{
     DragArm, DropModes, EdgeScroll, Editing, FilesState, FolderTarget, Hold, MenuContext,
-    RemovalKind, RemovalTarget, RemovalTray, Removals, TerminalThreads, Tree, VisibleRow,
-    WorkAtRisk,
+    RemovalKind, RemovalTarget, RemovalTray, Removals, Tree, VisibleRow, WorkAtRisk,
 };

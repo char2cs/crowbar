@@ -96,8 +96,6 @@ pub enum Command {
     ImportRepo,
     /// Open the Import branches dialog for the repository.
     ImportBranches(RowId),
-    /// Start a thread in a terminal.
-    TerminalThread(RowId),
     /// Lock the branch.
     Lock(RowId),
     /// Unlock the branch.

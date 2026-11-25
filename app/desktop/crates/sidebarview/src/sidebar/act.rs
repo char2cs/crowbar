@@ -6,7 +6,6 @@ use gpui::TaskExt as _;
 use gpui::{Context, Pixels, Point, Window};
 use sidebar::{
     Command, Deadline, FileDialog, FileProperties, Intent, MenuContext, ProjectId, Row, RowId,
-    TerminalThreads,
 };
 use ui::ToastLifetime;
 
@@ -151,7 +150,6 @@ impl Sidebar {
     ) -> MenuContext {
         MenuContext {
             targets: self.data.move_targets(row),
-            terminal: TerminalThreads::of(self.data.as_ref()),
             running: self
                 .data
                 .running_agents()

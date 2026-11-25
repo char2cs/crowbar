@@ -5,7 +5,6 @@ use sidebar::ProjectId;
 use crate::live::DraftThread;
 use crate::live::PlanError;
 use crate::live::State;
-use crate::live::Surface;
 use crate::plan::Plan;
 use crate::plan::after::After;
 use crate::plan::create::{host_id, parent_chat, thread, workspace_for};
@@ -37,7 +36,7 @@ pub(crate) fn or_thread(
 ) -> Result<Plan, PlanError> {
     let target = resolve(state, row).ok_or(PlanError::RowNotLoaded)?;
     if !matches!(target.kind, Kind::Branch { .. } | Kind::RepoHeader { .. }) {
-        return thread(state, row, id, Surface::Default);
+        return thread(state, row, id);
     }
     let draft = DraftThread {
         id: DraftThread::minted(id),

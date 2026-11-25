@@ -1,8 +1,8 @@
 //! The context menu of a tree row.
 
 use sidebar::{
-    Command, Intent, Lock, MenuContext, MoveTarget, Question, Row, RowKind, TerminalThreads,
-    WorkspaceStatus, Worktree,
+    Command, Intent, Lock, MenuContext, MoveTarget, Question, Row, RowKind, WorkspaceStatus,
+    Worktree,
 };
 use ui::IconName;
 
@@ -36,7 +36,7 @@ pub(crate) fn row_menu(
         .into_iter()
         .chain(lock_entry(row))
         .chain(import)
-        .chain(creation_entries(row, context))
+        .chain(std::iter::once(folder_entry(row)))
         .chain(move_entries(row, context))
         .chain(delete.into_iter().flatten())
         .collect()
@@ -69,25 +69,9 @@ fn lock_entry(row: &Row) -> Option<MenuEntry> {
     })
 }
 
-fn creation_entries(
-    row: &Row,
-    context: &MenuContext,
-) -> Vec<MenuEntry> {
+fn folder_entry(row: &Row) -> MenuEntry {
     let folder = Command::CreateFolder(Some(row.id.clone()));
-    let mut entries = vec![MenuEntry::action(
-        "New folder",
-        IconName::Folder,
-        Intent::Send(folder),
-    )];
-    if context.terminal == TerminalThreads::Available {
-        let command = Command::TerminalThread(row.id.clone());
-        entries.push(MenuEntry::action(
-            "New thread in Terminal",
-            IconName::Terminal,
-            Intent::Send(command),
-        ));
-    }
-    entries
+    MenuEntry::action("New folder", IconName::Folder, Intent::Send(folder))
 }
 
 fn move_entries(
@@ -185,11 +169,7 @@ mod tests {
 
     fn repo() -> (Row, MenuContext) {
         let row = Row::new("r", RowKind::RepoHeader, 0, "demo");
-        let context = MenuContext {
-            terminal: TerminalThreads::Available,
-            ..MenuContext::default()
-        };
-        (row, context)
+        (row, MenuContext::default())
     }
 
     fn locked_branch() -> (Row, MenuContext) {
@@ -213,7 +193,6 @@ mod tests {
         };
         let context = MenuContext {
             targets: vec![target],
-            terminal: TerminalThreads::Available,
             running: None,
         };
         (row, context)
@@ -252,13 +231,12 @@ mod tests {
 
     const CASES: &[Case] = &[
         (
-            "a repo header gets import, the creation entries and a destructive tail",
+            "a repo header gets import, a new folder and a destructive tail",
             repo,
             &[
                 "Rename",
                 "Import branches",
                 "New folder",
-                "New thread in Terminal",
                 "---",
                 "Delete Repo",
             ],
@@ -274,15 +252,9 @@ mod tests {
             &["Rename", "New folder"],
         ),
         (
-            "chats offer terminal, move and branching in order",
+            "chats offer move and branching in order",
             chat,
-            &[
-                "Rename",
-                "New folder",
-                "New thread in Terminal",
-                "Move to…",
-                "Make a branch",
-            ],
+            &["Rename", "New folder", "Move to…", "Make a branch"],
         ),
         (
             "a running agent can be killed",
@@ -315,7 +287,7 @@ mod tests {
         let entries = row_menu(&row, &context);
         let MenuEntry::Submenu {
             entries: targets, ..
-        } = &entries[3]
+        } = &entries[2]
         else {
             panic!("move to is a submenu");
         };

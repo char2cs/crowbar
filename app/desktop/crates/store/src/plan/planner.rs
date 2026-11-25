@@ -27,7 +27,6 @@ pub(crate) fn plan(
         | Command::NewChat(_)
         | Command::NewTerminalThread(_)
         | Command::Thread(_)
-        | Command::TerminalThread(_)
         | Command::Fork { .. }
         | Command::MakeBranch { .. }
         | Command::CreateFolder(_)
@@ -68,10 +67,7 @@ fn thread(
         Command::Thread(row) if drafts(state, command) => {
             plan_draft::or_thread(state, row.as_str(), id)
         },
-        Command::Thread(row) => plan_create::thread(state, row.as_str(), id, Surface::Default),
-        Command::TerminalThread(row) => {
-            plan_create::thread(state, row.as_str(), id, Surface::Terminal)
-        },
+        Command::Thread(row) => plan_create::thread(state, row.as_str(), id),
         other => Err(not_data(other)),
     }
 }
@@ -85,8 +81,7 @@ fn creation(
         Command::NewThread(_)
         | Command::NewChat(_)
         | Command::NewTerminalThread(_)
-        | Command::Thread(_)
-        | Command::TerminalThread(_) => thread((state, command), id),
+        | Command::Thread(_) => thread((state, command), id),
         Command::Fork { parent, name } => plan_create::fork(state, (parent.as_str(), name), id),
         Command::MakeBranch { row, name } => plan_create::make_branch(state, (row.as_str(), name)),
         Command::CreateFolder(row) => {
@@ -294,11 +289,6 @@ mod tests {
                 body["branch"].as_str()
             ),
             (Some("bo"), Some(true), Some("topic"))
-        );
-        let terminal = plan_of(&Command::TerminalThread(RowId::from("bo"))).unwrap();
-        assert_eq!(
-            terminal.calls[0].body.as_ref().unwrap()["surface"],
-            "terminal"
         );
         let folder = plan_of(&Command::CreateFolder(Some(RowId::from("f")))).unwrap();
         assert_eq!(folder.calls[0].path, "/v0/projects/p/repos/r/chats/folders");

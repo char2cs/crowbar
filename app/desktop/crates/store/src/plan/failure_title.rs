@@ -24,8 +24,7 @@ pub(crate) fn failure_title(
         Command::NewThread(_)
         | Command::NewChat(_)
         | Command::NewTerminalThread(_)
-        | Command::Thread(_)
-        | Command::TerminalThread(_) => "New thread failed".to_owned(),
+        | Command::Thread(_) => "New thread failed".to_owned(),
         Command::Dismiss(_) => "Dismiss".to_owned(),
         Command::MoveTo { .. } | Command::Drop { .. } => "Move".to_owned(),
         Command::CancelMove(_) => "Cancel move".to_owned(),

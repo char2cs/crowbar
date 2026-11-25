@@ -46,12 +46,11 @@ pub(crate) fn thread(
     state: &State,
     row: &str,
     id: &str,
-    surface: Surface,
 ) -> Result<Plan, PlanError> {
     let target = resolve(state, row).ok_or(PlanError::RowNotLoaded)?;
     let workspace = workspace_for(state, &target)?;
     let parent = parent_chat(&target)?;
-    let body = chat_body(id, (&workspace, &parent), surface);
+    let body = chat_body(id, (&workspace, &parent), Surface::Default);
     let path = daemonapi::Route::chats(&target.project, &target.repo);
     let host = host_id(state, &target)?;
     let pending = pending(id, NEW_THREAD, (&target.repo, &parent));
@@ -219,7 +218,7 @@ mod tests {
 
     fn a_thread_under_a_chat_runs_in_its_workspace_and_a_home_thread_in_the_home() {
         let (state, _) = state();
-        let plan = thread(&state, "t", "n", Surface::Default).unwrap();
+        let plan = thread(&state, "t", "n").unwrap();
         let body = plan.calls[0].body.clone().unwrap();
         assert_eq!(
             (body["workspaceId"].as_str(), body["parentId"].as_str()),

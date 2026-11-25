@@ -28,7 +28,7 @@ types only, so the path arithmetic and the drag rules are methods of `PathText`,
   `MergeWork`, `AfterMerge`, `MergeFacts`, and `PathText` (a workspace-relative
   path: `join`, `parent`, `base`, `absolute`).
 - Behaviour the views drive: `Tree`, `Editing`, `VisibleRow`, `FilesState`, `MenuContext`,
-  `TerminalThreads`, `Removals`, `RemovalTray`, `Hold`, `Deadline`, `RemovalKind`,
+  `Removals`, `RemovalTray`, `Hold`, `Deadline`, `RemovalKind`,
   `RemovalTarget`, `Confirmation`, `WorkAtRisk`, `DropModes`, `FolderTarget`, `FileAction`,
   `FileClipboard`, `FileDialog`, `FileProperties`, `FileKey`, `ShellAnswers`, `MenuScope`,
   `Panel`, `DockSide`, `Visibility`, `Presentation`, `PeekZone`, `Mode`, `ResizeDrag`,
