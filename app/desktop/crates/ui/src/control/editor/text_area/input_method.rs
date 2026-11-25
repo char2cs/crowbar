@@ -48,11 +48,15 @@ impl EntityInputHandler for TextArea {
             .map(|range| self.buffer.range_to_utf16(&range))
     }
 
+    // PLATFORM: linux a press unmarks, and GTK's input method drops the preedit; macOS commits it.
     fn unmark_text(
         &mut self,
-        _: &mut Window,
-        _: &mut Context<'_, Self>,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
     ) {
+        if cfg!(target_os = "linux") && self.buffer.marked().is_some() {
+            self.replace_text_in_range(None, "", window, cx);
+        }
         self.buffer.unmark();
     }
 
@@ -167,5 +171,17 @@ mod tests {
             first.zip(last).map(|(a, b)| f32::from(b.top() - a.top()))
         });
         assert_eq!(heights, Some(20.0));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[gpui::test]
+    fn a_press_drops_the_composition_and_keeps_the_typed_text(cx: &mut TestAppContext) {
+        let (area, cx) = area(cx);
+        cx.simulate_input("ab");
+        area.update_in(cx, |area, window, cx| {
+            area.replace_and_mark_text_in_range(None, "ni", None, window, cx);
+            area.unmark_text(window, cx);
+        });
+        assert_eq!(area_text(&area, cx), "ab");
     }
 }
