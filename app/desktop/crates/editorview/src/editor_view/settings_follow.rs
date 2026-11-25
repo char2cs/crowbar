@@ -1,9 +1,10 @@
-use gpui::{Context, Window};
+use gpui::{App, Context, Styled as _, Window, px};
 use gpui_kit::base::input::TabSize;
-use gpui_kit::component::input::EditorState;
+use gpui_kit::component::Sizable as _;
+use gpui_kit::component::input::{Editor, EditorState};
 
 use super::EditorView;
-use crate::Settings;
+use crate::{Access, Settings};
 
 impl EditorView {
     pub(super) fn follow_settings(
@@ -15,6 +16,21 @@ impl EditorView {
         self.state
             .update(cx, |state, cx| apply(state, &settings, (window, cx)));
         cx.notify();
+    }
+
+    pub(super) fn editor(
+        &self,
+        cx: &App,
+    ) -> Editor {
+        let settings = Settings::of(cx);
+        Editor::new(&self.state)
+            .appearance(false)
+            .xsmall()
+            .readonly(self.access == Access::ReadOnly)
+            .size_full()
+            .font_family(ui::Theme::of(cx).mono_family())
+            .text_size(px(settings.font_size))
+            .line_height(settings.row_height())
     }
 }
 

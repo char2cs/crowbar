@@ -75,3 +75,56 @@ fn whole(window: &Window) -> Bounds<Pixels> {
 fn window_origin() -> Point<Pixels> {
     point(px(0.0), px(0.0))
 }
+
+#[cfg(test)]
+mod tests {
+    use gpui::{InteractiveElement, TestAppContext};
+
+    use super::*;
+    use crate::test_support::probe::open;
+
+    const OFFSET: f32 = 24.0;
+
+    fn layer(reach: Reach) -> Layer {
+        let build: Build = Rc::new(|_, _, _| {
+            div()
+                .w(px(30.0))
+                .h(px(10.0))
+                .debug_selector(|| "floated".into())
+                .into_any_element()
+        });
+        Layer {
+            reach,
+            priority: 0,
+            build,
+        }
+    }
+
+    fn slotted(
+        reach: Reach,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> gpui::Div {
+        let slot = div()
+            .relative()
+            .w(px(40.0))
+            .h(px(20.0))
+            .child(layer(reach).inline(window, cx));
+        div().pl(px(OFFSET)).pt(px(OFFSET)).child(slot)
+    }
+
+    #[gpui::test]
+    fn each_reach_paints_the_layer_where_it_says(cx: &mut TestAppContext) {
+        let cases = [
+            ("here, at its slot", Reach::Here, OFFSET),
+            ("lifted, at its slot", Reach::Lifted, OFFSET),
+            ("window, from the window origin", Reach::Window, 0.0),
+            ("cover, from the window origin", Reach::Cover, 0.0),
+        ];
+        for (case, reach, expected) in cases {
+            let window = open(cx, move |window, cx| slotted(reach, window, cx));
+            let painted = window.debug_bounds("floated").unwrap_or_default();
+            assert_eq!(painted.origin, point(px(expected), px(expected)), "{case}");
+        }
+    }
+}

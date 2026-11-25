@@ -234,7 +234,11 @@ fn name_column(
         .flex_col()
         .flex_1()
         .min_w_0()
-        .child(spaced_name_cell(current, (family, tracking::TIGHT), palette))
+        .child(spaced_name_cell(
+            current,
+            (family, tracking::TIGHT),
+            palette,
+        ))
         .children(line)
 }
 

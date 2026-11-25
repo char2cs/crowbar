@@ -35,3 +35,40 @@ fn tinted(accent: Hsla) -> gpui::Div {
             inset: false,
         }])
 }
+
+#[cfg(test)]
+mod tests {
+    use gpui::{Bounds, Context, IntoElement, Render, TestAppContext, Window, point, red, size};
+
+    use super::*;
+
+    const RECT: Rect = Rect {
+        x: 10.0,
+        y: 20.0,
+        width: 60.0,
+        height: 30.0,
+    };
+
+    struct Shown;
+
+    impl Render for Shown {
+        fn render(
+            &mut self,
+            _: &mut Window,
+            _: &mut Context<'_, Self>,
+        ) -> impl IntoElement {
+            div()
+                .relative()
+                .size_full()
+                .child(drop_preview(RECT, red()))
+        }
+    }
+
+    #[gpui::test]
+    fn the_preview_tints_exactly_the_rectangle_it_is_given(cx: &mut TestAppContext) {
+        let (_, window) = cx.add_window_view(|_, _| Shown);
+        window.run_until_parked();
+        let expected = Bounds::new(point(px(10.0), px(20.0)), size(px(60.0), px(30.0)));
+        assert_eq!(window.debug_bounds("drop-preview"), Some(expected));
+    }
+}

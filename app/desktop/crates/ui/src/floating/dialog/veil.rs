@@ -25,3 +25,21 @@ fn covering(viewport: Size<Pixels>) -> Div {
         .w(viewport.width)
         .h(viewport.height)
 }
+
+#[cfg(test)]
+mod tests {
+    use gpui::{InteractiveElement, TestAppContext, px, size};
+
+    use super::*;
+    use crate::test_support::probe::open;
+
+    #[gpui::test]
+    fn the_veil_covers_the_viewport_it_is_given(cx: &mut TestAppContext) {
+        let viewport = size(px(120.0), px(80.0));
+        let window = open(cx, move |_, _| {
+            layer(viewport).debug_selector(|| "veil".into())
+        });
+        let veil = window.debug_bounds("veil").unwrap_or_default();
+        assert_eq!(veil.size, viewport);
+    }
+}

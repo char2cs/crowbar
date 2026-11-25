@@ -1,11 +1,10 @@
 use gpui::{
     App, AppContext as _, Context, Entity, EventEmitter, FocusHandle, Focusable,
     InteractiveElement as _, IntoElement, ParentElement as _, Render, Styled as _, Subscription,
-    Window, div, px,
+    Window, div,
 };
 use gpui_kit::base::input::{InputEditsEvent, Rope};
-use gpui_kit::component::Sizable as _;
-use gpui_kit::component::input::{Editor, EditorState};
+use gpui_kit::component::input::EditorState;
 
 use crate::document::Document;
 use crate::find_widget::FindWidget;
@@ -239,23 +238,6 @@ impl Render for EditorView {
     }
 }
 
-impl EditorView {
-    fn editor(
-        &self,
-        cx: &App,
-    ) -> Editor {
-        let settings = Settings::of(cx);
-        Editor::new(&self.state)
-            .appearance(false)
-            .xsmall()
-            .readonly(self.access == Access::ReadOnly)
-            .size_full()
-            .font_family(ui::Theme::of(cx).mono_family())
-            .text_size(px(settings.font_size))
-            .line_height(settings.row_height())
-    }
-}
-
 fn editor_state(
     language: editor::Language,
     text: String,
@@ -272,7 +254,7 @@ fn editor_state(
 
 #[cfg(test)]
 mod tests {
-    use gpui::TestAppContext;
+    use gpui::{TestAppContext, px};
 
     use super::test_support::{
         document_of, document_opening, listened, opened, opened_at, press, shown,
