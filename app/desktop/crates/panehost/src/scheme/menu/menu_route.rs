@@ -5,10 +5,10 @@
 use protocol::PaneId;
 use webview::{ProtocolRequest, ProtocolResponder, ProtocolResponse};
 
-use crate::scheme::menu_ask::MenuAsk;
-use crate::scheme::menu_body::MenuBody;
-use crate::scheme::page_entry::PageEntry;
-use crate::scheme::pane_menus::PaneMenus;
+use crate::scheme::menu::menu_ask::MenuAsk;
+use crate::scheme::menu::menu_body::MenuBody;
+use crate::scheme::menu::page_entry::PageEntry;
+use crate::scheme::menu::pane_menus::PaneMenus;
 use crate::scheme::route::Route;
 use crate::scheme::status;
 

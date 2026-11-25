@@ -1,6 +1,6 @@
 use webview::{ProtocolRequest, ProtocolResponse};
 
-use crate::scheme::page_caller::PageCaller;
+use crate::scheme::access::page_caller::PageCaller;
 
 const NO_CONTENT: u16 = 204;
 const PREFLIGHT_METHOD: &str = "OPTIONS";

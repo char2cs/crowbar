@@ -1,6 +1,6 @@
 //! The queue of native menus pages ask the shell for.
 
-use crate::scheme::menu_ask::MenuAsk;
+use crate::scheme::menu::menu_ask::MenuAsk;
 
 /// Carries each [`MenuAsk`] from the scheme, which hears the page, to the shell, which pops the
 /// menu over the pane. Clones share one queue: the [`PaneProtocol`](crate::PaneProtocol) sends,

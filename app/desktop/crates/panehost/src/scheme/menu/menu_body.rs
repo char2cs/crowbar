@@ -2,7 +2,7 @@
 
 use serde::Deserialize;
 
-use crate::scheme::page_entry::PageEntry;
+use crate::scheme::menu::page_entry::PageEntry;
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct MenuBody {

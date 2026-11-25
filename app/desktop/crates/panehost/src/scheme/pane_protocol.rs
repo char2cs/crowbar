@@ -9,15 +9,15 @@ use webview::{ProtocolHandler, ProtocolRequest, ProtocolResponder, ProtocolRespo
 use crate::scheme::status;
 
 use crate::catalog::PaneBundles;
-use crate::scheme::assignment::Assignment;
-use crate::scheme::authorized::Authorized;
-use crate::scheme::cross_host;
-use crate::scheme::menu_route;
+use crate::scheme::access::authorized::Authorized;
+use crate::scheme::access::cross_host;
+use crate::scheme::access::page_caller::PageCaller;
+use crate::scheme::access::policy::allows;
+use crate::scheme::menu::menu_route;
+use crate::scheme::menu::pane_menus::PaneMenus;
 use crate::scheme::origin_table::OriginTable;
-use crate::scheme::page_caller::PageCaller;
-use crate::scheme::pane_menus::PaneMenus;
+use crate::scheme::origin_table::assignment::Assignment;
 use crate::scheme::pane_tables::PaneTables;
-use crate::scheme::policy::allows;
 use crate::scheme::route::{Route, parse};
 
 const CONTENT_TYPE: &str = "content-type";
