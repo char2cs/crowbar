@@ -3,6 +3,7 @@
 mod browsing_data;
 mod caret_blink;
 mod desktop_settings;
+mod file_choosing;
 mod host_config;
 #[cfg(feature = "mock")]
 mod mock;
@@ -17,6 +18,7 @@ mod view_lifecycle;
 pub use browsing_data::BrowsingData;
 pub use caret_blink::{CaretBlink, CaretReport};
 pub use desktop_settings::DesktopSettings;
+pub use file_choosing::{ChosenFiles, FileChoosing};
 pub use host_config::HostConfig;
 #[cfg(feature = "mock")]
 pub use mock::{Call, MockPlatform};

@@ -24,7 +24,7 @@ fn ask(
     request: &FileChooserRequest,
     top: u32,
 ) {
-    let dialog = chooser(top);
+    let dialog = chooser(top, gtk::FileChooserAction::Open);
     dialog.set_title(title(request));
     dialog.set_select_multiple(request.selects_multiple());
     if let Some(filter) = request.mime_types_filter() {
@@ -42,17 +42,15 @@ fn title(request: &FileChooserRequest) -> &'static str {
     OPEN_ONE
 }
 
-pub(super) fn chooser(top: u32) -> gtk::FileChooserDialog {
+pub(crate) fn chooser(
+    top: u32,
+    action: gtk::FileChooserAction,
+) -> gtk::FileChooserDialog {
     let buttons = [
         (CANCEL, gtk::ResponseType::Cancel),
         (OPEN, gtk::ResponseType::Accept),
     ];
-    let dialog = gtk::FileChooserDialog::with_buttons(
-        None,
-        None::<&gtk::Window>,
-        gtk::FileChooserAction::Open,
-        &buttons,
-    );
+    let dialog = gtk::FileChooserDialog::with_buttons(None, None::<&gtk::Window>, action, &buttons);
     dialog.set_modal(true);
     dialog.realize();
     keep_over(&dialog, top);

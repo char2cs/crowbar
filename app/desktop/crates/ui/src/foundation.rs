@@ -5,6 +5,7 @@ pub(crate) mod caret_blink;
 mod close_handler;
 mod control_scale;
 mod direction;
+mod file_chooser;
 mod icon;
 mod index_handler;
 pub(crate) mod motion;
@@ -18,6 +19,7 @@ pub use caret_blink::CaretBlink;
 pub(crate) use close_handler::CloseHandler;
 pub(crate) use control_scale::ControlScale;
 pub(crate) use direction::Direction;
+pub use file_chooser::{ChoiceKind, ChooseFiles, FileChoice, FileChooser, FileFilter};
 pub use icon::{
     Icon, IconName, IconWeight, MaterialIcon, MaterialTable, ProviderGlyph, Wordmark, assets,
 };

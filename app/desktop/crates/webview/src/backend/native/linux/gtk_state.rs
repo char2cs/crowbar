@@ -37,6 +37,9 @@ use crate::view::Kind;
 use crate::view::ParentWindow;
 use crate::view::{PageEvent, PageHandler};
 
+#[cfg(target_os = "linux")]
+pub(crate) use file_chooser::chooser;
+
 const BROWSER_DIR: &str = "browser";
 const NO_PAGE_WINDOW: &str = "the web view got no X11 window of its own";
 
@@ -472,7 +475,7 @@ mod tests {
         let shell = gtk::Window::new(gtk::WindowType::Toplevel);
         shell.show_all();
         let top = xid(&shell.window().unwrap());
-        let dialog = file_chooser::chooser(top);
+        let dialog = chooser(top, gtk::FileChooserAction::Open);
         gtk::gdk::Display::default().unwrap().sync();
         let over = transient_for(xid(&dialog.window().unwrap()));
         assert_eq!(over, Some(top), "transient for the shell window");

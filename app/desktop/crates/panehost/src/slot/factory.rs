@@ -50,6 +50,10 @@ impl Factory {
         self.webviews.clear_browsing_data()
     }
 
+    pub(crate) fn file_chooser(&self) -> webview::FileChooser {
+        self.webviews.file_chooser()
+    }
+
     pub(crate) fn settle(&self) -> webview::Result<()> {
         self.webviews.settle()
     }

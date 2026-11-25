@@ -1,5 +1,6 @@
 mod browser;
 mod context;
+mod file_choosing;
 mod lifecycle;
 mod reconcile;
 mod refusals;

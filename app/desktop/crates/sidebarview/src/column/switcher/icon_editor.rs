@@ -10,18 +10,29 @@ use gpui::TaskExt as _;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     App, AppContext as _, Context, Div, InteractiveElement as _, IntoElement, ParentElement,
-    PathPromptOptions, Render, Styled, Subscription, Window, div, px,
+    Render, Styled, Subscription, Window, div, px,
 };
 use sidebar::{Mark, SpaceIcon};
 use ui::{
-    Button, ButtonSize, ButtonVariant, IconName, Surface, TextInput, TextInputEvent,
-    TextInputStyle, Theme,
+    Button, ButtonSize, ButtonVariant, ChoiceKind, FileChoice, FileChooser, FileFilter, IconName,
+    Surface, TextInput, TextInputEvent, TextInputStyle, Theme,
 };
 
 use crate::column::switcher::icon_label::section_label;
 use crate::sidebar::scale::{SPACE_LG, SPACE_SM};
 
 const WIDTH: f32 = 222.0;
+
+// SPEC: docs/triage/2026-11-18-side-by-side-audit/16-dlg.md DLG-047: rfd's GTK chooser with develop's Images filter.
+const ICON_IMAGE: FileChoice = FileChoice {
+    title: "Open File",
+    kind: ChoiceKind::File,
+    filter: Some(FileFilter {
+        name: Some("Images"),
+        extensions: &["png", "jpg", "jpeg", "webp"],
+        mime_types: &[],
+    }),
+};
 
 pub(crate) type Pick = Rc<dyn Fn(SpaceIcon, &mut App)>;
 pub(crate) type Act = Rc<dyn Fn(&mut App)>;
@@ -74,17 +85,13 @@ impl IconEditor {
         cx.notify();
     }
 
-    fn upload(cx: &mut Context<'_, Self>) {
-        let options = PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: false,
-            prompt: None,
-        };
-        let picked = cx.prompt_for_paths(options);
+    fn upload(
+        window: &Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let picked = FileChooser::choose(ICON_IMAGE, window, cx);
         cx.spawn(async move |this, cx| {
-            let paths = picked.await.ok().and_then(Result::ok).flatten();
-            let icon = paths.and_then(|paths| first_image(&paths));
+            let icon = first_image(&picked.await);
             this.update(cx, |this, cx| this.chosen(icon, cx))
         })
         .detach_and_log_err(cx);
@@ -153,7 +160,7 @@ impl IconEditor {
             .variant(ButtonVariant::Muted)
             .grow()
             .when(self.busy(cx), Button::disabled)
-            .on_click(cx.listener(|_, _, _, cx| Self::upload(cx)));
+            .on_click(cx.listener(|_, _, window, cx| Self::upload(window, cx)));
         let emoji = Button::new("icon-emoji", "Emoji")
             .icon(IconName::Smiley)
             .size(ButtonSize::Xs)
@@ -322,5 +329,36 @@ mod tests {
             editor.read_with(cx, |this, _| this.typing),
             "the last flex-1 button, Emoji, reaches the row's end"
         );
+    }
+
+    #[gpui::test]
+    fn upload_asks_develop_s_image_chooser_and_takes_the_picked_image(cx: &mut TestAppContext) {
+        let asked = crate::test_support::answer_choices_with(cx, "/w/mark.png");
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let sink = Rc::clone(&seen);
+        let pick: Pick = Rc::new(move |icon, _| sink.borrow_mut().push(icon));
+        cx.update(|cx| ui::init(cx).expect("ui installs"));
+        let (_, cx) = cx.add_window_view(|_, cx| IconEditor::new((pick, Rc::new(|_| false)), cx));
+        cx.run_until_parked();
+        let row = cx.debug_bounds("icon-actions").unwrap_or_default();
+        let upload = gpui::point(row.left() + px(4.0), row.center().y);
+        cx.simulate_click(upload, gpui::Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(*asked.borrow(), [ICON_IMAGE]);
+        assert_eq!(*seen.borrow(), [SpaceIcon::Image("/w/mark.png".into())]);
+    }
+
+    #[gpui::test]
+    fn upload_asks_no_chooser_while_the_icon_is_busy(cx: &mut TestAppContext) {
+        let asked = crate::test_support::answer_choices_with(cx, "/w/mark.png");
+        let pick: Pick = Rc::new(|_, _| {});
+        cx.update(|cx| ui::init(cx).expect("ui installs"));
+        let (_, cx) = cx.add_window_view(|_, cx| IconEditor::new((pick, Rc::new(|_| true)), cx));
+        cx.run_until_parked();
+        let row = cx.debug_bounds("icon-actions").unwrap_or_default();
+        let upload = gpui::point(row.left() + px(4.0), row.center().y);
+        cx.simulate_click(upload, gpui::Modifiers::none());
+        cx.run_until_parked();
+        assert!(asked.borrow().is_empty(), "a disabled Upload opens nothing");
     }
 }

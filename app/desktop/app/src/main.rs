@@ -41,6 +41,8 @@ mod editor_preferences;
 mod error;
 mod event_commands;
 mod family_names;
+#[cfg(target_os = "linux")]
+mod file_chooser;
 mod file_prompt;
 mod file_reply;
 mod file_target;
@@ -202,6 +204,8 @@ fn start(
     editorview::init(cx);
     cx.bind_keys(settingsview::bindings());
     window_vibrancy::install(window_vibrancy::of_platform(), cx);
+    #[cfg(target_os = "linux")]
+    file_chooser::install(parts.state.host().file_chooser(), cx);
     app_menu::install(cx);
     last_window::quit_with_last_window(cx, |cx| cx.quit());
     let memory = WindowMemory::new(&options.state_dir().join("window.json"));

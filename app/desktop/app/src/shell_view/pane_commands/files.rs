@@ -1,12 +1,26 @@
 use std::path::PathBuf;
 
-use gpui::{ClipboardItem, Context, PathPromptOptions, Window};
+use gpui::{ClipboardItem, Context, Window};
 use ideshell::PathAction;
 
 use super::ShellView;
 use crate::pane_spec::PaneSpec;
 
 const A_FILE: &str = "a file";
+
+// SPEC: docs/triage/2026-11-18-side-by-side-audit/16-dlg.md DLG-046: rfd's GTK chooser, several files.
+const OPEN_FILES: ui::FileChoice = ui::FileChoice {
+    title: "Open File",
+    kind: ui::ChoiceKind::Files,
+    filter: None,
+};
+
+// SPEC: docs/triage/2026-11-18-side-by-side-audit/16-dlg.md DLG-048: rfd's GTK folder chooser.
+const REPO_FOLDER: ui::FileChoice = ui::FileChoice {
+    title: "Select Folder",
+    kind: ui::ChoiceKind::Folder,
+    filter: None,
+};
 
 impl ShellView {
     pub(in crate::shell_view) fn reveal_workspace_path(
@@ -107,23 +121,11 @@ impl ShellView {
         let Some(chat) = self.chat_for(A_FILE) else {
             return;
         };
-        let picked = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: false,
-            prompt: Some("Open".into()),
-        });
+        let picked = ui::FileChooser::choose(OPEN_FILES, window, cx);
         cx.spawn_in(window, async move |this, cx| {
-            let path = match picked.await {
-                Ok(Ok(Some(paths))) => first_path(&paths),
-                _ => None,
-            };
-            match path {
-                Some(path) => this
-                    .update(cx, |this, cx| this.open_host_file(&chat, &path, cx))
-                    .ok(),
-                None => None,
-            }
+            let paths = picked.await;
+            this.update(cx, |this, cx| this.open_host_files(&chat, &paths, cx))
+                .ok()
         })
         .detach();
     }
@@ -132,32 +134,23 @@ impl ShellView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        let picked = cx.prompt_for_paths(PathPromptOptions {
-            files: false,
-            directories: true,
-            multiple: false,
-            prompt: Some("Add".into()),
-        });
+        let picked = ui::FileChooser::choose(REPO_FOLDER, window, cx);
         cx.spawn_in(window, async move |this, cx| {
-            let path = match picked.await {
-                Ok(Ok(Some(paths))) => first_path(&paths),
-                _ => None,
-            };
-            match path {
-                Some(path) => this.update(cx, |this, _| this.add_repo(&path)).ok(),
-                None => None,
-            }
+            let path = first_path(&picked.await)?;
+            this.update(cx, |this, _| this.add_repo(&path)).ok()
         })
         .detach();
     }
 
-    fn open_host_file(
+    fn open_host_files(
         &mut self,
         chat: &str,
-        path: &str,
+        paths: &[PathBuf],
         cx: &mut Context<'_, Self>,
     ) {
-        self.open_spec(PaneSpec::host_file(chat, path), cx);
+        for path in paths {
+            self.open_spec(PaneSpec::host_file(chat, &path.to_string_lossy()), cx);
+        }
     }
 
     pub(in crate::shell_view) fn add_repo(
@@ -178,16 +171,47 @@ fn first_path(paths: &[PathBuf]) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use gpui::TestAppContext;
 
-    #[test]
-    fn the_first_picked_path_is_the_one_opened() {
-        let picked = [PathBuf::from("/a/one"), PathBuf::from("/a/two")];
-        assert_eq!(first_path(&picked).as_deref(), Some("/a/one"));
+    use super::*;
+    use crate::core_panes::EDITOR;
+    use crate::shell_view::test_support::panes_of;
+    use crate::shell_view::tests::open_shell;
+    use crate::test_support::answer_choices_with;
+
+    #[gpui::test]
+    fn open_file_asks_develop_s_chooser_and_opens_every_picked_file(cx: &mut TestAppContext) {
+        let asked = answer_choices_with(cx, &["/a/one.md", "/a/two.md"]);
+        let mut opened = open_shell(cx);
+        let shell = opened.shell.clone();
+        shell.update_in(&mut opened.window, ShellView::open_file_from_disk);
+        opened.window.run_until_parked();
+        assert_eq!(*asked.borrow(), [OPEN_FILES]);
+        let editors = shell.read_with(&opened.window, |shell, _| panes_of(shell, EDITOR).len());
+        assert_eq!(editors, 2, "one editor per picked file");
     }
 
+    #[gpui::test]
+    fn adding_a_repository_asks_develop_s_folder_chooser(cx: &mut TestAppContext) {
+        let asked = answer_choices_with(cx, &[]);
+        let mut opened = open_shell(cx);
+        let shell = opened.shell.clone();
+        shell.update_in(&mut opened.window, |_, window, cx| {
+            ShellView::import_repo(window, cx);
+        });
+        opened.window.run_until_parked();
+        assert_eq!(*asked.borrow(), [REPO_FOLDER]);
+    }
+
+    type FirstPath = (&'static [&'static str], Option<&'static str>);
+
+    const FIRST_PATHS: [FirstPath; 2] = [(&["/a/one", "/a/two"], Some("/a/one")), (&[], None)];
+
     #[test]
-    fn an_empty_pick_opens_nothing() {
-        assert_eq!(first_path(&[]), None);
+    fn the_first_picked_path_is_the_one_added_and_an_empty_pick_adds_nothing() {
+        for (picked, first) in FIRST_PATHS {
+            let picked: Vec<PathBuf> = picked.iter().map(PathBuf::from).collect();
+            assert_eq!(first_path(&picked).as_deref(), first, "{picked:?}");
+        }
     }
 }

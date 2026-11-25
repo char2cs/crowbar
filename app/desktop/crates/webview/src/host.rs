@@ -1,5 +1,7 @@
+mod file_chooser;
 mod handle;
 
+pub use file_chooser::FileChooser;
 pub use handle::Handle;
 
 use std::cell::Cell;
@@ -64,6 +66,12 @@ impl Host {
         report: crate::backend::CaretReport,
     ) -> Result<()> {
         self.platform.follow_caret(report)
+    }
+
+    /// The desktop's file chooser, opened on this host's platform thread.
+    #[must_use]
+    pub fn file_chooser(&self) -> FileChooser {
+        FileChooser::new(Rc::clone(&self.platform))
     }
 
     /// Returns once every view destroyed before it is gone from the platform.

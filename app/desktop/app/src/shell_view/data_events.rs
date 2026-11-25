@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use gpui::{AsyncApp, ClipboardItem, Context, PathPromptOptions, WeakEntity, Window};
+use gpui::{AsyncApp, ClipboardItem, Context, WeakEntity, Window};
 use std::sync::atomic::Ordering;
 use store::{Outcome as DataOutcome, SettingsAdapter};
 use ui::ToastKind;
@@ -14,13 +14,21 @@ use crate::notice_key::NoticeKey;
 use crate::notices::failure_notice;
 use crate::settings_modal::{open_settings, settings_config};
 
-type Picked<E, C> = Result<Result<Option<Vec<PathBuf>>, E>, C>;
+// SPEC: docs/triage/2026-11-18-side-by-side-audit/15-set.md SET-094: WebKit's chooser for the descriptor `<input accept=…>`.
+const DESCRIPTOR_CHOICE: ui::FileChoice = ui::FileChoice {
+    title: "Select File",
+    kind: ui::ChoiceKind::File,
+    filter: Some(ui::FileFilter {
+        name: None,
+        extensions: &["yaml", "yml"],
+        mime_types: &["application/yaml", "text/yaml"],
+    }),
+};
 
-fn first_read<E, C>(
-    picked: Picked<E, C>,
+fn first_read(
+    paths: &[PathBuf],
     files: &dyn ByteSource,
 ) -> Option<std::io::Result<Vec<u8>>> {
-    let paths = picked.ok()?.ok()??;
     paths.first().map(|path| files.read_bytes(path))
 }
 
@@ -78,7 +86,7 @@ impl ShellView {
         match outcome {
             DataOutcome::OpenChat(chat) => self.open_chat(chat_params(&chat), cx),
             DataOutcome::OpenDraft(draft) => self.open_chat(draft_params(&draft), cx),
-            DataOutcome::PickDescriptor => self.pick_descriptor(cx),
+            DataOutcome::PickDescriptor => self.pick_descriptor(window, cx),
             DataOutcome::PairHost => self.show_pairing(window, cx),
             DataOutcome::ClearBrowsingData => self.clear_browsing_data(cx),
             DataOutcome::CopyText(text) => cx.write_to_clipboard(ClipboardItem::new_string(text)),
@@ -129,17 +137,13 @@ impl ShellView {
 
     fn pick_descriptor(
         &self,
+        window: &Window,
         cx: &mut Context<'_, Self>,
     ) {
-        let picked = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: false,
-            prompt: Some("Install".into()),
-        });
+        let picked = ui::FileChooser::choose(DESCRIPTOR_CHOICE, window, cx);
         let files = Arc::clone(&self.ports.bytes);
         cx.spawn(async move |this, cx| {
-            let read = first_read(picked.await, files.as_ref());
+            let read = first_read(&picked.await, files.as_ref());
             deliver(&this, cx, read);
         })
         .detach();
@@ -237,21 +241,10 @@ mod tests {
     fn the_first_picked_file_is_read_and_a_cancelled_pick_reads_nothing() {
         let files = MemoryFiles::default();
         files.seed(Path::new(DESCRIPTOR), "name: a");
-        let read = first_read::<(), ()>(Ok(Ok(Some(chosen(vec![DESCRIPTOR])))), &files);
+        let read = first_read(&chosen(vec![DESCRIPTOR]), &files);
         assert_eq!(read.unwrap().unwrap(), b"name: a", "read");
-        assert!(
-            first_read::<(), ()>(Ok(Ok(None)), &files).is_none(),
-            "cancelled"
-        );
-        assert!(
-            first_read::<(), ()>(Ok(Ok(Some(chosen(Vec::new())))), &files).is_none(),
-            "empty"
-        );
-        assert!(
-            first_read::<(), ()>(Err(()), &files).is_none(),
-            "prompt dropped"
-        );
-        let missing = first_read::<(), ()>(Ok(Ok(Some(chosen(vec!["/picked/none.yaml"])))), &files);
+        assert!(first_read(&[], &files).is_none(), "cancelled");
+        let missing = first_read(&chosen(vec!["/picked/none.yaml"]), &files);
         assert!(missing.unwrap().is_err(), "unreadable");
     }
 }

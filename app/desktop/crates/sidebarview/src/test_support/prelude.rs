@@ -4,4 +4,4 @@ pub(crate) use gpui::{TestAppContext, point, px};
 
 pub(crate) use sidebar::{Command, DemoShell, Intent, Mode, ProjectId, RowId};
 
-pub(crate) use crate::test_support::open;
+pub(crate) use crate::test_support::{answer_choices_with, open};

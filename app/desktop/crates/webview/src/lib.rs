@@ -44,6 +44,7 @@
 //! ```
 
 mod backend;
+mod chooser;
 mod error;
 mod host;
 mod scheme;
@@ -52,11 +53,12 @@ mod test_support;
 mod view;
 
 pub use backend::{
-    BrowsingData, CaretBlink, CaretReport, DesktopSettings, HostConfig, PageControl, Platform,
-    ViewCapture, ViewFocus, ViewLayout, ViewLifecycle,
+    BrowsingData, CaretBlink, CaretReport, ChosenFiles, DesktopSettings, FileChoosing, HostConfig,
+    PageControl, Platform, ViewCapture, ViewFocus, ViewLayout, ViewLifecycle,
 };
+pub use chooser::{ChoiceKind, FileChoice, FileFilter};
 pub use error::{Error, Result};
-pub use host::{Handle, Host};
+pub use host::{FileChooser, Handle, Host};
 pub use scheme::{ProtocolHandler, ProtocolRequest, ProtocolResponder, ProtocolResponse};
 pub use view::{
     Bounds, Color, Config, Id, IpcHandler, Kind, PageEvent, PageHandler, ParentWindow, Snapshot,

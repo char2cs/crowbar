@@ -8,6 +8,8 @@ mod caret_settings;
 #[cfg(target_os = "linux")]
 mod create_reply;
 #[cfg(target_os = "linux")]
+mod file_choosing;
+#[cfg(target_os = "linux")]
 mod gtk_platform;
 #[cfg(target_os = "linux")]
 mod gtk_state;

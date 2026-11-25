@@ -1,5 +1,6 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use crate::backend::mock::call::Call;
 use crate::backend::platform::Platform;
@@ -14,6 +15,7 @@ pub struct MockPlatform {
     pub(crate) calls: RefCell<Vec<Call>>,
     pub(crate) live: RefCell<HashMap<Id, IpcHandler>>,
     pub(crate) fail_next_create: Cell<bool>,
+    pub(crate) chosen: RefCell<Vec<PathBuf>>,
 }
 
 impl std::fmt::Debug for MockPlatform {
@@ -45,6 +47,15 @@ impl MockPlatform {
     /// Makes the next `create` fail with [`Error::HostStopped`].
     pub fn fail_next_create(&self) {
         self.fail_next_create.set(true);
+    }
+
+    /// Makes every later file chooser answer `paths`, as if the user chose them; until then
+    /// each one is cancelled.
+    pub fn choose_paths(
+        &self,
+        paths: Vec<PathBuf>,
+    ) {
+        self.chosen.replace(paths);
     }
 
     /// Delivers `text` as if the page of `id` had posted it through ipc.

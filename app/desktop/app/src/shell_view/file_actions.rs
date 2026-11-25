@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use gpui::{Context, PathPromptOptions, Window};
+use gpui::{Context, Window};
 use sidebar::Command;
 use ui::ToastKind;
 
@@ -21,6 +21,13 @@ mod template_request;
 use self::answers::deliver;
 use self::handlers::Handlers;
 use self::template_request::TemplateRequest;
+
+// SPEC: docs/triage/2026-11-18-side-by-side-audit/16-dlg.md DLG-049: WebKit's chooser for an `<input type=file multiple>`.
+const UPLOADS: ui::FileChoice = ui::FileChoice {
+    title: "Select Files",
+    kind: ui::ChoiceKind::Files,
+    filter: None,
+};
 
 fn warn_unserved(command: &Command) {
     tracing::warn!(
@@ -133,16 +140,10 @@ impl ShellView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        let picked = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: true,
-            prompt: Some("Upload".into()),
-        });
+        let picked = ui::FileChooser::choose(UPLOADS, window, cx);
         let directory = directory.to_owned();
         cx.spawn_in(window, async move |this, cx| {
-            let paths = picked.await.ok().and_then(Result::ok).flatten();
-            let paths = paths.unwrap_or_default();
+            let paths = picked.await;
             let uploaded =
                 this.update_in(cx, |view, w, c| view.upload((&directory, paths), (w, c)));
             closed_view(&uploaded, "the upload picker's answer");
@@ -169,7 +170,23 @@ impl ShellView {
 
 #[cfg(test)]
 mod tests {
+    use gpui::TestAppContext;
+
     use super::*;
+    use crate::shell_view::tests::open_shell;
+    use crate::test_support::answer_choices_with;
+
+    #[gpui::test]
+    fn upload_file_asks_develop_s_multiple_file_chooser(cx: &mut TestAppContext) {
+        let asked = answer_choices_with(cx, &[]);
+        let mut opened = open_shell(cx);
+        let shell = opened.shell.clone();
+        shell.update_in(&mut opened.window, |_, window, cx| {
+            ShellView::pick_uploads("src", window, cx);
+        });
+        opened.window.run_until_parked();
+        assert_eq!(*asked.borrow(), [UPLOADS]);
+    }
 
     #[test]
     fn a_terminal_opens_in_the_given_folder_or_the_default_for_the_workspace_root() {

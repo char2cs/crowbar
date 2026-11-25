@@ -1,3 +1,4 @@
+use crate::chooser::FileChoice;
 use crate::view::Bounds;
 use crate::view::Color;
 use crate::view::Id;
@@ -81,6 +82,13 @@ pub enum Call {
     ClearBrowsingData,
     /// The desktop's caret blink was followed.
     FollowCaret,
+    /// The desktop's file chooser was opened.
+    ChooseFiles {
+        /// The window it was opened over.
+        parent: ParentWindow,
+        /// What it asked.
+        choice: FileChoice,
+    },
     /// A view was destroyed.
     Destroy {
         /// The view.

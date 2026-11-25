@@ -13,12 +13,12 @@ use gpui::TaskExt as _;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AnyElement, AppContext as _, Context, Div, InteractiveElement, IntoElement, ParentElement,
-    PathPromptOptions, StatefulInteractiveElement, Styled, Window, div, px,
+    StatefulInteractiveElement, Styled, Window, div, px,
 };
 use sidebar::{Command, HostKind, Mode, PathText, SpaceFacts, SpaceIcon};
 use ui::{
-    Button, ButtonVariant, IconName, Palette, Placement, Popover, Surface, TextInput,
-    TextInputEvent, Theme,
+    Button, ButtonVariant, ChoiceKind, FileChoice, FileChooser, IconName, Palette, Placement,
+    Popover, Surface, TextInput, TextInputEvent, Theme,
 };
 
 use crate::column::IconEditor;
@@ -32,6 +32,13 @@ const HEAD_GAP: f32 = 10.0;
 const PANEL_GAP: f32 = 20.0;
 const PANEL_TOP: f32 = 16.0;
 const CHOOSE_FOLDER: &str = "Choose…";
+
+// SPEC: docs/triage/2026-11-18-side-by-side-audit/16-dlg.md DLG-048: rfd's GTK folder chooser.
+const SPACE_FOLDER: FileChoice = FileChoice {
+    title: "Select Folder",
+    kind: ChoiceKind::Folder,
+    filter: None,
+};
 
 impl Sidebar {
     pub(crate) fn start_create_space(
@@ -122,6 +129,7 @@ impl Sidebar {
 
     fn choose_space_folder(
         &mut self,
+        window: &Window,
         cx: &mut Context<'_, Self>,
     ) {
         let hosts = self.data.hosts();
@@ -132,16 +140,9 @@ impl Sidebar {
             self.send_checked(Command::ChooseSpaceFolder(host.id.clone()), cx);
             return;
         }
-        let options = PathPromptOptions {
-            files: false,
-            directories: true,
-            multiple: false,
-            prompt: None,
-        };
-        let picked = cx.prompt_for_paths(options);
+        let picked = FileChooser::choose(SPACE_FOLDER, window, cx);
         cx.spawn(async move |this, cx| {
-            let paths = picked.await.ok().and_then(Result::ok).flatten();
-            let folder = paths.and_then(|paths| paths.into_iter().next());
+            let folder = picked.await.into_iter().next();
             this.update(cx, |this, cx| this.folder_picked(folder, cx))
         })
         .detach_and_log_err(cx);
@@ -225,7 +226,7 @@ fn folder_row(
         .id("space-folder")
         .cursor_pointer()
         .hover(move |style| style.bg(hover))
-        .on_click(cx.listener(|this, _, _, cx| this.choose_space_folder(cx)))
+        .on_click(cx.listener(|this, _, window, cx| this.choose_space_folder(window, cx)))
         .child(
             div()
                 .min_w_0()
@@ -342,15 +343,27 @@ mod tests {
     ) {
         let (recorder, sidebar, cx) = open(cx, DemoShell::rich());
         assert!(start(&sidebar, cx));
-        let remote = sidebar.update(cx, |this, cx| {
+        let remote = sidebar.update_in(cx, |this, window, cx| {
             let remote = this.data.hosts()[1].id.clone();
             this.select_space_host(1, cx);
-            this.choose_space_folder(cx);
+            this.choose_space_folder(window, cx);
             remote
         });
         assert_eq!(recorder.sent(), vec![Command::ChooseSpaceFolder(remote)]);
         sidebar.update(cx, |this, cx| this.set_space_folder("/srv/app".into(), cx));
         let folder = sidebar.read_with(cx, |this, _| this.space.as_ref().map(|d| d.folder.clone()));
         assert_eq!(folder.as_deref(), Some("/srv/app"));
+    }
+
+    #[gpui::test]
+    fn this_computer_s_folder_is_chosen_in_develop_s_folder_chooser(cx: &mut TestAppContext) {
+        let asked = answer_choices_with(cx, "/w/app");
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
+        assert!(start(&sidebar, cx));
+        sidebar.update_in(cx, |this, window, cx| this.choose_space_folder(window, cx));
+        cx.run_until_parked();
+        assert_eq!(*asked.borrow(), [SPACE_FOLDER]);
+        let folder = sidebar.read_with(cx, |this, _| this.space.as_ref().map(|d| d.folder.clone()));
+        assert_eq!(folder.as_deref(), Some("/w/app"));
     }
 }

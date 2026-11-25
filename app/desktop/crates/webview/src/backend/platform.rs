@@ -1,5 +1,6 @@
 use crate::backend::browsing_data::BrowsingData;
 use crate::backend::desktop_settings::DesktopSettings;
+use crate::backend::file_choosing::FileChoosing;
 use crate::backend::page_control::PageControl;
 use crate::backend::view_capture::ViewCapture;
 use crate::backend::view_focus::ViewFocus;
@@ -12,7 +13,14 @@ use crate::backend::view_lifecycle::ViewLifecycle;
 ///
 /// Backends live on the thread that created them (the GPUI main thread), hence no `Send`.
 pub trait Platform:
-    ViewLifecycle + ViewLayout + PageControl + ViewFocus + ViewCapture + BrowsingData + DesktopSettings
+    ViewLifecycle
+    + ViewLayout
+    + PageControl
+    + ViewFocus
+    + ViewCapture
+    + BrowsingData
+    + DesktopSettings
+    + FileChoosing
 {
 }
 
