@@ -57,8 +57,8 @@ mod view;
 pub use alert::{AlertButton, AlertRequest, AlertRole};
 pub use backend::{
     AlertAsking, BrowsingData, CaretBlink, CaretReport, ChosenButton, ChosenEntry, ChosenFiles,
-    DesktopSettings, FileChoosing, HostConfig, MenuPopping, PageControl, Platform, ViewCapture,
-    ViewFocus, ViewLayout, ViewLifecycle,
+    ColorScheme, DesktopSettings, FileChoosing, HostConfig, MenuPopping, PageControl, Platform,
+    ViewCapture, ViewFocus, ViewLayout, ViewLifecycle,
 };
 pub use chooser::{ChoiceKind, FileChoice, FileFilter};
 pub use error::{Error, Result};

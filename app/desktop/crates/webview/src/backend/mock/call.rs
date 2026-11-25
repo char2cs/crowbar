@@ -84,6 +84,11 @@ pub enum Call {
     ClearBrowsingData,
     /// The desktop's caret blink was followed.
     FollowCaret,
+    /// The desktop's own widgets were asked to draw in another colour scheme.
+    DrawWidgetsIn {
+        /// The scheme they draw in now.
+        scheme: crate::backend::desktop::color_scheme::ColorScheme,
+    },
     /// The desktop's file chooser was opened.
     ChooseFiles {
         /// The window it was opened over.

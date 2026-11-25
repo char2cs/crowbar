@@ -31,6 +31,10 @@ impl ShellState {
         if let Err(error) = self.host.set_background(surface) {
             emit(&ThemeEvent::Uncoloured { error: &error });
         }
+        let scheme = pane_theme::color_scheme(theme);
+        if let Err(error) = self.host.desktop().draw_widgets_in(scheme) {
+            emit(&ThemeEvent::Undrawn { error: &error });
+        }
     }
 
     pub(crate) fn set_window_width(

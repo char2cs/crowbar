@@ -1,4 +1,5 @@
 use crate::backend::desktop::caret_blink::CaretReport;
+use crate::backend::desktop::color_scheme::ColorScheme;
 use crate::backend::desktop::desktop_settings::DesktopSettings;
 use crate::backend::mock::call::Call;
 use crate::backend::mock::mock_platform::MockPlatform;
@@ -120,6 +121,14 @@ impl DesktopSettings for MockPlatform {
         _report: CaretReport,
     ) -> Result<()> {
         self.record(Call::FollowCaret);
+        Ok(())
+    }
+
+    fn draw_widgets_in(
+        &self,
+        scheme: ColorScheme,
+    ) -> Result<()> {
+        self.record(Call::DrawWidgetsIn { scheme });
         Ok(())
     }
 }

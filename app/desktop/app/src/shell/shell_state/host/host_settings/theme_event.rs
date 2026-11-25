@@ -8,6 +8,7 @@ pub(super) enum ThemeEvent<'a> {
     Undescribed { error: &'a protocol::Error },
     Unsent { error: &'a panehost::Error },
     Uncoloured { error: &'a panehost::Error },
+    Undrawn { error: &'a webview::Error },
 }
 
 impl fmt::Display for ThemeEvent<'_> {
@@ -23,6 +24,12 @@ impl fmt::Display for ThemeEvent<'_> {
             Self::Uncoloured { error } => {
                 write!(f, "colouring the pane web views failed error={error}")
             },
+            Self::Undrawn { error } => {
+                write!(
+                    f,
+                    "recolouring the desktop's menus and dialogs failed error={error}"
+                )
+            },
         }
     }
 }
@@ -37,6 +44,7 @@ impl journal::Event for ThemeEvent<'_> {
             Self::Undescribed { .. } => "theme_undescribed",
             Self::Unsent { .. } => "theme_unsent",
             Self::Uncoloured { .. } => "theme_views_uncoloured",
+            Self::Undrawn { .. } => "theme_widgets_undrawn",
         }
     }
 
@@ -70,6 +78,13 @@ mod tests {
                 ThemeEvent::Uncoloured { error: &frame },
                 "theme_views_uncoloured",
                 "colouring the pane web views failed error=invalid frame from pane: theme is empty",
+            ),
+            (
+                ThemeEvent::Undrawn {
+                    error: &webview::Error::HostStopped,
+                },
+                "theme_widgets_undrawn",
+                "recolouring the desktop's menus and dialogs failed error=platform thread has stopped",
             ),
         ];
         for (event, name, line) in cases {

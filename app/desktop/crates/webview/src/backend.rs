@@ -10,6 +10,7 @@ mod view;
 
 pub use desktop::alert_asking::{AlertAsking, ChosenButton};
 pub use desktop::caret_blink::{CaretBlink, CaretReport};
+pub use desktop::color_scheme::ColorScheme;
 pub use desktop::desktop_settings::DesktopSettings;
 pub use desktop::file_choosing::{ChosenFiles, FileChoosing};
 pub use desktop::menu_popping::{ChosenEntry, MenuPopping};

@@ -5,9 +5,9 @@ mod appkit_platform;
 #[cfg(target_os = "macos")]
 mod browsing_data;
 #[cfg(target_os = "macos")]
-mod caret_settings;
-#[cfg(target_os = "macos")]
 mod data_store;
+#[cfg(target_os = "macos")]
+mod desktop_settings;
 #[cfg(target_os = "macos")]
 mod file_choosing;
 #[cfg(target_os = "macos")]

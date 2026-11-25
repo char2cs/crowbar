@@ -1,4 +1,5 @@
-//! The caret blink of GTK's settings, which `WebKitGTK` pages blink at too.
+//! GTK's settings: the caret blink `WebKitGTK` pages blink at too, and the colour scheme GTK's
+//! menus, dialogs and choosers draw in.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -6,6 +7,7 @@ use std::time::Duration;
 use gtk::prelude::*;
 
 use crate::backend::desktop::caret_blink::{CaretBlink, CaretReport};
+use crate::backend::desktop::color_scheme::ColorScheme;
 use crate::backend::desktop::desktop_settings::DesktopSettings;
 use crate::backend::native::linux::gtk_platform::GtkPlatform;
 use crate::error::Result;
@@ -21,6 +23,24 @@ impl DesktopSettings for GtkPlatform {
     ) -> Result<()> {
         self.post(move |_| follow(&report))
     }
+
+    fn draw_widgets_in(
+        &self,
+        scheme: ColorScheme,
+    ) -> Result<()> {
+        self.post(move |_| prefer(scheme))
+    }
+}
+
+fn prefer(scheme: ColorScheme) {
+    let Some(settings) = gtk::Settings::default() else {
+        return;
+    };
+    let dark = scheme == ColorScheme::Dark;
+    if settings.is_gtk_application_prefer_dark_theme() == dark {
+        return;
+    }
+    settings.set_gtk_application_prefer_dark_theme(dark);
 }
 
 fn follow(report: &CaretReport) {
@@ -63,6 +83,20 @@ mod tests {
             stopped: None,
         };
         assert!(platform.follow_caret(Arc::new(|_| ())).is_ok(), "posted");
+        assert_eq!(inbox.len(), 1, "one job waits for the GTK thread");
+    }
+
+    #[test]
+    fn the_widgets_scheme_is_posted_to_the_gtk_thread() {
+        let (jobs, inbox) = async_channel::unbounded();
+        let platform = GtkPlatform {
+            jobs,
+            stopped: None,
+        };
+        assert!(
+            platform.draw_widgets_in(ColorScheme::Dark).is_ok(),
+            "posted"
+        );
         assert_eq!(inbox.len(), 1, "one job waits for the GTK thread");
     }
 }

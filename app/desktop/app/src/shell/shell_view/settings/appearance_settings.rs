@@ -209,4 +209,72 @@ mod tests {
             assert_eq!(shown_after(&mut opened, reported), shown, "{reported:?}");
         }
     }
+
+    fn placed(cx: &mut gpui::TestAppContext) -> crate::shell::shell_view::tests::Opened {
+        let mut opened = crate::shell::shell_view::tests::open_shell(cx);
+        opened.shell.update(&mut opened.window, |shell, cx| {
+            shell.placement = Some((
+                webview::ParentWindow::X11(9),
+                crate::shell::shell_view::tests::PLACED,
+            ));
+            shell.sync(cx);
+        });
+        opened
+    }
+
+    fn last_widget_scheme(
+        opened: &crate::shell::shell_view::tests::Opened
+    ) -> Option<webview::ColorScheme> {
+        opened
+            .mock
+            .calls()
+            .into_iter()
+            .filter_map(|call| match call {
+                webview::Call::DrawWidgetsIn { scheme } => Some(scheme),
+                _ => None,
+            })
+            .next_back()
+    }
+
+    #[gpui::test]
+    fn the_desktop_s_widgets_draw_in_the_shown_scheme_once_the_window_is_placed(
+        cx: &mut gpui::TestAppContext
+    ) {
+        let mut opened = placed(cx);
+        let shown = opened
+            .shell
+            .update(&mut opened.window, |_, cx| *Theme::of(cx));
+        assert_eq!(
+            last_widget_scheme(&opened),
+            Some(crate::panes::content::pane_theme::color_scheme(shown))
+        );
+    }
+
+    #[gpui::test]
+    fn the_desktop_s_widgets_follow_a_desktop_colour_scheme_change_in_system_mode(
+        cx: &mut gpui::TestAppContext
+    ) {
+        let mut opened = placed(cx);
+        let schemes = [
+            (gpui::WindowAppearance::Light, webview::ColorScheme::Light),
+            (gpui::WindowAppearance::Dark, webview::ColorScheme::Dark),
+        ];
+        for (reported, drawn) in schemes {
+            shown_after(&mut opened, reported);
+            assert_eq!(last_widget_scheme(&opened), Some(drawn), "{reported:?}");
+        }
+    }
+
+    #[gpui::test]
+    fn the_desktop_s_widgets_follow_the_theme_mode_the_user_picks(cx: &mut gpui::TestAppContext) {
+        let mut opened = placed(cx);
+        opened.shell.update(&mut opened.window, |shell, cx| {
+            Theme::of(cx).with_mode(ThemeMode::Light).install(cx);
+            shell.refresh(cx);
+        });
+        assert_eq!(
+            last_widget_scheme(&opened),
+            Some(webview::ColorScheme::Light)
+        );
+    }
 }

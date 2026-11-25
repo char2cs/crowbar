@@ -24,6 +24,13 @@ pub(crate) fn tokens_of(theme: Theme) -> protocol::Result<ThemeTokens> {
         .with(THEME_TYPE, type_name(theme.appearance()))
 }
 
+pub(crate) fn color_scheme(theme: Theme) -> webview::ColorScheme {
+    match theme.appearance() {
+        Appearance::Light => webview::ColorScheme::Light,
+        Appearance::Dark => webview::ColorScheme::Dark,
+    }
+}
+
 pub(crate) fn surface_color(theme: Theme) -> webview::Color {
     let rgba = gpui::Rgba::from(theme.palette(Surface::Window).pane_background());
     let [red, green, blue, alpha] = u32::from(rgba).to_be_bytes();

@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use crate::alert::AlertRequest;
-use crate::backend::{ChosenButton, ChosenEntry, ChosenFiles, Platform};
+use crate::backend::{ChosenButton, ChosenEntry, ChosenFiles, ColorScheme, Platform};
 use crate::chooser::FileChoice;
 use crate::error::Result;
 use crate::menu::MenuRequest;
@@ -66,6 +66,17 @@ impl Desktop {
     ) -> Result<()> {
         self.platform.ask_alert(parent, request, answer)
     }
+
+    /// Draws the chooser, menus and dialogs in `scheme` from now on.
+    ///
+    /// # Errors
+    /// An [`Error`](crate::Error) when the backend has stopped.
+    pub fn draw_widgets_in(
+        &self,
+        scheme: ColorScheme,
+    ) -> Result<()> {
+        self.platform.draw_widgets_in(scheme)
+    }
 }
 
 #[cfg(test)]
@@ -99,13 +110,14 @@ mod tests {
     }
 
     #[test]
-    fn a_host_s_chooser_menu_and_dialog_all_reach_its_platform() {
+    fn a_host_s_chooser_menu_dialog_and_their_scheme_all_reach_its_platform() {
         let mock = Rc::new(MockPlatform::default());
         let desktop = Host::with_platform(Rc::<MockPlatform>::clone(&mock)).desktop();
         let parent = ParentWindow::X11(4);
         desktop.choose(parent, CHOICE, Box::new(|_| ())).unwrap();
         desktop.popup(parent, MENU, Box::new(|_| ())).unwrap();
         desktop.ask(parent, alert(), Box::new(|_| ())).unwrap();
+        desktop.draw_widgets_in(ColorScheme::Dark).unwrap();
         let want = [
             Call::ChooseFiles {
                 parent,
@@ -118,6 +130,9 @@ mod tests {
             Call::AskAlert {
                 parent,
                 request: alert(),
+            },
+            Call::DrawWidgetsIn {
+                scheme: ColorScheme::Dark,
             },
         ];
         assert_eq!(mock.calls(), want);
