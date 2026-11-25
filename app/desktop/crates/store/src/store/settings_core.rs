@@ -41,6 +41,8 @@ pub(crate) const DESCRIPTORS: &str = "descriptors";
 const UPLOAD_DESCRIPTOR: &str = "agents.uploadDescriptor";
 const ADD_HOST: &str = "hosts.add";
 const CLEAR_BROWSING_DATA: &str = "browser.clearData";
+// PLATFORM: linux: browser tabs share the app's own storage, so only macOS clears browsing data.
+const CLEARS_BROWSING_DATA: bool = cfg!(target_os = "macos");
 
 pub(crate) struct SettingsCore {
     writer: SettingsWriter,
@@ -126,8 +128,10 @@ impl SettingsCore {
         for (key, value) in locked(&self.values).iter() {
             values.set(Key::new(key.as_str()), value.clone());
         }
-        Snapshot::new(values)
-            .with_capability(CLEAR_BROWSING_DATA)
+        let offered = CLEARS_BROWSING_DATA.then_some(CLEAR_BROWSING_DATA);
+        offered
+            .into_iter()
+            .fold(Snapshot::new(values), Snapshot::with_capability)
             .with_choices("themes", font_choices::themes())
             .with_choices("fonts", font_choices::fonts(&self.fonts))
             .with_choices("monoFonts", font_choices::monospace(&self.fonts))
@@ -236,6 +240,12 @@ mod tests {
         assert_eq!(
             *locked(&rig.told),
             [Outcome::PairHost, Outcome::ClearBrowsingData]
+        );
+        let snapshot = rig.core.snapshot();
+        let offered = snapshot.clone().with_capability(CLEAR_BROWSING_DATA) == snapshot;
+        assert_eq!(
+            offered, CLEARS_BROWSING_DATA,
+            "develop clears browsing data on macOS only"
         );
     }
 }
