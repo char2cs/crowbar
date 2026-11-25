@@ -1,8 +1,12 @@
+pub(crate) mod find_option;
+pub(crate) mod find_options;
+pub(crate) mod word;
+
 use std::ops::Range;
 
 use regex::{Regex, RegexBuilder};
 
-use crate::{Error, FindOption, FindOptions, word};
+use crate::{Error, FindOption, FindOptions};
 
 // SPEC: https://github.com/microsoft/vscode/blob/main/src/vs/editor/contrib/find/browser/findModel.ts (MATCHES_LIMIT)
 const MATCHES_LIMIT: usize = 19_999;

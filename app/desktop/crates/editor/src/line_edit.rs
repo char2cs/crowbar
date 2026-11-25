@@ -6,6 +6,7 @@ mod follow;
 mod line_block;
 mod line_table;
 mod rewrite;
+pub(crate) mod vertical;
 
 use follow::Follow;
 use line_block::LineBlock;

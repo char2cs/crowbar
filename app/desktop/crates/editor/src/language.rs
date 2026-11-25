@@ -1,4 +1,6 @@
+pub mod grammar;
 mod known;
+pub(crate) mod preview;
 mod tables;
 
 use tables::{

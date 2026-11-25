@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use crate::Draft;
 
 mod adapters;
+pub(crate) mod draft;
 mod draft_file;
 
 pub use adapters::disk_draft_file::DiskDraftFile;
