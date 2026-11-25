@@ -6,7 +6,7 @@ use gpui::{
     ParentElement, Render, Stateful, StyleRefinement, Styled, Window, div, px,
 };
 use sidebar::{DockSide, Visibility};
-use ui::{Backdrop, HoverFill, Motion, Portal, Surface, Theme};
+use ui::{HoverFill, Motion, Portal, Surface, Theme};
 
 use crate::sidebar::Sidebar;
 use crate::sidebar::geometry::Geometry;
@@ -170,12 +170,9 @@ impl Sidebar {
         let layer = div().absolute().size_full();
         if geometry.is_drawer() {
             let drawer = self.drawer(geometry, window, cx);
-            let backdrop = Backdrop::of("sidebar-backdrop", window, cx);
-            let still = backdrop.update(cx, |backdrop, _| backdrop.plain(window));
             return Some(
                 layer
                     .occlude()
-                    .children(still)
                     .child(Self::scrim(cx))
                     .child(drawer)
                     .into_any_element(),
@@ -309,28 +306,6 @@ mod tests {
             this.begin_resize(px(294.0), window, cx);
         });
         assert!(sidebar.read_with(cx, |this, _| this.resizing.is_some()));
-    }
-
-    #[gpui::test]
-    fn without_a_compositor_the_content_beside_a_drawer_shows_under_its_scrim(
-        cx: &mut TestAppContext
-    ) {
-        let mut floating = crate::test_support::open_floating(cx, DemoShell::reference());
-        floating
-            .window
-            .simulate_resize(gpui::size(px(600.0), px(800.0)));
-        floating.window.run_until_parked();
-        let whole = floating
-            .top
-            .update(|window, _| window.owner_bounds())
-            .unwrap_or_default();
-        let content = floating
-            .top
-            .update(|window, _| window.content_region().to_vec());
-        assert!(
-            content.contains(&whole),
-            "the whole window shows: {content:?}"
-        );
     }
 
     #[gpui::test]

@@ -79,7 +79,6 @@ fn paint_block(
         background_color: None,
         underline: None,
         strikethrough: None,
-        letter_spacing: Pixels::ZERO,
     };
     let width = look.shaping.cell_width * terminal::cells_f32(cell.columns);
     let line = window

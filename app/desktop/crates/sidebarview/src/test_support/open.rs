@@ -31,7 +31,8 @@ pub(crate) fn open(
     (recorder, sidebar, cx)
 }
 
-/// The sidebar, its window and the window's top layer, where its menus and dialogs float.
+/// The sidebar, its window and the window its menus and dialogs float in: the same window
+/// until floating elements get windows of their own.
 pub(crate) struct Floating {
     pub(crate) recorder: Rc<Recorder>,
     pub(crate) sidebar: Entity<Sidebar>,
@@ -59,16 +60,12 @@ pub(crate) fn open_floating(
     let owner: AnyWindowHandle = handle.into();
     let window = VisualTestContext::from_window(owner, cx);
     window.simulate_resize(size(px(1200.0), px(800.0)));
-    let top = cx
-        .update(|cx| owner.update(cx, |_, window, cx| ui::TopLayer::open(window, cx)))
-        .expect("the sidebar window")
-        .expect("the top layer opens");
     cx.run_until_parked();
     Floating {
         recorder,
         sidebar,
         window,
-        top: VisualTestContext::from_window(top, cx),
+        top: VisualTestContext::from_window(owner, cx),
     }
 }
 
@@ -85,7 +82,7 @@ pub(crate) fn press(
     }
 }
 
-/// Lets a closed floating element leave the top layer: the test platform draws inside an effect
+/// Lets a closed floating element go: the test platform draws inside an effect
 /// flush, so the state of a portal that stopped rendering is released on the next one.
 pub(crate) fn settle(cx: &mut VisualTestContext) {
     cx.update(|_, _| {});

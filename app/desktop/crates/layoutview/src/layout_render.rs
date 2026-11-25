@@ -157,9 +157,7 @@ impl LayoutView {
     ) -> Option<AnyElement> {
         let rect = self.drop.preview(self.clock.now(), Motion::of(cx))?;
         let accent = Theme::of(cx).palette(Surface::Window).secondary();
-        let preview = Portal::here("drop-preview", move |window, cx| {
-            drop_preview(rect, accent, window, cx)
-        });
+        let preview = Portal::here("drop-preview", move |_, _| drop_preview(rect, accent));
         Some(div().absolute().inset_0().child(preview).into_any_element())
     }
 }

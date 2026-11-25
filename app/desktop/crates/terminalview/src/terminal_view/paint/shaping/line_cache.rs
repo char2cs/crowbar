@@ -107,7 +107,6 @@ fn text_run(
         background_color: None,
         underline: (span.underline != Underline::None).then_some(line),
         strikethrough: span.flags.contains(StyleFlags::STRIKE).then_some(strike),
-        letter_spacing: gpui::Pixels::ZERO,
     }
 }
 

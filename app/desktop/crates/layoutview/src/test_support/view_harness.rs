@@ -171,9 +171,6 @@ pub(crate) fn open_floating_with(
         .entity(cx)
         .unwrap_or_else(|error| panic!("the view: {error}"));
     let owner: gpui::AnyWindowHandle = window.into();
-    let top = cx.update(|cx| owner.update(cx, |_, window, cx| ui::TopLayer::open(window, cx)));
-    let top = top.unwrap_or_else(|error| panic!("the layout window: {error}"));
-    let top = top.unwrap_or_else(|error| panic!("the top layer: {error}"));
     let mut window = VisualTestContext::from_window(owner, cx);
     let tab = layout.showing("").cloned();
     view.update(&mut window, |view, cx| view.set_tab(tab, cx));
@@ -181,7 +178,7 @@ pub(crate) fn open_floating_with(
     Floating {
         view,
         window,
-        top: VisualTestContext::from_window(top, cx),
+        top: VisualTestContext::from_window(owner, cx),
         clock,
     }
 }

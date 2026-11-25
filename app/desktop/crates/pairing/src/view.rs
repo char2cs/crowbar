@@ -376,7 +376,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn a_dialog_opened_while_the_top_layer_holds_the_keyboard_types_into_its_name(
+    fn a_dialog_opened_while_a_field_holds_the_keyboard_types_into_its_name(
         cx: &mut TestAppContext
     ) {
         cx.update(|cx| ui::init(cx).unwrap());
@@ -385,13 +385,9 @@ mod tests {
             dialog: None,
         });
         let owner: gpui::AnyWindowHandle = window.into();
-        let shown = cx
-            .update(|cx| owner.update(cx, |_, window, cx| ui::TopLayer::open(window, cx)))
-            .unwrap()
-            .unwrap();
         let (mut owner, mut top) = (
             VisualTestContext::from_window(owner, cx),
-            VisualTestContext::from_window(shown, cx),
+            VisualTestContext::from_window(owner, cx),
         );
         let layers = window.entity(&owner).unwrap();
         layers.update_in(&mut owner, |layers, window, cx| {
@@ -402,12 +398,6 @@ mod tests {
         let source: Rc<dyn Source> = Rc::new(Fake::default());
         let dialog = owner.update(|window, cx| cx.new(|cx| View::over(source, window, cx)));
         owner.update(|_, cx| hold(&layers, &dialog, cx));
-        // PLATFORM: linux the X11 top layer can draw the new dialog before its owner's next frame.
-        owner.update(|_, cx| {
-            shown
-                .update(cx, |_, window, cx| window.draw(cx).clear(cx))
-                .unwrap();
-        });
         owner.run_until_parked();
         top.simulate_input("如同我");
         let name = dialog.read_with(&top, |view, cx| view.name.read(cx).text().to_owned());

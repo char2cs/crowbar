@@ -74,7 +74,8 @@ pub(crate) fn open(
     Harness { bar, cx, events }
 }
 
-/// A strip whose window has a top layer, as the shell's has.
+/// A strip in its window, and the window its floating elements paint in: the same window until
+/// floating elements get windows of their own.
 pub(crate) struct Floating {
     pub(crate) window: VisualTestContext,
     pub(crate) top: VisualTestContext,
@@ -93,10 +94,6 @@ pub(crate) fn open_floating(
     let window = cx.add_window(|_, _| TabBar::new(TabId(50)));
     let bar = window.entity(cx).expect("the strip");
     let owner: gpui::AnyWindowHandle = window.into();
-    let top = cx
-        .update(|cx| owner.update(cx, |_, window, cx| ui::TopLayer::open(window, cx)))
-        .expect("the strip window")
-        .expect("the top layer");
     let mut window = VisualTestContext::from_window(owner, cx);
     bar.update(&mut window, |bar, cx| {
         bar.set_tabs(tabs, Some(TabId(active)), cx);
@@ -104,7 +101,7 @@ pub(crate) fn open_floating(
     window.run_until_parked();
     Floating {
         window,
-        top: VisualTestContext::from_window(top, cx),
+        top: VisualTestContext::from_window(owner, cx),
     }
 }
 

@@ -91,13 +91,5 @@ mod tests {
         window.simulate_mouse_move(point(px(400.0), px(300.0)), MouseButton::Left, none);
         window.run_until_parked();
         assert!(floating.top.debug_bounds("tab-ghost").is_some(), "lifted");
-        let region = floating
-            .top
-            .update(|window, _| window.input_region().to_vec());
-        assert_eq!(
-            region,
-            Vec::new(),
-            "nothing in the top layer catches the pointer"
-        );
     }
 }

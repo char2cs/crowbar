@@ -70,7 +70,6 @@ mod tests {
             modifiers: gpui::Modifiers::default(),
             key: source.to_owned(),
             key_char: None,
-            physical: None,
         })
     }
 

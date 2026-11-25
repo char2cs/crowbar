@@ -70,8 +70,8 @@ impl Render for Layers {
     }
 }
 
-/// Opens the modal in a window with its top layer, as the app shows it; returns the window, then
-/// the top layer the dialog paints in.
+/// Opens the modal in a window, as the app shows it; returns the window, then the window the
+/// dialog paints in, which is the same window until floating elements get windows of their own.
 pub(crate) fn open_floating(
     cx: &mut TestAppContext,
     page: &str,
@@ -90,10 +90,6 @@ pub(crate) fn open_floating(
         .update(cx, |layers, _, _| layers.modal.clone())
         .unwrap();
     let owner: AnyWindowHandle = window.into();
-    let top = cx
-        .update(|cx| owner.update(cx, |_, window, cx| ui::TopLayer::open(window, cx)))
-        .unwrap()
-        .unwrap();
     cx.run_until_parked();
     let harness = Harness {
         modal,
@@ -103,7 +99,7 @@ pub(crate) fn open_floating(
     (
         harness,
         VisualTestContext::from_window(owner, cx),
-        VisualTestContext::from_window(top, cx),
+        VisualTestContext::from_window(owner, cx),
     )
 }
 
