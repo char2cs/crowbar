@@ -12,6 +12,7 @@ use super::built::Built;
 use super::pane_wiring::PaneWiring;
 use super::panes::Panes;
 use super::sidebar_wiring::SidebarWiring;
+use crate::backend::ProjectsFailed;
 use crate::browser_bars::BrowserBars;
 use crate::chat_hosts::ChatHosts;
 use crate::daemon_link::DaemonLink;
@@ -63,13 +64,25 @@ pub(super) fn build_panes<V: 'static>(
     let source = Rc::new(source.previewing(previews_of(&tabs)));
     let view_source = Rc::clone(&source);
     let layout = cx.new(|_| LayoutView::new(view_source));
-    let workspace = cx.new(|_| Workspace::new(tabs.clone(), layout.clone()));
+    let workspace = workspace_of((&tabs, &layout), data, cx);
     Panes {
         layout,
         tabs,
         workspace,
         source,
     }
+}
+
+fn workspace_of<V: 'static>(
+    (tabs, layout): (&Entity<TabBar>, &Entity<LayoutView>),
+    data: &Rc<store::Store>,
+    cx: &mut Context<'_, V>,
+) -> Entity<Workspace> {
+    let (retrying, reading) = (Rc::clone(data), Rc::clone(data));
+    let landing = cx.new(|_| ProjectsFailed::new(Rc::new(move || retrying.retry_projects())));
+    let failing = Rc::new(move || reading.projects_load() == store::ProjectsLoad::Failed);
+    let panes = (tabs.clone(), layout.clone());
+    cx.new(|_| Workspace::new(panes, landing, failing))
 }
 
 fn previews_of(tabs: &Entity<TabBar>) -> crate::shell_pane_source::PanePreviews {

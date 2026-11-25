@@ -2,13 +2,12 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use gpui::{AppContext as _, AsyncApp, Context, Entity, WeakEntity};
-use store::ProjectsLoad;
 use ui::{ToastContent, ToastLifetime};
 
 use super::ShellView;
 use crate::backend::{
-    BackendStatus, BackendWatch, ConnectionNotice, CrashPanel, NoticeAct, ProjectsFailed,
-    backend_status, reports_answer,
+    BackendStatus, BackendWatch, ConnectionNotice, CrashPanel, NoticeAct, backend_status,
+    reports_answer,
 };
 use crate::workspace::Workspace;
 
@@ -68,23 +67,6 @@ impl ShellView {
             shell.show_keyed(CRASH_KEY, (toast.clone(), ToastLifetime::Auto), cx);
         });
         self.backend.crash = Some((panel, toasts));
-    }
-
-    pub(super) fn follow_projects(
-        &mut self,
-        cx: &mut Context<'_, Self>,
-    ) {
-        let failed =
-            self.data.projects_load() == ProjectsLoad::Failed && !self.tabs.read(cx).has_tabs();
-        if failed == self.backend.workspace.read(cx).has_landing() {
-            return;
-        }
-        let data = Rc::clone(&self.data);
-        let landing =
-            failed.then(|| cx.new(|_| ProjectsFailed::new(Rc::new(move || data.retry_projects()))));
-        self.backend
-            .workspace
-            .update(cx, |workspace, cx| workspace.show_landing(landing, cx));
     }
 
     fn warn(
@@ -148,22 +130,14 @@ mod tests {
         );
     }
 
-    fn landing(opened: &mut Opened) -> bool {
+    const RETRY_SLOT: &str = "projects-retry-slot";
+
+    fn retry_slot(opened: &mut Opened) -> Option<gpui::Bounds<gpui::Pixels>> {
         opened.window.run_until_parked();
-        opened.shell.update(&mut opened.window, |shell, cx| {
-            shell.backend.workspace.read(cx).has_landing()
-        })
+        opened.window.debug_bounds(RETRY_SLOT)
     }
 
-    fn has_tabs(opened: &mut Opened) -> bool {
-        opened.shell.update(&mut opened.window, |shell, cx| {
-            shell.tabs.read(cx).has_tabs()
-        })
-    }
-
-    #[gpui::test]
-    fn closing_the_last_tab_after_the_projects_failed_shows_the_landing(cx: &mut TestAppContext) {
-        let mut opened = open_shell(cx);
+    fn fail_projects(opened: &mut Opened) {
         opened.shell.update(&mut opened.window, |shell, _| {
             shell.data.lose_projects_snapshot();
             shell.data.lose_projects_snapshot();
@@ -172,14 +146,52 @@ mod tests {
             .shell
             .update(&mut opened.window, |shell, _| shell.data.projects_load());
         assert_eq!(load, store::ProjectsLoad::Failed);
+    }
+
+    fn has_tabs(opened: &mut Opened) -> bool {
+        opened.shell.update(&mut opened.window, |shell, cx| {
+            shell.tabs.read(cx).has_tabs()
+        })
+    }
+
+    fn stage_bottom(opened: &mut Opened) -> Option<gpui::Pixels> {
+        opened
+            .window
+            .debug_bounds("workspace-stage")
+            .map(|stage| stage.bottom())
+    }
+
+    #[gpui::test]
+    fn a_failed_projects_load_shows_the_landing_below_the_open_tabs(cx: &mut TestAppContext) {
+        let mut opened = open_shell(cx);
+        fail_projects(&mut opened);
         assert!(has_tabs(&mut opened));
-        assert!(!landing(&mut opened), "an open tab keeps the stage");
+        let slot = retry_slot(&mut opened);
+        assert!(
+            slot.is_some(),
+            "develop's landing shows under restored panes"
+        );
+        let slot = slot.unwrap();
+        let bottom = stage_bottom(&mut opened);
+        assert!(
+            bottom.is_some_and(|bottom| slot.top() >= bottom),
+            "the panes give the landing the lower stage: {slot:?} under {bottom:?}"
+        );
+    }
+
+    #[gpui::test]
+    fn closing_the_last_tab_after_the_projects_failed_keeps_the_landing(cx: &mut TestAppContext) {
+        let mut opened = open_shell(cx);
+        fail_projects(&mut opened);
         opened.shell.update(&mut opened.window, |shell, cx| {
             let panes = shell.state.layout().tabs().iter().flat_map(Tab::pane_ids);
             let closes = panes.map(|pane| Command::ClosePane { pane }).collect();
             shell.apply_guarded(closes, cx);
         });
         assert!(!has_tabs(&mut opened), "the last tab closed");
-        assert!(landing(&mut opened), "the empty stage lands on the failure");
+        assert!(
+            retry_slot(&mut opened).is_some(),
+            "the empty stage lands on the failure"
+        );
     }
 }

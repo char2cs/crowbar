@@ -38,7 +38,6 @@ impl ShellView {
         let active = layout.showing(&space).map(Tab::id);
         self.tabs
             .update(cx, |bar, cx| bar.set_tabs(tabs, active, cx));
-        self.follow_projects(cx);
     }
 
     fn tab_scope(&mut self) -> TabScope {

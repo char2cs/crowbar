@@ -1,6 +1,8 @@
+use std::rc::Rc;
+
 use gpui::{
-    Bounds, Context, Entity, EventEmitter, IntoElement, ParentElement, Pixels, Render, Styled,
-    Window, canvas, div,
+    AnyElement, Bounds, Context, Entity, EventEmitter, InteractiveElement as _, IntoElement,
+    ParentElement, Pixels, Render, Styled, Window, canvas, div, px,
 };
 use layoutview::LayoutView;
 use viewtabs::TabBar;
@@ -8,39 +10,35 @@ use viewtabs::TabBar;
 use crate::backend::ProjectsFailed;
 use crate::workspace_event::WorkspaceEvent;
 
+// SPEC: docs/triage/2026-11-18-side-by-side-audit/01-oobe.md OOBE-009: develop's InlineError is flex-1 p-6 under the WorkspaceHost.
+const LANDING_PADDING: f32 = 24.0;
+const STAGE_SELECTOR: &str = "workspace-stage";
+
+pub(crate) type ProjectsFailing = Rc<dyn Fn() -> bool>;
+
 pub(crate) struct Workspace {
     tabs: Entity<TabBar>,
     layout: Entity<LayoutView>,
     area: Option<Bounds<Pixels>>,
-    landing: Option<Entity<ProjectsFailed>>,
+    landing: Entity<ProjectsFailed>,
+    failing: ProjectsFailing,
 }
 
 impl EventEmitter<WorkspaceEvent> for Workspace {}
 
 impl Workspace {
     pub(crate) fn new(
-        tabs: Entity<TabBar>,
-        layout: Entity<LayoutView>,
+        (tabs, layout): (Entity<TabBar>, Entity<LayoutView>),
+        landing: Entity<ProjectsFailed>,
+        failing: ProjectsFailing,
     ) -> Self {
         Self {
             tabs,
             layout,
             area: None,
-            landing: None,
+            landing,
+            failing,
         }
-    }
-
-    pub(crate) fn has_landing(&self) -> bool {
-        self.landing.is_some()
-    }
-
-    pub(crate) fn show_landing(
-        &mut self,
-        landing: Option<Entity<ProjectsFailed>>,
-        cx: &mut Context<'_, Self>,
-    ) {
-        self.landing = landing;
-        cx.notify();
     }
 
     fn measured(
@@ -53,6 +51,43 @@ impl Workspace {
             cx.emit(WorkspaceEvent::Measured(bounds));
         }
     }
+
+    fn stage(
+        &self,
+        cx: &mut Context<'_, Self>,
+    ) -> gpui::Div {
+        let this = cx.entity();
+        let stage = div()
+            .relative()
+            .flex_1()
+            .debug_selector(|| STAGE_SELECTOR.into());
+        stage.child(self.layout.clone()).child(
+            canvas(
+                move |bounds, _, cx| {
+                    this.update(cx, |workspace, cx| workspace.measured(bounds, cx));
+                },
+                |_, (), _, _| {},
+            )
+            .absolute()
+            .inset_0()
+            .size_full(),
+        )
+    }
+
+    fn landing(
+        &self,
+        cx: &mut Context<'_, Self>,
+    ) -> Option<AnyElement> {
+        if !(self.failing)() {
+            return None;
+        }
+        let landing = self.landing.clone();
+        if !self.tabs.read(cx).has_tabs() {
+            return Some(div().absolute().inset_0().child(landing).into_any_element());
+        }
+        let below = div().relative().flex_1().py(px(LANDING_PADDING));
+        Some(below.child(landing).into_any_element())
+    }
 }
 
 impl Render for Workspace {
@@ -61,7 +96,6 @@ impl Render for Workspace {
         _window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
-        let this = cx.entity();
         div()
             .size_full()
             .flex()
@@ -71,19 +105,10 @@ impl Render for Workspace {
                 div()
                     .flex_1()
                     .relative()
-                    .child(self.layout.clone())
-                    .children(self.landing.clone())
-                    .child(
-                        canvas(
-                            move |bounds, _, cx| {
-                                this.update(cx, |workspace, cx| workspace.measured(bounds, cx));
-                            },
-                            |_, (), _, _| {},
-                        )
-                        .absolute()
-                        .inset_0()
-                        .size_full(),
-                    ),
+                    .flex()
+                    .flex_col()
+                    .child(self.stage(cx))
+                    .children(self.landing(cx)),
             )
     }
 }
@@ -134,7 +159,8 @@ mod tests {
         let (workspace, cx) = cx.add_window_view(|_, cx| {
             let layout = cx.new(|_| LayoutView::new(source()));
             let tabs = cx.new(|_| TabBar::new(TabId(1)));
-            Workspace::new(tabs, layout)
+            let landing = cx.new(|_| ProjectsFailed::new(Rc::new(|| {})));
+            Workspace::new((tabs, layout), landing, Rc::new(|| false))
         });
         let areas = Rc::new(RefCell::new(Vec::new()));
         let sink = Rc::clone(&areas);
