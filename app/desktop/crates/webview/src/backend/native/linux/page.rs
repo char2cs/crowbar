@@ -2,8 +2,8 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use crate::backend::native::linux::gtk_platform::GtkPlatform;
-use crate::backend::page_control::PageControl;
-use crate::backend::view_capture::ViewCapture;
+use crate::backend::view::page_control::PageControl;
+use crate::backend::view::view_capture::ViewCapture;
 use crate::error::Result;
 use crate::view::Id;
 use crate::view::Snapshot;

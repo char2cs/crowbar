@@ -122,9 +122,9 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
-    use crate::backend::page_control::PageControl;
-    use crate::backend::view_layout::ViewLayout;
-    use crate::backend::view_lifecycle::ViewLifecycle;
+    use crate::backend::view::page_control::PageControl;
+    use crate::backend::view::view_layout::ViewLayout;
+    use crate::backend::view::view_lifecycle::ViewLifecycle;
     use crate::view::Bounds;
     use crate::view::Config;
     use crate::view::Kind;

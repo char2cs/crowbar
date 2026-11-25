@@ -1,7 +1,7 @@
 use crate::backend::mock::call::Call;
 use crate::backend::mock::mock_platform::MockPlatform;
-use crate::backend::page_control::PageControl;
-use crate::backend::view_capture::ViewCapture;
+use crate::backend::view::page_control::PageControl;
+use crate::backend::view::view_capture::ViewCapture;
 use crate::error::Result;
 use crate::view::Id;
 use crate::view::Snapshot;

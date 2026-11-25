@@ -9,7 +9,7 @@ use gtk::prelude::{
     MenuShellExt as _, WidgetExt as _,
 };
 
-use crate::backend::menu_popping::{ChosenEntry, MenuPopping};
+use crate::backend::desktop::menu_popping::{ChosenEntry, MenuPopping};
 use crate::backend::native::linux::gtk_platform::GtkPlatform;
 use crate::error::{Error, Result};
 use crate::menu::{MenuEdge, MenuEntry, MenuRequest};

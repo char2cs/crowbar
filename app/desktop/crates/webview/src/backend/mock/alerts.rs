@@ -1,5 +1,5 @@
 use crate::alert::AlertRequest;
-use crate::backend::alert_asking::{AlertAsking, ChosenButton};
+use crate::backend::desktop::alert_asking::{AlertAsking, ChosenButton};
 use crate::backend::mock::call::Call;
 use crate::backend::mock::mock_platform::MockPlatform;
 use crate::error::Result;

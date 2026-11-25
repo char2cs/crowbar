@@ -1,13 +1,13 @@
-use crate::backend::alert_asking::AlertAsking;
-use crate::backend::browsing_data::BrowsingData;
-use crate::backend::desktop_settings::DesktopSettings;
-use crate::backend::file_choosing::FileChoosing;
-use crate::backend::menu_popping::MenuPopping;
-use crate::backend::page_control::PageControl;
-use crate::backend::view_capture::ViewCapture;
-use crate::backend::view_focus::ViewFocus;
-use crate::backend::view_layout::ViewLayout;
-use crate::backend::view_lifecycle::ViewLifecycle;
+use crate::backend::desktop::alert_asking::AlertAsking;
+use crate::backend::desktop::desktop_settings::DesktopSettings;
+use crate::backend::desktop::file_choosing::FileChoosing;
+use crate::backend::desktop::menu_popping::MenuPopping;
+use crate::backend::view::browsing_data::BrowsingData;
+use crate::backend::view::page_control::PageControl;
+use crate::backend::view::view_capture::ViewCapture;
+use crate::backend::view::view_focus::ViewFocus;
+use crate::backend::view::view_layout::ViewLayout;
+use crate::backend::view::view_lifecycle::ViewLifecycle;
 
 /// The operations a platform backend offers, as the small capabilities they are made of. One
 /// implementation per platform; a recording implementation exists for tests of crates built on

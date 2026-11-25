@@ -7,7 +7,7 @@ use gtk::prelude::{
 };
 
 use crate::alert::{AlertButton, AlertRequest, AlertRole};
-use crate::backend::alert_asking::{AlertAsking, ChosenButton};
+use crate::backend::desktop::alert_asking::{AlertAsking, ChosenButton};
 use crate::backend::native::linux::gtk_platform::GtkPlatform;
 use crate::backend::native::linux::gtk_state::keep_over;
 use crate::error::{Error, Result};

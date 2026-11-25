@@ -1,11 +1,11 @@
-use crate::backend::browsing_data::BrowsingData;
-use crate::backend::caret_blink::CaretReport;
-use crate::backend::desktop_settings::DesktopSettings;
+use crate::backend::desktop::caret_blink::CaretReport;
+use crate::backend::desktop::desktop_settings::DesktopSettings;
 use crate::backend::mock::call::Call;
 use crate::backend::mock::mock_platform::MockPlatform;
-use crate::backend::view_focus::ViewFocus;
-use crate::backend::view_layout::ViewLayout;
-use crate::backend::view_lifecycle::ViewLifecycle;
+use crate::backend::view::browsing_data::BrowsingData;
+use crate::backend::view::view_focus::ViewFocus;
+use crate::backend::view::view_layout::ViewLayout;
+use crate::backend::view::view_lifecycle::ViewLifecycle;
 use crate::error::{Error, Result};
 use crate::view::Bounds;
 use crate::view::Color;

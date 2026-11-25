@@ -1,6 +1,6 @@
 //! The desktop settings the engine's own pages follow, offered to the shell's widgets too.
 
-use crate::backend::caret_blink::CaretReport;
+use crate::backend::desktop::caret_blink::CaretReport;
 use crate::error::Result;
 
 /// The desktop settings a backend reads and follows.

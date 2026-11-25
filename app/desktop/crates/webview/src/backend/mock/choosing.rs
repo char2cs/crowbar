@@ -1,4 +1,4 @@
-use crate::backend::file_choosing::{ChosenFiles, FileChoosing};
+use crate::backend::desktop::file_choosing::{ChosenFiles, FileChoosing};
 use crate::backend::mock::call::Call;
 use crate::backend::mock::mock_platform::MockPlatform;
 use crate::chooser::FileChoice;

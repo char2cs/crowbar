@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use gtk::glib;
 use gtk::prelude::{DialogExtManual as _, FileChooserExt as _, GtkWindowExt as _};
 
-use crate::backend::file_choosing::{ChosenFiles, FileChoosing};
+use crate::backend::desktop::file_choosing::{ChosenFiles, FileChoosing};
 use crate::backend::native::linux::gtk_platform::GtkPlatform;
 use crate::backend::native::linux::gtk_state::chooser;
 use crate::chooser::{ChoiceKind, FileChoice, FileFilter};

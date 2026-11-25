@@ -1,14 +1,14 @@
 use std::sync::mpsc;
 use std::time::Duration;
 
-use crate::backend::browsing_data::BrowsingData;
 use crate::backend::native::linux::bounded_wait::wait_for;
 use crate::backend::native::linux::create_reply::CreateReply;
 use crate::backend::native::linux::gtk_platform::{GtkPlatform, log_failure};
 use crate::backend::native::linux::gtk_state::GtkState;
-use crate::backend::view_focus::ViewFocus;
-use crate::backend::view_layout::ViewLayout;
-use crate::backend::view_lifecycle::ViewLifecycle;
+use crate::backend::view::browsing_data::BrowsingData;
+use crate::backend::view::view_focus::ViewFocus;
+use crate::backend::view::view_layout::ViewLayout;
+use crate::backend::view::view_lifecycle::ViewLifecycle;
 use crate::error::Result;
 use crate::view::Bounds;
 use crate::view::Color;

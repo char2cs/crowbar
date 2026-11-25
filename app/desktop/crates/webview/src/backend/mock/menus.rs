@@ -1,4 +1,4 @@
-use crate::backend::menu_popping::{ChosenEntry, MenuPopping};
+use crate::backend::desktop::menu_popping::{ChosenEntry, MenuPopping};
 use crate::backend::mock::call::Call;
 use crate::backend::mock::mock_platform::MockPlatform;
 use crate::error::Result;

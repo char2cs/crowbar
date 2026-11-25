@@ -1,6 +1,6 @@
 //! The shell's context menus on macOS, which it draws itself.
 
-use crate::backend::menu_popping::{ChosenEntry, MenuPopping};
+use crate::backend::desktop::menu_popping::{ChosenEntry, MenuPopping};
 use crate::backend::native::macos::appkit_platform::AppkitPlatform;
 use crate::error::{Error, Result};
 use crate::menu::MenuRequest;
