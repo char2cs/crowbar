@@ -255,7 +255,8 @@ mod tests {
             "clean"
         );
         window.update(|window, cx| window.focus(&view.focus_handle(cx), cx));
-        window.simulate_keystrokes("ctrl-z");
+        let undo = window.update(|_, cx| crate::test_support::keys_bound_to("input::Undo", cx));
+        window.simulate_keystrokes(&undo);
         assert_eq!(view.read_with(window, editorview::EditorView::text), TEXT);
     }
 

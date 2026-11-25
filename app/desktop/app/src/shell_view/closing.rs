@@ -184,7 +184,11 @@ mod tests {
             .shell
             .update(&mut opened.window, |shell, _| shell.state.mark_dirty(pane));
         let before = saves_asked(&opened.mock);
-        opened.window.simulate_keystrokes("ctrl-shift-s");
+        opened
+            .window
+            .simulate_keystrokes(&crate::shell_view::test_support::keys_of(
+                keymap::ShellCommand::SaveAll,
+            ));
         opened.window.run_until_parked();
         assert_eq!(saves_asked(&opened.mock) - before, 1, "the dirty chat page");
     }

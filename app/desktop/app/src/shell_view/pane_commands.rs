@@ -137,7 +137,7 @@ mod tests {
 
     use super::*;
     use crate::core_panes::{CHAT, TERMINAL, chat_params, chat_type};
-    use crate::shell_view::test_support::panes_of;
+    use crate::shell_view::test_support::{keys_of, panes_of};
     use crate::shell_view::tests::open_shell;
 
     #[gpui::test]
@@ -174,7 +174,9 @@ mod tests {
                 .read_with(&opened.window, |shell, _| shell.state.layout().tabs().len())
         };
         let before = tabs(&opened);
-        opened.window.simulate_keystrokes("ctrl-j");
+        opened
+            .window
+            .simulate_keystrokes(&keys_of(keymap::ShellCommand::NewTerminal));
         opened.window.run_until_parked();
         assert_eq!(tabs(&opened), before, "no tab of its own");
         opened.shell.read_with(&opened.window, |shell, _| {

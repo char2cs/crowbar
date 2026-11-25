@@ -1,4 +1,5 @@
 use gpui::TestAppContext;
+use keymap::ShellCommand;
 use protocol::PaneId;
 use terminalview::Event;
 
@@ -42,4 +43,21 @@ pub(super) fn tell(
         shell.on_terminal((pane, event), window, cx);
     });
     opened.window.run_until_parked();
+}
+
+/// The keystrokes of `command`'s default chord, with `mod` as gpui's `secondary` so each platform
+/// presses its own primary modifier.
+pub(super) fn keys_of(command: ShellCommand) -> String {
+    let chord = command.default_chord();
+    let (modifiers, key) = chord.rsplit_once('+').unwrap_or(("", chord));
+    modifiers
+        .split('+')
+        .filter(|modifier| !modifier.is_empty())
+        .map(|modifier| match modifier {
+            "mod" => "secondary",
+            other => other,
+        })
+        .chain([key])
+        .collect::<Vec<_>>()
+        .join("-")
 }

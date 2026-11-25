@@ -23,15 +23,24 @@ impl ShellView {
 #[cfg(test)]
 mod tests {
     use gpui::TestAppContext;
+    use keymap::ShellCommand;
 
-    use crate::shell_view::test_support::with_terminal;
+    use crate::shell_view::test_support::{keys_of, with_terminal};
 
     #[gpui::test]
     fn the_chat_zoom_chords_reach_the_chats_from_a_focused_terminal(cx: &mut TestAppContext) {
-        let cases: [(&str, u16); 3] = [("ctrl-=", 110), ("ctrl-= ctrl-=", 130), ("ctrl-0", 100)];
+        let (zoom_in, reset) = (
+            keys_of(ShellCommand::ZoomChatIn),
+            keys_of(ShellCommand::ZoomChatReset),
+        );
+        let cases = [
+            (zoom_in.clone(), 110),
+            (format!("{zoom_in} {zoom_in}"), 130),
+            (reset, 100),
+        ];
         let (mut opened, _) = with_terminal(cx);
         for (keys, percent) in cases {
-            opened.window.simulate_keystrokes(keys);
+            opened.window.simulate_keystrokes(&keys);
             opened.window.run_until_parked();
             let zoom = opened
                 .shell
