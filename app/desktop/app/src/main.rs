@@ -215,20 +215,15 @@ fn start(
     last_window::quit_with_last_window(cx, |cx| cx.quit());
     let memory = WindowMemory::new(&options.state_dir().join("window.json"));
     let window_options = memory.options(cx);
-    let mut top_layer = None;
     let opened = cx.open_window(window_options, |window, cx| {
         // PLATFORM: linux X11 windows take WM_CLASS only from set_app_id; wayland reads the options.
         window.set_app_id(window_memory::APP_ID);
-        top_layer = Some(ui::TopLayer::open(window, cx));
         let view = cx.new(|cx| ShellView::new(parts, window, cx));
         remember_close(&memory, window, cx, &view);
         view
     });
     if let Err(error) = opened {
         return quit_after(cx, &error, "could not open the window");
-    }
-    if let Some(Err(error)) = top_layer {
-        return quit_after(cx, &error, "could not open the window's top layer");
     }
     cx.activate(true);
 }

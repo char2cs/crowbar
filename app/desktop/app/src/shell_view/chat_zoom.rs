@@ -13,7 +13,7 @@ impl ShellView {
         if event.is_held {
             return;
         }
-        let stroke = keystroke_of(&event.keystroke);
+        let stroke = keystroke_of(&event.keystroke, None);
         if let Some(command) = self.keymap.alongside(&stroke) {
             self.run_shell_command(command, window, cx);
         }

@@ -459,16 +459,12 @@ mod tests {
         let window = cx.add_window(move |window, cx| ShellView::new(parts, window, cx));
         let shell = window.entity(cx).expect("the shell view");
         let owner: gpui::AnyWindowHandle = window.into();
-        let top = cx
-            .update(|cx| owner.update(cx, |_, window, cx| ui::TopLayer::open(window, cx)))
-            .expect("the shell window")
-            .expect("the top layer opens");
         let window = gpui::VisualTestContext::from_window(owner, cx);
         window.run_until_parked();
         Opened {
             shell,
             window,
-            top: gpui::VisualTestContext::from_window(top, cx),
+            top: gpui::VisualTestContext::from_window(owner, cx),
             mock,
             pane,
             preferences,
@@ -602,10 +598,6 @@ mod tests {
                 shell.on_terminal((&pane, link), window, cx);
             });
         opened.window.run_until_parked();
-        assert!(
-            opened.top.update(|window, _| window.takes_keys()),
-            "the menu took the keys"
-        );
         opened
     }
 
@@ -647,10 +639,6 @@ mod tests {
             .simulate_mouse_up(away, gpui::MouseButton::Left, none);
         opened.window.run_until_parked();
         assert!(
-            !opened.top.update(|window, _| window.takes_keys()),
-            "the click away closed the menu"
-        );
-        assert!(
             page_focuses(&opened.mock) > before,
             "the shell did not claim the keyboard"
         );
@@ -663,10 +651,6 @@ mod tests {
         let before = page_focuses(&opened.mock);
         opened.top.simulate_keystrokes("escape");
         opened.window.run_until_parked();
-        assert!(
-            !opened.top.update(|window, _| window.takes_keys()),
-            "the menu closed"
-        );
         assert!(
             page_focuses(&opened.mock) > before,
             "the page that owns the keyboard has it again"

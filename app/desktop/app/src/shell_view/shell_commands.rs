@@ -27,7 +27,7 @@ impl ShellView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        let stroke = keystroke_of(&event.keystroke);
+        let stroke = keystroke_of(&event.keystroke, None);
         let Some(command) = self.keymap.resolve(&stroke) else {
             return self.on_unbound_key(&stroke, window, cx);
         };
@@ -176,11 +176,12 @@ impl ShellView {
     }
 }
 
-pub(super) fn keystroke_of(stroke: &gpui::Keystroke) -> Keystroke {
-    let physical = stroke.physical.as_ref().map(|at| PhysicalKey {
-        code: at.code.clone(),
-        modifiers: modifiers_of(at.modifiers),
-    });
+/// The chord keystroke of `stroke`, with the key at its place on an unshifted US layout when
+/// `physical` names it, so a shifted digit still names its digit.
+pub(super) fn keystroke_of(
+    stroke: &gpui::Keystroke,
+    physical: Option<PhysicalKey>,
+) -> Keystroke {
     Keystroke {
         modifiers: modifiers_of(stroke.modifiers),
         key: stroke.key.clone(),
@@ -217,16 +218,12 @@ mod tests {
     fn a_digit_key_typing_a_symbol_under_shift_still_selects_its_project() {
         let typed = gpui::Keystroke::parse_with_os("secondary-@", native_os()).unwrap();
         let held = gpui::Keystroke::parse_with_os("secondary-shift-2", native_os()).unwrap();
-        let physical = gpui::PhysicalKey {
+        let physical = PhysicalKey {
             code: held.key,
-            modifiers: held.modifiers,
-        };
-        let stroke = gpui::Keystroke {
-            physical: Some(physical),
-            ..typed
+            modifiers: modifiers_of(held.modifiers),
         };
         assert_eq!(
-            keymap::project_slot_of_stroke(&keystroke_of(&stroke)),
+            keymap::project_slot_of_stroke(&keystroke_of(&typed, Some(physical))),
             Some(2)
         );
     }
@@ -235,7 +232,7 @@ mod tests {
     fn a_typed_key_becomes_a_chord() {
         let stroke = gpui::Keystroke::parse_with_os("secondary-shift-t", native_os()).unwrap();
         assert_eq!(
-            keystroke_of(&stroke).chord().as_deref(),
+            keystroke_of(&stroke, None).chord().as_deref(),
             Some("mod+shift+t")
         );
     }

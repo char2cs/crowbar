@@ -40,9 +40,6 @@ impl ShellView {
                 this.follow_system_appearance(window.appearance(), cx);
             }),
             cx.on_app_quit(|this, _| this.close_before_quitting()),
-            cx.observe_overlay_keys(window, |this, window, cx| {
-                this.return_keyboard(window, cx);
-            }),
             cx.observe_in(&built.sidebar, window, |this, _, window, cx| {
                 this.forward_bindings(window, cx);
             }),
@@ -86,9 +83,7 @@ impl ShellView {
         window: &Window,
         cx: &mut App,
     ) {
-        let something_else_holds_the_keys =
-            self.modal_open(cx) || ui::TopLayer::holds_keys(window, cx);
-        if !window.is_window_active() || something_else_holds_the_keys {
+        if !window.is_window_active() || self.modal_open(cx) {
             return;
         }
         self.state.apply_keyboard();
