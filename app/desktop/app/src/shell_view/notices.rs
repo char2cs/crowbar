@@ -2,7 +2,7 @@ use gpui::{App, Context, Window};
 use ui::{ToastContent, ToastKind, ToastLifetime, ToastPlacement};
 
 use super::ShellView;
-use crate::backend::daemon_notice::{DaemonNotice, daemon_notice};
+use crate::daemon::backend::daemon_notice::{DaemonNotice, daemon_notice};
 use crate::notice_key::NoticeKey;
 use crate::save_report::SaveReport;
 

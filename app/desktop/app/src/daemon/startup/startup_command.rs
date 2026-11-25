@@ -1,8 +1,8 @@
 use gpui::Context;
 
-use crate::daemon_link::DaemonLink;
+use crate::daemon::daemon_link::DaemonLink;
+use crate::daemon::startup::startup_action::StartupAction;
 use crate::logged::emit;
-use crate::startup_action::StartupAction;
 
 mod log_open_event;
 use log_open_event::LogOpenEvent;

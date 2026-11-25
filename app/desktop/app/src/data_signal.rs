@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use store::{ChangeSignal, Outcome, OutcomeSink};
 
-use crate::daemon_link::DaemonLink;
+use crate::daemon::daemon_link::DaemonLink;
 use crate::shell_request::ShellRequest;
 
 pub(crate) fn callbacks(

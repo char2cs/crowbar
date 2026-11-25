@@ -73,7 +73,7 @@ mod watches;
 
 use self::watches::Watches;
 
-use crate::daemon_link::DaemonLink;
+use crate::daemon::daemon_link::DaemonLink;
 use crate::focused_chat::focused_chat;
 use crate::holes::visible_panes;
 use crate::ports::Ports;
@@ -117,7 +117,7 @@ pub(crate) struct ShellView {
     ports: Ports,
     readout: crate::readout_state::ReadoutState,
     notices: Entity<ToastQueue>,
-    backend: crate::backend::BackendWatch,
+    backend: crate::daemon::backend::BackendWatch,
     link_menu: Option<crate::link_menu::LinkMenu>,
     subscriptions: Vec<Subscription>,
 }

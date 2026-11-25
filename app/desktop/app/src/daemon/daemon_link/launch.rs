@@ -5,9 +5,9 @@ use supervisor::{DaemonEvent, DaemonPaths, Supervisor, locate_binary};
 use tokio::sync::watch;
 
 use crate::app_options::AppOptions;
+use crate::daemon::daemon_link::link_state::LinkState;
+use crate::daemon::daemon_link::phase_input::phase_input;
 use crate::error::{Error, Result};
-use crate::link_state::LinkState;
-use crate::phase_input::phase_input;
 
 pub(super) async fn try_launch(
     options: &AppOptions,
@@ -88,7 +88,7 @@ async fn relay_phase(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::link_state::linked;
+    use crate::daemon::daemon_link::link_state::linked;
     use crate::test_support::options_without_a_daemon;
 
     #[test]

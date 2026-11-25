@@ -3,7 +3,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use crate::daemon_link::DaemonLink;
+use crate::daemon::daemon_link::DaemonLink;
 use crate::ports::Ports;
 use crate::shell_request::ShellRequest;
 use crate::shell_state::ShellState;

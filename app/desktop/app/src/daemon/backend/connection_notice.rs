@@ -1,9 +1,9 @@
 use startup::MigrationStep;
 use ui::{ToastContent, ToastKind, ToastLifetime};
 
-use crate::backend::backend_status::BackendStatus;
-use crate::backend::notice_act::NoticeAct;
-use crate::backend::warned::Warned;
+use crate::daemon::backend::backend_status::BackendStatus;
+use crate::daemon::backend::notice_act::NoticeAct;
+use crate::daemon::backend::warned::Warned;
 
 const STARTING: &str = "Crowbar is starting";
 const UPGRADING: &str = "Crowbar is upgrading its data";

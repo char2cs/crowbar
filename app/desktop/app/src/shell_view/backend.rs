@@ -5,7 +5,7 @@ use gpui::{AppContext as _, AsyncApp, Context, Entity, WeakEntity};
 use ui::{ToastContent, ToastLifetime};
 
 use super::ShellView;
-use crate::backend::{
+use crate::daemon::backend::{
     BackendStatus, BackendWatch, ConnectionNotice, CrashPanel, NoticeAct, backend_status,
     reports_answer,
 };

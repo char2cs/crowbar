@@ -3,6 +3,7 @@ use panehost::IpcMessage;
 use protocol::PaneId;
 
 use super::ShellView;
+use crate::daemon::startup::startup_command;
 use crate::holes::visible_panes;
 use crate::shell_request::ShellRequest;
 use crate::single_precision::single_precision;
@@ -125,7 +126,7 @@ impl ShellView {
         match request {
             ShellRequest::Sidebar(command) => self.on_sidebar_command(&command, window, cx),
             ShellRequest::Startup(command) => {
-                crate::startup_command::perform(command, &self.link, cx);
+                startup_command::perform(command, &self.link, cx);
             },
             ShellRequest::DataChanged => self.on_data_changed(cx),
             ShellRequest::Outcome(outcome) => self.on_data_outcome(outcome, window, cx),

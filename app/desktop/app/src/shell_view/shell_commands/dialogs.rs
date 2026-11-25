@@ -5,6 +5,7 @@ use diagnostics::LogPaths;
 use gpui::{AppContext as _, Context, Entity, Window};
 
 use super::ShellView;
+use crate::daemon::diagnostics_export;
 
 impl ShellView {
     pub(in crate::shell_view) fn show_pairing(
@@ -79,7 +80,7 @@ impl ShellView {
 
     pub(in crate::shell_view) fn export_diagnostics(&self) {
         let data_dir = data_dir_of(&self.preferences_path);
-        crate::diagnostics_export::start(
+        diagnostics_export::start(
             &self.link,
             LogPaths::in_data_dir(data_dir),
             self.ports.clock.wall(),

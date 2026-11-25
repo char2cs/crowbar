@@ -3,7 +3,7 @@ use std::time::{Duration, SystemTime};
 
 use diagnostics::{Bundle, LogPaths};
 
-use crate::daemon_link::DaemonLink;
+use crate::daemon::daemon_link::DaemonLink;
 
 const DUMP_TIMEOUT: Duration = Duration::from_secs(10);
 const DUMP_LIMIT_BYTES: usize = 8 * 1024 * 1024;

@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::daemon_link::DaemonLink;
+use crate::daemon::daemon_link::DaemonLink;
 use crate::shell_request::ShellRequest;
 use crate::shell_state::ShellState;
 

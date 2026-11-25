@@ -11,7 +11,7 @@ use settings::{Key, Read as _, Value};
 use super::ShellView;
 use crate::agent_requests::AgentRequests;
 use crate::browser_homepage::{HOMEPAGE_KEY, homepage_state};
-use crate::daemon_peer::DaemonPeer;
+use crate::daemon::daemon_peer::DaemonPeer;
 use crate::search_engine_setting::{CUSTOM_URL_KEY, ENGINE_KEY, engine_from};
 
 impl ShellView {

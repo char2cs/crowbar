@@ -7,7 +7,7 @@ use answer_event::AnswerEvent;
 use super::DaemonLink;
 use super::launch::try_launch;
 use crate::app_options::AppOptions;
-use crate::link_state::LinkState;
+use crate::daemon::daemon_link::link_state::LinkState;
 
 impl DaemonLink {
     pub(crate) fn shutdown(&self) {
@@ -74,7 +74,7 @@ async fn relaunch_unless_running(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::link_state::linked;
+    use crate::daemon::daemon_link::link_state::linked;
     use crate::test_support::options_without_a_daemon;
 
     const ATTEMPTS: &[(&str, usize)] = &[

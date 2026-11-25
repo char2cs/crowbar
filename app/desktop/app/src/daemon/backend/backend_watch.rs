@@ -1,7 +1,7 @@
 use gpui::{Entity, Subscription, Task};
 
-use crate::backend::connection_notice::ConnectionNotice;
-use crate::backend::crash_panel::CrashPanel;
+use crate::daemon::backend::connection_notice::ConnectionNotice;
+use crate::daemon::backend::crash_panel::CrashPanel;
 use crate::workspace::Workspace;
 
 pub(crate) struct BackendWatch {

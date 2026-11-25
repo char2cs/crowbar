@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use supervisor::{DaemonPaths, Supervisor};
 use tokio::sync::{MutexGuard as TurnGuard, watch};
 
-use crate::launched::Launched;
+use crate::daemon::daemon_link::launched::Launched;
 
 #[derive(Debug)]
 pub(crate) struct LinkState {

@@ -57,7 +57,9 @@ mod tests {
         let registry = Arc::new(transport::HostRegistry::in_memory());
         let tokens = Arc::new(transport::MemoryTokenStore::default());
         store::HostDesk {
-            book: Arc::new(crate::transport_book::TransportBook::new(registry, tokens)),
+            book: Arc::new(
+                crate::daemon::daemon_link::transport_book::TransportBook::new(registry, tokens),
+            ),
             notes: Arc::new(store::HostNotes::open(NOTES.into()).unwrap()),
         }
     }

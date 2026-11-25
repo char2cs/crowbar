@@ -9,7 +9,7 @@ use gpui::{
 };
 use ui::{Button, ButtonSize, ButtonVariant, Surface, Theme, ToastContent, ToastKind};
 
-use crate::daemon_link::DaemonLink;
+use crate::daemon::daemon_link::DaemonLink;
 
 const TITLE: &str = "Crowbar's backend keeps crashing";
 const EXPLANATION: &str = "Crowbar stopped restarting it on its own. Your open tabs and unsaved edits are kept; nothing reconnects until the backend runs again.";

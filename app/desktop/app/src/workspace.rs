@@ -7,7 +7,7 @@ use gpui::{
 use layoutview::LayoutView;
 use viewtabs::TabBar;
 
-use crate::backend::ProjectsFailed;
+use crate::daemon::backend::ProjectsFailed;
 use crate::workspace_event::WorkspaceEvent;
 
 // SPEC: docs/triage/2026-11-18-side-by-side-audit/01-oobe.md OOBE-009: develop's InlineError is flex-1 p-6 under the WorkspaceHost.

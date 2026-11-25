@@ -1,9 +1,11 @@
+mod peer_line;
+
 use std::sync::Arc;
 
 use browseragent::{Error, PeerConnector};
 use transport::Transport;
 
-use crate::peer_line::PeerLine;
+use crate::daemon::daemon_peer::peer_line::PeerLine;
 
 const PEER_PATH: &str = "/v0/browser/peer";
 

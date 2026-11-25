@@ -5,7 +5,7 @@ use supervisor::DaemonEvent;
 use tokio::sync::watch;
 
 use super::DaemonLink;
-use crate::link_state::LinkState;
+use crate::daemon::daemon_link::link_state::LinkState;
 
 impl DaemonLink {
     pub(crate) fn readiness(&self) -> Readiness {
@@ -34,7 +34,7 @@ fn is_ready(event: &DaemonEvent) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::link_state::linked;
+    use crate::daemon::daemon_link::link_state::linked;
 
     #[test]
     fn a_daemon_this_shell_does_not_supervise_is_taken_as_serving_at_once() {
