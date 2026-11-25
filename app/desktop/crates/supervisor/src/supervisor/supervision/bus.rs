@@ -1,6 +1,9 @@
+mod bus_event;
+
 use tokio::sync::{broadcast, watch};
 
 use crate::supervisor::daemon_event::DaemonEvent;
+use crate::supervisor::supervision::bus::bus_event::BusEvent;
 
 #[derive(Debug)]
 pub(crate) struct Bus {
@@ -23,17 +26,10 @@ impl Bus {
         &self,
         event: DaemonEvent,
     ) {
-        tracing::info!("daemon: {event:?}");
+        crate::journal_sink::emit(&BusEvent::Emitted { event: &event });
         self.current.send_replace(event.clone());
-        self.broadcast(event);
-    }
-
-    fn broadcast(
-        &self,
-        event: DaemonEvent,
-    ) {
         if self.stream.send(event).is_err() {
-            tracing::trace!("no one is subscribed to daemon events");
+            crate::journal_sink::emit(&BusEvent::Unheard);
         }
     }
 

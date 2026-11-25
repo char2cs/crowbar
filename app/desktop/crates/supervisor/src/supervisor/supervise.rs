@@ -1,3 +1,5 @@
+mod supervise_event;
+
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
@@ -13,6 +15,7 @@ use crate::supervisor::monitoring::{monitor, stop_child};
 use crate::supervisor::readiness::{await_ready, pid_mismatch};
 use crate::supervisor::recovery::{idle, recover, stop_idle};
 use crate::supervisor::spawn::spawn_daemon;
+use crate::supervisor::supervise::supervise_event::SuperviseEvent;
 use crate::supervisor::supervision::Command;
 use crate::supervisor::supervision::Phase;
 use crate::supervisor::supervision::Startup;
@@ -88,26 +91,16 @@ async fn after_startup(
             stop_child(supervision, &mut child).await;
             halt(supervision, reason, message)
         },
-        Startup::NeverHealthy => watch_unserved(supervision, child, commands).await,
+        Startup::NeverHealthy => {
+            crate::journal_sink::emit(&SuperviseEvent::Unserved);
+            monitor(supervision, start_watchdog(supervision, child), commands).await
+        },
         Startup::Exited(reason) => Phase::Recover { reason },
         Startup::Stopped => {
             stop_child(supervision, &mut child).await;
             stop_idle(supervision, None)
         },
     }
-}
-
-async fn watch_unserved(
-    supervision: &mut Supervision,
-    child: tokio::process::Child,
-    commands: &mut Commands,
-) -> Phase {
-    warn_unserved();
-    monitor(supervision, start_watchdog(supervision, child), commands).await
-}
-
-fn warn_unserved() {
-    tracing::warn!("the daemon is not serving yet; it keeps running under the watchdog");
 }
 
 fn halt(

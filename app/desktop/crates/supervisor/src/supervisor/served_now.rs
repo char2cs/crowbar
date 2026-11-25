@@ -1,7 +1,7 @@
-use std::time::Duration;
+mod served_now_event;
 
-use crate::error::Error;
 use crate::health::{Health, SocketDial, check_health};
+use crate::supervisor::served_now::served_now_event::ServedNowEvent;
 use crate::supervisor::supervision::Supervision;
 
 pub(crate) async fn served_now(supervision: &Supervision) -> Option<Option<u32>> {
@@ -11,25 +11,14 @@ pub(crate) async fn served_now(supervision: &Supervision) -> Option<Option<u32>>
         Ok(Ok(Health::Ready { pid })) => Some(pid),
         Ok(Ok(_)) => None,
         Ok(Err(error)) => {
-            not_serving(&error);
+            crate::journal_sink::emit(&ServedNowEvent::NotServing { error: &error });
             None
         },
         Err(elapsed) => {
-            not_answering(budget, &elapsed);
+            crate::journal_sink::emit(&ServedNowEvent::NotAnswering { budget, elapsed });
             None
         },
     }
-}
-
-fn not_serving(error: &Error) {
-    tracing::debug!("the daemon was heard but does not serve yet: {error}");
-}
-
-fn not_answering(
-    budget: Duration,
-    elapsed: &tokio::time::error::Elapsed,
-) {
-    tracing::debug!("the daemon was heard but did not answer in {budget:?}: {elapsed}");
 }
 
 #[cfg(test)]

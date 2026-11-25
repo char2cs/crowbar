@@ -1,6 +1,9 @@
+mod stale_daemon_event;
+
 use rustix::process::Signal;
 use tokio::process::Child;
 
+use crate::supervisor::monitoring::stale_daemon::stale_daemon_event::StaleDaemonEvent;
 use crate::supervisor::monitoring::stop::stop_with;
 use crate::supervisor::supervision::Phase;
 use crate::supervisor::supervision::Supervision;
@@ -10,33 +13,18 @@ pub(crate) async fn refuse(
     child: &mut Child,
     reason: String,
 ) -> Phase {
-    log_refusal(&reason);
+    crate::journal_sink::emit(&StaleDaemonEvent::Refused { reason: &reason });
     supervision.note("===", &reason);
-    stop_stale(supervision, child).await;
-    Phase::Recover { reason }
-}
-
-async fn stop_stale(
-    supervision: &Supervision,
-    child: &mut Child,
-) {
-    let stopped = stop_with(
+    if let Err(error) = stop_with(
         child,
         Signal::TERM,
         supervision.config.timings.sigterm_grace,
     )
-    .await;
-    if let Err(error) = stopped {
-        warn_unstopped(&error);
+    .await
+    {
+        crate::journal_sink::emit(&StaleDaemonEvent::Unstopped { error: &error });
     }
-}
-
-fn log_refusal(reason: &str) {
-    tracing::error!("{reason}");
-}
-
-fn warn_unstopped(error: &std::io::Error) {
-    tracing::warn!("stopping the daemon that lost the socket: {error}");
+    Phase::Recover { reason }
 }
 
 #[cfg(test)]

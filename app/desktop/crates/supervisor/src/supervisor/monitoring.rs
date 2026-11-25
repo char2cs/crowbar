@@ -3,6 +3,7 @@ mod running;
 mod stale_daemon;
 mod stop;
 pub(crate) mod watchdog;
+mod wedge_kill_event;
 
 use late_ready::answered;
 pub(crate) use running::Running;
@@ -10,7 +11,6 @@ pub(crate) use stale_daemon::refuse;
 pub(crate) use watchdog::{Guard, WatchContext, watch};
 
 use std::process::ExitStatus;
-use std::time::Duration;
 
 use rustix::process::Signal;
 use tokio::sync::mpsc;
@@ -20,6 +20,7 @@ use crate::health::SocketDial;
 use crate::health::get;
 use crate::supervisor::daemon_event::DaemonEvent;
 use crate::supervisor::monitoring::stop::{send, stop_with};
+use crate::supervisor::monitoring::wedge_kill_event::WedgeKillEvent;
 use crate::supervisor::readiness::describe_exit;
 use crate::supervisor::supervision::Command;
 use crate::supervisor::supervision::Phase;
@@ -160,12 +161,6 @@ async fn kill_wedged(
     supervision: &Supervision,
     child: &mut tokio::process::Child,
 ) {
-    dump_goroutines(supervision).await;
-    send(child, Signal::QUIT);
-    kill_unless_quit(supervision.config.timings.sigquit_grace, child).await;
-}
-
-async fn dump_goroutines(supervision: &Supervision) {
     let t = &supervision.config.timings;
     let dump = tokio::time::timeout(
         t.dump_timeout,
@@ -181,36 +176,20 @@ async fn dump_goroutines(supervision: &Supervision) {
             "=== watchdog goroutine dump",
             &String::from_utf8_lossy(&body),
         ),
-        Ok(Err(e)) => no_dump(&e),
-        Err(elapsed) => no_dump_in_time(t.dump_timeout, &elapsed),
+        Ok(Err(error)) => crate::journal_sink::emit(&WedgeKillEvent::NoDump { error: &error }),
+        Err(elapsed) => crate::journal_sink::emit(&WedgeKillEvent::NoDumpInTime {
+            timeout: t.dump_timeout,
+            elapsed,
+        }),
     }
-}
-
-fn no_dump(e: &Error) {
-    tracing::debug!("no goroutine dump: {e}");
-}
-
-fn no_dump_in_time(
-    timeout: Duration,
-    elapsed: &tokio::time::error::Elapsed,
-) {
-    tracing::debug!("no goroutine dump within {timeout:?}: {elapsed}");
-}
-
-async fn kill_unless_quit(
-    grace: Duration,
-    child: &mut tokio::process::Child,
-) {
-    if tokio::time::timeout(grace, child.wait()).await.is_ok() {
-        return;
+    send(child, Signal::QUIT);
+    if tokio::time::timeout(t.sigquit_grace, child.wait())
+        .await
+        .is_err()
+        && let Err(error) = child.kill().await
+    {
+        crate::journal_sink::emit(&WedgeKillEvent::Unkillable { error: &error });
     }
-    if let Err(e) = child.kill().await {
-        warn_unkillable(&e);
-    }
-}
-
-fn warn_unkillable(e: &std::io::Error) {
-    tracing::warn!("cannot kill the wedged daemon: {e}");
 }
 
 #[cfg(test)]

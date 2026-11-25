@@ -4,6 +4,7 @@
 mod config;
 mod error;
 mod health;
+mod journal_sink;
 mod supervisor;
 #[cfg(test)]
 mod test_support;

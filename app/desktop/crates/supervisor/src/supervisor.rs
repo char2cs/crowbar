@@ -6,6 +6,7 @@ mod served_now;
 mod spawn;
 mod supervise;
 pub(crate) mod supervision;
+mod supervisor_event;
 
 pub use daemon_event::DaemonEvent;
 
@@ -20,6 +21,7 @@ use crate::supervisor::supervise::supervise;
 use crate::supervisor::supervision::Bus;
 use crate::supervisor::supervision::Command;
 use crate::supervisor::supervision::Supervision;
+use crate::supervisor::supervisor_event::SupervisorEvent;
 
 const COMMAND_QUEUE: usize = 8;
 
@@ -39,14 +41,6 @@ pub struct Supervisor {
 fn stopped(why: impl std::fmt::Display) -> Error {
     tracing::debug!("the supervisor is no longer running: {why}");
     Error::Stopped
-}
-
-fn note_unconfirmed_stop() {
-    tracing::debug!("the supervision task ended without confirming the stop");
-}
-
-fn warn_failed_task(e: &tokio::task::JoinError) {
-    tracing::warn!("the supervision task failed: {e}");
 }
 
 impl Supervisor {
@@ -108,13 +102,13 @@ impl Supervisor {
     async fn ask_to_stop(&self) {
         let (done, finished) = oneshot::channel();
         if self.commands.send(Command::Stop(done)).await.is_ok() && finished.await.is_err() {
-            note_unconfirmed_stop();
+            crate::journal_sink::emit(&SupervisorEvent::StopUnconfirmed);
         }
     }
 
     async fn join_task(&mut self) {
-        if let Some(Err(e)) = self.finished().await {
-            warn_failed_task(&e);
+        if let Some(Err(error)) = self.finished().await {
+            crate::journal_sink::emit(&SupervisorEvent::TaskFailed { error: &error });
         }
     }
 
