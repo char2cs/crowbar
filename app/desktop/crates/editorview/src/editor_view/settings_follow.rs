@@ -1,7 +1,7 @@
 use gpui::{App, Context, Styled as _, Window, px};
-use gpui_kit::base::input::TabSize;
+use gpui_kit::base::input::{RopeExt as _, TabSize};
 use gpui_kit::component::Sizable as _;
-use gpui_kit::component::input::{Editor, EditorState};
+use gpui_kit::component::input::{Editor, EditorState, GutterStyle};
 
 use super::EditorView;
 use crate::{Access, Settings};
@@ -20,9 +20,16 @@ impl EditorView {
 
     pub(super) fn editor(
         &self,
+        window: &Window,
         cx: &App,
     ) -> Editor {
         let settings = Settings::of(cx);
+        let lines = self.state.read(cx).text().lines_len();
+        let mono = (
+            gpui::font(ui::Theme::of(cx).mono_family()),
+            px(settings.font_size),
+        );
+        let gap = super::gutter_gap::monaco_gap(lines, (&mono.0, mono.1), window);
         Editor::new(&self.state)
             .appearance(false)
             .xsmall()
@@ -31,6 +38,7 @@ impl EditorView {
             .font_family(ui::Theme::of(cx).mono_family())
             .text_size(px(settings.font_size))
             .line_height(settings.row_height())
+            .gutter_style(GutterStyle::default().with_gap(gap))
     }
 }
 
@@ -47,7 +55,7 @@ pub(super) fn apply(
     state.set_soft_wrap(settings.word_wrap == crate::WordWrap::On, window, cx);
     state.set_line_number(settings.line_numbers, window, cx);
     state.set_indent_guides(settings.indent_guides, window, cx);
-    let every = settings.whitespace == crate::WhitespaceMode::All;
+    let every = settings.whitespace == editor::WhitespaceMode::All;
     state.set_show_whitespaces(every, window, cx);
 }
 
@@ -83,7 +91,7 @@ mod tests {
             tab_size: 4,
             word_wrap: crate::WordWrap::On,
             line_numbers: false,
-            whitespace: crate::WhitespaceMode::Trailing,
+            whitespace: editor::WhitespaceMode::Trailing,
             ..Settings::default()
         };
         window.update(|_, cx| changed.install(cx));

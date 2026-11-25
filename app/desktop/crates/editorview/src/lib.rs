@@ -43,5 +43,5 @@ pub use language_server::LanguageServer;
 pub use lsp_error::LspError;
 pub use opening::Opening;
 pub use save_mark::SaveMark;
-pub use settings::{Settings, WhitespaceMode};
+pub use settings::Settings;
 pub use word_wrap::WordWrap;

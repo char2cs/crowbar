@@ -15,12 +15,11 @@ impl EditorView {
     ) {
         let state = self.state.read(cx);
         let text = state.value();
-        let selections = super::selections::of(state);
         let active = state.selected_range();
         if active.is_empty() {
             return self.start_from_word(active.start, cx);
         }
-        let query = self.query_for(&selections, &text, &active);
+        let (query, mut selections) = self.session_at(&text, &active);
         let Ok(found) = query.matches(&text) else {
             return;
         };
@@ -33,9 +32,9 @@ impl EditorView {
         let Some(next) = next else {
             return;
         };
-        self.state
-            .update(cx, |state, cx| state.add_selection(next, cx));
-        self.remember_session(query, cx);
+        selections.push(next);
+        self.select_all_of(&selections, cx);
+        self.occurrences = Some(OccurrenceSession { query, selections });
     }
 
     pub(super) fn select_all_occurrences(
@@ -75,33 +74,24 @@ impl EditorView {
         };
         let query = word_query(&text, &word);
         self.state
-            .update(cx, |state, cx| state.set_selected_range(word, cx));
-        self.remember_session(query, cx);
+            .update(cx, |state, cx| state.set_selected_range(word.clone(), cx));
+        let selections = vec![word];
+        self.occurrences = Some(OccurrenceSession { query, selections });
     }
 
-    fn query_for(
+    fn session_at(
         &self,
-        selections: &[Range<usize>],
         text: &str,
         active: &Range<usize>,
-    ) -> FindQuery {
+    ) -> (FindQuery, Vec<Range<usize>>) {
         let ongoing = self
             .occurrences
             .as_ref()
-            .filter(|session| session.selections == selections);
+            .filter(|session| session.selections.last() == Some(active));
         ongoing.map_or_else(
-            || selected_query(text, active),
-            |session| session.query.clone(),
+            || (selected_query(text, active), vec![active.clone()]),
+            |session| (session.query.clone(), session.selections.clone()),
         )
-    }
-
-    fn remember_session(
-        &mut self,
-        query: FindQuery,
-        cx: &Context<'_, Self>,
-    ) {
-        let selections = super::selections::of(self.state.read(cx));
-        self.occurrences = Some(OccurrenceSession { query, selections });
     }
 }
 

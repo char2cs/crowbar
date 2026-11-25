@@ -3,8 +3,7 @@
 //! Markdown takes the classes develop's Monaco grammar gives it, not the `--syntax-markdown-*`
 //! tokens, which develop's editor never reads: headings and list markers are keywords, link
 //! targets and code blocks strings, inline code a variable, and bold and italic keep the text
-//! colour. Brackets outside strings and comments take develop's muted bracket pair colour, and a
-//! closing bracket that closes nothing its destructive colour.
+//! colour.
 
 use gpui_kit::component::highlighter::HighlightThemeStyle;
 use serde_json::{Map, Value, json};
@@ -31,7 +30,6 @@ fn syntax(palette: &Palette) -> Map<String, Value> {
         ("comment", palette.syntax_comment()),
         ("punctuation", palette.syntax_punctuation()),
         ("punctuation.bracket", palette.muted_foreground()),
-        ("punctuation.bracket.unexpected", palette.destructive()),
         ("operator", palette.syntax_operator()),
         ("keyword", palette.syntax_keyword()),
         ("string", palette.syntax_string()),
@@ -126,6 +124,7 @@ mod tests {
         (language, text): (&str, &str),
         palette: &Palette,
     ) -> Vec<(std::ops::Range<usize>, HighlightStyle)> {
+        assert!(crate::theme::grammars::register().is_ok());
         let mut highlighter = SyntaxHighlighter::new(language);
         highlighter.update(None, &Rope::from(text), None);
         let painted = Painted(highlight_style(palette).unwrap());
@@ -141,26 +140,6 @@ mod tests {
             .rev()
             .find(|(range, _)| range.contains(&offset))
             .map_or_else(HighlightStyle::default, |(_, style)| *style)
-    }
-
-    #[test]
-    fn a_closing_bracket_that_closes_nothing_takes_develop_s_destructive_colour() {
-        let palette = Theme::default()
-            .with_mode(ThemeMode::Dark)
-            .palette(Surface::Window);
-        let text = "f(a)) + [b};\nlet s = \")\"\n";
-        let styles = styles_of(("typescript", text), palette);
-        let cases = [
-            ("a matched opener", 1, palette.muted_foreground()),
-            ("its closer", 3, palette.muted_foreground()),
-            ("a closer with no opener", 4, palette.destructive()),
-            ("an opener left open", 8, palette.muted_foreground()),
-            ("a closer of another kind", 10, palette.destructive()),
-            ("a closer in a string", 22, palette.syntax_string()),
-        ];
-        for (what, offset, color) in cases {
-            assert_eq!(style_at(&styles, offset).color, Some(color), "{what}");
-        }
     }
 
     #[test]
@@ -219,36 +198,6 @@ mod tests {
             let palette = Theme::default().with_mode(mode).palette(Surface::Window);
             let styles = styles_of(source, palette);
             let color = style_at(&styles, offset).color;
-            assert_eq!(
-                color,
-                Some(token(palette)),
-                "{mode:?} {source:?} at {offset}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_bracket_takes_monaco_s_bracket_pair_colour_outside_strings_and_comments() {
-        let cases = [
-            (
-                ("markdown", "a `f()` b\n"),
-                3,
-                Palette::syntax_variable as Token,
-            ),
-            (("markdown", "a `f()` b\n"), 4, Palette::muted_foreground),
-            (("markdown", "a `f()` b\n"), 5, Palette::muted_foreground),
-            (("markdown", "a `f()` b\n"), 6, Palette::syntax_variable),
-            (("typescript", "f(\"(\")\n"), 1, Palette::muted_foreground),
-            (("typescript", "f(\"(\")\n"), 3, Palette::syntax_string),
-            (("typescript", "// (\n"), 3, Palette::syntax_comment),
-        ];
-        let modes = [ThemeMode::Dark, ThemeMode::Light];
-        for (mode, (source, offset, token)) in modes
-            .into_iter()
-            .flat_map(|mode| cases.map(|case| (mode, case)))
-        {
-            let palette = Theme::default().with_mode(mode).palette(Surface::Window);
-            let color = style_at(&styles_of(source, palette), offset).color;
             assert_eq!(
                 color,
                 Some(token(palette)),

@@ -9,32 +9,39 @@ use gpui_kit::component::input::EditorState;
 use crate::document::Document;
 use crate::find_widget::FindWidget;
 use crate::goto_line::GotoLine;
+use crate::highlight_name;
 use crate::occurrence_session::OccurrenceSession;
 use crate::save_key::{CONTEXT, Save};
 use crate::theme::{ground, ink};
 use crate::toolbar::Toolbar;
 use crate::{Access, Caret, DocumentEvent, EditorEvent, Opening, Settings};
+use bracket_colours::BracketColours;
 
 const BODY: &str = "editor-body";
 const TEXT: &str = "editor-text";
 
 mod access_change;
+mod bracket_colours;
 mod command_actions;
 mod find_actions;
 mod fold_command;
 mod folding;
 mod goto_action;
+mod gutter_gap;
 mod language;
 mod line_command;
 mod line_commands;
 mod occurrences;
+mod preedit_dropping;
 pub(crate) mod replay;
 mod selections;
 mod settings_follow;
 #[cfg(test)]
 pub(crate) mod test_support;
+mod text_area;
 mod view_button;
 mod view_buttons;
+mod whitespace_marks;
 
 /// One pane's editor: the gpui-kit `Editor` drawn over a document, under the toolbar of its
 /// file. Several views over one document share its text, each with its own carets and history.
@@ -46,6 +53,7 @@ pub struct EditorView {
     occurrences: Option<OccurrenceSession>,
     find: Entity<FindWidget>,
     goto: Entity<GotoLine>,
+    brackets: Entity<BracketColours>,
     _caret_moves: Subscription,
     _typed: Subscription,
     _replayed: Subscription,
@@ -72,10 +80,9 @@ impl EditorView {
         }
         let find = cx.new(|cx| FindWidget::new(state.clone(), window, cx));
         let goto = cx.new(|cx| GotoLine::new(state.clone(), window, cx));
+        let brackets = cx.new(|cx| BracketColours::new(&state, highlight_name::of(language), cx));
         let caret_moves = cx.observe(&state, |_, _, cx| cx.notify());
-        let typed = cx.subscribe(&state, |view, state, _: &InputEditsEvent, cx| {
-            view.typed(&state, cx);
-        });
+        let typed = cx.subscribe(&state, Self::typed);
         let replayed = cx.subscribe_in(&shared, window, |view, _, text: &Rope, window, cx| {
             view.replay(text, window, cx);
         });
@@ -91,6 +98,7 @@ impl EditorView {
             occurrences: None,
             find,
             goto,
+            brackets,
             _caret_moves: caret_moves,
             _typed: typed,
             _replayed: replayed,
@@ -124,19 +132,22 @@ impl EditorView {
         cx: &mut Context<'_, Self>,
     ) {
         let toolbar = Toolbar::of(self.document.read(cx).path());
-        let language = crate::highlight_name::of(toolbar.language());
+        let language = highlight_name::of(toolbar.language());
         self.state
             .update(cx, |state, cx| state.set_highlighter(language, cx));
+        self.brackets
+            .update(cx, |brackets, cx| brackets.relanguage(language, cx));
         self.toolbar = toolbar;
         cx.notify();
     }
 
     fn typed(
-        &self,
-        state: &Entity<EditorState>,
+        &mut self,
+        _: Entity<EditorState>,
+        _: &InputEditsEvent,
         cx: &mut Context<'_, Self>,
     ) {
-        let text = state.read(cx).text().clone();
+        let text = self.state.read(cx).text().clone();
         let shared = self.document.read(cx).shared_text().clone();
         shared.update(cx, |shared, cx| shared.set(text, cx));
     }
@@ -202,7 +213,7 @@ impl Focusable for EditorView {
 impl Render for EditorView {
     fn render(
         &mut self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
         let caret = self.caret(cx);
@@ -217,11 +228,7 @@ impl Render for EditorView {
             .key_context(CONTEXT)
             .on_action(cx.listener(|_, _: &Save, _, cx| cx.emit(EditorEvent::SaveRequested)));
         let root = Self::command_actions(root, cx).on_action(cx.listener(Self::go_to_line));
-        let text = div()
-            .debug_selector(|| TEXT.to_owned())
-            .flex_1()
-            .min_h_0()
-            .child(self.editor(cx));
+        let text = self.text_area(window, cx);
         Self::find_actions(root, cx).child(toolbar).child(
             div()
                 .debug_selector(|| BODY.to_owned())
@@ -244,7 +251,7 @@ fn editor_state(
     (window, cx): (&mut Window, &mut Context<'_, EditorState>),
 ) -> EditorState {
     let mut state = EditorState::new(window, cx)
-        .language(crate::highlight_name::of(language))
+        .language(highlight_name::of(language))
         .context_menu(false)
         .searchable(false);
     state.set_value(text, window, cx);
@@ -254,16 +261,13 @@ fn editor_state(
 
 #[cfg(test)]
 mod tests {
-    use gpui::{TestAppContext, px};
+    use gpui::TestAppContext;
 
     use super::test_support::{
         document_of, document_opening, listened, opened, opened_at, press, shown,
     };
     use super::*;
     use crate::DocumentOpening;
-
-    const MONACO_LINE_NUMBER_CHARS: f32 = 5.;
-    const MONACO_FOLD_STRIP: gpui::Pixels = px(16.);
 
     fn language_of(
         view: &Entity<EditorView>,
@@ -372,30 +376,5 @@ mod tests {
         let rows = window.read(|cx| view.read(cx).state.read(cx).visible_row_range());
         let shown = rows.map_or(0, |rows| rows.len());
         assert!(shown > 10, "only {shown} rows show");
-    }
-
-    #[gpui::test]
-    fn the_text_starts_after_five_digit_cells_and_the_fold_strip_as_monaco_s_does(
-        cx: &mut TestAppContext
-    ) {
-        let (view, window) = opened(("0\nb", None), Access::Editable, cx);
-        window.run_until_parked();
-        let first = window.read(|cx| view.read(cx).state.read(cx).range_to_bounds(&(0..1)));
-        let (first, body) = (first.unwrap(), window.debug_bounds(BODY).unwrap());
-        let digits = first.size.width * MONACO_LINE_NUMBER_CHARS;
-        let offset = f32::from(first.left() - body.left());
-        let expected = f32::from(digits + MONACO_FOLD_STRIP);
-        assert!((offset - expected).abs() < 0.01, "{offset} != {expected}");
-    }
-
-    #[gpui::test]
-    fn the_first_line_sits_at_the_top_of_the_editor_with_no_frame_as_develop_s_does(
-        cx: &mut TestAppContext
-    ) {
-        let (view, window) = opened(("a\nb", None), Access::Editable, cx);
-        window.run_until_parked();
-        let first = window.read(|cx| view.read(cx).state.read(cx).range_to_bounds(&(0..1)));
-        let body = window.debug_bounds(BODY);
-        assert_eq!(first.map(|first| first.top()), body.map(|body| body.top()));
     }
 }

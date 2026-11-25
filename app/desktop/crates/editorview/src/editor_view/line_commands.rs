@@ -1,5 +1,8 @@
+use std::ops::Range;
+
 use editor::LineEdit;
 use gpui::{Context, Window};
+use gpui_kit::component::input::EditorState;
 
 use super::EditorView;
 use super::line_command::LineCommand;
@@ -35,19 +38,34 @@ impl EditorView {
 
     pub(super) fn select_all_of(
         &self,
-        ranges: &[std::ops::Range<usize>],
+        ranges: &[Range<usize>],
         cx: &mut Context<'_, Self>,
     ) {
-        let Some((first, rest)) = ranges.split_first() else {
+        let Some((active, rest)) = ranges.split_last() else {
             return;
         };
-        self.state
-            .update(cx, |state, cx| state.set_selected_range(first.clone(), cx));
-        for range in rest {
-            self.state
-                .update(cx, |state, cx| state.add_selection(range.clone(), cx));
-        }
+        self.state.update(cx, |state, cx| {
+            select_with_active(state, active, rest, cx);
+        });
     }
+}
+
+fn select_with_active(
+    state: &mut EditorState,
+    active: &Range<usize>,
+    rest: &[Range<usize>],
+    cx: &mut Context<'_, EditorState>,
+) {
+    let shown = state.range_to_bounds(active).is_some();
+    let scroll = state.scroll_offset();
+    state.set_selected_range(active.clone(), cx);
+    for range in rest {
+        state.add_selection(range.clone(), cx);
+    }
+    if shown {
+        return state.set_scroll_offset(scroll, cx);
+    }
+    crate::reveal::centring::reveal_centered(state, active.start, cx);
 }
 
 #[cfg(test)]

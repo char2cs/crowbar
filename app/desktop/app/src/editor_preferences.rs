@@ -1,4 +1,5 @@
-use editorview::{WhitespaceMode, WordWrap};
+use editor::WhitespaceMode;
+use editorview::WordWrap;
 use settings::Value;
 
 use crate::single_precision::single_precision;

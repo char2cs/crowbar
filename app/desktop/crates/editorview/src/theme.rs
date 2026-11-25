@@ -1,5 +1,6 @@
 //! gpui-kit's global theme as a projection of the shell's theme, which stays its owner (D6).
 
+mod grammars;
 mod highlight;
 
 use gpui::{App, Hsla};
@@ -11,6 +12,9 @@ use highlight::highlight_style;
 use ui::{Appearance, Surface, Theme};
 
 pub(crate) fn follow_shell(cx: &mut App) {
+    if let Err(error) = grammars::register() {
+        tracing::warn!("editor highlight queries: {error}");
+    }
     cx.observe_global::<Theme>(install).detach();
     cx.defer(install);
 }

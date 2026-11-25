@@ -1,11 +1,9 @@
 //! The user's editor settings, in develop's units and with develop's defaults.
 
-use crate::WordWrap;
+use editor::WhitespaceMode;
 use gpui::{App, Global, Pixels, px};
 
-mod whitespace_mode;
-
-pub use whitespace_mode::WhitespaceMode;
+use crate::WordWrap;
 
 const DEFAULT_FONT_SIZE: f32 = 14.0;
 const DEFAULT_LINE_HEIGHT: f32 = 1.4;
