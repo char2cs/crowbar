@@ -216,7 +216,7 @@ mod tests {
             this.apply(Intent::Ask(question), window, cx);
         });
         floating.window.run_until_parked();
-        crate::test_support::press(&mut floating.top, "escape");
+        crate::test_support::press(&mut floating.top(), "escape");
         assert_eq!(floating.recorder.sent(), Vec::new());
         assert!(sidebar.read_with(&floating.window, |this, _| this.question.is_none()));
     }
