@@ -1,9 +1,13 @@
-use crate::axis::Axis;
+pub(crate) mod editor_view;
+pub(crate) mod sidebar_side;
+pub(crate) mod view_mode;
+
 use crate::ide::pane_group::PaneGroup;
-use crate::ide::sidebar_side::SidebarSide;
-use crate::ide::view_mode::ViewMode;
-use crate::rect::Rect;
-use crate::split_node_place::divide;
+use crate::ide::presentation::sidebar_side::SidebarSide;
+use crate::ide::presentation::view_mode::ViewMode;
+use crate::tree::axis::Axis;
+use crate::tree::geometry::rect::Rect;
+use crate::tree::split_node_place::divide;
 
 /// Height of every top chrome row of a group: the chat header and the tab bar.
 pub const TOP_ROW_HEIGHT: f32 = 42.0;
@@ -229,7 +233,7 @@ mod tests {
     use protocol::{PaneId, PaneState, PaneTypeId, Params};
 
     use super::*;
-    use crate::pane_instance::PaneInstance;
+    use crate::layout::tab::pane_instance::PaneInstance;
 
     const fn at(
         (x, y): (f32, f32),

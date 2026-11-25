@@ -1,7 +1,7 @@
-use crate::edge::Edge;
-use crate::rect::Rect;
-use crate::split_node::SplitNode;
 use crate::test_support::tab_fixtures::id;
+use crate::tree::edge::Edge;
+use crate::tree::geometry::rect::Rect;
+use crate::tree::split_node::SplitNode;
 
 pub(crate) fn two_by_one() -> SplitNode {
     let mut tree = SplitNode::leaf(id("a"));

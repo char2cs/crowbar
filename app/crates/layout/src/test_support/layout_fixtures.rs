@@ -1,12 +1,12 @@
 use protocol::{PaneState, PaneTypeId, Params};
 
-use crate::command::Command;
-use crate::edge::Edge;
 use crate::layout::Layout;
-use crate::pane_instance::PaneInstance;
-use crate::placement::Placement;
+use crate::layout::command::Command;
+use crate::layout::tab::pane_instance::PaneInstance;
 use crate::tab_id::TabId;
 use crate::test_support::tab_fixtures::id;
+use crate::tree::edge::Edge;
+use crate::tree::placement::Placement;
 
 pub(crate) fn instance(name: &str) -> PaneInstance {
     PaneInstance {

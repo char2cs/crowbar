@@ -1,11 +1,11 @@
 use protocol::{PaneId, PaneState, PaneTypeId, Params};
 
-use crate::edge::Edge;
-use crate::pane_instance::PaneInstance;
-use crate::placement::Placement;
-use crate::rect::Rect;
-use crate::tab::Tab;
+use crate::layout::tab::Tab;
+use crate::layout::tab::pane_instance::PaneInstance;
 use crate::tab_id::TabId;
+use crate::tree::edge::Edge;
+use crate::tree::geometry::rect::Rect;
+use crate::tree::placement::Placement;
 
 pub(crate) fn id(name: &str) -> PaneId {
     PaneId::new(name).unwrap()

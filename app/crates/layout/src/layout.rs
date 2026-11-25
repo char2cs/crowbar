@@ -1,12 +1,20 @@
+mod arrangement;
+pub(crate) mod command;
+pub(crate) mod layout_history;
+mod layout_tabs;
+pub(crate) mod stored;
+pub(crate) mod tab;
+mod undo_step;
+
 use std::collections::BTreeMap;
 
 use protocol::{PaneId, PaneTypeId, Params};
 
-use crate::command::Command;
 use crate::error::Result;
-use crate::pane_instance::PaneInstance;
+use crate::layout::command::Command;
+use crate::layout::tab::Tab;
+use crate::layout::tab::pane_instance::PaneInstance;
 use crate::space_id::SpaceId;
-use crate::tab::Tab;
 use crate::tab_id::TabId;
 
 /// Most tabs a layout may hold.

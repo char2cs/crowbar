@@ -1,6 +1,6 @@
 use protocol::PaneId;
 
-use crate::pane_instance::PaneInstance;
+use crate::layout::tab::pane_instance::PaneInstance;
 use crate::tab_id::TabId;
 
 /// What a pointer drag carries. The sidebar, the tab bar and the pane layout all start and
