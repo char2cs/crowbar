@@ -180,7 +180,7 @@ mod tests {
     use gpui_kit::component::input::{Editor, EditorState};
 
     use super::*;
-    use crate::editor_view::test_support::listened;
+    use crate::editor_view::test_support::{listened, press};
 
     const TEXT: &str = "one\ntwo\n";
 
@@ -299,7 +299,7 @@ mod tests {
         put_caret(&a, (0, 0), window);
         window.simulate_input("x");
         put_caret(&b, (1, 0), window);
-        window.simulate_keystrokes("ctrl-z");
+        press("@input::Undo", window);
         assert_eq!(text(&a, window), TEXT, "b undid a's typing");
         assert_eq!(text(&b, window), TEXT);
     }

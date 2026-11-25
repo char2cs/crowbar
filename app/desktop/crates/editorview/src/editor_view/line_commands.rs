@@ -54,7 +54,7 @@ impl EditorView {
 mod tests {
     use gpui::TestAppContext;
 
-    use crate::editor_view::test_support::opened;
+    use crate::editor_view::test_support::{opened, press};
     use crate::{Access, EditorView};
 
     #[gpui::test]
@@ -63,16 +63,32 @@ mod tests {
             (Access::Editable, "alt-down", "b\na\nc"),
             (Access::Editable, "alt-down alt-down alt-up", "b\na\nc"),
             (Access::Editable, "alt-up", "a\nb\nc"),
-            (Access::Editable, "ctrl-shift-alt-down x", "a\nxa\nb\nc"),
-            (Access::Editable, "ctrl-shift-alt-up x", "xa\na\nb\nc"),
-            (Access::Editable, "ctrl-shift-k", "b\nc"),
-            (Access::Editable, "alt-down ctrl-z", "a\nb\nc"),
-            (Access::Editable, "alt-down ctrl-z ctrl-shift-z", "b\na\nc"),
-            (Access::ReadOnly, "alt-down ctrl-shift-k", "a\nb\nc"),
+            (
+                Access::Editable,
+                "@editorview::CopyLinesDown x",
+                "a\nxa\nb\nc",
+            ),
+            (
+                Access::Editable,
+                "@editorview::CopyLinesUp x",
+                "xa\na\nb\nc",
+            ),
+            (Access::Editable, "@editorview::DeleteLines", "b\nc"),
+            (Access::Editable, "alt-down @input::Undo", "a\nb\nc"),
+            (
+                Access::Editable,
+                "alt-down @input::Undo @input::Redo",
+                "b\na\nc",
+            ),
+            (
+                Access::ReadOnly,
+                "alt-down @editorview::DeleteLines",
+                "a\nb\nc",
+            ),
         ];
         for (access, keys, expected) in cases {
             let (view, window) = opened(("a\nb\nc", Some(1)), access, cx);
-            window.simulate_keystrokes(keys);
+            press(keys, window);
             assert_eq!(view.read_with(window, EditorView::text), expected, "{keys}");
         }
     }

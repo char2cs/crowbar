@@ -39,7 +39,7 @@ mod tests {
     use gpui::{Bounds, Entity, Focusable as _, Pixels, TestAppContext, VisualTestContext, px};
     use gpui_kit::base::input::WhitespaceMode;
 
-    use super::super::test_support::opened;
+    use super::super::test_support::{opened, press};
     use super::*;
     use crate::Access;
 
@@ -82,10 +82,10 @@ mod tests {
         assert_eq!(row, px(27.0), "18px at 1.5");
         assert!(start.origin.x < numbered_x, "the gutter lost its numbers");
         assert_eq!(whitespace_of(&view, window), WhitespaceMode::Trailing);
-        window.simulate_keystrokes("ctrl-end");
+        press("@input::MoveToEnd", window);
         let (end, _) = caret(&view, window).unwrap_or_default();
         assert!(end.origin.y > start.origin.y, "the long line wraps");
-        window.simulate_keystrokes("tab");
+        press("tab", window);
         let typed = view.read_with(window, EditorView::text);
         assert!(typed.ends_with("word     "), "a tab types four spaces");
     }

@@ -65,21 +65,21 @@ mod tests {
     use gpui::TestAppContext;
 
     use crate::Access;
-    use crate::editor_view::test_support::opened;
+    use crate::editor_view::test_support::{opened, press};
 
     #[gpui::test]
     fn the_fold_chords_fold_the_caret_s_block_and_open_it_again(cx: &mut TestAppContext) {
         let text = "function f() {\n  if (a) {\n    b();\n  }\n}\n";
         let cases: [(&str, &[usize]); 4] = [
-            ("ctrl-shift-[", &[1]),
-            ("ctrl-shift-[ ctrl-shift-[", &[0, 1]),
-            ("ctrl-shift-[ ctrl-shift-]", &[]),
-            ("ctrl-k ctrl-0", &[0, 1]),
+            ("@editorview::Fold", &[1]),
+            ("@editorview::Fold @editorview::Fold", &[0, 1]),
+            ("@editorview::Fold @editorview::Unfold", &[]),
+            ("@editorview::FoldAll", &[0, 1]),
         ];
         for (keys, expected) in cases {
             let (view, window) = opened((text, Some(3)), Access::Editable, cx);
             window.run_until_parked();
-            window.simulate_keystrokes(keys);
+            press(keys, window);
             let folded = window.read(|cx| folded_lines(view.read(cx).state.read(cx)));
             assert_eq!(folded, expected, "{keys}");
         }

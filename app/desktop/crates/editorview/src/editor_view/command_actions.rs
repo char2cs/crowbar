@@ -54,20 +54,26 @@ mod tests {
     use gpui::TestAppContext;
 
     use crate::Access;
-    use crate::editor_view::test_support::opened;
+    use crate::editor_view::test_support::{opened, press};
 
     const TEXT: &str = "ab x ab\nab";
 
     #[gpui::test]
     fn the_occurrence_chords_select_the_caret_word_s_matches(cx: &mut TestAppContext) {
         let cases = [
-            ("ctrl-d", &[(0, 2)][..]),
-            ("ctrl-d ctrl-d", &[(0, 2), (5, 7)]),
-            ("ctrl-shift-l", &[(0, 2), (5, 7), (8, 10)]),
+            ("@editorview::AddNextOccurrence", &[(0, 2)][..]),
+            (
+                "@editorview::AddNextOccurrence @editorview::AddNextOccurrence",
+                &[(0, 2), (5, 7)],
+            ),
+            (
+                "@editorview::SelectAllOccurrences",
+                &[(0, 2), (5, 7), (8, 10)],
+            ),
         ];
         for (keys, expected) in cases {
             let (view, window) = opened((TEXT, Some(1)), Access::Editable, cx);
-            window.simulate_keystrokes(keys);
+            press(keys, window);
             let selected = window.read(|cx| view.read(cx).state.read(cx).selection_ranges());
             let expected: Vec<_> = expected.iter().map(|(start, end)| *start..*end).collect();
             assert_eq!(selected, expected, "{keys}");

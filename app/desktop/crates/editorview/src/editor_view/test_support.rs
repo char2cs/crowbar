@@ -267,3 +267,43 @@ fn ask_completions(
     };
     Some(provider.completions(&text, offset, context, window, cx))
 }
+
+/// Presses `keys`, each `@namespace::Action` token as the chord the keymap binds last to that
+/// action, so a test presses each platform's own chord.
+pub(crate) fn press(
+    keys: &str,
+    window: &mut VisualTestContext,
+) {
+    let pressed = window.read(|cx| {
+        let tokens: Vec<String> = keys.split(' ').map(|token| key_of(token, cx)).collect();
+        tokens.join(" ")
+    });
+    window.simulate_keystrokes(&pressed);
+}
+
+fn key_of(
+    token: &str,
+    cx: &App,
+) -> String {
+    match token.strip_prefix('@') {
+        Some(action) => chord_of(action, cx),
+        None => token.to_owned(),
+    }
+}
+
+fn chord_of(
+    action: &str,
+    cx: &App,
+) -> String {
+    let built = cx.build_action(action, None).unwrap();
+    let os = cx.platform_info().os;
+    let keymap = cx.key_bindings();
+    let keymap = keymap.borrow();
+    let binding = keymap.bindings_for_action(built.as_ref()).last().unwrap();
+    let strokes: Vec<String> = binding
+        .keystrokes()
+        .iter()
+        .map(|key| key.unparse(os))
+        .collect();
+    strokes.join(" ")
+}

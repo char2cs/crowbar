@@ -97,7 +97,7 @@ mod tests {
     use gpui::{Entity, TestAppContext, VisualTestContext};
 
     use super::*;
-    use crate::editor_view::test_support::{document_of, listened, opened};
+    use crate::editor_view::test_support::{document_of, listened, opened, press};
     use crate::{Access, EditorEvent, EditorView};
 
     fn take(
@@ -149,7 +149,7 @@ mod tests {
         assert_eq!(view.read_with(window, EditorView::text), "a\nB\nc\nd");
         assert!(!dirty(&document, window), "clean");
         assert_eq!(view.read_with(window, |view, cx| view.caret(cx).line), 3);
-        window.simulate_keystrokes("ctrl-z");
+        press("@input::Undo", window);
         assert_eq!(
             view.read_with(window, EditorView::text),
             "a\nb\nc",
@@ -219,7 +219,7 @@ mod tests {
         }
         assert_eq!(view.read_with(window, EditorView::text), "a b");
         assert_eq!(*heard.borrow(), [EditorEvent::DirtyChanged(true)]);
-        window.simulate_keystrokes("ctrl-z");
+        press("@input::Undo", window);
         assert_eq!(
             view.read_with(window, EditorView::text),
             "a",

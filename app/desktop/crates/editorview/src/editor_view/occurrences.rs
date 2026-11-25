@@ -125,22 +125,31 @@ fn selected_query(
 mod tests {
     use gpui::TestAppContext;
 
-    use crate::editor_view::test_support::opened;
+    use crate::editor_view::test_support::{opened, press};
     use crate::{Access, EditorView};
 
     #[gpui::test]
     fn ctrl_d_and_ctrl_shift_l_select_the_caret_word_s_occurrences(cx: &mut TestAppContext) {
         let text = "total Total totals total";
         let cases = [
-            ("ctrl-d", "y Total totals total"),
-            ("ctrl-d ctrl-d", "y Total totals y"),
-            ("ctrl-d ctrl-d ctrl-d", "y Total totals y"),
-            ("ctrl-shift-l", "y Total totals y"),
-            ("shift-right shift-right ctrl-d", "ytal ytal totals total"),
+            ("@editorview::AddNextOccurrence", "y Total totals total"),
+            (
+                "@editorview::AddNextOccurrence @editorview::AddNextOccurrence",
+                "y Total totals y",
+            ),
+            (
+                "@editorview::AddNextOccurrence @editorview::AddNextOccurrence @editorview::AddNextOccurrence",
+                "y Total totals y",
+            ),
+            ("@editorview::SelectAllOccurrences", "y Total totals y"),
+            (
+                "shift-right shift-right @editorview::AddNextOccurrence",
+                "ytal ytal totals total",
+            ),
         ];
         for (keys, expected) in cases {
             let (view, window) = opened((text, Some(1)), Access::Editable, cx);
-            window.simulate_keystrokes(keys);
+            press(keys, window);
             window.simulate_input("y");
             assert_eq!(view.read_with(window, EditorView::text), expected, "{keys}");
         }

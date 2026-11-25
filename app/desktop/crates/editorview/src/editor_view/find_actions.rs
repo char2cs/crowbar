@@ -137,7 +137,7 @@ impl EditorView {
 mod tests {
     use gpui::{TestAppContext, VisualTestContext};
 
-    use crate::editor_view::test_support::{find_of, opened, selected_of};
+    use crate::editor_view::test_support::{find_of, opened, press, selected_of};
     use crate::{Access, EditorView};
 
     struct Seen {
@@ -166,19 +166,34 @@ mod tests {
     ) {
         let text = "total x Total\ntotal";
         let cases = [
-            ("ctrl-f", true, "1 of 3", 0..0),
-            ("ctrl-f enter", true, "1 of 3", 0..5),
-            ("ctrl-f enter enter", true, "2 of 3", 8..13),
-            ("ctrl-f enter enter enter enter", true, "1 of 3", 0..5),
-            ("ctrl-f shift-enter", true, "3 of 3", 14..19),
+            ("@input::Search", true, "1 of 3", 0..0),
+            ("@input::Search enter", true, "1 of 3", 0..5),
+            ("@input::Search enter enter", true, "2 of 3", 8..13),
+            (
+                "@input::Search enter enter enter enter",
+                true,
+                "1 of 3",
+                0..5,
+            ),
+            ("@input::Search shift-enter", true, "3 of 3", 14..19),
             ("f3 f3", true, "2 of 3", 8..13),
-            ("ctrl-f alt-c", true, "1 of 2", 0..0),
-            ("ctrl-f alt-c enter enter", true, "2 of 2", 14..19),
-            ("ctrl-f escape", false, "1 of 3", 0..0),
+            (
+                "@input::Search @editorview::ToggleMatchCase",
+                true,
+                "1 of 2",
+                0..0,
+            ),
+            (
+                "@input::Search @editorview::ToggleMatchCase enter enter",
+                true,
+                "2 of 2",
+                14..19,
+            ),
+            ("@input::Search escape", false, "1 of 3", 0..0),
         ];
         for (keys, shown, label, selected) in cases {
             let (view, window) = opened((text, Some(1)), Access::Editable, cx);
-            window.simulate_keystrokes(keys);
+            press(keys, window);
             let seen = seen(&view, window);
             assert_eq!(seen.shown, shown, "{keys}");
             assert_eq!(seen.label, label, "{keys}");
@@ -191,17 +206,35 @@ mod tests {
         cx: &mut TestAppContext
     ) {
         let cases = [
-            ("ctrl-f", "x", "", "1 of 1", 6..7),
-            ("ctrl-f", "t.tal", "", "No results", 0..1),
-            ("ctrl-f", "t.tal", "alt-r", "1 of 3", 0..1),
-            ("ctrl-f", "(", "alt-r", "No results", 0..0),
-            ("ctrl-f", "tal", "alt-w", "No results", 2..5),
+            ("@input::Search", "x", "", "1 of 1", 6..7),
+            ("@input::Search", "t.tal", "", "No results", 0..1),
+            (
+                "@input::Search",
+                "t.tal",
+                "@editorview::ToggleRegex",
+                "1 of 3",
+                0..1,
+            ),
+            (
+                "@input::Search",
+                "(",
+                "@editorview::ToggleRegex",
+                "No results",
+                0..0,
+            ),
+            (
+                "@input::Search",
+                "tal",
+                "@editorview::ToggleWholeWord",
+                "No results",
+                2..5,
+            ),
         ];
         for (open, query, keys, label, selected) in cases {
             let (view, window) = opened(("total x Total\ntotal", Some(1)), Access::Editable, cx);
-            window.simulate_keystrokes(open);
+            press(open, window);
             window.simulate_input(query);
-            window.simulate_keystrokes(keys);
+            press(keys, window);
             let seen = seen(&view, window);
             assert_eq!(seen.label, label, "{query} {keys}");
             assert_eq!(seen.selected, selected, "{query} {keys}");
@@ -214,14 +247,17 @@ mod tests {
             ("enter", "total x Total\ntotal"),
             ("enter enter", "sum x Total\ntotal"),
             ("enter enter enter", "sum x sum\ntotal"),
-            ("ctrl-alt-enter", "sum x sum\nsum"),
-            ("ctrl-alt-enter escape ctrl-z", "total x Total\ntotal"),
+            ("@editorview::ReplaceAll", "sum x sum\nsum"),
+            (
+                "@editorview::ReplaceAll escape @input::Undo",
+                "total x Total\ntotal",
+            ),
         ];
         for (keys, expected) in cases {
             let (view, window) = opened(("total x Total\ntotal", Some(1)), Access::Editable, cx);
-            window.simulate_keystrokes("ctrl-h");
+            press("@input::Replace", window);
             window.simulate_input("sum");
-            window.simulate_keystrokes(keys);
+            press(keys, window);
             assert_eq!(view.read_with(window, EditorView::text), expected, "{keys}");
         }
     }
@@ -229,7 +265,7 @@ mod tests {
     #[gpui::test]
     fn a_read_only_view_finds_but_does_not_open_replace(cx: &mut TestAppContext) {
         let (view, window) = opened(("total total", Some(1)), Access::ReadOnly, cx);
-        window.simulate_keystrokes("ctrl-h");
+        press("@input::Replace", window);
         window.simulate_input("x");
         assert_eq!(view.read_with(window, EditorView::text), "total total");
         assert_eq!(seen(&view, window).label, "No results");

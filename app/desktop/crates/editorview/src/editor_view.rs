@@ -223,7 +223,9 @@ fn editor_state(
 mod tests {
     use gpui::TestAppContext;
 
-    use super::test_support::{document_of, document_opening, listened, opened, opened_at, shown};
+    use super::test_support::{
+        document_of, document_opening, listened, opened, opened_at, press, shown,
+    };
     use super::*;
     use crate::DocumentOpening;
 
@@ -276,7 +278,7 @@ mod tests {
         assert!(document.read_with(window, Document::is_dirty), "typed");
         document.update(window, |document, cx| document.mark_saved("xa", cx));
         assert!(!document.read_with(window, Document::is_dirty), "saved");
-        window.simulate_keystrokes("secondary-s");
+        press("@editorview::Save", window);
         let expected = [
             EditorEvent::DirtyChanged(true),
             EditorEvent::DirtyChanged(false),
@@ -304,7 +306,7 @@ mod tests {
             document.read_with(window, Document::is_dirty),
             "opened dirty"
         );
-        window.simulate_keystrokes("ctrl-z");
+        press("@input::Undo", window);
         assert_eq!(
             view.read_with(window, EditorView::text),
             "draft",

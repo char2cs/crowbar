@@ -343,7 +343,7 @@ mod tests {
         top.simulate_keystrokes("escape");
         assert_eq!(harness.closed.get(), 0, "escape cancels the capture only");
         top.simulate_click(chord.center(), gpui::Modifiers::none());
-        top.simulate_keystrokes("ctrl-shift-k");
+        top.simulate_keystrokes("secondary-shift-k");
         assert!(matches!(overrides(&harness), Some(Value::Map(map)) if map.len() == 1));
     }
 }
