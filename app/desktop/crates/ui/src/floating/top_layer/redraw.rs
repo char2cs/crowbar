@@ -104,6 +104,45 @@ mod tests {
         );
     }
 
+    fn unsaved_prompt(closed: Rc<Cell<usize>>) -> Portal {
+        Portal::window("dialog", move |_, _| {
+            let closed = Rc::clone(&closed);
+            crate::Dialog::new("d")
+                .title("Unsaved Changes")
+                .on_close(move |_, _| closed.set(closed.get() + 1))
+        })
+    }
+
+    type Prompt = (FocusHandle, Rc<Cell<usize>>, Rc<Cell<usize>>);
+
+    fn field_or_dialog((field, opened, closed): Prompt) -> gpui::Div {
+        let dialog = (opened.get() > closed.get()).then(|| unsaved_prompt(closed));
+        div()
+            .child(div().size(px(10.0)).track_focus(&field))
+            .children(dialog)
+    }
+
+    #[gpui::test]
+    fn a_dialog_opened_over_a_focused_field_keeps_the_keys_and_closes_on_escape(
+        cx: &mut TestAppContext
+    ) {
+        let field = cx.update(|cx| cx.focus_handle());
+        let (opened, closed) = (Rc::new(Cell::new(0)), Rc::new(Cell::new(0)));
+        let inner = (field.clone(), Rc::clone(&opened), Rc::clone(&closed));
+        let (mut owner, mut top) = open_floating(cx, move |_, _| field_or_dialog(inner.clone()));
+        owner.update(|window, cx| window.focus(&field, cx));
+        settle(&mut owner);
+        opened.set(1);
+        owner.update(|window, _| window.refresh());
+        settle(&mut owner);
+        assert!(
+            top.update(|window, _| window.takes_keys()),
+            "the dialog holds the keyboard, not the field under it"
+        );
+        top.simulate_keystrokes("escape");
+        assert_eq!(closed.get(), 1, "escape closes the dialog");
+    }
+
     fn shown_after(
         top: &mut VisualTestContext,
         redraw: Redraw,

@@ -2835,6 +2835,9 @@ impl Window {
         if !self.focus_enabled || self.focus == Some(handle.id) {
             return;
         }
+        if self.leave_focus_to_owner(handle, cx) {
+            return;
+        }
 
         self.focus = Some(handle.id);
         self.focus_generation = self.focus_generation.wrapping_add(1);
@@ -2844,6 +2847,31 @@ impl Window {
         self.share_focus_with_owner(handle, cx);
 
         self.refresh();
+    }
+
+    /// An overlay asked to focus an element its owner renders leaves that focus to the owner and
+    /// lets go of its own. Held here, it would be handed back after the overlay's next frame and
+    /// undo a focus taken meanwhile, such as the one a dialog opening in the overlay takes.
+    fn leave_focus_to_owner(&mut self, handle: &FocusHandle, cx: &mut App) -> bool {
+        let Some(owner) = self.overlay_of else {
+            return false;
+        };
+        let owner_renders = owner
+            .update(cx, |_, window, _| {
+                !window.rendered_frame.dispatch_tree.focus_path(handle.id).is_empty()
+            })
+            .unwrap_or(false);
+        if !owner_renders {
+            return false;
+        }
+        if self.focus.take().is_some() {
+            self.focus_generation = self.focus_generation.wrapping_add(1);
+            self.refresh();
+        }
+        owner
+            .update(cx, |_, window, cx| window.focus(handle, cx))
+            .log_err();
+        true
     }
 
     /// An overlay's focus is its owner's too: the owner hands its focus to its overlays on every
