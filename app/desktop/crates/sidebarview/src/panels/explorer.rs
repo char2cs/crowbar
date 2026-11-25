@@ -23,7 +23,9 @@ use gpui::{
     AnyElement, App, ClickEvent, Context, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled, Window, div, px,
 };
-use sidebar::{Expansion, FileKind, FolderPhase, GitStatus, Lock, MenuScope, ShellAnswers};
+use sidebar::{
+    ClipMode, Expansion, FileKind, FolderPhase, GitStatus, Lock, MenuScope, ShellAnswers,
+};
 use ui::{ContextMenu, ScrollArea};
 
 use crate::panels::chats::RowInput;
@@ -117,6 +119,7 @@ impl Sidebar {
             editing: self.tree.editing().clone(),
             input: self.row_input(),
             selected: self.highlighted(window, cx),
+            cut: self.cut_paths(),
             look: TreeLook::of(
                 &self.data.file_tree_view(),
                 self.search.as_ref().map(|search| search.query.as_str()),
@@ -147,6 +150,13 @@ impl Sidebar {
         ContextMenu::new("files-root-menu", blank, root_menu)
             .flex_1()
             .min_h(px(ROOT_STRIP))
+    }
+
+    fn cut_paths(&self) -> Vec<String> {
+        let staged = self.tree.files().clipboard();
+        let root = self.data.workspace_root();
+        let cut = staged.filter(|staged| staged.mode == ClipMode::Cut && staged.root == root);
+        cut.map_or_else(Vec::new, |staged| staged.paths.clone())
     }
 
     fn highlighted(
@@ -181,7 +191,7 @@ impl Sidebar {
 
 #[cfg(test)]
 mod tests {
-    use sidebar::FolderPhase;
+    use sidebar::{ClipMode, FolderPhase};
 
     use crate::sidebar::Sidebar;
     use crate::test_support::prelude::*;
@@ -278,6 +288,24 @@ mod tests {
         assert_eq!(cursor.as_deref(), Some("src/lib.rs"));
         sidebar.update(cx, |this, cx| this.set_active_file(None, cx));
         assert_eq!(highlighted(&sidebar, cx), None);
+    }
+
+    fn stage(mode: ClipMode) -> Intent {
+        Intent::StageFile {
+            path: "README.md".into(),
+            mode,
+        }
+    }
+
+    #[gpui::test]
+    fn only_files_staged_by_cut_in_this_workspace_are_drawn_cut(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
+        let cases = [(ClipMode::Cut, vec!["README.md"]), (ClipMode::Copy, vec![])];
+        for (mode, want) in cases {
+            sidebar.update_in(cx, |this, window, cx| this.apply(stage(mode), window, cx));
+            let cut = sidebar.read_with(cx, |this, _| this.cut_paths());
+            assert_eq!(cut, want, "{mode:?}");
+        }
     }
 
     const FAR_BELOW_THE_ROWS: f32 = 700.0;

@@ -37,6 +37,7 @@ const BASE_PADDING: f32 = 6.0;
 const IGNORED_OPACITY: f32 = 0.5;
 const MATCH_TINT: f32 = 0.07;
 const HIGHLIGHT_TINT: f32 = 0.3;
+const CUT_OPACITY: f32 = 0.4;
 
 #[derive(IntoElement)]
 pub(crate) struct FileTreeRow {
@@ -44,6 +45,7 @@ pub(crate) struct FileTreeRow {
     pub(crate) neighbours: (u8, u8),
     pub(crate) input: Option<RowInput>,
     pub(crate) selected: bool,
+    pub(crate) cut: bool,
     pub(crate) look: TreeLook,
     pub(crate) scope: std::rc::Rc<MenuScope>,
     pub(crate) handler: RowHandler,
@@ -75,6 +77,7 @@ impl RenderOnce for FileTreeRow {
         let tinted = shaped.when(matched.is_some() && !self.selected, |row| {
             row.bg(palette.accent().opacity(MATCH_TINT))
         });
+        let tinted = tinted.when(self.cut, |row| row.italic().opacity(CUT_OPACITY));
         let guides = tree_guides((entry.depth, self.neighbours), (&self.look, palette));
         let row = ringed(tinted, &focus, palette)
             .children(guides)
@@ -256,6 +259,7 @@ mod tests {
             neighbours: (0, 0),
             input: None,
             selected: false,
+            cut: false,
             look: TreeLook::default(),
             scope: std::rc::Rc::default(),
             handler: std::rc::Rc::new(|_, _, _| {}),
@@ -275,6 +279,7 @@ mod tests {
             neighbours: (0, 0),
             input: None,
             selected: false,
+            cut: false,
             look: TreeLook::default(),
             scope: std::rc::Rc::default(),
             handler: std::rc::Rc::new(|_, _, _| {}),

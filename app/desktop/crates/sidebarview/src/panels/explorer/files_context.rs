@@ -15,6 +15,7 @@ pub(crate) struct FilesContext {
     pub(crate) editing: Editing,
     pub(crate) input: Option<RowInput>,
     pub(crate) selected: Option<String>,
+    pub(crate) cut: Vec<String>,
     pub(crate) look: TreeLook,
 }
 
@@ -46,6 +47,7 @@ impl FilesContext {
     ) -> FileTreeRow {
         FileTreeRow {
             selected: self.selected.as_deref() == Some(entry.path.as_str()),
+            cut: self.cut.contains(&entry.path),
             entry,
             neighbours: (0, 0),
             input,
@@ -138,8 +140,23 @@ mod tests {
             editing,
             input: None,
             selected: None,
+            cut: Vec::new(),
             look: TreeLook::default(),
         }
+    }
+
+    #[test]
+    fn a_file_staged_by_cut_is_drawn_cut_and_its_neighbours_are_not() {
+        let staged = FilesContext {
+            cut: vec!["src/a.rs".into()],
+            ..context(Editing::default())
+        };
+        let rows = staged.rows(files());
+        let cut: Vec<(&str, bool)> = rows
+            .iter()
+            .map(|row| (row.entry.path.as_str(), row.cut))
+            .collect();
+        assert_eq!(cut, [("src", false), ("src/a.rs", true)]);
     }
 
     fn files() -> Vec<FileRow> {
