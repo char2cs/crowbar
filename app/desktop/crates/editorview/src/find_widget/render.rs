@@ -70,14 +70,21 @@ impl Render for FindWidget {
                     .child(self.find_row(&palette, cx))
                     .children(replace_row),
             );
-        div()
-            .relative()
-            .flex_none()
-            .w_full()
-            .h(px(height))
-            .child(widget)
-            .into_any_element()
+        strip(height, widget)
     }
+}
+
+fn strip(
+    height: f32,
+    widget: impl IntoElement,
+) -> AnyElement {
+    div()
+        .relative()
+        .flex_none()
+        .w_full()
+        .h(px(height))
+        .child(widget)
+        .into_any_element()
 }
 
 impl FindWidget {

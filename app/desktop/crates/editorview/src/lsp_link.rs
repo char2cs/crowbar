@@ -6,10 +6,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use gpui::{App, AppContext as _, Task, WeakEntity};
+use gpui::{App, AppContext as _, Task};
 use serde_json::{Map, Value, json};
 
-use crate::document::SharedText;
 use crate::{LanguageServer, LspError};
 
 const CHANGE_DEBOUNCE: Duration = Duration::from_millis(400);
@@ -17,9 +16,11 @@ const UNTITLED: &str = "untitled:";
 const HOST_ROOT: char = '/';
 const PATH: &str = "path";
 
+type TextReader = Box<dyn Fn(&App) -> Option<String>>;
+
 pub(crate) struct LspLink {
     server: Rc<dyn LanguageServer>,
-    text: WeakEntity<SharedText>,
+    text: TextReader,
     path: RefCell<Option<String>>,
     pending: RefCell<Option<Task<()>>>,
 }
@@ -27,7 +28,7 @@ pub(crate) struct LspLink {
 impl LspLink {
     pub(crate) fn new(
         server: Rc<dyn LanguageServer>,
-        text: WeakEntity<SharedText>,
+        text: TextReader,
     ) -> Rc<Self> {
         Rc::new(Self {
             server,
@@ -145,8 +146,7 @@ impl LspLink {
         &self,
         cx: &App,
     ) -> Option<String> {
-        let shared = self.text.upgrade()?;
-        Some(shared.read(cx).text().to_string())
+        (self.text)(cx)
     }
 }
 

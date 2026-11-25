@@ -156,14 +156,6 @@ fn mark_tile(
         .child(inner)
 }
 
-fn name_cell(
-    current: &Project,
-    family: &'static str,
-    palette: &Palette,
-) -> Div {
-    spaced_name_cell(current, (family, tracking::TIGHT), palette)
-}
-
 fn spaced_name_cell(
     current: &Project,
     (family, em): (&'static str, f32),
@@ -242,7 +234,7 @@ fn name_column(
         .flex_col()
         .flex_1()
         .min_w_0()
-        .child(name_cell(current, family, palette))
+        .child(spaced_name_cell(current, (family, tracking::TIGHT), palette))
         .children(line)
 }
 

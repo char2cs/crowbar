@@ -42,7 +42,9 @@ impl Document {
         let reported_dirty = saved != text.as_str();
         let shared = cx.new(|_| SharedText::new(&text));
         let edits = cx.subscribe(&shared, Self::on_edit);
-        let lsp = server.map(|server| LspLink::new(server, shared.downgrade()));
+        let reader = shared.downgrade();
+        let read = move |cx: &App| Some(reader.upgrade()?.read(cx).text().to_string());
+        let lsp = server.map(|server| LspLink::new(server, Box::new(read)));
         if let Some(link) = &lsp {
             link.open(&path, cx);
         }

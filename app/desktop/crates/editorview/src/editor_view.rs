@@ -206,20 +206,10 @@ impl Render for EditorView {
         _window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
-        let read_only = self.access == Access::ReadOnly;
         let caret = self.caret(cx);
         let actions = self.toolbar_actions(cx);
         let rich_view = self.rich_view_button(cx);
         let toolbar = self.toolbar.element(caret, (actions, rich_view), cx);
-        let settings = Settings::of(cx);
-        let editor = Editor::new(&self.state)
-            .appearance(false)
-            .xsmall()
-            .readonly(read_only)
-            .size_full()
-            .font_family(ui::Theme::of(cx).mono_family())
-            .text_size(px(settings.font_size))
-            .line_height(settings.row_height());
         let root = div()
             .size_full()
             .bg(ground(cx))
@@ -232,7 +222,7 @@ impl Render for EditorView {
             .debug_selector(|| TEXT.to_owned())
             .flex_1()
             .min_h_0()
-            .child(editor);
+            .child(self.editor(cx));
         Self::find_actions(root, cx).child(toolbar).child(
             div()
                 .debug_selector(|| BODY.to_owned())
@@ -246,6 +236,23 @@ impl Render for EditorView {
                 .child(text)
                 .child(self.goto.clone()),
         )
+    }
+}
+
+impl EditorView {
+    fn editor(
+        &self,
+        cx: &App,
+    ) -> Editor {
+        let settings = Settings::of(cx);
+        Editor::new(&self.state)
+            .appearance(false)
+            .xsmall()
+            .readonly(self.access == Access::ReadOnly)
+            .size_full()
+            .font_family(ui::Theme::of(cx).mono_family())
+            .text_size(px(settings.font_size))
+            .line_height(settings.row_height())
     }
 }
 
