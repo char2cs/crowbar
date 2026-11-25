@@ -25,7 +25,7 @@ mod tests {
     use protocol::{PaneTypeId, Params};
 
     use super::*;
-    use crate::core_panes::BROWSER;
+    use crate::panes::kinds::core_panes::BROWSER;
     use crate::test_support::shell_rig;
 
     #[test]

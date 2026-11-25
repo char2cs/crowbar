@@ -2,10 +2,10 @@ use layout::Command;
 use protocol::PaneId;
 
 use super::ShellState;
-use crate::editor_panes::EditorTarget;
 use crate::error::Result;
-use crate::pane_opener::focus_commands;
-use crate::pane_spec::PaneSpec;
+use crate::panes::editor::editor_panes::EditorTarget;
+use crate::panes::kinds::pane_opener::focus_commands;
+use crate::panes::kinds::pane_spec::PaneSpec;
 
 impl ShellState {
     pub(super) fn spec_commands(

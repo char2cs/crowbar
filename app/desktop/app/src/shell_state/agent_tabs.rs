@@ -8,9 +8,9 @@ use protocol::PaneId;
 use serde_json::{Value, json};
 
 use super::ShellState;
-use crate::browser_tabs::{address_of, browser_tabs, chat_tab};
-use crate::pane_opener::open_in_tab;
-use crate::pane_spec::PaneSpec;
+use crate::panes::browser::browser_tabs::{address_of, browser_tabs, chat_tab};
+use crate::panes::kinds::pane_opener::open_in_tab;
+use crate::panes::kinds::pane_spec::PaneSpec;
 
 const TAB_CLOSED: &str = "the tab was closed before the page loaded";
 

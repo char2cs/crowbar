@@ -1,7 +1,7 @@
 use layout::{Command, Layout, PaneInstance, TabId};
 use protocol::{PaneId, PaneState, PaneTypeId, Params};
 
-use crate::core_panes::TERMINAL;
+use crate::panes::kinds::core_panes::TERMINAL;
 
 pub(crate) fn terminal_layout(chat: Option<&str>) -> Layout {
     let mut layout = Layout::default();

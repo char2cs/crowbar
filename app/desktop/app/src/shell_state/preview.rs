@@ -2,7 +2,7 @@ use layout::{Command, Layout};
 use protocol::PaneId;
 
 use super::ShellState;
-use crate::pane_spec::PaneSpec;
+use crate::panes::kinds::pane_spec::PaneSpec;
 
 impl ShellState {
     pub(crate) fn preview_spec(

@@ -3,9 +3,9 @@ use protocol::{PaneTypeId, Params};
 
 use super::ShellState;
 use super::preview::keeping;
-use crate::core_panes::{THREAD_ID, chat_params, chat_type};
-use crate::pane_opener::{open_at, open_view_commands};
-use crate::pane_spec::PaneSpec;
+use crate::panes::kinds::core_panes::{THREAD_ID, chat_params, chat_type};
+use crate::panes::kinds::pane_opener::{open_at, open_view_commands};
+use crate::panes::kinds::pane_spec::PaneSpec;
 
 impl ShellState {
     pub(crate) fn open_view(
@@ -189,7 +189,7 @@ mod tests {
             workspace: "w".into(),
             parent: String::new(),
         };
-        let params = crate::core_panes::draft_params(&draft).unwrap();
+        let params = crate::panes::kinds::core_panes::draft_params(&draft).unwrap();
         rig.shell.open_view(chat_type().unwrap(), params);
         let spaces: Vec<&str> = rig.shell.layout().tabs().iter().map(Tab::space).collect();
         assert_eq!(spaces, ["p1"], "the draft's tab is the active space's");

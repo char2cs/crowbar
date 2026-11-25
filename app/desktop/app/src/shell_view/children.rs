@@ -12,16 +12,20 @@ use super::built::Built;
 use super::pane_wiring::PaneWiring;
 use super::panes::Panes;
 use super::sidebar_wiring::SidebarWiring;
-use crate::browser_bars::BrowserBars;
-use crate::chat_hosts::ChatHosts;
 use crate::daemon::backend::ProjectsFailed;
 use crate::daemon::daemon_link::DaemonLink;
-use crate::native_panes::NativePanes;
-use crate::shell_pane_source::ShellPaneSource;
+use crate::panes::browser::browser_bars::BrowserBars;
+use crate::panes::content::native_panes::NativePanes;
+use crate::panes::content::new_tab::new_tab_panes;
+use crate::panes::content::shell_pane_source::ShellPaneSource;
+use crate::panes::editor::document_source;
+use crate::panes::editor::editor_panes;
+use crate::panes::editor::pane_language_server;
+use crate::panes::terminals::chat_hosts::ChatHosts;
+use crate::panes::terminals::terminal_panes::TerminalPanes;
 use crate::shell_request::ShellRequest;
 use crate::sidebar_requests::SidebarRequests;
 use crate::startup_requests::StartupRequests;
-use crate::terminal_panes::TerminalPanes;
 use crate::workspace::Workspace;
 
 fn terminal_sessions(link: &DaemonLink) -> TerminalSessions {
@@ -47,7 +51,7 @@ pub(super) fn build_panes<V: 'static>(
         (terminal_sessions(link), ChatHosts::of(data)),
         (*requests).clone(),
     );
-    let new_tab = crate::new_tab_panes::NewTabPanes::new((*requests).clone());
+    let new_tab = new_tab_panes::NewTabPanes::new((*requests).clone());
     let editors = editors_of((data, drafts), requests);
     let panes = NativePanes::new(terminals, new_tab, editors);
     let source = ShellPaneSource::new(state.titles(), state.serials(), bars, panes);
@@ -85,7 +89,7 @@ fn workspace_of<V: 'static>(
     cx.new(|_| Workspace::new(panes, landing, failing))
 }
 
-fn previews_of(tabs: &Entity<TabBar>) -> crate::shell_pane_source::PanePreviews {
+fn previews_of(tabs: &Entity<TabBar>) -> crate::panes::content::shell_pane_source::PanePreviews {
     let bar = tabs.downgrade();
     Rc::new(move |pane, cx| bar.upgrade()?.read(cx).preview(pane))
 }
@@ -93,34 +97,34 @@ fn previews_of(tabs: &Entity<TabBar>) -> crate::shell_pane_source::PanePreviews 
 fn editors_of(
     (data, drafts): (&Rc<store::Store>, &std::path::Path),
     requests: &async_channel::Sender<ShellRequest>,
-) -> crate::editor_panes::EditorPanes {
-    let documents: Rc<dyn crate::document_source::DocumentSource> = Rc::new(data.documents());
+) -> editor_panes::EditorPanes {
+    let documents: Rc<dyn document_source::DocumentSource> = Rc::new(data.documents());
     let (locks, workspaces) = (Rc::clone(data), Rc::clone(data));
     let servers = data.language_servers();
-    let chats = crate::editor_panes::ChatReads {
+    let chats = editor_panes::ChatReads {
         locks: Rc::new(move |chat| locks.chat_read_only(chat)),
         workspaces: Rc::new(move |chat| workspaces.chat_workspace(chat)),
-        servers: crate::pane_language_server::PaneLanguageServer::per_chat(servers),
+        servers: pane_language_server::PaneLanguageServer::per_chat(servers),
     };
     let file = editor::DiskDraftFile::at(drafts.to_path_buf());
     let (drafts, unread) = editor::Drafts::open(Box::new(file));
     if let Some(error) = unread {
         tracing::warn!(%error, "the unsaved drafts of the last run could not be read");
     }
-    crate::editor_panes::EditorPanes::new(documents, chats, drafts, requests.clone())
+    editor_panes::EditorPanes::new(documents, chats, drafts, requests.clone())
 }
 
-fn icons_of(data: &Rc<store::Store>) -> crate::shell_pane_source::FileIcons {
+fn icons_of(data: &Rc<store::Store>) -> crate::panes::content::shell_pane_source::FileIcons {
     let view = data.view();
     Rc::new(move || view.file_tree_view().icons)
 }
 
-fn names_of(data: &Rc<store::Store>) -> crate::shell_pane_source::ChatNames {
+fn names_of(data: &Rc<store::Store>) -> crate::panes::content::shell_pane_source::ChatNames {
     let data = Rc::clone(data);
     Rc::new(move |chat| data.chat_row(chat).map(|row| row.label))
 }
 
-fn glyphs_of(data: &Rc<store::Store>) -> crate::shell_pane_source::ChatGlyphs {
+fn glyphs_of(data: &Rc<store::Store>) -> crate::panes::content::shell_pane_source::ChatGlyphs {
     let data = Rc::clone(data);
     Rc::new(move |chat| data.chat_glyph(chat))
 }
@@ -169,7 +173,7 @@ pub(super) fn build_children<V: 'static>(
     let data = Rc::clone(&parts.data);
     let drafts = parts
         .preferences_path
-        .with_file_name(crate::editor_panes::DRAFTS_FILE);
+        .with_file_name(editor_panes::DRAFTS_FILE);
     let panes = build_panes(
         &PaneWiring {
             state: &parts.state,

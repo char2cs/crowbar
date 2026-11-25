@@ -5,8 +5,9 @@ use ui::{ToastContent, ToastKind, ToastLifetime};
 
 use super::ShellView;
 
-use crate::document_request::DocumentRequest;
-use crate::editor_panes::{Landing, PaneView};
+use crate::panes::editor::document_request::DocumentRequest;
+use crate::panes::editor::editor_panes::{Landing, PaneView};
+use crate::panes::editor::save_refusal;
 use crate::request_queue::send;
 use crate::shell_request::ShellRequest;
 
@@ -148,7 +149,7 @@ impl ShellView {
         reason: String,
         cx: &mut Context<'_, Self>,
     ) {
-        let (title, message) = crate::save_refusal::words(reason);
+        let (title, message) = save_refusal::words(reason);
         let said = ToastContent::new(ToastKind::Error, message).titled(title.to_owned());
         self.show_keyed(&format!("save:{pane}"), (said, ToastLifetime::Auto), cx);
     }
@@ -178,7 +179,7 @@ mod tests {
     use gpui::TestAppContext;
 
     use super::*;
-    use crate::pane_spec::PaneSpec;
+    use crate::panes::kinds::pane_spec::PaneSpec;
     use crate::shell_view::tests::{Opened, PLACED, open_shell};
 
     const PATH: &str = "src/pricing.ts";

@@ -4,7 +4,7 @@ use gpui::Entity;
 use layoutview::LayoutView;
 use viewtabs::TabBar;
 
-use crate::shell_pane_source::ShellPaneSource;
+use crate::panes::content::shell_pane_source::ShellPaneSource;
 use crate::workspace::Workspace;
 
 pub(super) struct Panes {

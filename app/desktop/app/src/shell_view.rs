@@ -74,15 +74,18 @@ mod watches;
 use self::watches::Watches;
 
 use crate::daemon::daemon_link::DaemonLink;
-use crate::focused_chat::focused_chat;
-use crate::holes::visible_panes;
+use crate::panes::content::holes::visible_panes;
+use crate::panes::content::shell_pane_source::ShellPaneSource;
+use crate::panes::tracking::focused_chat::focused_chat;
 use crate::ports::Ports;
-use crate::shell_pane_source::ShellPaneSource;
 use crate::shell_parts::ShellParts;
 use crate::shell_request::ShellRequest;
 use crate::shell_state::ShellState;
 
 use self::children::build_children;
+use crate::panes::terminals::link_menu;
+use crate::panes::tracking::active_file;
+use crate::panes::tracking::open_chats;
 
 pub(crate) struct ShellView {
     state: ShellState,
@@ -118,7 +121,7 @@ pub(crate) struct ShellView {
     readout: crate::readout_state::ReadoutState,
     notices: Entity<ToastQueue>,
     backend: crate::daemon::backend::BackendWatch,
-    link_menu: Option<crate::link_menu::LinkMenu>,
+    link_menu: Option<link_menu::LinkMenu>,
     subscriptions: Vec<Subscription>,
 }
 
@@ -291,11 +294,11 @@ impl ShellView {
         let tab = layout.showing(&space).cloned();
         self.data
             .focus_chat(focused_chat(layout, &space).as_deref());
-        self.data.watch_chats(crate::open_chats::tab_chats(layout));
-        let open = crate::open_chats::open_chats(layout)
+        self.data.watch_chats(open_chats::tab_chats(layout));
+        let open = open_chats::open_chats(layout)
             .into_iter()
             .map(sidebar::RowId::from);
-        let active = crate::active_file::active_file(layout, &space);
+        let active = active_file::active_file(layout, &space);
         self.sidebar.update(cx, |sidebar, cx| {
             sidebar.set_open_chats(open, cx);
             sidebar.set_active_file(active, cx);
@@ -606,7 +609,8 @@ mod tests {
 
     fn register_chat(opened: &mut Opened) {
         let register = protocol::PaneFrame::Register {
-            type_id: crate::core_panes::chat_type().unwrap_or_else(|error| panic!("{error}")),
+            type_id: crate::panes::kinds::core_panes::chat_type()
+                .unwrap_or_else(|error| panic!("{error}")),
             sdk: protocol::SDK_VERSION,
         };
         let text = protocol::encode(&register).unwrap_or_else(|error| panic!("{error}"));

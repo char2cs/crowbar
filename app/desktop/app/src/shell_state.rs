@@ -8,17 +8,19 @@ use browseragent::Replies;
 use panehost::{Keyboard, PaneHost};
 
 use crate::active_space::ActiveSpace;
-use crate::browser_ids::BrowserIds;
-use crate::browser_pages::BrowserPages;
-use crate::closed_panes::ClosedPanes;
-use crate::dirty_panes::DirtyPanes;
 use crate::error::{Error, Result};
 use crate::layout_store::LayoutStore;
 use crate::layout_writer::LayoutWriter;
 use crate::loaded_layout::LoadedLayout;
-use crate::serials::Serials;
-use crate::terminal_ids::TerminalIds;
-use crate::titles::Titles;
+use crate::panes::browser::browser_ids::BrowserIds;
+use crate::panes::browser::browser_pages::BrowserPages;
+use crate::panes::ide::closed_panes::ClosedPanes;
+use crate::panes::ide::tab_cap;
+use crate::panes::kinds::serials::Serials;
+use crate::panes::terminals::terminal_ids::TerminalIds;
+use crate::panes::tracking::dirty_panes::DirtyPanes;
+use crate::panes::tracking::draft_views;
+use crate::panes::tracking::titles::Titles;
 
 mod accessors;
 mod adopting;
@@ -87,7 +89,7 @@ impl ShellState {
             layout,
             quarantined,
         } = store.load_or_quarantine()?;
-        let layout = crate::draft_views::without_drafts(layout);
+        let layout = draft_views::without_drafts(layout);
         let browsers = BrowserIds::default();
         browsers.follow(&layout);
         let terminals = TerminalIds::default();
@@ -104,7 +106,7 @@ impl ShellState {
             host,
             titles,
             dirty: DirtyPanes::default(),
-            open_limit: crate::tab_cap::limit(None),
+            open_limit: tab_cap::limit(None),
             evicted: Vec::new(),
             browsers,
             terminals,
@@ -122,7 +124,7 @@ impl ShellState {
         &mut self,
         setting: Option<f64>,
     ) {
-        self.open_limit = crate::tab_cap::limit(setting);
+        self.open_limit = tab_cap::limit(setting);
     }
 
     pub(crate) fn take_evicted(&mut self) -> Vec<String> {
@@ -134,7 +136,7 @@ impl ShellState {
         commands: Vec<Command>,
     ) -> Vec<Command> {
         let layout = self.history.layout();
-        let victims = crate::tab_cap::evictions(layout, &commands, self.open_limit, &self.dirty);
+        let victims = tab_cap::evictions(layout, &commands, self.open_limit, &self.dirty);
         let names: Vec<String> = victims
             .iter()
             .map(|pane| {
@@ -224,7 +226,7 @@ mod tests {
     use protocol::PaneId;
 
     use super::*;
-    use crate::core_panes::{chat_params, chat_type};
+    use crate::panes::kinds::core_panes::{chat_params, chat_type};
     use crate::test_support::{ShellRig, open_chat, shell_rig};
 
     type Refused = (&'static str, Command);

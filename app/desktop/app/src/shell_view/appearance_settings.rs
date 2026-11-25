@@ -8,8 +8,8 @@ use super::sidebar_position::SIDEBAR_POSITION;
 use super::tab_strip::TAB_LIST_SCOPE;
 use crate::editor_preferences::{self, editor_settings};
 use crate::family_names::FamilyNames;
+use crate::panes::content::single_precision::single_precision;
 use crate::shell_request::ShellRequest;
-use crate::single_precision::single_precision;
 use crate::terminal_preferences::{KEYS, terminal_settings};
 
 const THEME: &str = "theme";

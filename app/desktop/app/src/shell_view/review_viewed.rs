@@ -5,8 +5,8 @@ use std::collections::BTreeMap;
 use gpui::Context;
 use protocol::{PaneId, ShellFrame};
 
-use crate::pane_spec::PaneSpec;
-use crate::review_panes::{ViewedChanges, review_chat, review_panes};
+use crate::panes::content::review_panes::{ViewedChanges, review_chat, review_panes};
+use crate::panes::kinds::pane_spec::PaneSpec;
 use crate::shell_view::ShellView;
 
 fn panes_of_workspace(

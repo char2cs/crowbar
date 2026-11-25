@@ -1,10 +1,10 @@
 use super::ShellState;
-use crate::browser_ids::BrowserIds;
-use crate::dirty_panes::DirtyPanes;
+use crate::panes::browser::browser_ids::BrowserIds;
+use crate::panes::kinds::serials::Serials;
+use crate::panes::terminals::terminal_ids::TerminalIds;
+use crate::panes::tracking::dirty_panes::DirtyPanes;
+use crate::panes::tracking::titles::Titles;
 use crate::save_report::SaveReport;
-use crate::serials::Serials;
-use crate::terminal_ids::TerminalIds;
-use crate::titles::Titles;
 use layout::{Layout, Tab};
 use panehost::PaneHost;
 

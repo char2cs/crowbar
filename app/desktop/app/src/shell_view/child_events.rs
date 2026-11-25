@@ -7,6 +7,8 @@ use ui::ToastKind;
 use super::ShellView;
 use super::built::Built;
 use crate::notice_key::NoticeKey;
+use crate::panes::kinds::core_panes;
+use crate::panes::tracking::open_chats;
 use crate::workspace_event::WorkspaceEvent;
 
 const WINDOW_CANNOT_HOST: &str = "This window cannot show panes: it is not an X11 window. Restart Crowbar under X11 or XWayland.";
@@ -164,7 +166,7 @@ impl ShellView {
                 placement,
             } => self.drop_chat(chat, (*tab, placement), cx),
             LayoutEvent::StageChat { chat } => {
-                self.open_chat(crate::core_panes::chat_params(chat), cx);
+                self.open_chat(core_panes::chat_params(chat), cx);
             },
             LayoutEvent::DropTab {
                 tab,
@@ -219,7 +221,7 @@ impl ShellView {
         chats: &[String],
         cx: &mut Context<'_, Self>,
     ) {
-        let panes = crate::open_chats::panes_showing(self.state.layout(), chats);
+        let panes = open_chats::panes_showing(self.state.layout(), chats);
         if panes.is_empty() {
             return;
         }
@@ -247,7 +249,7 @@ mod tests {
         pane: &protocol::PaneId,
     ) -> bool {
         let kind = layout.pane(pane).map(|instance| instance.type_id.as_str());
-        kind == Some(crate::core_panes::TERMINAL)
+        kind == Some(core_panes::TERMINAL)
     }
 
     fn terminals(shell: &ShellView) -> Vec<protocol::PaneId> {

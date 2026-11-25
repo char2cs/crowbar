@@ -1,6 +1,6 @@
 use sidebar::Mode;
 
-use crate::core_panes::{BROWSER, CHAT, EDITOR, NEW_TAB, REVIEW, TERMINAL};
+use crate::panes::kinds::core_panes::{BROWSER, CHAT, EDITOR, NEW_TAB, REVIEW, TERMINAL};
 
 pub(crate) fn surface_of(type_id: &str) -> Option<Mode> {
     match type_id {
@@ -23,7 +23,7 @@ pub(crate) fn crossing(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core_panes::CONSOLE;
+    use crate::panes::kinds::core_panes::CONSOLE;
 
     #[test]
     fn each_pane_type_names_the_surface_it_belongs_to() {

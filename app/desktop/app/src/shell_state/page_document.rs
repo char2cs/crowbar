@@ -1,6 +1,6 @@
 use panehost::HostEvent;
 
-use crate::document_request::DocumentRequest;
+use crate::panes::editor::document_request::DocumentRequest;
 
 pub(super) fn page_document(event: &HostEvent) -> Option<DocumentRequest> {
     match event {

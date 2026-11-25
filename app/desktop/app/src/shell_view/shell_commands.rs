@@ -10,6 +10,7 @@ mod dialogs;
 mod new_chats;
 use crate::direction::Direction;
 use crate::focus_neighbour::focus_neighbour;
+use crate::panes::tracking::group_focus;
 use crate::project_slot::project_at;
 
 const UNIT_EXTENT: f32 = 1000.0;
@@ -136,10 +137,7 @@ impl ShellView {
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
-        let target = self
-            .state
-            .showing()
-            .and_then(crate::group_focus::close_target);
+        let target = self.state.showing().and_then(group_focus::close_target);
         if let Some(pane) = target {
             self.apply_guarded(vec![Command::ClosePane { pane }], cx);
         }

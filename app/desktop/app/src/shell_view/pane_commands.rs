@@ -4,8 +4,9 @@ use layout::Command;
 use super::ShellView;
 
 mod files;
-use crate::focused_chat::focused_chat;
-use crate::pane_spec::PaneSpec;
+use crate::panes::kinds::pane_spec::PaneSpec;
+use crate::panes::tracking::focused_chat::focused_chat;
+use crate::panes::tracking::group_focus;
 
 impl ShellView {
     pub(super) fn reopen_closed_tab(
@@ -68,10 +69,7 @@ impl ShellView {
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
-        let toggle = self
-            .state
-            .showing()
-            .and_then(crate::group_focus::editor_toggle);
+        let toggle = self.state.showing().and_then(group_focus::editor_toggle);
         if let Some(command) = toggle {
             self.apply_guarded(vec![command], cx);
         }
@@ -136,7 +134,7 @@ mod tests {
     use gpui::TestAppContext;
 
     use super::*;
-    use crate::core_panes::{CHAT, TERMINAL, chat_params, chat_type};
+    use crate::panes::kinds::core_panes::{CHAT, TERMINAL, chat_params, chat_type};
     use crate::shell_view::test_support::{keys_of, panes_of};
     use crate::shell_view::tests::open_shell;
 

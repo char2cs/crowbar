@@ -4,15 +4,15 @@ use protocol::{PaneId, ShellFrame};
 
 use super::ShellView;
 use crate::close_choice::CloseChoice;
-use crate::close_guard::dirty_among;
 use crate::close_step::CloseStep;
 use crate::closing::Closing;
-use crate::document_request::DocumentRequest;
+use crate::panes::editor::document_request::DocumentRequest;
+use crate::panes::ide::tab_looks::tab_look;
+use crate::panes::tracking::close_guard::dirty_among;
+use crate::panes::tracking::titles::Titles;
 use crate::pending_close::PendingClose;
 use crate::request_queue::send;
 use crate::shell_request::ShellRequest;
-use crate::tab_looks::tab_look;
-use crate::titles::Titles;
 use crate::unsaved_dialog::{self, UnsavedDialog};
 
 pub(super) fn names_of(
@@ -222,8 +222,9 @@ mod tests {
     #[test]
     fn a_pane_is_named_as_its_tab_is_and_by_its_id_when_it_has_no_tab() {
         let mut layout = layout::Layout::default();
-        let serials = crate::serials::Serials::above(&layout);
-        let file = crate::pane_spec::PaneSpec::editor("c1", "src/pricing.ts").unwrap();
+        let serials = crate::panes::kinds::serials::Serials::above(&layout);
+        let file =
+            crate::panes::kinds::pane_spec::PaneSpec::editor("c1", "src/pricing.ts").unwrap();
         for command in file.open_commands((&layout, ""), &serials).unwrap() {
             layout.apply(command).unwrap();
         }

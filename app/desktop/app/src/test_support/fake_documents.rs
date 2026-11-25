@@ -5,8 +5,8 @@ use std::rc::Rc;
 use protocol::DocumentPath;
 use store::{FileDone, FileError};
 
-use crate::document_source::DocumentSource;
-use crate::editor_panes::EditorPanes;
+use crate::panes::editor::document_source::DocumentSource;
+use crate::panes::editor::editor_panes::EditorPanes;
 
 type Answer = Result<String, u16>;
 
@@ -114,7 +114,7 @@ fn refused(status: u16) -> FileError {
 
 /// File panes whose chats never load, for tests that have no files to show.
 pub(crate) fn idle_editors() -> EditorPanes {
-    let chats = crate::editor_panes::ChatReads {
+    let chats = crate::panes::editor::editor_panes::ChatReads {
         locks: Rc::new(|_| false),
         workspaces: Rc::new(|_| None),
         servers: super::FakeServers::default().servers(),

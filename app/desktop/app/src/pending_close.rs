@@ -3,7 +3,7 @@ use protocol::PaneId;
 use crate::close_choice::CloseChoice;
 use crate::close_step::CloseStep;
 use crate::closing::Closing;
-use crate::dirty_panes::DirtyPanes;
+use crate::panes::tracking::dirty_panes::DirtyPanes;
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct PendingClose {

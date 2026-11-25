@@ -9,8 +9,8 @@ use super::ShellState;
 use super::agent_call::AgentCall;
 use super::agent_progress::AgentProgress;
 use super::navigation_target::NavigationTarget;
-use crate::browser_tabs::{chat_browser, chat_tab, owned_browser};
 use crate::logged::emit;
+use crate::panes::browser::browser_tabs::{chat_browser, chat_tab, owned_browser};
 
 mod page_answer_event;
 use page_answer_event::PageAnswerEvent;

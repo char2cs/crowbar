@@ -2,6 +2,8 @@ use super::ShellState;
 use crate::logged::emit;
 
 mod theme_event;
+use crate::panes::content::pane_breakpoint;
+use crate::panes::content::pane_theme;
 use theme_event::ThemeEvent;
 
 impl ShellState {
@@ -18,14 +20,14 @@ impl ShellState {
         &mut self,
         theme: ui::Theme,
     ) {
-        let tokens = match crate::pane_theme::tokens_of(theme) {
+        let tokens = match pane_theme::tokens_of(theme) {
             Ok(tokens) => tokens,
             Err(error) => return emit(&ThemeEvent::Undescribed { error: &error }),
         };
         if let Err(error) = self.host.set_theme(tokens) {
             emit(&ThemeEvent::Unsent { error: &error });
         }
-        let surface = crate::pane_theme::surface_color(theme);
+        let surface = pane_theme::surface_color(theme);
         if let Err(error) = self.host.set_background(surface) {
             emit(&ThemeEvent::Uncoloured { error: &error });
         }
@@ -37,7 +39,7 @@ impl ShellState {
     ) {
         let cleared = ui::Breakpoint::cleared_by(width)
             .into_iter()
-            .map(crate::pane_breakpoint::wire_breakpoint)
+            .map(pane_breakpoint::wire_breakpoint)
             .collect();
         if let Err(error) = self.host.set_breakpoints(cleared) {
             tracing::warn!(%error, "sending the window's breakpoints to panes failed");
@@ -63,7 +65,7 @@ mod tests {
         let mut rig = shell_rig();
         let pane = synced_chat(&mut rig);
         let register = protocol::PaneFrame::Register {
-            type_id: crate::core_panes::chat_type().unwrap(),
+            type_id: crate::panes::kinds::core_panes::chat_type().unwrap(),
             sdk: protocol::SDK_VERSION,
         };
         let text = protocol::encode(&register).unwrap();
@@ -92,6 +94,9 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(painted, vec![crate::pane_theme::surface_color(theme)]);
+        assert_eq!(
+            painted,
+            vec![crate::panes::content::pane_theme::surface_color(theme)]
+        );
     }
 }

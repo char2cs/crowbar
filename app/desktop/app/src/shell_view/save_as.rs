@@ -3,11 +3,11 @@ use protocol::{DocumentPath, PaneId};
 use ui::{ToastContent, ToastKind, ToastLifetime};
 
 use super::ShellView;
-use crate::editor_panes::{Adoption, SaveAsPanes};
 use crate::name_event::NameEvent;
 use crate::name_prompt::{NamePrompt, SAVE_AS};
-use crate::saved_file::SavedFile;
-use crate::tab_looks::UNTITLED;
+use crate::panes::editor::editor_panes::{Adoption, SaveAsPanes};
+use crate::panes::editor::saved_file::SavedFile;
+use crate::panes::ide::tab_looks::UNTITLED;
 
 impl ShellView {
     pub(super) fn save_document(

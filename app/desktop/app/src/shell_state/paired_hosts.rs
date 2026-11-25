@@ -50,7 +50,7 @@ mod tests {
         let mut rig = shell_rig();
         let pane = synced_chat(&mut rig);
         let register = protocol::PaneFrame::Register {
-            type_id: crate::core_panes::chat_type().unwrap(),
+            type_id: crate::panes::kinds::core_panes::chat_type().unwrap(),
             sdk: protocol::SDK_VERSION,
         };
         let text = protocol::encode(&register).unwrap();

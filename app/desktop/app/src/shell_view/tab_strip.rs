@@ -6,8 +6,9 @@ use sidebar::{Activity, Row, Titling};
 use viewtabs::{MemberGlyph, MemberKind, MemberView, TabView};
 
 use super::ShellView;
-use crate::chat_label::{NEW_CHAT, unloaded_label};
-use crate::tab_scope::TabScope;
+use crate::panes::ide::tab_scope::TabScope;
+use crate::panes::kinds::chat_label::{NEW_CHAT, unloaded_label};
+use crate::panes::tracking::group_focus;
 
 pub(super) const TAB_LIST_SCOPE: &str = "tabListScope";
 const TERMINAL_LABEL: &str = "Terminal";
@@ -29,7 +30,7 @@ impl ShellView {
             .filter(|tab| scope.lists(&space, tab.space()))
             .map(|tab| TabView {
                 id: tab.id(),
-                members: crate::group_focus::listed(tab)
+                members: group_focus::listed(tab)
                     .iter()
                     .map(|pane| member((&titles, layout), &rows, pane))
                     .collect(),
@@ -51,7 +52,7 @@ impl ShellView {
 type ChatRows<'a> = &'a dyn Fn(&str) -> Option<Row>;
 
 fn member(
-    (titles, layout): (&crate::titles::Titles, &layout::Layout),
+    (titles, layout): (&crate::panes::tracking::titles::Titles, &layout::Layout),
     chat_rows: ChatRows<'_>,
     pane: &PaneId,
 ) -> MemberView {
@@ -120,8 +121,8 @@ fn kind_of(
     pane: &PaneId,
 ) -> MemberKind {
     match layout.pane(pane).map(|instance| instance.type_id.as_str()) {
-        Some(crate::core_panes::TERMINAL) => MemberKind::Terminal,
-        Some(crate::core_panes::NEW_TAB) => MemberKind::NewTab,
+        Some(crate::panes::kinds::core_panes::TERMINAL) => MemberKind::Terminal,
+        Some(crate::panes::kinds::core_panes::NEW_TAB) => MemberKind::NewTab,
         _ => MemberKind::Chat,
     }
 }
@@ -136,9 +137,9 @@ fn untitled(kind: MemberKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chat_label::{LOADING_CHAT, NEW_THREAD};
-    use crate::core_panes::{CHAT, NEW_TAB, TERMINAL};
-    use crate::titles::Titles;
+    use crate::panes::kinds::chat_label::{LOADING_CHAT, NEW_THREAD};
+    use crate::panes::kinds::core_panes::{CHAT, NEW_TAB, TERMINAL};
+    use crate::panes::tracking::titles::Titles;
 
     fn layout_holding(
         pane: &PaneId,

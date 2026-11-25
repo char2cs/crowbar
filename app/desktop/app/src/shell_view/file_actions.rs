@@ -6,11 +6,11 @@ use ui::ToastKind;
 
 use super::ShellView;
 use crate::file_reply::{self, Reply};
-use crate::focused_chat::focused_chat;
 use crate::logged::closed_view;
 use crate::notice_key::NoticeKey;
 use crate::open_all::{self, OpenAll};
-use crate::pane_spec::PaneSpec;
+use crate::panes::kinds::pane_spec::PaneSpec;
+use crate::panes::tracking::focused_chat::focused_chat;
 use crate::pending_file::PendingFile;
 
 mod answers;

@@ -1,7 +1,7 @@
 use layout::{Command, SpaceId, Tab};
 
 use super::ShellState;
-use crate::core_panes::THREAD_ID;
+use crate::panes::kinds::core_panes::THREAD_ID;
 
 impl ShellState {
     pub(crate) fn adopt_unowned(&mut self) {

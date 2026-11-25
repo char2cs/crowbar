@@ -5,7 +5,7 @@ use viewtabs::TabDrop;
 
 use super::ShellView;
 use crate::notice_key::NoticeKey;
-use crate::open_chats::panes_showing;
+use crate::panes::tracking::open_chats::panes_showing;
 
 // SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/components/sidebar/lib/pane-drop-actions.ts
 const OTHER_SPACE: &str = "That chat belongs to a different space";
@@ -121,7 +121,7 @@ mod tests {
     use protocol::PaneId;
 
     use super::*;
-    use crate::core_panes::{chat_params, chat_type};
+    use crate::panes::kinds::core_panes::{chat_params, chat_type};
     use crate::shell_view::tests::{Opened, open_shell};
 
     fn open_chats(

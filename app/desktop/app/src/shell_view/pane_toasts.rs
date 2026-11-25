@@ -4,7 +4,7 @@ use ui::{ToastContent, ToastKind, ToastLifetime};
 
 use super::ShellView;
 use crate::notices::{pane_of_toast_key, pane_toast_content, pane_toast_key};
-use crate::pane_toast_change::PaneToastChange;
+use crate::panes::content::pane_toast_change::PaneToastChange;
 
 impl ShellView {
     pub(super) fn show_pane_toasts(

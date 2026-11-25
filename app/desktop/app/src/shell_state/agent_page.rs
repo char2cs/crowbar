@@ -8,7 +8,7 @@ use super::agent_call::AgentCall;
 use super::agent_ops::{done, failed};
 use super::agent_progress::AgentProgress;
 use super::page_step::PageStep;
-use crate::page_shot::png_of;
+use crate::panes::browser::page_shot::png_of;
 use crate::view_life::ViewLife;
 
 const NO_PAGE: &str = "this tab has no page yet; use browser_navigate first";

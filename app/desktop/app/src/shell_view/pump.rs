@@ -4,9 +4,9 @@ use protocol::PaneId;
 
 use super::ShellView;
 use crate::daemon::startup::startup_command;
-use crate::holes::visible_panes;
+use crate::panes::content::holes::visible_panes;
+use crate::panes::content::single_precision::single_precision;
 use crate::shell_request::ShellRequest;
-use crate::single_precision::single_precision;
 
 impl ShellView {
     pub(super) fn spawn_tasks(

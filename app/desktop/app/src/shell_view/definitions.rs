@@ -8,7 +8,8 @@ use ui::{ToastContent, ToastKind, ToastLifetime};
 
 use super::ShellView;
 use super::terminal_files::at_line;
-use crate::pane_spec::PaneSpec;
+use crate::panes::ide::tab_looks;
+use crate::panes::kinds::pane_spec::PaneSpec;
 
 const OUTSIDE: &str = "Definition is outside this workspace";
 
@@ -21,7 +22,7 @@ impl ShellView {
     ) {
         let (pane, path, at) = found;
         let layout = self.state.layout();
-        let chat = layout.pane(pane).and_then(crate::tab_looks::file_chat_of);
+        let chat = layout.pane(pane).and_then(tab_looks::file_chat_of);
         let Some(chat) = chat.map(str::to_owned) else {
             return;
         };
@@ -56,8 +57,8 @@ impl ShellView {
 mod tests {
     use gpui::TestAppContext;
 
-    use crate::core_panes::EDITOR;
-    use crate::pane_spec::PaneSpec;
+    use crate::panes::kinds::core_panes::EDITOR;
+    use crate::panes::kinds::pane_spec::PaneSpec;
     use crate::shell_view::test_support::panes_of;
     use crate::shell_view::tests::open_shell;
 

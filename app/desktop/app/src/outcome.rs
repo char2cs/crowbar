@@ -1,6 +1,8 @@
 use protocol::{CommandId, PaneId};
 
-use crate::pane_toast_change::PaneToastChange;
+use crate::panes::content::pane_toast_change::PaneToastChange;
+use crate::panes::content::review_panes;
+use crate::panes::editor::document_request;
 
 #[derive(Debug, Default, PartialEq)]
 pub(crate) struct Outcome {
@@ -16,7 +18,7 @@ pub(crate) struct Outcome {
     pub(crate) settings: Vec<(protocol::SettingKey, serde_json::Value)>,
     pub(crate) pointer: Option<(PaneId, f64, f64)>,
     pub(crate) mounted: Vec<PaneId>,
-    pub(crate) documents: Vec<crate::document_request::DocumentRequest>,
-    pub(crate) viewed: Vec<(PaneId, crate::review_panes::ViewedChanges)>,
+    pub(crate) documents: Vec<document_request::DocumentRequest>,
+    pub(crate) viewed: Vec<(PaneId, review_panes::ViewedChanges)>,
     pub(crate) toasts: Vec<PaneToastChange>,
 }

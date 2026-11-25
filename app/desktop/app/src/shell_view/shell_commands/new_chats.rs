@@ -7,6 +7,7 @@ use super::ShellView;
 use crate::logged::emit;
 
 mod new_chat_event;
+use crate::panes::tracking::group_focus;
 use new_chat_event::NewChatEvent;
 
 impl ShellView {
@@ -14,7 +15,7 @@ impl ShellView {
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
-        if crate::group_focus::editor_focused(self.state.layout(), &self.state.space()) {
+        if group_focus::editor_focused(self.state.layout(), &self.state.space()) {
             return self.new_tab(cx);
         }
         self.start_chat(sidebar::Command::NewChat);
@@ -47,7 +48,7 @@ mod tests {
     use keymap::ShellCommand;
     use protocol::PaneId;
 
-    use crate::core_panes::CHAT;
+    use crate::panes::kinds::core_panes::CHAT;
     use crate::shell_view::test_support::panes_of;
     use crate::shell_view::tests::{Opened, open_shell};
 

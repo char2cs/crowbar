@@ -3,7 +3,7 @@ use protocol::{PaneId, PaneState};
 use serde_json::{Map, Value};
 
 use super::ShellState;
-use crate::terminal_ids::NAME_KEY;
+use crate::panes::terminals::terminal_ids::NAME_KEY;
 
 impl ShellState {
     pub(crate) fn rename_pane(
@@ -37,7 +37,7 @@ fn named_state(
 
 #[cfg(test)]
 mod tests {
-    use crate::pane_spec::PaneSpec;
+    use crate::panes::kinds::pane_spec::PaneSpec;
     use crate::test_support::shell_rig;
 
     #[test]

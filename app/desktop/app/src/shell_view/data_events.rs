@@ -8,9 +8,9 @@ use ui::ToastKind;
 
 use super::ShellView;
 use crate::byte_source::ByteSource;
-use crate::core_panes::{chat_params, chat_type, draft_params};
 use crate::logged::{closed_view, logged};
 use crate::notice_key::NoticeKey;
+use crate::panes::kinds::core_panes::{chat_params, chat_type, draft_params};
 use crate::settings_modal::{open_settings, settings_config};
 
 // SPEC: docs/triage/2026-11-18-side-by-side-audit/15-set.md SET-094: WebKit's chooser for the descriptor `<input accept=…>`.

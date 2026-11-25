@@ -3,11 +3,11 @@ use protocol::{DocumentPath, OpenMode, PaneId, PaneOpen};
 
 use super::ShellState;
 use super::preview::{keeping, previewing};
-use crate::core_panes::EDITOR;
 use crate::error::Result;
-use crate::focused_chat::chat_of_pane;
-use crate::pane_opener::open_commands;
-use crate::pane_spec::PaneSpec;
+use crate::panes::kinds::core_panes::EDITOR;
+use crate::panes::kinds::pane_opener::open_commands;
+use crate::panes::kinds::pane_spec::PaneSpec;
+use crate::panes::tracking::focused_chat::chat_of_pane;
 
 impl ShellState {
     pub(crate) fn requested_open(

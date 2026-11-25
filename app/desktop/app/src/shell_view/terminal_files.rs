@@ -4,10 +4,11 @@ use protocol::PaneId;
 use ui::{ToastContent, ToastKind};
 
 use super::ShellView;
-use crate::file_target::FileTarget;
 use crate::notice_key::NoticeKey;
-use crate::pane_spec::PaneSpec;
-use crate::terminal_owner::TerminalOwner;
+use crate::panes::kinds::pane_spec::PaneSpec;
+use crate::panes::terminals::file_target::FileTarget;
+use crate::panes::terminals::terminal_owner::TerminalOwner;
+use crate::panes::terminals::terminal_root;
 
 const CANNOT_OPEN: &str = "Cannot open file";
 const LINE: &str = "line";
@@ -37,7 +38,7 @@ impl ShellView {
             .pane(pane)
             .and_then(|instance| instance.state.as_value().get("directory").cloned());
         let directory = directory.as_ref().and_then(serde_json::Value::as_str);
-        let root = crate::terminal_root::terminal_root(directory, workspace.as_deref());
+        let root = terminal_root::terminal_root(directory, workspace.as_deref());
         let Some(absolute) = terminal::resolve_file_path(printed, root.as_deref()) else {
             let detail = format!("Could not resolve {printed} to a path.");
             return self.cannot_open(detail, cx);
@@ -107,7 +108,7 @@ mod tests {
     use gpui::TestAppContext;
     use terminalview::Event;
 
-    use crate::core_panes::EDITOR;
+    use crate::panes::kinds::core_panes::EDITOR;
     use crate::shell_view::test_support::{panes_of, tell, with_terminal};
 
     #[gpui::test]

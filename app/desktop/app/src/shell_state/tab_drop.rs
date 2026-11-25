@@ -43,7 +43,7 @@ mod tests {
     use protocol::PaneId;
 
     use super::*;
-    use crate::core_panes::{chat_params, chat_type};
+    use crate::panes::kinds::core_panes::{chat_params, chat_type};
     use crate::test_support::shell_rig;
 
     fn chat_panes(shell: &ShellState) -> Vec<Vec<PaneId>> {

@@ -2,7 +2,7 @@ use settings::LEGACY_TERMINAL_LINE_HEIGHT;
 use settings::Value;
 use terminal::CursorShape;
 
-use crate::single_precision::single_precision;
+use crate::panes::content::single_precision::single_precision;
 
 pub(crate) const KEYS: [&str; 8] = [
     "terminalFontFamily",

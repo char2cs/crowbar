@@ -5,7 +5,7 @@ use ideshell::PathAction;
 
 use super::ShellView;
 use crate::logged::emit;
-use crate::pane_spec::PaneSpec;
+use crate::panes::kinds::pane_spec::PaneSpec;
 
 mod reveal_event;
 use reveal_event::RevealEvent;
@@ -142,7 +142,7 @@ mod tests {
     use gpui::TestAppContext;
 
     use super::*;
-    use crate::core_panes::EDITOR;
+    use crate::panes::kinds::core_panes::EDITOR;
     use crate::shell_view::test_support::panes_of;
     use crate::shell_view::tests::open_shell;
     use crate::test_support::answer_choices_with;

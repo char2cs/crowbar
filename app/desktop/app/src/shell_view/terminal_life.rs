@@ -7,7 +7,7 @@ use ui::{ToastContent, ToastKind};
 use super::ShellView;
 use crate::logged::emit;
 use crate::notice_key::NoticeKey;
-use crate::terminal_ids::SESSION_KEY;
+use crate::panes::terminals::terminal_ids::SESSION_KEY;
 
 mod session_event;
 use session_event::SessionEvent;
@@ -82,7 +82,7 @@ mod tests {
     use gpui::TestAppContext;
 
     use super::*;
-    use crate::core_panes::TERMINAL;
+    use crate::panes::kinds::core_panes::TERMINAL;
     use crate::shell_view::test_support::{panes_of, with_terminal};
 
     #[gpui::test]

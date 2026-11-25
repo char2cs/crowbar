@@ -40,7 +40,7 @@ pub(crate) fn of_store(store: &Rc<store::Store>) -> Rc<dyn ActiveSpace> {
 
 #[cfg(test)]
 mod tests {
-    use crate::core_panes::{chat_params, chat_type};
+    use crate::panes::kinds::core_panes::{chat_params, chat_type};
     use crate::test_support::{open_chat, shell_rig};
 
     #[test]

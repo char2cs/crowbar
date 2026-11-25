@@ -4,7 +4,7 @@ use protocol::PaneId;
 use terminalview::Event;
 
 use super::ShellView;
-use crate::core_panes::TERMINAL;
+use crate::panes::kinds::core_panes::TERMINAL;
 use crate::shell_view::tests::{Opened, open_shell};
 
 pub(super) fn with_terminal(cx: &mut TestAppContext) -> (Opened, PaneId) {

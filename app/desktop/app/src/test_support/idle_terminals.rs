@@ -6,10 +6,10 @@ use ptysession::TerminalSessions;
 use tokio::runtime::{Builder, Runtime};
 
 use super::NoDaemon;
-use crate::chat_hosts::ChatHosts;
+use crate::panes::terminals::chat_hosts::ChatHosts;
+use crate::panes::terminals::terminal_ids::TerminalIds;
+use crate::panes::terminals::terminal_panes::TerminalPanes;
 use crate::shell_request::ShellRequest;
-use crate::terminal_ids::TerminalIds;
-use crate::terminal_panes::TerminalPanes;
 
 static UNDRIVEN: OnceLock<Runtime> = OnceLock::new();
 

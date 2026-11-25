@@ -1,7 +1,7 @@
 use protocol::{PaneTypeId, Params};
 
-use crate::core_panes::{chat_params, chat_type};
 use crate::error::Result;
+use crate::panes::kinds::core_panes::{chat_params, chat_type};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum SidebarAction {

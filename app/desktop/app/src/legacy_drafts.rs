@@ -3,9 +3,9 @@ use std::path::PathBuf;
 use store::LegacyDrafts;
 
 use crate::app_options::AppOptions;
-use crate::editor_panes::DRAFTS_FILE;
-use crate::host_builder::WEBVIEW_DIR;
 use crate::logged::emit;
+use crate::panes::editor::editor_panes::DRAFTS_FILE;
+use crate::panes::kinds::host_builder::WEBVIEW_DIR;
 
 mod import_event;
 pub(crate) use import_event::ImportEvent;

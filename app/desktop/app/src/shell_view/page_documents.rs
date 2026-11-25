@@ -4,9 +4,9 @@ use gpui::{Context, Window};
 use protocol::{PaneId, ShellFrame};
 
 use super::ShellView;
-use crate::document_request::DocumentRequest;
-use crate::editor_panes::PaneView;
-use crate::pane_spec::PaneSpec;
+use crate::panes::editor::document_request::DocumentRequest;
+use crate::panes::editor::editor_panes::PaneView;
+use crate::panes::kinds::pane_spec::PaneSpec;
 use crate::request_queue::send;
 use crate::shell_request::ShellRequest;
 
@@ -95,8 +95,8 @@ impl ShellView {
 mod tests {
     use gpui::TestAppContext;
 
-    use crate::core_panes::EDITOR;
-    use crate::pane_spec::PaneSpec;
+    use crate::panes::kinds::core_panes::EDITOR;
+    use crate::panes::kinds::pane_spec::PaneSpec;
     use crate::shell_view::test_support::panes_of;
     use crate::shell_view::tests::open_shell;
 

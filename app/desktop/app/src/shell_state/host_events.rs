@@ -11,7 +11,7 @@ use layout::Command;
 
 use crate::event_commands::commands_for;
 use crate::outcome::Outcome;
-use crate::pane_toast_change::PaneToastChange;
+use crate::panes::content::pane_toast_change::PaneToastChange;
 
 impl ShellState {
     pub(crate) fn sync(
@@ -214,7 +214,7 @@ mod tests {
     use webview::Call;
 
     use super::*;
-    use crate::core_panes::chat_type;
+    use crate::panes::kinds::core_panes::chat_type;
     use crate::test_support::{shell_rig, synced_chat};
 
     #[test]

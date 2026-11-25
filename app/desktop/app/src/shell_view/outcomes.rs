@@ -9,10 +9,10 @@ use super::ShellView;
 type PageHover = fn(&mut LayoutView, &PaneId, &mut Context<'_, LayoutView>);
 
 const PAGE_HOVER: [PageHover; 2] = [LayoutView::page_left, LayoutView::page_entered];
-use crate::document_request::DocumentRequest;
 use crate::outcome::Outcome;
+use crate::panes::content::review_panes::ViewedChanges;
+use crate::panes::editor::document_request::DocumentRequest;
 use crate::request_queue::send;
-use crate::review_panes::ViewedChanges;
 use crate::shell_request::ShellRequest;
 
 type ViewedPanes = Vec<(PaneId, ViewedChanges)>;
@@ -163,8 +163,8 @@ mod tests {
     use protocol::{DocumentPath, OpenMode, PaneFrame, PaneOpen, PaneTypeId, Params, encode};
 
     use super::*;
-    use crate::core_panes::EDITOR;
-    use crate::pane_spec::PaneSpec;
+    use crate::panes::kinds::core_panes::EDITOR;
+    use crate::panes::kinds::pane_spec::PaneSpec;
     use crate::shell_view::tests::{Opened, PLACED, open_shell};
 
     fn shows(call: &webview::Call) -> bool {
@@ -188,7 +188,9 @@ mod tests {
         pane: &PaneId,
     ) {
         let layout = shell.state.layout();
-        let chat = layout.pane(pane).and_then(crate::tab_looks::chat_of);
+        let chat = layout
+            .pane(pane)
+            .and_then(crate::panes::ide::tab_looks::chat_of);
         let chat = chat.unwrap_or_default().to_owned();
         for file in ["src/a.ts", "src/pricing.ts"] {
             shell

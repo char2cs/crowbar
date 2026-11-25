@@ -7,10 +7,10 @@ use terminalview::Event;
 use ui::{Menu, MenuAction, MenuItem, ToastKind};
 
 use super::ShellView;
-use crate::link_choice::LinkChoice;
-use crate::link_menu::LinkMenu;
 use crate::notice_key::NoticeKey;
-use crate::pane_spec::PaneSpec;
+use crate::panes::kinds::pane_spec::PaneSpec;
+use crate::panes::terminals::link_choice::LinkChoice;
+use crate::panes::terminals::link_menu::LinkMenu;
 use crate::shell_request::ShellRequest;
 
 impl ShellView {
@@ -172,7 +172,7 @@ mod tests {
     use gpui::{TestAppContext, point, px};
 
     use super::*;
-    use crate::core_panes::BROWSER;
+    use crate::panes::kinds::core_panes::BROWSER;
     use crate::shell_view::test_support::{panes_of, tell, with_terminal};
 
     fn page_of(

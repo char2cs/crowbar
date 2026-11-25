@@ -6,7 +6,7 @@ use std::rc::Rc;
 use gpui::{App, Task};
 use serde_json::Value;
 
-use crate::chat_servers::ChatServers;
+use crate::panes::editor::chat_servers::ChatServers;
 
 type Told = Rc<RefCell<Vec<(String, &'static str, Value)>>>;
 

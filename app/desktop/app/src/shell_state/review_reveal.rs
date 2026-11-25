@@ -58,7 +58,7 @@ impl ShellState {
 
 #[cfg(test)]
 mod tests {
-    use crate::pane_spec::PaneSpec;
+    use crate::panes::kinds::pane_spec::PaneSpec;
     use crate::test_support::shell_rig;
 
     #[test]

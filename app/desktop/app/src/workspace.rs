@@ -122,13 +122,13 @@ mod tests {
     use layout::{Layout, TabId};
 
     use super::*;
-    use crate::browser_bars::BrowserBars;
-    use crate::browser_ids::BrowserIds;
-    use crate::serials::Serials;
-    use crate::shell_pane_source::ShellPaneSource;
-    use crate::terminal_ids::TerminalIds;
+    use crate::panes::browser::browser_bars::BrowserBars;
+    use crate::panes::browser::browser_ids::BrowserIds;
+    use crate::panes::content::shell_pane_source::ShellPaneSource;
+    use crate::panes::kinds::serials::Serials;
+    use crate::panes::terminals::terminal_ids::TerminalIds;
+    use crate::panes::tracking::titles::Titles;
     use crate::test_support::idle_terminals;
-    use crate::titles::Titles;
 
     fn source() -> Rc<ShellPaneSource> {
         let bars = BrowserBars::new(BrowserIds::default(), async_channel::unbounded().0);
@@ -136,9 +136,11 @@ mod tests {
             Titles::default(),
             Serials::above(&Layout::default()),
             bars,
-            crate::native_panes::NativePanes::new(
+            crate::panes::content::native_panes::NativePanes::new(
                 idle_terminals(TerminalIds::default()),
-                crate::new_tab_panes::NewTabPanes::new(async_channel::unbounded().0),
+                crate::panes::content::new_tab::new_tab_panes::NewTabPanes::new(
+                    async_channel::unbounded().0,
+                ),
                 crate::test_support::idle_editors(),
             ),
         ))

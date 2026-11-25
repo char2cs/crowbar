@@ -1,3 +1,5 @@
+use crate::panes::content::new_tab::new_tab_action;
+use crate::panes::terminals::link_choice;
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ShellRequest {
     Sidebar(sidebar::Command),
@@ -25,7 +27,7 @@ pub(crate) enum ShellRequest {
     AppearanceChanged,
     NewTabChoice {
         pane: protocol::PaneId,
-        action: crate::new_tab_action::NewTabAction,
+        action: new_tab_action::NewTabAction,
     },
     /// The daemon asked for something of a browser tab.
     Agent(browseragent::AgentCommand),
@@ -46,11 +48,11 @@ pub(crate) enum ShellRequest {
     /// The first-run screens asked something of the shell.
     FirstRun(oobe::Event),
     /// A file pane's document moved: read, edited, saved or refused.
-    Document(crate::document_request::DocumentRequest),
+    Document(crate::panes::editor::document_request::DocumentRequest),
     /// The user chose a row of a terminal URL's menu.
     Link {
         pane: protocol::PaneId,
         url: String,
-        choice: crate::link_choice::LinkChoice,
+        choice: link_choice::LinkChoice,
     },
 }

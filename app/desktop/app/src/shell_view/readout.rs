@@ -7,7 +7,7 @@ use settings::{Key, Read as _};
 use sidebar::{HostChoice as _, HostKind, PaneFocus as _};
 
 use super::ShellView;
-use crate::core_panes::TERMINAL;
+use crate::panes::kinds::core_panes::TERMINAL;
 use crate::readout_dock::ReadoutDock;
 use crate::readout_lines::lines_of;
 use crate::readout_net::ReadoutNet;

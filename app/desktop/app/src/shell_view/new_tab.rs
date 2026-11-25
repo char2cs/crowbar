@@ -3,11 +3,11 @@ use layout::{Command, Layout, SpaceId, Tab, TabId};
 use protocol::PaneId;
 
 use super::ShellView;
-use crate::core_panes::NEW_TAB;
-use crate::focused_chat::focused_chat;
-use crate::group_focus::focused_group;
-use crate::new_tab_action::NewTabAction;
-use crate::pane_spec::PaneSpec;
+use crate::panes::content::new_tab::new_tab_action::NewTabAction;
+use crate::panes::kinds::core_panes::NEW_TAB;
+use crate::panes::kinds::pane_spec::PaneSpec;
+use crate::panes::tracking::focused_chat::focused_chat;
+use crate::panes::tracking::group_focus::focused_group;
 
 impl ShellView {
     pub(super) fn new_tab(
@@ -159,7 +159,7 @@ mod tests {
         for (name, kind) in [("c1", "core.chat"), ("e1", "core.editor"), ("n1", NEW_TAB)] {
             let instance = instance(name, kind);
             layout
-                .apply(crate::pane_opener::open_in_tab(
+                .apply(crate::panes::kinds::pane_opener::open_in_tab(
                     layout.showing("").unwrap(),
                     instance,
                 ))
@@ -179,8 +179,10 @@ mod tests {
             .apply(stage_view((&layout, ""), TabId(1)).remove(0))
             .unwrap();
         for (name, kind) in [("c1", "core.chat"), ("n1", NEW_TAB)] {
-            let open =
-                crate::pane_opener::open_in_tab(layout.showing("").unwrap(), instance(name, kind));
+            let open = crate::panes::kinds::pane_opener::open_in_tab(
+                layout.showing("").unwrap(),
+                instance(name, kind),
+            );
             layout.apply(open).unwrap();
         }
         let cases = [("n1", 1, true), ("n1", 2, false), ("c1", 1, false)];

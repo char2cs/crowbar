@@ -8,7 +8,7 @@ use sidebarview::Sidebar;
 use ui::ToastQueue;
 use viewtabs::TabBar;
 
-use crate::shell_pane_source::ShellPaneSource;
+use crate::panes::content::shell_pane_source::ShellPaneSource;
 use crate::workspace::Workspace;
 
 pub(super) struct Built {

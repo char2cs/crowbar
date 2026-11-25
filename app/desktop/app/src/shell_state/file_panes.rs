@@ -2,9 +2,9 @@ use layout::Command;
 use protocol::{DocumentPath, PaneId};
 
 use super::ShellState;
-use crate::editor_panes::EditorTarget;
-use crate::pane_spec::PaneSpec;
-use crate::tab_looks;
+use crate::panes::editor::editor_panes::EditorTarget;
+use crate::panes::ide::tab_looks;
+use crate::panes::kinds::pane_spec::PaneSpec;
 
 impl ShellState {
     pub(crate) fn settle_file_pane(

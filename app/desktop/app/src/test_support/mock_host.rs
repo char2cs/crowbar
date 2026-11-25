@@ -6,7 +6,7 @@ use protocol::HostId;
 use webview::MockPlatform;
 
 use super::NoDaemon;
-use crate::core_panes::register_core_panes;
+use crate::panes::kinds::core_panes::register_core_panes;
 
 pub(crate) fn mock_host(mock: &Rc<MockPlatform>) -> PaneHost {
     let config = panehost::Config {

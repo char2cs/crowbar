@@ -2,7 +2,7 @@ use editor::WhitespaceMode;
 use editorview::WordWrap;
 use settings::Value;
 
-use crate::single_precision::single_precision;
+use crate::panes::content::single_precision::single_precision;
 
 pub(crate) const KEYS: [&str; 7] = [
     "fontSize",
