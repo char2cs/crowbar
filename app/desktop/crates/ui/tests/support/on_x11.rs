@@ -79,8 +79,8 @@ type Check = Rc<RefCell<ChildFocus>>;
 /// One real window under X11 (CI's Xvfb):
 /// - `0001-x11-window-handle`: the window hands out its XCB handle, which web views parent to;
 /// - `0004-svg-inherit-color`: an icon with no colour paints in the text colour around it;
-/// - `0002-variable-weight`: the variable UI face shapes wider at a heavier weight, and an
-///   italic asked of it gets a face of its own (synthesized, the family has no italic);
+/// - font weights: the UI family shapes wider at a heavier weight, and an italic asked of it
+///   gets its oblique face;
 /// - `0003-inferior-focus`: the keyboard moving into one of the window's own child windows, as
 ///   into a web view, leaves the window active.
 #[test]

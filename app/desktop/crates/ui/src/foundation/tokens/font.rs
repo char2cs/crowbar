@@ -1,4 +1,7 @@
 //! Embedded font files and the family names they register.
+//!
+//! GPUI draws a variable face at its default instance only, so each weight and the italic the UI
+//! sets is a static face of its own, made by `tools/scripts/font-instances.py`.
 
 use std::borrow::Cow;
 
@@ -6,7 +9,7 @@ use gpui::{App, Font, FontFallbacks};
 
 use crate::error::Error;
 
-/// Family of the UI text (`CalSansUI`, variable weight 300 to 700).
+/// Family of the UI text (`CalSansUI`): one static face per weight the tokens use, and a medium oblique.
 pub const UI_FAMILY: &str = "Cal Sans UI";
 /// Family of headings (`font-heading`).
 pub const HEADING_FAMILY: &str = "Instrument Serif";
@@ -32,10 +35,15 @@ pub fn emoji_font() -> Font {
     }
 }
 
-const FILES: [&[u8]; 3] = [
-    include_bytes!("../../../assets/fonts/CalSansUI.ttf"),
+const FILES: [&[u8]; 8] = [
+    include_bytes!("../../../assets/fonts/CalSansUI-Regular.ttf"),
     include_bytes!("../../../assets/fonts/InstrumentSerif.ttf"),
-    include_bytes!("../../../assets/fonts/GeistMono-Variable.ttf"),
+    include_bytes!("../../../assets/fonts/GeistMono-Regular.ttf"),
+    include_bytes!("../../../assets/fonts/CalSansUI-Medium.ttf"),
+    include_bytes!("../../../assets/fonts/CalSansUI-SemiBold.ttf"),
+    include_bytes!("../../../assets/fonts/CalSansUI-Bold.ttf"),
+    include_bytes!("../../../assets/fonts/CalSansUI-MediumOblique.ttf"),
+    include_bytes!("../../../assets/fonts/GeistMono-Bold.ttf"),
 ];
 
 /// Registers the embedded families with the text system of `cx`.
@@ -59,19 +67,70 @@ mod tests {
         cx.update(|cx| assert!(register(cx).is_ok()));
     }
 
+    const FAMILY_CASES: [(&str, usize); 3] =
+        [(UI_FAMILY, 0), (HEADING_FAMILY, 1), (MONO_FAMILY, 2)];
+
     #[test]
     fn family_names_match_the_font_name_tables() {
-        for (family, bytes) in [
-            (UI_FAMILY, FILES[0]),
-            (HEADING_FAMILY, FILES[1]),
-            (MONO_FAMILY, FILES[2]),
-        ] {
+        for (family, file) in FAMILY_CASES {
+            let bytes = FILES[file];
             let needle: Vec<u8> = family.encode_utf16().flat_map(u16::to_be_bytes).collect();
             assert!(
                 bytes
                     .windows(needle.len())
                     .any(|window| window == needle.as_slice()),
                 "{family} not in its font file"
+            );
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn drawn_face(
+        family: &str,
+        weight: gpui::FontWeight,
+        style: gpui::FontStyle,
+    ) -> (gpui::FontWeight, gpui::FontStyle) {
+        use gpui::PlatformTextSystem as _;
+
+        let system = gpui_wgpu::CosmicTextSystem::new_without_system_fonts(UI_FAMILY);
+        let files = FILES.iter().map(|bytes| Cow::Borrowed(*bytes)).collect();
+        system.add_fonts(files).expect("embedded fonts");
+        let font = Font {
+            weight,
+            style,
+            ..gpui::font(family.to_owned())
+        };
+        let face = system.font_id(&font).expect("a face of the family");
+        system.font_weight_and_style(face).expect("the face")
+    }
+
+    #[cfg(target_os = "linux")]
+    const FACE_CASES: [(&str, gpui::FontWeight, gpui::FontStyle); 7] = [
+        (UI_FAMILY, gpui::FontWeight::NORMAL, gpui::FontStyle::Normal),
+        (UI_FAMILY, gpui::FontWeight::MEDIUM, gpui::FontStyle::Normal),
+        (
+            UI_FAMILY,
+            gpui::FontWeight::SEMIBOLD,
+            gpui::FontStyle::Normal,
+        ),
+        (UI_FAMILY, gpui::FontWeight::BOLD, gpui::FontStyle::Normal),
+        (UI_FAMILY, gpui::FontWeight::MEDIUM, gpui::FontStyle::Italic),
+        (
+            MONO_FAMILY,
+            gpui::FontWeight::NORMAL,
+            gpui::FontStyle::Normal,
+        ),
+        (MONO_FAMILY, gpui::FontWeight::BOLD, gpui::FontStyle::Normal),
+    ];
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn each_weight_and_the_italic_draw_from_a_face_of_their_own() {
+        for (family, weight, style) in FACE_CASES {
+            assert_eq!(
+                drawn_face(family, weight, style),
+                (weight, style),
+                "{family} at {weight:?} {style:?} draws from its own static face"
             );
         }
     }
