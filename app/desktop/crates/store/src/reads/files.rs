@@ -83,7 +83,7 @@ mod tests {
         let remove = Command::RemoveFolderFromWorkspace { path: "a".into() };
         let upload = Command::UploadFile { path: "a".into() };
         assert_eq!((shown(&image), shown(&remove)), (false, false));
-        assert!(shown(&upload) && shown(&Command::AddFolderToWorkspace));
+        assert!(shown(&upload));
     }
 
     #[test]

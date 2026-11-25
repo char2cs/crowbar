@@ -38,10 +38,6 @@ fn directory_items(
         let generate = Command::GenerateImage { path: path() };
         lines.send("Generate Image", generate);
     }
-    if entry.path.is_empty() {
-        let add = Command::AddFolderToWorkspace;
-        lines.send("Add Folder to Workspace", add);
-    }
     lines.rule();
 }
 
@@ -286,11 +282,10 @@ mod tests {
     }
 
     #[test]
-    fn the_workspace_root_adds_the_folder_picker_and_drops_management() {
+    fn the_workspace_root_drops_management_and_offers_no_folder_picker_as_develops_sidebar() {
         let root = labels(&directory(""), &scope());
-        assert!(root.contains(&"Add Folder to Workspace"));
+        assert!(!root.contains(&"Add Folder to Workspace"));
         assert!(!root.contains(&"Rename") && !root.contains(&"Delete"));
-        assert!(!labels(&directory("src"), &scope()).contains(&"Add Folder to Workspace"));
     }
 
     #[test]

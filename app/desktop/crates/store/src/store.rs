@@ -169,7 +169,6 @@ impl Store {
                 | Command::UploadFile { .. }
                 | Command::UploadPaths { .. }
                 | Command::GenerateImage { .. }
-                | Command::AddFolderToWorkspace
                 | Command::CreateEnvTemplate { .. }
                 | Command::SetFileTreeFlag { .. }
         )

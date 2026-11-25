@@ -47,7 +47,6 @@ impl ShellView {
             Command::UploadPaths { path, files } => {
                 self.upload((path, files.clone()), (window, cx));
             },
-            Command::AddFolderToWorkspace => self.choose_repo_folder(window, cx),
             Command::CreateEnvTemplate { path, target } => {
                 let request = TemplateRequest::asking(path, target);
                 self.make_env_template(&request, window, cx);

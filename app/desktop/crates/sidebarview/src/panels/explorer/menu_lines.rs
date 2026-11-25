@@ -71,7 +71,7 @@ mod tests {
     #[test]
     fn lines_keep_their_order_and_separators() {
         let mut lines = MenuLines::default();
-        lines.send("A", Command::AddFolderToWorkspace);
+        lines.send("A", Command::UploadFile { path: "a".into() });
         lines.rule();
         lines.copy("B", "text".into());
         let labels: Vec<&str> = lines

@@ -229,8 +229,6 @@ pub enum Command {
         /// The directory the image is saved in.
         path: String,
     },
-    /// Pick a folder to add to the workspace.
-    AddFolderToWorkspace,
     /// Create a space like [`Command::CreateSpace`], then set `icon` on it; a failure to set the icon
     /// does not undo the space.
     CreateSpaceWithIcon {

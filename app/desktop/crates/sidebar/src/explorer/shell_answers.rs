@@ -58,7 +58,7 @@ mod tests {
     #[test]
     fn without_a_shell_everything_is_served_and_nothing_is_removable() {
         let answers = ShellAnswers::default();
-        assert!(answers.serves(&Command::AddFolderToWorkspace));
+        assert!(answers.serves(&Command::UploadFile { path: "src".into() }));
         assert!(!answers.can_remove_folder("src"));
     }
 }
