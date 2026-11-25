@@ -141,7 +141,24 @@ scan_cycles() {
   python3 -I "$here/check-cycles.py" rust "${srcs[@]}" | sed "s#^$root/##" ; [[ ${PIPESTATUS[0]} -eq 0 ]] || status=1
 }
 
-run_dir() { local r=${1%/}; scan_root "$r"; scan_cargo "$r"; scan_layers "$r"; scan_cycles "$r"; }
+scan_module_count() { # a folder holds at most 12 modules; foo.rs + foo/ count once (rust-tree plan 2.1)
+  local root=$1
+  # The binary crate (app/desktop/app) is regrouped by its own lane and joins this check when that lands.
+  python3 -I - "$root" <<'PY'
+import os, sys
+root = sys.argv[1]
+for d, subs, files in os.walk(root):
+    subs[:] = sorted(s for s in subs if s not in ("target", "node_modules"))
+    rel = os.path.relpath(d, root)
+    if "src" not in rel.split(os.sep) or rel == "app" or rel.startswith("app" + os.sep): continue
+    mods = {f[:-3] for f in files if f.endswith(".rs")}
+    mods |= {s for s in subs if any(n.endswith(".rs") for _, _, ns in os.walk(os.path.join(d, s)) for n in ns)}
+    if len(mods) > 12:
+        print(f"{rel}:1: [module-count] {len(mods)} modules in one folder; at most 12, cut by responsibility")
+PY
+}
+
+run_dir() { local r=${1%/}; scan_root "$r"; [[ $r == */mobile/src-tauri ]] || scan_module_count "$r"; scan_cargo "$r"; scan_layers "$r"; scan_cycles "$r"; }
 
 self_test() {
   local td="$here/testdata/rust-rules" rc=0 out case_dir tag tmp
