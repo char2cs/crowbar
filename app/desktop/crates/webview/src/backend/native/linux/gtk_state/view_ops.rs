@@ -3,7 +3,7 @@ use std::sync::mpsc;
 use gtk::gdk;
 use gtk::glib::Cast as _;
 use gtk::prelude::{GtkWindowExt as _, WidgetExt as _};
-use webkit2gtk::{SnapshotOptions, SnapshotRegion, WebViewExt as _};
+use webkit2gtk::{SettingsExt as _, SnapshotOptions, SnapshotRegion, WebViewExt as _};
 use wry::WebViewExtUnix;
 
 use crate::backend::native::linux::capture::snapshot_of;
@@ -16,6 +16,18 @@ use crate::view::Color;
 use crate::view::Id;
 use crate::view::Snapshot;
 use crate::view::Visibility;
+
+const PAGE_CONSOLE: &str = "CROWBAR_PAGE_CONSOLE";
+
+// PLATFORM: linux a WebKitGTK page here has no inspector; dev tooling (rig README) sends its console to stdout.
+pub(super) fn write_console_when_asked(view: &wry::WebView) {
+    if std::env::var_os(PAGE_CONSOLE).is_none() {
+        return;
+    }
+    if let Some(settings) = webkit2gtk::WebViewExt::settings(&view.webview()) {
+        settings.set_enable_write_console_messages_to_stdout(true);
+    }
+}
 
 // PLATFORM: linux wry 0.53 hands WebKitGTK 8-bit channels as 0..1 doubles, so every colour but black reads as white; the view is coloured here instead.
 pub(super) fn paint_background(

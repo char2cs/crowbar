@@ -140,6 +140,7 @@ impl GtkState {
         if let Some(color) = config.background {
             view_ops::paint_background(&view, color);
         }
+        view_ops::write_console_when_asked(&view);
         file_chooser::choose_over(&view.webview(), window);
         let wanted = to_rect(config.bounds);
         let window_of_page = view
