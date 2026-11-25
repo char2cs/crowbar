@@ -13,10 +13,19 @@ pub(crate) fn import_old_settings(
     };
     let settings = options.state_dir().join("settings.json");
     match LegacyImport::discover(&user_home, settings).run() {
-        Ok(0) => {},
-        Ok(taken) => tracing::info!(taken, "settings of the previous app were imported"),
-        Err(error) => tracing::warn!(%error, "settings of the previous app were not imported"),
+        Ok(taken) => report_taken(taken),
+        Err(error) => warn_not_imported(&error),
     }
+}
+
+fn report_taken(taken: usize) {
+    if taken > 0 {
+        tracing::info!(taken, "settings of the previous app were imported");
+    }
+}
+
+fn warn_not_imported(error: &store::Error) {
+    tracing::warn!(%error, "settings of the previous app were not imported");
 }
 
 #[cfg(test)]

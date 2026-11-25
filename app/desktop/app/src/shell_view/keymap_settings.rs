@@ -29,8 +29,12 @@ fn notify_when_overrides_move(
         Change::Setting(key, _) if key.as_str() == KEYBINDING_OVERRIDES || key.as_str() == KEYBINDING_PRESET
     );
     if moved && requests.try_send(ShellRequest::KeymapChanged).is_err() {
-        tracing::debug!("the shell is closing; a keybinding change goes unseen");
+        keybinding_change_unseen();
     }
+}
+
+fn keybinding_change_unseen() {
+    tracing::debug!("the shell is closing; a keybinding change goes unseen");
 }
 
 impl ShellView {

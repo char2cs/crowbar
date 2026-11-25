@@ -52,8 +52,12 @@ async fn answer_restart(
     answer: async_channel::Sender<Result<(), supervisor::Error>>,
 ) {
     if answer.send(supervisor.restart().await).await.is_err() {
-        tracing::debug!("nobody waits on the daemon's restart");
+        restart_unheard();
     }
+}
+
+fn restart_unheard() {
+    tracing::debug!("nobody waits on the daemon's restart");
 }
 
 async fn relaunch_unless_running(

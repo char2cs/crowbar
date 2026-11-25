@@ -84,11 +84,15 @@ async fn answer(
     let late = unserved.is_some();
     let reply = unserved.unwrap_or_else(|| reply_body(&head, mode, served));
     if let Err(error) = stream.write_all(reply.as_bytes()).await {
-        tracing::debug!("the client left before its answer: {error}");
+        client_left(&error);
     }
     if late {
         late::tell_spent(socket.as_deref());
     }
+}
+
+fn client_left(error: &std::io::Error) {
+    tracing::debug!("the client left before its answer: {error}");
 }
 
 async fn hold(stream: UnixStream) {

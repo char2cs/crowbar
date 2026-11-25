@@ -195,7 +195,7 @@ impl ShellView {
         match save_failure(&saved) {
             None => self.clear_notice(NoticeKey::Preferences, cx),
             Some(text) => {
-                tracing::warn!(%text, "saving the sidebar preferences failed");
+                warn_preferences_unsaved(&text);
                 self.show_notice(NoticeKey::Preferences, (ToastKind::Error, text), cx);
             },
         }
@@ -223,6 +223,10 @@ impl ShellView {
         let closing = panes.into_iter().map(|pane| Command::ClosePane { pane });
         self.apply_guarded(closing.collect(), cx);
     }
+}
+
+fn warn_preferences_unsaved(text: &str) {
+    tracing::warn!(%text, "saving the sidebar preferences failed");
 }
 
 fn save_failure<E: std::fmt::Display>(saved: &Result<(), E>) -> Option<String> {

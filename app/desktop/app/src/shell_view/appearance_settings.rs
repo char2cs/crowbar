@@ -42,8 +42,12 @@ fn notify_when_appearance_moves(
 ) {
     let moved = matches!(change, Change::Setting(key, _) if is_appearance(key));
     if moved && requests.try_send(ShellRequest::AppearanceChanged).is_err() {
-        tracing::debug!("the shell is closing; an appearance change goes unseen");
+        appearance_change_unseen();
     }
+}
+
+fn appearance_change_unseen() {
+    tracing::debug!("the shell is closing; an appearance change goes unseen");
 }
 
 fn id_of(stored: Option<&Value>) -> ThemeId {

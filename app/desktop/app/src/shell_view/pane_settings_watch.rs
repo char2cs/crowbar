@@ -17,8 +17,12 @@ fn notify_when_a_followed_setting_moves(
             .try_send(ShellRequest::PaneSettingsChanged)
             .is_err()
     {
-        tracing::debug!("the shell is closing; a pane setting change goes unseen");
+        pane_setting_change_unseen();
     }
+}
+
+fn pane_setting_change_unseen() {
+    tracing::debug!("the shell is closing; a pane setting change goes unseen");
 }
 
 fn store_one(
@@ -27,11 +31,22 @@ fn store_one(
     json: &serde_json::Value,
 ) {
     let Some(value) = value_of(json) else {
-        return tracing::warn!(%key, "a pane wrote a setting value of no known shape");
+        return warn_unknown_shape(key);
     };
     if let Err(error) = backend.set(&settings::Key::new(key.as_str()), value) {
-        tracing::warn!(%key, %error, "storing a pane's setting failed");
+        warn_setting_unstored(key, &error);
     }
+}
+
+fn warn_unknown_shape(key: &protocol::SettingKey) {
+    tracing::warn!(%key, "a pane wrote a setting value of no known shape");
+}
+
+fn warn_setting_unstored(
+    key: &protocol::SettingKey,
+    error: &settings::Error,
+) {
+    tracing::warn!(%key, %error, "storing a pane's setting failed");
 }
 
 impl ShellView {

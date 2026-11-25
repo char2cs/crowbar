@@ -24,8 +24,8 @@ impl ShellView {
         match report {
             Report::Bound(session) => self.remember_session(pane, &session),
             Report::Gone => self.close_terminal(pane, cx),
-            Report::Failed(reason) => tracing::warn!(%reason, "a terminal could not start"),
-            Report::StopFailed(words) => tracing::warn!(%words, "a closed terminal kept running"),
+            Report::Failed(reason) => warn_not_started(&reason),
+            Report::StopFailed(words) => warn_kept_running(&words),
         }
     }
 
@@ -60,6 +60,14 @@ impl ShellView {
         self.state
             .apply(vec![Command::SetPaneState { pane, state }]);
     }
+}
+
+fn warn_not_started(reason: &str) {
+    tracing::warn!(%reason, "a terminal could not start");
+}
+
+fn warn_kept_running(words: &str) {
+    tracing::warn!(%words, "a closed terminal kept running");
 }
 
 fn notice_of(report: &Report) -> Option<ToastContent> {

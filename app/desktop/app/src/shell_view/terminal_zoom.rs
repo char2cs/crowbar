@@ -10,12 +10,20 @@ impl ShellView {
         size: f32,
     ) {
         let Some(backend) = self.settings_backend() else {
-            return tracing::warn!("the settings are not open; a terminal zoom is not kept");
+            return warn_settings_closed();
         };
         if let Err(error) = backend.set(&Key::new(FONT_SIZE), Value::Number(f64::from(size))) {
-            tracing::warn!(%error, "keeping the terminal zoom failed");
+            warn_zoom_unkept(&error);
         }
     }
+}
+
+fn warn_settings_closed() {
+    tracing::warn!("the settings are not open; a terminal zoom is not kept");
+}
+
+fn warn_zoom_unkept(error: &settings::Error) {
+    tracing::warn!(%error, "keeping the terminal zoom failed");
 }
 
 #[cfg(test)]

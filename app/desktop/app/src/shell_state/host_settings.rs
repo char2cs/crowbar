@@ -16,16 +16,14 @@ impl ShellState {
     ) {
         let tokens = match crate::pane_theme::tokens_of(theme) {
             Ok(tokens) => tokens,
-            Err(error) => {
-                return tracing::warn!(%error, "the theme could not be described to panes");
-            },
+            Err(error) => return warn_theme_undescribed(&error),
         };
         if let Err(error) = self.host.set_theme(tokens) {
-            tracing::warn!(%error, "sending the theme to panes failed");
+            warn_theme_unsent(&error);
         }
         let surface = crate::pane_theme::surface_color(theme);
         if let Err(error) = self.host.set_background(surface) {
-            tracing::warn!(%error, "colouring the pane web views failed");
+            warn_views_uncoloured(&error);
         }
     }
 
@@ -50,6 +48,18 @@ impl ShellState {
             tracing::warn!(%error, "sending the settings to panes failed");
         }
     }
+}
+
+fn warn_theme_undescribed(error: &protocol::Error) {
+    tracing::warn!(%error, "the theme could not be described to panes");
+}
+
+fn warn_theme_unsent(error: &panehost::Error) {
+    tracing::warn!(%error, "sending the theme to panes failed");
+}
+
+fn warn_views_uncoloured(error: &panehost::Error) {
+    tracing::warn!(%error, "colouring the pane web views failed");
 }
 
 #[cfg(test)]

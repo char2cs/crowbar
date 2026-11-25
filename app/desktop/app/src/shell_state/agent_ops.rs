@@ -176,14 +176,21 @@ impl ShellState {
     ) {
         match self.replies.from_page(pane.as_str(), id, answer) {
             Delivery::Delivered => {},
-            Delivery::NotWaiting => {
-                tracing::debug!(id, "a page answered a request nobody awaits");
-            },
-            Delivery::Refused => {
-                tracing::warn!(id, pane = %pane, "a page answered for another tab");
-            },
+            Delivery::NotWaiting => note_unawaited(id),
+            Delivery::Refused => warn_other_tab(id, pane),
         }
     }
+}
+
+fn note_unawaited(id: &str) {
+    tracing::debug!(id, "a page answered a request nobody awaits");
+}
+
+fn warn_other_tab(
+    id: &str,
+    pane: &PaneId,
+) {
+    tracing::warn!(id, pane = %pane, "a page answered for another tab");
 }
 
 fn only_the_fragment_differs(

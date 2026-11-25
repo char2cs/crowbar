@@ -30,12 +30,19 @@ fn action_for(command: startup::Command) -> StartupAction {
 
 fn open_log(link: &DaemonLink) {
     let Some(log) = link.log() else {
-        tracing::warn!("there is no daemon log to open");
-        return;
+        return warn_no_log();
     };
     if let Err(error) = std::process::Command::new(OPENER).arg(&log).spawn() {
-        tracing::warn!(%error, "opening the daemon log failed");
+        warn_log_unopened(&error);
     }
+}
+
+fn warn_no_log() {
+    tracing::warn!("there is no daemon log to open");
+}
+
+fn warn_log_unopened(error: &std::io::Error) {
+    tracing::warn!(%error, "opening the daemon log failed");
 }
 
 #[cfg(test)]
