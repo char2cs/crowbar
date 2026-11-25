@@ -32,13 +32,16 @@ pub enum TextInputStyle {
     Bare,
     /// [`Self::Bare`] in the mono family, for a branch name.
     BareMono,
+    /// [`Self::Standard`] framed in the foreground colour without a focus ring, as develop's
+    /// Files-tree name field (`border-foreground`, focused by script so never focus-visible).
+    Outlined,
 }
 
 impl TextInputStyle {
     /// Outer height including the border.
     pub fn height(self) -> Pixels {
         px(match self {
-            Self::Standard => STANDARD_HEIGHT,
+            Self::Standard | Self::Outlined => STANDARD_HEIGHT,
             Self::Compact => COMPACT_HEIGHT,
             Self::Stepper => STEPPER_HEIGHT,
             Self::Bare | Self::BareMono => BARE_HEIGHT,
@@ -47,7 +50,7 @@ impl TextInputStyle {
 
     pub(crate) fn padding(self) -> Pixels {
         px(match self {
-            Self::Standard => STANDARD_PADDING,
+            Self::Standard | Self::Outlined => STANDARD_PADDING,
             Self::Compact => COMPACT_PADDING,
             Self::Stepper => STEPPER_PADDING,
             Self::Bare | Self::BareMono => 0.0,
@@ -58,7 +61,7 @@ impl TextInputStyle {
         match self {
             Self::Stepper => radius::MD,
             Self::Bare | Self::BareMono => px(0.0),
-            Self::Standard | Self::Compact => radius::LG,
+            Self::Standard | Self::Compact | Self::Outlined => radius::LG,
         }
     }
 
@@ -68,7 +71,9 @@ impl TextInputStyle {
         point: ControlScale,
     ) -> (Pixels, Pixels) {
         match self {
-            Self::Standard | Self::Compact => (self.height() + point.growth(), point.text()),
+            Self::Standard | Self::Compact | Self::Outlined => {
+                (self.height() + point.growth(), point.text())
+            },
             Self::Stepper | Self::Bare | Self::BareMono => (self.height(), self.text(theme)),
         }
     }
@@ -80,7 +85,7 @@ impl TextInputStyle {
         match self {
             Self::Bare | Self::BareMono => px(BARE_TEXT),
             Self::Stepper => ScaledText::Sm.size(&theme),
-            Self::Standard | Self::Compact => text_size::SM,
+            Self::Standard | Self::Compact | Self::Outlined => text_size::SM,
         }
     }
 
@@ -127,6 +132,7 @@ mod tests {
     fn heights_follow_the_style() {
         const CASES: &[(TextInputStyle, f32)] = &[
             (TextInputStyle::Standard, 32.0),
+            (TextInputStyle::Outlined, 32.0),
             (TextInputStyle::Compact, 28.0),
             (TextInputStyle::Stepper, 24.0),
             (TextInputStyle::Bare, 20.0),

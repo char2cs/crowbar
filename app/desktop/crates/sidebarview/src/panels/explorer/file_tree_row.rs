@@ -27,7 +27,7 @@ use crate::panels::explorer::file_tree_row::badges::{
     count_gap, counts_view, labelled, letter_badge, status_color,
 };
 pub use crate::panels::explorer::file_tree_row::file_glyph::FileGlyph;
-pub(crate) use crate::panels::explorer::file_tree_row::glyph::glyph;
+pub(crate) use crate::panels::explorer::file_tree_row::glyph::{glyph, pictured};
 pub(crate) use crate::panels::explorer::file_tree_row::tree_guides::tree_guides;
 use crate::panels::explorer::search::highlight;
 use crate::sidebar::{ICON_MEDIUM, ICON_TINY, SPACE_SM, TEXT_BODY};
@@ -60,13 +60,13 @@ impl RenderOnce for FileTreeRow {
         let entry = self.entry;
         let id = ElementId::from(SharedString::from(format!("file-{}", entry.path)));
         let letter = entry.status.letter().map(|l| letter_badge(l, mono));
-        let menu = file_menu(&entry, &self.scope, &self.handler);
         let matched = matched_range(&entry.name, &self.look);
         let name = name_cell(&entry, self.input.as_ref(), (mono, palette));
         let name = match (&matched, self.input.is_some()) {
             (Some((_, range)), false) => highlighted(&entry.name, range.clone(), palette),
             _ => name,
         };
+        let pictured = pictured(&entry, self.input.as_ref());
         let focus = row_focus(&id, window, cx);
         let shaped = frame(id, &entry, (&self.look, palette)).when(self.selected, |row| {
             row.bg(palette.sidebar_element_idle())
@@ -78,8 +78,8 @@ impl RenderOnce for FileTreeRow {
         let guides = tree_guides((entry.depth, self.neighbours), (&self.look, palette));
         let row = ringed(tinted, &focus, palette)
             .children(guides)
-            .child(chevron(&entry, palette))
-            .child(glyph(&entry, (&self.look, palette), cx))
+            .child(chevron(&pictured, palette))
+            .child(glyph(&pictured, (&self.look, palette), cx))
             .child(labelled(name, letter))
             .children(trailing_counts(&entry, (mono, &self.look), palette))
             .on_drop(file_drop::on_drop(
@@ -90,6 +90,7 @@ impl RenderOnce for FileTreeRow {
         if self.input.is_some() {
             return row.into_any_element();
         }
+        let menu = file_menu(&entry, &self.scope, &self.handler);
         ContextMenu::new(menu_id(&entry), row, menu).into_any_element()
     }
 }

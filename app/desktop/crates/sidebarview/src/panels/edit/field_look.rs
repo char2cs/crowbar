@@ -1,5 +1,5 @@
 //! How an inline input looks for what it names: a branch name is mono, as develop's
-//! `branch-out-input.tsx` draws it.
+//! `branch-out-input.tsx` draws it, and a file name is framed, as `file-explorer-tree-item.tsx`.
 
 use sidebar::Editing;
 use ui::TextInputStyle;
@@ -7,6 +7,7 @@ use ui::TextInputStyle;
 pub(crate) fn of(editing: &Editing) -> TextInputStyle {
     match editing {
         Editing::Branching(_) | Editing::Drafting(_) => TextInputStyle::BareMono,
+        Editing::RenamingFile(_) | Editing::Creating { .. } => TextInputStyle::Outlined,
         _ => TextInputStyle::Bare,
     }
 }
@@ -29,5 +30,11 @@ mod tests {
             TextInputStyle::BareMono
         );
         assert_eq!(of(&Editing::Renaming(row)), TextInputStyle::Bare);
+    }
+
+    #[test]
+    fn a_file_name_is_typed_in_a_framed_field_as_develop_s_files_tree() {
+        let renaming = Editing::RenamingFile("README.md".into());
+        assert_eq!(of(&renaming), TextInputStyle::Outlined);
     }
 }
