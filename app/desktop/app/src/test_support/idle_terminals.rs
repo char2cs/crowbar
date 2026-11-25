@@ -44,7 +44,7 @@ pub(crate) fn heard_terminals(
 }
 
 fn no_chats() -> ChatHosts {
-    ChatHosts::new(Rc::new(|_| None))
+    ChatHosts::new((Rc::new(|_| None), Rc::new(|_| None)))
 }
 
 fn idle_sessions() -> TerminalSessions {

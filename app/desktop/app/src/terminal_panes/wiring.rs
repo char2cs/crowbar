@@ -31,12 +31,9 @@ impl TerminalPanes {
         &self,
         owner: &TerminalOwner,
     ) -> TerminalSessions {
-        let TerminalOwner::Chat(chat) = owner else {
-            return self.sessions.clone();
-        };
         let host = self
             .hosts
-            .host(chat)
+            .host(owner)
             .and_then(|host| HostId::new(host).ok());
         host.map_or_else(|| self.sessions.clone(), |host| self.sessions.on(host))
     }
