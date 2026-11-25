@@ -10,6 +10,8 @@ pub(crate) enum ShellRequest {
     SelectProject(u8),
     /// The user answered the unsaved changes question.
     Closing(crate::close_choice::CloseChoice),
+    /// The user agreed to drop a pane's unsaved edits and read its file again.
+    ReloadDiscarding(protocol::PaneId),
     DataChanged,
     Outcome(store::Outcome),
     Command(keymap::ShellCommand),

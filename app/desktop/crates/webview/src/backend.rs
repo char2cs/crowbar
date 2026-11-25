@@ -1,5 +1,6 @@
 //! The Platform trait a backend implements, its capabilities and the host configuration it reads.
 
+mod alert_asking;
 mod browsing_data;
 mod caret_blink;
 mod desktop_settings;
@@ -16,6 +17,7 @@ mod view_focus;
 mod view_layout;
 mod view_lifecycle;
 
+pub use alert_asking::{AlertAsking, ChosenButton};
 pub use browsing_data::BrowsingData;
 pub use caret_blink::{CaretBlink, CaretReport};
 pub use desktop_settings::DesktopSettings;

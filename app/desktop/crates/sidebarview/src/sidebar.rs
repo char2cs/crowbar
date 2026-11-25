@@ -146,11 +146,13 @@ impl Sidebar {
     /// Asks again before discarding `row`, naming the work a refused removal would lose.
     pub fn ask_to_discard(
         &mut self,
-        row: &RowId,
-        at_risk: Vec<WorkAtRisk>,
+        refused: (&RowId, Vec<WorkAtRisk>),
+        window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
+        let (row, at_risk) = refused;
         self.tree.ask_to_discard(row, at_risk);
+        self.ask_confirmation(window, cx);
         cx.notify();
     }
 
@@ -251,7 +253,7 @@ mod tests {
         };
         sidebar.update_in(cx, |this, window, cx| {
             this.apply(Intent::RequestRemoval(RowId::from("chat")), window, cx);
-            this.ask_to_discard(&RowId::from("chat"), vec![risk], cx);
+            this.ask_to_discard((&RowId::from("chat"), vec![risk]), window, cx);
         });
         let title = sidebar.read_with(cx, |this, _| {
             this.tree.removals().confirmation().map(Confirmation::title)

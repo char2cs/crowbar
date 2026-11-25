@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use gpui::{App, Task, Window};
 
-pub(crate) fn install(
+pub(super) fn install(
     chooser: webview::FileChooser,
     cx: &mut App,
 ) {

@@ -81,7 +81,7 @@ impl Sidebar {
     ) -> bool {
         geometry.is_drawer()
             || self.peek.is_shown(Motion::of(cx))
-            || self.tree.removals().confirmation().is_some()
+            || self.drawn_confirmation(cx).is_some()
             || self.tree.files().dialog().is_some()
             || self.question.is_some()
             || self.line_target().is_some()

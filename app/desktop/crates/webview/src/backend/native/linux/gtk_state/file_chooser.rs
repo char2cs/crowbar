@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use gtk::glib::Cast as _;
+use gtk::glib::{Cast as _, IsA};
 use gtk::prelude::{DialogExt as _, FileChooserExt as _, GtkWindowExt as _, WidgetExt as _};
 use webkit2gtk::{FileChooserRequest, FileChooserRequestExt as _, WebViewExt as _};
 
@@ -57,8 +57,8 @@ pub(crate) fn chooser(
     dialog
 }
 
-fn keep_over(
-    dialog: &gtk::FileChooserDialog,
+pub(crate) fn keep_over(
+    dialog: &impl IsA<gtk::Widget>,
     top: u32,
 ) {
     let Ok(display) = dialog.display().downcast::<gdkx11::X11Display>() else {

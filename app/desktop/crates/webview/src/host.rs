@@ -1,9 +1,12 @@
 mod file_chooser;
 mod handle;
+mod native_alert;
 mod native_menu;
+mod native_ui;
 
 pub use file_chooser::FileChooser;
 pub use handle::Handle;
+pub use native_alert::NativeAlert;
 pub use native_menu::NativeMenu;
 
 use std::cell::Cell;
@@ -68,18 +71,6 @@ impl Host {
         report: crate::backend::CaretReport,
     ) -> Result<()> {
         self.platform.follow_caret(report)
-    }
-
-    /// The desktop's file chooser, opened on this host's platform thread.
-    #[must_use]
-    pub fn file_chooser(&self) -> FileChooser {
-        FileChooser::new(Rc::clone(&self.platform))
-    }
-
-    /// The desktop's context menu, popped up on this host's platform thread.
-    #[must_use]
-    pub fn native_menu(&self) -> NativeMenu {
-        NativeMenu::new(Rc::clone(&self.platform))
     }
 
     /// Returns once every view destroyed before it is gone from the platform.

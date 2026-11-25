@@ -42,8 +42,6 @@ mod editor_preferences;
 mod error;
 mod event_commands;
 mod family_names;
-#[cfg(target_os = "linux")]
-mod file_chooser;
 mod file_prompt;
 mod file_reply;
 mod file_target;
@@ -72,7 +70,7 @@ mod logged;
 mod name_event;
 mod name_prompt;
 #[cfg(target_os = "linux")]
-mod native_menu;
+mod native;
 mod native_panes;
 mod new_tab_action;
 mod new_tab_panes;
@@ -208,9 +206,7 @@ fn start(
     cx.bind_keys(settingsview::bindings());
     window_vibrancy::install(window_vibrancy::of_platform(), cx);
     #[cfg(target_os = "linux")]
-    file_chooser::install(parts.state.host().file_chooser(), cx);
-    #[cfg(target_os = "linux")]
-    native_menu::install(parts.state.host().native_menu(), cx);
+    native::install(parts.state.host(), cx);
     #[cfg(target_os = "linux")]
     adapters::key_places::install(cx);
     app_menu::install(cx);

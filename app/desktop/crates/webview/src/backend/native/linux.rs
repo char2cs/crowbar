@@ -1,6 +1,8 @@
 //! The GTK backend: web views on the GTK thread, their pages, placement and capture.
 
 #[cfg(target_os = "linux")]
+mod alert_asking;
+#[cfg(target_os = "linux")]
 mod bounded_wait;
 mod capture;
 #[cfg(target_os = "linux")]

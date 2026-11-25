@@ -17,6 +17,7 @@ pub struct MockPlatform {
     pub(crate) fail_next_create: Cell<bool>,
     pub(crate) chosen: RefCell<Vec<PathBuf>>,
     pub(crate) picked: RefCell<Option<Vec<usize>>>,
+    pub(crate) pressed: Cell<Option<usize>>,
 }
 
 impl std::fmt::Debug for MockPlatform {
@@ -66,6 +67,15 @@ impl MockPlatform {
         path: Vec<usize>,
     ) {
         self.picked.replace(Some(path));
+    }
+
+    /// Makes every later message dialog answer `button`, as if the user pressed it; until then
+    /// each one is dismissed.
+    pub fn press_button(
+        &self,
+        button: usize,
+    ) {
+        self.pressed.set(Some(button));
     }
 
     /// Delivers `text` as if the page of `id` had posted it through ipc.

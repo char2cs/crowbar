@@ -50,12 +50,8 @@ impl Factory {
         self.webviews.clear_browsing_data()
     }
 
-    pub(crate) fn file_chooser(&self) -> webview::FileChooser {
-        self.webviews.file_chooser()
-    }
-
-    pub(crate) fn native_menu(&self) -> webview::NativeMenu {
-        self.webviews.native_menu()
+    pub(crate) const fn webviews(&self) -> &webview::Host {
+        &self.webviews
     }
 
     pub(crate) fn settle(&self) -> webview::Result<()> {

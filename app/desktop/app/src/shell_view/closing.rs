@@ -13,7 +13,7 @@ use crate::request_queue::send;
 use crate::shell_request::ShellRequest;
 use crate::tab_looks::tab_look;
 use crate::titles::Titles;
-use crate::unsaved_dialog::UnsavedDialog;
+use crate::unsaved_dialog::{self, UnsavedDialog};
 
 pub(super) fn names_of(
     panes: &[PaneId],
@@ -70,6 +70,13 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) {
         let names = names_of(pending.dirty(), (self.state.layout(), &self.state.titles()));
+        self.pending_close = Some(pending);
+        cx.notify();
+        let request = unsaved_dialog::native_request(&names);
+        let choice = |pressed| Some(ShellRequest::Closing(unsaved_dialog::choice_of(pressed)));
+        if self.ask_natively(request, choice) {
+            return;
+        }
         let dialog = cx.new(|_| UnsavedDialog::new(&names));
         self.subscriptions.push(
             cx.subscribe(&dialog, |this, source, choice: &CloseChoice, cx| {
@@ -77,8 +84,6 @@ impl ShellView {
             }),
         );
         self.question = Some(dialog.into());
-        self.pending_close = Some(pending);
-        cx.notify();
     }
 
     fn on_unsaved_choice(

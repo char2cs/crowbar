@@ -1,3 +1,4 @@
+use crate::backend::alert_asking::AlertAsking;
 use crate::backend::browsing_data::BrowsingData;
 use crate::backend::desktop_settings::DesktopSettings;
 use crate::backend::file_choosing::FileChoosing;
@@ -23,6 +24,7 @@ pub trait Platform:
     + DesktopSettings
     + FileChoosing
     + MenuPopping
+    + AlertAsking
 {
 }
 

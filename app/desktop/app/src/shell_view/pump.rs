@@ -135,6 +135,9 @@ impl ShellView {
                 cx.notify();
             },
             ShellRequest::Closing(choice) => self.choose_closing(choice, window, cx),
+            ShellRequest::ReloadDiscarding(pane) => {
+                self.source.native().editors().reload(&pane, cx);
+            },
             ShellRequest::SelectProject(slot) => self.select_project(slot),
             ShellRequest::ResumeClosing => self.resume_closing(window, cx),
             ShellRequest::KeymapChanged => self.on_keymap_changed(window, cx),

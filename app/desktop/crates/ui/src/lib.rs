@@ -22,10 +22,10 @@ pub use display::{
 };
 pub use error::Error;
 pub use floating::{
-    ContextMenu, Dialog, DialogExtent, DialogSize, DialogStyle, DragGhost, DropdownMenu,
-    HeaderFlow, Menu, MenuAction, MenuItem, MenuPath, NativeEntry, NativeMenu, NativeRequest,
-    Placement, Popover, PopupMenu, Portal, Select, TabPreview, Tooltip, TooltipSide, click_away,
-    on_context_click, popup_at,
+    AlertButton, AlertRequest, AlertRole, AskAlert, ContextMenu, Dialog, DialogExtent, DialogSize,
+    DialogStyle, DragGhost, DropdownMenu, HeaderFlow, Menu, MenuAction, MenuEdge, MenuItem,
+    MenuPath, NativeAlert, NativeEntry, NativeMenu, NativeRequest, Placement, Popover, PopupMenu,
+    Portal, Select, TabPreview, Tooltip, TooltipSide, click_away, on_context_click, popup_at,
 };
 pub use foundation::{
     Appearance, Breakpoint, CaretBlink, ChoiceKind, ChooseFiles, CubicBezier, FileChoice,

@@ -1,6 +1,8 @@
 //! An in-memory backend that records every call, for tests in this and other crates.
 
 #[cfg(feature = "mock")]
+mod alerts;
+#[cfg(feature = "mock")]
 mod call;
 #[cfg(feature = "mock")]
 mod choosing;

@@ -1,3 +1,4 @@
+use crate::alert::AlertRequest;
 use crate::chooser::FileChoice;
 use crate::menu::MenuRequest;
 use crate::view::Bounds;
@@ -96,6 +97,13 @@ pub enum Call {
         parent: ParentWindow,
         /// What it showed and where.
         request: MenuRequest,
+    },
+    /// The desktop's message dialog was asked.
+    AskAlert {
+        /// The window it was asked over.
+        parent: ParentWindow,
+        /// What it asked.
+        request: AlertRequest,
     },
     /// A view was destroyed.
     Destroy {

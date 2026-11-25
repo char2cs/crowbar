@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use gpui::{App, Task, Window};
 
-pub(crate) fn install(
+pub(super) fn install(
     menu: webview::NativeMenu,
     cx: &mut App,
 ) {
@@ -36,6 +36,14 @@ fn web_request(request: &ui::NativeRequest) -> webview::MenuRequest {
         entries: web_entries(&request.entries),
         x: f64::from(f32::from(request.at.x)),
         y: f64::from(f32::from(request.at.y)),
+        edge: web_edge(request.edge),
+    }
+}
+
+fn web_edge(edge: ui::MenuEdge) -> webview::MenuEdge {
+    match edge {
+        ui::MenuEdge::Start => webview::MenuEdge::Start,
+        ui::MenuEdge::End => webview::MenuEdge::End,
     }
 }
 
@@ -106,11 +114,13 @@ mod tests {
         let asked = ui::NativeRequest {
             entries: shell_entries(),
             at: point(px(12.0), px(40.5)),
+            edge: ui::MenuEdge::End,
         };
         let opened = webview::MenuRequest {
             entries: web_view_entries(),
             x: 12.0,
             y: 40.5,
+            edge: webview::MenuEdge::End,
         };
         assert_eq!(web_request(&asked), opened);
     }

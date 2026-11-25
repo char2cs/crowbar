@@ -17,8 +17,12 @@ impl Runner for SettingsModal {
         cx: &mut Context<'_, Self>,
     ) {
         self.notice = None;
+        let asking = self.state.prompt().is_some();
         let effect = self.apply(intent, window, cx);
         self.perform(effect);
+        if !asking {
+            self.ask_natively(window, cx);
+        }
         self.fields.sync(&self.state, cx);
         cx.notify();
     }

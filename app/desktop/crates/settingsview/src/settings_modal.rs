@@ -3,6 +3,7 @@
 mod close_handler;
 mod field_input;
 mod modal_config;
+mod native_prompt;
 mod run_intent;
 
 pub use modal_config::ModalConfig;
@@ -15,7 +16,7 @@ use gpui::{
     Render, ScrollHandle, WeakEntity, Window, div,
 };
 use settings::{Change, RecordBackend, Subscription};
-use ui::{Dialog, IconName, TextInput, TextInputEvent, TextInputStyle};
+use ui::{Dialog, IconName, NativeAlert, TextInput, TextInputEvent, TextInputStyle};
 
 use crate::modal::body;
 use crate::settings_modal::close_handler::CloseHandler;
@@ -206,7 +207,12 @@ impl Render for SettingsModal {
             .on_close(move |window, cx| closer.deliver(Intent::Close, (window, cx)));
         div()
             .child(dialog)
-            .children(self.state.prompt().map(|prompt| prompt_view(&sink, prompt)))
+            .children(
+                self.state
+                    .prompt()
+                    .filter(|_| NativeAlert::installed(cx).is_none())
+                    .map(|prompt| prompt_view(&sink, prompt)),
+            )
             .children(self.notice.as_deref().map(notice_view))
     }
 }

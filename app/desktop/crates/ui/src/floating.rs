@@ -4,6 +4,7 @@
 mod dialog;
 mod drag_ghost;
 mod menu;
+mod native_alert;
 mod placement;
 mod popover;
 mod popup;
@@ -18,9 +19,10 @@ pub use dialog::{Dialog, DialogExtent, DialogSize, DialogStyle, HeaderFlow};
 pub use drag_ghost::DragGhost;
 pub(crate) use menu::bindings as menu_bindings;
 pub use menu::{
-    ContextMenu, DropdownMenu, Menu, MenuAction, MenuItem, MenuPath, NativeEntry, NativeMenu,
-    NativeRequest, PopupMenu, Select, on_context_click,
+    ContextMenu, DropdownMenu, Menu, MenuAction, MenuEdge, MenuItem, MenuPath, NativeEntry,
+    NativeMenu, NativeRequest, PopupMenu, Select, on_context_click,
 };
+pub use native_alert::{AlertButton, AlertRequest, AlertRole, AskAlert, NativeAlert};
 pub use placement::Placement;
 pub use popover::Popover;
 pub(crate) use popover::bindings as popover_bindings;

@@ -3,7 +3,8 @@ use protocol::PaneId;
 
 use super::ShellView;
 use crate::close_choice::CloseChoice;
-use crate::reload_dialog::ReloadDialog;
+use crate::reload_dialog::{self, ReloadDialog};
+use crate::shell_request::ShellRequest;
 
 impl ShellView {
     pub(super) fn reload_tab(
@@ -16,6 +17,14 @@ impl ShellView {
         }
         let name = self.source.native().editors().file_name(pane);
         let asked = (pane.clone(), name.unwrap_or_default());
+        let request = reload_dialog::native_request(&asked.1);
+        let discard = pane.clone();
+        let reload = move |pressed| {
+            (pressed == reload_dialog::OK).then_some(ShellRequest::ReloadDiscarding(discard))
+        };
+        if self.ask_natively(request, reload) {
+            return;
+        }
         let dialog = cx.new(|_| ReloadDialog::new(asked));
         self.subscriptions.push(
             cx.subscribe(&dialog, |this, dialog, choice: &CloseChoice, cx| {

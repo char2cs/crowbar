@@ -18,6 +18,7 @@ pub(crate) struct UnsavedDialog {
 }
 
 const ASK: &str = "Do you want to save before closing?";
+const TITLE: &str = "Unsaved Changes";
 
 fn more_than_listed(names: &[String]) -> String {
     match names.len().saturating_sub(LISTED_NAMES) {
@@ -46,6 +47,30 @@ pub(crate) fn named_in(names: &[String]) -> Option<Range<usize>> {
     match names {
         [only] => Some(0..only.len()),
         _ => None,
+    }
+}
+
+pub(crate) fn native_request(names: &[String]) -> webview::AlertRequest {
+    let button = |label: &str, role| webview::AlertButton {
+        label: label.to_owned(),
+        role,
+    };
+    webview::AlertRequest {
+        title: Some(TITLE.to_owned()),
+        message: message_for(names),
+        buttons: vec![
+            button("Cancel", webview::AlertRole::Cancel),
+            button("Discard", webview::AlertRole::Destructive),
+            button("Save", webview::AlertRole::Accept),
+        ],
+    }
+}
+
+pub(crate) const fn choice_of(pressed: Option<usize>) -> CloseChoice {
+    match pressed {
+        Some(1) => CloseChoice::Discard,
+        Some(2) => CloseChoice::Save,
+        _ => CloseChoice::Cancel,
     }
 }
 
@@ -83,7 +108,7 @@ impl Render for UnsavedDialog {
         let named = self.named.clone().map(|range| (range, medium));
         let message = StyledText::new(self.message.clone()).with_highlights(named);
         Dialog::new("unsaved-changes")
-            .title("Unsaved Changes")
+            .title(TITLE)
             .icon(IconName::Warning)
             .size(DialogSize::Sm)
             .body(

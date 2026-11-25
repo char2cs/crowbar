@@ -4,7 +4,7 @@ impl PaneHost {
     /// The desktop's file chooser, opened on the web views' platform thread.
     #[must_use]
     pub fn file_chooser(&self) -> webview::FileChooser {
-        self.factory.file_chooser()
+        self.factory.webviews().file_chooser()
     }
 }
 

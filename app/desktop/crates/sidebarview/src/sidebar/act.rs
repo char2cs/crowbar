@@ -62,8 +62,10 @@ impl Sidebar {
             Intent::StartRename(id) => self.start_rename(&id, window, cx),
             Intent::StartBranching(id) => self.start_branching(&id, window, cx),
             Intent::StartDraft(id) => self.start_draft(&id, window, cx),
-            Intent::RequestRemoval(id) => self.request_removal(&id, cx),
-            Intent::RequestProjectRemoval(project) => self.request_project_removal(project),
+            Intent::RequestRemoval(id) => self.request_removal(&id, window, cx),
+            Intent::RequestProjectRemoval(project) => {
+                self.request_project_removal(project, window, cx);
+            },
             Intent::Keep(id) => self.tree.keep(&id),
             Intent::ToggleFold(id) => {
                 self.tree.toggle_fold(&id);
@@ -75,8 +77,7 @@ impl Sidebar {
                 self.start_file_create((dir, entry), window, cx);
             },
             Intent::RequestFileDelete { path, is_dir } => {
-                self.tree
-                    .show_file_dialog(FileDialog::Delete { path, is_dir });
+                self.ask_file_delete(FileDialog::Delete { path, is_dir }, window, cx);
             },
             Intent::ShowProperties(path) => {
                 let properties = FileProperties::of(&path);
@@ -90,7 +91,7 @@ impl Sidebar {
                 self.tree.select_file(Some(path));
             },
             Intent::ToggleChangedFold(path) => self.tree.toggle_changed_fold(path),
-            Intent::Ask(question) => self.question = Some(question),
+            Intent::Ask(question) => self.ask(question, window, cx),
             Intent::Send(command) => self.send_intent(command, cx),
         }
         cx.notify();
@@ -161,6 +162,8 @@ impl Sidebar {
     fn request_project_removal(
         &mut self,
         project: ProjectId,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
     ) {
         let name = self
             .data
@@ -171,11 +174,13 @@ impl Sidebar {
         if let Some(name) = name {
             self.tree.request_project_removal(project, &name);
         }
+        self.ask_confirmation(window, cx);
     }
 
     fn request_removal(
         &mut self,
         id: &RowId,
+        window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
         let Some(project) = self.data.active_project() else {
@@ -187,6 +192,7 @@ impl Sidebar {
         };
         let held = tree.subtree(id);
         self.tree.request_removal(row, self.clock.now());
+        self.ask_confirmation(window, cx);
         self.schedule_removals(cx);
         let counting = self
             .tree

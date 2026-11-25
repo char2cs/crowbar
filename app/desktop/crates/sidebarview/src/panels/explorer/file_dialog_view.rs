@@ -1,8 +1,11 @@
 //! The delete confirmation and Properties dialogs of the Files panel.
 
-use gpui::{AnyElement, Context, Div, IntoElement, ParentElement, Styled, div, px};
+use gpui::{AnyElement, Context, Div, IntoElement, ParentElement, Styled, Window, div, px};
 use sidebar::{Command, FileDialog, FileProperties};
-use ui::{Button, ButtonVariant, Dialog, DialogSize, IconName, Palette, Surface, Theme};
+use ui::{
+    AlertButton, AlertRequest, AlertRole, Button, ButtonVariant, Dialog, DialogSize, IconName,
+    NativeAlert, Palette, Surface, Theme,
+};
 
 use crate::sidebar::Sidebar;
 use crate::sidebar::{SPACE_MD, SPACE_SM, TEXT_LARGE};
@@ -46,6 +49,17 @@ fn properties_body(
         .child(property("Type", &properties.kind, palette))
 }
 
+fn delete_request(dialog: &FileDialog) -> AlertRequest {
+    AlertRequest {
+        title: Some(dialog.title().into()),
+        message: dialog.question().unwrap_or_default().into(),
+        buttons: vec![
+            AlertButton::new("Cancel", AlertRole::Cancel),
+            AlertButton::new("Delete", AlertRole::Destructive),
+        ],
+    }
+}
+
 impl Sidebar {
     pub(crate) fn file_dialog_layer(
         &self,
@@ -82,6 +96,21 @@ impl Sidebar {
             },
         };
         Some(frame.into_any_element())
+    }
+
+    pub(crate) fn ask_file_delete(
+        &mut self,
+        dialog: FileDialog,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let (Some(native), FileDialog::Delete { path, .. }) = (NativeAlert::installed(cx), &dialog)
+        else {
+            return self.tree.show_file_dialog(dialog);
+        };
+        let command = Command::DeleteFile { path: path.clone() };
+        let answer = native.ask(delete_request(&dialog), window, cx);
+        Self::send_when_accepted((answer, command), window, cx);
     }
 
     fn close_file_dialog(
@@ -135,6 +164,32 @@ mod tests {
     }
 
     #[gpui::test]
+    fn with_a_native_dialog_a_delete_is_asked_there_in_develop_s_words(cx: &mut TestAppContext) {
+        let asked = crate::test_support::answer_alerts_with(cx, Some(1));
+        let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
+        let ask = Intent::RequestFileDelete {
+            path: "src/lib.rs".into(),
+            is_dir: false,
+        };
+        sidebar.update_in(cx, |this, window, cx| this.apply(ask, window, cx));
+        cx.run_until_parked();
+        let question = FileDialog::Delete {
+            path: "src/lib.rs".into(),
+            is_dir: false,
+        }
+        .question()
+        .unwrap_or_default();
+        let request = asked.borrow().first().cloned();
+        let words = request.map(|request| (request.title, request.message));
+        assert_eq!(words, Some((Some("Delete File".into()), question.into())));
+        assert!(sidebar.read_with(cx, |this, _| this.tree.files().dialog().is_none()));
+        let want = Command::DeleteFile {
+            path: "src/lib.rs".into(),
+        };
+        assert_eq!(recorder.sent(), vec![want]);
+    }
+
+    #[gpui::test]
     fn properties_open_and_close_without_asking_the_shell(cx: &mut TestAppContext) {
         let (_, sidebar, cx) = open(cx, DemoShell::reference());
         sidebar.update_in(cx, |this, window, cx| {
@@ -160,23 +215,6 @@ mod tests {
             this.apply(ask, window, cx);
         });
         floating.window.run_until_parked();
-    }
-
-    #[gpui::test]
-    fn the_delete_dialog_floats_centred_above_the_panes(cx: &mut TestAppContext) {
-        let mut floating = crate::test_support::open_floating(cx, DemoShell::reference());
-        ask_delete(&mut floating);
-        assert_eq!(
-            floating.window.debug_bounds("ui-dialog"),
-            None,
-            "nothing in the window"
-        );
-        let card = floating.top.debug_bounds("ui-dialog").unwrap_or_default();
-        let centre = card.origin.x + card.size.width / 2.0;
-        assert!(
-            (centre - px(600.0)).abs() < px(1.0),
-            "{card:?} centred in 1200px"
-        );
     }
 
     #[gpui::test]

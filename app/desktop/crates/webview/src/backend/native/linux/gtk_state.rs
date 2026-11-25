@@ -38,7 +38,7 @@ use crate::view::ParentWindow;
 use crate::view::{PageEvent, PageHandler};
 
 #[cfg(target_os = "linux")]
-pub(crate) use file_chooser::chooser;
+pub(crate) use file_chooser::{chooser, keep_over};
 
 const BROWSER_DIR: &str = "browser";
 const NO_PAGE_WINDOW: &str = "the web view got no X11 window of its own";

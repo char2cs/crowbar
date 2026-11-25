@@ -111,9 +111,9 @@ impl ShellView {
             disk @ (DataOutcome::FileChanged { .. } | DataOutcome::FilesSynced { .. }) => {
                 self.disk_changed(disk, cx);
             },
-            DataOutcome::WorkAtRisk { row, at_risk } => self
-                .sidebar
-                .update(cx, |sidebar, cx| sidebar.ask_to_discard(&row, at_risk, cx)),
+            DataOutcome::WorkAtRisk { row, at_risk } => self.sidebar.update(cx, |sidebar, cx| {
+                sidebar.ask_to_discard((&row, at_risk), window, cx);
+            }),
             DataOutcome::RemovalRefused { row, reason } => self
                 .sidebar
                 .update(cx, |sidebar, cx| sidebar.removal_refused(&row, reason, cx)),

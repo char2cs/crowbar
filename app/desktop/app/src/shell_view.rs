@@ -36,6 +36,7 @@ mod first_run;
 mod focus_follow;
 mod folder_import;
 mod keymap_settings;
+mod native_alert;
 mod new_tab;
 mod notices;
 mod outcomes;
