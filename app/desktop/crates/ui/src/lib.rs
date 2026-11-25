@@ -23,8 +23,9 @@ pub use display::{
 pub use error::Error;
 pub use floating::{
     Backdrop, ContextMenu, Dialog, DialogExtent, DialogSize, DialogStyle, DragGhost, DropdownMenu,
-    HeaderFlow, Menu, MenuAction, MenuItem, Placement, Popover, Portal, Select, TabPreview,
-    Tooltip, TooltipSide, TopLayer, click_away, popup_at,
+    HeaderFlow, Menu, MenuAction, MenuItem, MenuPath, NativeEntry, NativeMenu, NativeRequest,
+    Placement, Popover, PopupMenu, Portal, Select, TabPreview, Tooltip, TooltipSide, TopLayer,
+    click_away, popup_at,
 };
 pub use foundation::{
     Appearance, Breakpoint, CaretBlink, ChoiceKind, ChooseFiles, CubicBezier, FileChoice,

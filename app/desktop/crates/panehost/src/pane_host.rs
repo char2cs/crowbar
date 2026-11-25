@@ -2,6 +2,7 @@ mod browser;
 mod context;
 mod file_choosing;
 mod lifecycle;
+mod menu_popping;
 mod reconcile;
 mod refusals;
 

@@ -20,7 +20,10 @@ pub(crate) use dialog::bindings as dialog_bindings;
 pub use dialog::{Dialog, DialogExtent, DialogSize, DialogStyle, HeaderFlow};
 pub use drag_ghost::DragGhost;
 pub(crate) use menu::bindings as menu_bindings;
-pub use menu::{ContextMenu, DropdownMenu, Menu, MenuAction, MenuItem, Select};
+pub use menu::{
+    ContextMenu, DropdownMenu, Menu, MenuAction, MenuItem, MenuPath, NativeEntry, NativeMenu,
+    NativeRequest, PopupMenu, Select,
+};
 pub use placement::Placement;
 pub use popover::Popover;
 pub(crate) use popover::bindings as popover_bindings;

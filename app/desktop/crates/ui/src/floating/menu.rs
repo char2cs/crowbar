@@ -36,6 +36,7 @@ pub struct Menu {
 }
 
 mod menu_item;
+mod native_menu;
 mod navigation;
 mod nested;
 mod option_row;
@@ -45,6 +46,7 @@ mod row_style;
 mod trigger;
 
 pub use menu_item::{MenuAction, MenuItem};
+pub use native_menu::{MenuPath, NativeEntry, NativeMenu, NativeRequest, PopupMenu};
 pub(crate) use navigation::bindings;
 pub(crate) use option_row::{
     CHECK as OPTION_CHECK, GAP as OPTION_GAP, HEIGHT as OPTION_HEIGHT, START as OPTION_START,

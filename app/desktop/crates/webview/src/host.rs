@@ -1,8 +1,10 @@
 mod file_chooser;
 mod handle;
+mod native_menu;
 
 pub use file_chooser::FileChooser;
 pub use handle::Handle;
+pub use native_menu::NativeMenu;
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -72,6 +74,12 @@ impl Host {
     #[must_use]
     pub fn file_chooser(&self) -> FileChooser {
         FileChooser::new(Rc::clone(&self.platform))
+    }
+
+    /// The desktop's context menu, popped up on this host's platform thread.
+    #[must_use]
+    pub fn native_menu(&self) -> NativeMenu {
+        NativeMenu::new(Rc::clone(&self.platform))
     }
 
     /// Returns once every view destroyed before it is gone from the platform.

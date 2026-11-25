@@ -5,6 +5,8 @@ mod call;
 #[cfg(feature = "mock")]
 mod choosing;
 #[cfg(feature = "mock")]
+mod menus;
+#[cfg(feature = "mock")]
 mod mock_platform;
 #[cfg(feature = "mock")]
 mod page;

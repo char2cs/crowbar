@@ -5,6 +5,7 @@ mod caret_blink;
 mod desktop_settings;
 mod file_choosing;
 mod host_config;
+mod menu_popping;
 #[cfg(feature = "mock")]
 mod mock;
 mod native;
@@ -20,6 +21,7 @@ pub use caret_blink::{CaretBlink, CaretReport};
 pub use desktop_settings::DesktopSettings;
 pub use file_choosing::{ChosenFiles, FileChoosing};
 pub use host_config::HostConfig;
+pub use menu_popping::{ChosenEntry, MenuPopping};
 #[cfg(feature = "mock")]
 pub use mock::{Call, MockPlatform};
 #[cfg(target_os = "macos")]

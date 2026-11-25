@@ -1,4 +1,5 @@
 use crate::chooser::FileChoice;
+use crate::menu::MenuRequest;
 use crate::view::Bounds;
 use crate::view::Color;
 use crate::view::Id;
@@ -88,6 +89,13 @@ pub enum Call {
         parent: ParentWindow,
         /// What it asked.
         choice: FileChoice,
+    },
+    /// The desktop's context menu was popped up.
+    PopupMenu {
+        /// The window it was popped up over.
+        parent: ParentWindow,
+        /// What it showed and where.
+        request: MenuRequest,
     },
     /// A view was destroyed.
     Destroy {

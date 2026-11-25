@@ -54,6 +54,10 @@ impl Factory {
         self.webviews.file_chooser()
     }
 
+    pub(crate) fn native_menu(&self) -> webview::NativeMenu {
+        self.webviews.native_menu()
+    }
+
     pub(crate) fn settle(&self) -> webview::Result<()> {
         self.webviews.settle()
     }

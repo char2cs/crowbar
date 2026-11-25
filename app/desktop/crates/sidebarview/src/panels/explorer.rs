@@ -312,6 +312,68 @@ mod tests {
 
     const FAR_BELOW_THE_ROWS: f32 = 700.0;
 
+    fn right_click_at(
+        y: f32,
+        cx: &mut gpui::VisualTestContext,
+    ) {
+        let at = point(px(120.0), px(y));
+        cx.simulate_mouse_down(at, gpui::MouseButton::Right, gpui::Modifiers::none());
+        cx.simulate_mouse_up(at, gpui::MouseButton::Right, gpui::Modifiers::none());
+        cx.run_until_parked();
+    }
+
+    fn files_open(
+        cx: &mut TestAppContext,
+        answer: Option<ui::MenuPath>,
+    ) -> (Popped, gpui::Entity<Sidebar>, &mut gpui::VisualTestContext) {
+        let popped = answer_menus_with(cx, answer);
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
+        sidebar.update(cx, |this, cx| this.set_mode(Mode::Files, cx));
+        cx.run_until_parked();
+        (popped, sidebar, cx)
+    }
+
+    #[gpui::test]
+    fn a_right_click_on_the_files_panel_asks_for_develops_native_menu(cx: &mut TestAppContext) {
+        let (popped, _, cx) = files_open(cx, None);
+        right_click_at(FAR_BELOW_THE_ROWS, cx);
+        let popped = popped.borrow();
+        let [request] = popped.as_slice() else {
+            panic!("one native menu, got {popped:?}");
+        };
+        assert_eq!(
+            menu_labels(&request.entries),
+            [
+                "New File",
+                "New Folder",
+                "Upload File",
+                "Refresh",
+                "Open All Files",
+                "Collapse All",
+                "Open in Terminal",
+                "-",
+                "Copy Path",
+                "Copy Relative Path",
+                "Reveal in Finder",
+                "Copy",
+                "Cut",
+            ]
+        );
+        assert_eq!(request.at, point(px(120.0), px(FAR_BELOW_THE_ROWS)));
+        assert_eq!(
+            cx.debug_bounds("ui-menu"),
+            None,
+            "no menu drawn in the window"
+        );
+    }
+
+    #[gpui::test]
+    fn choosing_new_file_in_the_native_menu_opens_the_inline_input(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = files_open(cx, Some(vec![0]));
+        right_click_at(FAR_BELOW_THE_ROWS, cx);
+        assert!(started(&sidebar, cx), "New File opened no input");
+    }
+
     #[gpui::test]
     fn a_click_on_the_empty_space_under_the_tree_clears_the_selection(cx: &mut TestAppContext) {
         let (_, sidebar, cx) = open(cx, DemoShell::reference());

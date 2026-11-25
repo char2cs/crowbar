@@ -16,6 +16,7 @@ pub struct MockPlatform {
     pub(crate) live: RefCell<HashMap<Id, IpcHandler>>,
     pub(crate) fail_next_create: Cell<bool>,
     pub(crate) chosen: RefCell<Vec<PathBuf>>,
+    pub(crate) picked: RefCell<Option<Vec<usize>>>,
 }
 
 impl std::fmt::Debug for MockPlatform {
@@ -56,6 +57,15 @@ impl MockPlatform {
         paths: Vec<PathBuf>,
     ) {
         self.chosen.replace(paths);
+    }
+
+    /// Makes every later context menu answer `path`, as if the user chose that entry; until
+    /// then each one is dismissed.
+    pub fn pick_entry(
+        &self,
+        path: Vec<usize>,
+    ) {
+        self.picked.replace(Some(path));
     }
 
     /// Delivers `text` as if the page of `id` had posted it through ipc.

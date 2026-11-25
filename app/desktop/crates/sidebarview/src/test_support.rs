@@ -3,6 +3,7 @@
 
 pub(crate) mod blank;
 mod file_choices;
+mod native_menus;
 pub(crate) mod open;
 pub(crate) mod prelude;
 mod probe;
@@ -10,6 +11,7 @@ mod recorder;
 mod rows;
 
 pub(crate) use file_choices::answer_choices_with;
+pub(crate) use native_menus::{Popped, answer_menus_with, labels as menu_labels};
 pub(crate) use open::{Floating, open, open_floating, press, settle};
 pub(crate) use probe::{measure, mount};
 pub(crate) use recorder::Recorder;

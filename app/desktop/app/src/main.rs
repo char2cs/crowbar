@@ -71,6 +71,8 @@ mod loaded_layout;
 mod logged;
 mod name_event;
 mod name_prompt;
+#[cfg(target_os = "linux")]
+mod native_menu;
 mod native_panes;
 mod new_tab_action;
 mod new_tab_panes;
@@ -207,6 +209,8 @@ fn start(
     window_vibrancy::install(window_vibrancy::of_platform(), cx);
     #[cfg(target_os = "linux")]
     file_chooser::install(parts.state.host().file_chooser(), cx);
+    #[cfg(target_os = "linux")]
+    native_menu::install(parts.state.host().native_menu(), cx);
     app_menu::install(cx);
     last_window::quit_with_last_window(cx, |cx| cx.quit());
     let memory = WindowMemory::new(&options.state_dir().join("window.json"));

@@ -14,6 +14,8 @@ mod gtk_platform;
 #[cfg(target_os = "linux")]
 mod gtk_state;
 #[cfg(target_os = "linux")]
+mod menu_popping;
+#[cfg(target_os = "linux")]
 mod page;
 #[cfg(target_os = "linux")]
 mod views;
