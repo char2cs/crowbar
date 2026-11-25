@@ -55,6 +55,8 @@ export interface AgentTerminalSurfaceProps {
   onStartSession: () => void
   /** The chat's host does not answer: a session cannot be started now. */
   offline: boolean
+  /** The height of a floating header over this surface's top, which the grid starts below. */
+  headerClearancePx: number
   ref?: Ref<HTMLDivElement>
 }
 
@@ -84,6 +86,7 @@ export function AgentTerminalSurface({
   terminalRef,
   onStartSession,
   offline,
+  headerClearancePx,
   ref,
 }: AgentTerminalSurfaceProps) {
   const provider = providers.find((candidate) => candidate.id === activeProviderId)
@@ -125,7 +128,12 @@ export function AgentTerminalSurface({
           ? 'relative min-h-0 min-w-0 shrink grow-0'
           : cn('h-full', presentation === 'terminal' ? '' : 'hidden'),
       )}
-      style={splitting ? ({ flexBasis: `${basis}%` } as CSSProperties) : undefined}
+      style={
+        {
+          paddingTop: `${headerClearancePx}px`,
+          ...(splitting ? { flexBasis: `${basis}%` } : undefined),
+        } as CSSProperties
+      }
     >
       {attachment.state === 'attached' && attachment.sessionId && (
         // No key={sessionId}: runner replacement swaps the PTY imperatively. isActive

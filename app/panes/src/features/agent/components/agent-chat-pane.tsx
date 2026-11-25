@@ -424,6 +424,10 @@ export function AgentChatPaneBody({
             terminalRef={terminalApiRef}
             onStartSession={startSession}
             offline={offline}
+            // Under the floating header unless it is a stacked split's lower half.
+            headerClearancePx={
+              belowOverlayHeader && !(splitting && splitStacked) ? HEADER_ROW_HEIGHT_PX : 0
+            }
           />
         </div>
 
