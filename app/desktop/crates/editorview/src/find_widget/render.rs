@@ -12,8 +12,6 @@ use crate::reveal::Reveal;
 
 // SPEC: https://github.com/microsoft/vscode/blob/main/src/vs/editor/contrib/find/browser/findWidget.css
 const WIDTH: f32 = 419.0;
-const FIND_HEIGHT: f32 = 33.0;
-const REPLACE_HEIGHT: f32 = 62.0;
 const RIGHT_INSET: f32 = 14.0;
 const PADDING_X: f32 = 4.0;
 const PART_TOP: f32 = 4.0;
@@ -43,10 +41,7 @@ impl Render for FindWidget {
             return div().into_any_element();
         }
         let palette = *Theme::of(cx).palette(Surface::Window);
-        let height = match self.reveal {
-            Reveal::Replace => REPLACE_HEIGHT,
-            _ => FIND_HEIGHT,
-        };
+        let height = super::top_space::height(self.reveal);
         let replace_row = (self.reveal == Reveal::Replace).then(|| self.replace_row(&palette, cx));
         div()
             .id("find-widget")
@@ -101,7 +96,7 @@ impl FindWidget {
             .justify_center()
             .hover(|style| style.bg(palette.accent()))
             .on_click(cx.listener(move |widget, _: &ClickEvent, _, cx| {
-                widget.reveal = next;
+                widget.show(next, cx);
                 cx.notify();
             }))
             .child(
@@ -267,9 +262,10 @@ fn lit<E: Styled>(
 mod tests {
     use gpui::TestAppContext;
 
-    use super::{FIND_HEIGHT, REPLACE_HEIGHT, WIDTH};
+    use super::WIDTH;
     use crate::Access;
     use crate::editor_view::test_support::{find_of, open_find, opened};
+    use crate::find_widget::top_space::{FIND_HEIGHT, REPLACE_HEIGHT};
     use crate::reveal::Reveal;
 
     #[gpui::test]

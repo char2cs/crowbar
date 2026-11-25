@@ -13,6 +13,7 @@ mod highlights;
 mod render;
 mod replacing;
 mod stepping;
+mod top_space;
 
 // SPEC: https://github.com/microsoft/vscode/blob/main/src/vs/editor/contrib/find/browser/findWidget.css
 const LABEL_SIZE: f32 = 12.0;
@@ -88,7 +89,7 @@ impl FindWidget {
                 .update(cx, |input, cx| input.set_text(&seed, cx));
         }
         self.find_input.update(cx, TextInput::select_all);
-        self.reveal = reveal;
+        self.show(reveal, cx);
         self.research(cx);
         let focused = match (reveal, seeded) {
             (Reveal::Replace, true) => &self.replace_input,
@@ -104,7 +105,7 @@ impl FindWidget {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        self.reveal = Reveal::Hidden;
+        self.show(Reveal::Hidden, cx);
         self.scope = None;
         self.highlights.clear(cx);
         let editor = self.editor.read(cx).focus_handle(cx);

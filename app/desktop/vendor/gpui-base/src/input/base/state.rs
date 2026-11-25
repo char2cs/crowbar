@@ -548,6 +548,8 @@ pub struct InputBaseState<M: InputModeKind> {
     /// The widest measured unwrapped line width and what it was measured for.
     pub(super) longest_line_width: Cell<Option<(LongestLineKey, Pixels)>>,
     pub(super) editor_paddings: Edges<Pixels>,
+    /// Space above the first line that scrolling can bring into view.
+    pub(super) top_space: Pixels,
     /// The style this state paints with: what was projected onto it, with
     /// every colour left unset resolved from the palette that is current. It
     /// is rebuilt at the top of every render, which is what keeps it current
@@ -1048,6 +1050,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             overview_ruler_rows: Default::default(),
             longest_line_width: Cell::new(None),
             editor_paddings: Edges::default(),
+            top_space: px(0.),
             deferred_scroll_offset: None,
             placeholder: SharedString::default(),
             mask_pattern: MaskPattern::default(),
@@ -1202,6 +1205,14 @@ impl<M: InputModeKind> InputBaseState<M> {
     #[doc(hidden)]
     pub fn set_editor_paddings(&mut self, paddings: Edges<Pixels>) {
         self.editor_paddings = paddings;
+    }
+
+    /// Leave `space` above the first line, as Monaco's view zone after line 0 does: the scroll
+    /// can reach up past the first line by that much, and a reveal near the top shows it.
+    /// Where the text sits stays put; a scroll into space that shrank is pulled back.
+    pub fn set_top_space(&mut self, space: Pixels, cx: &mut Context<Self>) {
+        self.top_space = space;
+        self.update_scroll_offset(None, cx);
     }
 
     /// Supply the element painted in place of the editor's scrollbar, or
@@ -3146,7 +3157,7 @@ impl<M: InputModeKind> InputBaseState<M> {
     ) {
         let mut offset = offset.unwrap_or(self.scroll_handle.offset());
         let safe_y_range =
-            (-self.scroll_size.height + self.input_bounds.size.height).min(px(0.0))..px(0.);
+            (-self.scroll_size.height + self.input_bounds.size.height).min(px(0.0))..self.top_space;
 
         offset.y = if self.is_single_line() {
             px(0.)
@@ -3259,6 +3270,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             line_height,
             bounds.size.height,
             edge_height,
+            self.top_space,
         );
 
         // Avoid necessary scroll, when it was already in the correct position.
@@ -3273,7 +3285,7 @@ impl<M: InputModeKind> InputBaseState<M> {
         // over-scrolled frame before the post-paint clamp pulls it back.
         let safe_y_min = (-self.scroll_size.height + self.input_bounds.size.height).min(px(0.));
         scroll_offset.x = scroll_offset.x.min(px(0.));
-        scroll_offset.y = scroll_offset.y.clamp(safe_y_min, px(0.));
+        scroll_offset.y = scroll_offset.y.clamp(safe_y_min, self.top_space);
         self.deferred_scroll_offset = Some(scroll_offset);
         cx.notify();
     }
@@ -13657,7 +13669,7 @@ impl InputBaseState<crate::input::EditorMode> {
             .offset_to_display_row(offset, self.line_end_affinity_at(offset));
         let centre = line_height * row - (bounds.size.height - line_height) / 2.;
         let safe_y_min = (-self.scroll_size.height + self.input_bounds.size.height).min(px(0.));
-        let y = (-centre).clamp(safe_y_min, px(0.));
+        let y = (-centre).clamp(safe_y_min, self.top_space);
         self.deferred_scroll_offset = Some(point(x, y));
         cx.notify();
     }

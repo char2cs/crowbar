@@ -401,8 +401,9 @@ fn clamp_vertical_scroll_offset(
     scroll_top: Pixels,
     scroll_height: Pixels,
     input_height: Pixels,
+    top_space: Pixels,
 ) -> Pixels {
-    scroll_top.clamp((input_height - scroll_height).min(px(0.)), px(0.))
+    scroll_top.clamp((input_height - scroll_height).min(px(0.)), top_space)
 }
 
 fn editor_gutter_bounds(
@@ -703,13 +704,14 @@ pub(super) fn reveal_row(
     line_height: Pixels,
     viewport_height: Pixels,
     edge_padding: Pixels,
+    top_space: Pixels,
 ) -> Pixels {
     let row_height = line_height.min(viewport_height);
     let bottom = edge_padding.max(row_height).min(viewport_height);
     let top = edge_padding.min(viewport_height - bottom);
     offset
         .clamp(top - row_top, viewport_height - bottom - row_top)
-        .min(px(0.))
+        .min(top_space)
 }
 
 /// `height` rounded up to a whole device pixel.
@@ -1043,6 +1045,7 @@ impl<M: InputModeKind> TextElement<M> {
                             line_height,
                             bounds.size.height,
                             top_bottom_margin,
+                            state.top_space,
                         );
                         resize_reveal_owned = reveal_on_resize;
                     }
@@ -1103,8 +1106,12 @@ impl<M: InputModeKind> TextElement<M> {
                 info.bounds.origin.x = info.bounds.origin.x.min(bounds.right() - CURSOR_WIDTH);
             }
         }
-        scroll_offset.y =
-            clamp_vertical_scroll_offset(scroll_offset.y, scroll_size.height, bounds.size.height);
+        scroll_offset.y = clamp_vertical_scroll_offset(
+            scroll_offset.y,
+            scroll_size.height,
+            bounds.size.height,
+            state.top_space,
+        );
 
         bounds.origin = bounds.origin + scroll_offset;
 
@@ -1445,7 +1452,8 @@ impl<M: InputModeKind> TextElement<M> {
                 input_height,
                 line_height,
             );
-        scroll_top = clamp_vertical_scroll_offset(scroll_top, scroll_height, input_height);
+        scroll_top =
+            clamp_vertical_scroll_offset(scroll_top, scroll_height, input_height, state.top_space);
 
         // Display rows are uniformly `line_height` tall, so the visible window maps
         // directly to a display-row range.
@@ -3591,7 +3599,8 @@ impl<M: InputModeKind> Element for TextElement<M> {
             // Mirror update_scroll_offset's clamping with the fresh values,
             // so the stash matches what prepaint will publish.
             let state = self.state.read(cx);
-            let safe_y_range = (-scroll_size.height + input_bounds.size.height).min(px(0.))..px(0.);
+            let safe_y_range =
+                (-scroll_size.height + input_bounds.size.height).min(px(0.))..state.top_space;
             scroll_offset.y = if state.is_single_line() {
                 px(0.)
             } else {
@@ -6554,19 +6563,19 @@ mod tests {
     #[test]
     fn test_vertical_scroll_offset_is_clamped_to_current_viewport() {
         assert_eq!(
-            clamp_vertical_scroll_offset(px(-260.), px(340.), px(160.)),
+            clamp_vertical_scroll_offset(px(-260.), px(340.), px(160.), px(0.)),
             px(-180.)
         );
         assert_eq!(
-            clamp_vertical_scroll_offset(px(-40.), px(340.), px(160.)),
+            clamp_vertical_scroll_offset(px(-40.), px(340.), px(160.), px(0.)),
             px(-40.)
         );
         assert_eq!(
-            clamp_vertical_scroll_offset(px(20.), px(340.), px(160.)),
+            clamp_vertical_scroll_offset(px(20.), px(340.), px(160.), px(0.)),
             px(0.)
         );
         assert_eq!(
-            clamp_vertical_scroll_offset(px(-40.), px(100.), px(160.)),
+            clamp_vertical_scroll_offset(px(-40.), px(100.), px(160.), px(0.)),
             px(0.)
         );
     }
@@ -6941,11 +6950,11 @@ mod tests {
                     );
                     for previous in [px(-1500.), px(-1000.), px(0.)] {
                         let offset =
-                            reveal_row(previous, row_top, line_height, viewport_height, padding);
+                            reveal_row(previous, row_top, line_height, viewport_height, padding, px(0.));
                         assert!(row_top + offset >= px(0.));
                         assert!(row_top + offset + line_height <= viewport_height);
                         assert_eq!(
-                            reveal_row(offset, row_top, line_height, viewport_height, padding),
+                            reveal_row(offset, row_top, line_height, viewport_height, padding, px(0.)),
                             offset,
                             "unchanged caret must not oscillate",
                         );
@@ -6957,10 +6966,10 @@ mod tests {
 
     #[test]
     fn undersized_row_reveal_aligns_the_start_without_oscillating() {
-        let offset = reveal_row(px(0.), px(80.), px(20.), px(10.), px(60.));
+        let offset = reveal_row(px(0.), px(80.), px(20.), px(10.), px(60.), px(0.));
         assert_eq!(px(80.) + offset, px(0.));
         assert_eq!(
-            reveal_row(offset, px(80.), px(20.), px(10.), px(60.)),
+            reveal_row(offset, px(80.), px(20.), px(10.), px(60.), px(0.)),
             offset
         );
     }
