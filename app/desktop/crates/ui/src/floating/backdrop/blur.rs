@@ -3,23 +3,33 @@
 use image::{Rgba, RgbaImage};
 
 const CHANNELS: usize = 4;
-const TAP_RADIUS: usize = 1;
+const TAP_RADIUS: usize = 2;
+const PASSES: usize = 2;
+const SIGMA_PER_PIXEL: usize = 2;
 
 pub(crate) fn blurred(
     image: &RgbaImage,
     sigma: usize,
 ) -> RgbaImage {
-    let factor = u32::try_from(sigma.max(1)).unwrap_or(1);
+    let factor = u32::try_from((sigma / SIGMA_PER_PIXEL).max(1)).unwrap_or(1);
     let small = shrunk(image, factor);
     let (width, height) = small.dimensions();
     let stride = usize::try_from(width).unwrap_or(0) * CHANNELS;
-    let across: Vec<u8> = small
-        .as_raw()
+    let across = (0..PASSES).fold(small.as_raw().clone(), |pixels, _| {
+        blur_rows(&pixels, stride)
+    });
+    let down = (0..PASSES).fold(across, |pixels, _| blur_columns(&pixels, stride));
+    RgbaImage::from_raw(width, height, down).unwrap_or(small)
+}
+
+fn blur_rows(
+    pixels: &[u8],
+    stride: usize,
+) -> Vec<u8> {
+    pixels
         .chunks_exact(stride.max(CHANNELS))
         .flat_map(blur_row)
-        .collect();
-    let down = blur_columns(&across, stride);
-    RgbaImage::from_raw(width, height, down).unwrap_or(small)
+        .collect()
 }
 
 fn shrunk(
@@ -107,20 +117,20 @@ fn column_taps(
     index: usize,
 ) -> Vec<u8> {
     let last = rows.len().saturating_sub(1);
-    let row = |index: usize| rows.get(index.min(last)).copied().unwrap_or(&[]);
-    let (above, here) = (row(index.saturating_sub(TAP_RADIUS)), row(index));
-    let below = row(index + TAP_RADIUS);
-    above
-        .iter()
-        .zip(here)
-        .zip(below)
-        .map(|((up, at), down)| {
-            mean(
-                u32::from(*up) + u32::from(*at) + u32::from(*down),
-                tap_count(),
-            )
-        })
-        .collect()
+    let row = |offset: usize| {
+        let at = (index + offset).saturating_sub(TAP_RADIUS).min(last);
+        rows.get(at).copied().unwrap_or(&[])
+    };
+    let width = row(0).len();
+    let sums = (0..=2 * TAP_RADIUS)
+        .map(row)
+        .fold(vec![0_u32; width], |sums, taps| {
+            sums.iter()
+                .zip(taps)
+                .map(|(sum, tap)| sum + u32::from(*tap))
+                .collect()
+        });
+    sums.into_iter().map(|sum| mean(sum, tap_count())).collect()
 }
 
 #[cfg(test)]
@@ -132,39 +142,63 @@ mod tests {
     #[test]
     fn a_flat_image_stays_flat_at_a_smaller_size() {
         let flat = RgbaImage::from_pixel(9, 7, Rgba([40, 80, 120, 255]));
-        let expected = RgbaImage::from_pixel(3, 2, Rgba([40, 80, 120, 255]));
+        let expected = RgbaImage::from_pixel(5, 4, Rgba([40, 80, 120, 255]));
         assert_eq!(blurred(&flat, 4), expected);
     }
 
-    fn spread(
-        soft: &RgbaImage,
-        factor: f64,
-    ) -> f64 {
-        let reds: Vec<f64> = (0..soft.width())
-            .map(|x| f64::from(soft.get_pixel(x, 0)[0]))
-            .collect();
-        let steps: Vec<f64> = reds.windows(2).map(|pair| pair[1] - pair[0]).collect();
-        let total: f64 = steps.iter().sum();
-        let at = |(index, step): (usize, &f64)| {
-            let index = f64::from(u32::try_from(index).unwrap_or(u32::MAX));
-            (index, step / total)
-        };
-        let mean: f64 = steps.iter().enumerate().map(at).map(|(x, w)| x * w).sum();
-        let spread = steps.iter().enumerate().map(at);
-        let variance: f64 = spread.map(|(x, w)| (x - mean).powi(2) * w).sum();
-        variance.sqrt() * factor
-    }
-
+    const WIDTH: u32 = 400;
+    const STEP: f64 = 200.0;
     const CASES: [u32; 3] = [4, 8, 16];
 
+    fn erf(x: f64) -> f64 {
+        let t = 1.0 / (1.0 + 0.327_591_1 * x.abs());
+        let poly = [
+            0.254_829_592,
+            -0.284_496_736,
+            1.421_413_741,
+            -1.453_152_027,
+            1.061_405_429,
+        ];
+        let sum = poly.iter().rev().fold(0.0, |acc, c| acc * t + c) * t;
+        (1.0 - sum * (-x * x).exp()).copysign(x)
+    }
+
+    fn drawn(
+        soft: &RgbaImage,
+        x: u32,
+    ) -> f64 {
+        let scale = f64::from(WIDTH) / f64::from(soft.width());
+        let at = ((f64::from(x) + 0.5) / scale - 0.5).max(0.0);
+        let last = soft.width() - 1;
+        let left = (0..=last).rev().find(|i| f64::from(*i) <= at).unwrap_or(0);
+        let right = (left + 1).min(last);
+        let red = |x: u32| f64::from(soft.get_pixel(x, 0)[0]);
+        let t = (at - f64::from(left)).clamp(0.0, 1.0);
+        red(left) * (1.0 - t) + red(right) * t
+    }
+
+    fn worst_error(
+        soft: &RgbaImage,
+        sigma: u32,
+    ) -> f64 {
+        let middle = f64::from(WIDTH / 2);
+        let css = |x: u32| {
+            let z = (f64::from(x) + 0.5 - middle) / f64::from(sigma);
+            STEP * 0.5 * (1.0 + erf(z / std::f64::consts::SQRT_2))
+        };
+        (0..WIDTH)
+            .map(|x| (drawn(soft, x) - css(x)).abs())
+            .fold(0.0, f64::max)
+    }
+
     #[test]
-    fn sigma_is_the_standard_deviation_css_blur_takes() {
+    fn an_edge_drawn_from_the_blur_follows_the_gaussian_css_blur_draws() {
         for sigma in CASES {
-            let edge = RgbaImage::from_fn(400, 4, |x, _| Rgba([200 * u8::from(x >= 200); 4]));
-            let factor = usize::try_from(sigma).unwrap_or(1);
-            let deviation = spread(&blurred(&edge, factor), f64::from(sigma));
-            let off = (deviation - f64::from(sigma)).abs();
-            assert!(off <= f64::from(sigma) / 4.0, "sigma {sigma}: {deviation}");
+            let middle = WIDTH / 2;
+            let edge = RgbaImage::from_fn(WIDTH, 4, |x, _| Rgba([200 * u8::from(x >= middle); 4]));
+            let soft = blurred(&edge, usize::try_from(sigma).unwrap_or(1));
+            let error = worst_error(&soft, sigma);
+            assert!(error <= STEP * 0.04, "sigma {sigma}: off by {error}");
         }
     }
 
@@ -173,14 +207,14 @@ mod tests {
         let edge = RgbaImage::from_fn(80, 8, |x, _| Rgba([200 * u8::from(x >= 40); 4]));
         let soft = blurred(&edge, 4);
         let red = |x: u32| soft.get_pixel(x, 1)[0];
+        let (middle, last) = (soft.width() / 2, soft.width() - 1);
+        let (before, after) = (red(middle - 1), red(middle));
         assert!(
-            red(9) > 0 && red(10) < 200,
-            "the edge blends: {} {}",
-            red(9),
-            red(10)
+            before > 0 && after < 200,
+            "the edge blends: {before} {after}"
         );
-        let sum = u32::from(red(9)) + u32::from(red(10));
+        let sum = u32::from(before) + u32::from(after);
         assert!(sum.abs_diff(200) <= 2, "around the middle: {sum}");
-        assert_eq!((red(0), red(19)), (0, 200), "far from it nothing changes");
+        assert_eq!((red(0), red(last)), (0, 200), "far from it nothing changes");
     }
 }
