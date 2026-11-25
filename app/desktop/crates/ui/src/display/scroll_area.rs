@@ -3,6 +3,8 @@
 mod scrollbar;
 mod thumb;
 mod thumb_drag;
+#[cfg(target_os = "linux")]
+mod wheel_step;
 
 use gpui::{
     AnyElement, App, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce,
@@ -10,6 +12,8 @@ use gpui::{
 };
 
 use crate::display::scroll_area::scrollbar::Scrollbar;
+#[cfg(target_os = "linux")]
+use crate::display::scroll_area::wheel_step::wheel_step;
 use crate::foundation::CubicBezier;
 use crate::foundation::Pose;
 use crate::foundation::Tween;
@@ -68,6 +72,7 @@ impl RenderOnce for ScrollArea {
                     .size_full()
                     .overflow_y_scroll()
                     .track_scroll(&self.handle)
+                    .child(wheel_step(&self.handle))
                     .child(self.content),
             )
             .child(div().absolute().inset_0().child(Scrollbar::new(
@@ -79,6 +84,11 @@ impl RenderOnce for ScrollArea {
 }
 
 opaque_debug!(ScrollArea);
+
+#[cfg(not(target_os = "linux"))]
+fn wheel_step(_: &ScrollHandle) -> impl IntoElement {
+    gpui::Empty
+}
 
 #[cfg(test)]
 mod tests {
