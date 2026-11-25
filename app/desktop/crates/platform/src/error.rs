@@ -54,4 +54,8 @@ pub enum Error {
         #[source]
         source: x11rb::errors::ReplyError,
     },
+    /// The X server would not tell its keyboard mapping.
+    #[cfg(target_os = "linux")]
+    #[error("cannot read the X keyboard mapping: {0}")]
+    KeyMap(#[source] x11rb::errors::ReplyError),
 }
