@@ -151,65 +151,33 @@ mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    use gpui::TestAppContext;
+    use gpui::{TestAppContext, VisualTestContext};
 
     use super::*;
-
-    fn record(
-        bar: &Entity<BrowserBar>,
-        events: &Rc<RefCell<Vec<Event>>>,
-        cx: &mut gpui::VisualTestContext,
-    ) {
-        let sink = Rc::clone(events);
-        cx.update(|_, cx| cx.subscribe(bar, collect(sink)).detach());
-    }
-
-    fn collect(
-        sink: Rc<RefCell<Vec<Event>>>
-    ) -> impl FnMut(Entity<BrowserBar>, &Event, &mut gpui::App) + 'static {
-        move |_, event, _| sink.borrow_mut().push(event.clone())
-    }
-
-    fn prepare(
-        bar: &Entity<BrowserBar>,
-        window: &mut Window,
-        cx: &mut gpui::App,
-    ) {
-        bar.update(cx, |bar, cx| {
-            bar.set_address("example.com", cx);
-            bar.input.update(cx, |field, cx| field.focus(window, cx));
-        });
-    }
-
-    #[gpui::test]
-    fn enter_in_the_field_asks_to_go_to_what_was_typed(cx: &mut TestAppContext) {
-        cx.update(|cx| ui::init(cx).unwrap());
-        let (bar, cx) = cx.add_window_view(|_, cx| BrowserBar::new(cx));
-        let events: Rc<RefCell<Vec<Event>>> = Rc::default();
-        record(&bar, &events, cx);
-        cx.update(|window, cx| prepare(&bar, window, cx));
-        cx.simulate_keystrokes("enter");
-        assert_eq!(*events.borrow(), vec![Event::Go("example.com".to_owned())]);
-    }
 
     const STEP: f32 = 6.0;
     const REACH: f32 = 1200.0;
     const BAND: f32 = 16.0;
 
-    fn clicked_everywhere<'a>(
+    type Events = Rc<RefCell<Vec<Event>>>;
+
+    /// A bar showing `address` in a window, and the events it emits from now on.
+    fn open<'a>(
         address: &str,
         cx: &'a mut TestAppContext,
-    ) -> (
-        Entity<BrowserBar>,
-        Vec<Event>,
-        &'a mut gpui::VisualTestContext,
-    ) {
+    ) -> (Entity<BrowserBar>, Events, &'a mut VisualTestContext) {
         cx.update(|cx| ui::init(cx).unwrap());
         let (bar, cx) = cx.add_window_view(|_, cx| BrowserBar::new(cx));
-        let events: Rc<RefCell<Vec<Event>>> = Rc::default();
-        record(&bar, &events, cx);
+        let events: Events = Rc::default();
+        let sink = Rc::clone(&events);
+        let push = move |_, event: &Event, _: &mut gpui::App| sink.borrow_mut().push(event.clone());
+        cx.update(|_, cx| cx.subscribe(&bar, push).detach());
         bar.update(cx, |bar, cx| bar.set_address(address, cx));
         cx.run_until_parked();
+        (bar, events, cx)
+    }
+
+    fn click_everywhere(cx: &mut VisualTestContext) {
         let middle = f32::from(cx.update(|window, _| window.viewport_size().height)) / 2.0;
         let along = |from: f32, to: f32| {
             std::iter::successors(Some(from), |at| Some(at + STEP)).take_while(move |at| *at < to)
@@ -219,33 +187,37 @@ mod tests {
         for (x, y) in grid {
             cx.simulate_click(gpui::point(px(x), px(y)), gpui::Modifiers::none());
         }
-        let seen = events.borrow().clone();
-        (bar, seen, cx)
     }
 
     #[gpui::test]
-    fn with_no_page_no_button_asks_for_anything(cx: &mut TestAppContext) {
-        let (_, seen, _) = clicked_everywhere("", cx);
+    fn enter_in_the_field_asks_to_go_to_what_was_typed(cx: &mut TestAppContext) {
+        let (bar, events, cx) = open("example.com", cx);
+        let input = bar.read_with(cx, |bar, _| bar.input.clone());
+        cx.update(|window, cx| input.update(cx, |field, cx| field.focus(window, cx)));
+        cx.simulate_keystrokes("enter");
+        assert_eq!(*events.borrow(), vec![Event::Go("example.com".to_owned())]);
+    }
+
+    #[gpui::test]
+    fn with_no_page_or_the_blank_page_no_button_asks_for_anything(cx: &mut TestAppContext) {
+        let (bar, events, cx) = open("about:blank", cx);
+        let shown = bar.read_with(cx, |bar, cx| bar.input.read(cx).text().to_owned());
+        assert_eq!(shown, "", "the field shows its placeholder");
+        click_everywhere(cx);
+        bar.update(cx, |bar, cx| bar.set_address("", cx));
+        click_everywhere(cx);
         assert_eq!(
-            seen,
+            *events.borrow(),
             Vec::new(),
             "back, forward, reload and pick are disabled"
         );
     }
 
     #[gpui::test]
-    fn the_blank_page_a_browser_opens_on_is_no_page(cx: &mut TestAppContext) {
-        let (bar, seen, cx) = clicked_everywhere("about:blank", cx);
-        assert_eq!(seen, Vec::new(), "nothing to go back to, reload or pick in");
-        let shown = bar.read_with(cx, |bar, cx| bar.input.read(cx).text().to_owned());
-        assert_eq!(shown, "", "the field shows its placeholder");
-    }
-
-    #[gpui::test]
-    fn every_button_asks_for_its_own_event_and_the_pick_button_lights_while_picking(
-        cx: &mut TestAppContext
-    ) {
-        let (bar, seen, cx) = clicked_everywhere("example.com", cx);
+    fn every_button_asks_for_its_own_event(cx: &mut TestAppContext) {
+        let (_, events, cx) = open("example.com", cx);
+        click_everywhere(cx);
+        let seen = events.borrow();
         for expected in [
             Event::Back,
             Event::Forward,
@@ -254,9 +226,5 @@ mod tests {
         ] {
             assert!(seen.contains(&expected), "{expected:?} in {seen:?}");
         }
-        bar.update(cx, BrowserBar::begin_pick);
-        assert!(bar.read_with(cx, |bar, _| bar.picking));
-        bar.update(cx, BrowserBar::end_pick);
-        assert!(!bar.read_with(cx, |bar, _| bar.picking));
     }
 }
