@@ -3,7 +3,6 @@ import {
   createWriteStream,
   existsSync,
   mkdtempSync,
-  readFileSync,
   realpathSync,
   rmSync,
 } from 'node:fs'
@@ -12,7 +11,6 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { CdpDriver } from './cdp.mjs'
 import { daemonClient } from './daemon.mjs'
-import { Driver, Fatal } from './driver.mjs'
 import { installStubProvider } from './stub-provider.mjs'
 import { until } from './wait.mjs'
 
@@ -64,19 +62,17 @@ function onceExited(child) {
 }
 
 /** One isolated dev instance of this checkout: its own CROWBAR_HOME and Vite origin, never the
- *  production ~/.crowbar. target 'tauri' drives the debug desktop app and its daemon sidecar via the
- *  in-process bridge; 'browser' drives the same bundle in a launched Chrome over CDP (loopback TCP). */
+ *  production ~/.crowbar. It drives the bundle in a launched Chrome over CDP, against a daemon on
+ *  loopback TCP. */
 export class Instance {
-  constructor(target) {
-    this.target = target
+  constructor() {
     // Created under the OS temp dir, never under the source checkout.
     this.runDir = realpathSync(mkdtempSync(join(tmpdir(), 'crowbar-e2e-')))
     this.home = join(this.runDir, 'home')
     this.devPort = freePort()
-    this.apiPort = target === 'browser' ? freePort() : 0
+    this.apiPort = freePort()
     this.daemon = null
     this.driver = null
-    this.app = null
     this.vite = null
     this.daemonProc = null
     const prod = join(homedir(), '.crowbar')
@@ -118,14 +114,7 @@ export class Instance {
     if (done.status !== 0) throw new Error(`${command} ${args.join(' ')} failed:\n${done.stderr}`)
   }
 
-  /** Where the daemon for this home listens, as `crowbar paths` reports it: Go alone decides. */
-  socketPath() {
-    const done = spawnSync(this.daemonBin(), ['paths'], { env: this.env(), encoding: 'utf8' })
-    if (done.status !== 0) throw new Error(`crowbar paths failed:\n${done.stderr}`)
-    return JSON.parse(done.stdout).socket
-  }
-
-  /** Brings up the daemon (browser target) and Vite; the app itself is launched by launchApp(). */
+  /** Brings up the daemon and Vite; the browser is launched by launchApp(). */
   async start() {
     installStubProvider(this.home, this.runDir)
     this.sh(
@@ -133,19 +122,14 @@ export class Instance {
       ['build', '-tags', 'noEmbed', '-o', this.daemonBin(), './cmd/crowbar'],
       join(REPO_ROOT, 'api'),
     )
-    if (this.target === 'browser') {
-      this.daemon = daemonClient(`http://127.0.0.1:${this.apiPort}`)
-      this.startDaemonProcess()
-    } else {
-      this.sh('make', ['-C', 'app/mobile', 'fetch-sidecar'], REPO_ROOT)
-      this.daemon = daemonClient(this.socketPath())
-    }
+    this.daemon = daemonClient(`http://127.0.0.1:${this.apiPort}`)
+    this.startDaemonProcess()
     this.vite = this.spawnLogged(
       'vite',
       'bunx',
       ['vite', '--port', String(this.devPort), '--strictPort'],
       join(REPO_ROOT, 'app/panes'),
-      this.target === 'browser' ? { VITE_API_URL: `http://127.0.0.1:${this.apiPort}` } : {},
+      { VITE_API_URL: `http://127.0.0.1:${this.apiPort}` },
     )
     await until(
       'the Vite dev server',
@@ -169,63 +153,24 @@ export class Instance {
     )
   }
 
-  async launchApp({ shell = true } = {}) {
-    if (this.target === 'browser') {
-      this.chrome = this.spawnLogged(
-        `chrome-${Date.now()}`,
-        CHROME,
-        [
-          '--headless=new',
-          `--remote-debugging-port=${(this.debugPort ??= freePort())}`,
-          `--user-data-dir=${join(this.runDir, 'chrome')}`,
-          '--window-size=1500,950',
-          '--no-first-run',
-          '--disable-background-timer-throttling',
-          'about:blank',
-        ],
-        this.runDir,
-      )
-      this.driver = null
-    } else {
-      // The app is rebuilt on each start (the sidecar binary changes), and cargo
-      // occasionally fails an archive step; one retry absorbs that, a second failure is real.
-      for (let attempt = 1; ; attempt++) {
-        try {
-          await this.startTauri()
-          break
-        } catch (err) {
-          if (!(err instanceof Fatal) || attempt >= 2) throw err
-          console.log(`  app build failed (${err.message}); retrying once`)
-          killGroup(this.app, 'SIGKILL')
-        }
-      }
-    }
-    await this.daemon.waitHealthy()
-    if (this.target === 'browser') return this.openPage()
-    if (!shell) return
-    await this.waitShell()
-  }
-
-  async startTauri() {
-    const config = JSON.stringify({
-      build: { devUrl: `http://localhost:${this.devPort}`, beforeDevCommand: '' },
-    })
-    const name = `app-${Date.now()}`
-    this.app = this.spawnLogged(
-      name,
-      'bunx',
-      ['@tauri-apps/cli', 'dev', '--no-watch', '--config', config],
-      join(REPO_ROOT, 'app/mobile'),
+  async launchApp() {
+    this.chrome = this.spawnLogged(
+      `chrome-${Date.now()}`,
+      CHROME,
+      [
+        '--headless=new',
+        `--remote-debugging-port=${(this.debugPort ??= freePort())}`,
+        `--user-data-dir=${join(this.runDir, 'chrome')}`,
+        '--window-size=1500,950',
+        '--no-first-run',
+        '--disable-background-timer-throttling',
+        'about:blank',
+      ],
+      this.runDir,
     )
-    const log = join(this.runDir, `${name}.log`)
-    this.driver = await Driver.attach(this.devPort, {
-      timeout: 600_000,
-      // A failed build never opens a bridge: stop waiting for one.
-      failed: () => {
-        const text = existsSync(log) ? readFileSync(log, 'utf8') : ''
-        return text.includes('could not compile') ? 'cargo could not compile the app' : null
-      },
-    })
+    this.driver = null
+    await this.daemon.waitHealthy()
+    return this.openPage()
   }
 
   async openPage() {
@@ -242,48 +187,23 @@ export class Instance {
     )
   }
 
-  /** Closes the whole app (window and, on Tauri, its sidecar daemon) without touching Vite or the home. */
+  /** Closes the browser without touching the daemon, Vite or the home. */
   async stopApp() {
     this.driver?.close()
     this.driver = null
-    const proc = this.target === 'browser' ? this.chrome : this.app
-    this.chrome = this.app = null
+    const proc = this.chrome
+    this.chrome = null
     if (proc) {
       killGroup(proc, 'SIGTERM')
       await onceExited(proc)
     }
-    if (this.target === 'tauri') {
-      const pid = this.lastDaemonPid
-      if (pid && alive(pid)) {
-        try {
-          await until('the daemon to exit with the app', () => !alive(pid), {
-            timeout: 5000,
-          })
-        } catch {
-          process.kill(pid, 'SIGTERM')
-        }
-      }
-    }
   }
 
+  /** A new tab in the same browser: the process keeps its committed storage, as a reopened
+   *  window would (a killed Chrome loses its last localStorage writes). */
   async relaunchApp() {
-    if (this.target === 'browser') {
-      // New tab in the same browser: the process keeps its committed storage, as a
-      // reopened window would. Only the desktop target restarts the whole process.
-      await this.driver.closeTab()
-      return this.openPage()
-    }
-    this.lastDaemonPid = await this.daemonPid()
-    await this.stopApp()
-    if (this.target === 'tauri') await this.waitDaemonGone()
-    await this.launchApp()
-  }
-
-  async waitDaemonGone() {
-    if (!this.lastDaemonPid) return
-    await until('the old daemon to exit', () => !alive(this.lastDaemonPid), {
-      timeout: 20_000,
-    })
+    await this.driver.closeTab()
+    return this.openPage()
   }
 
   async daemonPid() {
@@ -297,7 +217,7 @@ export class Instance {
     await until('the old daemon to exit', () => !alive(old), {
       timeout: 20_000,
     })
-    if (this.target === 'browser') this.startDaemonProcess()
+    this.startDaemonProcess()
     const pid = await until(
       'a new daemon to answer',
       async () => {
@@ -311,13 +231,12 @@ export class Instance {
   }
 
   async teardown({ keep }) {
-    this.lastDaemonPid = await this.daemonPid().catch(() => null)
+    const pid = await this.daemonPid().catch(() => null)
     try {
       await this.stopApp()
     } catch {
-      for (const proc of [this.app, this.chrome]) if (proc) killGroup(proc, 'SIGKILL')
+      if (this.chrome) killGroup(this.chrome, 'SIGKILL')
     }
-    const pid = this.lastDaemonPid
     if (pid && alive(pid)) process.kill(pid, 'SIGTERM')
     if (this.vite) killGroup(this.vite, 'SIGTERM')
     if (!keep && existsSync(this.runDir)) rmSync(this.runDir, { recursive: true, force: true })

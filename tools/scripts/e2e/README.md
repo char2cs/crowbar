@@ -28,24 +28,17 @@ Needs bun, Go and Chrome (override the binary with `CROWBAR_E2E_CHROME`). Nothin
 All waits poll a real condition against a deadline (`lib/wait.mjs`); there are
 no sleeps.
 
-## Targets
+## Target
 
-- `tauri`: `tauri dev --no-watch` with the app's debug-only bridge
-  (tauri-plugin-mcp-bridge, the WebSocket the Tauri MCP uses, port 9223+). The
-  runner finds its own app by the page origin. Page scripts must be synchronous
-  (the bridge evaluates natively on WKWebView); `lib/driver.mjs` enforces it.
-  The daemon is the app's own sidecar. "Relaunch" restarts the whole app
-  process; "daemon restart" kills the sidecar and waits for the supervisor.
-- `browser`: Chrome over CDP (`lib/cdp.mjs`) plus a daemon the suite starts on
-  loopback TCP. Not WKWebView, and "relaunch" is a new tab in the same browser
-  (a killed Chrome loses its last localStorage writes), so full-process
-  persistence is only proven on `tauri`. The native menu event is skipped.
+Chrome over CDP (`lib/cdp.mjs`) plus a daemon the suite starts on loopback TCP.
+"Relaunch" is a new tab in the same browser (a killed Chrome loses its last
+localStorage writes).
 
 ## Scenarios (`scenarios/`, one per feature area)
 
 | file             | covers                                                                                                                                                                                                                   |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| console          | banner open/close, Escape, outside press (overlay closes, push stays and shrinks the app), Mod+\` and the `console:toggle` menu event, live "turn started" line, "Daemon restarted" note, dock/mode/size across relaunch |
+| console          | banner open/close, Escape, outside press (overlay closes, push stays and shrinks the app), Mod+\`, live "turn started" line, "Daemon restarted" note, dock/mode/size across relaunch |
 | recents          | 9 views, 27 rapid switches: zero mounts/unmounts of workspace slot, view root, chat view and pane container; time-to-visible                                                                                             |
 | close-view       | closing a view retires its provider process and leaves the chat dormant; other chats keep theirs                                                                                                                         |
 | subagent         | hooks carrying an agent id draw no rows; a hand-back envelope is a harness row, not a user bubble                                                                                                                        |
@@ -57,7 +50,7 @@ no sleeps.
 ## Not covered here (needs a human, or is a known limit)
 
 - A physical Cmd+\` on macOS (the system and the native menu own it; only the
-  DOM chord and the menu event are driven).
+  DOM chord is driven).
 - A real Claude or Codex: the stub proves Crowbar's handling of the hook
   stream, not what a provider emits.
 - Tiled panes via drag-and-drop: workspace-switch switches between Recents rows
@@ -69,6 +62,6 @@ no sleeps.
 ## Adding a scenario
 
 Create `scenarios/<area>.mjs` exporting `{ name, run(ctx) }`, register it in
-`run.mjs`. `ctx` has `d` (page driver: `eval`, `until`, `emit`), `daemon`, `fx`
-(project/repo ids), `inst` and `target`. Select by stable `data-*`
+`run.mjs`. `ctx` has `d` (page driver: `eval`, `until`), `daemon`, `fx`
+(project/repo ids) and `inst`. Select by stable `data-*`
 attributes and roles, never by class names or structure.

@@ -71,10 +71,6 @@ export class CdpDriver {
     return until(describe, () => this.eval(fn, arg), options)
   }
 
-  emit() {
-    throw new Error('native menu events exist only on the Tauri target')
-  }
-
   async screenshot(file) {
     const { data } = await this.send('Page.captureScreenshot', {
       format: 'png',

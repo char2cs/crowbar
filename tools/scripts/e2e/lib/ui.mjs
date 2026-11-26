@@ -48,13 +48,12 @@ export async function closeAllViews(driver) {
 }
 
 /** Reloads the page and waits for the shell to mount again. */
-export async function reload(driver, { home = false } = {}) {
-  await driver.eval((toHome) => {
-    if (toHome) location.hash = '#/'
+export async function reload(driver) {
+  await driver.eval(() => {
     window.__e2eReloading = true
     setTimeout(() => location.reload(), 0)
     return true
-  }, home)
+  })
   await driver.until(
     'the page to reload',
     () => !window.__e2eReloading && !!document.querySelector('[data-slot="console-dock"]'),

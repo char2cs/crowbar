@@ -2,8 +2,7 @@ import { createChat, createWorkspaceChat, getChat } from '../lib/fixture.mjs'
 import { assertEqual, until } from '../lib/wait.mjs'
 
 // Rename from a row's context menu keeps its inline input: the closing menu must not refocus the
-// row (that blur would commit and unmount the editor). Only the browser target renders the menu
-// (Tauri pops a native one), so elsewhere only double-click runs.
+// row (that blur would commit and unmount the editor).
 
 const openMenuRename = (id) => {
   const row = document.querySelector(`[role="treeitem"][data-sidebar-row-id="${id}"]`)
@@ -82,7 +81,7 @@ const rowIdByLabel = (label) =>
 
 export default {
   name: 'menu-rename',
-  async run({ d, daemon, fx, target }) {
+  async run({ d, daemon, fx }) {
     const fork = await createWorkspaceChat(daemon, fx)
     const thread = await createChat(daemon, fx, fork.workspaceId)
     const { folder } = await daemon.post(`${fx.base}/chats/folders`, { name: 'Bugs', parentId: '' })
@@ -103,7 +102,7 @@ export default {
       { kind: 'repo', id: repoRowId, read: repoName, end: 'Enter' },
     ]
 
-    for (const via of target === 'browser' ? ['menu', 'dblclick'] : ['dblclick']) {
+    for (const via of ['menu', 'dblclick']) {
       for (const row of rows) {
         const name = `${row.kind}-via-${via}`
         await rename(d, row.id, via, name, row.end)

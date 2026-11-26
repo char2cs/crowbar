@@ -83,7 +83,7 @@ const hasNote = (needle) =>
 
 export default {
   name: 'console',
-  async run({ d, inst, daemon, fx, target }) {
+  async run({ d, inst, daemon, fx }) {
     const open = (want) =>
       d.until(
         `console open=${want}`,
@@ -133,17 +133,11 @@ export default {
     await d.eval(pressEscapeInPanel)
     await open(false)
 
-    // Hotkey and (desktop only) the native menu event.
+    // Hotkey.
     await d.eval(pressHotkey)
     await open(true)
     await d.eval(pressHotkey)
     await open(false)
-    if (target === 'tauri') {
-      await d.emit('console:toggle')
-      await open(true)
-      await d.emit('console:toggle')
-      await open(false)
-    }
 
     // Live lines: a turn starting is logged once the console is open.
     const chat = await createWorkspaceChat(daemon, fx)

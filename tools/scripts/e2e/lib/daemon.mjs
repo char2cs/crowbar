@@ -1,5 +1,4 @@
-import { Fatal } from './driver.mjs'
-import { until } from './wait.mjs'
+import { Fatal, until } from './wait.mjs'
 
 const BASE = 'http://crowbar.local'
 
