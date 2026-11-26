@@ -6,17 +6,8 @@ use crate::error::Error;
 use crate::link::PeerStream;
 
 pub(crate) struct FakeStream {
-    inbound: mpsc::UnboundedReceiver<String>,
-    outbound: mpsc::UnboundedSender<String>,
-}
-
-impl FakeStream {
-    pub(crate) fn new(
-        inbound: mpsc::UnboundedReceiver<String>,
-        outbound: mpsc::UnboundedSender<String>,
-    ) -> Self {
-        Self { inbound, outbound }
-    }
+    pub(crate) inbound: mpsc::UnboundedReceiver<String>,
+    pub(crate) outbound: mpsc::UnboundedSender<String>,
 }
 
 impl PeerStream for FakeStream {

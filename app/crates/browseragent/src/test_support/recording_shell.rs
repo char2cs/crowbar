@@ -12,13 +12,9 @@ pub(crate) struct RecordingShell {
 }
 
 impl RecordingShell {
-    pub(crate) fn received(&self) -> Vec<AgentCommand> {
-        self.received.lock().expect("the command list").clone()
-    }
-
     pub(crate) async fn first(&self) -> AgentCommand {
         self.arrived.notified().await;
-        self.received().remove(0)
+        self.received.lock().expect("the command list").remove(0)
     }
 }
 
