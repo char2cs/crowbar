@@ -1,7 +1,7 @@
 //! The daemon's RFC 3339 times as develop shows them, in this computer's time zone.
 
 use jiff::tz::TimeZone;
-use jiff::{Timestamp, Zoned};
+use jiff::{Timestamp, ZonedDateTime};
 
 // SPEC: https://pkg.go.dev/time#Time.IsZero the daemon writes a time that never happened as year 1.
 const FIRST_YEAR: i16 = 1;
@@ -9,10 +9,10 @@ const FIRST_YEAR: i16 = 1;
 fn parsed(
     iso: &str,
     zone: TimeZone,
-) -> Option<Zoned> {
+) -> Option<ZonedDateTime> {
     let at: Timestamp = iso.parse().ok()?;
-    let year = at.to_zoned(TimeZone::UTC).year();
-    (year > FIRST_YEAR).then(|| at.to_zoned(zone))
+    let year = at.to_zoned_datetime(TimeZone::UTC).year();
+    (year > FIRST_YEAR).then(|| at.to_zoned_datetime(zone))
 }
 
 pub(crate) fn day(iso: &str) -> Option<String> {
