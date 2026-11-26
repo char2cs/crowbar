@@ -38,7 +38,7 @@
 //!         on_page: None,
 //!     },
 //! )?;
-//! view.hide()?;
+//! view.set_visibility(Visibility::Hidden)?;
 //! assert_eq!(platform.calls().len(), 2);
 //! # Ok::<(), webview::Error>(())
 //! ```
@@ -58,7 +58,7 @@ pub use alert::{AlertButton, AlertRequest, AlertRole};
 pub use backend::{
     AlertAsking, BrowsingData, CaretBlink, CaretReport, ChosenButton, ChosenEntry, ChosenFiles,
     ColorScheme, DesktopSettings, FileChoosing, HostConfig, MenuPopping, PageControl, Platform,
-    ViewCapture, ViewFocus, ViewLayout, ViewLifecycle,
+    ViewCapture, ViewCutout, ViewFocus, ViewLayout, ViewLifecycle,
 };
 pub use chooser::{ChoiceKind, FileChoice, FileFilter};
 pub use error::{Error, Result};

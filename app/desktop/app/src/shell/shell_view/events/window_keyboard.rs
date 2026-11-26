@@ -34,10 +34,9 @@ impl ShellView {
     fn return_keyboard(
         &self,
         window: &Window,
-        cx: &mut App,
+        cx: &App,
     ) {
-        let held_elsewhere = self.modal_open(cx) || ui::holds_keys(window, cx);
-        if !ui::WindowActivity::of(window, cx) || held_elsewhere {
+        if !ui::WindowActivity::of(window, cx) {
             return;
         }
         self.state.apply_keyboard();

@@ -21,5 +21,6 @@ pub(crate) struct Built {
     pub(crate) sidebar: Entity<Sidebar>,
     pub(crate) startup: Entity<startup::View>,
     pub(crate) notices: Entity<ToastQueue>,
+    pub(crate) cover: Entity<ui::Cover>,
     pub(crate) subscriptions: Vec<Subscription>,
 }

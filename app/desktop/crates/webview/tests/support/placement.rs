@@ -29,7 +29,7 @@ pub(super) fn a_spare_page_paints_over_the_page_it_replaces(
     let (spare, messages) = page_in(host, parent, Visibility::Hidden)?;
     spare.eval(DARK_WHILE_HIDDEN)?;
     wait_for(&messages, "dark", PAGE_WAIT)?;
-    spare.show()?;
+    spare.set_visibility(Visibility::Shown)?;
     let dark = shows_before(
         connection,
         (parent, WHOLE),

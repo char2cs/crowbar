@@ -1,35 +1,16 @@
-//! Which float window of its owner a portal's content goes to.
+//! Where a portal's content is drawn, and what it covers there.
 
-/// The float window of its owner a [`crate::Portal`] paints in, on a platform whose native
-/// views cover what the owner paints itself. Each kind is its own stock window over the owner.
+/// Where a [`crate::Portal`] draws, on a platform whose native views cover what the window
+/// paints itself. All but [`Float::Passive`] draw in the window and enter its
+/// [`crate::Cover`], so the native views under them are hidden while they show.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Float {
-    /// A dialog: the window manager gives it the keyboard, and the owner takes no input while
-    /// it is open.
+    /// A dialog: it covers the whole window.
     Modal,
-    /// A menu or popover: it takes the keyboard, and the pointer on its cards.
+    /// A menu or popover: it covers the cards it paints.
     Popover,
-    /// Tooltips and toasts: never the keyboard, the pointer only on cards that take it.
+    /// Tooltips and toasts: a pop-up window over the owner that never takes the keyboard.
     Passive,
-    /// The view a drag shows under the pointer: neither the pointer nor the keyboard.
+    /// The view a drag shows and its drop targets: it covers the whole window.
     Drag,
-}
-
-impl Float {
-    /// Whether its window takes the keyboard while it is open.
-    pub const fn takes_keys(self) -> bool {
-        matches!(self, Self::Modal | Self::Popover)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::Float;
-
-    #[test]
-    fn only_dialogs_and_menus_take_the_keyboard() {
-        let takes =
-            [Float::Modal, Float::Popover, Float::Passive, Float::Drag].map(Float::takes_keys);
-        assert_eq!(takes, [true, true, false, false]);
-    }
 }

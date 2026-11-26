@@ -215,6 +215,7 @@ impl Render for CrashPanel {
         let palette = Theme::of(cx).palette(Surface::Window);
         div()
             .id("daemon-crash-panel")
+            .debug_selector(|| "daemon-crash-panel".into())
             .absolute()
             .bottom(px(INSET))
             .right(px(INSET))

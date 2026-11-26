@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use browser::PageUrl;
-use panehost::{HostEvent, IpcMessage, LayoutSnapshot, PaneKinds, VisiblePane};
+use panehost::{HostEvent, IpcMessage, LayoutSnapshot, Overlays, PaneKinds, VisiblePane};
 use protocol::PaneId;
 use webview::ParentWindow;
 
@@ -18,11 +18,13 @@ impl ShellState {
         &mut self,
         parent: ParentWindow,
         (visible, kinds): (Vec<VisiblePane>, &dyn PaneKinds),
+        overlays: Overlays,
     ) -> Outcome {
         let focus = self.showing().and_then(layout::Tab::focused).cloned();
         let snapshot = LayoutSnapshot::from_layout(self.history.layout(), parent, visible)
             .with_focus(focus)
             .with_keyboard(self.keyboard)
+            .with_overlays(overlays)
             .with_kinds(kinds);
         let report = self.host.sync(&snapshot);
         if let Some(error) = report.failure {

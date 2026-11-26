@@ -333,7 +333,7 @@ mod tests {
             .simulate_click(mark.center(), gpui::Modifiers::none());
         floating.window.run_until_parked();
         let editor = floating
-            .top()
+            .window
             .debug_bounds("icon-editor")
             .unwrap_or_default();
         assert_eq!(

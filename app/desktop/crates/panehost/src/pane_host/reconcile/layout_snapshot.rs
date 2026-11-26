@@ -3,6 +3,7 @@ use protocol::PaneId;
 use webview::ParentWindow;
 
 use crate::pane_host::reconcile::keyboard::Keyboard;
+use crate::pane_host::reconcile::overlays::Overlays;
 use crate::pane_host::reconcile::pane_kinds::PaneKinds;
 use crate::pane_host::reconcile::visible_pane::VisiblePane;
 
@@ -19,8 +20,10 @@ pub struct LayoutSnapshot<'a> {
     pub visible: Vec<VisiblePane>,
     /// The focused pane of the tab the window shows.
     pub focused: Option<PaneId>,
-    /// Who the keys go to while that pane is shown.
+    /// Who the keys go to while that pane is shown and nothing covers the panes.
     pub keyboard: Keyboard,
+    /// What the shell draws over the panes.
+    pub overlays: Overlays,
     /// Whether a page or a native view draws each pane.
     pub kinds: &'a dyn PaneKinds,
 }
@@ -39,8 +42,19 @@ impl<'a> LayoutSnapshot<'a> {
             visible,
             focused: None,
             keyboard: Keyboard::default(),
+            overlays: Overlays::default(),
             kinds: &(),
         }
+    }
+
+    /// The same snapshot under the shell's `overlays`.
+    #[must_use]
+    pub fn with_overlays(
+        mut self,
+        overlays: Overlays,
+    ) -> Self {
+        self.overlays = overlays;
+        self
     }
 
     /// The same snapshot with `focused` as the pane that has focus: the focus of the tab the

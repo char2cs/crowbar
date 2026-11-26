@@ -6,7 +6,6 @@ mod daemon;
 mod error;
 mod legacy_drafts;
 mod legacy_settings;
-#[cfg(target_os = "linux")]
 mod native;
 mod panes;
 mod shell;
@@ -72,7 +71,6 @@ fn start(
     editorview::init(cx);
     cx.bind_keys(settingsview::bindings());
     window_vibrancy::install(window_vibrancy::of_platform(), cx);
-    #[cfg(target_os = "linux")]
     native::install(parts.state.host(), cx);
     #[cfg(target_os = "linux")]
     native::float::install(cx);

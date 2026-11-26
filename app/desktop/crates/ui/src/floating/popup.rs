@@ -86,7 +86,7 @@ pub(crate) fn beside(content: impl IntoElement) -> AnyElement {
         .into_any_element()
 }
 
-/// A popup in the window's top layer with its top-left corner at `position`, in window
+/// A popup above the window's content with its top-left corner at `position`, in window
 /// coordinates; `content` is built in the window that paints it.
 pub fn popup_at<E: IntoElement>(
     id: impl Into<ElementId>,
@@ -105,16 +105,18 @@ pub fn popup_at<E: IntoElement>(
     .into_any_element()
 }
 
-/// A window-sized layer in the window's top layer, behind its popups; a press on it, with
-/// either button, runs `on_press`.
+/// A window-sized layer behind the window's popups; a press on it, with either button, or on a
+/// native view outside them ([`crate::Cover::press_outside`]) runs `on_press`.
 pub fn click_away(
     id: impl Into<ElementId>,
     on_press: impl Fn(&mut Window, &mut App) + 'static,
 ) -> AnyElement {
     let on_press = Rc::new(on_press);
+    let away = Rc::clone(&on_press);
     Portal::window(id, move |_, _| Shaped::catch(away_layer(&on_press)))
         .priority(layer::MENU - 1)
         .float(Float::Popover)
+        .away(away)
         .into_any_element()
 }
 

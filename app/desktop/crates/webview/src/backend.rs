@@ -25,6 +25,7 @@ pub use platform::Platform;
 pub use view::browsing_data::BrowsingData;
 pub use view::page_control::PageControl;
 pub use view::view_capture::ViewCapture;
+pub use view::view_cutout::ViewCutout;
 pub use view::view_focus::ViewFocus;
 pub use view::view_layout::ViewLayout;
 pub use view::view_lifecycle::ViewLifecycle;

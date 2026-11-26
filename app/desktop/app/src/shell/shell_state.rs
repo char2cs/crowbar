@@ -280,8 +280,11 @@ mod tests {
             pane: pane.clone(),
             bounds,
         };
-        rig.shell
-            .sync(webview::ParentWindow::X11(9), (vec![shown], &()));
+        rig.shell.sync(
+            webview::ParentWindow::X11(9),
+            (vec![shown], &()),
+            panehost::Overlays::default(),
+        );
     }
 
     enum Via {

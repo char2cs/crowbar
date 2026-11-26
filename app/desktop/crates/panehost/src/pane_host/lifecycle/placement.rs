@@ -1,6 +1,6 @@
 use layout::Layout;
 use protocol::{PaneId, RelayScope};
-use webview::ParentWindow;
+use webview::{ParentWindow, Visibility};
 
 use crate::catalog::PaneKind;
 use crate::catalog::PaneType;
@@ -9,7 +9,7 @@ use crate::error::Result;
 use crate::pane_host::PaneHost;
 use crate::pane_host::lifecycle::pane_phase::PanePhase;
 use crate::pane_host::lifecycle::stage::Stage;
-use crate::pane_host::reconcile::VisiblePane;
+use crate::pane_host::reconcile::{Overlays, VisiblePane};
 use crate::slot::Id;
 use crate::slot::{BLANK_URL, Request};
 use crate::slot::{first_url, is_browser};
@@ -32,7 +32,7 @@ impl PaneHost {
         let view = slot.handle.id();
         let driven = slot
             .handle
-            .hide()
+            .set_visibility(Visibility::Hidden)
             .and_then(|()| slot.handle.navigate(BLANK_URL));
         self.revoke_relay(view);
         self.origins.remove(view);
@@ -61,7 +61,7 @@ impl PaneHost {
         &mut self,
         parent: ParentWindow,
         visible: &VisiblePane,
-        layout: &Layout,
+        (layout, overlays): (&Layout, &Overlays),
     ) -> Result<()> {
         let Some(runtime) = self.panes.get(&visible.pane) else {
             return Ok(());
@@ -82,8 +82,13 @@ impl PaneHost {
                 .map_or(Ok(()), |slot| slot.handle.set_bounds(visible.bounds))?,
             None => self.assign_slot(parent, &pane_type, (visible, layout))?,
         }
-        if let Some(runtime) = self.panes.get_mut(&visible.pane) {
-            runtime.reveal();
+        let Some(runtime) = self.panes.get_mut(&visible.pane) else {
+            return Ok(());
+        };
+        runtime.reveal();
+        runtime.covered = overlays.covered.hides(&visible.bounds);
+        if let Some(slot) = runtime.slot.and_then(|slot| self.pool.get(slot)) {
+            slot.handle.set_cutout(overlays.cut_for(&visible.bounds))?;
         }
         self.refresh_native_visibility(&visible.pane)
     }

@@ -2,27 +2,31 @@
 
 use std::rc::Rc;
 
-use gpui::{
-    AnyElement, App, Bounds, ElementId, Entity, IntoElement, Pixels, RenderOnce, Styled, Window,
-    canvas, div,
-};
+use gpui::{App, Bounds, ElementId, IntoElement, Pixels, RenderOnce, Styled, Window, canvas};
 
-use crate::floating::layers::{Owners, Registry, Slot, place};
+use crate::floating::layers::{Owners, place};
+use crate::floating::portal::cover::covering::covering;
+use crate::floating::portal::cover::opening::Opening;
 use crate::floating::portal::reach::Reach;
+use crate::floating::portal::slot::keyed;
 use crate::foundation::opaque_debug;
 use crate::foundation::tokens::layer as paint_order;
 
+pub(crate) mod cover;
 pub(crate) mod float;
 pub(crate) mod layer;
 pub(crate) mod reach;
+pub(crate) mod slot;
 
+use cover::Away;
+pub use cover::Cover;
 pub use float::Float;
 use layer::{Build, Layer};
 
 /// Paints what it builds above the rest of its window, either where the portal itself sits or
-/// over the whole window. With a [`crate::FloatHost`] installed it paints in one of the
-/// window's float windows ([`Float`]), so native web views cannot cover it; otherwise, and in
-/// a float window itself, it paints in its own window.
+/// over the whole window. A [`Float::Passive`] portal paints in the window's pop-up window once a
+/// [`crate::FloatHost`] is installed; every other kind paints in its own window and enters the
+/// window's [`Cover`], so the native views it covers are hidden while it shows.
 ///
 /// The content is built in the window that paints it, so it captures entities and values,
 /// not elements.
@@ -32,6 +36,7 @@ pub struct Portal {
     reach: Reach,
     priority: usize,
     float: Float,
+    away: Option<Away>,
     build: Build,
 }
 
@@ -103,11 +108,21 @@ impl Portal {
             reach,
             priority: paint_order::OVERLAY,
             float,
+            away: None,
             build,
         }
     }
 
-    /// Sets the float window it paints in; it is [`Float::Passive`] unless lifted.
+    #[must_use]
+    pub(crate) fn away(
+        mut self,
+        away: Away,
+    ) -> Self {
+        self.away = Some(away);
+        self
+    }
+
+    /// Sets where it paints; it is [`Float::Passive`] unless lifted.
     #[must_use]
     pub fn float(
         mut self,
@@ -144,12 +159,16 @@ impl RenderOnce for Portal {
         cx: &mut App,
     ) -> impl IntoElement {
         let layer = self.layer();
+        if self.float != Float::Passive {
+            let opening = Opening(self.id, self.float, self.away);
+            return covering(opening, &layer, window, cx);
+        }
         let Some(owner) = Owners::of(window, cx) else {
-            return self.unowned(&layer, window, cx);
+            return window.with_element_namespace(self.id, |window| layer.inline(window, cx));
         };
-        let held = owner.clone();
-        let slot: Entity<Slot> = window.use_keyed_state(self.id, cx, |_, cx| Slot::new(&held, cx));
-        let key = (slot.entity_id(), self.float);
+        let held = owner.downgrade();
+        let release = move |slot, cx: &mut App| Owners::hide(&held, slot, cx);
+        let key = keyed(self.id, release, (window, cx));
         canvas(
             move |bounds, _, cx| place(&owner, (key, Layer { bounds, ..layer }), cx),
             |_, (), _, _| {},
@@ -157,21 +176,6 @@ impl RenderOnce for Portal {
         .absolute()
         .size_full()
         .into_any_element()
-    }
-}
-
-impl Portal {
-    fn unowned(
-        self,
-        layer: &Layer,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> AnyElement {
-        let lifted_away = layer.reach == Reach::Lifted && Registry::host(cx).is_some();
-        if lifted_away {
-            return div().into_any_element();
-        }
-        window.with_element_namespace(self.id, |window| layer.inline(window, cx))
     }
 }
 

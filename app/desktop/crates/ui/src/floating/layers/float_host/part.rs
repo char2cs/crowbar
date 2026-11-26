@@ -1,4 +1,4 @@
-//! What a card of a float window is to X: seen, hit by the pointer, or both.
+//! What a card is: seen, hit by the pointer, or both.
 
 use crate::floating::layers::float_host::float_region::FloatRegion;
 

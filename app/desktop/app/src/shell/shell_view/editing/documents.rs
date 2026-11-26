@@ -180,7 +180,7 @@ mod tests {
 
     use super::*;
     use crate::panes::kinds::pane_spec::PaneSpec;
-    use crate::shell::shell_view::tests::{Opened, PLACED, open_shell};
+    use crate::shell::shell_view::tests::{Opened, PLACED, open_started_shell};
 
     const PATH: &str = "src/pricing.ts";
     const README: &str = "README.md";
@@ -230,7 +230,7 @@ mod tests {
         let kept = serde_json::json!({"path": PATH});
         let cases = [(Ok("a".to_owned()), Some(kept), 0), (Err(refused), None, 1)];
         for (read, expected, said) in cases {
-            let mut opened = open_shell(cx);
+            let mut opened = open_started_shell(cx);
             let pane = opened_file(&mut opened);
             let before = toasts(&mut opened);
             land(&mut opened, &pane, read);
@@ -270,7 +270,7 @@ mod tests {
 
     #[gpui::test]
     fn a_markdown_file_that_comes_back_on_try_again_shows_its_rich_page(cx: &mut TestAppContext) {
-        let mut opened = open_shell(cx);
+        let mut opened = open_started_shell(cx);
         let pane = restored_readme(&mut opened);
         let gone = editor::OpenFailure::of(README, 404, None);
         land(&mut opened, &pane, Err(gone));

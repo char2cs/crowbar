@@ -1,35 +1,28 @@
 use raw_window_handle::RawWindowHandle;
-use x11rb::CURRENT_TIME;
 use x11rb::NONE;
 use x11rb::connection::Connection as _;
 use x11rb::errors::{ConnectError, ReplyError};
-use x11rb::properties::{WmSizeHints, WmSizeHintsSpecification};
 use x11rb::protocol::shape::{ConnectionExt as _, SK, SO};
 use x11rb::protocol::xproto::{
-    ClientMessageEvent, ClipOrdering, ConfigureWindowAux, ConnectionExt as _, EventMask,
-    InputFocus as RevertTo, StackMode,
+    ClipOrdering, ConfigureWindowAux, ConnectionExt as _, EXPOSE_EVENT, EventMask, ExposeEvent,
+    StackMode,
 };
 use x11rb::rust_connection::RustConnection;
 
 use crate::error::Error;
-use crate::linux::float::atoms::Atoms;
 use crate::linux::float::card::Card;
 use crate::linux::float::region::rectangles;
 
-const STATE_ADD: u32 = 1;
-const WORDS: u8 = 32;
-
-/// Places, shapes and focuses the windows that float above a shell window, over a connection
-/// of its own, given the raw handles of stock GPUI windows.
+/// Places and shapes the pop-up window that floats above a shell window, over a connection of
+/// its own, given the raw handles of stock GPUI windows.
 ///
-/// A float window covers its owner's content area exactly, so what it paints lines up with
-/// the owner. Without a compositor X shows no translucency, so a float window then shows only
-/// its cards.
+/// The pop-up window covers its owner's content area exactly, so what it paints lines up with
+/// the owner. Without a compositor X shows no translucency, so it then shows only its cards.
 #[derive(Debug)]
 pub struct FloatPlacer {
     connection: RustConnection,
     root: u32,
-    atoms: Atoms,
+    compositor: u32,
 }
 
 impl FloatPlacer {
@@ -37,7 +30,7 @@ impl FloatPlacer {
     ///
     /// # Errors
     /// [`Error::X11Connect`] when no X server answers, [`Error::Float`] when it will not name
-    /// the atoms this needs.
+    /// the compositor's selection.
     pub fn connect() -> Result<Self, Error> {
         let (connection, screen) = RustConnection::connect(None)?;
         let root = connection
@@ -46,49 +39,12 @@ impl FloatPlacer {
             .get(screen)
             .ok_or(ConnectError::InvalidScreen)?
             .root;
-        let compositor = format!("_NET_WM_CM_S{screen}");
-        let atoms = Atoms {
-            compositor: atom(&connection, &compositor)?,
-            state: atom(&connection, "_NET_WM_STATE")?,
-            skip_taskbar: atom(&connection, "_NET_WM_STATE_SKIP_TASKBAR")?,
-            skip_pager: atom(&connection, "_NET_WM_STATE_SKIP_PAGER")?,
-        };
+        let compositor = atom(&connection, &format!("_NET_WM_CM_S{screen}"))?;
         Ok(Self {
             connection,
             root,
-            atoms,
+            compositor,
         })
-    }
-
-    /// Keeps a float window the window manager manages off the taskbar and pager, and asks
-    /// that it stays where [`Self::cover`] puts it.
-    ///
-    /// # Errors
-    /// [`Error::ForeignWindow`] for a handle that is not an X window, [`Error::Float`] when the
-    /// connection broke.
-    pub fn pin(
-        &self,
-        float: RawWindowHandle,
-    ) -> Result<(), Error> {
-        let window = xid(float)?;
-        let mut hints = WmSizeHints::new();
-        hints.position = Some((WmSizeHintsSpecification::UserSpecified, 0, 0));
-        hints
-            .set_normal_hints(&self.connection, window)
-            .map_err(ReplyError::from)?;
-        let skip = [
-            STATE_ADD,
-            self.atoms.skip_taskbar,
-            self.atoms.skip_pager,
-            0,
-            0,
-        ];
-        let message = ClientMessageEvent::new(WORDS, window, self.atoms.state, skip);
-        let reach = EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY;
-        self.connection
-            .send_event(false, self.root, reach, message)
-            .map_err(ReplyError::from)?;
-        self.flush()
     }
 
     /// Moves and sizes `float` over the content area of `owner` and raises it.
@@ -137,6 +93,33 @@ impl FloatPlacer {
         self.flush()
     }
 
+    /// Has `float` drawn again. X reports a window whose cards are all cut away as fully
+    /// obscured, and GPUI draws no frame for such a window until it is exposed.
+    ///
+    /// # Errors
+    /// [`Error::ForeignWindow`] for a handle that is not an X window, [`Error::Float`] when the
+    /// connection broke.
+    pub fn wake(
+        &self,
+        float: RawWindowHandle,
+    ) -> Result<(), Error> {
+        let window = xid(float)?;
+        let exposed = ExposeEvent {
+            response_type: EXPOSE_EVENT,
+            sequence: 0,
+            window,
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+            count: 0,
+        };
+        self.connection
+            .send_event(false, window, EventMask::EXPOSURE, exposed)
+            .map_err(ReplyError::from)?;
+        self.flush()
+    }
+
     fn set_bounding(
         &self,
         window: u32,
@@ -151,27 +134,10 @@ impl FloatPlacer {
         Ok(())
     }
 
-    /// Gives the keyboard to `float`.
-    ///
-    /// # Errors
-    /// [`Error::ForeignWindow`] for a handle that is not an X window, [`Error::Focus`] when the
-    /// window is not viewable.
-    pub fn focus(
-        &self,
-        float: RawWindowHandle,
-    ) -> Result<(), Error> {
-        let window = xid(float)?;
-        self.connection
-            .set_input_focus(RevertTo::PARENT, window, CURRENT_TIME)
-            .map_err(ReplyError::from)
-            .and_then(x11rb::cookie::VoidCookie::check)
-            .map_err(|source| Error::Focus { window, source })
-    }
-
     fn composited(&self) -> Result<bool, Error> {
         let owner = self
             .connection
-            .get_selection_owner(self.atoms.compositor)?
+            .get_selection_owner(self.compositor)?
             .reply()?;
         Ok(owner.owner != NONE)
     }
@@ -219,7 +185,9 @@ mod tests {
 
     use raw_window_handle::XcbWindowHandle;
     use x11rb::COPY_DEPTH_FROM_PARENT;
-    use x11rb::protocol::xproto::{CreateWindowAux, WindowClass};
+    use x11rb::protocol::Event;
+    use x11rb::protocol::xproto::{ChangeWindowAttributesAux, CreateWindowAux, WindowClass};
+    use x11rb::wrapper::ConnectionExt as _;
 
     use super::*;
 
@@ -263,6 +231,7 @@ mod tests {
         let float = window_at(connection, root, (0, 0, 10));
         let placer = FloatPlacer::connect().unwrap();
         placer.cover(raw(float), raw(owner)).unwrap();
+        placer.connection.sync().unwrap();
         let placed = connection.get_geometry(float).unwrap().reply().unwrap();
         assert_eq!(
             (placed.x, placed.y, placed.width, placed.height),
@@ -284,6 +253,7 @@ mod tests {
             radius: 0,
         };
         placer.shape(raw(float), &[hit], &[hit]).unwrap();
+        placer.connection.sync().unwrap();
         let input = connection
             .shape_get_rectangles(float, SK::INPUT)
             .unwrap()
@@ -296,12 +266,30 @@ mod tests {
             .collect();
         assert_eq!(rects, [(5, 6, 20, 10)]);
         placer.shape(raw(float), &[], &[]).unwrap();
+        placer.connection.sync().unwrap();
         let input = connection
             .shape_get_rectangles(float, SK::INPUT)
             .unwrap()
             .reply()
             .unwrap();
         assert!(input.rectangles.is_empty(), "nothing takes the pointer");
+    }
+
+    fn a_float_window_cut_away_whole_is_still_exposed_when_woken(
+        connection: &RustConnection,
+        root: u32,
+    ) {
+        let float = window_at(connection, root, (0, 0, 100));
+        let listen = ChangeWindowAttributesAux::new().event_mask(EventMask::EXPOSURE);
+        connection.change_window_attributes(float, &listen).unwrap();
+        let placer = FloatPlacer::connect().unwrap();
+        placer.shape(raw(float), &[], &[]).unwrap();
+        placer.connection.sync().unwrap();
+        connection.sync().unwrap();
+        while connection.poll_for_event().unwrap().is_some() {}
+        placer.wake(raw(float)).unwrap();
+        let heard = connection.wait_for_event().unwrap();
+        assert!(matches!(heard, Event::Expose(exposed) if exposed.window == float));
     }
 
     #[test]
@@ -311,6 +299,7 @@ mod tests {
         let root = connection.setup().roots[screen].root;
         a_float_window_covers_its_owner(&connection, root);
         the_pointer_reaches_a_float_window_only_on_its_hit_cards(&connection, root);
+        a_float_window_cut_away_whole_is_still_exposed_when_woken(&connection, root);
     }
 
     #[test]

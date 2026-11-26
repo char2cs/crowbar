@@ -78,5 +78,9 @@ pub(crate) fn resync(rig: &mut ShellRig) {
 
 pub(crate) fn sync_shown(shell: &mut ShellState) {
     let visible = visible(shell);
-    shell.sync(ParentWindow::X11(9), (visible, &()));
+    shell.sync(
+        ParentWindow::X11(9),
+        (visible, &()),
+        panehost::Overlays::default(),
+    );
 }

@@ -66,7 +66,9 @@ mod tests {
     use crate::test_support::{open_floating, view};
 
     #[gpui::test]
-    fn a_tab_dragged_out_of_the_strip_floats_above_the_pane_web_views(cx: &mut TestAppContext) {
+    fn a_tab_dragged_out_of_the_strip_is_drawn_in_the_window_and_hides_the_web_views(
+        cx: &mut TestAppContext
+    ) {
         let tabs = vec![view(1, &["a"]), view(2, &["b"])];
         let mut floating = open_floating(cx, tabs, 1);
         let window = &mut floating.window;
@@ -75,13 +77,8 @@ mod tests {
         window.simulate_mouse_move(point(px(130.0), px(21.0)), MouseButton::Left, none);
         window.simulate_mouse_move(point(px(400.0), px(300.0)), MouseButton::Left, none);
         window.run_until_parked();
-        assert_eq!(
-            window.debug_bounds("tab-ghost"),
-            None,
-            "nothing in the window"
-        );
-        let ghost = floating.top().debug_bounds("tab-ghost");
-        assert!(ghost.is_some(), "the ghost is in the top layer");
+        assert!(window.debug_bounds("tab-ghost").is_some(), "in the window");
+        assert!(ui::testing::covered(window).0, "every web view is hidden");
     }
 
     #[gpui::test]
@@ -94,6 +91,9 @@ mod tests {
         window.simulate_mouse_move(point(px(130.0), px(21.0)), MouseButton::Left, none);
         window.simulate_mouse_move(point(px(400.0), px(300.0)), MouseButton::Left, none);
         window.run_until_parked();
-        assert!(floating.top().debug_bounds("tab-ghost").is_some(), "lifted");
+        assert!(
+            floating.window.debug_bounds("tab-ghost").is_some(),
+            "lifted"
+        );
     }
 }

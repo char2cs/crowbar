@@ -79,13 +79,6 @@ pub(crate) struct Floating {
     pub(crate) window: VisualTestContext,
 }
 
-impl Floating {
-    /// The float window the owner opened last; the owner's own window while it has none.
-    pub(crate) fn top(&mut self) -> VisualTestContext {
-        ui::testing::newest_window(&mut self.window)
-    }
-}
-
 pub(crate) fn open_floating(
     cx: &mut TestAppContext,
     tabs: Vec<TabView>,

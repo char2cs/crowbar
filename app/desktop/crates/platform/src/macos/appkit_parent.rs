@@ -3,7 +3,7 @@ use std::ptr::NonNull;
 
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
-use objc2_app_kit::{NSApplication, NSView};
+use objc2_app_kit::{NSApplication, NSView, NSWindow};
 use raw_window_handle::{
     AppKitWindowHandle, HandleError, HasWindowHandle, RawWindowHandle, WindowHandle,
 };
@@ -31,6 +31,12 @@ impl AppkitParent {
             .filter_map(|window| window.contentView())
             .find_map(|content| view_at(content, address))
             .map(Self)
+    }
+
+    /// The window that shows the view, while one does.
+    #[must_use]
+    pub fn window(&self) -> Option<Retained<NSWindow>> {
+        self.0.window()
     }
 }
 

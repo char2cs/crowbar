@@ -3,7 +3,7 @@ use std::sync::mpsc;
 use std::thread;
 
 use gtk::glib;
-use platform::InputFocus;
+use platform::{InputFocus, PageShape};
 
 use crate::backend::host_config::HostConfig;
 use crate::backend::native::linux::gtk_platform::channels::{Channels, Job};
@@ -148,8 +148,10 @@ fn serve(
         report_init_failure(ready, &error);
         return false;
     }
-    let keyboard = match InputFocus::connect() {
-        Ok(keyboard) => keyboard,
+    let connected =
+        InputFocus::connect().and_then(|keyboard| Ok((keyboard, PageShape::connect()?)));
+    let (keyboard, shape) = match connected {
+        Ok(connected) => connected,
         Err(error) => {
             report_init_failure(ready, &error);
             return false;
@@ -157,7 +159,7 @@ fn serve(
     };
     watch_focus(keyboard.as_raw_fd(), channels.jobs.clone());
     let inbox = channels.inbox.clone();
-    let mut state = GtkState::new(config, keyboard);
+    let mut state = GtkState::new(config, (keyboard, shape));
     glib::MainContext::default().spawn_local(async move {
         run_jobs(&inbox, &mut state).await;
         gtk::main_quit();

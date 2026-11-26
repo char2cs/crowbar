@@ -80,7 +80,7 @@ mod tests {
         });
         assert!(
             sidebar.read_with(cx, |this, _| this.peek.is_wanted()),
-            "the top layer took the pointer over the card"
+            "the pointer went onto a web view inside the kept area"
         );
     }
 }

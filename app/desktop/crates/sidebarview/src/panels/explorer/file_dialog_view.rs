@@ -217,15 +217,19 @@ mod tests {
     }
 
     #[gpui::test]
-    fn the_delete_dialog_floats_centred_above_the_panes(cx: &mut TestAppContext) {
+    fn the_delete_dialog_is_drawn_centred_in_the_window_and_hides_the_panes(
+        cx: &mut TestAppContext
+    ) {
         let mut floating = crate::test_support::open_floating(cx, DemoShell::reference());
         ask_delete(&mut floating);
-        assert_eq!(
-            floating.window.debug_bounds("ui-dialog"),
-            None,
-            "nothing in the window"
+        assert!(
+            ui::testing::covered(&mut floating.window).0,
+            "every web view is hidden"
         );
-        let card = floating.top().debug_bounds("ui-dialog").unwrap_or_default();
+        let card = floating
+            .window
+            .debug_bounds("ui-dialog")
+            .unwrap_or_default();
         let centre = card.origin.x + card.size.width / 2.0;
         assert!(
             (centre - px(600.0)).abs() < px(1.0),
@@ -237,7 +241,7 @@ mod tests {
     fn escape_cancels_the_delete_dialog(cx: &mut TestAppContext) {
         let mut floating = crate::test_support::open_floating(cx, DemoShell::reference());
         ask_delete(&mut floating);
-        crate::test_support::press(&mut floating.top(), "enter escape");
+        crate::test_support::press(&mut floating.window, "enter escape");
         assert!(
             floating.recorder.sent().is_empty(),
             "return on the close button and escape send nothing"
@@ -252,11 +256,11 @@ mod tests {
     fn tab_reaches_cancel_then_delete_from_the_close_button(cx: &mut TestAppContext) {
         let mut floating = crate::test_support::open_floating(cx, DemoShell::reference());
         ask_delete(&mut floating);
-        crate::test_support::press(&mut floating.top(), "tab enter");
+        crate::test_support::press(&mut floating.window, "tab enter");
         assert!(floating.recorder.sent().is_empty(), "Cancel sends nothing");
         crate::test_support::settle(&mut floating.window);
         ask_delete(&mut floating);
-        crate::test_support::press(&mut floating.top(), "tab tab enter");
+        crate::test_support::press(&mut floating.window, "tab tab enter");
         let want = Command::DeleteFile {
             path: "src/lib.rs".into(),
         };

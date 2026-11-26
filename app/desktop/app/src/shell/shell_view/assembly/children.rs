@@ -1,7 +1,7 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use gpui::{AppContext as _, Context, Entity};
+use gpui::{AppContext as _, Context, Entity, Window};
 use layoutview::LayoutView;
 use ptysession::TerminalSessions;
 use sidebar::{FilesSource as _, Preferences};
@@ -168,6 +168,7 @@ fn preferences_or_default(loaded: Result<Preferences, sidebar::Error>) -> Prefer
 pub(crate) fn build_children<V: 'static>(
     parts: &shell_parts::ShellParts,
     requests: &async_channel::Sender<ShellRequest>,
+    window: &Window,
     cx: &mut Context<'_, V>,
 ) -> Built {
     let link = &*parts.link;
@@ -195,7 +196,6 @@ pub(crate) fn build_children<V: 'static>(
         cx,
     );
     let startup = build_startup(requests, cx);
-    let notices = sidebar.read(cx).toast_queue();
     Built {
         data,
         data_queued: Arc::clone(&parts.data_queued),
@@ -203,9 +203,10 @@ pub(crate) fn build_children<V: 'static>(
         tabs: panes.tabs,
         workspace: panes.workspace,
         source: panes.source,
+        notices: sidebar.read(cx).toast_queue(),
         sidebar,
         startup,
-        notices,
+        cover: ui::Cover::of(window, cx),
         subscriptions: Vec::new(),
     }
 }

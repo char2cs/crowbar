@@ -1,9 +1,10 @@
 use layout::{Rect, Tab};
 use layoutview::{ChromeContext, PaneSource, pane_holes_with};
-use panehost::VisiblePane;
+use panehost::{Covered, Overlays, VisiblePane};
 use webview::Bounds;
 
 use crate::panes::content::single_precision::single_precision;
+use crate::shell::window::pixels;
 
 pub(crate) fn visible_panes(
     tab: Option<&Tab>,
@@ -26,6 +27,28 @@ pub(crate) fn visible_panes(
             pane: hole.pane,
         })
         .collect()
+}
+
+pub(crate) fn overlays(
+    cover: &ui::Cover,
+    handle: Option<Rect>,
+    area: Bounds,
+) -> Overlays {
+    Overlays {
+        covered: covered(cover),
+        cutout: handle.map(|rect| placed(area, rect)),
+    }
+}
+
+fn covered(cover: &ui::Cover) -> Covered {
+    if cover.whole() {
+        return Covered::Everything;
+    }
+    let cards = cover.cards();
+    if cards.is_empty() {
+        return Covered::Nothing;
+    }
+    Covered::Areas(cards.into_iter().map(pixels::to_bounds).collect())
 }
 
 fn placed(

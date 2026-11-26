@@ -150,6 +150,7 @@ impl ShellView {
             LayoutEvent::RenameTab { pane, current } => {
                 return self.ask_rename((pane, current), window, cx);
             },
+            LayoutEvent::Hovered => return self.sync(cx),
             _ => return,
         }
         self.refresh(cx);

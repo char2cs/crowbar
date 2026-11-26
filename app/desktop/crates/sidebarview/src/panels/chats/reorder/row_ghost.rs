@@ -43,9 +43,11 @@ mod tests {
     #[gpui::test]
     fn the_ghost_draws_whatever_the_row_builds(cx: &mut TestAppContext) {
         let build: GhostBuild = Rc::new(|_| div().h(px(7.0)).into_any_element());
+        let held = Rc::new(std::cell::OnceCell::new());
         let bounds = measure(cx, move |_, cx| {
             let build = Rc::clone(&build);
-            cx.new(|_| RowGhost::new(build))
+            held.get_or_init(|| cx.new(|_| RowGhost::new(build)))
+                .clone()
         });
         assert_eq!(f32::from(bounds.size.height), 7.0);
     }
@@ -83,10 +85,9 @@ mod tests {
     }
 
     #[gpui::test]
-    fn the_ghost_follows_the_pointer_above_the_panes(cx: &mut TestAppContext) {
+    fn the_ghost_follows_the_pointer_in_the_window_and_hides_the_panes(cx: &mut TestAppContext) {
         cx.update(|cx| {
             ui::init(cx).expect("ui installs");
-            ui::testing::open_float_windows(cx);
         });
         let owner: gpui::AnyWindowHandle = cx.add_window(|_, _| Source).into();
         let mut owner = gpui::VisualTestContext::from_window(owner, cx);
@@ -102,12 +103,10 @@ mod tests {
             modifiers,
         );
         owner.run_until_parked();
-        assert_eq!(
-            owner.debug_bounds("row-ghost"),
-            None,
-            "nothing in the window"
+        assert!(owner.debug_bounds("row-ghost").is_some(), "in the window");
+        assert!(
+            ui::testing::covered(&mut owner).0,
+            "every web view is hidden"
         );
-        let mut top = ui::testing::newest_window(&mut owner);
-        assert!(top.debug_bounds("row-ghost").is_some());
     }
 }

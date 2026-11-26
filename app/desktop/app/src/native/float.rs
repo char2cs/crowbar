@@ -1,4 +1,5 @@
-//! Places the shell's float windows above its web views with the platform's X connection.
+//! Places the shell's pop-up window (tooltips, toasts) above its web views with the platform's X
+//! connection.
 
 use raw_window_handle::RawWindowHandle;
 
@@ -16,12 +17,15 @@ impl ui::FloatHost for Float {
         &self,
         float: RawWindowHandle,
         owner: RawWindowHandle,
-        kind: ui::Float,
     ) {
-        if matches!(kind, ui::Float::Modal | ui::Float::Popover) {
-            logged(self.0.pin(float));
-        }
         logged(self.0.cover(float, owner));
+    }
+
+    fn wake(
+        &self,
+        float: RawWindowHandle,
+    ) {
+        logged(self.0.wake(float));
     }
 
     fn shape(
@@ -32,13 +36,6 @@ impl ui::FloatHost for Float {
     ) {
         let (seen, hit) = (cards(seen), cards(hit));
         logged(self.0.shape(float, &seen, &hit));
-    }
-
-    fn focus(
-        &self,
-        float: RawWindowHandle,
-    ) {
-        logged(self.0.focus(float));
     }
 }
 
@@ -68,7 +65,7 @@ fn extent(value: i32) -> u16 {
 
 fn logged(done: Result<(), platform::Error>) {
     if let Err(error) = done {
-        tracing::warn!(%error, "a float window could not be placed");
+        tracing::warn!(%error, "the pop-up window could not be placed");
     }
 }
 

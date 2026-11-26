@@ -1,7 +1,6 @@
-//! The stock windows that float above an owner window: one per [`crate::Float`] kind, each
-//! showing its owner's layers of that kind.
+//! The stock pop-up window that floats above an owner window, showing its owner's passive
+//! layers: tooltips and toasts.
 
-mod drag_forward;
 mod float_host;
 mod opening;
 mod owner;
@@ -9,7 +8,6 @@ mod owners;
 mod registry;
 mod root;
 mod shaped;
-mod slot;
 mod stack;
 
 pub use float_host::FloatHost;
@@ -19,6 +17,3 @@ pub use shaped::Shaped;
 
 pub(crate) use opening::place;
 pub(crate) use owners::Owners;
-pub use owners::{holds_keys, open_float_window};
-pub(crate) use registry::Registry;
-pub(crate) use slot::Slot;

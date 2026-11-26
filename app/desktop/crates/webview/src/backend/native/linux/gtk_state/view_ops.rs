@@ -9,6 +9,7 @@ use wry::WebViewExtUnix;
 use crate::backend::native::linux::capture::snapshot_of;
 use crate::backend::native::linux::gtk_state::GtkState;
 use crate::backend::native::linux::gtk_state::page_focus;
+use crate::backend::native::linux::gtk_state::view_cutout::cut_of;
 use crate::backend::native::wry_builder::to_rect;
 use crate::error::Result;
 use crate::view::Bounds;
@@ -82,9 +83,11 @@ impl GtkState {
         visibility: Visibility,
     ) -> Result<()> {
         let live = self.live(id)?;
+        let was = cut_of(live.shown.replace(visibility), live.hole.get());
+        self.recut(live, was)?;
         match visibility {
             Visibility::Hidden => Ok(live.view.set_visible(false)?),
-            Visibility::Shown => live.place.show(&live.view),
+            Visibility::Shown | Visibility::Covered => live.place.show(&live.view),
         }
     }
 

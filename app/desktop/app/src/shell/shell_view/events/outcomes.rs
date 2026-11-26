@@ -165,7 +165,7 @@ mod tests {
     use super::*;
     use crate::panes::kinds::core_panes::EDITOR;
     use crate::panes::kinds::pane_spec::PaneSpec;
-    use crate::shell::shell_view::tests::{Opened, PLACED, open_shell};
+    use crate::shell::shell_view::tests::{Opened, PLACED, open_started_shell};
 
     fn shows(call: &webview::Call) -> bool {
         let webview::Call::SetVisibility { visibility, .. } = call else {
@@ -200,7 +200,7 @@ mod tests {
     }
 
     fn with_files_open(cx: &mut TestAppContext) -> Opened {
-        let mut opened = open_shell(cx);
+        let mut opened = open_started_shell(cx);
         let pane = opened.pane.clone();
         opened.shell.update(&mut opened.window, |shell, cx| {
             open_files(shell, &pane);

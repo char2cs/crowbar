@@ -202,7 +202,6 @@ mod tests {
     use crate::control::Button;
     use crate::floating::menu::menu_item::MenuAction;
     use crate::test_support::probe::{open, open_floating};
-    use crate::testing::newest_window;
 
     fn build(chosen: &Rc<Cell<usize>>) -> impl Fn(&mut Window, &mut App) -> DropdownMenu + 'static {
         let chosen = Rc::clone(chosen);
@@ -374,22 +373,25 @@ mod tests {
     }
 
     #[gpui::test]
-    fn an_open_dropdown_floats_in_the_top_layer_where_web_views_cannot_cover_it(
+    fn an_open_dropdown_is_drawn_in_the_window_and_covers_the_web_views_under_its_card(
         cx: &mut TestAppContext
     ) {
         let chosen = Rc::new(Cell::new(0));
         let mut owner = open_floating(cx, build(&chosen));
         owner.simulate_click(point(px(10.0), px(10.0)), gpui::Modifiers::none());
         owner.run_until_parked();
-        assert_eq!(owner.debug_bounds("ui-menu"), None, "nothing in the window");
-        let mut top = newest_window(&mut owner);
-        let menu = top.debug_bounds("ui-menu").unwrap_or_default();
+        let menu = owner.debug_bounds("ui-menu").unwrap_or_default();
         let trigger = owner.debug_bounds("probe").unwrap_or_default();
         assert!(
             menu.origin.y >= trigger.bottom(),
             "{menu:?} below {trigger:?}"
         );
-        top.simulate_keystrokes("down enter");
-        assert_eq!(chosen.get(), 1, "the keyboard reaches the floating menu");
+        assert_eq!(
+            crate::testing::covered(&mut owner).1,
+            [menu],
+            "its card covers"
+        );
+        owner.simulate_keystrokes("down enter");
+        assert_eq!(chosen.get(), 1, "the keyboard reaches the menu");
     }
 }
