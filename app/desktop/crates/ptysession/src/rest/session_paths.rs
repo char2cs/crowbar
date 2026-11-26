@@ -31,18 +31,14 @@ impl SessionPaths {
         &self.0
     }
 
-    /// `DELETE` kills the session.
-    #[must_use]
-    pub fn kill_path(
+    pub(crate) fn kill_path(
         &self,
         session: &str,
     ) -> String {
         format!("{}/{session}", self.0)
     }
 
-    /// The PTY stream of the session.
-    #[must_use]
-    pub fn stream_path(
+    pub(crate) fn stream_path(
         &self,
         session: &str,
     ) -> String {

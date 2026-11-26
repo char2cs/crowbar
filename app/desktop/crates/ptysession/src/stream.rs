@@ -165,27 +165,13 @@ mod tests {
         while daemon.next().await.is_some() {}
     }
 
-    #[derive(Clone, Copy)]
+    #[derive(Debug, Clone, Copy)]
     enum View {
         Kept,
         Dropped,
     }
 
     const CASES: [(View, End); 2] = [(View::Kept, End::Exited), (View::Dropped, End::ViewGone)];
-
-    async fn ends_of_each_case() -> Vec<End> {
-        let mut ends = Vec::new();
-        for (view, _) in CASES {
-            ends.push(end_of_stream(view).await);
-        }
-        ends
-    }
-
-    #[tokio::test]
-    async fn the_end_of_a_stream_says_whether_the_session_or_only_the_connection_ended() {
-        let expected: Vec<End> = CASES.iter().map(|(_, end)| *end).collect();
-        assert_eq!(ends_of_each_case().await, expected, "exit, then view gone");
-    }
 
     async fn end_of_stream(view: View) -> End {
         let (near, far) = duplex(PIPE);
@@ -197,5 +183,16 @@ mod tests {
         let end = pump(socket, Ends { frames, messages }).await;
         drop(keep);
         end
+    }
+
+    async fn check_all() {
+        for (view, expected) in CASES {
+            assert_eq!(end_of_stream(view).await, expected, "{view:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_end_of_a_stream_says_whether_the_session_or_only_the_connection_ended() {
+        check_all().await;
     }
 }

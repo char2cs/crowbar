@@ -101,68 +101,16 @@ fn daemon_error(error: impl std::fmt::Display) -> Error {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
-
-    use protocol::{RelayEndpoint, RelayScope};
-
     use super::*;
-
-    const CREATED: u16 = 201;
-
-    struct Canned {
-        status: u16,
-        body: &'static str,
-        seen: Mutex<Vec<String>>,
-    }
-
-    impl DaemonTransport for Canned {
-        fn request(
-            &self,
-            request: DaemonRequest,
-            respond: Responder,
-        ) {
-            let line = format!(
-                "{} {}",
-                request.method().as_str(),
-                request.target().as_str()
-            );
-            self.seen.lock().unwrap().push(line);
-            respond(Ok(DaemonResponse::new(
-                self.status,
-                Vec::new(),
-                self.body.as_bytes().to_vec(),
-            )));
-        }
-
-        fn relay_endpoint(
-            &self,
-            _scope: &RelayScope,
-        ) -> protocol::Result<RelayEndpoint> {
-            Err(protocol::Error::Timeout)
-        }
-    }
-
-    fn rest(
-        status: u16,
-        body: &'static str,
-    ) -> (Rest, Arc<Canned>) {
-        let canned = Arc::new(Canned {
-            status,
-            body,
-            seen: Mutex::default(),
-        });
-        let transport: Arc<dyn DaemonTransport> = Arc::<Canned>::clone(&canned);
-        let host = HostId::new("local").unwrap();
-        (Rest { transport, host }, canned)
-    }
+    use crate::test_support::{CREATED, daemon_answering, daemon_creating, rest};
 
     #[tokio::test]
     async fn creating_posts_to_the_chat_and_reads_the_session_id() {
-        let (rest, canned) = rest(CREATED, r#"{"success":true,"data":{"sessionId":"s9"}}"#);
+        let daemon = daemon_creating(CREATED, r#"{"success":true,"data":{"sessionId":"s9"}}"#);
         let base = SessionPaths::chat("c1").unwrap();
-        assert_eq!(rest.create(&base).await.unwrap(), "s9");
+        assert_eq!(rest(&daemon).create(&base).await.unwrap(), "s9");
         assert_eq!(
-            *canned.seen.lock().unwrap(),
+            *daemon.seen.lock().unwrap(),
             ["POST /v0/chats/c1/terminals"]
         );
     }
@@ -170,38 +118,36 @@ mod tests {
     #[tokio::test]
     async fn the_live_sessions_are_the_listed_ones_that_have_not_ended() {
         let body = r#"{"success":true,"data":[{"id":"s1","status":"running"},{"id":"s2","status":"ended"},{"id":"s3","status":"suspended"}]}"#;
-        let (rest, canned) = rest(200, body);
+        let daemon = daemon_answering(CREATED, body);
         let base = SessionPaths::chat("c1").unwrap();
-        assert_eq!(rest.live(&base).await.unwrap(), ["s1", "s3"]);
-        assert_eq!(*canned.seen.lock().unwrap(), ["GET /v0/chats/c1/terminals"]);
+        assert_eq!(rest(&daemon).live(&base).await.unwrap(), ["s1", "s3"]);
+        assert_eq!(*daemon.seen.lock().unwrap(), ["GET /v0/chats/c1/terminals"]);
     }
 
-    const FAILURE_CASES: [(u16, &str); 3] = [
-        (CREATED, r#"{"success":true,"data":{}}"#),
-        (404, ""),
+    const FAILURE_CASES: [(u16, &str, &str); 3] = [
+        (
+            CREATED,
+            r#"{"success":true,"data":{}}"#,
+            "terminal session: the daemon answered without a session id",
+        ),
+        (404, "", "terminal session: the daemon answered 404"),
         (
             409,
             r#"{"success":false,"error":"the chat has no terminal"}"#,
+            "terminal session: the chat has no terminal",
         ),
-    ];
-    const EXPECTED: [&str; 3] = [
-        "terminal session: the daemon answered without a session id",
-        "terminal session: the daemon answered 404",
-        "terminal session: the chat has no terminal",
     ];
 
     #[tokio::test]
     async fn refusals_and_empty_answers_are_errors() {
-        assert_eq!(create_errors().await, EXPECTED);
+        check_all().await;
     }
 
-    async fn create_errors() -> Vec<String> {
-        let mut errors = Vec::new();
-        for (status, body) in FAILURE_CASES {
-            let (rest, _) = rest(status, body);
+    async fn check_all() {
+        for (status, body, expected) in FAILURE_CASES {
             let base = SessionPaths::chat("c1").unwrap();
-            errors.push(rest.create(&base).await.unwrap_err().to_string());
+            let error = rest(&daemon_creating(status, body)).create(&base).await;
+            assert_eq!(error.unwrap_err().to_string(), expected);
         }
-        errors
     }
 }
