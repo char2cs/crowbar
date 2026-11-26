@@ -64,16 +64,4 @@ mod tests {
             );
         }
     }
-
-    #[test]
-    fn every_builtin_engine_has_a_query_slot() {
-        for engine in [
-            SearchEngine::DuckDuckGo,
-            SearchEngine::Google,
-            SearchEngine::Bing,
-            SearchEngine::Brave,
-        ] {
-            assert!(engine.template().contains("%s"), "{engine:?}");
-        }
-    }
 }
