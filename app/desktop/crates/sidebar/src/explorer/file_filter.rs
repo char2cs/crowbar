@@ -141,60 +141,6 @@ mod tests {
     type Setup = fn(&mut FileTreeView);
     type Case = (&'static str, Setup, &'static [&'static str]);
 
-    const ALL: &[&str] = &[
-        ".github",
-        ".github/ci.yml",
-        "src",
-        "src/main.rs",
-        "src/run.log",
-        "target",
-        "target/out.bin",
-        "vendor",
-        "vendor/lib.rs",
-        "README.md",
-    ];
-    const NO_DOT: &[&str] = &[
-        "src",
-        "src/main.rs",
-        "src/run.log",
-        "target",
-        "target/out.bin",
-        "vendor",
-        "vendor/lib.rs",
-        "README.md",
-    ];
-    const NO_IGNORED: &[&str] = &[
-        ".github",
-        ".github/ci.yml",
-        "src",
-        "src/main.rs",
-        "src/run.log",
-        "vendor",
-        "vendor/lib.rs",
-        "README.md",
-    ];
-    const NO_LOGS: &[&str] = &[
-        ".github",
-        ".github/ci.yml",
-        "src",
-        "src/main.rs",
-        "target",
-        "target/out.bin",
-        "vendor",
-        "vendor/lib.rs",
-        "README.md",
-    ];
-    const NO_VENDOR: &[&str] = &[
-        ".github",
-        ".github/ci.yml",
-        "src",
-        "src/main.rs",
-        "src/run.log",
-        "target",
-        "target/out.bin",
-        "README.md",
-    ];
-
     fn hide_files(view: &mut FileTreeView) {
         view.hidden_files = vec!["*.log".into()];
     }
@@ -206,17 +152,33 @@ mod tests {
     #[test]
     fn the_settings_decide_which_rows_stay_and_children_follow_their_folder() {
         let cases: [Case; 5] = [
-            ("defaults hide only OS junk", |_| {}, ALL),
-            ("hidden off", |v| turn_off(v, FileTreeFlag::Hidden), NO_DOT),
+            ("defaults hide only OS junk", |_| {}, &["src/.DS_Store"]),
+            (
+                "hidden off",
+                |v| turn_off(v, FileTreeFlag::Hidden),
+                &[".github", ".github/ci.yml", "src/.DS_Store"],
+            ),
             (
                 "gitignored off",
                 |v| turn_off(v, FileTreeFlag::Gitignored),
-                NO_IGNORED,
+                &["src/.DS_Store", "target", "target/out.bin"],
             ),
-            ("file patterns", hide_files, NO_LOGS),
-            ("directory patterns", hide_directories, NO_VENDOR),
+            (
+                "file patterns",
+                hide_files,
+                &["src/.DS_Store", "src/run.log"],
+            ),
+            (
+                "directory patterns",
+                hide_directories,
+                &["src/.DS_Store", "vendor", "vendor/lib.rs"],
+            ),
         ];
-        for (name, setup, expected) in cases {
+        for (name, setup, hidden) in cases {
+            let expected: Vec<String> = paths(tree())
+                .into_iter()
+                .filter(|path| !hidden.contains(&path.as_str()))
+                .collect();
             assert_eq!(paths(view(setup).visible(tree())), expected, "{name}");
         }
     }
