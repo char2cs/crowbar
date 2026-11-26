@@ -4,31 +4,21 @@ use crate::schema::scope::Scope;
 use crate::values::Key;
 use crate::values::Value;
 
-/// A rule over setting values and platform capabilities.
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
-pub enum Condition {
-    /// The setting currently holds this value (its default when unset).
+pub(crate) enum Condition {
     Equals(Key, Value),
-    /// The platform offers the named capability, such as `browser.clearData`.
     Capability(String),
-    /// Every rule holds.
-    All(Vec<Condition>),
-    /// At least one rule holds.
-    Any(Vec<Condition>),
 }
 
 impl Condition {
-    /// The setting `key` equals `value`.
-    pub fn equals(
+    pub(crate) fn equals(
         key: impl Into<Key>,
         value: impl Into<Value>,
     ) -> Self {
         Self::Equals(key.into(), value.into())
     }
 
-    /// The platform offers `name`.
-    pub fn capability(name: impl Into<String>) -> Self {
+    pub(crate) fn capability(name: impl Into<String>) -> Self {
         Self::Capability(name.into())
     }
 
@@ -39,8 +29,6 @@ impl Condition {
         match self {
             Self::Equals(key, value) => scope.lookup(key) == Some(value),
             Self::Capability(name) => scope.capabilities.contains(name),
-            Self::All(rules) => rules.iter().all(|rule| rule.holds(scope)),
-            Self::Any(rules) => rules.iter().any(|rule| rule.holds(scope)),
         }
     }
 }
@@ -82,23 +70,5 @@ mod tests {
             !holds(&Condition::capability("hosts.add")),
             "absent capability"
         );
-    }
-
-    #[test]
-    fn combinators() {
-        let yes = Condition::equals("engine", "custom");
-        let no = Condition::capability("nope");
-        assert!(
-            holds(&Condition::All(vec![yes.clone(), yes.clone()])),
-            "all true"
-        );
-        assert!(
-            !holds(&Condition::All(vec![yes.clone(), no.clone()])),
-            "one false"
-        );
-        assert!(holds(&Condition::Any(vec![no.clone(), yes])), "one true");
-        assert!(!holds(&Condition::Any(vec![no])), "none true");
-        assert!(holds(&Condition::All(vec![])), "empty all");
-        assert!(!holds(&Condition::Any(vec![])), "empty any");
     }
 }

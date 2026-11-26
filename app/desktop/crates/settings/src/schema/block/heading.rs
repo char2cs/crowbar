@@ -20,8 +20,7 @@ impl Heading {
         &self.description
     }
 
-    /// A heading with its description.
-    pub fn new(
+    pub(crate) fn new(
         title: impl Into<String>,
         description: impl Into<String>,
     ) -> Self {

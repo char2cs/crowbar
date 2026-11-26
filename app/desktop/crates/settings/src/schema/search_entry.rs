@@ -1,9 +1,7 @@
 //! One entry of a page's search index.
 
-/// What the search matches a page by: a label, a description, a section title and keywords.
-/// Spec: web/src/features/settings/config/search-index.ts.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SearchEntry {
+pub(crate) struct SearchEntry {
     pub(crate) section: String,
     pub(crate) label: String,
     pub(crate) description: String,
@@ -11,8 +9,7 @@ pub struct SearchEntry {
 }
 
 impl SearchEntry {
-    /// An entry for the setting `label` in `section`, described by `description`.
-    pub fn new(
+    pub(crate) fn new(
         section: impl Into<String>,
         label: impl Into<String>,
         description: impl Into<String>,
@@ -25,9 +22,8 @@ impl SearchEntry {
         }
     }
 
-    /// Words that find the entry without being shown.
     #[must_use]
-    pub fn keywords(
+    pub(crate) fn keywords(
         mut self,
         words: &[&str],
     ) -> Self {

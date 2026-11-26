@@ -26,8 +26,7 @@ impl NumberRange {
         self.max
     }
 
-    /// A range; typed values are rounded to the precision of `step` and clamped.
-    pub fn new(
+    pub(crate) fn new(
         min: f64,
         max: f64,
         step: f64,
@@ -41,16 +40,14 @@ impl NumberRange {
         }
     }
 
-    /// Typed values also snap to the nearest multiple of the step.
     #[must_use]
-    pub fn snapping(mut self) -> Self {
+    pub(crate) fn snapping(mut self) -> Self {
         self.snaps = true;
         self
     }
 
-    /// A stored value reads as `on_load` says when settings load.
     #[must_use]
-    pub fn loaded_as(
+    pub(crate) fn loaded_as(
         mut self,
         on_load: OnLoad,
     ) -> Self {
@@ -58,8 +55,7 @@ impl NumberRange {
         self
     }
 
-    /// Decimal places the step needs.
-    pub fn precision(&self) -> usize {
+    pub(crate) fn precision(&self) -> usize {
         let text = format!("{}", self.step);
         text.split_once('.')
             .map_or(0, |(_, decimals)| decimals.len())
@@ -77,8 +73,7 @@ impl NumberRange {
             .mul_add(self.step, self.min)
     }
 
-    /// `value` rounded, snapped and clamped into the range.
-    pub fn normalize(
+    pub(crate) fn normalize(
         &self,
         value: f64,
     ) -> f64 {
@@ -90,8 +85,7 @@ impl NumberRange {
         ((snapped * scale).round() / scale).clamp(self.min, self.max)
     }
 
-    /// A stored `value` as develop's settings store loads it.
-    pub fn loaded(
+    pub(crate) fn loaded(
         &self,
         value: f64,
     ) -> f64 {
@@ -113,8 +107,7 @@ impl NumberRange {
             .filter(|number| number.is_finite())
     }
 
-    /// `value` as shown in the field: step precision, no trailing zeros.
-    pub fn format(
+    pub(crate) fn format(
         &self,
         value: f64,
     ) -> String {
@@ -125,8 +118,7 @@ impl NumberRange {
         fixed.trim_end_matches('0').trim_end_matches('.').to_owned()
     }
 
-    /// `current` moved one step.
-    pub fn stepped(
+    pub(crate) fn stepped(
         &self,
         current: f64,
         nudge: Nudge,

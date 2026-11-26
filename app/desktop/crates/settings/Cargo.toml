@@ -9,7 +9,7 @@ repository.workspace = true
 publish.workspace = true
 
 [features]
-# FakeBackend, the in-memory backend of the unit tests and the settingsview gallery.
+# FakeBackend, the in-memory backend of the unit tests here and in settingsview.
 fake = []
 
 [dependencies]
