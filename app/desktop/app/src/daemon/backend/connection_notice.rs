@@ -3,7 +3,7 @@ use ui::{ToastContent, ToastKind, ToastLifetime};
 
 use crate::daemon::backend::backend_status::BackendStatus;
 use crate::daemon::backend::notice_act::NoticeAct;
-use crate::daemon::backend::warned::Warned;
+use crate::daemon::backend::warned::{Reach, Warned};
 
 const STARTING: &str = "Crowbar is starting";
 const UPGRADING: &str = "Crowbar is upgrading its data";
@@ -16,6 +16,7 @@ const RESTORED: &str = "Backend connection restored.";
 pub(crate) struct ConnectionNotice {
     followed: Option<BackendStatus>,
     warned: Warned,
+    reach: Reach,
 }
 
 impl ConnectionNotice {
@@ -55,10 +56,15 @@ impl ConnectionNotice {
     }
 
     fn recover(&mut self) -> NoticeAct {
+        let reconnecting = self.reach == Reach::Reached;
+        self.reach = Reach::Reached;
         if self.warned == Warned::No {
             return NoticeAct::Settle;
         }
         self.warned = Warned::No;
+        if !reconnecting {
+            return NoticeAct::Dismiss;
+        }
         let back = ToastContent::new(ToastKind::Success, RESTORED).titled(RECONNECTED);
         NoticeAct::Renew(back, ToastLifetime::Auto)
     }
@@ -101,10 +107,21 @@ mod tests {
 
     type Case<'a> = (&'a [BackendStatus], Vec<NoticeAct>);
 
+    fn assert_cases(cases: Vec<Case<'_>>) {
+        for (statuses, expected) in cases {
+            assert_eq!(acts(statuses), expected, "{statuses:?}");
+        }
+    }
+
+    fn starting() -> NoticeAct {
+        let content = ToastContent::new(ToastKind::Info, STARTING);
+        NoticeAct::Show(content, ToastLifetime::Pinned)
+    }
+
     #[test]
     fn an_outage_warns_after_a_moment_and_its_end_says_reconnected_once() {
-        use BackendStatus::{Connected, Disconnected};
-        let cases: [Case<'_>; 4] = [
+        use BackendStatus::{Connected, Disconnected, Migrating};
+        assert_cases(vec![
             (&[Connected], vec![NoticeAct::Settle]),
             (
                 &[Connected, Disconnected, Disconnected, Connected],
@@ -116,27 +133,29 @@ mod tests {
                 ],
             ),
             (
-                &[
-                    Disconnected,
-                    BackendStatus::CrashLoop("r".into()),
-                    Connected,
-                ],
+                &[Connected, Migrating(None), Connected],
+                vec![NoticeAct::Settle, starting(), reconnected()],
+            ),
+        ]);
+    }
+
+    #[test]
+    fn the_launch_never_says_reconnected() {
+        use BackendStatus::{Connected, CrashLoop, Disconnected, Migrating};
+        assert_cases(vec![
+            (
+                &[Disconnected, CrashLoop("r".into()), Connected],
                 vec![NoticeAct::WarnLater, NoticeAct::Dismiss, NoticeAct::Settle],
             ),
             (
-                &[BackendStatus::Migrating(None), Connected],
-                vec![
-                    NoticeAct::Show(
-                        ToastContent::new(ToastKind::Info, STARTING),
-                        ToastLifetime::Pinned,
-                    ),
-                    reconnected(),
-                ],
+                &[Migrating(None), Connected],
+                vec![starting(), NoticeAct::Dismiss],
             ),
-        ];
-        for (statuses, expected) in cases {
-            assert_eq!(acts(statuses), expected, "{statuses:?}");
-        }
+            (
+                &[Disconnected, Connected],
+                vec![NoticeAct::WarnLater, NoticeAct::Dismiss],
+            ),
+        ]);
     }
 
     #[test]
