@@ -61,8 +61,8 @@ impl Keymap {
             .filter(|command| !command.runs_alongside())
     }
 
-    /// The shell command a key press runs beside the focused view's own handling, if any;
-    /// see [`ShellCommand::runs_alongside`].
+    /// The shell command a key press runs beside the focused view's own handling, if any: chat
+    /// zoom, which a focused terminal also takes for its font.
     #[must_use]
     pub fn alongside(
         &self,
@@ -118,99 +118,57 @@ fn claim_chords(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chord::Modifier;
+    use crate::test_support::stroke;
 
-    fn forwards(
-        keymap: &Keymap,
-        id: &str,
-    ) -> bool {
-        keymap
-            .forwarded(&[])
-            .iter()
-            .any(|binding| binding.command().as_str() == id)
-    }
-
-    fn stroke(chord: &str) -> Keystroke {
-        let mut parts: Vec<&str> = chord.split('+').collect();
-        let key = parts.pop().unwrap_or_default().to_owned();
-        let held = [
-            ("mod", Modifier::Primary),
-            ("shift", Modifier::Shift),
-            ("alt", Modifier::Alt),
-        ];
-        Keystroke {
-            modifiers: held
-                .into_iter()
-                .filter(|(name, _)| parts.contains(name))
-                .map(|(_, modifier)| modifier)
-                .collect(),
-            key,
-            physical: None,
-        }
-    }
+    type Runs = Option<ShellCommand>;
+    type Override = (&'static str, &'static str);
 
     #[test]
-    fn defaults_resolve_typed_chords() {
+    fn defaults_resolve_typed_chords_and_chat_zoom_runs_alongside() {
+        const CASES: &[(&str, Runs, Runs)] = &[
+            ("mod+t", Some(ShellCommand::NewTab), None),
+            ("mod+shift+t", Some(ShellCommand::ReopenClosedTab), None),
+            ("mod+w", Some(ShellCommand::CloseTab), None),
+            ("mod+=", None, Some(ShellCommand::ZoomChatIn)),
+            ("mod+-", None, Some(ShellCommand::ZoomChatOut)),
+            ("mod+0", None, Some(ShellCommand::ZoomChatReset)),
+            ("mod+shift+p", None, None),
+            ("mod+,", None, None),
+            ("mod+s", None, None),
+            ("t", None, None),
+        ];
         let keymap = Keymap::defaults();
-        let cases = [
-            ("mod+t", Some(ShellCommand::NewTab)),
-            ("mod+shift+t", Some(ShellCommand::ReopenClosedTab)),
-            ("mod+w", Some(ShellCommand::CloseTab)),
-            ("mod+shift+p", None),
-            ("mod+,", None),
-            ("mod+s", None),
-            ("t", None),
-        ];
-        for (chord, expected) in cases {
-            assert_eq!(keymap.resolve(&stroke(chord)), expected, "{chord}");
+        for &(chord, instead, beside) in CASES {
+            let pressed = stroke(chord);
+            assert_eq!(
+                (keymap.resolve(&pressed), keymap.alongside(&pressed)),
+                (instead, beside),
+                "{chord}"
+            );
         }
     }
 
     #[test]
-    fn chat_zoom_runs_beside_the_focused_view_and_is_forwarded_from_pages() {
-        let keymap = Keymap::defaults();
-        let cases = [
-            ("mod+=", Some(ShellCommand::ZoomChatIn)),
-            ("mod+-", Some(ShellCommand::ZoomChatOut)),
-            ("mod+0", Some(ShellCommand::ZoomChatReset)),
-            ("mod+s", None),
+    fn overrides_move_unbind_and_free_the_default_that_held_the_chord() {
+        const CASES: &[(Override, &str, Runs)] = &[
+            (
+                ("tabs.new", "mod+shift+k"),
+                "mod+shift+k",
+                Some(ShellCommand::NewTab),
+            ),
+            (("tabs.new", "mod+shift+k"), "mod+t", None),
+            (("tabs.new", ""), "mod+t", None),
+            (("editor.save", "mod+s"), "mod+s", None),
+            (
+                ("agent.newChat", "mod+t"),
+                "mod+t",
+                Some(ShellCommand::NewChat),
+            ),
         ];
-        for (chord, expected) in cases {
-            assert_eq!(keymap.alongside(&stroke(chord)), expected, "{chord}");
-            assert_eq!(keymap.resolve(&stroke(chord)), None, "{chord}");
+        for &(chosen, typed, expected) in CASES {
+            let keymap = Keymap::with_overrides([chosen]);
+            assert_eq!(keymap.resolve(&stroke(typed)), expected, "{chosen:?}");
         }
-        assert!(
-            forwards(&keymap, "agent.zoomIn"),
-            "a page forwards the chord"
-        );
-    }
-
-    #[test]
-    fn an_override_moves_a_command() {
-        let keymap = Keymap::with_overrides([("tabs.new", "mod+shift+k")]);
-        assert_eq!(keymap.resolve(&stroke("mod+t")), None);
-        assert_eq!(
-            keymap.resolve(&stroke("mod+shift+k")),
-            Some(ShellCommand::NewTab)
-        );
-    }
-
-    #[test]
-    fn an_empty_override_unbinds_and_bad_ones_are_ignored() {
-        let keymap = Keymap::with_overrides([("tabs.new", ""), ("editor.save", "mod+s")]);
-        assert_eq!(keymap.resolve(&stroke("mod+t")), None);
-        assert!(!forwards(&keymap, "tabs.new"), "tabs.new stays bound");
-        assert_eq!(keymap.resolve(&stroke("mod+s")), None);
-    }
-
-    #[test]
-    fn a_chosen_chord_frees_the_default_that_held_it() {
-        let keymap = Keymap::with_overrides([("agent.newChat", "mod+t")]);
-        assert_eq!(
-            keymap.resolve(&stroke("mod+t")),
-            Some(ShellCommand::NewChat)
-        );
-        assert!(!forwards(&keymap, "tabs.new"), "tabs.new kept a chord");
     }
 
     #[test]
@@ -219,6 +177,7 @@ mod tests {
         let bindings = keymap.forwarded(&[]);
         let commands: Vec<&str> = bindings.iter().map(|b| b.command().as_str()).collect();
         assert!(commands.contains(&"tabs.closeActive"));
+        assert!(commands.contains(&"agent.zoomIn"));
         assert!(!commands.contains(&"tabs.new"));
         assert!(commands.contains(&"navigation.selectProject.1"));
         assert!(!commands.contains(&"files.search"), "no surface shows");
