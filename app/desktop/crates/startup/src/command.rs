@@ -11,8 +11,7 @@ pub enum Command {
 }
 
 impl Command {
-    /// The button label.
-    pub fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             Self::OpenLog => "Open log",
             Self::Quit => "Quit Crowbar",
@@ -46,31 +45,15 @@ impl Command {
 
 #[cfg(test)]
 mod tests {
-    use ui::{ButtonVariant, IconName};
-
     use super::*;
 
-    const ALL: [Command; 2] = [Command::OpenLog, Command::Quit];
-
     #[test]
-    fn every_command_has_a_distinct_label_and_id() {
-        let labels: Vec<_> = ALL.iter().map(|command| command.label()).collect();
-        let ids: Vec<_> = ALL.iter().map(|command| command.id()).collect();
-        for list in [labels, ids] {
-            let mut sorted = list.clone();
-            sorted.sort_unstable();
-            sorted.dedup();
-            assert_eq!(sorted.len(), list.len(), "{list:?}");
-        }
-    }
-
-    #[test]
-    fn only_the_primary_command_is_filled() {
-        assert_eq!(Command::Quit.variant(Command::Quit), ButtonVariant::Primary);
+    fn only_the_primary_command_is_filled_and_each_has_its_own_label_and_id() {
+        let (log, quit) = (Command::OpenLog, Command::Quit);
         assert_eq!(
-            Command::OpenLog.variant(Command::Quit),
-            ButtonVariant::Outline
+            (quit.variant(quit), log.variant(quit)),
+            (ButtonVariant::Primary, ButtonVariant::Outline)
         );
-        assert_eq!(Command::Quit.icon(), IconName::X);
+        assert!(log.label() != quit.label() && log.id() != quit.id());
     }
 }

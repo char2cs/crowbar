@@ -1,14 +1,15 @@
 use std::rc::Rc;
 
-use gpui::{Context, IntoElement, ParentElement, Render, Styled, Window, div, px};
+use gpui::{App, Context, IntoElement, ParentElement, Render, Styled, Window, div, px};
 use ui::{Surface, Theme};
 
 use crate::actions::Actions;
+use crate::halt_panel::HaltPanel;
 use crate::report::{HaltReason, Input};
-use crate::screens::HaltPanel;
-use crate::screens::wordmark;
 
 const STAGE_GAP: f32 = 36.0;
+const WORDMARK_SIZE: f32 = 44.0;
+const WORDMARK_LINE_HEIGHT_RATIO: f32 = 1.1;
 
 /// The halt gate: once the daemon halts it replaces the window's content with why, until the
 /// daemon is started again. Every other daemon state is told elsewhere, by toasts and the
@@ -61,6 +62,16 @@ impl std::fmt::Debug for View {
     }
 }
 
+fn wordmark(cx: &App) -> impl IntoElement + use<> {
+    let palette = Theme::of(cx).palette(Surface::Window);
+    div()
+        .font_family(Theme::of(cx).heading_family())
+        .text_size(px(WORDMARK_SIZE))
+        .line_height(px(WORDMARK_SIZE * WORDMARK_LINE_HEIGHT_RATIO))
+        .text_color(palette.foreground())
+        .child("Crowbar")
+}
+
 impl Render for View {
     fn render(
         &mut self,
@@ -99,7 +110,9 @@ mod tests {
     use super::*;
     use crate::command::Command;
     use crate::report::{MigrationStep, Outage};
-    use crate::test_support::{RecordingActions, click_across};
+    use crate::test_support::RecordingActions;
+
+    const SWEEP_STEP: f32 = 12.0;
 
     struct Harness {
         view: Entity<View>,
@@ -164,11 +177,15 @@ mod tests {
     fn the_halt_screen_can_quit(cx: &mut TestAppContext) {
         let (harness, cx) = open(cx);
         feed(&harness, cx, halted());
-        let area = cx.update(|window, _| gpui::Bounds {
-            origin: gpui::Point::default(),
-            size: window.viewport_size(),
-        });
-        click_across(cx, area);
+        let size = cx.update(|window, _| window.viewport_size());
+        let along = |to: f32| {
+            std::iter::successors(Some(0.0), |at| Some(at + SWEEP_STEP))
+                .take_while(move |at| *at < to)
+        };
+        let (width, height) = (f32::from(size.width), f32::from(size.height));
+        for (x, y) in along(height).flat_map(|y| along(width).map(move |x| (x, y))) {
+            cx.simulate_click(gpui::point(px(x), px(y)), gpui::Modifiers::none());
+        }
         let performed = harness.actions.performed();
         assert!(performed.contains(&Command::Quit), "{performed:?}");
     }
