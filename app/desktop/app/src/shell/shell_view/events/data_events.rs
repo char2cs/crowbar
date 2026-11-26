@@ -80,6 +80,9 @@ impl ShellView {
         if let Some(dialog) = &self.pairing {
             dialog.update(cx, pairing::View::changed);
         }
+        if let Some(dialog) = &self.device_offer {
+            dialog.update(cx, |_, cx| cx.notify());
+        }
     }
 
     pub(crate) fn on_data_outcome(
@@ -93,6 +96,7 @@ impl ShellView {
             DataOutcome::OpenDraft(draft) => self.open_chat(draft_params(&draft), cx),
             DataOutcome::PickDescriptor => self.pick_descriptor(window, cx),
             DataOutcome::PairHost => self.show_pairing(window, cx),
+            DataOutcome::AddDevice => self.show_device_offer(cx),
             DataOutcome::ClearBrowsingData => self.clear_browsing_data(cx),
             DataOutcome::CopyText(text) => cx.write_to_clipboard(ClipboardItem::new_string(text)),
             DataOutcome::NameRow { row, name } => self.sidebar.update(cx, |sidebar, cx| {

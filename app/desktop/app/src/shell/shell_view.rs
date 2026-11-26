@@ -64,6 +64,7 @@ pub(crate) struct ShellView {
     file_prompt: Option<Entity<file_prompt::FilePrompt>>,
     name_prompt: Option<(protocol::PaneId, Entity<name_prompt::NamePrompt>)>,
     pairing: Option<Entity<pairing::View>>,
+    device_offer: Option<Entity<pairing::OfferView>>,
     first_run: Option<(events::first_run::landing::Landing, Entity<oobe::View>)>,
     question: Option<gpui::AnyView>,
     pending_close: Option<pending_close::PendingClose>,
@@ -123,6 +124,7 @@ impl ShellView {
             file_prompt: None,
             name_prompt: None,
             pairing: None,
+            device_offer: None,
             first_run: None,
             question: None,
             pending_close: None,
@@ -179,6 +181,7 @@ impl ShellView {
             || self.file_prompt.is_some()
             || self.name_prompt.is_some()
             || self.pairing.is_some()
+            || self.device_offer.is_some()
             || self.first_run.is_some()
             || self.question.is_some()
     }
@@ -219,6 +222,7 @@ impl ShellView {
             .children(layer(self.first_run.as_ref().map(|(_, oobe)| oobe)).map(solid))
             .children(layer(self.folder_import.as_ref()))
             .children(layer(self.pairing.as_ref()))
+            .children(layer(self.device_offer.as_ref()))
             .children(
                 self.question
                     .clone()
@@ -528,7 +532,7 @@ mod tests {
         assert_eq!(hidden_views(&opened.mock), before, "no web view was hidden");
     }
 
-    fn page_focuses(mock: &webview::MockPlatform) -> usize {
+    pub(super) fn page_focuses(mock: &webview::MockPlatform) -> usize {
         let focuses = |call: &&webview::Call| matches!(call, webview::Call::Focus { .. });
         mock.calls().iter().filter(focuses).count()
     }
@@ -572,7 +576,7 @@ mod tests {
         });
     }
 
-    fn register_chat(opened: &mut Opened) {
+    pub(super) fn register_chat(opened: &mut Opened) {
         let register = protocol::PaneFrame::Register {
             type_id: crate::panes::kinds::core_panes::chat_type()
                 .unwrap_or_else(|error| panic!("{error}")),
@@ -630,7 +634,7 @@ mod tests {
         );
     }
 
-    fn own_keyboard_by_page(opened: &mut Opened) {
+    pub(super) fn own_keyboard_by_page(opened: &mut Opened) {
         opened.shell.update(&mut opened.window, |shell, cx| {
             shell.state.apply(Vec::new());
             shell.sync(cx);

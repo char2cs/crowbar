@@ -92,6 +92,7 @@ pub(crate) const FILES: &[File] = files![
     (Pulse, "pulse", [Duotone]),
     (Keyboard, "keyboard", [Regular, Duotone]),
     (HardDrives, "hard-drives", [Regular, Duotone]),
+    (DeviceMobile, "device-mobile", [Regular, Duotone]),
     (PaintBrush, "paint-brush", [Duotone]),
     (CodeBlock, "code-block", [Duotone]),
     (TreeStructure, "tree-structure", [Duotone]),

@@ -27,8 +27,8 @@ pub use sidebar_commands::{
 };
 pub use sidebar_view::SidebarView;
 pub use store::{
-    Availability, BranchImport, BranchListing, BrowseEntry, FolderBrowse, FolderChoice,
-    FolderListing, ImportBranch, ImportPlan, LegacyDrafts, LegacyImport, LocalLink, PairingPending,
-    PairingSession, PairingStage, PairingState, Ports, ProjectsLoad, ROOT_PATH, SettingsAdapter,
-    Store, SystemCheck, SystemFonts, Tool, ToolReport,
+    Availability, BranchImport, BranchListing, BrowseEntry, DeviceOffer, FolderBrowse,
+    FolderChoice, FolderListing, ImportBranch, ImportPlan, LegacyDrafts, LegacyImport, LocalLink,
+    Offer, OfferState, PairingPending, PairingSession, PairingStage, PairingState, Ports,
+    ProjectsLoad, ROOT_PATH, SettingsAdapter, Store, SystemCheck, SystemFonts, Tool, ToolReport,
 };

@@ -3,6 +3,7 @@ use std::path::Path;
 use branchimport::ImportEvent;
 use diagnostics::LogPaths;
 use gpui::{AppContext as _, Context, Entity, Window};
+use settings::RecordBackend as _;
 
 use super::ShellView;
 use crate::daemon::diagnostics_export;
@@ -20,25 +21,56 @@ impl ShellView {
         let (signal, _) = data_signal::callbacks(&self.requests, &self.data_queued);
         let session = self.data.pairing(signal);
         let dialog = cx.new(|cx| pairing::View::new(session, window, cx));
-        self.subscriptions.push(cx.subscribe(
-            &dialog,
-            |this, source, event: &pairing::Event, cx| {
-                this.on_pairing(source, *event, cx);
-            },
-        ));
+        // SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/hosts/components/add-host-dialog.tsx
+        self.subscriptions
+            .push(cx.subscribe(&dialog, |this, _, _: &pairing::Event, cx| {
+                this.pairing = None;
+                cx.notify();
+            }));
         self.pairing = Some(dialog);
         cx.notify();
     }
 
-    fn on_pairing(
+    pub(in crate::shell::shell_view) fn show_device_offer(
         &mut self,
-        _: Entity<pairing::View>,
-        event: pairing::Event,
         cx: &mut Context<'_, Self>,
     ) {
-        if matches!(event, pairing::Event::Close) {
-            self.pairing = None;
-            cx.notify();
+        if self.device_offer.is_some() {
+            return;
+        }
+        let (signal, _) = data_signal::callbacks(&self.requests, &self.data_queued);
+        let offer = match self.data.device_offer(signal) {
+            Ok(offer) => offer,
+            Err(error) => {
+                return tracing::warn!(%error, "no device can pair without a local daemon");
+            },
+        };
+        let dialog = cx.new(|_| pairing::OfferView::new(offer));
+        self.subscriptions
+            .push(cx.subscribe(&dialog, |this, _, _: &pairing::Event, cx| {
+                this.close_device_offer(cx);
+            }));
+        self.device_offer = Some(dialog);
+        cx.notify();
+    }
+
+    // SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/hosts/components/add-device-dialog.tsx
+    fn close_device_offer(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.device_offer = None;
+        cx.notify();
+        let Some(backend) = self.settings_backend() else {
+            return;
+        };
+        let reread = backend.apply(
+            settings::DEVICE_RECORDS,
+            "",
+            settings::RecordCommand::Refresh,
+        );
+        if let Err(error) = reread {
+            tracing::warn!(%error, "the paired devices were not read again");
         }
     }
 
@@ -103,7 +135,25 @@ fn data_dir_of(preferences_path: &Path) -> &Path {
 
 #[cfg(test)]
 mod tests {
+    use gpui::TestAppContext;
+
     use super::*;
+    use crate::shell::shell_view::tests::open_shell;
+
+    #[gpui::test]
+    fn a_paired_host_closes_the_dialog_as_develop_does(cx: &mut TestAppContext) {
+        let mut opened = open_shell(cx);
+        let shell = opened.shell.clone();
+        shell.update_in(&mut opened.window, |shell, window, cx| {
+            shell.show_pairing(window, cx);
+        });
+        let dialog = shell.update(&mut opened.window, |shell, _| shell.pairing.clone());
+        let dialog = dialog.expect("the Add Host dialog opens");
+        dialog.update(&mut opened.window, |_, cx| cx.emit(pairing::Event::Paired));
+        opened.window.run_until_parked();
+        let open = shell.update(&mut opened.window, |shell, _| shell.pairing.is_some());
+        assert!(!open, "a paired host left the dialog open");
+    }
 
     #[test]
     fn the_data_directory_is_where_the_preferences_live() {

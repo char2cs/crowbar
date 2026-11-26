@@ -12,7 +12,9 @@ use ui::{Dialog, DialogSize, Palette, Surface, TextInput, TextInputEvent, Theme}
 
 use crate::action::Action;
 use crate::event::Event;
-use crate::look::{ADDRESS_PLACEHOLDER, CODE_PLACEHOLDER, GAP, NAME_PLACEHOLDER, TITLE};
+use crate::look::{
+    ADDRESS_HINT, ADDRESS_PLACEHOLDER, CODE_HINT, CODE_PLACEHOLDER, GAP, NAME_PLACEHOLDER, TITLE,
+};
 use crate::source::Source;
 use crate::stage_copy;
 use crate::stage_widgets;
@@ -136,6 +138,18 @@ impl View {
         }
     }
 
+    // SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/hosts/components/add-host-dialog.tsx
+    fn press_primary(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.advance(cx);
+        if self.source.state().stage == PairingStage::Code {
+            self.code.update(cx, |field, cx| field.focus(window, cx));
+        }
+    }
+
     pub(crate) fn step_back(
         &mut self,
         cx: &mut Context<'_, Self>,
@@ -158,13 +172,21 @@ impl View {
         match state.stage {
             PairingStage::Address => body
                 .child(stage_widgets::labelled("Name", palette, &self.name))
-                .child(stage_widgets::labelled("Address", palette, &self.address)),
+                .child(stage_widgets::hinted(
+                    stage_widgets::labelled("Address", palette, &self.address),
+                    ADDRESS_HINT,
+                    palette,
+                )),
             PairingStage::Fingerprint => body.child(stage_widgets::fingerprint_box(
                 palette,
                 &state.fingerprint,
                 mono,
             )),
-            PairingStage::Code => body.child(stage_widgets::labelled("Code", palette, &self.code)),
+            PairingStage::Code => body.child(stage_widgets::hinted(
+                stage_widgets::labelled("Pairing code", palette, &self.code),
+                CODE_HINT,
+                palette,
+            )),
             PairingStage::Paired => body,
         }
     }
@@ -179,9 +201,14 @@ impl Render for View {
         let state = self.source.state();
         let palette = *Theme::of(cx).palette(Surface::Window);
         let me = cx.entity();
-        let body = self
-            .stage_body(&state, (&palette, Theme::of(cx).mono_family()))
-            .child(stage_widgets::muted(&palette).child(stage_copy::lead(state.stage)))
+        let lead =
+            stage_copy::lead(state.stage).map(|lead| stage_widgets::muted(&palette).child(lead));
+        let body = div()
+            .flex()
+            .flex_col()
+            .gap(GAP)
+            .children(lead)
+            .child(self.stage_body(&state, (&palette, Theme::of(cx).mono_family())))
             .children(stage_widgets::messages(&state, &palette));
         Dialog::new("pairing")
             .title(TITLE)
@@ -190,7 +217,7 @@ impl Render for View {
             .footer(stage_widgets::footer(
                 &state,
                 (
-                    cx.listener(|this, _, _, cx| this.advance(cx)),
+                    cx.listener(|this, _, window, cx| this.press_primary(window, cx)),
                     cx.listener(|this, _, _, cx| this.step_back(cx)),
                 ),
             ))
@@ -202,7 +229,9 @@ impl Render for View {
 mod tests {
     use std::cell::RefCell;
 
-    use gpui::{AppContext as _, InteractiveElement as _, TestAppContext, VisualTestContext};
+    use gpui::{
+        AppContext as _, Focusable as _, InteractiveElement as _, TestAppContext, VisualTestContext,
+    };
 
     use super::*;
 
@@ -213,6 +242,11 @@ mod tests {
     }
 
     impl Fake {
+        fn confirmed(&self) -> String {
+            self.state.borrow_mut().stage = PairingStage::Code;
+            "confirm".to_owned()
+        }
+
         fn note(
             &self,
             call: String,
@@ -240,7 +274,7 @@ mod tests {
             let call = match action {
                 Action::Edited => "edited".to_owned(),
                 Action::SubmitAddress { name, address } => address_call(&name, &address),
-                Action::Confirm => "confirm".to_owned(),
+                Action::Confirm => self.confirmed(),
                 Action::Back => "back".to_owned(),
                 Action::SubmitCode(code) => format!("code {code}"),
             };
@@ -333,10 +367,22 @@ mod tests {
         assert_eq!(*events.borrow(), [Event::Paired, Event::Close]);
     }
 
-    const CASES: [fn(&mut TestAppContext); 3] = [
+    fn confirming_the_fingerprint_puts_the_keyboard_in_the_code_field(cx: &mut TestAppContext) {
+        let (fake, events) = (Rc::new(Fake::default()), Events::default());
+        let (view, cx) = open(cx, &fake, &events);
+        at(&fake, PairingStage::Fingerprint, PairingPending::Idle);
+        view.update_in(cx, View::press_primary);
+        let on_code = view.update_in(cx, |this, window, cx| {
+            this.code.focus_handle(cx).is_focused(window)
+        });
+        assert!(on_code, "the code field does not hold the keyboard");
+    }
+
+    const CASES: [fn(&mut TestAppContext); 4] = [
         each_stage_sends_its_step_to_the_session,
         nothing_dismisses_the_dialog_while_the_host_answers,
         a_finished_pairing_is_announced_once_and_done_closes,
+        confirming_the_fingerprint_puts_the_keyboard_in_the_code_field,
     ];
 
     struct Layers {
