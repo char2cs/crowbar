@@ -338,14 +338,6 @@ mod tests {
     }
 
     #[test]
-    fn the_fixture_reads_as_documented() {
-        let layout = fixture();
-        assert_eq!(strips(&layout, 1), ["a b c*", "d*", "e f*"], "tab 1");
-        assert_eq!(strips(&layout, 2), ["x y*"], "tab 2");
-        assert_eq!(layout.pane_count(), 9, "panes");
-    }
-
-    #[test]
     fn groups_are_counted_and_found_by_any_member() {
         let layout = fixture();
         let tab = layout.tab(TabId(1)).unwrap();

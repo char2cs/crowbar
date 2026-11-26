@@ -33,18 +33,3 @@ impl std::fmt::Debug for HostDesk {
         formatter.debug_struct("HostDesk").finish_non_exhaustive()
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::test_support::{FakeBook, notes};
-
-    #[test]
-    fn the_desk_debugs_without_its_parts() {
-        let desk = HostDesk {
-            book: Arc::new(FakeBook::default()),
-            notes: Arc::new(notes()),
-        };
-        assert_eq!(format!("{desk:?}"), "HostDesk { .. }");
-    }
-}

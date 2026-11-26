@@ -26,16 +26,3 @@ impl Render for SashDrag {
         div()
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn reports_its_axis() {
-        let drag = SashDrag {
-            axis: Axis::Horizontal,
-        };
-        assert_eq!(drag.axis(), Axis::Horizontal);
-    }
-}

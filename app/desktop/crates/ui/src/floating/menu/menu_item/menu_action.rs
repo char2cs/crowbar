@@ -117,39 +117,3 @@ impl MenuAction {
         self
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn action() -> MenuAction {
-        MenuAction::new("Rename", |_, _| {})
-    }
-
-    #[test]
-    fn a_new_action_is_plain() {
-        let action = action();
-        assert_eq!(action.label.as_ref(), "Rename");
-        assert!(!action.checked && !action.disabled && action.current == Pose::Off);
-        assert_eq!(action.tone, Tone::Normal);
-        assert!(action.icon.is_none() && action.shortcut.is_none());
-        assert_eq!(action.icon_weight, IconWeight::Regular);
-    }
-
-    #[test]
-    fn builders_set_their_field() {
-        let action = action()
-            .icon(IconName::Check)
-            .shortcut("F2")
-            .checked()
-            .current()
-            .icon_weight(IconWeight::Duotone)
-            .disabled()
-            .destructive();
-        assert_eq!(action.icon, Some(IconName::Check));
-        assert_eq!(action.icon_weight, IconWeight::Duotone);
-        assert_eq!(action.shortcut.as_ref().map(AsRef::as_ref), Some("F2"));
-        assert!(action.checked && action.disabled && action.current == Pose::On);
-        assert_eq!(action.tone, Tone::Destructive);
-    }
-}

@@ -2,7 +2,6 @@
 //! tracked text.
 
 mod badge;
-mod empty_state;
 mod flicker_spinner;
 mod kbd;
 mod scroll_area;
@@ -12,7 +11,6 @@ mod toast;
 mod tracked_text;
 
 pub use badge::{Badge, BadgeSize, BadgeVariant};
-pub use empty_state::EmptyState;
 pub use flicker_spinner::FlickerSpinner;
 pub use kbd::Kbd;
 pub use scroll_area::ScrollArea;
