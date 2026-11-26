@@ -2,13 +2,11 @@ use std::ops::Range;
 
 use crate::Vertical;
 
-mod follow;
 mod line_block;
 mod line_table;
 mod rewrite;
 pub(crate) mod vertical;
 
-use follow::Follow;
 use line_block::LineBlock;
 use line_table::LineTable;
 use rewrite::Rewrite;
@@ -41,10 +39,7 @@ impl LineEdit {
             return None;
         }
         let rewrite = Rewrite::moved(&table, &blocks, toward)?;
-        Some(Self::of(
-            &rewrite,
-            rewrite.placed(selections, Follow::First),
-        ))
+        Some(Self::of(&rewrite, rewrite.placed(selections, toward)))
     }
 
     /// The lines under `selections` copied beside themselves; the selections follow the copy
@@ -58,11 +53,7 @@ impl LineEdit {
         let table = LineTable::of(text);
         let blocks = LineBlock::merged(&table, selections);
         let rewrite = Rewrite::copied(&table, &blocks)?;
-        let follows = match toward {
-            Vertical::Up => Follow::First,
-            Vertical::Down => Follow::Last,
-        };
-        Some(Self::of(&rewrite, rewrite.placed(selections, follows)))
+        Some(Self::of(&rewrite, rewrite.placed(selections, toward)))
     }
 
     /// The lines under `selections` deleted with their line breaks, each caret on the line that
