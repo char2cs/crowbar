@@ -110,7 +110,7 @@ mod tests {
     fn size_and_maximized_follow_the_saved_state() {
         const SMALL: WindowState = state(0.0, 0.0, 100.0, 100.0);
         type Case<'a> = (WindowState, &'a [Rect], (f32, f32), bool);
-        let cases: [Case<'_>; 3] = [
+        let cases: [Case<'_>; 4] = [
             (
                 state(100.0, 80.0, 1000.0, 700.0),
                 &[DISPLAY],
@@ -118,6 +118,12 @@ mod tests {
                 false,
             ),
             (SMALL, &[DISPLAY], MIN_SIZE, false),
+            (
+                state(0.0, 0.0, 1e30, 5000.0),
+                &[DISPLAY],
+                (DISPLAY.width, DISPLAY.height),
+                false,
+            ),
             (
                 state(4000.0, 0.0, 1000.0, 700.0),
                 &[],
@@ -138,13 +144,6 @@ mod tests {
             );
             assert_eq!(placement.maximized, maximized);
         }
-    }
-
-    #[test]
-    fn a_window_larger_than_every_display_is_clamped_to_the_largest() {
-        let placement = state(0.0, 0.0, 1e30, 5000.0).placement(&[DISPLAY]);
-        assert!((placement.bounds.width - DISPLAY.width).abs() < f32::EPSILON);
-        assert!((placement.bounds.height - DISPLAY.height).abs() < f32::EPSILON);
     }
 
     #[test]

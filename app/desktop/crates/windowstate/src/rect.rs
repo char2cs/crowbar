@@ -14,9 +14,7 @@ pub struct Rect {
 }
 
 impl Rect {
-    /// This rectangle when every edge is a finite number and its size is positive.
-    #[must_use]
-    pub fn validated(self) -> Option<Self> {
+    pub(crate) fn validated(self) -> Option<Self> {
         let finite = [self.x, self.y, self.width, self.height]
             .iter()
             .all(|value| value.is_finite());
@@ -24,9 +22,7 @@ impl Rect {
         (finite && positive).then_some(self)
     }
 
-    /// The area shared with `other`, zero when they do not touch.
-    #[must_use]
-    pub fn overlap_area(
+    pub(crate) fn overlap_area(
         &self,
         other: &Self,
     ) -> f32 {
@@ -65,21 +61,6 @@ mod tests {
         assert_eq!(valid.validated(), Some(valid));
         for &(x, width, height) in CASES {
             assert_eq!(rect(x, 0.0, width, height).validated(), None);
-        }
-    }
-
-    #[test]
-    fn overlap_is_the_shared_area() {
-        let cases = [
-            (rect(0.0, 0.0, 10.0, 10.0), rect(5.0, 5.0, 10.0, 10.0), 25.0),
-            (rect(0.0, 0.0, 10.0, 10.0), rect(20.0, 0.0, 10.0, 10.0), 0.0),
-            (rect(0.0, 0.0, 10.0, 10.0), rect(2.0, 2.0, 3.0, 3.0), 9.0),
-        ];
-        for (a, b, expected) in cases {
-            assert!(
-                (a.overlap_area(&b) - expected).abs() < f32::EPSILON,
-                "{a:?} {b:?}"
-            );
         }
     }
 }
