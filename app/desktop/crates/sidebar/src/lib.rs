@@ -5,9 +5,10 @@
 
 mod error;
 mod explorer;
-mod fixtures;
 mod frame;
 mod shell;
+#[cfg(feature = "fixtures")]
+mod test_support;
 mod tree;
 
 pub use error::Error;
@@ -15,8 +16,6 @@ pub use explorer::{
     CopyNote, DropSpot, FileAction, FileClipboard, FileDialog, FileDrop, FileKey, FileMove,
     FileProperties, MenuScope, ShellAnswers,
 };
-#[cfg(feature = "fixtures")]
-pub use fixtures::DemoShell;
 pub use frame::{
     DockSide, KeyStep, Mode, Panel, PeekZone, Preferences, Presentation, ResizeDrag, ResizeKey,
     Resizing, Visibility,
@@ -34,6 +33,8 @@ pub use shell::{
     Reach, Requests, Row, RowActions, RowId, RowKind, RunningAgent, ScopeSync, Source, SpaceFacts,
     SpaceIcon, SpaceList, Stakes, Titling, Workspace, WorkspaceStatus, Worktree,
 };
+#[cfg(feature = "fixtures")]
+pub use test_support::DemoShell;
 pub use tree::{Confirmation, Deadline};
 pub use tree::{
     DragArm, DropModes, EdgeScroll, Editing, FilesState, FolderTarget, Hold, MenuContext,

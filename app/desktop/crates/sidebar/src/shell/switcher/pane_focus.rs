@@ -21,7 +21,7 @@ pub trait PaneFocus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::DemoShell;
+    use crate::test_support::DemoShell;
 
     #[test]
     fn the_demo_pane_can_start_a_terminal_thread_and_runs_no_agent() {

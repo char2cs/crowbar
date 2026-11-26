@@ -16,7 +16,7 @@ pub trait ChangesSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::DemoShell;
+    use crate::test_support::DemoShell;
 
     #[test]
     fn the_demo_workspace_has_changes_and_no_merge_box() {
