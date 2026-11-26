@@ -148,12 +148,24 @@ pub(crate) fn heard(
     stroke: &gpui::Keystroke,
     cx: &gpui::App,
 ) -> Keystroke {
-    #[cfg(target_os = "linux")]
-    let physical = crate::adapters::key_places::of(stroke, modifiers_of(stroke.modifiers), cx);
-    // PLATFORM: macos names a shifted key by its own place already; no lookup is needed there.
-    #[cfg(not(target_os = "linux"))]
-    let physical = None;
-    keystroke_of(stroke, physical)
+    keystroke_of(stroke, physical_of(stroke, cx))
+}
+
+#[cfg(target_os = "linux")]
+fn physical_of(
+    stroke: &gpui::Keystroke,
+    cx: &gpui::App,
+) -> Option<PhysicalKey> {
+    crate::adapters::key_places::of(stroke, modifiers_of(stroke.modifiers), cx)
+}
+
+// PLATFORM: macos names a shifted key by its own place already; no lookup is needed there.
+#[cfg(not(target_os = "linux"))]
+fn physical_of(
+    _stroke: &gpui::Keystroke,
+    _cx: &gpui::App,
+) -> Option<PhysicalKey> {
+    None
 }
 
 pub(crate) fn keystroke_of(
