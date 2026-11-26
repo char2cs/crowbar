@@ -25,9 +25,14 @@ struct ConnectFields: View {
 
   private var address: some View {
     VStack(alignment: .leading, spacing: Spacing.roomy) {
-      Text("On the host, open Settings → Devices and tap Add a device (or run crowbar pair on a headless host): it shows the address, fingerprint and code you’ll need.")
-        .font(.subheadline)
-        .foregroundStyle(secondaryText)
+      Text(
+        """
+        On the host, open Settings → Devices and tap Add a device (or run crowbar pair on a \
+        headless host): it shows the address, fingerprint and code you’ll need.
+        """
+      )
+      .font(.subheadline)
+      .foregroundStyle(secondaryText)
       nameField
       addressField
       Text("Add a port, like :4000, if the host is not on the default one.")

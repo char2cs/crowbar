@@ -46,7 +46,6 @@ function DeviceRow({ device, isThisComputer, onRevoke }: DeviceRowProps) {
       {/* This computer's own key is how it reaches this instance: removing a host revokes it. */}
       {!isThisComputer && (
         <Button
-          type="button"
           variant="ghost"
           size="icon-sm"
           aria-label={`Revoke ${device.name}`}
@@ -85,6 +84,7 @@ export function DevicesSettings() {
   const [minted, setMinted] = useState<Minted | null>(null)
 
   const address = draft ?? access?.address ?? ''
+  const loaded = view.load.status === 'ready' && access !== null
 
   async function toggle(enabled: boolean) {
     setBusy(true)
@@ -158,13 +158,13 @@ export function DevicesSettings() {
               className="ui-font ui-text-sm flex items-center gap-2 px-1 py-2 text-destructive"
             >
               <span className="min-w-0 flex-1">{view.load.why}</span>
-              <Button type="button" variant="outline" size="sm" onClick={view.retry}>
+              <Button variant="outline" size="sm" onClick={view.retry}>
                 Try again
               </Button>
             </div>
           )}
 
-          {view.load.status === 'ready' && access && (
+          {loaded && (
             <>
               {remote ? (
                 <SettingRow
@@ -234,7 +234,7 @@ export function DevicesSettings() {
         </Section>
       </div>
 
-      {view.load.status === 'ready' && access && (
+      {loaded && (
         <Section title="Paired devices">
           {view.devices.length === 0 ? (
             <p className="ui-font ui-text-sm px-1 py-2 text-muted-foreground">
@@ -264,7 +264,6 @@ export function DevicesSettings() {
             }
           >
             <Button
-              type="button"
               variant="outline"
               size="sm"
               aria-label="Add a device"

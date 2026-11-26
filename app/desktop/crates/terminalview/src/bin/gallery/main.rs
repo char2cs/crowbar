@@ -5,6 +5,10 @@
 mod arguments;
 mod local_pty;
 
+use std::cell::RefCell;
+use std::error::Error;
+use std::rc::Rc;
+
 use gpui::{App, AppContext, Bounds, WindowBounds, WindowOptions, px, size};
 use terminalview::{Link, Settings, TerminalView};
 use ui::Theme;
@@ -12,27 +16,41 @@ use ui::Theme;
 use crate::arguments::Arguments;
 use crate::local_pty::spawn_local_pty;
 
-fn main() {
+type Failure = Box<dyn Error>;
+
+fn main() -> Result<(), Failure> {
     tracing_subscriber::fmt().init();
     let arguments = Arguments::from_env();
+    let failure: Rc<RefCell<Option<Failure>>> = Rc::default();
+    let report = Rc::clone(&failure);
     gpui_platform::application()
         .with_assets(ui::assets())
-        .run(move |cx: &mut App| start(&arguments, cx));
+        .run(move |cx: &mut App| remember_failure(start(&arguments, cx), &report, cx));
+    let error = failure.borrow_mut().take();
+    error.map_or(Ok(()), Err)
+}
+
+fn remember_failure(
+    result: Result<(), Failure>,
+    slot: &Rc<RefCell<Option<Failure>>>,
+    cx: &mut App,
+) {
+    let Err(error) = result else {
+        return;
+    };
+    *slot.borrow_mut() = Some(error);
+    cx.quit();
 }
 
 fn start(
     arguments: &Arguments,
     cx: &mut App,
-) {
-    if let Err(error) = ui::init(cx) {
-        tracing::error!(%error, "ui could not start");
-        return;
-    }
+) -> Result<(), Failure> {
+    ui::init(cx)?;
     Theme::of(cx).with_mode(arguments.mode).install(cx);
-    if let Err(error) = open_terminal_window(arguments, cx) {
-        tracing::error!(%error, "window could not open");
-    }
+    open_terminal_window(arguments, cx)?;
     cx.activate(true);
+    Ok(())
 }
 
 fn open_terminal_window(
