@@ -37,7 +37,9 @@ impl ShellView {
                 },
             ),
             cx.observe_window_activation(window, |this, window, cx| {
-                this.on_window_activation(window, cx);
+                if !ui::WindowActivity::is_reported(window, cx) {
+                    this.on_window_activation(window, cx);
+                }
             }),
             cx.observe_global_in::<ui::WindowActivity>(window, |this, window, cx| {
                 this.on_window_activation(window, cx);
@@ -243,7 +245,9 @@ mod tests {
     use gpui::TestAppContext;
 
     use super::*;
-    use crate::shell::shell_view::tests::open_shell;
+    use crate::shell::shell_view::tests::{
+        open_shell, open_started_shell, own_keyboard_by_page, page_focuses, register_chat,
+    };
 
     fn is_terminal(
         layout: &layout::Layout,
@@ -282,6 +286,27 @@ mod tests {
             shell.focus.is_focused(window)
         });
         assert!(!on_shell, "the terminal took the keyboard from the strip");
+    }
+
+    #[gpui::test]
+    fn gpui_s_own_deactivation_leaves_the_keyboard_where_the_platform_reports_it(
+        cx: &mut TestAppContext
+    ) {
+        let mut opened = open_started_shell(cx);
+        register_chat(&mut opened);
+        own_keyboard_by_page(&mut opened);
+        opened.window.update(|window, cx| {
+            ui::WindowActivity::gained(window.window_handle().window_id(), cx);
+        });
+        opened.window.run_until_parked();
+        let before = page_focuses(&opened.mock);
+        opened.window.deactivate_window();
+        opened.window.run_until_parked();
+        assert_eq!(
+            page_focuses(&opened.mock),
+            before,
+            "another window took the keyboard; the page must not grab it back"
+        );
     }
 
     #[test]

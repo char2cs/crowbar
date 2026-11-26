@@ -528,7 +528,7 @@ mod tests {
         assert_eq!(hidden_views(&opened.mock), before, "no web view was hidden");
     }
 
-    fn page_focuses(mock: &webview::MockPlatform) -> usize {
+    pub(super) fn page_focuses(mock: &webview::MockPlatform) -> usize {
         let focuses = |call: &&webview::Call| matches!(call, webview::Call::Focus { .. });
         mock.calls().iter().filter(focuses).count()
     }
@@ -572,7 +572,7 @@ mod tests {
         });
     }
 
-    fn register_chat(opened: &mut Opened) {
+    pub(super) fn register_chat(opened: &mut Opened) {
         let register = protocol::PaneFrame::Register {
             type_id: crate::panes::kinds::core_panes::chat_type()
                 .unwrap_or_else(|error| panic!("{error}")),
@@ -630,7 +630,7 @@ mod tests {
         );
     }
 
-    fn own_keyboard_by_page(opened: &mut Opened) {
+    pub(super) fn own_keyboard_by_page(opened: &mut Opened) {
         opened.shell.update(&mut opened.window, |shell, cx| {
             shell.state.apply(Vec::new());
             shell.sync(cx);
