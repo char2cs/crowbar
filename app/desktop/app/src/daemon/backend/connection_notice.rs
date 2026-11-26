@@ -3,7 +3,8 @@ use ui::{ToastContent, ToastKind, ToastLifetime};
 
 use crate::daemon::backend::backend_status::BackendStatus;
 use crate::daemon::backend::notice_act::NoticeAct;
-use crate::daemon::backend::warned::{Reach, Warned};
+use crate::daemon::backend::reach::Reach;
+use crate::daemon::backend::warned::Warned;
 
 const STARTING: &str = "Crowbar is starting";
 const UPGRADING: &str = "Crowbar is upgrading its data";
@@ -121,7 +122,7 @@ mod tests {
     #[test]
     fn an_outage_warns_after_a_moment_and_its_end_says_reconnected_once() {
         use BackendStatus::{Connected, Disconnected, Migrating};
-        assert_cases(vec![
+        let cases: Vec<Case<'_>> = vec![
             (&[Connected], vec![NoticeAct::Settle]),
             (
                 &[Connected, Disconnected, Disconnected, Connected],
@@ -136,15 +137,17 @@ mod tests {
                 &[Connected, Migrating(None), Connected],
                 vec![NoticeAct::Settle, starting(), reconnected()],
             ),
-        ]);
+        ];
+        assert_cases(cases);
     }
 
     #[test]
     fn the_launch_never_says_reconnected() {
         use BackendStatus::{Connected, CrashLoop, Disconnected, Migrating};
-        assert_cases(vec![
+        let crash_loop = [Disconnected, CrashLoop("r".into()), Connected];
+        let cases: Vec<Case<'_>> = vec![
             (
-                &[Disconnected, CrashLoop("r".into()), Connected],
+                &crash_loop,
                 vec![NoticeAct::WarnLater, NoticeAct::Dismiss, NoticeAct::Settle],
             ),
             (
@@ -155,7 +158,8 @@ mod tests {
                 &[Disconnected, Connected],
                 vec![NoticeAct::WarnLater, NoticeAct::Dismiss],
             ),
-        ]);
+        ];
+        assert_cases(cases);
     }
 
     #[test]
