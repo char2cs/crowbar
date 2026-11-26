@@ -75,23 +75,3 @@ pub(crate) fn open_floating(
         window,
     }
 }
-
-/// Presses and releases each space-separated key, as a keyboard does; buttons click on release.
-pub(crate) fn press(
-    cx: &mut VisualTestContext,
-    keys: &'static str,
-) {
-    for key in keys.split(' ') {
-        cx.simulate_keystrokes(key);
-        let keystroke = gpui::Keystroke::parse(key).expect("a valid keystroke");
-        cx.simulate_event(gpui::KeyUpEvent { keystroke });
-        cx.run_until_parked();
-    }
-}
-
-/// Lets a closed floating element go: the test platform draws inside an effect
-/// flush, so the state of a portal that stopped rendering is released on the next one.
-pub(crate) fn settle(cx: &mut VisualTestContext) {
-    cx.update(|_, _| {});
-    cx.run_until_parked();
-}

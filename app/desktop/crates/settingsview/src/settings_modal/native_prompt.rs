@@ -1,12 +1,22 @@
-//! Asks the settings' confirmations as the desktop's message dialog, when the shell installed one.
+//! Asks the settings' confirmations as the desktop's message dialog.
 
 use gpui::{Context, TaskExt as _, Window};
-use ui::{AlertRequest, NativeAlert};
+use settings::Prompt;
+use ui::{AlertButton, AlertRequest, AlertRole, NativeAlert};
 
 use crate::intent::Intent;
 use crate::intent::Runner as _;
-use crate::modal::prompt_request;
 use crate::settings_modal::SettingsModal;
+
+fn prompt_request(prompt: &Prompt) -> AlertRequest {
+    let go = AlertButton::new(prompt.confirm().action().to_owned(), AlertRole::Destructive);
+    AlertRequest::confirm(
+        prompt.title().to_owned(),
+        prompt.message().to_owned(),
+        "Cancel",
+        go,
+    )
+}
 
 impl SettingsModal {
     pub(crate) fn ask_natively(
@@ -14,10 +24,10 @@ impl SettingsModal {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        let (Some(native), Some(prompt)) = (NativeAlert::installed(cx), self.state.prompt()) else {
+        let Some(prompt) = self.state.prompt() else {
             return;
         };
-        let answer = native.ask(prompt_request(prompt), window, cx);
+        let answer = NativeAlert::ask(prompt_request(prompt), window, cx);
         cx.spawn_in(window, async move |this, cx| {
             let intent = match answer.await {
                 Some(AlertRequest::GO) => Intent::Accept,
@@ -46,6 +56,18 @@ mod tests {
             panic!("browserClearData is a button row");
         };
         spec.clone()
+    }
+
+    #[gpui::test]
+    fn without_a_native_dialog_the_question_is_cancelled_and_nothing_runs(cx: &mut TestAppContext) {
+        let (harness, cx) = open(cx, "browser");
+        run(&harness, Intent::Button(clear_data()), cx);
+        cx.run_until_parked();
+        assert_eq!(harness.backend.invoked().len(), 0, "nothing ran");
+        assert!(inspect(&harness, cx, |modal| modal
+            .state
+            .prompt()
+            .is_none()));
     }
 
     #[gpui::test]

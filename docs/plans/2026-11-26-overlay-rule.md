@@ -53,8 +53,9 @@ each pane's web view is cut through `webview::ViewCutout`; the GTK side re-cuts 
 - This plan's predecessor doc.
 
 Kept: `WindowActivity` (a web view holding the keyboard keeps the window active for toasts and
-carets), the passive float window (tooltips, toasts) and its X shaping, the drawn confirm where no
-desktop alert is installed (macOS asks `NSAlert` now), and the drawn menus on macOS: `NSMenu`
-needs `unsafe` (target objects, `performBlock`), which the lane may not allow.
+carets), the passive float window (tooltips, toasts) and its X shaping, and the drawn menus on
+macOS: `NSMenu` needs `unsafe` (target objects, `performBlock`), which the lane may not allow.
+Confirms are only the desktop's alert (GTK, `NSAlert`); one that cannot be asked is logged and
+counts as cancelled.
 X reports a float window cut away whole as fully obscured and GPUI then draws no frame for it, so
 its `Root` sends it an Expose whenever its owner's layers or `WindowActivity` change.

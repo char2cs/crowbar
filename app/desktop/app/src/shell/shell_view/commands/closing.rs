@@ -1,4 +1,4 @@
-use gpui::{AppContext as _, Context, Entity, Window};
+use gpui::{Context, Window};
 use layout::Command;
 use protocol::{PaneId, ShellFrame};
 
@@ -10,7 +10,7 @@ use crate::shell::dialogs::unsaved::close_choice::CloseChoice;
 use crate::shell::dialogs::unsaved::close_step::CloseStep;
 use crate::shell::dialogs::unsaved::closing::Closing;
 use crate::shell::dialogs::unsaved::pending_close::PendingClose;
-use crate::shell::dialogs::unsaved::unsaved_dialog::{self, UnsavedDialog};
+use crate::shell::dialogs::unsaved::unsaved_dialog;
 use crate::shell::inbox::request_queue::send;
 use crate::shell::inbox::shell_request::ShellRequest;
 use crate::shell::shell_view::ShellView;
@@ -74,25 +74,7 @@ impl ShellView {
         cx.notify();
         let request = unsaved_dialog::native_request(&names);
         let choice = |pressed| Some(ShellRequest::Closing(unsaved_dialog::choice_of(pressed)));
-        if self.ask_natively(request, choice) {
-            return;
-        }
-        let dialog = cx.new(|_| UnsavedDialog::new(&names));
-        self.subscriptions.push(
-            cx.subscribe(&dialog, |this, source, choice: &CloseChoice, cx| {
-                this.on_unsaved_choice(source, *choice, cx);
-            }),
-        );
-        self.question = Some(dialog.into());
-    }
-
-    fn on_unsaved_choice(
-        &mut self,
-        _: Entity<UnsavedDialog>,
-        choice: CloseChoice,
-        _: &mut Context<'_, Self>,
-    ) {
-        send(&self.requests, ShellRequest::Closing(choice));
+        self.ask_natively(request, choice);
     }
 
     pub(crate) fn choose_closing(
@@ -101,7 +83,6 @@ impl ShellView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        self.question = None;
         let Some(pending) = self.pending_close.take() else {
             return cx.notify();
         };

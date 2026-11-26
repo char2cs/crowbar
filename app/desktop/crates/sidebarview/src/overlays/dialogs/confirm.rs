@@ -1,66 +1,10 @@
-//! The delete confirmation dialog.
+//! Asks the delete confirmation as the desktop's message dialog.
 
-use gpui::{
-    AnyElement, App, Context, Div, FontWeight, HighlightStyle, IntoElement, ParentElement, Styled,
-    StyledText, TaskExt as _, Window, div,
-};
-use sidebar::{Confirmation, RemovalTarget, WorkAtRisk};
-use ui::{
-    AlertButton, AlertRequest, AlertRole, Button, ButtonVariant, Dialog, DialogSize, DialogStyle,
-    NativeAlert, Palette, Surface, Theme,
-};
+use gpui::{Context, TaskExt as _, Window};
+use sidebar::{Confirmation, RemovalTarget};
+use ui::{AlertButton, AlertRequest, AlertRole, NativeAlert};
 
 use crate::sidebar::Sidebar;
-use crate::sidebar::{SPACE_MD, SPACE_XL, SPACE_XS, TEXT_LARGE};
-
-fn risk_row(
-    work: &WorkAtRisk,
-    mono: &'static str,
-    palette: &Palette,
-) -> Div {
-    let branch = div()
-        .font_family(mono)
-        .text_color(palette.foreground())
-        .child(work.branch.clone());
-    let summary = div()
-        .text_color(palette.muted_foreground())
-        .child(work.summary());
-    div().flex().flex_col().child(branch).child(summary)
-}
-
-fn lead(
-    confirmation: &Confirmation,
-    palette: &Palette,
-) -> StyledText {
-    let (strong, rest) = confirmation.lead();
-    let bold = HighlightStyle {
-        font_weight: Some(FontWeight::BOLD),
-        color: Some(palette.foreground()),
-        ..HighlightStyle::default()
-    };
-    StyledText::new(format!("{strong} {rest}")).with_highlights([(0..strong.len(), bold)])
-}
-
-fn work_list(
-    confirmation: &Confirmation,
-    mono: &'static str,
-    palette: &Palette,
-) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .gap(SPACE_XS)
-        .px(SPACE_XL)
-        .pb(SPACE_XL)
-        .text_size(TEXT_LARGE)
-        .line_height(ui::text_size::LINE_HEIGHT)
-        .children(
-            confirmation
-                .at_risk
-                .iter()
-                .map(|work| risk_row(work, mono, palette)),
-        )
-}
 
 fn confirmation_request(confirmation: &Confirmation) -> AlertRequest {
     let (strong, rest) = confirmation.lead();
@@ -74,60 +18,15 @@ fn confirmation_request(confirmation: &Confirmation) -> AlertRequest {
 }
 
 impl Sidebar {
-    pub(crate) fn confirm_layer(
-        &self,
-        cx: &mut Context<'_, Self>,
-    ) -> Option<AnyElement> {
-        let confirmation = self.drawn_confirmation(cx)?;
-        let theme = *Theme::of(cx);
-        let palette = theme.palette(Surface::Window);
-        let cancel = Button::new("confirm-cancel", "Cancel")
-            .variant(ButtonVariant::Ghost)
-            .focus_handle(self.confirm_focus.clone())
-            .on_click(cx.listener(|this, _, _, cx| this.cancel_confirmation(cx)));
-        let delete = Button::new("confirm-delete", confirmation.confirm_label())
-            .variant(ButtonVariant::Destructive)
-            .on_click(cx.listener(|this, _, _, cx| this.accept_confirmation(cx)));
-        let sidebar = cx.entity();
-        let list = (!confirmation.at_risk.is_empty())
-            .then(|| work_list(confirmation, theme.mono_family(), palette));
-        let dialog = Dialog::new("sidebar-confirm")
-            .style(DialogStyle::Alert)
-            .title(confirmation.title())
-            .description(lead(confirmation, palette))
-            .initial_focus(self.confirm_focus.clone())
-            .size(DialogSize::Md);
-        let dialog = match list {
-            Some(list) => dialog.body(list),
-            None => dialog,
-        };
-        Some(
-            dialog
-                .footer(div().flex().gap(SPACE_MD).child(cancel).child(delete))
-                .on_close(move |_, cx| sidebar.update(cx, Self::cancel_confirmation))
-                .into_any_element(),
-        )
-    }
-
-    pub(crate) fn drawn_confirmation(
-        &self,
-        cx: &App,
-    ) -> Option<&Confirmation> {
-        NativeAlert::installed(cx).map_or_else(|| self.tree.removals().confirmation(), |_| None)
-    }
-
     pub(crate) fn ask_confirmation(
         &self,
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        let (Some(native), Some(confirmation)) = (
-            NativeAlert::installed(cx),
-            self.tree.removals().confirmation(),
-        ) else {
+        let Some(confirmation) = self.tree.removals().confirmation() else {
             return;
         };
-        let answer = native.ask(confirmation_request(confirmation), window, cx);
+        let answer = NativeAlert::ask(confirmation_request(confirmation), window, cx);
         cx.spawn_in(window, async move |this, cx| {
             let pressed = answer.await;
             this.update(cx, |this, cx| this.answer_confirmation(pressed, cx))
@@ -173,7 +72,7 @@ impl Sidebar {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sidebar::Intent;
+    use sidebar::{Intent, WorkAtRisk};
 
     use crate::test_support::prelude::*;
 
@@ -209,9 +108,6 @@ mod tests {
         );
     }
 
-    type Answer = fn(&mut Sidebar, &mut Context<'_, Sidebar>);
-    type Case = (&'static str, Answer, Vec<Command>, bool);
-
     fn asked_to_discard(
         sidebar: &gpui::Entity<Sidebar>,
         cx: &mut gpui::VisualTestContext,
@@ -225,6 +121,7 @@ mod tests {
             this.apply(Intent::RequestRemoval(RowId::from("chat")), window, cx);
             this.ask_to_discard((&RowId::from("chat"), vec![risk]), window, cx);
         });
+        cx.run_until_parked();
     }
 
     fn shown(
@@ -240,22 +137,21 @@ mod tests {
         cx: &mut TestAppContext
     ) {
         let chat = RowId::from("chat");
-        let cases: [Case; 2] = [
+        let cases = [
             (
-                "accept",
-                Sidebar::accept_confirmation,
+                Some(1),
                 vec![Command::RemoveDiscardingWork(chat.clone())],
                 false,
             ),
-            ("cancel", Sidebar::cancel_confirmation, Vec::new(), true),
+            (None, Vec::new(), true),
         ];
-        for (name, answer, sent, back) in cases {
+        for (pressed, sent, back) in cases {
+            crate::test_support::answer_alerts_with(cx, pressed);
             let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
             asked_to_discard(&sidebar, cx);
-            sidebar.update(cx, answer);
-            assert_eq!(recorder.sent(), sent, "{name}: sent");
+            assert_eq!(recorder.sent(), sent, "{pressed:?}: sent");
             let shown = sidebar.read_with(cx, |this, _| shown(this, &chat));
-            assert_eq!(shown, back, "{name}: the row is back only when kept");
+            assert_eq!(shown, back, "{pressed:?}: the row is back only when kept");
         }
     }
 
@@ -289,10 +185,15 @@ mod tests {
     }
 
     #[gpui::test]
-    fn the_layer_exists_only_while_a_question_is_pending(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoShell::rich());
-        assert!(!sidebar.read_with(cx, |this, _| this.tree.removals().confirmation().is_some()));
-        ask(&sidebar, cx);
-        assert!(sidebar.read_with(cx, |this, _| this.tree.removals().confirmation().is_some()));
+    fn without_a_native_dialog_deleting_a_space_is_cancelled_and_nothing_is_drawn(
+        cx: &mut TestAppContext
+    ) {
+        let (recorder, sidebar, cx) = open(cx, DemoShell::rich());
+        request_space_removal(&sidebar, cx);
+        assert_eq!(cx.debug_bounds("ui-dialog"), None, "nothing is drawn");
+        assert_eq!(recorder.sent(), Vec::<Command>::new());
+        let pending =
+            sidebar.read_with(cx, |this, _| this.tree.removals().confirmation().is_some());
+        assert!(!pending, "the question counts as cancelled");
     }
 }

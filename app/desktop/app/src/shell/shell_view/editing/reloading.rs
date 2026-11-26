@@ -1,8 +1,7 @@
-use gpui::{AppContext as _, Context, Entity};
+use gpui::Context;
 use protocol::PaneId;
 
-use crate::shell::dialogs::reload_dialog::{self, ReloadDialog};
-use crate::shell::dialogs::unsaved::close_choice::CloseChoice;
+use crate::shell::dialogs::reload_dialog;
 use crate::shell::inbox::shell_request::ShellRequest;
 use crate::shell::shell_view::ShellView;
 
@@ -16,37 +15,12 @@ impl ShellView {
             return self.source.native().editors().reload(pane, cx);
         }
         let name = self.source.native().editors().file_name(pane);
-        let asked = (pane.clone(), name.unwrap_or_default());
-        let request = reload_dialog::native_request(&asked.1);
+        let request = reload_dialog::native_request(&name.unwrap_or_default());
         let discard = pane.clone();
         let reload = move |pressed| {
             (pressed == reload_dialog::OK).then_some(ShellRequest::ReloadDiscarding(discard))
         };
-        if self.ask_natively(request, reload) {
-            return;
-        }
-        let dialog = cx.new(|_| ReloadDialog::new(asked));
-        self.subscriptions.push(
-            cx.subscribe(&dialog, |this, dialog, choice: &CloseChoice, cx| {
-                this.on_reload_choice(&dialog, *choice, cx);
-            }),
-        );
-        self.question = Some(dialog.into());
-        cx.notify();
-    }
-
-    fn on_reload_choice(
-        &mut self,
-        dialog: &Entity<ReloadDialog>,
-        choice: CloseChoice,
-        cx: &mut Context<'_, Self>,
-    ) {
-        self.question = None;
-        cx.notify();
-        if choice == CloseChoice::Discard {
-            let pane = dialog.read(cx).pane().clone();
-            self.source.native().editors().reload(&pane, cx);
-        }
+        self.ask_natively(request, reload);
     }
 
     pub(crate) fn take_reloaded(
@@ -77,15 +51,23 @@ mod tests {
             focused.cloned().expect("the file pane has focus")
         });
         let event = layoutview::LayoutEvent::ReloadTab { pane: pane.clone() };
+        let area = webview::Bounds {
+            x: 0.0,
+            y: 0.0,
+            width: 900.0,
+            height: 700.0,
+        };
+        opened.shell.update(&mut opened.window, |shell, _| {
+            shell.pane_area.placement = Some((webview::ParentWindow::X11(9), area));
+        });
         let ask = |opened: &mut crate::shell::shell_view::tests::Opened| {
             let layout = opened
                 .shell
                 .read_with(&opened.window, |shell, _| shell.layout.clone());
             layout.update(&mut opened.window, |_, cx| cx.emit(event.clone()));
             opened.window.run_until_parked();
-            opened
-                .shell
-                .read_with(&opened.window, |shell, _| shell.question.is_some())
+            let asks = |call: &webview::Call| matches!(call, webview::Call::AskAlert { .. });
+            opened.mock.calls().iter().any(asks)
         };
         assert!(!ask(&mut opened), "a clean tab reloads at once");
         opened.shell.update(&mut opened.window, |shell, _| {

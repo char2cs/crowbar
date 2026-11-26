@@ -1,10 +1,11 @@
-//! The delete confirmation and Properties dialogs of the Files panel.
+//! The Files panel's delete confirmation, asked as the desktop's message dialog, and its
+//! Properties dialog.
 
 use gpui::{AnyElement, Context, Div, IntoElement, ParentElement, Styled, Window, div, px};
 use sidebar::{Command, FileDialog, FileProperties};
 use ui::{
-    AlertButton, AlertRequest, AlertRole, Button, ButtonVariant, Dialog, DialogSize, IconName,
-    NativeAlert, Palette, Surface, Theme,
+    AlertButton, AlertRequest, AlertRole, Dialog, DialogSize, IconName, NativeAlert, Palette,
+    Surface, Theme,
 };
 
 use crate::sidebar::Sidebar;
@@ -64,51 +65,32 @@ impl Sidebar {
         &self,
         cx: &mut Context<'_, Self>,
     ) -> Option<AnyElement> {
-        let dialog = self.tree.files().dialog()?.clone();
+        let dialog = self.tree.files().dialog()?;
+        let FileDialog::Properties(properties) = dialog else {
+            return None;
+        };
         let palette = Theme::of(cx).palette(Surface::Window);
         let sidebar = cx.entity();
         let frame = Dialog::new("file-dialog")
             .title(dialog.title())
             .size(DialogSize::Md)
+            .icon(IconName::Info)
+            .body(properties_body(properties, palette))
             .on_close(move |_, cx| sidebar.update(cx, Self::close_file_dialog));
-        let frame = match &dialog {
-            FileDialog::Properties(properties) => frame
-                .icon(IconName::Info)
-                .body(properties_body(properties, palette)),
-            FileDialog::Delete { .. } => {
-                let question = dialog.question().unwrap_or_default();
-                let cancel = Button::new("file-delete-cancel", "Cancel")
-                    .variant(ButtonVariant::Primary)
-                    .on_click(cx.listener(|this, _, _, cx| this.close_file_dialog(cx)));
-                let delete = Button::new("file-delete-confirm", "Delete")
-                    .variant(ButtonVariant::Destructive)
-                    .on_click(cx.listener(|this, _, _, cx| this.accept_file_delete(cx)));
-                frame
-                    .icon(IconName::Warning)
-                    .body(
-                        div()
-                            .text_size(TEXT_LARGE)
-                            .text_color(palette.foreground())
-                            .child(question),
-                    )
-                    .footer(div().flex().gap(SPACE_MD).child(cancel).child(delete))
-            },
-        };
         Some(frame.into_any_element())
     }
 
     pub(crate) fn ask_file_delete(
-        &mut self,
         dialog: FileDialog,
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        let (Some(native), FileDialog::Delete { path, .. }) = (NativeAlert::installed(cx), &dialog)
-        else {
-            return self.tree.show_file_dialog(dialog);
+        let request = delete_request(&dialog);
+        let FileDialog::Delete { path, .. } = dialog else {
+            return;
         };
-        let command = Command::DeleteFile { path: path.clone() };
-        let answer = native.ask(delete_request(&dialog), window, cx);
+        let command = Command::DeleteFile { path };
+        let answer = NativeAlert::ask(request, window, cx);
         Self::send_when_accepted((answer, command), window, cx);
     }
 
@@ -119,16 +101,6 @@ impl Sidebar {
         self.tree.close_file_dialog();
         cx.notify();
     }
-
-    fn accept_file_delete(
-        &mut self,
-        cx: &mut Context<'_, Self>,
-    ) {
-        if let Some(FileDialog::Delete { path, .. }) = self.tree.close_file_dialog() {
-            self.send(Command::DeleteFile { path }, cx);
-        }
-        cx.notify();
-    }
 }
 
 #[cfg(test)]
@@ -137,30 +109,6 @@ mod tests {
     use sidebar::Intent;
 
     use crate::test_support::prelude::*;
-
-    #[gpui::test]
-    fn deleting_asks_first_and_sends_only_when_confirmed(cx: &mut TestAppContext) {
-        let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
-        let ask = Intent::RequestFileDelete {
-            path: "src/lib.rs".into(),
-            is_dir: false,
-        };
-        sidebar.update_in(cx, |this, window, cx| this.apply(ask, window, cx));
-        assert!(recorder.sent().is_empty(), "nothing is deleted by asking");
-        sidebar.update(cx, Sidebar::close_file_dialog);
-        assert!(recorder.sent().is_empty(), "cancelling deletes nothing");
-        let ask = Intent::RequestFileDelete {
-            path: "src/lib.rs".into(),
-            is_dir: false,
-        };
-        sidebar.update_in(cx, |this, window, cx| this.apply(ask, window, cx));
-        sidebar.update(cx, Sidebar::accept_file_delete);
-        let want = Command::DeleteFile {
-            path: "src/lib.rs".into(),
-        };
-        assert_eq!(recorder.sent(), vec![want]);
-        assert!(sidebar.read_with(cx, |this, _| this.tree.files().dialog().is_none()));
-    }
 
     #[gpui::test]
     fn with_a_native_dialog_a_delete_is_asked_there_in_develop_s_words(cx: &mut TestAppContext) {
@@ -217,53 +165,14 @@ mod tests {
     }
 
     #[gpui::test]
-    fn the_delete_dialog_is_drawn_centred_in_the_window_and_hides_the_panes(
-        cx: &mut TestAppContext
-    ) {
+    fn without_a_native_dialog_a_delete_is_cancelled_and_nothing_is_drawn(cx: &mut TestAppContext) {
         let mut floating = crate::test_support::open_floating(cx, DemoShell::reference());
         ask_delete(&mut floating);
-        assert!(
-            ui::testing::covered(&mut floating.window).0,
-            "every web view is hidden"
-        );
-        let card = floating
-            .window
-            .debug_bounds("ui-dialog")
-            .unwrap_or_default();
-        let centre = card.origin.x + card.size.width / 2.0;
-        assert!(
-            (centre - px(600.0)).abs() < px(1.0),
-            "{card:?} centred in 1200px"
-        );
-    }
-
-    #[gpui::test]
-    fn escape_cancels_the_delete_dialog(cx: &mut TestAppContext) {
-        let mut floating = crate::test_support::open_floating(cx, DemoShell::reference());
-        ask_delete(&mut floating);
-        crate::test_support::press(&mut floating.window, "enter escape");
-        assert!(
-            floating.recorder.sent().is_empty(),
-            "return on the close button and escape send nothing"
-        );
+        assert_eq!(floating.window.debug_bounds("ui-dialog"), None);
+        assert!(floating.recorder.sent().is_empty(), "nothing is deleted");
         let open = floating.sidebar.read_with(&floating.window, |this, _| {
             this.tree.files().dialog().is_some()
         });
-        assert!(!open, "escape closed it");
-    }
-
-    #[gpui::test]
-    fn tab_reaches_cancel_then_delete_from_the_close_button(cx: &mut TestAppContext) {
-        let mut floating = crate::test_support::open_floating(cx, DemoShell::reference());
-        ask_delete(&mut floating);
-        crate::test_support::press(&mut floating.window, "tab enter");
-        assert!(floating.recorder.sent().is_empty(), "Cancel sends nothing");
-        crate::test_support::settle(&mut floating.window);
-        ask_delete(&mut floating);
-        crate::test_support::press(&mut floating.window, "tab tab enter");
-        let want = Command::DeleteFile {
-            path: "src/lib.rs".into(),
-        };
-        assert_eq!(floating.recorder.sent(), vec![want]);
+        assert!(!open, "no dialog is left pending");
     }
 }

@@ -258,17 +258,16 @@ mod tests {
 
     #[gpui::test]
     fn a_record_action_that_asks_first_runs_only_once_answered(cx: &mut TestAppContext) {
-        let (harness, cx) = open(cx, "hosts");
         let confirm = settings::Confirm::new("Revoke box?", "It forgets this computer.", "Revoke");
-        run(&harness, revoke(confirm), cx);
-        let asked = inspect(&harness, cx, |modal| modal.state.prompt().is_some());
-        assert_eq!(
-            (asked, harness.backend.commands().len()),
-            (true, 0),
-            "asked, not run"
-        );
-        run(&harness, Intent::Accept, cx);
-        assert_eq!(harness.backend.commands().len(), 1, "run once answered");
+        let mut sent = Vec::new();
+        for pressed in [None, Some(ui::AlertRequest::GO)] {
+            let ask: ui::AskAlert = std::rc::Rc::new(move |_, _, _| gpui::Task::ready(pressed));
+            cx.update(|cx| cx.set_global(ui::NativeAlert::new(ask)));
+            let (harness, cx) = open(cx, "hosts");
+            run(&harness, revoke(confirm.clone()), cx);
+            sent.push(harness.backend.commands().len());
+        }
+        assert_eq!(sent, [0, 1], "run only once the dialog's Revoke is pressed");
     }
 
     #[gpui::test]

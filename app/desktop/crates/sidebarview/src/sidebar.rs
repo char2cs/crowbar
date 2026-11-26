@@ -25,7 +25,7 @@ pub(crate) use scale::{
 use std::rc::Rc;
 
 use gpui::{AnyView, AppContext as _, Context, Entity, EventEmitter, FocusHandle, Window};
-use sidebar::{Mode, Panel, Preferences, Question, Resizing, RowId, WorkAtRisk};
+use sidebar::{Mode, Panel, Preferences, Resizing, RowId, WorkAtRisk};
 use ui::{CubicBezier, Glide, ToastQueue};
 
 use crate::column::switcher::icon_editor::IconEditor;
@@ -62,11 +62,9 @@ pub struct Sidebar {
     pub(crate) scrolls: Scrolls,
     pub(crate) handle_focus: FocusHandle,
     pub(crate) files_focus: FocusHandle,
-    pub(crate) confirm_focus: FocusHandle,
     pub(crate) settings_focus: FocusHandle,
     pub(crate) space: Option<SpaceDraft>,
     pub(crate) icon_editor: Entity<IconEditor>,
-    pub(crate) question: Option<Question>,
     pub(crate) merge: MergeDraft,
     pub(crate) search: Option<FileSearch>,
     pub(crate) toasts: Entity<ToastQueue>,
@@ -108,11 +106,9 @@ impl Sidebar {
             scrolls: Scrolls::default(),
             handle_focus: cx.focus_handle(),
             files_focus: cx.focus_handle(),
-            confirm_focus: cx.focus_handle(),
             settings_focus: cx.focus_handle(),
             space: None,
             icon_editor: Self::space_icon_editor(cx),
-            question: None,
             merge: MergeDraft::new(cx, Self::commit_changes),
             search: None,
             toasts: cx.new(|_| ToastQueue::new(placement)),
