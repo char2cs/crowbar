@@ -1,4 +1,5 @@
 {
+  "name": "crowbar",
   "productName": "Crowbar",
   "identifier": "software.rabbyte.crowbar",
   "description": "Crowbar Desktop",

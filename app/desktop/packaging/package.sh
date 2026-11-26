@@ -54,7 +54,7 @@ deb_depends() {
   local scratch
   scratch=$(mktemp -d)
   mkdir "$scratch/debian"
-  printf 'Source: crowbar\n\nPackage: crowbar\n' >"$scratch/debian/control"
+  printf 'Source: crowbar\n\nPackage: crowbar\nArchitecture: any\n' >"$scratch/debian/control"
   (cd "$scratch" && dpkg-shlibdeps -O "$stage/bin/crowbar") | sed -n 's/^shlibs:Depends=//p' | tr ',' '\n' | sed 's/^ *//'
   echo libvulkan1
   echo xdg-utils
