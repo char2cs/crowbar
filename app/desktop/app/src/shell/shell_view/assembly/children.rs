@@ -9,6 +9,7 @@ use sidebarview::Sidebar;
 use viewtabs::TabBar;
 
 use super::built::Built;
+use super::pane_area::PaneArea;
 use super::pane_wiring::PaneWiring;
 use super::panes::Panes;
 use super::sidebar_wiring::SidebarWiring;
@@ -206,7 +207,7 @@ pub(crate) fn build_children<V: 'static>(
         notices: sidebar.read(cx).toast_queue(),
         sidebar,
         startup,
-        cover: ui::Cover::of(window, cx),
+        pane_area: PaneArea::unplaced(window, cx),
         subscriptions: Vec::new(),
     }
 }

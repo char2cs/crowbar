@@ -204,7 +204,7 @@ mod tests {
         let pane = opened.pane.clone();
         opened.shell.update(&mut opened.window, |shell, cx| {
             open_files(shell, &pane);
-            shell.placement = Some((webview::ParentWindow::X11(9), PLACED));
+            shell.pane_area.placement = Some((webview::ParentWindow::X11(9), PLACED));
             shell.refresh(cx);
         });
         opened.window.run_until_parked();

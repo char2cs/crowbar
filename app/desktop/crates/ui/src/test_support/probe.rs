@@ -59,8 +59,8 @@ pub(crate) fn open<E: IntoElement>(
     cx
 }
 
-/// Opens a window showing `build()` with a float host installed, so its floating elements
-/// paint in float windows of their own; [`floating`] finds the newest one.
+/// Opens a window showing `build()` with a float host installed, so its passive layers paint
+/// in its pop-up window, which [`crate::testing::newest_window`] finds.
 pub(crate) fn open_floating<E: IntoElement>(
     cx: &mut TestAppContext,
     build: impl Fn(&mut Window, &mut App) -> E + 'static,

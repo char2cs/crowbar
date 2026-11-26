@@ -7,7 +7,6 @@ use gpui::{
     MouseButton, ParentElement, Pixels, Point, Styled, Window, anchored, div, px, relative,
 };
 
-use crate::floating::layers::Shaped;
 use crate::floating::placement::Placement;
 use crate::floating::portal::{Float, Portal};
 use crate::foundation::tokens::layer;
@@ -113,7 +112,7 @@ pub fn click_away(
 ) -> AnyElement {
     let on_press = Rc::new(on_press);
     let away = Rc::clone(&on_press);
-    Portal::window(id, move |_, _| Shaped::catch(away_layer(&on_press)))
+    Portal::window(id, move |_, _| away_layer(&on_press))
         .priority(layer::MENU - 1)
         .float(Float::Popover)
         .away(away)

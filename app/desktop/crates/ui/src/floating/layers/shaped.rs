@@ -6,19 +6,18 @@ use gpui::{
     InspectorElementId, IntoElement, LayoutId, Pixels, Window,
 };
 
-use crate::floating::layers::float_host::float_region::FloatRegion;
-use crate::floating::layers::float_host::part::Part;
+use crate::floating::layers::float_region::FloatRegion;
 use crate::floating::layers::registry::Registry;
 use crate::floating::portal::cover::painting::Painting;
 use crate::foundation::opaque_debug;
 
 /// Wraps a floating card, laid out and painted as the card itself. In the pop-up window it
-/// marks the card's bounds as shown, as taking the pointer, or both; in an overlay drawn in the
-/// window, a seen card covers the native views under it.
+/// marks the card's bounds as shown, and as taking the pointer when solid; in an overlay drawn
+/// in the window, the card covers the native views under it.
 pub struct Shaped {
     child: AnyElement,
     radius: Pixels,
-    part: Part,
+    hit: bool,
     overlay: Option<EntityId>,
 }
 
@@ -28,7 +27,10 @@ impl Shaped {
         child: impl IntoElement,
         radius: Pixels,
     ) -> Self {
-        Self::new(child, radius, Part::Solid)
+        Self {
+            hit: true,
+            ..Self::seen(child, radius)
+        }
     }
 
     /// A card that is seen but lets the pointer through, such as a tooltip or a drag ghost.
@@ -36,24 +38,10 @@ impl Shaped {
         child: impl IntoElement,
         radius: Pixels,
     ) -> Self {
-        Self::new(child, radius, Part::Seen)
-    }
-
-    /// An unseen area that takes the pointer, such as the layer a press outside a menu closes
-    /// it through.
-    pub fn catch(child: impl IntoElement) -> Self {
-        Self::new(child, Pixels::ZERO, Part::Catch)
-    }
-
-    fn new(
-        child: impl IntoElement,
-        radius: Pixels,
-        part: Part,
-    ) -> Self {
         Self {
             child: child.into_any_element(),
             radius,
-            part,
+            hit: false,
             overlay: None,
         }
     }
@@ -98,8 +86,12 @@ impl Element for Shaped {
             bounds: bounds.to_device_pixels(scale),
             radius: DevicePixels::from(self.radius.scale(scale)),
         };
-        Registry::note(window.window_handle().window_id(), (self.part, region), cx);
-        if let Some(overlay) = self.overlay.filter(|_| self.part != Part::Catch) {
+        let hit = self.hit.then_some(region);
+        if let Some(painted) = Registry::painting(window.window_handle().window_id(), cx) {
+            painted.seen.push(region);
+            painted.hit.extend(hit);
+        }
+        if let Some(overlay) = self.overlay {
             Painting::note(overlay, bounds, cx);
         }
         self.child.prepaint(window, cx);

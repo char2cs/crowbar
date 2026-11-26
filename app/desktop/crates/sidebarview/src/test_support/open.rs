@@ -1,5 +1,5 @@
 //! Opens a sidebar over a recording data source in a 1200x800 window, with or without the
-//! window's top layer.
+//! window's pop-up window.
 
 use std::rc::Rc;
 
@@ -31,7 +31,7 @@ pub(crate) fn open(
     (recorder, sidebar, cx)
 }
 
-/// The sidebar and its window, whose menus and dialogs float in windows of their own.
+/// The sidebar and its window, whose tooltips and toasts float in its pop-up window.
 pub(crate) struct Floating {
     pub(crate) recorder: Rc<Recorder>,
     pub(crate) sidebar: Entity<Sidebar>,
@@ -39,7 +39,7 @@ pub(crate) struct Floating {
 }
 
 impl Floating {
-    /// The float window the owner opened last; the owner's own window while it has none.
+    /// The pop-up window, once the owner opened it; the owner's own window until then.
     pub(crate) fn top(&mut self) -> VisualTestContext {
         ui::testing::newest_window(&mut self.window)
     }
@@ -77,28 +77,16 @@ pub(crate) fn open_floating(
 }
 
 /// Presses and releases each space-separated key, as a keyboard does; buttons click on release.
-/// A key that closes the window, as escape closes a float window, ends the presses.
 pub(crate) fn press(
     cx: &mut VisualTestContext,
     keys: &'static str,
 ) {
-    let window = cx.update(|window, _| window.window_handle());
-    keys.split(' ')
-        .map_while(|key| press_one(cx, window, key))
-        .for_each(drop);
-}
-
-fn press_one(
-    cx: &mut VisualTestContext,
-    window: AnyWindowHandle,
-    key: &'static str,
-) -> Option<()> {
-    cx.simulate_keystrokes(key);
-    cx.windows().contains(&window).then_some(())?;
-    let keystroke = gpui::Keystroke::parse(key).expect("a valid keystroke");
-    cx.simulate_event(gpui::KeyUpEvent { keystroke });
-    cx.run_until_parked();
-    Some(())
+    for key in keys.split(' ') {
+        cx.simulate_keystrokes(key);
+        let keystroke = gpui::Keystroke::parse(key).expect("a valid keystroke");
+        cx.simulate_event(gpui::KeyUpEvent { keystroke });
+        cx.run_until_parked();
+    }
 }
 
 /// Lets a closed floating element go: the test platform draws inside an effect

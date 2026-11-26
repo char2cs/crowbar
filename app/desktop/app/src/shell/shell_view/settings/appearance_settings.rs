@@ -213,7 +213,7 @@ mod tests {
     fn placed(cx: &mut gpui::TestAppContext) -> crate::shell::shell_view::tests::Opened {
         let mut opened = crate::shell::shell_view::tests::open_shell(cx);
         opened.shell.update(&mut opened.window, |shell, cx| {
-            shell.placement = Some((
+            shell.pane_area.placement = Some((
                 webview::ParentWindow::X11(9),
                 crate::shell::shell_view::tests::PLACED,
             ));

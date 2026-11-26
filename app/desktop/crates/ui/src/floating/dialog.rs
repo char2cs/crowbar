@@ -289,7 +289,6 @@ mod tests {
     use super::*;
     use crate::floating::Float;
     use crate::test_support::probe::{open, open_floating};
-    use crate::testing::newest_window;
 
     #[gpui::test]
     fn close_button_and_scrim_both_call_on_close(cx: &mut TestAppContext) {
@@ -427,12 +426,12 @@ mod tests {
     fn open_confirm(cx: &mut TestAppContext) -> (Log, gpui::VisualTestContext) {
         let log = Log::default();
         let shown = Rc::clone(&log);
-        let mut owner = open_floating(cx, move |_, _| {
+        let owner = open_floating(cx, move |_, _| {
             let shown = Rc::clone(&shown);
             crate::floating::Portal::window("dialog", move |_, _| confirm(&shown))
                 .float(Float::Modal)
         });
-        (log, newest_window(&mut owner))
+        (log, owner)
     }
 
     fn press(
@@ -472,11 +471,10 @@ mod tests {
             crate::floating::Portal::window("dialog", move |_, _| alert(&shown, &held))
                 .float(Float::Modal)
         });
-        let mut top = newest_window(&mut owner);
-        top.run_until_parked();
-        press(&mut top, "enter");
+        owner.run_until_parked();
+        press(&mut owner, "enter");
         assert_eq!(*log.borrow(), vec!["cancel"], "return answers Cancel");
-        press(&mut top, "tab tab enter");
+        press(&mut owner, "tab tab enter");
         assert_eq!(
             *log.borrow(),
             vec!["cancel", "cancel"],
@@ -534,9 +532,8 @@ mod tests {
                 .float(Float::Modal)
         });
         owner.update(|window, cx| window.focus(&field, cx));
-        let mut top = newest_window(&mut owner);
-        top.run_until_parked();
-        top.simulate_keystrokes("a");
+        owner.run_until_parked();
+        owner.simulate_keystrokes("a");
         assert_eq!(typed.get(), 1);
     }
 }

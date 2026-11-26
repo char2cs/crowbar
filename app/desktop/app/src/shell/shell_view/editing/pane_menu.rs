@@ -13,7 +13,7 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) {
         let at = self.window_point(&ask.pane, ask.at, cx);
-        let (Some(at), Some((parent, _))) = (at, self.placement) else {
+        let (Some(at), Some((parent, _))) = (at, self.pane_area.placement) else {
             return ask.answer(None);
         };
         let request = webview::MenuRequest {
@@ -54,7 +54,7 @@ mod tests {
         opened
             .shell
             .update_in(&mut opened.window, |shell, window, cx| {
-                shell.placement = Some((webview::ParentWindow::X11(9), PLACED));
+                shell.pane_area.placement = Some((webview::ParentWindow::X11(9), PLACED));
                 shell.pop_pane_menu(ask, window, cx);
             });
         let popped = opened.mock.calls().into_iter().find_map(|call| match call {
@@ -83,7 +83,7 @@ mod tests {
         opened
             .shell
             .update_in(&mut opened.window, |shell, window, cx| {
-                shell.placement = Some((webview::ParentWindow::X11(9), PLACED));
+                shell.pane_area.placement = Some((webview::ParentWindow::X11(9), PLACED));
                 shell.pop_pane_menu(ask, window, cx);
             });
         assert_eq!(*heard.lock().unwrap(), Some(None));

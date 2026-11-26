@@ -88,7 +88,7 @@ impl ShellView {
         (x, y): (f64, f64),
         cx: &mut Context<'_, Self>,
     ) -> Option<gpui::Point<gpui::Pixels>> {
-        let (_, area) = self.placement?;
+        let (_, area) = self.pane_area.placement?;
         let (chrome, _) = self.chrome(cx);
         let visible = visible_panes(self.state.showing(), area, (chrome, self.source.as_ref()));
         let origin = visible.iter().find(|shown| &shown.pane == pane)?;

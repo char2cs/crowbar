@@ -7,8 +7,8 @@ use gpui::{App, DispatchPhase, FocusHandle, Global, MouseDownEvent, Window};
 
 /// The input modality focus rings follow, as develop's `:focus-visible` does: a key press
 /// turns it to the keyboard, a pointer press turns it back. Pointer moves leave it alone, and
-/// a press in any window counts for all of them, so a key typed in a float window rings the
-/// owner's trigger it focuses.
+/// a press in any window counts for all of them, so a click on a toast in the pop-up window
+/// counts for its owner too.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Modality {
     keyboard: bool,

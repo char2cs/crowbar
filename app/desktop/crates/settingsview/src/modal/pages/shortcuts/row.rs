@@ -333,17 +333,19 @@ mod tests {
 
     #[gpui::test]
     fn a_chord_clicked_in_the_open_dialog_takes_the_next_typed_chord(cx: &mut TestAppContext) {
-        let (harness, mut owner, mut top) = open_floating(cx, "keybindings");
+        let (harness, mut owner) = open_floating(cx, "keybindings");
         harness
             .modal
             .update_in(&mut owner, |modal, window, cx| modal.focus(window, cx));
         owner.run_until_parked();
-        let chord = top.debug_bounds("chord-navigation.toggleConsole").unwrap();
-        top.simulate_click(chord.center(), gpui::Modifiers::none());
-        top.simulate_keystrokes("escape");
+        let chord = owner
+            .debug_bounds("chord-navigation.toggleConsole")
+            .unwrap();
+        owner.simulate_click(chord.center(), gpui::Modifiers::none());
+        owner.simulate_keystrokes("escape");
         assert_eq!(harness.closed.get(), 0, "escape cancels the capture only");
-        top.simulate_click(chord.center(), gpui::Modifiers::none());
-        top.simulate_keystrokes("secondary-shift-k");
+        owner.simulate_click(chord.center(), gpui::Modifiers::none());
+        owner.simulate_keystrokes("secondary-shift-k");
         assert!(matches!(overrides(&harness), Some(Value::Map(map)) if map.len() == 1));
     }
 }

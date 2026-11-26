@@ -404,9 +404,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn a_key_typed_in_the_top_layer_shows_the_card_of_a_trigger_it_focuses(
-        cx: &mut TestAppContext
-    ) {
+    fn a_key_typed_in_a_dialog_shows_the_card_of_a_trigger_it_focuses(cx: &mut TestAppContext) {
         let (gear, field) = cx.update(|cx| (cx.focus_handle(), cx.focus_handle()));
         let (held, inner) = (gear.clone(), field.clone());
         let mut owner = open_floating(cx, move |_, _| {
@@ -419,17 +417,16 @@ mod tests {
                 .child(dialog)
         });
         owner.update(|_, cx| cx.set_global(Motion::reduced()));
-        let mut dialog = newest_window(&mut owner);
-        dialog.update(|window, cx| window.focus(&field, cx));
-        settle(&mut dialog);
-        dialog.simulate_keystrokes("escape");
+        owner.update(|window, cx| window.focus(&field, cx));
+        settle(&mut owner);
+        owner.simulate_keystrokes("escape");
         owner.update(|window, cx| window.focus(&gear, cx));
         settle(&mut owner);
         let mut top = newest_window(&mut owner);
         settle(&mut top);
         assert!(
             top.debug_bounds("tooltip-card").is_some(),
-            "the escape that left the dialog was a key for the window beneath"
+            "the escape that left the dialog was a key"
         );
     }
 

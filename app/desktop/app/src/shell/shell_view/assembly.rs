@@ -2,6 +2,7 @@
 
 pub(crate) mod built;
 pub(crate) mod children;
+pub(crate) mod pane_area;
 mod pane_wiring;
 mod panes;
 pub(crate) mod shell_parts;

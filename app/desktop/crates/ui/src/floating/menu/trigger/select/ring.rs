@@ -35,7 +35,6 @@ mod tests {
     use crate::floating::menu::trigger::select::Select;
     use crate::foundation::{Surface, Theme};
     use crate::test_support::probe::{open_floating, settle};
-    use crate::testing::newest_window;
 
     fn options() -> Vec<SharedString> {
         vec!["System".into(), "Light".into(), "Dark".into()]
@@ -57,10 +56,9 @@ mod tests {
     ) {
         let mut owner = open_floating(cx, |_, _| Select::new("s", options(), Some(0)));
         owner.simulate_click(point(px(20.0), px(10.0)), gpui::Modifiers::none());
-        let mut top = newest_window(&mut owner);
-        settle(&mut top);
+        settle(&mut owner);
         assert_eq!(rings_drawn(&mut owner), 0, "opened from a pointer press");
-        top.simulate_keystrokes("escape");
+        owner.simulate_keystrokes("escape");
         settle(&mut owner);
         assert_eq!(rings_drawn(&mut owner), 1, "the list closed on a key");
     }

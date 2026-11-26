@@ -9,6 +9,7 @@ use ui::ToastQueue;
 use viewtabs::TabBar;
 
 use crate::panes::content::shell_pane_source::ShellPaneSource;
+use crate::shell::shell_view::assembly::pane_area::PaneArea;
 use crate::shell::shell_view::assembly::workspace::Workspace;
 
 pub(crate) struct Built {
@@ -21,6 +22,6 @@ pub(crate) struct Built {
     pub(crate) sidebar: Entity<Sidebar>,
     pub(crate) startup: Entity<startup::View>,
     pub(crate) notices: Entity<ToastQueue>,
-    pub(crate) cover: Entity<ui::Cover>,
+    pub(crate) pane_area: PaneArea,
     pub(crate) subscriptions: Vec<Subscription>,
 }

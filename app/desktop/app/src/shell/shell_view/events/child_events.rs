@@ -76,7 +76,7 @@ impl ShellView {
         match webview::ParentWindow::from_window(window) {
             Ok(parent) => {
                 self.state.set_window_width(ui::app_window_width(window));
-                self.placement = Some((parent, pixels::to_bounds(*bounds)));
+                self.pane_area.placement = Some((parent, pixels::to_bounds(*bounds)));
                 self.sync(cx);
             },
             Err(error) => {

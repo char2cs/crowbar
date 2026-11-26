@@ -31,7 +31,7 @@ impl ShellView {
         command: &AgentCommand,
         cx: &mut Context<'_, Self>,
     ) {
-        let parent = self.placement.map(|(parent, _)| parent);
+        let parent = self.pane_area.placement.map(|(parent, _)| parent);
         self.state.run_agent(command, parent);
         self.refresh(cx);
     }
@@ -41,7 +41,7 @@ impl ShellView {
         pane: &PaneId,
         cx: &mut Context<'_, Self>,
     ) {
-        let parent = self.placement.map(|(parent, _)| parent);
+        let parent = self.pane_area.placement.map(|(parent, _)| parent);
         self.state.run_deferred(pane, parent);
         self.refresh(cx);
     }

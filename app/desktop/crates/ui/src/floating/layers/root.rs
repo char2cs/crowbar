@@ -1,4 +1,5 @@
-//! The view of the pop-up window: its owner's passive layers, laid out as in the owner.
+//! The view of the pop-up window: its owner's passive layers, laid out as in the owner, and the
+//! window shaped to the cards they painted.
 
 use gpui::{
     AnyElement, App, Context, Entity, IntoElement, ParentElement, Render, Styled, Subscription,
@@ -7,11 +8,10 @@ use gpui::{
 use raw_window_handle::RawWindowHandle;
 
 use crate::WindowActivity;
-use crate::floating::layers::float_host::float_region::FloatRegion;
-use crate::floating::layers::float_host::part::Part;
-use crate::floating::layers::float_host::raw_handle::raw_handle;
 use crate::floating::layers::owner::Owner;
-use crate::floating::layers::registry::Registry;
+use crate::floating::layers::painted::Painted;
+use crate::floating::layers::registry::{Registry, raw_handle};
+use crate::floating::portal::layer::Layer;
 use crate::foundation::opaque_debug;
 
 pub(crate) struct Root {
@@ -34,25 +34,17 @@ impl Root {
             cx.observe(&owner, |root, _, cx| root.redraw(cx)),
             cx.observe_global::<WindowActivity>(Self::redraw),
         ];
-        let root = Self {
+        let raw = raw_handle(window);
+        let below = owner.read(cx).raw();
+        if let (Some(host), Some(raw), Some(below)) = (Registry::host(cx), raw, below) {
+            host.cover(raw, below);
+            host.shape(raw, &[], &[]);
+        }
+        Self {
             owner,
-            raw: raw_handle(window),
+            raw,
             _watching: watching,
-        };
-        root.introduce(cx);
-        root
-    }
-
-    fn introduce(
-        &self,
-        cx: &App,
-    ) {
-        let below = self.owner.read(cx).raw();
-        let (Some(host), Some(raw), Some(below)) = (Registry::host(cx), self.raw, below) else {
-            return;
-        };
-        host.cover(raw, below);
-        host.shape(raw, &[], &[]);
+        }
     }
 
     fn redraw(
@@ -73,34 +65,24 @@ impl Root {
         let (Some(host), Some(raw)) = (Registry::host(cx), self.raw) else {
             return;
         };
-        let (seen, hit) = self.shape(window, cx);
-        host.shape(raw, &seen, &hit);
+        let painted = self.shape(window, cx);
+        host.shape(raw, &painted.seen, &painted.hit);
     }
 
+    // PLATFORM: linux the pop-up window stays above other applications, so it shows nothing while they are active.
     fn shape(
         &self,
         window: &Window,
         cx: &mut App,
-    ) -> (Vec<FloatRegion>, Vec<FloatRegion>) {
-        if !self.pair_active(window, cx) {
-            return (Vec::new(), Vec::new());
-        }
-        let cards = Registry::painted(window.window_handle().window_id(), cx);
-        let seen = of(&cards, &[Part::Solid, Part::Seen]);
-        let hit = of(&cards, &[Part::Solid, Part::Catch]);
-        (seen, hit)
-    }
-
-    fn pair_active(
-        &self,
-        window: &Window,
-        cx: &mut App,
-    ) -> bool {
+    ) -> Painted {
         let owner = self.owner.read(cx).window();
-        let active = owner
+        let owner_active = owner
             .update(cx, |_, window, cx| WindowActivity::of(window, cx))
             .unwrap_or_default();
-        active || WindowActivity::of(window, cx)
+        if !owner_active && !WindowActivity::of(window, cx) {
+            return Painted::default();
+        }
+        Registry::painted(window.window_handle().window_id(), cx)
     }
 }
 
@@ -111,13 +93,8 @@ impl Render for Root {
         cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
         Registry::start_frame(window.window_handle().window_id(), cx);
-        let layers: Vec<AnyElement> = self
-            .owner
-            .read(cx)
-            .shown()
-            .iter()
-            .map(|layer| layer.paint(window, cx))
-            .collect();
+        let shown: Vec<Layer> = self.owner.read(cx).shown().cloned().collect();
+        let layers: Vec<AnyElement> = shown.iter().map(|layer| layer.paint(window, cx)).collect();
         let this = cx.weak_entity();
         let after = canvas(
             |_, _, _| {},
@@ -146,17 +123,6 @@ fn painted(
     });
 }
 
-fn of(
-    cards: &[(Part, FloatRegion)],
-    parts: &[Part],
-) -> Vec<FloatRegion> {
-    cards
-        .iter()
-        .filter(|(part, _)| parts.contains(part))
-        .map(|(_, region)| *region)
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use gpui::TestAppContext;
@@ -179,11 +145,16 @@ mod tests {
         let id = owner.update(|window, _| window.window_handle().window_id());
         owner.update(|_, cx| crate::WindowActivity::gained(id, cx));
         settle(&mut owner);
-        let seen = top.update(|window, cx| {
+        let painted = top.update(|window, cx| {
             let root = window.root::<super::Root>().flatten();
-            root.map(|root| root.update(cx, |root, cx| root.shape(window, cx).0))
+            root.map(|root| root.update(cx, |root, cx| root.shape(window, cx)))
         });
-        assert_eq!(seen.map(|seen| seen.len()), Some(1), "the toast stays seen");
+        let (seen, hit) = painted.map_or((0, 0), |p| (p.seen.len(), p.hit.len()));
+        assert_eq!(
+            (seen, hit),
+            (1, 1),
+            "the toast stays seen and takes the pointer"
+        );
     }
 
     #[gpui::test]

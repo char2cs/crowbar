@@ -10,7 +10,7 @@ impl ShellView {
         request: webview::AlertRequest,
         answer: impl FnOnce(Option<usize>) -> Option<ShellRequest> + Send + 'static,
     ) -> bool {
-        let Some((parent, _)) = self.placement else {
+        let Some((parent, _)) = self.pane_area.placement else {
             return false;
         };
         let requests = self.requests.clone();
@@ -62,7 +62,7 @@ mod tests {
             height: 700.0,
         };
         let closes = opened.shell.update(&mut opened.window, |shell, cx| {
-            shell.placement = Some((webview::ParentWindow::X11(9), area));
+            shell.pane_area.placement = Some((webview::ParentWindow::X11(9), area));
             shell.state.mark_dirty(pane);
             shell.allow_window_close(cx)
         });

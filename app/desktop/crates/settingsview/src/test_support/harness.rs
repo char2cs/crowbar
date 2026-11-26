@@ -70,12 +70,11 @@ impl Render for Layers {
     }
 }
 
-/// Opens the modal in a window, as the app shows it; returns the window, then the float window
-/// the dialog paints in.
+/// Opens the modal in a window with the pop-up window installed, as the app shows it.
 pub(crate) fn open_floating(
     cx: &mut TestAppContext,
     page: &str,
-) -> (Harness, VisualTestContext, VisualTestContext) {
+) -> (Harness, VisualTestContext) {
     cx.update(|cx| {
         ui::init(cx).unwrap();
         ui::testing::open_float_windows(cx);
@@ -97,9 +96,7 @@ pub(crate) fn open_floating(
         backend,
         closed,
     };
-    let mut window = VisualTestContext::from_window(owner, cx);
-    let top = ui::testing::newest_window(&mut window);
-    (harness, window, top)
+    (harness, VisualTestContext::from_window(owner, cx))
 }
 
 pub(crate) fn open<'a>(

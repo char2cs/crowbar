@@ -192,7 +192,7 @@ impl Sidebar {
             return Some(
                 layer
                     .occlude()
-                    .child(ui::Shaped::catch(Self::scrim(cx)))
+                    .child(Self::scrim(cx))
                     .child(ui::Shaped::solid(drawer, px(0.0)))
                     .into_any_element(),
             );

@@ -1,4 +1,5 @@
-//! Opens an owner's pop-up window: a stock window that never takes the keyboard.
+//! Shows a passive layer, opening its owner's pop-up window, a stock window that never takes
+//! the keyboard, on first use.
 
 use gpui::{
     App, AppContext as _, Bounds, Entity, EntityId, Pixels, WindowBackgroundAppearance,
@@ -26,7 +27,7 @@ fn open(
     cx: &mut App,
 ) {
     let this = owner.read(cx);
-    if this.float().is_some() || this.shown().is_empty() {
+    if this.float().is_some() || this.shown().next().is_none() {
         return;
     }
     let bounds = this
@@ -38,7 +39,7 @@ fn open(
         cx.new(|cx| Root::new(held, window, cx))
     });
     match built {
-        Ok(window) => owner.update(cx, |this, _| this.set_window(Some(window.into()))),
+        Ok(window) => owner.update(cx, |this, _| this.set_float(window.into())),
         Err(error) => tracing::warn!(%error, "the pop-up window did not open"),
     }
 }

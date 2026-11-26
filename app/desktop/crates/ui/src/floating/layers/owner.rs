@@ -1,17 +1,18 @@
 //! The pop-up window of one owner window: the layers it shows, and following the owner.
 
+use std::collections::BTreeMap;
+
 use gpui::{AnyWindowHandle, Context, EntityId, Subscription, Window};
 use raw_window_handle::RawWindowHandle;
 
-use crate::floating::layers::float_host::raw_handle::raw_handle;
-use crate::floating::layers::registry::Registry;
-use crate::floating::layers::stack::Stack;
+use crate::floating::layers::registry::{Registry, raw_handle};
 use crate::floating::portal::layer::Layer;
 
 pub(crate) struct Owner {
     window: AnyWindowHandle,
     raw: Option<RawWindowHandle>,
-    stack: Stack,
+    shown: BTreeMap<(usize, EntityId), Layer>,
+    float: Option<AnyWindowHandle>,
     _watching: Vec<Subscription>,
 }
 
@@ -25,9 +26,10 @@ impl Owner {
             cx.observe_window_activation(window, |_, _, cx| cx.notify()),
         ];
         Self {
-            window: Window::window_handle(window),
+            window: window.window_handle(),
             raw: raw_handle(window),
-            stack: Stack::default(),
+            shown: BTreeMap::new(),
+            float: None,
             _watching: watching,
         }
     }
@@ -38,9 +40,9 @@ impl Owner {
         layer: Layer,
         cx: &mut Context<'_, Self>,
     ) -> bool {
-        let opens = self.stack.place(slot, layer);
-        cx.notify();
-        opens
+        self.hide(slot, cx);
+        self.shown.insert((layer.priority, slot), layer);
+        self.float.is_none()
     }
 
     pub(crate) fn hide(
@@ -48,12 +50,12 @@ impl Owner {
         slot: EntityId,
         cx: &mut Context<'_, Self>,
     ) {
-        self.stack.hide(slot);
+        self.shown.retain(|(_, key), _| *key != slot);
         cx.notify();
     }
 
-    pub(crate) fn shown(&self) -> Vec<Layer> {
-        self.stack.shown()
+    pub(crate) fn shown(&self) -> impl Iterator<Item = &Layer> {
+        self.shown.values()
     }
 
     pub(crate) fn window(&self) -> AnyWindowHandle {
@@ -65,21 +67,21 @@ impl Owner {
     }
 
     pub(crate) fn float(&self) -> Option<AnyWindowHandle> {
-        self.stack.window()
+        self.float
     }
 
-    pub(crate) fn set_window(
+    pub(crate) fn set_float(
         &mut self,
-        window: Option<AnyWindowHandle>,
+        float: AnyWindowHandle,
     ) {
-        self.stack.set_window(window);
+        self.float = Some(float);
     }
 
     fn cover(
         &self,
         cx: &mut Context<'_, Self>,
     ) {
-        let (Some(host), Some(owner), Some(float)) = (Registry::host(cx), self.raw, self.float())
+        let (Some(host), Some(owner), Some(float)) = (Registry::host(cx), self.raw, self.float)
         else {
             return;
         };

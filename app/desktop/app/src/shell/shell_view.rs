@@ -28,6 +28,7 @@ mod terminals;
 #[cfg(test)]
 mod test_support;
 
+use crate::shell::shell_view::assembly::pane_area::PaneArea;
 use crate::shell::shell_view::assembly::watches::Watches;
 
 use crate::daemon::daemon_link::DaemonLink;
@@ -78,14 +79,13 @@ pub(crate) struct ShellView {
     data: Rc<store::Store>,
     data_queued: Arc<AtomicBool>,
     settings_backend: Option<SettingsAdapter>,
-    placement: Option<(webview::ParentWindow, webview::Bounds)>,
+    pane_area: PaneArea,
     focus_surface: Option<::sidebar::Mode>,
     ports: Ports,
     readout: readout_state::ReadoutState,
     notices: Entity<ToastQueue>,
     backend: crate::daemon::backend::BackendWatch,
     link_menu: Option<link_menu::LinkMenu>,
-    cover: Entity<ui::Cover>,
     subscriptions: Vec<Subscription>,
 }
 
@@ -98,7 +98,7 @@ impl ShellView {
         let (requests, queue) = (parts.requests.clone(), parts.queue.clone());
         let mut built = build_children(&parts, &requests, window, cx);
         built.subscriptions = Self::subscribe_children(&built, window, cx);
-        let resync = cx.observe(&built.cover, |this, _, cx| this.sync(cx));
+        let resync = cx.observe(&built.pane_area.cover, |this, _, cx| this.sync(cx));
         built.subscriptions.push(resync);
         let mut view = Self::assemble(parts, built, requests, cx.focus_handle());
         view.begin(queue, window, cx);
@@ -140,14 +140,13 @@ impl ShellView {
             data: built.data,
             data_queued: built.data_queued,
             settings_backend: None,
-            placement: None,
             focus_surface: None,
             readout: readout_state::ReadoutState::new(Arc::clone(&parts.ports.clock)),
             ports: parts.ports,
             notices: built.notices,
             backend: events::backend::watching(built.workspace),
             link_menu: None,
-            cover: built.cover,
+            pane_area: built.pane_area,
             subscriptions: built.subscriptions,
         }
     }
@@ -291,14 +290,14 @@ impl ShellView {
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
-        let Some((parent, area)) = self.placement else {
+        let Some((parent, area)) = self.pane_area.placement else {
             return;
         };
         let (chrome, _) = self.chrome(cx);
         let visible = visible_panes(self.state.showing(), area, (chrome, self.source.as_ref()));
         self.state.set_theme(*Theme::of(cx));
         let handle = self.layout.read(cx).handle_hole();
-        let overlays = overlays(self.cover.read(cx), handle, area);
+        let overlays = overlays(self.pane_area.cover.read(cx), handle, area);
         let outcome = self
             .state
             .sync(parent, (visible, self.source.native()), overlays);
@@ -573,7 +572,7 @@ mod tests {
         cx: &mut App,
     ) {
         shell.update(cx, |shell, cx| {
-            shell.placement = Some((webview::ParentWindow::X11(9), PLACED));
+            shell.pane_area.placement = Some((webview::ParentWindow::X11(9), PLACED));
             shell.on_ipc(message, window, cx);
         });
     }
@@ -596,7 +595,7 @@ mod tests {
     pub(super) fn open_started_shell(cx: &mut TestAppContext) -> Opened {
         let mut opened = open_shell(cx);
         opened.shell.update(&mut opened.window, |shell, cx| {
-            shell.placement = Some((webview::ParentWindow::X11(9), PLACED));
+            shell.pane_area.placement = Some((webview::ParentWindow::X11(9), PLACED));
             let restarted = startup::Input::Restarted;
             shell
                 .startup

@@ -1,28 +1,34 @@
-//! The installed float host, and the cards each float window painted in its last frame.
+//! The installed float host, and the cards each pop-up window painted in its last frame.
 
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use gpui::{App, Global, WindowId};
+use gpui::{App, Global, Window, WindowId};
+use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 use crate::floating::layers::float_host::FloatHost;
-use crate::floating::layers::float_host::float_region::FloatRegion;
-use crate::floating::layers::float_host::part::{Cards, Part};
+use crate::floating::layers::painted::Painted;
 
 #[derive(Default)]
 pub(crate) struct Registry {
     host: Option<Rc<dyn FloatHost>>,
-    cards: HashMap<WindowId, Cards>,
+    painted: HashMap<WindowId, Painted>,
 }
 
 impl Global for Registry {}
 
-/// Installs `host`, so portals paint in float windows from now on.
+/// Installs `host`, so passive portals paint in pop-up windows from now on.
 pub fn install_float_host(
     host: impl FloatHost + 'static,
     cx: &mut App,
 ) {
     cx.default_global::<Registry>().host = Some(Rc::new(host));
+}
+
+pub(crate) fn raw_handle(window: &Window) -> Option<RawWindowHandle> {
+    HasWindowHandle::window_handle(window)
+        .ok()
+        .map(|handle| handle.as_raw())
 }
 
 impl Registry {
@@ -35,32 +41,30 @@ impl Registry {
         cx: &App,
     ) -> bool {
         cx.try_global::<Self>()
-            .is_some_and(|registry| registry.cards.contains_key(&window))
+            .is_some_and(|registry| registry.painted.contains_key(&window))
     }
 
     pub(crate) fn start_frame(
         float: WindowId,
         cx: &mut App,
     ) {
-        cx.default_global::<Self>().cards.insert(float, Vec::new());
+        let painted = &mut cx.default_global::<Self>().painted;
+        painted.insert(float, Painted::default());
     }
 
-    pub(crate) fn note(
+    pub(crate) fn painting(
         float: WindowId,
-        card: (Part, FloatRegion),
         cx: &mut App,
-    ) {
-        if let Some(cards) = cx.default_global::<Self>().cards.get_mut(&float) {
-            cards.push(card);
-        }
+    ) -> Option<&mut Painted> {
+        cx.default_global::<Self>().painted.get_mut(&float)
     }
 
     pub(crate) fn painted(
         float: WindowId,
         cx: &App,
-    ) -> Cards {
+    ) -> Painted {
         cx.try_global::<Self>()
-            .and_then(|registry| registry.cards.get(&float).cloned())
+            .and_then(|registry| registry.painted.get(&float).cloned())
             .unwrap_or_default()
     }
 
@@ -68,7 +72,7 @@ impl Registry {
         float: WindowId,
         cx: &mut App,
     ) {
-        cx.default_global::<Self>().cards.remove(&float);
+        cx.default_global::<Self>().painted.remove(&float);
     }
 }
 
@@ -76,29 +80,12 @@ impl Registry {
 mod tests {
     use gpui::TestAppContext;
 
-    use super::*;
+    use super::{RawWindowHandle, raw_handle};
 
     #[gpui::test]
-    fn a_float_window_keeps_the_cards_of_its_last_frame_until_it_is_forgotten(
-        cx: &mut TestAppContext
-    ) {
-        let window = cx
-            .add_empty_window()
-            .update(|window, _| window.window_handle().window_id());
-        let card = (Part::Solid, FloatRegion::default());
-        cx.update(|cx| {
-            Registry::note(window, card, cx);
-            assert!(
-                !Registry::is_float(window, cx),
-                "noted before its first frame"
-            );
-            Registry::start_frame(window, cx);
-            Registry::note(window, card, cx);
-            assert_eq!(Registry::painted(window, cx), [card]);
-            Registry::start_frame(window, cx);
-            assert!(Registry::painted(window, cx).is_empty(), "a new frame");
-            Registry::forget_float(window, cx);
-            assert!(!Registry::is_float(window, cx));
-        });
+    fn a_test_window_has_no_handle_so_no_host_touches_it(cx: &mut TestAppContext) {
+        let window = cx.add_empty_window();
+        let raw = window.update(|window, _| raw_handle(window));
+        assert_eq!(raw, None::<RawWindowHandle>);
     }
 }

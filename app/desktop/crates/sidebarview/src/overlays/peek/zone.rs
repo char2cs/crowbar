@@ -36,7 +36,7 @@ impl Sidebar {
                 sidebar.update(cx, |this, cx| this.follow_peek_hover(pose, window, cx));
             })
             .child(card);
-        ui::Shaped::catch(area).into_any_element()
+        area.into_any_element()
     }
 
     // PLATFORM: linux a web view is its own X window, so the pointer leaves the window, not the area, when it moves onto one.

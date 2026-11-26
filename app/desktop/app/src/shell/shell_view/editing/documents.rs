@@ -257,7 +257,7 @@ mod tests {
 
     fn restored_readme(opened: &mut Opened) -> PaneId {
         opened.shell.update(&mut opened.window, |shell, cx| {
-            shell.placement = Some((webview::ParentWindow::X11(9), PLACED));
+            shell.pane_area.placement = Some((webview::ParentWindow::X11(9), PLACED));
             let chat = shell.chat_for("a file").expect("a chat to read from");
             let mut spec = PaneSpec::editor(&chat, README).expect("a file spec");
             spec.state = protocol::PaneState::new(serde_json::json!({"path": README}))

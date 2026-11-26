@@ -235,16 +235,16 @@ mod tests {
 
     #[gpui::test]
     fn a_row_keeps_its_wash_while_its_select_holds_focus_after_a_pick(cx: &mut TestAppContext) {
-        let (harness, mut owner, mut top) = crate::test_support::open_floating(cx, "appearance");
+        let (harness, mut owner) = crate::test_support::open_floating(cx, "appearance");
         harness
             .modal
             .update_in(&mut owner, |modal, window, cx| modal.focus(window, cx));
         owner.run_until_parked();
-        assert!(top.debug_bounds("row-within-themeMode").is_none());
-        click_description(&mut top, "row-select-themeMode");
-        click_description(&mut top, "menu-row-1");
+        assert!(owner.debug_bounds("row-within-themeMode").is_none());
+        click_description(&mut owner, "row-select-themeMode");
+        click_description(&mut owner, "menu-row-1");
         owner.run_until_parked();
-        assert!(top.debug_bounds("row-within-themeMode").is_some());
+        assert!(owner.debug_bounds("row-within-themeMode").is_some());
     }
 
     #[gpui::test]
