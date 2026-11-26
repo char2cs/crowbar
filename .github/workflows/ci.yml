@@ -253,11 +253,9 @@ jobs:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: '1.90'
-          targets: aarch64-apple-ios-sim
-          components: clippy
+      - name: Install Rust toolchain (app/mobile/rust-toolchain.toml)
+        working-directory: app/mobile
+        run: rustup toolchain install && rustup show active-toolchain
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: app/mobile/src-tauri

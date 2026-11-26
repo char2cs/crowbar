@@ -86,13 +86,14 @@ jobs:
           fi
           # Unique and increasing per upload across all three workflows (run numbers are per workflow).
           echo "build=$(date -u +%y%m%d%H%M)" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: '1.90'
-          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+      - name: Install Rust toolchain (app/mobile/rust-toolchain.toml)
+        working-directory: app/mobile
+        run: rustup toolchain install && rustup show active-toolchain
       - name: Remove stray Rust toolchains (keeps rust-cache's env hash stable)
+        working-directory: app/mobile
         run: |
-          for tc in $(rustup toolchain list | awk '{print $1}' | grep -v '^1\.90'); do
+          keep=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          for tc in $(rustup toolchain list | awk '{print $1}' | grep -v "^${keep//./\\.}-"); do
             rustup toolchain uninstall "$tc"
           done
       - uses: Swatinem/rust-cache@v2
