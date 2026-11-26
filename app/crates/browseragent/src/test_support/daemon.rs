@@ -9,16 +9,6 @@ pub(crate) struct Daemon {
 }
 
 impl Daemon {
-    pub(crate) fn new(
-        to_window: mpsc::UnboundedSender<String>,
-        from_window: mpsc::UnboundedReceiver<String>,
-    ) -> Self {
-        Self {
-            to_window,
-            from_window,
-        }
-    }
-
     pub(crate) async fn next(&mut self) -> Value {
         let text = self
             .from_window
@@ -41,8 +31,10 @@ impl Daemon {
 pub(crate) fn line() -> (FakeStream, Daemon) {
     let (to_window, inbound) = mpsc::unbounded_channel();
     let (outbound, from_window) = mpsc::unbounded_channel();
-    (
-        FakeStream::new(inbound, outbound),
-        Daemon::new(to_window, from_window),
-    )
+    let stream = FakeStream { inbound, outbound };
+    let daemon = Daemon {
+        to_window,
+        from_window,
+    };
+    (stream, daemon)
 }

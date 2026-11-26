@@ -64,51 +64,16 @@ impl Drop for Expectation {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
-
     use super::*;
-
-    #[derive(Default)]
-    struct Forgotten(Mutex<Vec<(String, u64)>>);
-
-    impl PendingForget for Forgotten {
-        fn forget(
-            &self,
-            entry: &(String, u64),
-        ) {
-            self.0.lock().unwrap().push(entry.clone());
-        }
-    }
-
-    const LIMIT: Duration = Duration::from_secs(1);
-
-    async fn outcome_of(reply: Option<AgentAnswer>) -> (AgentAnswer, Vec<(String, u64)>) {
-        let forgotten = Arc::new(Forgotten::default());
-        let (sender, receiver) = oneshot::channel();
-        let wait = Expectation::new(
-            Arc::clone(&forgotten) as Arc<dyn PendingForget>,
-            ("5".into(), 7),
-            receiver,
-        );
-        let sent = reply.map(|answer| sender.send(answer));
-        assert!(
-            sent.is_none_or(|sent| sent.is_ok()),
-            "the wait still listens"
-        );
-        let outcome = wait.wait(LIMIT).await;
-        let seen = forgotten.0.lock().unwrap().clone();
-        (outcome, seen)
-    }
+    use crate::wait::Replies;
 
     #[tokio::test(start_paused = true)]
-    async fn a_wait_ends_with_the_answer_or_a_failure_and_is_always_forgotten() {
-        let (answered, seen) = outcome_of(Some(AgentAnswer::Done("ok".into()))).await;
-        assert_eq!(
-            (answered, seen),
-            (AgentAnswer::Done("ok".into()), vec![("5".to_owned(), 7)])
-        );
-        let (silent, seen) = outcome_of(None).await;
-        assert!(matches!(silent, AgentAnswer::Failed(_)), "{silent:?}");
-        assert_eq!(seen, [("5".to_owned(), 7)]);
+    async fn a_wait_replaced_by_a_newer_request_with_its_id_fails_at_once() {
+        let replies = Arc::new(Replies::default());
+        let old = replies.register("1", None);
+        let _new = replies.register("1", None);
+        let outcome = old.wait(Duration::from_secs(1)).await;
+        let dropped = matches!(&outcome, AgentAnswer::Failed(text) if text.contains("dropped"));
+        assert!(dropped, "{outcome:?}");
     }
 }
