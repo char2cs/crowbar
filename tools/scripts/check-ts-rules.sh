@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Enforces docs/ts-style.md on TypeScript files changed on this branch (vs develop, plus working tree).
+# Enforces docs/ts-style.md on TypeScript files changed on this branch (vs origin/develop, plus working tree).
 # Usage: check-ts-rules.sh [--full] [--all] [ROOT]   |   check-ts-rules.sh --self-test
 # ROOT is the web package (default app/panes). --all scans every file instead of the changed ones.
 set -uo pipefail
@@ -15,7 +15,7 @@ fail() { echo "$1"; status=1; }
 kebab() { [[ $1 =~ ^[a-z0-9]+(-[a-z0-9]+)*(\.[a-z0-9]+(-[a-z0-9]+)*)*$ ]]; }
 
 # Lists files (relative to root) to scan, tagged "A" (new on the branch) or "M" (legacy file edited in the working tree).
-# The web/ -> app/panes move shows as added; a file whose web/ twin exists on develop is legacy and skipped unless edited.
+# The web/ -> app/panes move shows as added; a file whose web/ twin exists on origin/develop is legacy and skipped unless edited.
 changed_files() {
   local root=$1 all=$2 prefix p rel twin
   prefix=${root#"$repo"/}
@@ -24,14 +24,14 @@ changed_files() {
     return
   fi
   {
-    git -C "$repo" diff --name-only --diff-filter=A develop...HEAD -- "$prefix" | sed 's/^/C /'
+    git -C "$repo" diff --name-only --diff-filter=A origin/develop...HEAD -- "$prefix" | sed 's/^/C /'
     git -C "$repo" diff --name-only --diff-filter=AMR HEAD -- "$prefix" | sed 's/^/W /'
     git -C "$repo" ls-files --others --exclude-standard -- "$prefix" | sed 's/^/W /'
   } | awk '!seen[$2]++' | while read -r src p; do
     [[ -f $repo/$p && $p =~ \.(ts|tsx)$ ]] || continue
     rel=${p#"$prefix"/}
     twin="web/$rel"
-    if git -C "$repo" cat-file -e "develop:$twin" 2>/dev/null; then
+    if git -C "$repo" cat-file -e "origin/develop:$twin" 2>/dev/null; then
       [[ $src == W ]] && echo "M $rel"
     else
       echo "A $rel"
