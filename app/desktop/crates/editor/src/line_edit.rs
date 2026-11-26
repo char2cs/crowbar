@@ -136,58 +136,30 @@ mod tests {
     }
 
     type Spans = &'static [(usize, usize)];
-
-    struct Case {
-        command: Command,
-        text: &'static str,
-        selections: Spans,
-        expected: &'static str,
-        carets: Spans,
-    }
-
-    const fn case(
-        command: Command,
-        before: (&'static str, Spans),
-        after: (&'static str, Spans),
-    ) -> Case {
-        Case {
-            command,
-            text: before.0,
-            selections: before.1,
-            expected: after.0,
-            carets: after.1,
-        }
-    }
+    type Case = (Command, &'static str, Spans, &'static str, Spans);
 
     const DOWN: Command = Command::Move(Vertical::Down);
     const UP: Command = Command::Move(Vertical::Up);
+    const COPY_DOWN: Command = Command::Copy(Vertical::Down);
+    const COPY_UP: Command = Command::Copy(Vertical::Up);
+    const DELETE: Command = Command::Delete;
 
     const CASES: &[Case] = &[
-        case(DOWN, ("a\nbb\nc", &[(1, 1)]), ("bb\na\nc", &[(4, 4)])),
-        case(UP, ("a\nbb\nc", &[(3, 4)]), ("bb\na\nc", &[(1, 2)])),
-        case(UP, ("a\nb\nc\nd", &[(2, 5)]), ("b\nc\na\nd", &[(0, 3)])),
-        case(DOWN, ("a\nb\nc", &[(0, 2)]), ("b\na\nc", &[(2, 4)])),
-        case(
-            Command::Copy(Vertical::Down),
-            ("ab\nc", &[(1, 1)]),
-            ("ab\nab\nc", &[(4, 4)]),
-        ),
-        case(
-            Command::Copy(Vertical::Up),
-            ("ab\nc", &[(1, 1)]),
-            ("ab\nab\nc", &[(1, 1)]),
-        ),
-        case(
-            Command::Delete,
-            ("a\nbb\nc", &[(3, 3)]),
-            ("a\nc", &[(3, 3)]),
-        ),
-        case(Command::Delete, ("a\nbb", &[(3, 4)]), ("a", &[(1, 1)])),
-        case(Command::Delete, ("only", &[(2, 2)]), ("", &[(0, 0)])),
-        case(
-            Command::Delete,
-            ("a\nb\nc\nd", &[(0, 0), (4, 4)]),
-            ("b\nd", &[(0, 0), (2, 2)]),
+        (DOWN, "a\nbb\nc", &[(1, 1)], "bb\na\nc", &[(4, 4)]),
+        (UP, "a\nbb\nc", &[(3, 4)], "bb\na\nc", &[(1, 2)]),
+        (UP, "a\nb\nc\nd", &[(2, 5)], "b\nc\na\nd", &[(0, 3)]),
+        (DOWN, "a\nb\nc", &[(0, 2)], "b\na\nc", &[(2, 4)]),
+        (COPY_DOWN, "ab\nc", &[(1, 1)], "ab\nab\nc", &[(4, 4)]),
+        (COPY_UP, "ab\nc", &[(1, 1)], "ab\nab\nc", &[(1, 1)]),
+        (DELETE, "a\nbb\nc", &[(3, 3)], "a\nc", &[(3, 3)]),
+        (DELETE, "a\nbb", &[(3, 4)], "a", &[(1, 1)]),
+        (DELETE, "only", &[(2, 2)], "", &[(0, 0)]),
+        (
+            DELETE,
+            "a\nb\nc\nd",
+            &[(0, 0), (4, 4)],
+            "b\nd",
+            &[(0, 0), (2, 2)],
         ),
     ];
 
@@ -197,14 +169,13 @@ mod tests {
 
     #[test]
     fn line_commands_rewrite_the_lines_under_the_selections_and_carry_the_carets() {
-        for case in CASES {
-            let (command, text) = (case.command, case.text);
-            let edit = run(command, text, &ranges(case.selections));
+        for &(command, text, selections, expected, carets) in CASES {
+            let edit = run(command, text, &ranges(selections));
             let edit = edit.unwrap_or_else(|| panic!("{command:?} on {text:?} did nothing"));
-            assert_eq!(applied(text, &edit), case.expected, "{command:?} {text:?}");
+            let after = (applied(text, &edit), edit.selections().to_vec());
             assert_eq!(
-                edit.selections(),
-                ranges(case.carets),
+                after,
+                (expected.to_owned(), ranges(carets)),
                 "{command:?} {text:?}"
             );
         }
@@ -212,13 +183,12 @@ mod tests {
 
     #[test]
     fn a_block_at_the_edge_it_would_move_past_stays() {
-        assert_eq!(
-            LineEdit::moved("a\nb", std::slice::from_ref(&(0..0)), Vertical::Up),
-            None
-        );
-        assert_eq!(
-            LineEdit::moved("a\nb", std::slice::from_ref(&(2..2)), Vertical::Down),
-            None
-        );
+        for (selection, toward) in [(0..0, Vertical::Up), (2..2, Vertical::Down)] {
+            assert_eq!(
+                LineEdit::moved("a\nb", &[selection], toward),
+                None,
+                "{toward:?}"
+            );
+        }
     }
 }
