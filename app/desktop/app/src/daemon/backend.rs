@@ -8,6 +8,7 @@ mod crash_panel;
 pub(crate) mod daemon_notice;
 mod notice_act;
 mod projects_failed;
+mod served;
 mod warned;
 
 pub(crate) use backend_status::BackendStatus;

@@ -106,8 +106,7 @@ mod tests {
     use layout::{Command, Tab};
 
     use super::SHOW_DELAY;
-    use crate::daemon::backend::CrashPanel;
-    use crate::shell::shell_view::ShellView;
+    use crate::daemon::backend::{BackendStatus, CrashPanel};
     use crate::shell::shell_view::tests::{
         Opened, open_shell, open_shell_unsettled, open_started_shell,
     };
@@ -123,9 +122,10 @@ mod tests {
     fn a_lost_daemon_is_announced_only_once_it_has_stayed_lost_a_moment(cx: &mut TestAppContext) {
         let mut opened = open_shell_unsettled(cx);
         let before = shown(&mut opened);
-        opened
-            .shell
-            .update(&mut opened.window, ShellView::follow_backend);
+        opened.shell.update(&mut opened.window, |shell, cx| {
+            shell.backend.connection.follow(BackendStatus::Connected);
+            shell.follow_backend(cx);
+        });
         assert_eq!(shown(&mut opened), before, "a blip shows nothing");
         opened.window.executor().advance_clock(SHOW_DELAY);
         assert_eq!(
