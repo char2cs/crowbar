@@ -14,14 +14,6 @@ pub enum Error {
         /// The repeated name.
         name: String,
     },
-    /// An extension declared a page or key outside its namespace.
-    #[error("settings schema: `{name}` is outside the namespace `ext.{extension}`")]
-    OutsideNamespace {
-        /// The extension id.
-        extension: String,
-        /// The offending page id or key.
-        name: String,
-    },
     /// The backend refused a write.
     #[error("setting {key} was not saved: {reason}")]
     Rejected {

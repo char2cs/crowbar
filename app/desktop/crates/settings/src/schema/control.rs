@@ -16,7 +16,7 @@ pub use issue::Issue;
 pub use legacy_number::LegacyNumber;
 pub use nudge::Nudge;
 pub use number_range::NumberRange;
-pub use on_load::OnLoad;
+pub(crate) use on_load::OnLoad;
 pub use validator::Validator;
 
 use crate::schema::button_spec::ButtonSpec;
@@ -73,34 +73,29 @@ pub enum Control {
 }
 
 impl Control {
-    /// A switch.
-    pub fn switch() -> Self {
+    pub(crate) fn switch() -> Self {
         Self::Switch { invert: false }
     }
 
-    /// A switch that reads opposite to the stored flag.
-    pub fn inverted_switch() -> Self {
+    pub(crate) fn inverted_switch() -> Self {
         Self::Switch { invert: true }
     }
 
-    /// A select over fixed `(value, label)` options.
-    pub fn select(
+    pub(crate) fn select(
         options: &[(&str, &str)],
         width: ControlWidth,
     ) -> Self {
         Self::select_from(ChoiceSource::fixed(options), width)
     }
 
-    /// A select over the options the backend lists as `provider`.
-    pub fn provided_select(
+    pub(crate) fn provided_select(
         provider: &str,
         width: ControlWidth,
     ) -> Self {
         Self::select_from(ChoiceSource::provided(provider), width)
     }
 
-    /// A select over `source`.
-    pub fn select_from(
+    pub(crate) fn select_from(
         source: ChoiceSource,
         width: ControlWidth,
     ) -> Self {
@@ -112,16 +107,14 @@ impl Control {
         }
     }
 
-    /// A number stepper.
-    pub fn number(
+    pub(crate) fn number(
         range: NumberRange,
         width: ControlWidth,
     ) -> Self {
         Self::Number { range, width }
     }
 
-    /// A text field.
-    pub fn text(
+    pub(crate) fn text(
         placeholder: &str,
         width: ControlWidth,
     ) -> Self {
@@ -132,8 +125,7 @@ impl Control {
         }
     }
 
-    /// A comma-separated list field.
-    pub fn text_list(
+    pub(crate) fn text_list(
         placeholder: &str,
         width: ControlWidth,
     ) -> Self {
@@ -143,9 +135,8 @@ impl Control {
         }
     }
 
-    /// Flags text that fails `validator`.
     #[must_use]
-    pub fn validated(
+    pub(crate) fn validated(
         mut self,
         validator: Validator,
     ) -> Self {
@@ -158,9 +149,8 @@ impl Control {
         self
     }
 
-    /// Text a select shows while no option matches.
     #[must_use]
-    pub fn placeholder(
+    pub(crate) fn placeholder(
         mut self,
         text: &str,
     ) -> Self {
@@ -170,9 +160,8 @@ impl Control {
         self
     }
 
-    /// Adds an info icon with `text` as its tooltip after a select.
     #[must_use]
-    pub fn hint(
+    pub(crate) fn hint(
         mut self,
         text: &str,
     ) -> Self {

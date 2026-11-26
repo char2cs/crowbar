@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-/// A setting key such as `uiFontSize` or `ext.git.autoFetch`; extension keys start with `ext.<id>.`.
+/// A setting key such as `uiFontSize`.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Key(String);
 
@@ -15,15 +15,6 @@ impl Key {
     /// The key as text.
     pub fn as_str(&self) -> &str {
         &self.0
-    }
-
-    pub(crate) fn is_in(
-        &self,
-        namespace: &str,
-    ) -> bool {
-        self.0
-            .strip_prefix(namespace)
-            .is_some_and(|rest| rest.starts_with('.'))
     }
 }
 
@@ -45,23 +36,6 @@ impl fmt::Display for Key {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn namespace_membership_needs_the_dot_boundary() {
-        const CASES: &[(&str, &str, bool)] = &[
-            ("ext.git.autoFetch", "ext.git", true),
-            ("ext.gitlab.token", "ext.git", false),
-            ("ext.git", "ext.git", false),
-            ("uiFontSize", "ext.git", false),
-        ];
-        for &(key, namespace, expected) in CASES {
-            assert_eq!(
-                Key::new(key).is_in(namespace),
-                expected,
-                "{key} in {namespace}"
-            );
-        }
-    }
 
     #[test]
     fn displays_as_its_name() {

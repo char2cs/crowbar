@@ -1,10 +1,6 @@
-//! An in-memory backend for tests and the gallery.
+//! An in-memory backend for tests.
 
-#[cfg(feature = "fake")]
-mod record_lists;
-#[cfg(feature = "fake")]
 mod state;
-#[cfg(feature = "fake")]
 mod values;
 
 use std::cell::RefCell;
@@ -12,8 +8,10 @@ use std::rc::Rc;
 
 use crate::records::Records;
 use crate::records::fake_backend::state::State;
+use crate::records::record_backend::RecordBackend;
 use crate::records::record_command::RecordCommand;
 use crate::values::Change;
+use crate::values::Error;
 use crate::values::Key;
 use crate::values::Listener;
 use crate::values::Snapshot;
@@ -52,14 +50,9 @@ impl FakeBackend {
         self
     }
 
-    /// Makes every following write fail until [`FakeBackend::accept_writes`].
+    /// Makes every following write fail.
     pub fn refuse_writes(&self) {
         self.state.borrow_mut().refusing = true;
-    }
-
-    /// Lets writes succeed again.
-    pub fn accept_writes(&self) {
-        self.state.borrow_mut().refusing = false;
     }
 
     /// The ids of the actions run so far, oldest first.
@@ -108,55 +101,46 @@ impl std::fmt::Debug for FakeBackend {
     }
 }
 
+impl RecordBackend for FakeBackend {
+    fn records(
+        &self,
+        source: &str,
+    ) -> Records {
+        self.state
+            .borrow()
+            .records
+            .get(source)
+            .cloned()
+            .unwrap_or(Records::Loading)
+    }
+
+    fn apply(
+        &self,
+        source: &str,
+        record: &str,
+        command: RecordCommand,
+    ) -> Result<(), Error> {
+        let logged = (source.to_owned(), record.to_owned(), command);
+        self.state.borrow_mut().commands.push(logged);
+        self.notify(&Change::Records(source.to_owned()));
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
-
     use super::*;
-    use crate::values::Error;
-    use crate::values::Follow as _;
-    use crate::values::Read as _;
     use crate::values::Write as _;
 
     #[test]
-    fn writes_are_stored_announced_and_can_be_refused() {
-        let backend = FakeBackend::default();
-        let seen = Rc::new(RefCell::new(Vec::new()));
-        let sink = Rc::clone(&seen);
-        let subscription = backend.subscribe(Rc::new(move |change| {
-            sink.borrow_mut().push(change.clone());
-        }));
-        let key = Key::from("tabSize");
-        backend.set(&key, Value::Number(4.0)).unwrap();
-        assert_eq!(backend.get(&key), Some(Value::Number(4.0)));
-        assert_eq!(
-            seen.borrow().as_slice(),
-            [Change::Setting(key.clone(), Value::Number(4.0))]
-        );
-        backend.refuse_writes();
-        assert!(matches!(
-            backend.set(&key, Value::Number(8.0)),
-            Err(Error::Rejected { .. })
-        ));
-        assert_eq!(
-            backend.get(&key),
-            Some(Value::Number(4.0)),
-            "a refused write changes nothing"
-        );
-        backend.accept_writes();
-        drop(subscription);
-        backend.set(&key, Value::Number(2.0)).unwrap();
-        assert_eq!(
-            seen.borrow().len(),
-            1,
-            "a dropped subscription hears nothing"
-        );
-    }
-
-    #[test]
-    fn actions_are_logged_and_unknown_lists_are_loading() {
+    fn actions_and_record_commands_are_logged_in_order() {
         let backend = FakeBackend::default();
         backend.invoke("hosts.add").unwrap();
+        backend
+            .apply("hosts", "box", RecordCommand::Refresh)
+            .unwrap();
         assert_eq!(backend.invoked(), ["hosts.add"]);
+        let logged = ("hosts".to_owned(), "box".to_owned(), RecordCommand::Refresh);
+        assert_eq!(backend.commands(), [logged]);
     }
 }

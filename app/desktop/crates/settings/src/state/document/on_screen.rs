@@ -47,11 +47,6 @@ impl State {
         self.document.is_dirty(row)
     }
 
-    /// Whether a write is still waiting for the backend.
-    pub fn has_unsaved(&self) -> bool {
-        self.document.has_unsaved()
-    }
-
     /// Whether `row` shows its reset icon: it has a default and holds something else.
     pub fn resettable(
         &self,

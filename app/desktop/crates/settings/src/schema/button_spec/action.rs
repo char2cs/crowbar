@@ -13,8 +13,7 @@ pub enum Action {
 }
 
 impl Action {
-    /// An action the backend runs, named `id` (for example `browser.clearData`).
-    pub fn backend(id: impl Into<String>) -> Self {
+    pub(crate) fn backend(id: impl Into<String>) -> Self {
         Self::Backend(id.into())
     }
 }

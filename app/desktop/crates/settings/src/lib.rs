@@ -27,10 +27,10 @@ pub use records::{
     FlagLook, Line, Record, RecordAction, RecordBackend, RecordCommand, RecordFlag, Records, Tone,
 };
 pub use schema::{Action, Block, ButtonFace, ButtonSpec};
-pub use schema::{ChoiceSource, Condition, Confirm, Control, ControlWidth};
+pub use schema::{ChoiceSource, Confirm, Control, ControlWidth};
 pub use schema::{
-    Heading, Issue, LabelStyle, LegacyNumber, ListBlock, Nudge, NumberRange, OnLoad, Page, PageId,
-    Row, Schema, SearchEntry, Section, Validator,
+    Heading, Issue, LabelStyle, LegacyNumber, ListBlock, Nudge, NumberRange, Page, PageId, Row,
+    Schema, Section, Validator,
 };
 pub use state::Effect;
 pub use state::{Prompt, RailMove, State};

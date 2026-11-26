@@ -51,8 +51,7 @@ impl Value {
         }
     }
 
-    /// The pairs, when this is a [`Value::Map`].
-    pub fn as_map(&self) -> Option<&BTreeMap<String, String>> {
+    pub(crate) fn as_map(&self) -> Option<&BTreeMap<String, String>> {
         match self {
             Self::Map(pairs) => Some(pairs),
             _ => None,

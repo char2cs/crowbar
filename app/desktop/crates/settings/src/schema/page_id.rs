@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-/// A page id such as `appearance`; the deep-link target of the modal. Extension pages start with `ext.<id>`.
+/// A page id such as `appearance`; the deep-link target of the modal.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PageId(String);
 

@@ -13,8 +13,7 @@ pub enum ChoiceSource {
 }
 
 impl ChoiceSource {
-    /// Fixed options from `(value, label)` pairs.
-    pub fn fixed(pairs: &[(&str, &str)]) -> Self {
+    pub(crate) fn fixed(pairs: &[(&str, &str)]) -> Self {
         Self::Fixed(
             pairs
                 .iter()
@@ -23,8 +22,7 @@ impl ChoiceSource {
         )
     }
 
-    /// Options listed by the backend provider `name`.
-    pub fn provided(name: impl Into<String>) -> Self {
+    pub(crate) fn provided(name: impl Into<String>) -> Self {
         Self::Provided(name.into())
     }
 }
