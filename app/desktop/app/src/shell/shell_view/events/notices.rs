@@ -112,7 +112,6 @@ impl ShellView {
     }
 }
 
-/// Tells of a failed command in the desktop's message dialog, with a lone OK.
 pub(crate) fn show_alert(
     (title, message): (String, String),
     window: &Window,
