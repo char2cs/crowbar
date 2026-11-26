@@ -13,5 +13,5 @@ pub use key_chord::KeyChord;
 pub use pane_setting_keys::PANE_SETTING_KEYS;
 pub use precedence::Precedence;
 pub use setting_key::SettingKey;
-pub use setting_values::{MAX_SETTING_VALUES, SETTINGS_FRAME_VERSION, SettingValues};
-pub use theme_tokens::{MAX_THEME_TOKENS, ThemeTokens};
+pub use setting_values::{SETTINGS_FRAME_VERSION, SettingValues};
+pub use theme_tokens::ThemeTokens;

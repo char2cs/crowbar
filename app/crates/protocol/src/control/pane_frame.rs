@@ -31,7 +31,7 @@ use crate::identity::PaneTypeId;
 )]
 pub enum PaneFrame {
     /// `pane.register`: the page announces which pane type it implements and which SDK
-    /// version it was built for; the shell settles on [`SdkVersion::negotiate`]'s answer.
+    /// version it was built for.
     #[serde(rename = "pane.register")]
     Register {
         /// The type the page implements.

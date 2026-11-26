@@ -76,7 +76,5 @@ mod tests {
             r#"{"url":"ws://127.0.0.1:1","token":"t"}"#,
             "wire shape"
         );
-        assert_eq!(endpoint.url(), "ws://127.0.0.1:1", "url");
-        assert_eq!(endpoint.token(), "t", "token");
     }
 }

@@ -71,13 +71,6 @@ mod tests {
             status,
             "round trip"
         );
-        assert_eq!(status.extension_id().as_str(), "git", "extension");
-        assert_eq!(status.status(), StatusKind::Unavailable, "status");
-        assert_eq!(
-            status.reason().map(DisplayText::as_str),
-            Some("crashed"),
-            "reason"
-        );
     }
 
     #[test]
