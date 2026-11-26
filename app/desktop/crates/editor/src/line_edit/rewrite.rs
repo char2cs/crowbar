@@ -1,6 +1,5 @@
 use std::ops::Range;
 
-use super::follow::Follow;
 use super::line_block::LineBlock;
 use super::line_table::LineTable;
 use crate::Vertical;
@@ -64,26 +63,26 @@ impl<'table, 'text> Rewrite<'table, 'text> {
     pub(crate) fn placed(
         &self,
         selections: &[Range<usize>],
-        follow: Follow,
+        toward: Vertical,
     ) -> Vec<Range<usize>> {
         selections
             .iter()
-            .map(|selection| self.place(selection.start, follow)..self.place_end(selection, follow))
+            .map(|selection| self.place(selection.start, toward)..self.place_end(selection, toward))
             .collect()
     }
 
     fn place_end(
         &self,
         selection: &Range<usize>,
-        follow: Follow,
+        toward: Vertical,
     ) -> usize {
         let line = self.table.line_of(selection.end);
         let at_line_start = self.table.start(line) == selection.end;
         let past_its_block = at_line_start && line > self.table.line_of(selection.start);
         if !past_its_block {
-            return self.place(selection.end, follow);
+            return self.place(selection.end, toward);
         }
-        self.place(selection.end - NEWLINE.len(), follow) + NEWLINE.len()
+        self.place(selection.end - NEWLINE.len(), toward) + NEWLINE.len()
     }
 
     pub(crate) fn range(&self) -> Range<usize> {
@@ -119,14 +118,14 @@ impl<'table, 'text> Rewrite<'table, 'text> {
     fn place(
         &self,
         offset: usize,
-        follow: Follow,
+        toward: Vertical,
     ) -> usize {
         let line = self.table.line_of(offset);
         let column = offset - self.table.start(line);
         let mut positions = self.order.iter().enumerate().filter(|(_, at)| **at == line);
-        let found = match follow {
-            Follow::First => positions.next(),
-            Follow::Last => positions.next_back(),
+        let found = match toward {
+            Vertical::Up => positions.next(),
+            Vertical::Down => positions.next_back(),
         };
         let index = found.map_or(0, |(index, _)| index);
         self.start_of(index) + column

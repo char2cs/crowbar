@@ -1,11 +1,10 @@
 pub mod grammar;
 mod known;
 pub(crate) mod preview;
-mod tables;
 
-use tables::{
+use known::{
     ANGULAR_SUFFIXES, ANGULAR_TEMPLATE, DOTENV, ENV_FILE, GIT_ATTRIBUTES, GIT_IGNORE,
-    GIT_INFO_ATTRIBUTES, GIT_INFO_EXCLUDE, LANGUAGES, PLAIN_TEXT,
+    GIT_INFO_ATTRIBUTES, GIT_INFO_EXCLUDE, Known, LANGUAGES, PLAIN_TEXT,
 };
 
 /// The language a document is written in, by develop's ids (`typescript`, `rust`, `text`).
@@ -37,8 +36,8 @@ impl Language {
     pub fn display_name(self) -> &'static str {
         LANGUAGES
             .iter()
-            .find(|known| known.id == self.id)
-            .map_or(self.id, |known| known.name)
+            .find(|Known(id, ..)| *id == self.id)
+            .map_or(self.id, |Known(_, name, ..)| *name)
     }
 }
 
@@ -66,16 +65,16 @@ fn by_file_name(path: &str) -> Option<&'static str> {
     let name = file_name(path);
     LANGUAGES
         .iter()
-        .find(|known| known.file_names.contains(&name.as_str()))
-        .map(|known| known.id)
+        .find(|Known(.., file_names)| file_names.contains(&name.as_str()))
+        .map(|Known(id, ..)| *id)
 }
 
 fn by_extension(path: &str) -> Option<&'static str> {
     let extension = path.rsplit('.').next().unwrap_or_default().to_lowercase();
     LANGUAGES
         .iter()
-        .find(|known| known.extensions.contains(&extension.as_str()))
-        .map(|known| known.id)
+        .find(|Known(_, _, extensions, _)| extensions.contains(&extension.as_str()))
+        .map(|Known(id, ..)| *id)
 }
 
 #[cfg(test)]

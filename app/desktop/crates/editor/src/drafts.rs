@@ -2,7 +2,9 @@ use std::collections::BTreeMap;
 
 use crate::Draft;
 
-mod adapters;
+mod adapters {
+    pub(super) mod disk_draft_file;
+}
 pub(crate) mod draft;
 mod draft_file;
 

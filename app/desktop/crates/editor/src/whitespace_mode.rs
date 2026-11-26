@@ -12,8 +12,18 @@ pub enum WhitespaceMode {
     All,
 }
 
+/// The spaces and tabs `mode` marks in `line`, each with its byte offset.
+pub fn marked_whitespace(
+    mode: WhitespaceMode,
+    line: &str,
+) -> impl Iterator<Item = (usize, char)> + '_ {
+    line.char_indices()
+        .filter(|(_, character)| matches!(character, ' ' | '\t'))
+        .filter(move |(offset, _)| mode.marks(line, *offset))
+}
+
 impl WhitespaceMode {
-    pub(super) fn marks(
+    fn marks(
         self,
         line: &str,
         offset: usize,
@@ -48,28 +58,22 @@ mod tests {
 
     type Case = (WhitespaceMode, &'static str, &'static [usize]);
 
-    fn offsets(
-        mode: WhitespaceMode,
-        line: &str,
-    ) -> Vec<usize> {
-        line.char_indices()
-            .filter(|(offset, character)| *character == ' ' && mode.marks(line, *offset))
-            .map(|(offset, _)| offset)
-            .collect()
-    }
-
     #[test]
     fn each_mode_marks_the_whitespace_monaco_renders() {
         let line = "  a b  c d ";
-        let cases: [Case; 5] = [
+        let cases: [Case; 6] = [
             (WhitespaceMode::None, line, &[]),
             (WhitespaceMode::All, line, &[0, 1, 3, 5, 6, 8, 10]),
             (WhitespaceMode::Boundary, line, &[0, 1, 5, 6, 10]),
             (WhitespaceMode::Trailing, line, &[10]),
             (WhitespaceMode::Trailing, "   ", &[0, 1, 2]),
+            (WhitespaceMode::Trailing, "a b \t", &[3, 4]),
         ];
         for (mode, line, expected) in cases {
-            assert_eq!(offsets(mode, line), expected, "{mode:?} {line:?}");
+            let offsets: Vec<_> = marked_whitespace(mode, line).map(|(at, _)| at).collect();
+            assert_eq!(offsets, expected, "{mode:?} {line:?}");
         }
+        let tab = marked_whitespace(WhitespaceMode::All, "a\t").next();
+        assert_eq!(tab, Some((1, '\t')), "a tab is told from a space");
     }
 }

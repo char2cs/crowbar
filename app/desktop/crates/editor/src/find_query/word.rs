@@ -3,9 +3,7 @@ use std::ops::Range;
 // SPEC: https://github.com/microsoft/vscode/blob/main/src/vs/editor/common/core/wordHelper.ts (USUAL_WORD_SEPARATORS)
 const SEPARATORS: &str = "`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?";
 
-/// Whether `character` ends a word, as Monaco's word classifier decides.
-#[must_use]
-pub fn is_separator(character: char) -> bool {
+pub(crate) fn is_separator(character: char) -> bool {
     character.is_whitespace() || SEPARATORS.contains(character)
 }
 

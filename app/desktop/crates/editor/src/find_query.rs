@@ -33,18 +33,6 @@ impl FindQuery {
         }
     }
 
-    /// The text as typed.
-    #[must_use]
-    pub fn text(&self) -> &str {
-        &self.text
-    }
-
-    /// The toggles in force.
-    #[must_use]
-    pub fn options(&self) -> &FindOptions {
-        &self.options
-    }
-
     /// Every non-empty match in `haystack`, in order, up to Monaco's limit; none for an empty
     /// query.
     ///
