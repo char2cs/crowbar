@@ -4,7 +4,12 @@
 //! exits), `noisy` (writes a megabyte that is not UTF-8 to stderr before serving), `wedge`
 //! (accepts and never answers), `stall` (answers the first request, then never answers),
 //! `deaf` (serves, and ignores SIGTERM) or `late` (answers health with 503 until `<socket>.serve`
-//! exists, dialling `<socket>.spent` after each such answer so a test hears it).
+//! exists, dialling `<socket>.spent` after each such answer and `<socket>.up` once it listens, so
+//! a test hears both).
+//!
+//! It binds its socket beside the path and renames it onto the path, so the path never names
+//! nothing: a dial reaches either the socket that was there before, which a test may hold, or
+//! this one.
 
 mod answer_event;
 mod journal_sink;
@@ -144,11 +149,11 @@ fn noise_failed(mode: &str) -> bool {
             .is_err()
 }
 
-fn clear_stale_socket(path: &str) -> Result<(), rustix::io::Errno> {
-    match rustix::fs::unlink(path) {
-        Err(rustix::io::Errno::NOENT) => Ok(()),
-        other => other,
-    }
+fn listen(path: &str) -> std::io::Result<UnixListener> {
+    let beside = format!("{path}.{}", std::process::id());
+    let listener = UnixListener::bind(&beside)?;
+    rustix::fs::rename(&beside, path)?;
+    Ok(listener)
 }
 
 fn deaf_to_term(mode: &str) -> std::io::Result<Option<Signal>> {
@@ -173,12 +178,13 @@ async fn main() -> ExitCode {
     if noise_failed(&mode) {
         return ExitCode::from(EXIT_NOISE);
     }
-    if let Err(error) = clear_stale_socket(&path) {
-        tracing::debug!("stale socket {path}: {error}");
-        return ExitCode::from(EXIT_BIND);
-    }
-    let Ok(listener) = UnixListener::bind(&path) else {
-        return ExitCode::from(EXIT_BIND);
+    let listener = match listen(&path) {
+        Ok(listener) => listener,
+        Err(error) => {
+            tracing::debug!("socket {path}: {error}");
+            return ExitCode::from(EXIT_BIND);
+        },
     };
+    late::tell_up(&mode, &path);
     serve(listener, mode).await
 }

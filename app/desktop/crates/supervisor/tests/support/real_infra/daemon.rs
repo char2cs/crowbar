@@ -8,7 +8,8 @@ use tokio::sync::broadcast::error::RecvError;
 
 use crate::script::write_script;
 
-const EVENT_BUDGET: Duration = Duration::from_secs(30);
+/// How long a test waits for one thing it expects to hear.
+pub(crate) const EVENT_BUDGET: Duration = Duration::from_secs(30);
 
 pub(crate) fn fast_timings() -> Timings {
     Timings {

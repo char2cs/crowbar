@@ -7,7 +7,7 @@ mod script;
 #[path = "support/real_infra/daemon.rs"]
 mod support;
 
-use late_launch::{heard_until, launch_until_startup_is_spent, probing};
+use late_launch::{heard_until, launch_until_startup_is_spent, probing, stopped};
 use std::path::PathBuf;
 use std::time::Duration;
 use supervisor::{DaemonEvent, Error, Supervisor, Timings};
@@ -295,7 +295,7 @@ async fn a_late_answer_makes_the_launch_ready_without_a_respawn() -> TestResult 
         tell(heard_by, &launch.supervisor);
         let ready = |e: &DaemonEvent| matches!(e, DaemonEvent::Ready { pid: Some(_) });
         let heard = heard_until(&mut launch.events, ready).await?;
-        launch.supervisor.stop().await;
+        stopped(launch.supervisor).await?;
         assert!(!heard.iter().any(charged), "{heard_by:?}: {heard:?}");
     }
     Ok(())
@@ -307,7 +307,7 @@ async fn a_launch_that_never_serves_is_killed_by_the_watchdog_and_charged_once()
     let mut launch = launch_until_startup_is_spent(probing(KILLED_AFTER)).await?;
     let recovering = |e: &DaemonEvent| matches!(e, DaemonEvent::Recovering { .. });
     let heard = heard_until(&mut launch.events, recovering).await?;
-    launch.supervisor.stop().await;
+    stopped(launch.supervisor).await?;
     let tail: Vec<_> = heard
         .iter()
         .skip_while(|e| **e != DaemonEvent::Unhealthy)
