@@ -185,6 +185,7 @@ impl ShellView {
             || self.pairing.is_some()
             || self.first_run.is_some()
             || self.question.is_some()
+            || self.backend.crash.is_some()
     }
 
     fn floating(
@@ -192,10 +193,7 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) -> Option<Portal> {
         let modal = self.modal_open(cx);
-        let shown = modal
-            || self.readout.view.is_some()
-            || self.floats_toasts(cx)
-            || self.backend.crash.is_some();
+        let shown = modal || self.readout.view.is_some() || self.floats_toasts(cx);
         if !shown {
             return None;
         }

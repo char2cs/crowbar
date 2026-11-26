@@ -99,13 +99,18 @@ async fn warn_later(
 
 #[cfg(test)]
 mod tests {
-    use gpui::TestAppContext;
+    use std::rc::Rc;
+
+    use gpui::{AppContext as _, TestAppContext};
 
     use layout::{Command, Tab};
 
     use super::SHOW_DELAY;
+    use crate::daemon::backend::CrashPanel;
     use crate::shell::shell_view::ShellView;
-    use crate::shell::shell_view::tests::{Opened, open_shell, open_shell_unsettled};
+    use crate::shell::shell_view::tests::{
+        Opened, open_shell, open_shell_unsettled, open_started_shell,
+    };
 
     fn shown(opened: &mut Opened) -> usize {
         opened.window.run_until_parked();
@@ -128,6 +133,30 @@ mod tests {
             before + 1,
             "Backend unavailable / Reconnecting…"
         );
+    }
+
+    fn covered_views(opened: &Opened) -> usize {
+        let covers = |call: &&webview::Call| matches!(call, webview::Call::SetVisibility { visibility, .. } if *visibility == webview::Visibility::Covered);
+        opened.mock.calls().iter().filter(covers).count()
+    }
+
+    #[gpui::test]
+    fn a_crash_loop_panel_is_drawn_in_the_window_over_the_covered_web_views(
+        cx: &mut TestAppContext
+    ) {
+        let mut opened = open_started_shell(cx);
+        let before = covered_views(&opened);
+        opened.shell.update(&mut opened.window, |shell, cx| {
+            let report = "The backend exited 4 times.".into();
+            let panel = cx.new(|_| CrashPanel::new(report, Rc::clone(&shell.link)));
+            let watched = cx.observe(&panel, |_, _, _| {});
+            shell.backend.crash = Some((panel, watched));
+            cx.notify();
+        });
+        opened.window.run_until_parked();
+        let drawn = opened.window.debug_bounds("daemon-crash-panel");
+        assert!(drawn.is_some(), "drawn in the window");
+        assert_eq!(covered_views(&opened), before + 1, "the chat is covered");
     }
 
     const RETRY_SLOT: &str = "projects-retry-slot";
