@@ -8,24 +8,11 @@ license-file.workspace = true
 repository.workspace = true
 publish.workspace = true
 
-[features]
-# The terminalgallery binary: a real shell over a local PTY that stands in for the daemon.
-gallery = ["dep:alacritty_terminal", "dep:rustix", "dep:tracing-subscriber"]
-
-[[bin]]
-name = "terminalgallery"
-path = "src/bin/gallery/main.rs"
-required-features = ["gallery"]
-
 [dependencies]
-alacritty_terminal = { version = "=0.25.1", optional = true }
 async-channel.workspace = true
 gpui.workspace = true
-gpui_platform.workspace = true
-rustix = { version = "1", features = ["fs"], optional = true }
 terminal.workspace = true
 tracing.workspace = true
-tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"], optional = true }
 ui.workspace = true
 
 [dev-dependencies]

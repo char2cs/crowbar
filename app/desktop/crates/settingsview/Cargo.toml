@@ -8,19 +8,9 @@ license-file.workspace = true
 repository.workspace = true
 publish.workspace = true
 
-[features]
-# The gallery binary runs the dialog over the settings crate's FakeBackend.
-fake = ["settings/fake"]
-
-[[bin]]
-name = "settingsgallery"
-path = "src/bin/gallery/main.rs"
-required-features = ["fake"]
-
 [dependencies]
 chord.workspace = true
 gpui.workspace = true
-gpui_platform.workspace = true
 settings.workspace = true
 thiserror.workspace = true
 ui.workspace = true
