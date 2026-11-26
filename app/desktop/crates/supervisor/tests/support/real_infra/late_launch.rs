@@ -31,25 +31,43 @@ pub(crate) async fn launch_until_startup_is_spent(
     let supervisor = Supervisor::start(cfg);
     let events = supervisor.events();
     let mut events_heard = supervisor.events();
-    for polled in 0..STARTUP_POLLS {
-        let dialled = tokio::time::timeout(EVENT_BUDGET, spent.accept()).await;
-        if dialled.is_err() {
-            let heard = drain(&mut events_heard);
-            let log = std::fs::read_to_string(home.path().join("logs").join("daemon.log"));
-            return Err(format!(
-                "the daemon announced {polled} of {STARTUP_POLLS} refused polls in {EVENT_BUDGET:?}; \
-                 socket {}; events {heard:?}; log {log:?}",
-                home.path().display()
-            )
-            .into());
-        }
-        dialled??;
+    if let Err((polled, missed)) = refused_polls(&spent).await {
+        return Err(missed_report(&missed, polled, &mut events_heard, home.path()).into());
     }
     Ok(Launch {
         supervisor,
         events,
         home,
     })
+}
+
+async fn refused_polls(spent: &UnixListener) -> Result<(), (u32, String)> {
+    for polled in 0..STARTUP_POLLS {
+        refused_poll(spent).await.map_err(|missed| (polled, missed))?;
+    }
+    Ok(())
+}
+
+async fn refused_poll(spent: &UnixListener) -> Result<(), String> {
+    let dialled = tokio::time::timeout(EVENT_BUDGET, spent.accept()).await;
+    dialled
+        .map_err(|_| format!("no refused poll within {EVENT_BUDGET:?}"))?
+        .map(drop)
+        .map_err(|error| error.to_string())
+}
+
+fn missed_report(
+    missed: &str,
+    polled: u32,
+    events: &mut Receiver<DaemonEvent>,
+    home: &std::path::Path,
+) -> String {
+    let log = std::fs::read_to_string(home.join("logs").join("daemon.log"));
+    let heard = drain(events);
+    format!(
+        "{missed} after {polled} of {STARTUP_POLLS}; home {}; events {heard:?}; log {log:?}",
+        home.display()
+    )
 }
 
 fn drain(events: &mut Receiver<DaemonEvent>) -> Vec<DaemonEvent> {
