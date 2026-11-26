@@ -5,8 +5,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::error::{Error, Result};
 use crate::string_id::{check_text, is_word_char};
 
-/// Most entries a [`Params`] holds.
-pub const MAX_PARAMS: usize = 16;
+const MAX_PARAMS: usize = 16;
 
 const MAX_KEY_BYTES: usize = 64;
 
@@ -14,7 +13,7 @@ const MAX_KEY_BYTES: usize = 64;
 ///
 /// Values are ids only: panes fetch their data from the daemon. Keys are alphanumeric words
 /// (`-` and `_` allowed) of at most 64 bytes, values follow the id alphabet, and there are at
-/// most [`MAX_PARAMS`] entries; every value of the type, including ones read from the wire,
+/// most 16 entries; every value of the type, including ones read from the wire,
 /// holds these limits. The map is ordered so equal parameters always serialize and compare the
 /// same way.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
@@ -26,7 +25,7 @@ impl Params {
     ///
     /// # Errors
     /// An [`Error`] when the key or value is outside its alphabet or length, or the entry
-    /// would be the [`MAX_PARAMS`]th plus one.
+    /// would be the 16th plus one.
     pub fn with(
         mut self,
         key: impl Into<String>,

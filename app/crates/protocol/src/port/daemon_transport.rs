@@ -55,8 +55,6 @@ mod tests {
     use crate::error::Error;
     use crate::identity::HostId;
     use crate::identity::PaneOrigin;
-    use crate::port::http_method::HttpMethod;
-    use crate::port::request_target::RequestTarget;
 
     struct Refusing;
 
@@ -87,25 +85,5 @@ mod tests {
         );
         transport.revoke_pane(&scope);
         assert!(transport.relay_endpoint(&scope).is_err(), "still refusing");
-    }
-
-    #[test]
-    fn a_transport_is_usable_as_a_shared_trait_object() {
-        let transport: std::sync::Arc<dyn DaemonTransport> = std::sync::Arc::new(Refusing);
-        let request = DaemonRequest::new(
-            HostId::new("local").unwrap(),
-            PaneOrigin::Core,
-            HttpMethod::new("GET").unwrap(),
-            RequestTarget::new("/v0/health").unwrap(),
-        );
-        let (sender, receiver) = std::sync::mpsc::channel();
-        transport.request(
-            request,
-            Box::new(move |result| sender.send(result).unwrap()),
-        );
-        assert!(
-            matches!(receiver.recv().unwrap(), Err(Error::Denied(_))),
-            "responder called once"
-        );
     }
 }

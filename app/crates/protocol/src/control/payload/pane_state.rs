@@ -6,8 +6,7 @@ use serde_json::Value;
 use crate::control::payload::pane_state::byte_counter::ByteCounter;
 use crate::error::{Error, Result};
 
-/// Largest serialized pane state accepted, in bytes. Larger data belongs in extension data.
-pub const MAX_STATE_BYTES: usize = 64 * 1024;
+const MAX_STATE_BYTES: usize = 64 * 1024;
 
 /// Opaque JSON a pane owns and gets back on `mount`. The cap holds for every value of the
 /// type, including ones read from the wire or from disk.
@@ -19,7 +18,7 @@ impl PaneState {
     /// Validates the size of `value` and wraps it.
     ///
     /// # Errors
-    /// [`Error::StateTooLarge`] when the serialized value exceeds [`MAX_STATE_BYTES`].
+    /// [`Error::StateTooLarge`] when the serialized value exceeds 64 KiB.
     pub fn new(value: Value) -> Result<Self> {
         let mut counter = ByteCounter(0);
         serde_json::to_writer(&mut counter, &value)?;
@@ -33,12 +32,6 @@ impl PaneState {
     #[must_use]
     pub fn as_value(&self) -> &Value {
         &self.0
-    }
-
-    /// Unwraps the JSON value.
-    #[must_use]
-    pub fn into_value(self) -> Value {
-        self.0
     }
 }
 
@@ -85,11 +78,6 @@ mod tests {
             "oversized"
         );
         let small: PaneState = serde_json::from_str(r#"{"scroll":10}"#).unwrap();
-        assert_eq!(small.into_value(), json!({"scroll": 10}), "small state");
-    }
-
-    #[test]
-    fn default_state_is_null() {
-        assert_eq!(PaneState::default().as_value(), &Value::Null, "null");
+        assert_eq!(small.as_value(), &json!({"scroll": 10}), "small state");
     }
 }

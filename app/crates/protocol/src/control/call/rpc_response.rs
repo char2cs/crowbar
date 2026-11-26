@@ -86,33 +86,21 @@ mod tests {
     use crate::control::payload::DisplayText;
 
     #[test]
-    fn a_null_result_survives_a_round_trip_as_a_result() {
-        let response = RpcResponse::new(RequestId::new(1), RpcOutcome::Ok(Value::Null));
-        let text = serde_json::to_string(&response).unwrap();
-        assert_eq!(text, r#"{"id":1,"result":null}"#, "null is written");
-        assert_eq!(
-            serde_json::from_str::<RpcResponse>(&text).unwrap(),
-            response,
-            "and read back"
-        );
-    }
-
-    #[test]
-    fn an_error_round_trips() {
+    fn a_null_result_and_an_error_round_trip() {
         let error = RpcError::new(ErrorCode::Rejected, DisplayText::new("no").unwrap());
-        let response = RpcResponse::new(RequestId::new(2), RpcOutcome::Err(error));
-        let text = serde_json::to_string(&response).unwrap();
-        assert_eq!(
-            text, r#"{"id":2,"error":{"code":"Rejected","message":"no"}}"#,
-            "shape"
-        );
-        assert_eq!(
-            serde_json::from_str::<RpcResponse>(&text).unwrap(),
-            response,
-            "round trip"
-        );
-        assert_eq!(response.id(), RequestId::new(2), "id");
-        assert!(matches!(response.outcome(), RpcOutcome::Err(_)), "outcome");
+        let cases = [
+            (RpcOutcome::Ok(Value::Null), r#"{"id":1,"result":null}"#),
+            (
+                RpcOutcome::Err(error),
+                r#"{"id":1,"error":{"code":"Rejected","message":"no"}}"#,
+            ),
+        ];
+        for (outcome, text) in cases {
+            let response = RpcResponse::new(RequestId::new(1), outcome);
+            assert_eq!(serde_json::to_string(&response).unwrap(), text, "shape");
+            let read = serde_json::from_str::<RpcResponse>(text).unwrap();
+            assert_eq!(read, response, "round trip");
+        }
     }
 
     #[test]

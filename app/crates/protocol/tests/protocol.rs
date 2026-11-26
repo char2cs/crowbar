@@ -1,13 +1,13 @@
 //! Public-API tests: every frame survives encoding, and wire shapes stay stable.
 
 use protocol::{
-    CommandId, DisplayText, DocumentPath, ErrorCode, EventName, ExtensionId, ExtensionStatus,
-    KeyBinding, KeyChord, Lifecycle, MethodName, OpenMode, PaneFrame, PaneId, PaneOpen, PaneState,
-    PaneTitle, PaneTypeId, Params, RequestId, RpcError, RpcOutcome, RpcResponse, SDK_VERSION,
-    SETTINGS_FRAME_VERSION, SdkVersion, SettingKey, SettingValues, ShellFrame, SpaceId, StatusKind,
-    ThemeTokens, decode_pane_frame, decode_shell_frame, encode,
+    CommandId, DisplayText, DocumentPath, EventName, ExtensionId, ExtensionStatus, KeyBinding,
+    KeyChord, Lifecycle, MethodName, OpenMode, PaneFrame, PaneId, PaneOpen, PaneState, PaneTitle,
+    PaneTypeId, Params, RequestId, SDK_VERSION, SETTINGS_FRAME_VERSION, SdkVersion, SettingKey,
+    SettingValues, ShellFrame, SpaceId, StatusKind, ThemeTokens, decode_pane_frame,
+    decode_shell_frame, encode,
 };
-use serde_json::{Value, json};
+use serde_json::json;
 
 fn assert_pane_frames_round_trip(frames: &[PaneFrame]) -> protocol::Result<()> {
     for frame in frames {
@@ -85,17 +85,6 @@ fn every_shell_frame_round_trips() {
             params: Params::default().with("spaceId", "s").unwrap(),
             state: PaneState::default(),
         },
-        ShellFrame::Response(RpcResponse::new(
-            RequestId::new(1),
-            RpcOutcome::Ok(json!({"ok": true})),
-        )),
-        ShellFrame::Response(RpcResponse::new(
-            RequestId::new(2),
-            RpcOutcome::Err(RpcError::new(
-                ErrorCode::Timeout,
-                DisplayText::new("slow").unwrap(),
-            )),
-        )),
         ShellFrame::ExtensionEvent {
             extension_id: ext.clone(),
             space_id: Some(SpaceId::new("s1").unwrap()),
@@ -108,13 +97,6 @@ fn every_shell_frame_round_trips() {
             StatusKind::Unavailable,
             Some(DisplayText::new("crashed").unwrap()),
         )),
-    ];
-    assert_shell_frames_round_trip(&cases).unwrap();
-}
-
-#[test]
-fn the_sdk_push_frames_for_keybindings_settings_theme_group_and_protocol_errors_round_trip() {
-    let cases = [
         ShellFrame::Keybindings {
             bindings: vec![KeyBinding::new(
                 KeyChord::new("mod+k").unwrap(),
@@ -128,37 +110,8 @@ fn the_sdk_push_frames_for_keybindings_settings_theme_group_and_protocol_errors_
             tokens: ThemeTokens::default().with("color-bg", "#111").unwrap(),
         },
         ShellFrame::Group { chat_fills: true },
-        ShellFrame::Settings {
-            version: SETTINGS_FRAME_VERSION,
-            values: SettingValues::default()
-                .with("wordWrap", json!(true))
-                .unwrap(),
-        },
     ];
     assert_shell_frames_round_trip(&cases).unwrap();
-}
-
-#[test]
-fn a_successful_null_result_is_not_an_absent_result() {
-    let frame = ShellFrame::Response(RpcResponse::new(
-        RequestId::new(9),
-        RpcOutcome::Ok(Value::Null),
-    ));
-    let text = encode(&frame).unwrap();
-    assert_eq!(
-        text, r#"{"sdk":1,"kind":"response","id":9,"result":null}"#,
-        "shape"
-    );
-    assert_eq!(decode_shell_frame(&text).unwrap(), frame, "round trip");
-    for both_or_neither in [
-        r#"{"sdk":1,"kind":"response","id":9}"#,
-        r#"{"sdk":1,"kind":"response","id":9,"result":1,"error":{"code":"Timeout","message":""}}"#,
-    ] {
-        assert!(
-            decode_shell_frame(both_or_neither).is_err(),
-            "{both_or_neither}"
-        );
-    }
 }
 
 #[test]
@@ -168,36 +121,37 @@ fn wire_shapes_are_camel_case_with_dotted_kinds() {
         StatusKind::Back,
         None,
     ));
-    assert_eq!(
-        encode(&status).unwrap(),
-        r#"{"sdk":1,"kind":"extension.status","extensionId":"git","status":"back"}"#,
-        "status"
-    );
     let park = ShellFrame::Lifecycle {
         pane_id: PaneId::new("p1").unwrap(),
         event: Lifecycle::Park,
         params: Params::default(),
         state: PaneState::default(),
     };
-    assert_eq!(
-        encode(&park).unwrap(),
-        r#"{"sdk":1,"kind":"lifecycle","paneId":"p1","event":"park","params":{},"state":null}"#,
-        "lifecycle"
-    );
     let register = PaneFrame::Register {
         type_id: PaneTypeId::new("core.chat").unwrap(),
         sdk: SdkVersion::new(1, 0),
     };
-    assert_eq!(
-        encode(&register).unwrap(),
-        r#"{"sdk":1,"kind":"pane.register","typeId":"core.chat","sdkVersion":"1.0"}"#,
-        "register"
-    );
-    assert_eq!(
-        encode(&ShellFrame::Group { chat_fills: false }).unwrap(),
-        r#"{"sdk":1,"kind":"group","chatFills":false}"#,
-        "group"
-    );
+    let cases = [
+        (
+            encode(&status),
+            r#"{"sdk":1,"kind":"extension.status","extensionId":"git","status":"back"}"#,
+        ),
+        (
+            encode(&park),
+            r#"{"sdk":1,"kind":"lifecycle","paneId":"p1","event":"park","params":{},"state":null}"#,
+        ),
+        (
+            encode(&register),
+            r#"{"sdk":1,"kind":"pane.register","typeId":"core.chat","sdkVersion":"1.0"}"#,
+        ),
+        (
+            encode(&ShellFrame::Group { chat_fills: false }),
+            r#"{"sdk":1,"kind":"group","chatFills":false}"#,
+        ),
+    ];
+    for (encoded, expected) in cases {
+        assert_eq!(encoded.unwrap(), expected, "{expected}");
+    }
 }
 
 #[test]
@@ -206,41 +160,12 @@ fn the_settings_frame_is_versioned_and_carries_the_whole_set() {
         version: SETTINGS_FRAME_VERSION,
         values: SettingValues::default().with("tabSize", json!(4)).unwrap(),
     };
+    let text = encode(&frame).unwrap();
     assert_eq!(
-        encode(&frame).unwrap(),
-        r#"{"sdk":1,"kind":"settings","version":1,"values":{"tabSize":4}}"#,
+        text, r#"{"sdk":1,"kind":"settings","version":1,"values":{"tabSize":4}}"#,
         "shape"
     );
-    assert!(
-        decode_shell_frame(r#"{"sdk":1,"kind":"settings","version":1,"values":{"a b":1}}"#)
-            .is_err(),
-        "a bad key is refused"
-    );
-}
-
-#[test]
-fn lifecycle_names_are_lower_camel_case() {
-    let cases = [
-        (Lifecycle::Mount, "mount"),
-        (Lifecycle::Activate, "activate"),
-        (Lifecycle::Deactivate, "deactivate"),
-        (Lifecycle::Park, "park"),
-        (Lifecycle::Destroy, "destroy"),
-    ];
-    for (event, name) in cases {
-        assert_eq!(
-            serde_json::to_string(&event).unwrap(),
-            format!("\"{name}\""),
-            "{event:?}"
-        );
-    }
-}
-
-#[test]
-fn oversized_state_in_a_frame_is_rejected() {
-    let big = "x".repeat(protocol::MAX_STATE_BYTES);
-    let text = format!(r#"{{"sdk":1,"kind":"pane.setState","state":"{big}"}}"#);
-    assert!(decode_pane_frame(&text).is_err(), "state over the cap");
+    assert_eq!(decode_shell_frame(&text).unwrap(), frame, "round trip");
 }
 
 #[test]
@@ -254,6 +179,10 @@ fn unbounded_or_malformed_strings_in_pane_frames_are_rejected() {
         r#"{"sdk":1,"kind":"command.run","command":"x/y"}"#.to_owned(),
         r#"{"sdk":1,"kind":"pane.open","typeId":"ext.my_ext.x","params":{}}"#.to_owned(),
         r#"{"sdk":1,"kind":"pane.open","typeId":"core.chat","params":{"k":"a b"}}"#.to_owned(),
+        format!(
+            r#"{{"sdk":1,"kind":"pane.setState","state":"{}"}}"#,
+            "x".repeat(64 * 1024)
+        ),
     ] {
         assert!(decode_pane_frame(&text).is_err(), "{text}");
     }

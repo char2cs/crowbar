@@ -1,8 +1,7 @@
 use crate::error::{Error, Result};
 use crate::string_id::string_id;
 
-/// Longest tab title, in bytes.
-pub const MAX_TITLE_BYTES: usize = 256;
+const MAX_TITLE_BYTES: usize = 256;
 
 fn validate(value: &str) -> Result<()> {
     if value.len() > MAX_TITLE_BYTES {
@@ -18,7 +17,7 @@ fn validate(value: &str) -> Result<()> {
 }
 
 string_id!(
-    /// The text of a pane's tab: at most [`MAX_TITLE_BYTES`] bytes, no control characters.
+    /// The text of a pane's tab: at most 256 bytes, no control characters.
     /// Empty means the shell shows the pane type's default title.
     PaneTitle,
     validate

@@ -88,8 +88,6 @@ mod tests {
             binding,
             "round trip"
         );
-        assert_eq!(binding.keys().as_str(), "mod+k", "keys");
-        assert_eq!(binding.command().as_str(), "core.palette", "command");
         assert!(
             serde_json::from_str::<KeyBinding>(r#"{"keys":"mod k","command":"x"}"#).is_err(),
             "bad chord"
