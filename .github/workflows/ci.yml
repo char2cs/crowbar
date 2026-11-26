@@ -15,12 +15,11 @@ permissions:
 
 jobs:
   changes:
-    if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     outputs:
       go: ${{ steps.filter.outputs.go }}
       web: ${{ steps.filter.outputs.web }}
-      tauri: ${{ steps.filter.outputs.tauri }}
+      ios: ${{ steps.filter.outputs.ios }}
       website: ${{ steps.filter.outputs.website }}
     steps:
       - uses: actions/checkout@v7
@@ -37,17 +36,14 @@ jobs:
               - 'app/panes/**'
               # The Go-owned wire fixture the web link tests replay through xterm.
               - 'api/internal/core/terminal/internal/model/testdata/**'
-            tauri:
+            ios:
               - 'app/mobile/**'
-              # The Go-owned health fixtures the Rust health tests parse.
-              - 'api/internal/core/bootgate/testdata/**'
               - '.github/workflows/ci.yml'
             website:
               - 'website/**'
               - '.github/workflows/ci.yml'
 
   validate-branch:
-    if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - name: Validate branch naming convention
@@ -59,8 +55,8 @@ jobs:
             exit 0
           fi
           if [[ "${{ github.base_ref }}" == "develop" ]]; then
-            if ! echo "$BRANCH" | grep -qE '^(enhancement|feature|fix|refactor|dependabot|backport)/'; then
-              echo "❌ Branch '$BRANCH' targeting develop must start with enhancement/, feature/, fix/, refactor/, dependabot/, or backport/"
+            if ! echo "$BRANCH" | grep -qE '^(enhancement|feature|fix|refactor|migration|dependabot|backport)/'; then
+              echo "❌ Branch '$BRANCH' targeting develop must start with enhancement/, feature/, fix/, refactor/, migration/, dependabot/, or backport/"
               exit 1
             fi
           elif [[ "${{ github.base_ref }}" == "master" ]]; then
@@ -247,7 +243,7 @@ jobs:
 
   ios-checks:
     needs: changes
-    if: needs.changes.outputs.tauri == 'true'
+    if: needs.changes.outputs.ios == 'true'
     # macos-26 (NOT macos-latest): iOS 26 SDK + Icon Composer actool need Xcode 26.5,
     # and macos-latest may still resolve to macOS 15 / Xcode 26.3.
     runs-on: macos-26
