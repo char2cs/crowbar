@@ -32,7 +32,7 @@ pub trait RowActions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::DemoShell;
+    use crate::test_support::DemoShell;
 
     #[test]
     fn nothing_is_refused_or_removable_unless_the_demo_says_so() {

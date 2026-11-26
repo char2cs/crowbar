@@ -25,7 +25,7 @@ pub trait ActiveSpace {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::DemoShell;
+    use crate::test_support::DemoShell;
 
     #[test]
     fn only_the_active_space_holds_rows() {
