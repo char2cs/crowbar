@@ -14,6 +14,9 @@ impl State {
         &mut self,
         row: &Row,
     ) -> Option<Effect> {
+        if !self.row_enabled(row) {
+            return None;
+        }
         let stored = self.document.value(&row.key).and_then(Value::as_bool)?;
         Some(self.write(&row.key, Value::Bool(!stored)))
     }
@@ -34,7 +37,9 @@ impl State {
         row: &Row,
         text: &str,
     ) {
-        self.document.edit(&row.key, text);
+        if self.row_enabled(row) {
+            self.document.edit(&row.key, text);
+        }
     }
 
     /// Stores what is typed in `row` (Enter, or the field losing focus); text that does not parse is dropped; text the validator refuses is stored and flagged.

@@ -39,7 +39,21 @@ impl State {
         {
             return spec.disabled_note.as_deref().or(row.description.as_deref());
         }
-        row.description.as_deref()
+        let worded = row
+            .worded
+            .as_ref()
+            .filter(|(rule, _)| rule.holds(&self.scope()));
+        worded.map_or(row.description.as_deref(), |(_, text)| Some(text.as_str()))
+    }
+
+    /// Whether the control of `row` takes changes: it is drawn disabled while it is frozen.
+    pub fn row_enabled(
+        &self,
+        row: &Row,
+    ) -> bool {
+        row.frozen
+            .as_ref()
+            .is_none_or(|rule| !rule.holds(&self.scope()))
     }
 
     /// The options of the select `row`.
@@ -70,8 +84,27 @@ impl State {
 
 #[cfg(test)]
 mod tests {
-    use crate::schema::PageId;
+    use crate::schema::{Condition, PageId};
     use crate::state::test_support::{custom_row, engine_row, state, write};
+
+    #[test]
+    fn a_frozen_row_says_why_and_takes_no_typing_while_its_condition_holds() {
+        let picked = || Condition::equals("engine", "duckduckgo");
+        let frozen = custom_row()
+            .describe_while((picked(), "Pick Custom to change it."))
+            .frozen_while(picked());
+        let mut state = state();
+        assert!(!state.row_enabled(&frozen), "frozen");
+        assert_eq!(
+            state.description(&frozen),
+            Some("Pick Custom to change it.")
+        );
+        state.edit(&frozen, "https://a.example/?q=%s");
+        assert_eq!(state.commit(&frozen), None, "the typing was refused");
+        state.choose(&engine_row(), 1);
+        assert!(state.row_enabled(&frozen), "free again");
+        assert_eq!(state.description(&frozen), Some("Search address"));
+    }
 
     #[test]
     fn selects_store_the_option_value_and_reveal_dependent_rows() {
