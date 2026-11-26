@@ -42,7 +42,7 @@ impl AppOptions {
             (None, None) => vec![PathBuf::from(DEFAULT_PANES_DIR)],
         };
         let entry_of = |dir: &PathBuf| dir.join(&self.chat_entry);
-        let first_entry = candidates.first().map(entry_of).unwrap_or_default();
+        let first_entry = candidates.first().map_or_else(PathBuf::new, entry_of);
         candidates
             .into_iter()
             .find(|dir| is_file(&entry_of(dir)))
