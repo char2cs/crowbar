@@ -25,7 +25,7 @@ Visual parity is 1:1. Underlying behaviour is not copied when it is buggy or hal
 
 - App works as today. The settings modal is native and schema-driven, prepared for extensions but without them.
 - Desktop looks 1:1 with the Tauri app, animations included. The settings modal keeps the same visual identity.
-- Nothing from the inventory (`docs/triage/shell-surface-inventory.md`) is dropped unless the owner agreed to cut it.
+- Nothing from develop's app is dropped unless the owner agreed to cut it.
 - Only React components that are in use are ported.
 - Mobile (Swift and Tauri) builds under the new paths and its files follow the guidelines. Owner checks mobile later.
 - Code is reviewed by a separate agent and by the global-rules checker; no best-effort code.

@@ -141,7 +141,7 @@ scan_cycles() {
   python3 -I "$here/check-cycles.py" rust "${srcs[@]}" | sed "s#^$root/##" ; [[ ${PIPESTATUS[0]} -eq 0 ]] || status=1
 }
 
-scan_module_count() { # a folder holds at most 12 modules; foo.rs + foo/ count once (rust-tree plan 2.1)
+scan_module_count() { # a folder holds at most 12 modules; foo.rs + foo/ count once
   local root=$1
   python3 -I - "$root" <<'PY'
 import os, sys

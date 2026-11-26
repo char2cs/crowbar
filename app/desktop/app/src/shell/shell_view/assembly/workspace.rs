@@ -10,7 +10,6 @@ use viewtabs::TabBar;
 use crate::daemon::backend::ProjectsFailed;
 use crate::shell::shell_view::assembly::workspace_event::WorkspaceEvent;
 
-// SPEC: docs/triage/2026-11-18-side-by-side-audit/01-oobe.md OOBE-009: develop's InlineError is flex-1 p-6 under the WorkspaceHost.
 const LANDING_PADDING: f32 = 24.0;
 const STAGE_SELECTOR: &str = "workspace-stage";
 

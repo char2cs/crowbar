@@ -1,6 +1,6 @@
 # settingsview
 
-Layer L3 (gpui view). See `docs/plans/2026-11-18-rust-tree.md` section 4.6.
+Layer L3 (gpui view). See `docs/rust-style.md` (crate layers).
 
 ## Owns
 

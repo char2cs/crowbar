@@ -1,6 +1,6 @@
 # Pane tab strips: groups of stacked panes inside a tab
 
-Status: DECIDED, in implementation on `migration/rust-shell`. Sources: `shell-spec/tabs-pane-strip.md`, `shell-spec/pane-layout-intent.md` (F2, F4, F5, F6, F8, F9), `shell-spec/pane-layout-chrome.md` section 9, and the owner decisions in `2026-11-14-gpui-shell-migration-plan.md`. No open questions: where the spec is silent the default is chosen and recorded here.
+Status: DECIDED, in implementation on `migration/rust-shell`. Sources: develop's pane tab strip and pane layout, and the owner decisions in `2026-11-14-gpui-shell-migration-plan.md`. No open questions: where the spec is silent the default is chosen and recorded here.
 
 ## 1. Problem
 

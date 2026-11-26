@@ -33,7 +33,7 @@ const PANEL_TOP: f32 = 16.0;
 const CHOOSE_FOLDER: &str = "Choose…";
 const CREATING: &str = "Creating…";
 
-// SPEC: docs/triage/2026-11-18-side-by-side-audit/16-dlg.md DLG-048: rfd's GTK folder chooser.
+// SPEC: docs/plans/2026-11-26-overlay-rule.md#the-rule rfd's GTK folder chooser.
 const SPACE_FOLDER: FileChoice = FileChoice {
     title: "Select Folder",
     kind: ChoiceKind::Folder,

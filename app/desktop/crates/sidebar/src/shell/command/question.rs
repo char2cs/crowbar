@@ -3,7 +3,6 @@
 use crate::shell::chats::RowId;
 use crate::shell::command::{Command, Stakes};
 
-// SPEC: docs/triage/2026-11-18-side-by-side-audit/16-dlg.md DLG-009: develop's message with no client attached.
 const KILL_BODY: &str =
     "It stops now, even mid-turn. The conversation is kept and resumes when reopened.";
 const DETACH_BODY: &str = "will move to a detached HEAD, releasing the branch so Crowbar can manage it in its own worktree. Your files are safe — only the working directory's current branch changes; uncommitted changes and commits are preserved.";

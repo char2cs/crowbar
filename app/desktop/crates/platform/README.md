@@ -1,6 +1,6 @@
 # platform
 
-Layer L0 (logic, OS layer). See `docs/plans/2026-11-18-rust-tree.md` section 3.
+Layer L0 (logic, OS layer). See `docs/rust-style.md` (crate layers).
 
 ## Owns
 

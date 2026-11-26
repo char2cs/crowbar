@@ -1,13 +1,12 @@
 # ui
 
-Layer L0 (the one gpui crate of the foundation). See `docs/plans/2026-11-18-rust-tree.md` section 4.4.
+Layer L0 (the one gpui crate of the foundation). See `docs/rust-style.md` (crate layers).
 
 ## Owns
 
 The GPUI design system of the Crowbar shell: theme, palettes, tokens, fonts, icons, motion primitives
-and the base components (controls, text fields, display, overlays, toasts). Every visual value comes
-from `docs/plans/shell-spec/00-tokens*.md` (colour, type, radii, shadows, motion, z-order,
-primitives). The sidebar, tab bar, layout and settings crates build on this crate and add no styling
+and the base components (controls, text fields, display, overlays, toasts). Every visual value matches
+develop's web app (colour, type, radii, shadows, motion, z-order, primitives). The sidebar, tab bar, layout and settings crates build on this crate and add no styling
 of their own.
 
 ## Setup

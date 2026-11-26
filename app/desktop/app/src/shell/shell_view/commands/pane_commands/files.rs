@@ -13,7 +13,7 @@ use reveal_event::RevealEvent;
 
 const A_FILE: &str = "a file";
 
-// SPEC: docs/triage/2026-11-18-side-by-side-audit/16-dlg.md DLG-046: rfd's GTK chooser, several files.
+// SPEC: docs/plans/2026-11-26-overlay-rule.md#the-rule rfd's GTK chooser, several files.
 const OPEN_FILES: ui::FileChoice = ui::FileChoice {
     title: "Open File",
     kind: ui::ChoiceKind::Files,

@@ -78,12 +78,6 @@ another user owns or may write to.
 The owner dropped the stale-bundle check (no build id, no shell change). A tab left
 open across an upgrade must be reloaded by hand.
 
-## Sizing a home before the upgrade
-
-`scripts/legacy-size.sh [home]` prints the chats, legacy records (as step 6 counts
-them) and bytes, opening each database read-only. On the 443k-record home step 6
-peaks at 81 MB.
-
 ## Residual risks, ranked
 
 1. A chat both builds wrote to after the upgrade keeps this build's history; the

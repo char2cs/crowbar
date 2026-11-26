@@ -14,7 +14,7 @@ use crate::shell::shell_view::ShellView;
 use crate::shell::shell_view::settings::settings_modal::{open_settings, settings_config};
 use crate::shell::window::notice_key::NoticeKey;
 
-// SPEC: docs/triage/2026-11-18-side-by-side-audit/15-set.md SET-094: WebKit's chooser for the descriptor `<input accept=…>`.
+// SPEC: docs/plans/2026-11-26-overlay-rule.md#the-rule WebKit's chooser for the descriptor `<input accept=…>`.
 const DESCRIPTOR_CHOICE: ui::FileChoice = ui::FileChoice {
     title: "Select File",
     kind: ui::ChoiceKind::File,

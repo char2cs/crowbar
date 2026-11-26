@@ -23,7 +23,7 @@ use crate::sidebar::scale::{SPACE_LG, SPACE_SM};
 
 const WIDTH: f32 = 222.0;
 
-// SPEC: docs/triage/2026-11-18-side-by-side-audit/16-dlg.md DLG-047: rfd's GTK chooser with develop's Images filter.
+// SPEC: docs/plans/2026-11-26-overlay-rule.md#the-rule rfd's GTK chooser with develop's Images filter.
 const ICON_IMAGE: FileChoice = FileChoice {
     title: "Open File",
     kind: ChoiceKind::File,

@@ -5,7 +5,7 @@ Status: APPROVED 2026-11-21 with the decisions in section 7. S0, S1 and S2 are b
 ## Goal
 The shell's code editor becomes the native gpui-kit `Editor` (`gpui_kit::component::input::{Editor, EditorState}`, gpui-kit 0.10.0, Apache-2.0). It replaces Monaco, which today runs inside the `core.editor` web pane (`app/panes/src/entries/editor.tsx`). The review/diff view stays React. Parity is develop's editor behaviour and look (`origin/develop:web/src/features/editor`), not Monaco internals.
 
-Sources read: develop's `web/src/features/editor/**`, `features/settings/config/default-settings.ts`, `features/keymaps/registry.ts`, `lib/api/documents.ts`, `features/workspace/lib/external-buffer-sync.ts`; the shell's `app/desktop/app/src/{core_panes,native_panes,terminal_panes,dirty_panes}.rs`, `shell_state/{open_requested,preview}.rs`, `pane_spec/file_specs.rs`, `app/panes/src/entries/*`; the crates.io sources of `gpui-kit`, `gpui-component` and `gpui-base` 0.10.0 (fetched, not vendored, not compiled); the ED rows of `docs/triage/2026-11-18-side-by-side-audit/13-ed.md` and the clusters in `~/.cache/crowbar-lanes/fail-clusters.md`.
+Sources read: develop's `web/src/features/editor/**`, `features/settings/config/default-settings.ts`, `features/keymaps/registry.ts`, `lib/api/documents.ts`, `features/workspace/lib/external-buffer-sync.ts`; the shell's `app/desktop/app/src/{core_panes,native_panes,terminal_panes,dirty_panes}.rs`, `shell_state/{open_requested,preview}.rs`, `pane_spec/file_specs.rs`, `app/panes/src/entries/*`; the crates.io sources of `gpui-kit`, `gpui-component` and `gpui-base` 0.10.0 (fetched, not vendored, not compiled).
 
 ## 1. What gpui-kit 0.10.0 actually is
 - `gpui-kit` is a facade. The `Editor` element lives in `gpui-component` (`src/input/editor.rs`). The editing engine lives in `gpui-base` (`src/input`), where `EditorState = InputBaseState<EditorMode>`. All three are Apache-2.0, pin `gpui-pre =0.3.12`, and depend on `ropey =2.0.0-beta.1` and `lsp-types 0.97`.
@@ -193,7 +193,7 @@ Rules that keep it single-owner:
 The document registry is keyed by `DocumentUri` (`workspace:<ws>/<path>`, `host:<path>`, `untitled:<n>`). It is the one place a save-as rebinds an untitled document to its file (ED-088) and refuses onto an open dirty one (ED-089).
 
 ## 4. Where it goes in the tree
-Following `docs/plans/2026-11-18-rust-tree.md` (the `terminal`/`terminalview` split and the `<feature>view` naming rule):
+Following the crate layers of `docs/rust-style.md` (the `terminal`/`terminalview` split and the `<feature>view` naming rule):
 
 | Crate | Layer | Kind | Holds | Deps |
 |---|---|---|---|---|
@@ -231,7 +231,7 @@ The Monaco pane stays in place until slice 7 retires it. No feature flag is adde
 
 ### S0: vendor and wire, no behaviour
 - `upstream.txt` + `update.sh` for `gpui-base` and `gpui-component`; the `editor` and `editorview` crates with empty public APIs; `rust-layers.txt`.
-- `cargo deny`, `cargo machete`, and `cargo check -p crowbar --target x86_64-apple-darwin` (see the gpui-upgrade notes).
+- `cargo deny`, `cargo machete`, and `cargo check -p crowbar --target x86_64-apple-darwin`.
 - Red test: `editorview` gallery smoke. An `EditorView` over "a\nb" renders two rows and `value()` round-trips. It fails before the crate exists.
 - Rows: none.
 
@@ -341,7 +341,7 @@ A reachability check run for this plan (imports from `entries/{chat,review,conso
   7. Signature-help provider and popover;
   8. Whitespace modes + active indent guide;
 
-  Each needs a test in `editorview` that pins it (as the gpui-upgrade A1 rule). Upstreaming 1-6 to longbridge is preferred; they are small.
+  Each needs a test in `editorview` that pins it. Upstreaming 1-6 to longbridge is preferred; they are small.
 - **Performance:** the engine says "up to about 50K lines", and develop's daemon refuses only above its size limit (ED-011's 30 MB file).
   - A bench (`editorview/benches/open_large.rs`) opens 10K, 50K and 200K-line files and types at the end.
   - If 200K lines stalls, develop's behaviour for very large files (Monaco stays usable) is not met (decision D8: a line cap with a "too large for the editor" state, or an engine fix).
@@ -360,7 +360,7 @@ A reachability check run for this plan (imports from `entries/{chat,review,conso
     - Properties take develop's property colour, which develop shows only once its language server runs. Tree-sitter uses one capture for TypeScript members and JSON keys.
 - **macOS compile:**
   - gpui-base and gpui-component have `cfg(target_os = "macos")` code (objc2 text content type, keybindings, CoreText via `core-text` in gpui-component).
-  - S0 runs `cargo check -p crowbar --target x86_64-apple-darwin` with the gpui-upgrade notes (no-op `CC`, `runtime_shaders`). No verification until macOS is in scope.
+  - S0 runs `cargo check -p crowbar --target x86_64-apple-darwin` (no-op `CC`, `runtime_shaders`). No verification until macOS is in scope.
   - `PLATFORM:` notes go where mac chords differ (cmd-shift-f is replace on mac).
 - **Dependencies and build:** tree-sitter grammars are C, so build time and binary size grow (estimate +10-20 MB for the grammar set).
   - Only develop's languages are enabled.
@@ -374,7 +374,7 @@ A reachability check run for this plan (imports from `entries/{chat,review,conso
 - **D4** The minimap is dropped. Its setting (`showMinimap`) and its toolbar preferences item are deleted in S7, and ED-024 is marked "dropped by owner, 2026-11-21". No minimap patch. (Owner.)
 - **D5** Monaco's F1 / ctrl+shift+p palette is dropped. ED-054 is marked "dropped by owner, 2026-11-21" in S7. (Owner.)
 - **D6** gpui-component's global `Theme` is a derived projection of the shell theme, written only by `editorview::theme::install`. (Coordinator.)
-- **D7** The old drafts are imported once, then deleted: S3 reads the pane IndexedDB `editor-drafts` store (and develop's, through the legacy-data-import path) into `editor::Drafts`, then removes the source. (Owner.)
+- **D7** The old drafts are imported once, then deleted: S3 reads the pane IndexedDB `editor-drafts` store (and develop's) into `editor::Drafts`, then removes the source. (Owner.)
 - **D8** S1 adds the open-and-type bench at 10K, 50K and 200K lines. The cap-or-fix choice is made from its numbers. (Coordinator.)
   - Bench results (2026-11-21, release, gpui test platform with cosmic-text shaping, 50 keystrokes typed at the end):
 

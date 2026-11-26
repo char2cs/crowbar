@@ -1,4 +1,4 @@
-# The crate layer table of docs/rust-style.md M17 (design: docs/plans/2026-11-18-rust-tree.md section 1).
+# The crate layer table of docs/rust-style.md M17.
 # crate        layer  kind     Dependencies point down: a crate depends only on crates of a lower layer.
 # A logic crate never depends on gpui; only ui, ideshell, the L3 views and the binary do.
 protocol       L0     logic

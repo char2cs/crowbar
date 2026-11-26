@@ -1,6 +1,6 @@
 # sidebar
 
-Layer L1 (logic, gpui-free). See `docs/plans/2026-11-18-rust-tree.md` section 4.5.
+Layer L1 (logic, gpui-free). See `docs/rust-style.md` (crate layers).
 
 ## Owns
 

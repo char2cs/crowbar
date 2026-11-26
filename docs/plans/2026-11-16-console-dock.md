@@ -1,6 +1,6 @@
 # Console dock
 
-Status: tracked follow-up of `2026-11-16-pane-tab-strips.md`; a gate item for spec parity (`shell-spec/pane-layout-chrome.md` section 9). Until it lands the console toggle opens the console as a stackable pane in the focused strip.
+Status: tracked follow-up of `2026-11-16-pane-tab-strips.md`; a gate item for parity with develop's console dock. Until it lands the console toggle opens the console as a stackable pane in the focused strip.
 
 ## Intended behaviour
 

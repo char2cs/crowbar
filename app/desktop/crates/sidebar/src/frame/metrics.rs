@@ -1,4 +1,4 @@
-//! Pixel and ratio constants of the sidebar spec (`docs/plans/shell-spec/sidebar.md`).
+//! Pixel and ratio constants of the sidebar.
 
 pub(crate) const DEFAULT_WIDTH: f32 = 294.0;
 pub(crate) const MIN_WIDTH: f32 = 250.0;

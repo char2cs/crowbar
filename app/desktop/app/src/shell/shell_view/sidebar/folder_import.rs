@@ -12,7 +12,7 @@ use crate::shell::shell_view::ShellView;
 use crate::shell::shell_view::events::first_run::landing;
 use crate::shell::window::notice_key::NoticeKey;
 
-// SPEC: docs/triage/2026-11-18-side-by-side-audit/16-dlg.md DLG-048: rfd's GTK folder chooser.
+// SPEC: docs/plans/2026-11-26-overlay-rule.md#the-rule rfd's GTK folder chooser.
 pub(crate) const IMPORT_FOLDER: ui::FileChoice = ui::FileChoice {
     title: "Select Folder",
     kind: ui::ChoiceKind::Folder,

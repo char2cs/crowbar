@@ -86,7 +86,7 @@ Numbers match the owner manifest (M#) so a finding can cite either.
 
 ## Crate layers (M16, M17)
 
-The map of `docs/plans/2026-11-18-rust-tree.md` section 1. `tools/scripts/rust-layers.txt` holds the same table for the `cargo-layer` check.
+`tools/scripts/rust-layers.txt` holds the same table for the `cargo-layer` check.
 
 | Layer | Kind | Crates |
 |---|---|---|
@@ -109,7 +109,7 @@ crates/transport/src/test_support/*.rs    shared fakes for unit tests (declared 
 
 The unit tests of a file live in that file, so the test is always beside the code it covers and reaches its private items. The 500-line ceiling does not count the test module. Test code is still subject to the structure rules (depth, parameters, comments, `else`); only `unwrap`/`expect`/`panic` and magic numbers are allowed in tests (`clippy.toml` `allow-*-in-tests`, script test regions).
 
-Exceptions, all in the script: `lib.rs` is declaration-only; `main.rs`, `build.rs`, `src/bin/*.rs` are thin entry points; a file with no `fn` needs no tests; `rust-test-exemptions.txt` lists glue files (GPUI view wiring) that cannot be unit tested, and only shrinks. `tools/scripts/inline-rust-tests.sh DIR...` migrates sibling `*_tests.rs` files mechanically.
+Exceptions, all in the script: `lib.rs` is declaration-only; `main.rs`, `build.rs`, `src/bin/*.rs` are thin entry points; a file with no `fn` needs no tests; `rust-test-exemptions.txt` lists glue files (GPUI view wiring) that cannot be unit tested, and only shrinks.
 
 ## Public surface
 

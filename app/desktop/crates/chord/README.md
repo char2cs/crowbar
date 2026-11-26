@@ -1,6 +1,6 @@
 # chord
 
-Layer L0 (logic). See `docs/plans/2026-11-18-rust-tree.md` section 4.6.
+Layer L0 (logic). See `docs/rust-style.md` (crate layers).
 
 ## Owns
 
