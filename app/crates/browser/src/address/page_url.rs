@@ -119,13 +119,10 @@ mod tests {
         for text in refused {
             assert!(!PageUrl::is_loadable(text), "{text}");
         }
-    }
-
-    #[test]
-    fn a_refused_scheme_is_named() {
         assert_eq!(
             PageUrl::parse("file:///x"),
-            Err(Error::Scheme("file".to_owned()))
+            Err(Error::Scheme("file".to_owned())),
+            "a refused scheme is named"
         );
     }
 }
