@@ -12,7 +12,6 @@ publish.workspace = true
 chord.workspace = true
 gpui.workspace = true
 settings.workspace = true
-thiserror.workspace = true
 ui.workspace = true
 
 [dev-dependencies]
