@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use gpui::{
     AnyElement, App, AppContext as _, BoxShadow, Entity, InteractiveElement, IntoElement,
-    ParentElement, Pixels, Point, SharedString, Styled, div, hsla, point, px,
+    ParentElement, Pixels, Point, SharedString, Styled, TextRun, Window, div, hsla, point, px,
 };
 use ui::{Surface, Theme, radius};
 
@@ -17,18 +17,39 @@ const OPACITY: f32 = 0.95;
 const SHADOW_DROP: Pixels = px(4.0);
 const SHADOW_BLUR: Pixels = px(12.0);
 const SHADOW_ALPHA: f32 = 0.15;
+const BORDER: Pixels = px(1.0);
 
 pub(crate) fn file_ghost(
     name: SharedString,
     grabbed: Point<Pixels>,
-    cx: &mut App,
+    (window, cx): (&Window, &mut App),
 ) -> Entity<RowGhost> {
-    let build: GhostBuild = Rc::new(move |cx| card(name.clone(), grabbed, cx));
+    let width = card_width(&name, window, cx);
+    let build: GhostBuild = Rc::new(move |cx| card((name.clone(), width), grabbed, cx));
     cx.new(|_| RowGhost::new(build, radius::SM))
 }
 
+fn card_width(
+    name: &SharedString,
+    window: &Window,
+    cx: &App,
+) -> Pixels {
+    let run = TextRun {
+        len: name.len(),
+        font: gpui::font(Theme::of(cx).ui_family()),
+        color: hsla(0.0, 0.0, 0.0, 1.0),
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    let shaped = window
+        .text_system()
+        .shape_line(name.clone(), TEXT_SMALL, &[run], None);
+    shaped.width + (SPACE_LG + BORDER) * 2.0
+}
+
 fn card(
-    name: SharedString,
+    (name, width): (SharedString, Pixels),
     grabbed: Point<Pixels>,
     cx: &App,
 ) -> AnyElement {
@@ -43,9 +64,9 @@ fn card(
         inset: false,
     };
     div()
-        .relative()
-        .left(at.x)
-        .top(at.y)
+        .ml(at.x)
+        .mt(at.y)
+        .w(width)
         .py(SPACE_SM)
         .px(SPACE_LG)
         .whitespace_nowrap()
@@ -73,10 +94,15 @@ mod tests {
     #[gpui::test]
     fn the_card_sits_ten_pixels_right_of_and_above_the_pointer(cx: &mut TestAppContext) {
         let grabbed = point(px(40.0), px(13.0));
-        let cx = mount(cx, move |_, cx| file_ghost("lib.rs".into(), grabbed, cx));
+        let cx = mount(cx, move |window, cx| {
+            file_ghost("pricing.test.ts".into(), grabbed, (window, cx))
+        });
         let bounds = cx.debug_bounds("file-ghost").unwrap_or_default();
         assert_eq!(bounds.origin, point(px(50.0), px(3.0)));
         let padded = px(2.0 * 12.0 + 2.0);
-        assert!(bounds.size.width > padded, "the name is drawn: {bounds:?}");
+        assert!(
+            bounds.size.width > padded * 2.0,
+            "wide enough for the name: {bounds:?}"
+        );
     }
 }

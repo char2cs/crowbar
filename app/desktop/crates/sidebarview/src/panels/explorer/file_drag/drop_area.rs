@@ -9,6 +9,9 @@ use ui::DraggedRow;
 
 use crate::sidebar::{FileGesture, RowAction, RowHandler, Sidebar};
 
+// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/file-explorer/file-explorer/components/file-explorer-tree.tsx
+const ROOT_WASH: f32 = 0.04;
+
 impl Sidebar {
     // SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/file-explorer/file-explorer/components/file-explorer-tree.tsx
     pub(crate) fn file_drop_area(
@@ -36,7 +39,7 @@ impl Sidebar {
         area.border_2()
             .border_dashed()
             .border_color(palette.secondary())
-            .bg(palette.secondary())
+            .bg(palette.secondary().opacity(ROOT_WASH))
     }
 }
 

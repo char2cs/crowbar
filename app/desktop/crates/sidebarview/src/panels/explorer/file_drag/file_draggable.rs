@@ -31,8 +31,8 @@ pub(crate) fn file_draggable(
         let press = FileGesture::Press(dragged.clone(), event.position);
         pressed(RowAction::File(press), window, cx);
     })
-    .on_drag(payload(entry), move |_, grabbed, _, cx| {
-        file_ghost(name.clone(), grabbed, cx)
+    .on_drag(payload(entry), move |_, grabbed, window, cx| {
+        file_ghost(name.clone(), grabbed, (window, cx))
     })
     .on_drag_move(move |event: &DragMoveEvent<DraggedRow>, window, cx| {
         over(RowAction::File(gesture_over(&spot, event)), window, cx);
