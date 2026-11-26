@@ -7,7 +7,7 @@ use gpui::{
 use store::{PairingPending, PairingState};
 use ui::{Button, ButtonSize, ButtonVariant, Palette, Surface, TextInput, TextInputStyle};
 
-use crate::look::{FINGERPRINT_PAD, FINGERPRINT_TINT, GAP, LABEL_GAP, TEXT};
+use crate::look::{FINGERPRINT_PAD, FINGERPRINT_TINT, GAP, HINT_TEXT, LABEL_GAP, TEXT};
 use crate::stage_copy;
 
 pub(crate) fn field<Owner: 'static>(
@@ -38,6 +38,19 @@ pub(crate) fn labelled(
         .child(input.clone())
 }
 
+pub(crate) fn hinted(
+    field: Div,
+    hint: &'static str,
+    palette: &Palette,
+) -> Div {
+    field.child(
+        div()
+            .text_size(HINT_TEXT)
+            .text_color(palette.muted_foreground())
+            .child(hint),
+    )
+}
+
 pub(crate) fn fingerprint_box(
     palette: &Palette,
     fingerprint: &str,
@@ -46,8 +59,10 @@ pub(crate) fn fingerprint_box(
     div()
         .p(FINGERPRINT_PAD)
         .rounded_md()
+        .border_1()
+        .border_color(palette.border())
         .bg(palette.accent().opacity(FINGERPRINT_TINT))
-        .text_size(TEXT)
+        .text_size(HINT_TEXT)
         .font_family(mono)
         .child(SharedString::from(fingerprint.to_owned()))
 }
@@ -85,7 +100,7 @@ pub(crate) fn footer(
     ),
 ) -> Div {
     let busy = state.pending != PairingPending::Idle;
-    let mut primary = Button::new("pair-primary", stage_copy::primary(state.stage))
+    let mut primary = Button::new("pair-primary", stage_copy::primary(state))
         .size(ButtonSize::Sm)
         .on_click(on_primary);
     let mut secondary = Button::new("pair-secondary", stage_copy::secondary(state.stage))

@@ -21,26 +21,14 @@ impl ShellView {
         let (signal, _) = data_signal::callbacks(&self.requests, &self.data_queued);
         let session = self.data.pairing(signal);
         let dialog = cx.new(|cx| pairing::View::new(session, window, cx));
-        self.subscriptions.push(cx.subscribe(
-            &dialog,
-            |this, source, event: &pairing::Event, cx| {
-                this.on_pairing(source, *event, cx);
-            },
-        ));
+        // SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/hosts/components/add-host-dialog.tsx
+        self.subscriptions
+            .push(cx.subscribe(&dialog, |this, _, _: &pairing::Event, cx| {
+                this.pairing = None;
+                cx.notify();
+            }));
         self.pairing = Some(dialog);
         cx.notify();
-    }
-
-    fn on_pairing(
-        &mut self,
-        _: Entity<pairing::View>,
-        event: pairing::Event,
-        cx: &mut Context<'_, Self>,
-    ) {
-        if matches!(event, pairing::Event::Close) {
-            self.pairing = None;
-            cx.notify();
-        }
     }
 
     pub(in crate::shell::shell_view) fn show_device_offer(
@@ -147,7 +135,25 @@ fn data_dir_of(preferences_path: &Path) -> &Path {
 
 #[cfg(test)]
 mod tests {
+    use gpui::TestAppContext;
+
     use super::*;
+    use crate::shell::shell_view::tests::open_shell;
+
+    #[gpui::test]
+    fn a_paired_host_closes_the_dialog_as_develop_does(cx: &mut TestAppContext) {
+        let mut opened = open_shell(cx);
+        let shell = opened.shell.clone();
+        shell.update_in(&mut opened.window, |shell, window, cx| {
+            shell.show_pairing(window, cx);
+        });
+        let dialog = shell.update(&mut opened.window, |shell, _| shell.pairing.clone());
+        let dialog = dialog.expect("the Add Host dialog opens");
+        dialog.update(&mut opened.window, |_, cx| cx.emit(pairing::Event::Paired));
+        opened.window.run_until_parked();
+        let open = shell.update(&mut opened.window, |shell, _| shell.pairing.is_some());
+        assert!(!open, "a paired host left the dialog open");
+    }
 
     #[test]
     fn the_data_directory_is_where_the_preferences_live() {
