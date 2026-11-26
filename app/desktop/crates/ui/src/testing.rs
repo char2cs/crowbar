@@ -14,6 +14,12 @@ impl FloatHost for () {
     ) {
     }
 
+    fn wake(
+        &self,
+        _: RawWindowHandle,
+    ) {
+    }
+
     fn shape(
         &self,
         _: RawWindowHandle,

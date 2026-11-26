@@ -19,6 +19,12 @@ pub trait FloatHost {
         owner: RawWindowHandle,
     );
 
+    /// Has `float` drawn again even while all of it is cut away, as it is between cards.
+    fn wake(
+        &self,
+        float: RawWindowHandle,
+    );
+
     /// Shows `seen` of `float` and lets the pointer reach it on `hit` only.
     fn shape(
         &self,

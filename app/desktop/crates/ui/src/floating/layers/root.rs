@@ -30,7 +30,10 @@ impl Root {
         Registry::start_frame(id, cx);
         cx.on_release(move |_, cx| Registry::forget_float(id, cx))
             .detach();
-        let watching = vec![cx.observe(&owner, |_, _, cx| cx.notify())];
+        let watching = vec![
+            cx.observe(&owner, |root, _, cx| root.redraw(cx)),
+            cx.observe_global::<WindowActivity>(Self::redraw),
+        ];
         let root = Self {
             owner,
             raw: raw_handle(window),
@@ -50,6 +53,16 @@ impl Root {
         };
         host.cover(raw, below);
         host.shape(raw, &[], &[]);
+    }
+
+    fn redraw(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if let (Some(host), Some(raw)) = (Registry::host(cx), self.raw) {
+            host.wake(raw);
+        }
+        cx.notify();
     }
 
     fn settle(

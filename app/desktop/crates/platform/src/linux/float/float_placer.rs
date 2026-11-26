@@ -3,7 +3,10 @@ use x11rb::NONE;
 use x11rb::connection::Connection as _;
 use x11rb::errors::{ConnectError, ReplyError};
 use x11rb::protocol::shape::{ConnectionExt as _, SK, SO};
-use x11rb::protocol::xproto::{ClipOrdering, ConfigureWindowAux, ConnectionExt as _, StackMode};
+use x11rb::protocol::xproto::{
+    ClipOrdering, ConfigureWindowAux, ConnectionExt as _, EXPOSE_EVENT, EventMask, ExposeEvent,
+    StackMode,
+};
 use x11rb::rust_connection::RustConnection;
 
 use crate::error::Error;
@@ -90,6 +93,33 @@ impl FloatPlacer {
         self.flush()
     }
 
+    /// Has `float` drawn again. X reports a window whose cards are all cut away as fully
+    /// obscured, and GPUI draws no frame for such a window until it is exposed.
+    ///
+    /// # Errors
+    /// [`Error::ForeignWindow`] for a handle that is not an X window, [`Error::Float`] when the
+    /// connection broke.
+    pub fn wake(
+        &self,
+        float: RawWindowHandle,
+    ) -> Result<(), Error> {
+        let window = xid(float)?;
+        let exposed = ExposeEvent {
+            response_type: EXPOSE_EVENT,
+            sequence: 0,
+            window,
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+            count: 0,
+        };
+        self.connection
+            .send_event(false, window, EventMask::EXPOSURE, exposed)
+            .map_err(ReplyError::from)?;
+        self.flush()
+    }
+
     fn set_bounding(
         &self,
         window: u32,
@@ -155,7 +185,9 @@ mod tests {
 
     use raw_window_handle::XcbWindowHandle;
     use x11rb::COPY_DEPTH_FROM_PARENT;
-    use x11rb::protocol::xproto::{CreateWindowAux, WindowClass};
+    use x11rb::protocol::Event;
+    use x11rb::protocol::xproto::{ChangeWindowAttributesAux, CreateWindowAux, WindowClass};
+    use x11rb::wrapper::ConnectionExt as _;
 
     use super::*;
 
@@ -199,6 +231,7 @@ mod tests {
         let float = window_at(connection, root, (0, 0, 10));
         let placer = FloatPlacer::connect().unwrap();
         placer.cover(raw(float), raw(owner)).unwrap();
+        placer.connection.sync().unwrap();
         let placed = connection.get_geometry(float).unwrap().reply().unwrap();
         assert_eq!(
             (placed.x, placed.y, placed.width, placed.height),
@@ -220,6 +253,7 @@ mod tests {
             radius: 0,
         };
         placer.shape(raw(float), &[hit], &[hit]).unwrap();
+        placer.connection.sync().unwrap();
         let input = connection
             .shape_get_rectangles(float, SK::INPUT)
             .unwrap()
@@ -232,12 +266,30 @@ mod tests {
             .collect();
         assert_eq!(rects, [(5, 6, 20, 10)]);
         placer.shape(raw(float), &[], &[]).unwrap();
+        placer.connection.sync().unwrap();
         let input = connection
             .shape_get_rectangles(float, SK::INPUT)
             .unwrap()
             .reply()
             .unwrap();
         assert!(input.rectangles.is_empty(), "nothing takes the pointer");
+    }
+
+    fn a_float_window_cut_away_whole_is_still_exposed_when_woken(
+        connection: &RustConnection,
+        root: u32,
+    ) {
+        let float = window_at(connection, root, (0, 0, 100));
+        let listen = ChangeWindowAttributesAux::new().event_mask(EventMask::EXPOSURE);
+        connection.change_window_attributes(float, &listen).unwrap();
+        let placer = FloatPlacer::connect().unwrap();
+        placer.shape(raw(float), &[], &[]).unwrap();
+        placer.connection.sync().unwrap();
+        connection.sync().unwrap();
+        while connection.poll_for_event().unwrap().is_some() {}
+        placer.wake(raw(float)).unwrap();
+        let heard = connection.wait_for_event().unwrap();
+        assert!(matches!(heard, Event::Expose(exposed) if exposed.window == float));
     }
 
     #[test]
@@ -247,6 +299,7 @@ mod tests {
         let root = connection.setup().roots[screen].root;
         a_float_window_covers_its_owner(&connection, root);
         the_pointer_reaches_a_float_window_only_on_its_hit_cards(&connection, root);
+        a_float_window_cut_away_whole_is_still_exposed_when_woken(&connection, root);
     }
 
     #[test]

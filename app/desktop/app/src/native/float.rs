@@ -21,6 +21,13 @@ impl ui::FloatHost for Float {
         logged(self.0.cover(float, owner));
     }
 
+    fn wake(
+        &self,
+        float: RawWindowHandle,
+    ) {
+        logged(self.0.wake(float));
+    }
+
     fn shape(
         &self,
         float: RawWindowHandle,
