@@ -102,11 +102,7 @@ impl ShellCommand {
         self.entry().id
     }
 
-    /// Whether the command runs beside the focused view's own handling of its chord rather
-    /// than instead of it: develop zooms the chat from anywhere, and a focused terminal still
-    /// zooms its own font on the same chord.
-    #[must_use]
-    pub fn runs_alongside(self) -> bool {
+    pub(crate) fn runs_alongside(self) -> bool {
         matches!(
             self,
             Self::ZoomChatIn | Self::ZoomChatOut | Self::ZoomChatReset
@@ -134,21 +130,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_command_round_trips_through_its_id() {
+    fn every_command_round_trips_through_its_id_and_default_chords_are_unique() {
         for command in ShellCommand::all() {
             assert_eq!(ShellCommand::parse(command.id()), Some(command));
         }
-    }
-
-    #[test]
-    fn ids_and_default_chords_are_unique() {
-        let ids: HashSet<_> = ShellCommand::all().map(ShellCommand::id).collect();
         let bound: Vec<_> = ShellCommand::all()
             .map(ShellCommand::default_chord)
             .filter(|chord| !chord.is_empty())
             .collect();
         let chords: HashSet<_> = bound.iter().collect();
-        assert_eq!(ids.len(), ShellCommand::all().count(), "ids collide");
         assert_eq!(chords.len(), bound.len(), "default chords collide");
     }
 
