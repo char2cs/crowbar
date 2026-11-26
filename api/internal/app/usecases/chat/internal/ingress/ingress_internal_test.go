@@ -85,7 +85,9 @@ type fakeTurns struct {
 	during func()
 }
 
-func (t *fakeTurns) RecordTelemetry(context.Context, engineagents.Runner, engineagents.Agent, []byte) error {
+func (t *fakeTurns) RecordTelemetry(
+	context.Context, engineagents.Runner, engineagents.Agent, []byte, engineagents.Channel,
+) error {
 	t.telemetry++
 	return t.err
 }

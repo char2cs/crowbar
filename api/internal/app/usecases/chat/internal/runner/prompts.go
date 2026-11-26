@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -70,6 +71,12 @@ func (rs *Runners) submitPromptLocked(
 		ctx, chat, clientRequestID, live, descriptor, text,
 	); handled {
 		return submission, steerErr
+	}
+
+	if submission, handled, typeErr := rs.submitPromptTyped(
+		ctx, h.park, chat, clientRequestID, live, descriptor, text,
+	); handled {
+		return submission, typeErr
 	}
 
 	if err := rs.requirePromptIdle(ctx, chatID, live.ID); err != nil {
@@ -144,7 +151,7 @@ func (rs *Runners) replayPriorPrompt(
 	if err != nil {
 		return domain.AgentPromptSubmission{}, true, fmt.Errorf("agent: submit prompt: %w", err)
 	}
-	prior, replay, err := priorPrompt(st, requestID, text)
+	prior, replay, err := priorPrompt(st, requestID, text, true)
 	if err != nil || !replay {
 		return domain.AgentPromptSubmission{}, err != nil, err
 	}
@@ -172,18 +179,23 @@ func (rs *Runners) settleOrphanedPrompts(ctx context.Context, chatID string) (le
 
 // priorPrompt is the ledger's verdict on requestID. The same text is a resend
 // (replay); other text, or a prompt already settled, is a conflict; a new
-// request waits behind any prompt still pending.
-func priorPrompt(st ledger.State, requestID, text string) (ledger.Prompt, bool, error) {
+// request waits behind any prompt still pending, unless it may queue behind
+// steered prompts: the running turn's end hands them on one at a time.
+func priorPrompt(st ledger.State, requestID, text string, queues bool) (ledger.Prompt, bool, error) {
 	p, ok := st.Receipt(requestID)
 	switch {
 	case ok && (p.Text != text || p.Status == ledger.PromptStatusSettled):
 		return p, false, ErrPromptRequestIDConflict
 	case ok:
 		return p, true, nil
-	case len(st.PendingPrompts()) > 0:
+	case len(st.PendingPrompts()) > 0 && (!queues || !onlySteered(st.PendingPrompts())):
 		return p, false, ErrPromptBusy
 	}
 	return p, false, nil
+}
+
+func onlySteered(pending []ledger.Prompt) bool {
+	return !slices.ContainsFunc(pending, func(p ledger.Prompt) bool { return p.Delivery != ledger.DeliverySteer })
 }
 
 // recordPrompt appends requestID's user_message before any CLI is touched: from this
@@ -202,7 +214,7 @@ func (rs *Runners) recordPrompt(
 		if err := requireNoReadyMove(st); err != nil {
 			return nil, err
 		}
-		if _, replay, err := priorPrompt(st, requestID, text); err != nil || replay {
+		if _, replay, err := priorPrompt(st, requestID, text, delivery == ledger.DeliverySteer); err != nil || replay {
 			if err == nil {
 				err = ErrPromptRequestIDConflict
 			}
@@ -234,11 +246,14 @@ func refusedRetry(st ledger.State, retryOf string) string {
 }
 
 // failPrompt settles requestID as undelivered, as lost when cause says its
-// session was, and returns cause.
+// session was and as stopped when a Stop was, and returns cause.
 func (rs *Runners) failPrompt(ctx context.Context, chatID, requestID string, cause error) error {
 	reason := ledger.ReasonDeliveryFailed
-	if errors.Is(cause, ErrPromptSessionLost) {
+	switch {
+	case errors.Is(cause, ErrPromptSessionLost):
 		reason = ledger.ReasonSessionLost
+	case errors.Is(cause, ErrStopped):
+		reason = ledger.ReasonStopped
 	}
 	rs.settlePrompts(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
 		return ledger.Settle(st, func(p ledger.Prompt) bool { return p.RequestID == requestID }, false, reason)

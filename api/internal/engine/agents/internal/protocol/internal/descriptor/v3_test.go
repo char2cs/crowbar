@@ -448,3 +448,22 @@ func TestParseV0_AnOutboundSendMayReferenceACapturedValue(t *testing.T) {
 		t.Fatalf("an uncaptured {fence} must be rejected by name, got: %v", err)
 	}
 }
+
+const rememberedFence = `
+  interrupt:
+    out: turn/cancel
+    send: { generation: "{captured.fence}" }
+`
+
+// A value remember: keeps from frames is named captured.NAME in a send; one no
+// entry keeps is rejected like any other unknown name.
+func TestParseV0_AnOutboundSendMayReferenceARememberedFrameValue(t *testing.T) {
+	remembering := strings.Replace(minimalV3, "    serve: [acme, serve]\n",
+		"    serve: [acme, serve]\n    remember:\n      - { in: turn/started, capture: { fence: turn.generation } }\n", 1)
+	mustParse(t, remembering+rememberedFence)
+
+	_, err := descriptor.ParseV0([]byte(minimalV3 + rememberedFence))
+	if err == nil || !strings.Contains(err.Error(), `"captured.fence"`) {
+		t.Fatalf("an unremembered {captured.fence} must be rejected by name, got: %v", err)
+	}
+}

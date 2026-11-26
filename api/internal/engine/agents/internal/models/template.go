@@ -29,6 +29,16 @@ type TemplateCtx struct {
 
 	RunnerToken string
 
+	// RelayID is the identity a session's MCP relay presents ({relay_id}), for a
+	// provider that pins that block for the session's life. It outlives any one
+	// runner, so it is rendered where {segid} would change on every spawn.
+	RelayID string
+	// RelayDir holds the relay's token files, one per RelayID, under the chat's own
+	// directory so neither a new runner nor a move of the chat changes the path.
+	RelayDir string
+	// RelayToken is the credential for RelayID ({relay_token}), rewritten at each spawn.
+	RelayToken string
+
 	// HookBase is the daemon's loopback hook server (hookserver.Server.URL), empty
 	// when none is published. {hook_url} is built from it.
 	HookBase string
@@ -86,6 +96,15 @@ func (c TemplateCtx) HookURL() string {
 // file, not argv; --fail makes a refused post exit non-zero instead of passing.
 func (c TemplateCtx) HookCurl() string {
 	return "curl --fail --silent --show-error --config " + shellWord(filepath.Join(c.Tmp, "hook.curl"))
+}
+
+// RelayTokenFile is where RelayToken is written and the relay reads it ({relay_token_file});
+// empty without a relay id.
+func (c TemplateCtx) RelayTokenFile() string {
+	if c.RelayID == "" {
+		return ""
+	}
+	return filepath.Join(c.RelayDir, c.RelayID+".token")
 }
 
 func (c TemplateCtx) ScopeFlags() string {
@@ -156,6 +175,9 @@ func (c TemplateCtx) pairs() []string {
 		"{crowbar}", c.CrowbarBin,
 		"{segid}", c.Segid,
 		"{runner_token}", c.RunnerToken,
+		"{relay_id}", c.RelayID,
+		"{relay_token_file}", c.RelayTokenFile(),
+		"{relay_token}", c.RelayToken,
 		"{provider}", c.Provider,
 		"{project_id}", c.ProjectID,
 		"{repo_id}", c.RepoID,

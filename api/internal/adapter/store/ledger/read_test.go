@@ -63,6 +63,32 @@ func TestRead_ABlobRefIsInUseWhileAToolCallCarriesIt(t *testing.T) {
 	assert.False(t, inUse)
 }
 
+func TestRead_RefsInUseChecksABatchInOnePass(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	call := func(chatID, input, result string) {
+		r, err := ledger.NewRow(ledger.KindToolCall, "T1", "", ledger.ToolCall{
+			ToolID: "tool-1", Phase: ledger.ToolPost, InputRef: input, ResultRef: result,
+		})
+		require.NoError(t, err)
+		_, _, err = s.Append(ctx, chatID, r)
+		require.NoError(t, err)
+	}
+	call("c1", "sha256:in", "sha256:out")
+	call("c2", "sha256:in", "")
+
+	require.NoError(t, s.Forget(ctx, "c1"))
+	inUse, err := s.RefsInUse(ctx, []string{"sha256:in", "sha256:out", "sha256:missing"})
+	require.NoError(t, err)
+	assert.True(t, inUse["sha256:in"], "another chat still carries it")
+	assert.False(t, inUse["sha256:out"])
+	assert.False(t, inUse["sha256:missing"])
+
+	empty, err := s.RefsInUse(ctx, nil)
+	require.NoError(t, err)
+	assert.Empty(t, empty)
+}
+
 func TestRead_OpenChatsListsOnlyChatsWithOpenWork(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()

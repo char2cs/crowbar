@@ -135,7 +135,8 @@ function AddHostForm({ pending, onPendingChange, onCancel, onPaired }: AddHostFo
         <form onSubmit={handleProbe}>
           <div className="space-y-5 px-6 py-5">
             <p className="text-sm text-muted-foreground">
-              Run crowbar pair on the host first: it shows the fingerprint and the code you’ll need.
+              On the host, open Settings → Devices and tap Add a device, or run crowbar pair: either
+              shows the address, fingerprint and code you’ll need.
             </p>
             <div className="space-y-2">
               <Label htmlFor="add-host-name">Name</Label>
@@ -187,7 +188,7 @@ function AddHostForm({ pending, onPendingChange, onCancel, onPaired }: AddHostFo
         <div>
           <div className="space-y-3 px-6 py-5">
             <p id={promptId} className="text-sm text-muted-foreground">
-              Confirm this matches the fingerprint printed by that host’s CLI:
+              Confirm this matches the fingerprint shown on that host:
             </p>
             {/* Focused on arrival instead of Confirm: a stray or repeated Enter accepts nothing. */}
             <div
@@ -248,7 +249,7 @@ function AddHostForm({ pending, onPendingChange, onCancel, onPaired }: AddHostFo
             </OTPField>
             <div className="text-[12px]">
               <p id={codeHintId} className="text-muted-foreground">
-                The 6-digit code crowbar pair printed on the host.
+                The 6-digit code shown on the host.
               </p>
               {/* Live from the first render, outside aria-describedby: a region inserted with its
                   text may go unannounced, and a described-by change would be read twice. */}

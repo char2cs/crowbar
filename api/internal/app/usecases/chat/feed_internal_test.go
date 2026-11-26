@@ -260,7 +260,7 @@ func TestOpenFeed_ReplaysAfterSinceThenIsReadyThenLive(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	out, err := u.OpenFeed(t.Context(), "c1", 1)
+	out, err := u.OpenFeed(t.Context(), "c1", 1, 0)
 	require.NoError(t, err)
 	frames := take(t, out, 3)
 	_, _, err = u.ledger.Append(t.Context(), "c1", marker(t, ledger.MarkerNotification))
@@ -300,7 +300,7 @@ func TestOpenFeed_ANegativeSinceOpensOnTheNewestRowsAndSaysWhere(t *testing.T) {
 	u.chats = knownChats{id: "c1"}
 	imported(t, u, slices.Concat(turnRows(t, "T1"), turnRows(t, "T2"), turnRows(t, "T3"))...)
 
-	out, err := u.OpenFeed(t.Context(), "c1", -1)
+	out, err := u.OpenFeed(t.Context(), "c1", -1, 0)
 	require.NoError(t, err)
 	frames := take(t, out, 4)
 
@@ -316,7 +316,7 @@ func TestOpenFeed_AWindowReachesBackToATurnWhoseSubagentStillRuns(t *testing.T) 
 	require.NoError(t, err)
 	imported(t, u, slices.Concat(turnRows(t, "T1", start), turnRows(t, "T2"))...)
 
-	out, err := u.OpenFeed(t.Context(), "c1", -1)
+	out, err := u.OpenFeed(t.Context(), "c1", -1, 0)
 	require.NoError(t, err)
 
 	assert.Equal(t, []int64{1, 2, 3, 4, 5, 6, 7}, seqsOf(take(t, out, 7)))
@@ -326,7 +326,7 @@ func TestOpenFeed_AnUnknownChatIsNotFound(t *testing.T) {
 	u := newWiringFixture(t)
 	u.chats = knownChats{id: "c1"}
 
-	_, err := u.OpenFeed(t.Context(), "nope", 0)
+	_, err := u.OpenFeed(t.Context(), "nope", 0, 0)
 
 	require.ErrorIs(t, err, problem.ErrNotFound)
 }
@@ -335,7 +335,7 @@ func TestOpenFeed_AChatPurgedWhileItOpensEndsDeleted(t *testing.T) {
 	u := newWiringFixture(t)
 	u.chats = knownChats{id: "c1", last: 1, reads: &atomic.Int32{}}
 
-	out, err := u.OpenFeed(t.Context(), "c1", 0)
+	out, err := u.OpenFeed(t.Context(), "c1", 0, 0)
 
 	require.NoError(t, err)
 	assert.Equal(t, []FeedFrame{{Type: FeedDeleted}}, drain(out))
@@ -349,7 +349,7 @@ func TestOpenFeed_ASinceBeyondTheHeadResyncsFromTheHead(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	out, err := u.OpenFeed(t.Context(), "c1", 5)
+	out, err := u.OpenFeed(t.Context(), "c1", 5, 0)
 
 	require.NoError(t, err)
 	assert.Equal(t, []FeedFrame{{Type: FeedResync, Seq: 2}}, drain(out))
@@ -372,4 +372,79 @@ func TestReadBlob_ReadsARefOfAKnownChat(t *testing.T) {
 	require.ErrorIs(t, err, problem.ErrNotFound, "a ref no blob is stored under")
 	_, err = u.ReadBlob(t.Context(), "c1", strings.TrimPrefix(ref, ledgerstore.RefPrefix))
 	require.ErrorIs(t, err, problem.ErrInvalidArgument, "a ref rows never carry")
+}
+
+// bulkyTurn is turnID's rows with a tool call whose diff is 100 KB.
+func bulkyTurn(t *testing.T, turnID string) []ledger.Row {
+	t.Helper()
+	call, err := ledger.NewRow(ledger.KindToolCall, turnID, "", ledger.ToolCall{
+		ToolID: turnID + "-t", Phase: ledger.ToolPost, Name: "edit", Diff: strings.Repeat("+line\n", 100000/6),
+	})
+	require.NoError(t, err)
+	return turnRows(t, turnID, call)
+}
+
+func TestOpenFeed_ABytesWindowReplaysTheNewestWholeTurnsThatFitSlimmed(t *testing.T) {
+	u := newWiringFixture(t)
+	u.chats = knownChats{id: "c1"}
+	imported(t, u, slices.Concat(bulkyTurn(t, "T1"), bulkyTurn(t, "T2"), bulkyTurn(t, "T3"))...)
+
+	out, err := u.OpenFeed(t.Context(), "c1", -200, 5000)
+	require.NoError(t, err)
+	frames := take(t, out, 5)
+
+	assert.Equal(t, []int64{9, 10, 11, 12}, seqsOf(frames), "the newest turn, whole, though 200 rows would reach all three")
+	assert.Equal(t, int64(8), frames[0].From, "from says older history exists")
+	call := frames[2].Row
+	assert.Equal(t, []string{"diff"}, call.Trimmed)
+	assert.Less(t, len(call.Body), 10000, "its 100 KB diff is a preview")
+	whole, err := u.ReadRow(t.Context(), "c1", call.Seq)
+	require.NoError(t, err)
+	assert.Greater(t, len(whole.Body), 100000)
+	assert.Empty(t, whole.Trimmed)
+}
+
+func TestOpenFeed_WithoutABytesWindowRowsAreWholeAsOldClientsExpect(t *testing.T) {
+	u := newWiringFixture(t)
+	u.chats = knownChats{id: "c1"}
+	imported(t, u, bulkyTurn(t, "T1")...)
+
+	out, err := u.OpenFeed(t.Context(), "c1", -200, 0)
+	require.NoError(t, err)
+
+	call := take(t, out, 4)[2].Row
+	assert.Empty(t, call.Trimmed)
+	assert.Greater(t, len(call.Body), 100000)
+}
+
+func TestReadRows_PagesTheTurnsBehindARowByBytesAndSaysWhetherMoreRemain(t *testing.T) {
+	u := newWiringFixture(t)
+	u.chats = knownChats{id: "c1"}
+	imported(t, u, slices.Concat(bulkyTurn(t, "T1"), bulkyTurn(t, "T2"), bulkyTurn(t, "T3"))...)
+
+	page, err := u.ReadRows(t.Context(), "c1", 8, 5000)
+	require.NoError(t, err)
+	assert.Equal(t, []int64{5, 6, 7, 8}, seqsOf(rowFrames(page.Rows)))
+	assert.Equal(t, int64(4), page.From)
+	assert.Equal(t, []string{"diff"}, page.Rows[2].Trimmed)
+
+	last, err := u.ReadRows(t.Context(), "c1", 4, 5000)
+	require.NoError(t, err)
+	assert.Equal(t, []int64{1, 2, 3, 4}, seqsOf(rowFrames(last.Rows)))
+	assert.Zero(t, last.From, "nothing is older")
+
+	_, err = u.ReadRows(t.Context(), "c1", 0, 5000)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
+	_, err = u.ReadRows(t.Context(), "nope", 4, 5000)
+	require.ErrorIs(t, err, problem.ErrNotFound)
+}
+
+func TestReadRow_ASeqTheChatNeverReachedIsNotFound(t *testing.T) {
+	u := newWiringFixture(t)
+	u.chats = knownChats{id: "c1"}
+	imported(t, u, turnRows(t, "T1")...)
+
+	_, err := u.ReadRow(t.Context(), "c1", 99)
+
+	require.ErrorIs(t, err, problem.ErrNotFound)
 }

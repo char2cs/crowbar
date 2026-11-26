@@ -12,7 +12,7 @@ import (
 
 // Feeds opens a chat's row feed.
 type Feeds interface {
-	OpenFeed(ctx context.Context, chatID string, since int64) (<-chan agentusecase.FeedFrame, error)
+	OpenFeed(ctx context.Context, chatID string, since, windowBytes int64) (<-chan agentusecase.FeedFrame, error)
 }
 
 // Telemetries answers a chat's newest usage report a client may show.
@@ -21,7 +21,7 @@ type Telemetries interface {
 }
 
 // ChatSource serves the chat scope: the chat's usage report, its ledger after
-// since, then what it records next. Wire it as Following.
+// since (or in the window the request bounds), then what it records next. Wire it as Following.
 type ChatSource struct {
 	feeds     Feeds
 	telemetry Telemetries
@@ -36,7 +36,7 @@ func NewChatSource(feeds Feeds, telemetry Telemetries, encode Encoder) *ChatSour
 // Attach follows chatID's feed until it ends or ctx does. An unknown chat is
 // not found and an unreadable one unavailable, each in words for the client.
 func (s *ChatSource) Attach(ctx context.Context, chatID string, since int64, emit func(stream.Frame)) error {
-	frames, err := s.feeds.OpenFeed(ctx, chatID, since)
+	frames, err := s.feeds.OpenFeed(ctx, chatID, since, stream.WindowBytes(ctx))
 	if problem.CodeOf(err) == problem.NotFound {
 		slog.DebugContext(ctx, "stream: chat refused", "chat_id", chatID, "err", err)
 		return problem.New(problem.NotFound, "That chat no longer exists")

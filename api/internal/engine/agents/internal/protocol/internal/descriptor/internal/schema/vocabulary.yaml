@@ -174,6 +174,9 @@ events:
     # is ordered by arrival, which is sound because its deltas arrive on one stream.
     required: [message_id, text]
     optional: [session_id, turn_id, index, final]
+    # ends_at_action: true says a message is whole before the agent acts, so a provider
+    # that never completes its messages has each recorded above the call that follows it.
+    extras: [ends_at_action]
 
   # The model thinking out loud, as it happens. Same shape as message_delta and it
   # rides the same live channel, distinguished by kind — it is NOT the answer and
@@ -346,7 +349,11 @@ events:
     #
     # model.* is the chat's composed model id taken back apart (ModelSpec.IDSplit),
     # for a session call that takes its parts as separate fields.
-    optional: [session_id, cwd, context, call_id, "permission.*", "model.*"]
+    #
+    # The relay vars are the ones a session call reads to hand
+    # the provider Crowbar's MCP server. {relay_token} is deliberately absent: it
+    # rides a file, since a request body is logged.
+    optional: [session_id, cwd, context, call_id, "permission.*", "model.*", crowbar, relay_id, relay_token_file, daemon_host, crowbar_home]
 
   interrupt:
     direction: out

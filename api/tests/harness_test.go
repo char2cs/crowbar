@@ -28,6 +28,7 @@ import (
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/engine"
+	"github.com/char2cs/crowbar/api/internal/testutil/accessfake"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -40,6 +41,7 @@ type harness struct {
 	url       string
 	home      string
 	app       *app.Container
+	eng       *engine.Container
 	stopOnce  sync.Once
 	stop      func()
 	crashDie  func()
@@ -67,7 +69,7 @@ func newHarnessAt(
 	return bootHarness(t, home, "")
 }
 
-// bootHarness boots the backend at home; a fingerprint makes it network-exposed,
+// bootHarness boots the backend at home; a fingerprint turns device connections on,
 // so it mints pairing codes.
 func bootHarness(t *testing.T, home, fingerprint string) *harness {
 	t.Helper()
@@ -95,7 +97,11 @@ func bootHarness(t *testing.T, home, fingerprint string) *harness {
 	appContainer, err := app.New(ctx, engines, adapters, session, v0.EncodeEntity, v0.NewSidebar)
 	require.NoError(t, err)
 
-	apiContainer, err := crowbarapi.New(appContainer, engines, fstest.MapFS{}, fingerprint, time.Minute)
+	access := accessfake.Closed()
+	if fingerprint != "" {
+		access = accessfake.Listening(fingerprint)
+	}
+	apiContainer, err := crowbarapi.New(appContainer, engines, fstest.MapFS{}, access, time.Minute)
 	require.NoError(t, err)
 
 	srv := httptest.NewServer(apiContainer.Handler())
@@ -104,6 +110,7 @@ func bootHarness(t *testing.T, home, fingerprint string) *harness {
 		t:       t,
 		home:    home,
 		app:     appContainer,
+		eng:     engines,
 		handler: apiContainer.Handler(),
 	}
 	h.server = srv

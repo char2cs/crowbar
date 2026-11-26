@@ -334,7 +334,7 @@ func TestAgent_ParseTelemetryMapsTheProvidersReport(t *testing.T) {
 
 	got, err := a.ParseTelemetry([]byte(`{
 		"context_window":{"context_window_size":200000,"used_percentage":19},
-		"model":{"id":"m","display_name":"M"}}`), now)
+		"model":{"id":"m","display_name":"M"}}`), now, agents.ChannelHooks)
 
 	require.NoError(t, err)
 	require.NotNil(t, got.Context)
@@ -363,7 +363,7 @@ func TestRegression_CodexTelemetryReachesTheContextGauge(t *testing.T) {
 	  "last":{"totalTokens":16924,"inputTokens":16907,"outputTokens":17},
 	  "modelContextWindow":258400}}`)
 
-	got, err := get(t, "codex").ParseTelemetry(raw, time.Now())
+	got, err := get(t, "codex").ParseTelemetry(raw, time.Now(), agents.ChannelAPI)
 
 	require.NoError(t, err)
 	require.NotNil(t, got.Context, "no context usage means the gauge renders nothing")
@@ -390,7 +390,7 @@ func TestRegression_CodexContextPercentUsesLastTurnNotSessionTotal(t *testing.T)
 	  "last":{"totalTokens":92800,"inputTokens":92000,"outputTokens":800},
 	  "modelContextWindow":258400}}`)
 
-	got, err := get(t, "codex").ParseTelemetry(raw, time.Now())
+	got, err := get(t, "codex").ParseTelemetry(raw, time.Now(), agents.ChannelAPI)
 
 	require.NoError(t, err)
 	require.NotNil(t, got.Context)

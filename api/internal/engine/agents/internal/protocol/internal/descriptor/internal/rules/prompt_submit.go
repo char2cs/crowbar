@@ -2,7 +2,9 @@ package rules
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
@@ -34,7 +36,42 @@ func (r promptSubmit) Check(d *spec.Descriptor) error {
 	if err := r.checkLeadingSigils(d.ID, ps.LeadingSigils); err != nil {
 		return err
 	}
-	return checkSteer(d, ps.Steer)
+	if err := checkSteer(d, ps.Steer); err != nil {
+		return err
+	}
+	return checkType(d.ID, ps.Type)
+}
+
+func checkType(id string, typing *spec.PromptTypeSpec) error {
+	if typing == nil {
+		return nil
+	}
+	if typing.Input != spec.InputKeys {
+		return invalid(id, "presentation.prompt_submit.type.input %q is not a known input mode", typing.Input)
+	}
+	// Four bytes: the widest rune, so a chunk can always take one.
+	if typing.ChunkBytes < utf8.UTFMax {
+		return invalid(id, "presentation.prompt_submit.type.chunk_bytes must be at least %d", utf8.UTFMax)
+	}
+	if typing.ChunkIntervalMS < 0 {
+		return invalid(id, "presentation.prompt_submit.type.chunk_interval_ms is negative")
+	}
+	if typing.Submit == "" {
+		return invalid(id, "presentation.prompt_submit.type.submit is required")
+	}
+	if typing.Composer.RowPrefix == "" {
+		return invalid(id, "presentation.prompt_submit.type.composer.row_prefix is required")
+	}
+	if g := typing.Composer.Ghost; g != "" && g != spec.GhostFaint {
+		return invalid(id, "presentation.prompt_submit.type.composer.ghost %q is not a known ghost style", g)
+	}
+	if slices.Contains(typing.SkipPrefixes, "") {
+		return invalid(id, "presentation.prompt_submit.type.skip_prefixes holds an empty entry")
+	}
+	if slices.Contains(typing.SkipSuffixes, "") {
+		return invalid(id, "presentation.prompt_submit.type.skip_suffixes holds an empty entry")
+	}
+	return nil
 }
 
 func checkSteer(d *spec.Descriptor, steer *spec.SteerSpec) error {

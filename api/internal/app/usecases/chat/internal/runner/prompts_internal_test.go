@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -224,4 +225,27 @@ func TestSpawnFailure_ALostSessionIsSessionLost(t *testing.T) {
 	assert.Equal(t, problem.SessionLost, problem.CodeOf(err))
 	assert.Equal(t, http.StatusConflict, problem.CodeOf(err).Status())
 	assert.ErrorIs(t, spawnFailure(t.Context(), errors.New("fork failed")), ErrPromptOutcomeUnknown)
+}
+
+// A CLI that queues what is typed while it works takes every such prompt: each
+// waits for the turn's end in the order sent, and one that cannot queue still waits.
+func TestRegression_SubmitPrompt_PromptsSentWhileATurnRunsQueueBehindEachOther(t *testing.T) {
+	f := newTypedFixture(t, &typingTerm{screen: emptyComposer(t)})
+	running, err := ledger.NewRow(ledger.KindTurnStarted, "T-1", "", ledger.TurnStarted{RunnerID: f.live.ID})
+	require.NoError(t, err)
+	f.appendRows(t, running)
+	first, second, command := uuid.NewString(), uuid.NewString(), uuid.NewString()
+
+	_, err = f.h.rs.SubmitPrompt(t.Context(), f.h.chatID, "first", first)
+	require.NoError(t, err)
+	_, err = f.h.rs.SubmitPrompt(t.Context(), f.h.chatID, "second", second)
+	require.NoError(t, err)
+	_, err = f.h.rs.SubmitPrompt(t.Context(), f.h.chatID, "/compact", command)
+
+	require.ErrorIs(t, err, ErrPromptBusy, "a command cannot queue behind them")
+	pending := chatState(t, f.h.rs.ledger).PendingPrompts()
+	require.Len(t, pending, 2)
+	assert.Equal(t, []string{first, second}, []string{pending[0].RequestID, pending[1].RequestID})
+	assert.Equal(t, ledger.DeliverySteer, pending[1].Delivery)
+	assert.Empty(t, f.term.written(), "queued behind the turn, nothing typed into it")
 }

@@ -34,6 +34,8 @@ const readLimit = 1024
 
 // The stream carries every fact the client shows, so a page on another origin must not open it.
 var upgrader = websocket.Upgrader{
+	// Replays are JSON text that deflates several-fold: a client on a slow link offers it.
+	EnableCompression: true,
 	CheckOrigin: func(r *http.Request) bool {
 		o := r.Header.Get("Origin")
 		if origin.Allowed(o, r.Host) {

@@ -58,7 +58,12 @@ func main() {
 	if code := refuseResume(dir, rec.Argv); code != 0 {
 		os.Exit(code)
 	}
-	code := echoUntilStopped(stop)
+	var code int
+	if os.Getenv("FAKECLI_COMPOSER") != "" {
+		code = composeUntilStopped(stop, composerFromEnv(os.Stdout, dir, rec.RunnerID))
+	} else {
+		code = echoUntilStopped(stop)
+	}
 	if code == exitStopped {
 		postOnQuit(dir, rec)
 	}

@@ -375,9 +375,9 @@ events:
     out: prompt
     send: { text: "Stop the background task {shell_id} now." }
 
-# restart_tui is a no-op in practice: prompt_submit.strategy is already
-# restart_tui, so every message already restarts the CLI. NOT
-# bypassPermissions, which skips every check including what auto still makes.
+# A changed permission level still restarts the CLI (prompt_submit.type only
+# types when the launch selection is unchanged). NOT bypassPermissions, which
+# skips every check including what auto still makes.
 permission_levels:
   strategy: restart_tui
   levels:
@@ -451,6 +451,20 @@ presentation:
       skip_prefixes: ["/", "!"]
       frame: "Message from the user, typed while you were working (Crowbar hands it to you through this hook):\n\n{message}\n\nReply to it as their next message."
       reply: '{"decision":"block","reason":{message_json}}'
+    # Idle prompts are typed as keys in small chunks (the TUI rewrites a bracketed
+    # paste), so `/` and `!` stay commands and restart. The prompt glyph is followed
+    # by a NO-BREAK space (U+00A0); a suggestion after the cursor is faint.
+    type:
+      input: keys
+      chunk_bytes: 256
+      chunk_interval_ms: 10
+      submit: "\r"
+      skip_prefixes: ["/", "!"]
+      # Enter after a trailing backslash is a line continuation, not a submit (measured 2.1.327).
+      skip_suffixes: ["\\"]
+      composer:
+        row_prefix: "❯ "
+        ghost: faint
   # Plugin metadata is readable without a model turn; user skills are not,
   # hence plugin_only rather than complete.
   slash_catalog:

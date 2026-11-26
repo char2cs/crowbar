@@ -36,6 +36,9 @@ var (
 // supervisor: the live runner a token names, and so the chat it is on.
 type RunnerReader interface {
 	RunnerByID(runnerID string) (agents.Runner, bool)
+	// RelayRunner is the one live runner on the chat whose bound session holds relayID;
+	// false when the id names no bound session or its chat has no runner now.
+	RelayRunner(ctx context.Context, relayID string) (agents.Runner, bool, error)
 }
 
 // ChatReader is the chat store's read port: one chat by id, or every chat in one read. list_workspaces
@@ -143,12 +146,35 @@ func (r *Resolver) Resolve(ctx context.Context, runnerID, token string) (Caller,
 	if !ok {
 		return Caller{}, fmt.Errorf("agenttools: resolve runner: %w", ErrUnauthorized)
 	}
+	return r.caller(ctx, runner)
+}
+
+// ResolveRelay authenticates (relayID, token) the same way for a provider whose relay outlives its
+// runners: the id must name a bound session whose chat has a live runner, which is the caller.
+func (r *Resolver) ResolveRelay(ctx context.Context, relayID, token string) (Caller, error) {
+	if r.minter == nil || r.runners == nil || r.workspaces == nil {
+		return Caller{}, fmt.Errorf("agenttools: resolve relay: resolver not configured: %w", ErrUnauthorized)
+	}
+	if !r.minter.VerifyRelay(relayID, token) {
+		return Caller{}, ErrUnauthorized
+	}
+	runner, ok, err := r.runners.RelayRunner(ctx, relayID)
+	if err != nil {
+		return Caller{}, fmt.Errorf("agenttools: resolve relay: %w", errors.Join(ErrUnauthorized, err))
+	}
+	if !ok {
+		return Caller{}, fmt.Errorf("agenttools: resolve relay: no live runner: %w", ErrUnauthorized)
+	}
+	return r.caller(ctx, runner)
+}
+
+func (r *Resolver) caller(ctx context.Context, runner agents.Runner) (Caller, error) {
 	ws, err := r.workspaces.Get(ctx, runner.WorkspaceID)
 	if err != nil {
 		return Caller{}, fmt.Errorf("agenttools: get caller workspace: %w", errors.Join(ErrUnauthorized, err))
 	}
 	return Caller{
-		RunnerID:   runnerID,
+		RunnerID:   runner.ID,
 		ChatID:     runner.CurrentChatID,
 		ProviderID: runner.ProviderID,
 		Workspace:  ws,

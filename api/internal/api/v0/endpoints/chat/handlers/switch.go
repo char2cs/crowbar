@@ -66,7 +66,7 @@ func (h *Handlers) Resume(
 }
 
 // Stop handles POST .../chats/:id/stop: ends the chat's turn, in place where the provider can, else
-// with its CLI, leaving the chat dormant and resumable. A chat with no live CLI is a no-op.
+// with its CLI, leaving the chat dormant and resumable. A chat with no live CLI only has a stale working turn closed.
 func (h *Handlers) Stop(
 	ctx *gin.Context,
 ) {

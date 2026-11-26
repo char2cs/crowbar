@@ -157,12 +157,39 @@ func (e *terminalEngine) Screen(sessionID string, since uint64) (text string, ge
 	return s.ScreenText(since)
 }
 
-func (e *terminalEngine) Write(_ context.Context, sessionID string, data []byte) error {
+// ScreenState reads a live session's visible text, cursor and bracketed-paste mode in one step. A
+// session that is unknown or suspended is ErrSessionNotFound, one whose model cannot report it
+// ErrScreenStateUnavailable.
+func (e *terminalEngine) ScreenState(sessionID string) (ScreenState, error) {
+	s := e.liveSession(sessionID)
+	if s == nil {
+		return ScreenState{}, fmt.Errorf("terminal: screen state: %w: %s", ErrSessionNotFound, sessionID)
+	}
+	st, ok := s.ScreenState()
+	if !ok {
+		return ScreenState{}, fmt.Errorf("terminal: screen state: %w: %s", ErrScreenStateUnavailable, sessionID)
+	}
+	return st, nil
+}
+
+// Write gives up when ctx ends: a PTY whose app stopped reading blocks the write
+// for as long as the app lives. The abandoned write ends when the PTY closes.
+func (e *terminalEngine) Write(ctx context.Context, sessionID string, data []byte) error {
 	s := e.liveSession(sessionID)
 	if s == nil {
 		return fmt.Errorf("terminal: write: %w: %s", ErrSessionNotFound, sessionID)
 	}
-	return s.Write(data)
+	if err := context.Cause(ctx); err != nil {
+		return fmt.Errorf("terminal: write: %w", err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- s.Write(data) }()
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return fmt.Errorf("terminal: write: %w", context.Cause(ctx))
+	}
 }
 
 func (e *terminalEngine) Resize(_ context.Context, sessionID string, cols, rows uint16) error {

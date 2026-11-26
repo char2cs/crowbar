@@ -125,6 +125,43 @@ func TestLoad_AcceptsAMinimalDescriptor(t *testing.T) {
 	assert.Equal(t, "probe-cli", d.Spawn.Cmd)
 }
 
+// A provider with no instruction field leads its first prompt with the context document;
+// a lead that names no context has nothing to carry and does not load.
+func TestLoad_ReadsAPromptLeadAndRefusesOneThatNamesNoContext(t *testing.T) {
+	withLead := func(lead string) string {
+		return `
+id: leader
+spawn: { cmd: leader-cli, interactive_required: true }
+runtime:
+  transport: api
+  api:
+    protocol: jsonrpc2
+    delivery: websocket
+    format: jsonrpc_text
+    connect: [leader-cli, ticket]
+    connect_map: { url: url }
+    handshake: { call: hello }
+events:
+  prompt:
+    fresh:
+      - { call: session.create, capture: { session_id: id } }
+    action:
+      - { call: prompt.submit, send: { text: "{text}" } }
+inject:
+  - at: context
+    prompt_lead: "` + lead + `"
+`
+	}
+
+	d, err := descriptor.Load([]byte(withLead("{context}")))
+	require.NoError(t, err)
+	assert.Equal(t, "{context}", d.Inject[0].PromptLead)
+
+	_, err = descriptor.Load([]byte(withLead("a fixed line")))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "never names {context}")
+}
+
 func TestLoad_RejectsMalformedYAML(t *testing.T) {
 	_, err := descriptor.Load([]byte("id: [unclosed"))
 

@@ -58,6 +58,7 @@ func requireBearerAuth(
 			c.Abort()
 			return
 		}
+		libs.SetPairedClient(c, libs.PairedClient{ID: client.ID, Name: client.Name})
 		// A stream outlives this check, so the connection it hijacks is held for a revoke.
 		c.Writer = &revocableWriter{
 			ResponseWriter: c.Writer, ctx: c.Request.Context(),

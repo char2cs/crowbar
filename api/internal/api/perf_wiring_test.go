@@ -18,6 +18,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/engine"
 	"github.com/char2cs/crowbar/api/internal/perf"
+	"github.com/char2cs/crowbar/api/internal/testutil/accessfake"
 	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
 
@@ -41,7 +42,7 @@ func newRealAPI(
 	require.NoError(t, err)
 	t.Cleanup(a.Close)
 
-	c, err := crowbarapi.New(a, eng, nil, "", time.Minute)
+	c, err := crowbarapi.New(a, eng, nil, accessfake.Closed(), time.Minute)
 	require.NoError(t, err)
 	return c
 }

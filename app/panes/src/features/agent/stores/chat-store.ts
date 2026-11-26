@@ -1,9 +1,10 @@
 import { createStore, useStore } from 'zustand'
 import { forgetWithChat } from '@/features/agent/stores/chat-lifecycle'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
-import type { FeedFrame } from '@/features/agent/api/chat-rows'
+import type { FeedFrame, LedgerRow } from '@/features/agent/api/chat-rows'
 import { applyReady } from '@/features/agent/stores/lib/fold-live'
 import { applyLive, applyRow, emptyFeed, FeedFold } from '@/features/agent/stores/lib/fold-rows'
+import { fillFull, prependOlder } from '@/features/agent/stores/lib/older-rows'
 import type { OutboxItem } from '@/features/agent/stores/lib/outbox'
 import type { ChatFeed } from '@/features/agent/stores/lib/transcript-items'
 
@@ -54,6 +55,21 @@ export function showStoredFeed(chatId: string, stored: ChatFeed): boolean {
   if (!feed || feed.seq !== 0 || feed.status !== 'connecting' || drafts.has(chatId)) return false
   publish(chatId, stored)
   return true
+}
+
+/** Lays an older page above the feed, which must still be the one the page was asked for
+ *  (it begins at `heldFrom`) and not be replaying; false when it is not and the page is stale. */
+export function prependRows(chatId: string, heldFrom: number, rows: LedgerRow[], from: number) {
+  const feed = chatStore.getState().feeds[chatId]
+  if (!feed || drafts.has(chatId) || feed.from !== heldFrom || from >= heldFrom) return false
+  publish(chatId, prependOlder(feed, rows, from))
+  return true
+}
+
+/** Replaces item `id`'s preview with the whole row it was cut from. */
+export function fillRow(chatId: string, id: string, row: LedgerRow) {
+  const feed = chatStore.getState().feeds[chatId]
+  if (feed) publish(chatId, fillFull(feed, id, row))
 }
 
 /** Marks the feed failed; `error` is the daemon's word for why, when it gave one. */

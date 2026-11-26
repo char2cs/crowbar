@@ -12,6 +12,11 @@ runtime:
     connect: [hermes, gateway, attach, --json, --recover]
     connect_map: { url: url, protocols: protocols }
     reconnect: { max: 5, backoff_ms: 500 }
+    # The gateway ids no text or thought; each model call (agent.step) is one message of its prompt.
+    remember:
+      - { in: event, when: { type: agent.step }, capture: { step: payload.iteration } }
+      # Every event frame names the generation running it; interrupt is fenced on it.
+      - { in: event, capture: { execution_generation: execution_generation } }
     # Without server_requests the gateway withdraws approvals instead of sending them.
     handshake: { call: client.capabilities, params: { server_requests: true } }
   spawn:
@@ -44,8 +49,9 @@ events:
       map: { session_id: session_id, message: payload.text, turn_id: payload.turn_id }
 
   # turn_failed is offered first (sorted names); any other status closes here.
+  # An interrupted completion carries no text, so only the session is required.
   turn_stop:
-    required: [session_id, message]
+    required: [session_id]
     status_map: { complete: completed, interrupted: interrupted }
     api:
       in: event
@@ -72,8 +78,10 @@ events:
       unverified: true
       map: { session_id: session_id, message: payload.message }
 
+  # A step's text is streamed whole before its tool.start; message.interim never came.
   message_delta:
     surfaces: [chat]
+    ends_at_action: true
     required: [session_id, message_id, text]
     api:
       in: event
@@ -81,7 +89,7 @@ events:
       unverified: true
       map:
         session_id: session_id
-        message_id: { first_present: [{ join: [payload.turn_id, payload.segment] }, session_id] }
+        message_id: { first_present: [{ join: [admission_id, captured.step] }, session_id] }
         text:       payload.text
         turn_id:    payload.turn_id
 
@@ -94,7 +102,7 @@ events:
       unverified: true
       map:
         session_id: session_id
-        message_id: { join: [payload.turn_id, payload.segment] }
+        message_id: { join: [admission_id, captured.step] }
         text:       payload.text
         turn_id:    payload.turn_id
 
@@ -105,9 +113,12 @@ events:
       in: event
       when: { type: reasoning.delta }
       unverified: true
-      map: { session_id: session_id, text: payload.text }
+      map: { session_id: session_id, message_id: { join: [admission_id, captured.step] }, text: payload.text }
 
+  # delegate_task is meta, not subagent: its spawns are announced by subagent.start, and a
+  # subagent call binds one scope which the call's reply never names.
   tool_pre:
+    kind_map: { terminal: execute, read_file: read, search_files: search, web_search: search, delegate_task: meta, process_manage: meta }
     required: [session_id, tool_id, tool_name]
     api:
       in: event
@@ -117,10 +128,15 @@ events:
         session_id:  session_id
         tool_id:     payload.tool_id
         tool_name:   payload.name
+        tool_kind:   { first_present: [{ from: payload.name, pattern: '^(?P<v>mcp)__' }, payload.name] }
+        # The gateway names a per-session MCP tool mcp__editor_<server>_<runner hash>__<tool>.
+        mcp_server:  { from: payload.name, pattern: '^mcp__editor_(?P<v>.+?)_[0-9a-f]+__' }
+        mcp_tool:    { from: payload.name, pattern: '^mcp__.+?__(?P<v>.+)$' }
         tool_target: { first_present: [payload.context, payload.preview] }
         tool_input:  payload.args
 
   tool_post:
+    kind_map: { terminal: execute, read_file: read, search_files: search, web_search: search, delegate_task: meta, process_manage: meta }
     required: [session_id, tool_id, tool_name]
     api:
       in: event
@@ -130,9 +146,19 @@ events:
         session_id:  session_id
         tool_id:     payload.tool_id
         tool_name:   payload.name
+        tool_kind:   { first_present: [{ from: payload.name, pattern: '^(?P<v>mcp)__' }, payload.name] }
+        mcp_server:  { from: payload.name, pattern: '^mcp__editor_(?P<v>.+?)_[0-9a-f]+__' }
+        mcp_tool:    { from: payload.name, pattern: '^mcp__.+?__(?P<v>.+)$' }
         tool_title:  payload.summary
+        tool_target: { first_present: [payload.args.command, payload.context, payload.preview] }
         tool_result: { first_present: [payload.result_text, payload.result] }
         tool_output: payload.result_text
+        # A background command answers "Background process started" with its process id, and a
+        # watch pattern makes it a monitor; process_manage answers a kill with "status": "killed".
+        spawns_shell: { from: payload.result, pattern: '"output": "Background process started", "session_id": "(?P<v>proc_[^"]+)"' }
+        stops_shell:  { from: payload.result, pattern: '"status": "killed", "session_id": "(?P<v>proc_[^"]+)"' }
+        shell_kind:   { first_present: [{ from: payload.result, pattern: '"(?P<v>watch_patterns)"' }, payload.name] }
+    shell_kind_map: { watch_patterns: monitor, terminal: shell }
     patch: { unified: payload.inline_diff }
 
   subagent_pre:
@@ -215,23 +241,59 @@ events:
   prompt:
     fresh:
       - call: session.create
-        send: { source: tui, cwd: "{cwd}", model: "{model.name}", provider: "{model.provider}" }
+        # source acp is the only per-session MCP path. The gateway pins this block, so create and
+        # resume must send the same bytes: only {relay_id} varies, once per binding. No toolsets override.
+        send:
+          source: acp
+          cwd: "{cwd}"
+          model: "{model.name}"
+          provider: "{model.provider}"
+          editor: { mcp_servers: [{ name: crowbar, command: "{crowbar}", args: [mcp, --relay, "{relay_id}", --token-file, "{relay_token_file}", --host, "{daemon_host}"], env: [{ name: CROWBAR_HOME, value: "{crowbar_home}" }] }] }
         # The chat's pick is absent, not empty, so an unchosen model inherits the profile's.
         optional: [model, provider]
-        capture: { session_id: session_id, execution_generation: execution_generation }
+        capture: { session_id: session_id }
     resume:
       - call: session.resume
-        send: { session_id: "{session_id}", omit_messages: true }
-        capture: { execution_generation: execution_generation }
+        send:
+          session_id: "{session_id}"
+          omit_messages: true
+          editor: { mcp_servers: [{ name: crowbar, command: "{crowbar}", args: [mcp, --relay, "{relay_id}", --token-file, "{relay_token_file}", --host, "{daemon_host}"], env: [{ name: CROWBAR_HOME, value: "{crowbar_home}" }] }] }
     action:
       - call: prompt.submit
         send: { session_id: "{session_id}", text: "{text}", submission_id: "{call_id}" }
-        capture: { execution_generation: execution_generation }
 
-  # interrupt is fenced on execution_generation, a number captured from every admission receipt.
+  # Fenced on the running turn's own frames: a value echoed from an admission receipt
+  # was refused as stale_generation every time.
   interrupt:
     out: session.interrupt
-    send: { session_id: "{session_id}", execution_generation: "{execution_generation}" }
+    send: { session_id: "{session_id}", execution_generation: "{captured.execution_generation}" }
+
+# TEXT MATCH on the prompt's start: after background delegation the gateway sends a
+# harness message as a prompt; no frame field tells it from a person's.
+injected_prompts:
+  - needle: "[ASYNC DELEGATION BATCH COMPLETE"
+  # Each ends a background command by process id; "matched watch pattern" is neither.
+  # The batch's count varies, so it opens by an anchored match, never a needle.
+  - kind: task_notification
+    needle: "[IMPORTANT: Background process"
+    items:
+      - pattern: 'Background process (?P<id>proc_\w+) (?P<status>completed normally|exited) \(exit code (?P<exit_code>-?\d+)\)'
+    status_map: { completed normally: finished, exited: failed }
+  - kind: task_notification
+    match: '^\[IMPORTANT: \d+ background processes completed'
+    items:
+      - pattern: '- (?P<id>proc_\w+): exit_code=(?P<exit_code>-?\d+)'
+
+# A dialed server takes no argv, so only this write_file runs: the token rides a 0600 file, never a body.
+# The relay re-reads it per call, so each spawn's rewrite reaches the gateway's long-lived relay.
+mcp_injection:
+  - write_file: { path: "{relay_token_file}", content: "{relay_token}" }
+
+# Live-captured: a resume whose editor block differs from the one the gateway pinned
+# for the session is refused with this code; the session cannot be resumed again.
+# A session created before {relay_id} existed pinned a runner-keyed block and ends here.
+session:
+  refused: { rpc_code: 4001, needles: [acp_mcp_policy_conflict] }
 
 # model.options lists every provider row with its models as bare ids; only rows the
 # profile is authenticated for are kept. Unverified: the shape comes from the typed contract
@@ -258,3 +320,9 @@ model:
 spawn:
   cmd: hermes
   interactive_required: true
+
+# No create or resume field takes instructions, so the context document (tools preamble, lineage,
+# and a replaced session's record) leads the new session's first prompt.
+inject:
+  - at: context
+    prompt_lead: "{context}"

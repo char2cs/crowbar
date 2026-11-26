@@ -49,10 +49,11 @@ var errFeedEnded = errors.New("chat feed: ended while attaching")
 
 // OpenFeed is chatID's feed: rows after since, ready, a snapshot of its live
 // streams, then live frames. A since below 0 is a window of about the newest
-// -since rows in whole turns, whose first row says where it begins. It registers before reading the
-// head, so a row committed meanwhile is sent once; an unknown chat is
-// problem.ErrNotFound.
-func (u *Usecase) OpenFeed(ctx context.Context, chatID string, since int64) (<-chan FeedFrame, error) {
+// -since rows in whole turns, whose first row says where it begins. A
+// windowBytes above 0 also bounds the window by wire size and sends the replay
+// as previews (see ledger.Preview). It registers before reading the head, so a
+// row committed meanwhile is sent once; an unknown chat is problem.ErrNotFound.
+func (u *Usecase) OpenFeed(ctx context.Context, chatID string, since, windowBytes int64) (<-chan FeedFrame, error) {
 	if _, err := u.chats.GetChat(ctx, chatID); err != nil {
 		if errors.Is(err, agentchat.ErrNotFound) {
 			return nil, fmt.Errorf("chat feed: %s: %w: %w", chatID, err, problem.ErrNotFound)
@@ -60,7 +61,7 @@ func (u *Usecase) OpenFeed(ctx context.Context, chatID string, since int64) (<-c
 		return nil, fmt.Errorf("chat feed: %s: %w", chatID, err)
 	}
 	return u.feeds.open(ctx, chatID, since, func(emit func(FeedFrame) bool) error {
-		return u.attachFeed(ctx, chatID, since, emit)
+		return u.attachFeed(ctx, chatID, since, windowBytes, emit)
 	}), nil
 }
 
@@ -90,7 +91,7 @@ func (u *Usecase) ReadBlob(ctx context.Context, chatID, ref string) ([]byte, err
 // attachFeed replays chatID's rows after since up to its head, then sends the
 // ready frame and the snapshot of what no row up to the head holds. A purge
 // that ran before the feed registered is told as deleted.
-func (u *Usecase) attachFeed(ctx context.Context, chatID string, since int64, emit func(FeedFrame) bool) error {
+func (u *Usecase) attachFeed(ctx context.Context, chatID string, since, windowBytes int64, emit func(FeedFrame) bool) error {
 	if _, err := u.chats.GetChat(ctx, chatID); errors.Is(err, agentchat.ErrNotFound) {
 		emit(FeedFrame{Type: FeedDeleted})
 		return errFeedEnded
@@ -109,27 +110,19 @@ func (u *Usecase) attachFeed(ctx context.Context, chatID string, since int64, em
 	}
 	from := int64(0)
 	if since < 0 {
-		if since, err = u.ledger.WindowStart(ctx, chatID, -since, openTurns(st)); err != nil {
+		spec := ledgerstore.WindowSpec{Rows: -since, Bytes: windowBytes, PreviewCap: previewCapOf(windowBytes)}
+		if since, err = u.ledger.Window(ctx, chatID, spec, openTurns(st)); err != nil {
 			return fmt.Errorf("chat feed: %s: %w", chatID, err)
 		}
 		from = since
 	}
-	for after := since; after < head; {
-		rows, err := u.ledger.Read(ctx, chatID, after, int(min(head-after, feedReplayPage)))
-		if err != nil {
-			return fmt.Errorf("chat feed: %s: replay: %w", chatID, err)
-		}
-		if len(rows) == 0 {
-			break
-		}
-		for _, r := range rows {
-			f := rowFrame(r)
-			f.From, from = from, 0
-			if !emit(f) {
-				return ctx.Err()
-			}
-		}
-		after = rows[len(rows)-1].Seq
+	err = u.replay(ctx, chatID, since, head, windowBytes > 0, func(r ledger.Row) bool {
+		f := rowFrame(r)
+		f.From, from = from, 0
+		return emit(f)
+	})
+	if err != nil {
+		return err
 	}
 	if !emit(FeedFrame{Type: FeedReady, Seq: head}) {
 		return ctx.Err()

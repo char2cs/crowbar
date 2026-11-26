@@ -135,6 +135,20 @@ describe('the one stream', () => {
     ])
   })
 
+  it('sends the byte budget a kind names beside since, and none when it names none', () => {
+    register('chat', {
+      since: () => -5,
+      bytes: (_h, key) => (key === 'a' ? 4096 : 0),
+      frame: () => {},
+    })
+    hold('chat:a')
+    hold('chat:b')
+    expect(sentBesidesProjects()).toEqual([
+      { op: 'sub', scope: 'chat:a', since: -5, bytes: 4096 },
+      { op: 'sub', scope: 'chat:b', since: -5 },
+    ])
+  })
+
   it('a closed resync frame resubscribes that scope', () => {
     const frames: Frame[] = []
     register('chat', { frame: (_h, f) => void frames.push(f) })

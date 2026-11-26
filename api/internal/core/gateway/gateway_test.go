@@ -24,7 +24,7 @@ func closeAll(t *testing.T, ls []net.Listener) {
 // TestGatewayTCP proves a loopback tcp:// bind is the dev path: one plaintext
 // listener and no unix socket beside it.
 func TestGatewayTCP(t *testing.T) {
-	ls, err := gateway.New("tcp://127.0.0.1:0", "", nil)
+	ls, err := gateway.New("tcp://127.0.0.1:0", "")
 	require.NoError(t, err)
 	closeAll(t, ls)
 	require.Len(t, ls, 1)
@@ -33,13 +33,13 @@ func TestGatewayTCP(t *testing.T) {
 }
 
 func TestGatewayUnknownScheme(t *testing.T) {
-	_, err := gateway.New("http://localhost:8080", "", nil)
+	_, err := gateway.New("http://localhost:8080", "")
 	assert.Error(t, err)
 }
 
 func TestGatewayUnix_ExplicitPath(t *testing.T) {
 	sockPath := testutil.ShortSocket(t)
-	ls, err := gateway.New("unix://"+sockPath, "", nil)
+	ls, err := gateway.New("unix://"+sockPath, "")
 	require.NoError(t, err)
 	closeAll(t, ls)
 	assert.Len(t, ls, 1)
@@ -51,50 +51,24 @@ func TestGatewayUnix_BarePathBindsTheGivenSocket(t *testing.T) {
 	t.Setenv(home.EnvVar, t.TempDir())
 	sock := testutil.ShortSocket(t)
 
-	ls, err := gateway.New("unix://", sock, nil)
+	ls, err := gateway.New("unix://", sock)
 
 	require.NoError(t, err)
 	closeAll(t, ls)
 	assert.FileExists(t, sock)
 }
 
-// TestRegression_BindAddrs_NetworkExposedTCPAlsoBindsLocalSocket proves a
-// daemon reachable over the network still binds the local unix socket that
-// `crowbar pair` dials, so it can always be paired from its own host.
-func TestRegression_BindAddrs_NetworkExposedTCPAlsoBindsLocalSocket(t *testing.T) {
-	const sock = "/home/crowbar.sock"
-	cases := []struct {
-		host string
-		want []string
-	}{
-		{"unix://", []string{"unix://" + sock}},
-		{"unix:///tmp/x.sock", []string{"unix:///tmp/x.sock"}},
-		{"tcp://127.0.0.1:3737", []string{"tcp://127.0.0.1:3737"}},
-		{"tcp://localhost:3737", []string{"tcp://localhost:3737"}},
-		{"tcp://0.0.0.0:3737", []string{"unix://" + sock, "tcp://0.0.0.0:3737"}},
-		{"tcp://:3737", []string{"unix://" + sock, "tcp://:3737"}},
-		{"tcp://192.168.1.50:3737", []string{"unix://" + sock, "tcp://192.168.1.50:3737"}},
+// TestRegression_New_NetworkExposedHostIsTheDeviceListenersNotAGatewayBind proves
+// the gateway binds only local listeners: a non-loopback host never binds here, so
+// it can never be served without TLS and a paired token.
+func TestRegression_New_NetworkExposedHostIsTheDeviceListenersNotAGatewayBind(t *testing.T) {
+	for _, host := range []string{"tcp://0.0.0.0:0", "tcp://:3737", "tcp://192.168.1.50:3737"} {
+		ls, err := gateway.New(host, testutil.ShortSocket(t))
+		require.Errorf(t, err, "%s", host)
+		assert.Empty(t, ls)
+		assert.True(t, gateway.Exposed(host), host)
 	}
-	for _, tc := range cases {
-		t.Run(tc.host, func(t *testing.T) {
-			got, err := gateway.BindAddrs(tc.host, sock)
-			require.NoError(t, err)
-			assert.Equal(t, tc.want, got)
-		})
+	for _, host := range []string{"unix://", "tcp://127.0.0.1:3737", "tcp://localhost:3737"} {
+		assert.Falsef(t, gateway.Exposed(host), "%s", host)
 	}
-
-	_, err := gateway.BindAddrs("http://localhost:8080", sock)
-	assert.Error(t, err)
-}
-
-// TestGateway_LaterBindFails_ReleasesEarlierListeners proves a half-bound
-// gateway never leaks: the exposed TCP bind is refused (no TLS identity)
-// after the unix socket is up, and New must close that socket again.
-func TestGateway_LaterBindFails_ReleasesEarlierListeners(t *testing.T) {
-	sock := testutil.ShortSocket(t)
-
-	_, err := gateway.New("tcp://0.0.0.0:0", sock, nil)
-	require.ErrorContains(t, err, "TLS identity")
-
-	assert.NoFileExists(t, sock, "the unix socket must be released")
 }

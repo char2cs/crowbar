@@ -14,7 +14,7 @@ interface HostFailureNotice {
 }
 
 const PAIR_AGAIN =
-  'To use it again, run crowbar pair on that host, then remove it and add it back in Settings → Hosts.'
+  'To use it again, remove it here, then add it back in Settings → Hosts with a new code from Settings → Devices on that host (or crowbar pair on a headless host).'
 
 const PROJECT_HOST_UNAVAILABLE: HostFailureNotice = {
   message: 'This project’s host is not available',
@@ -66,7 +66,7 @@ function kindNotice(kind: NoticeKind, name: string, status: number): HostFailure
     case 'identity-changed':
       return {
         message: `${name} is presenting a different identity — confirm it before pairing again`,
-        description: `It may have been reinstalled or reset, or someone may be intercepting the connection, so Crowbar refused to connect. Only pair it again after you confirm its new fingerprint with whoever runs it: run crowbar pair on that host, then remove it and add it back in Settings → Hosts.`,
+        description: `It may have been reinstalled or reset, or someone may be intercepting the connection, so Crowbar refused to connect. Only pair it again after you confirm its new fingerprint with whoever runs it: remove it here, then add it back in Settings → Hosts with a new code from Settings → Devices on that host (or crowbar pair on a headless host).`,
       }
     case 'refused':
       return {

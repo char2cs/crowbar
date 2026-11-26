@@ -253,3 +253,33 @@ func TestPromptSteps_AbsentCapabilityIsReportedAsAbsent(t *testing.T) {
 	_, ok = spawn.PromptSteps(nil, false)
 	assert.False(t, ok)
 }
+
+func TestWriteMCPFiles_WritesTheTokenFileAndLeavesArgvSteps(t *testing.T) {
+	d, ctx := base(t)
+	ctx.RunnerToken = "tok-1"
+	d.MCPInject = []spec.InjectStep{
+		{Verb: "write_file", Args: map[string]any{"path": "{tmp}/mcp.token", "content": "{runner_token}"}},
+		passArg(map[string]any{"arg": "--mcp-config", "value": "{}"}),
+	}
+
+	require.NoError(t, spawn.WriteMCPFiles(d, ctx))
+
+	path := filepath.Join(ctx.Tmp, "mcp.token")
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "tok-1", string(got))
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+}
+
+func TestWriteMCPFiles_WritesNothingForADescriptorWithoutAFileStep(t *testing.T) {
+	d, ctx := base(t)
+	d.MCPInject = []spec.InjectStep{passArg(map[string]any{"arg": "--mcp-config", "value": "{}"})}
+
+	require.NoError(t, spawn.WriteMCPFiles(d, ctx))
+
+	entries, err := os.ReadDir(ctx.Tmp)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+}

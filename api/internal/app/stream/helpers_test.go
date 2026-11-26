@@ -108,8 +108,14 @@ func ended(t *testing.T, done <-chan struct{}) {
 
 func (f *fakeConn) send(t *testing.T, op, scope string) {
 	t.Helper()
+	f.sendRequest(t, stream.Request{Op: op, Scope: scope})
+}
+
+func (f *fakeConn) sendRequest(t *testing.T, req stream.Request) {
+	t.Helper()
+	op, scope := req.Op, req.Scope
 	select {
-	case f.in <- stream.Request{Op: op, Scope: scope}:
+	case f.in <- req:
 	case <-f.closed:
 		require.FailNow(t, "connection closed before "+op+" "+scope)
 	}

@@ -153,16 +153,28 @@ func endedShell(d *spec.Descriptor, ev models.CanonicalEvent) models.CanonicalEv
 	if !ok || p.Kind != spec.InjectedPromptTaskNotification {
 		return ev
 	}
-	id := p.TaskID.Find(ev.Message)
-	if id == "" {
-		return ev
+	summary, note := p.Summary.Find(ev.Message), p.Event.Find(ev.Message)
+	for _, ref := range namedTasks(p, ev.Message) {
+		status := ref.Status
+		if mapped, ok := p.StatusMap[status]; ok {
+			status = mapped
+		}
+		ev.Shells = append(ev.Shells, models.ShellEvent{ID: ref.ID, Status: status, ExitCode: ref.ExitCode, Summary: summary, Note: note})
 	}
-	status := p.Status.Find(ev.Message)
-	if mapped, ok := p.StatusMap[status]; ok {
-		status = mapped
-	}
-	ev.Shell = &models.ShellEvent{ID: id, Status: status, Summary: p.Summary.Find(ev.Message), Note: p.Event.Find(ev.Message)}
 	return ev
+}
+
+// namedTasks is every task a prompt names: the one task_id finds, else each
+// match of the entry's items.
+func namedTasks(p spec.InjectedPromptSpec, prompt string) []spec.TaskRef {
+	if id := p.TaskID.Find(prompt); id != "" {
+		return []spec.TaskRef{{ID: id, Status: p.Status.Find(prompt)}}
+	}
+	var refs []spec.TaskRef
+	for _, item := range p.Items {
+		refs = append(refs, item.FindAll(prompt)...)
+	}
+	return refs
 }
 
 // decode reads raw as JSON. Only a hook delivery declares its format; an api frame

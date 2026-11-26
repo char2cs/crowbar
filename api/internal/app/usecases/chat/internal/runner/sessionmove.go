@@ -15,15 +15,19 @@ import (
 
 // claimHeld announces sessionID, which another chat holds, on chatID: a
 // conflict while chatID holds a conversation, else the session moves here.
-func (rs *Runners) claimHeld(ctx context.Context, chatID, providerID, sessionID string) ([]ledger.Row, error) {
+func (rs *Runners) claimHeld(ctx context.Context, chatID, providerID, sessionID, relayID string) ([]ledger.Row, error) {
 	owner, ok, err := rs.ledger.SessionOwner(ctx, providerID, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("session owner: %w", err)
 	}
 	if !ok {
-		return rs.announce(ctx, chatID, providerID, sessionID, "") // its holder was erased meanwhile
+		return rs.announce(ctx, chatID, providerID, sessionID, "", relayID) // its holder was erased meanwhile
 	}
 	st, err := rs.ledger.State(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+	held, err := rs.heldRelayID(ctx, owner, providerID, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -32,7 +36,22 @@ func (rs *Runners) claimHeld(ctx context.Context, chatID, providerID, sessionID 
 			return nil, err
 		}
 	}
-	return rs.announce(ctx, chatID, providerID, sessionID, owner)
+	return rs.announce(ctx, chatID, providerID, sessionID, owner, held)
+}
+
+// heldRelayID is the relay id owner bound sessionID with: the provider pinned it for
+// that session, so the chat the session moves to keeps it.
+func (rs *Runners) heldRelayID(ctx context.Context, owner, providerID, sessionID string) (string, error) {
+	st, err := rs.ledger.State(ctx, owner)
+	if err != nil {
+		return "", fmt.Errorf("held relay id: %w", err)
+	}
+	for _, c := range st.Conversations() {
+		if c.Provider == providerID && c.SessionID == sessionID {
+			return c.RelayID, nil
+		}
+	}
+	return "", nil
 }
 
 // giveUp loses sessionID on owner to toChat, and ends owner's runner on it:

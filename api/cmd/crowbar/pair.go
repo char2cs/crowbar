@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -14,7 +15,7 @@ import (
 func newPairCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "pair",
-		Short: "Mint a one-time pairing code for connecting a Crowbar client",
+		Short: "Mint a one-time pairing code for connecting a Crowbar client (needs device connections on)",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			socket, err := transports.SocketPath("unix://")
 			if err != nil {
@@ -26,13 +27,15 @@ func newPairCmd() *cobra.Command {
 }
 
 type mintCodeResponse struct {
-	Code              string `json:"code"`
-	ServerFingerprint string `json:"serverFingerprint"`
+	Code              string   `json:"code"`
+	ServerFingerprint string   `json:"serverFingerprint"`
+	Addresses         []string `json:"addresses"`
 }
 
-// runPair mints a pairing code and prints it with the daemon's TLS fingerprint.
-// The code only proves possession of this socket; the operator compares the
-// fingerprint to what the client shows to confirm which daemon TLS reaches.
+// runPair mints a pairing code and prints it with the addresses a device dials and
+// the daemon's TLS fingerprint. The code only proves possession of this socket; the
+// operator compares the fingerprint to what the client shows to confirm which
+// daemon TLS reaches.
 func runPair(socket string, out io.Writer) error {
 	got, err := postJSON[mintCodeResponse](socket, "/v0/pair/code")
 	if err != nil {
@@ -40,11 +43,12 @@ func runPair(socket string, out io.Writer) error {
 	}
 	_, err = fmt.Fprintf(out, `
 Pairing code    %s
+Address         %s
 Fingerprint     %s
 
 Enter both in the Crowbar client within %s. The code works once.
 
-`, got.Code, got.ServerFingerprint, pairing.CodeTTL)
+`, got.Code, strings.Join(got.Addresses, ", "), got.ServerFingerprint, pairing.CodeTTL)
 	if err != nil {
 		return fmt.Errorf("pair: print the code: %w", err)
 	}

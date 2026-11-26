@@ -1,10 +1,11 @@
 import { memo, useState } from 'react'
 import { CaretRightIcon } from '@phosphor-icons/react'
 import type { ReasoningItem } from '@/features/agent/stores/lib/transcript-items'
+import { ShowFull } from '@/features/agent/transcript/rows/show-full'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 
 /** What the model thought on its way to the reply, collapsed to how long it took. */
-function ReasoningRowBody({ item }: { item: ReasoningItem }) {
+function ReasoningRowBody({ chatId, item }: { chatId: string; item: ReasoningItem }) {
   const [open, setOpen] = useState(false)
   const seconds = Math.round((Date.parse(item.endedAt) - Date.parse(item.startedAt)) / 1000)
   const label = seconds > 0 ? `Thought for ${seconds}s` : 'Thought'
@@ -25,6 +26,7 @@ function ReasoningRowBody({ item }: { item: ReasoningItem }) {
             {item.text}
           </MarkdownMessageStatic>
         )}
+        {open && <ShowFull chatId={chatId} id={item.id} fullSeq={item.fullSeq} what="text" />}
       </div>
     </article>
   )

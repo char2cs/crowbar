@@ -4,6 +4,9 @@ const (
 	DeliveryRestartTUI = "restart_tui"
 )
 
+// InputKeys types a prompt as keystrokes, not as a paste the CLI may rewrite.
+const InputKeys = "keys"
+
 const (
 	CatalogAdapterJSONTextSection      = "json_text_section"
 	CatalogAdapterJSONInventoryDetails = "json_inventory_text_detail"
@@ -42,7 +45,33 @@ type PromptSubmitSpec struct {
 	Resume        InjectSteps        `yaml:"resume"`
 	LeadingSigils *LeadingSigilsSpec `yaml:"leading_sigils"`
 	Steer         *SteerSpec         `yaml:"steer"`
+	Type          *PromptTypeSpec    `yaml:"type"`
 }
+
+// PromptTypeSpec types a prompt into an idle CLI's composer instead of
+// restarting it. A message opening with a SkipPrefixes entry keeps its meaning
+// as keystrokes (a command, a mode switch), and one ending in a SkipSuffixes entry
+// has its submit key swallowed by the CLI, so both restart instead. A CLI that
+// reads a burst as a paste is fed at most ChunkBytes per write, ChunkIntervalMS apart.
+type PromptTypeSpec struct {
+	Input           string             `yaml:"input"`
+	Submit          string             `yaml:"submit"`
+	ChunkBytes      int                `yaml:"chunk_bytes"`
+	ChunkIntervalMS int                `yaml:"chunk_interval_ms"`
+	SkipPrefixes    []string           `yaml:"skip_prefixes"`
+	SkipSuffixes    []string           `yaml:"skip_suffixes"`
+	Composer        PromptComposerSpec `yaml:"composer"`
+}
+
+// PromptComposerSpec: the composer is empty when the cursor sits right after
+// RowPrefix and the rest of its row is blank or drawn as Ghost (a suggestion).
+type PromptComposerSpec struct {
+	RowPrefix string `yaml:"row_prefix"`
+	Ghost     string `yaml:"ghost"`
+}
+
+// GhostFaint is a suggestion drawn faint (SGR 2).
+const GhostFaint = "faint"
 
 // SteerSpec lets a mid-turn message ride the CLI's turn-end hook instead of a
 // restart: Frame wraps {message}, Reply is the hook stdout with {message_json}.

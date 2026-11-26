@@ -25,6 +25,24 @@ func TestValidate_AnAPIProvidersResumeWithoutARecognisedRefusalIsAnError(t *test
 	assert.Equal(t, descriptorcheck.SeverityError, f.Severity)
 }
 
+// A provider that resumes only over its connection has no exit to read, so its
+// refusal is the rpc rule alone; resuming there unrecognised is still an error.
+func TestValidate_AConnectionOnlyResumeIsRefusedByItsRPCRule(t *testing.T) {
+	api := "id: api\nspawn:\n  cmd: api\n  interactive_required: true\nruntime:\n  transport: api\n" +
+		"  api: { protocol: jsonrpc2, delivery: stdio, format: ndjson, serve: [api, serve] }\n" +
+		"events:\n  prompt:\n    resume:\n      - call: enter\n        send: { id: \"{session_id}\" }\n" +
+		"    action:\n      - call: say\n        send: { id: \"{session_id}\", text: \"{text}\" }\n"
+	f := findingFor(t, descriptorcheck.Validate([]byte(api)), "session.refusal_unrecognised")
+	assert.Equal(t, "events.prompt.resume", f.Path)
+	assert.Equal(t, descriptorcheck.SeverityError, f.Severity)
+	assert.Positive(t, f.Line)
+
+	declared := "session:\n  refused: { rpc_code: 4001, needles: [gone] }\n"
+	for _, f := range descriptorcheck.Validate([]byte(api + declared)).Findings {
+		assert.NotContains(t, []string{"session.refusal_unrecognised", "session.refused_exit"}, f.Rule)
+	}
+}
+
 func TestValidate_TheSessionRulesRefuseAnUnusableSession(t *testing.T) {
 	cases := map[string]struct {
 		yaml, rule, path string

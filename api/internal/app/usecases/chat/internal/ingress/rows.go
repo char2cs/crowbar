@@ -1,8 +1,6 @@
 package ingress
 
 import (
-	"github.com/google/uuid"
-
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -33,8 +31,12 @@ type Source struct {
 	CompactsByPrompt bool
 	// Manual: a person asked for the chat's next compaction.
 	Manual bool
-	// Live is the runner's streamed text no row holds, for a turn's end.
+	// Live is the runner's streamed text no row holds, for a turn's end, or
+	// what an event that ends the text before it records first.
 	Live Unrecorded
+	// EndsAtAction: the provider's messages are whole at its next action, so a
+	// whole row an action wrote is Crowbar's cut, and text after it continues it.
+	EndsAtAction bool
 }
 
 // Prompt is a user_prompt's words. Origin is OriginProvider for words a person
@@ -75,10 +77,16 @@ func Map(st ledger.State, ev engineagents.CanonicalEvent, src Source, refs BlobR
 	if src.Scope != "" {
 		return mapNested(st, ev, src, refs)
 	}
-	if m, ok := mappers[ev.Kind]; ok {
-		return m(st, ev, src, refs)
+	m, ok := mappers[ev.Kind]
+	if !ok {
+		return nil, Effects{}, nil
 	}
-	return nil, Effects{}, nil
+	rows, fx, err := m(st, ev, src, refs)
+	if err != nil || !endsText(ev.Kind) {
+		return rows, fx, err
+	}
+	said, err := textBefore(st, ev, src)
+	return append(said, rows...), fx, err
 }
 
 // records is whether Map decides rows for an event of kind.
@@ -150,7 +158,7 @@ func mapPromptEvent(st ledger.State, ev engineagents.CanonicalEvent, src Source,
 	rows, err := mapPrompt(st, ev, src)
 	if err == nil && ev.Subagent == nil {
 		var ended []ledger.Row
-		ended, err = promptShellRows(st, ev.Shell)
+		ended, err = promptShellRows(st, ev.Shells)
 		rows = append(rows, ended...)
 	}
 	fx := Effects{}
@@ -222,63 +230,6 @@ func mapPrompt(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]l
 	return openProviderTurn(st, ev.TurnID, src)
 }
 
-// openProviderTurn is the turn the provider started as providerTurnID, unless
-// none may start on src's runner or it was already recorded.
-func openProviderTurn(st ledger.State, providerTurnID string, src Source) ([]ledger.Row, error) {
-	if !src.Held || !startsOn(st, src.RunnerID) {
-		return nil, nil
-	}
-	if _, seen := st.ProviderTurn(providerTurnID); seen {
-		return nil, nil
-	}
-	rows, err := ledger.EndTurn(st, ledger.TurnStatusDone, ledger.ReasonSuperseded)
-	if err != nil {
-		return nil, err
-	}
-	started := ledger.TurnStarted{
-		ProviderTurnID: providerTurnID, RunnerID: src.RunnerID, Provider: src.Provider,
-		SessionID: src.SessionID, Persists: src.Persists,
-	}
-	opened, err := openRows(st, started, src)
-	return append(rows, opened...), err
-}
-
-// openRows start the turn the prompt opens: on the oldest pending Crowbar
-// prompt its runner carries when the words are that prompt's, or when the
-// provider echoed none.
-func openRows(st ledger.State, started ledger.TurnStarted, src Source) ([]ledger.Row, error) {
-	wordless := src.Prompt.Text == ""
-	switch src.Prompt.Origin {
-	case "":
-		return bareTurn(started)
-	case ledger.OriginProvider:
-		for _, p := range st.PendingPrompts() {
-			if (!wordless && p.Text != src.Prompt.Text) || (p.RunnerID != "" && p.RunnerID != src.RunnerID) {
-				continue
-			}
-			started.RequestID = p.RequestID
-			row, err := ledger.NewRow(ledger.KindTurnStarted, p.TurnID, "", started)
-			return []ledger.Row{row}, err
-		}
-		if wordless {
-			return bareTurn(started)
-		}
-	}
-	turnID := uuid.NewString()
-	msg, err := ledger.NewRow(ledger.KindUserMessage, turnID, "",
-		ledger.UserMessage{Text: src.Prompt.Text, Origin: src.Prompt.Origin})
-	if err != nil {
-		return nil, err
-	}
-	row, err := ledger.NewRow(ledger.KindTurnStarted, turnID, "", started)
-	return []ledger.Row{msg, row}, err
-}
-
-func bareTurn(started ledger.TurnStarted) ([]ledger.Row, error) {
-	row, err := ledger.NewRow(ledger.KindTurnStarted, uuid.NewString(), "", started)
-	return []ledger.Row{row}, err
-}
-
 // stopStatus is how a turn_stop's provider status ended its turn: anything but
 // a completed turn did not finish its work.
 func stopStatus(providerStatus string) ledger.TurnStatus {
@@ -316,7 +267,7 @@ func mapStop(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]led
 	}
 	end := ledger.TurnEnded{
 		Status: string(stopStatus(ev.TurnStatus)), Effort: ev.Effort,
-		Diff: lastText(src.Live.Diff, ""),
+		Diff: lastText(src.Live.Diff, ""), ProviderTurnID: ev.TurnID,
 	}
 	turnID, ended, closes, err := ledger.EndTurnOf(st, src.RunnerID, ev.TurnID, end)
 	if err != nil {
@@ -339,63 +290,6 @@ func mapStop(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]led
 	steered, reply, err := steerRows(st, src)
 	fx.Reply = reply
 	return append(rows, steered...), fx, err
-}
-
-// closingRows are what a turn's end records: answers streamed with no row of their
-// own, the hook's reply and its thought, and every ask nothing will answer now. One
-// message is one whole row; the reply is its last message's.
-func closingRows(st ledger.State, turnID, reply string, src Source, outlived bool) ([]ledger.Row, error) {
-	said := unsaid(st, turnID, src.Live.Answers)
-	last, hasLast := st.LastMessage(turnID)
-	whole := hasLast && st.HasChunk("", last, ledger.IndexComplete)
-	if n := len(said); n > 0 {
-		last, hasLast, whole = said[n-1].ID, true, false
-		said[n-1].Text = fuller(reply, said[n-1].Text)
-	}
-	if !hasLast {
-		last = ledger.ReplyID(turnID)
-	}
-	if reply != "" && !whole && len(said) == 0 {
-		said = append(said, liveText{ID: last, Text: reply})
-	}
-	var rows []ledger.Row
-	for _, a := range said {
-		row, err := ledger.NewRow(ledger.KindAssistantText, turnID, "",
-			ledger.AssistantText{MessageID: a.ID, Index: ledger.IndexComplete, Text: a.Text})
-		if err != nil {
-			return nil, err
-		}
-		rows = append(rows, row)
-	}
-	if thought := lastText(src.Live.Reasoning, turnID); thought != "" {
-		row, err := ledger.NewRow(ledger.KindReasoning, turnID, "", ledger.Reasoning{MessageID: last, Text: thought})
-		if err != nil {
-			return nil, err
-		}
-		rows = append(rows, row)
-	}
-	abandoned, err := abandonAsks(st, turnID, outlived)
-	return append(rows, abandoned...), err
-}
-
-// fuller is the longer of a turn end's reply and the stream it names: the
-// reply may be another message's text, the stream may have lost frames.
-func fuller(reply, streamed string) string {
-	if len(reply) > len(streamed) {
-		return reply
-	}
-	return streamed
-}
-
-// unsaid are turnID's main-scope answers that streamed with no whole row.
-func unsaid(st ledger.State, turnID string, answers []liveText) []liveText {
-	var out []liveText
-	for _, a := range answers {
-		if a.TurnID == turnID && a.Scope == "" && !st.HasChunk("", a.ID, ledger.IndexComplete) {
-			out = append(out, a)
-		}
-	}
-	return out
 }
 
 // lastText is the newest of texts, of turnID's turn when one is named.

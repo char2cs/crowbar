@@ -15,6 +15,7 @@ export type SettingsTab =
   | 'providers'
   | 'keybindings'
   | 'hosts'
+  | 'devices'
   | 'active-sessions'
   | 'developer'
 

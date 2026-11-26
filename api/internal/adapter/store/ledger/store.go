@@ -165,6 +165,9 @@ func (s *Store) Forget(ctx context.Context, chatID string) error {
 		if err := tx.Exec(`DELETE FROM chat_ledger_sessions WHERE chat_id = ?`, chatID).Error; err != nil {
 			return fmt.Errorf("sessions: %w", err)
 		}
+		if err := tx.Exec(`DELETE FROM chat_ledger_relays WHERE chat_id = ?`, chatID).Error; err != nil {
+			return fmt.Errorf("relays: %w", err)
+		}
 		if err := tx.Exec(`DELETE FROM ledger_dead_letters WHERE chat_id = ?`, chatID).Error; err != nil {
 			return fmt.Errorf("dead letters: %w", err)
 		}
@@ -310,7 +313,10 @@ func indexSession(tx *gorm.DB, chatID string, r ledger.Row, movedAway map[sessio
 			return err
 		}
 	}
-	return claimSession(tx, chatID, key)
+	if err := claimSession(tx, chatID, key); err != nil {
+		return err
+	}
+	return indexRelay(tx, chatID, body)
 }
 
 // passSession repoints key's claim from one chat to another; a claim the

@@ -20,6 +20,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 	"github.com/char2cs/crowbar/api/internal/engine"
+	"github.com/char2cs/crowbar/api/internal/testutil/accessfake"
 	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
 
@@ -100,7 +101,7 @@ func TestRepoLists_ShareOnePlacementsSoABrokenProjectLogsOnce(t *testing.T) {
 		return tree.Node{}, errors.New("tree: read: disk gone")
 	}, func(context.Context, string, error) { logged++ })
 	r := gin.New()
-	New(a, eng, "").Register(r.Group("/v0"))
+	New(a, eng, accessfake.Closed()).Register(r.Group("/v0"))
 
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequestWithContext(ctx, http.MethodGet, "/v0/projects/p1/repos", nil))

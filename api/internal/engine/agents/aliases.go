@@ -42,6 +42,7 @@ type (
 	AnswerCapability = models.AnswerCapability
 	AnswerDecision   = models.AnswerDecision
 	Selection        = models.Selection
+	PromptTyping     = models.PromptTyping
 
 	MessageDelta     = models.MessageDelta
 	MessageComplete  = models.MessageComplete

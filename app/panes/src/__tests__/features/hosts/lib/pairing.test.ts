@@ -69,6 +69,18 @@ describe('alreadyPairedReason', () => {
     )
   })
 
+  // This computer's own daemon is Local, reached over its socket: a second row would be it twice.
+  it('this computer’s own daemon, however it is reached, is Local and never a second host', () => {
+    expect(alreadyPairedReason([], '192.168.1.20:3737', 'SHA256:local', 'SHA256:local')).toBe(
+      'This is this computer, already shown as Local. There is nothing to pair.',
+    )
+  })
+
+  it('no local identity known means nothing is taken for Local', () => {
+    expect(alreadyPairedReason([], '192.168.1.20:3737', '', '')).toBeNull()
+    expect(alreadyPairedReason([], '192.168.1.20:3737', 'SHA256:other', 'SHA256:local')).toBeNull()
+  })
+
   it.each([
     ['another port', 'homelab.lan:4000'],
     ['another host', 'office.lan:3737'],
@@ -82,9 +94,9 @@ describe('alreadyPairedReason', () => {
 describe('pairingFailureText', () => {
   const at = '1.2.3.4:3737'
   const WRONG_CODE =
-    'That code didn’t work. It may be mistyped or expired — the host doesn’t say which. Check it, or run crowbar pair on the host again for a new one.'
+    'That code didn’t work. It may be mistyped or expired — the host doesn’t say which. Check it, or get a new one in Settings → Devices on the host (or run crowbar pair on a headless host).'
   const TOO_MANY =
-    'Too many attempts — wait a minute, or run crowbar pair on the host for a new code.'
+    'Too many attempts — wait a minute, then get a new code in Settings → Devices on the host (or run crowbar pair on a headless host).'
   const UNREACHABLE = `Can’t reach ${at}. Check the address and port, and that the host is running.`
   const KEYCHAIN_UNDONE = `Your keychain couldn’t save the key for ${at}, so the pairing was undone and the host isn’t left paired with this device. Unlock your keychain or allow Crowbar to use it, then pair again with a new code.`
   const KEYCHAIN_DANGLING = `Your keychain couldn’t save the key for ${at}, and undoing the pairing on the host didn’t go through. No copy of the key was kept, so nothing can use it, but the host may still list this device. Unlock your keychain or allow Crowbar to use it, then pair again with a new code.`
@@ -122,7 +134,7 @@ describe('pairingFailureText', () => {
     ],
     [
       'keychain is locked',
-      `Couldn’t pair with homelab. Try again, or run crowbar pair on the host for a new code.`,
+      `Couldn’t pair with homelab. Try again with a new code from Settings → Devices on the host (or run crowbar pair on a headless host).`,
     ],
     [
       'the keychain could not keep the token for 1.2.3.4:3737 (keychain is locked); the host revoked it',

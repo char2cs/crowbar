@@ -1,5 +1,7 @@
 package models
 
+import "time"
+
 type SpawnPlan struct {
 	Executable string
 	Argv       []string
@@ -67,4 +69,18 @@ func (c Capabilities) Declares(kind string) bool {
 		}
 	}
 	return false
+}
+
+// PromptTyping is how a prompt is typed into an idle CLI's own composer.
+type PromptTyping struct {
+	Input             string
+	Submit            string
+	ChunkBytes        int
+	ChunkInterval     time.Duration
+	ComposerRowPrefix string
+	ComposerGhost     string
+	// SkipPrefixes opens a message that keeps its meaning as keystrokes.
+	SkipPrefixes []string
+	// SkipSuffixes ends a message whose submit key the CLI would swallow.
+	SkipSuffixes []string
 }

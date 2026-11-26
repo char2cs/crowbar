@@ -66,16 +66,20 @@ type Driver struct {
 	// mu guards the rest. established: this connection ran an event's Fresh or
 	// Resume steps (only reopen clears it). remembered: every value a step's
 	// capture: pulled out, for a later Send; literals names those that were a JSON
-	// number or bool, which a template sends back as such. birth: the first establish's values.
+	// number or bool, which a template sends back as such. frameValues: what remember:
+	// picked out of inbound frames. birth: the first establish's values.
 	// inflight: a turn was started and neither stopped nor failed yet; lastEvent
 	// is the event a reconnect resumes the session through.
 	mu          sync.Mutex
 	established bool
 	remembered  map[string]string
 	literals    map[string]bool
+	frameValues map[string]frameValue
 	birth       map[string]string
 	inflight    bool
 	lastEvent   string
+	// lead is the context document the session's first prompt still owes a lead.
+	lead string
 }
 
 // Start runs the descriptor's handshake over serve's stdio and starts
@@ -96,7 +100,7 @@ func newDriver(
 	}
 	drv := &Driver{
 		conn: conn, d: d, out: make(chan Event, 64), origin: origin,
-		remembered: map[string]string{}, literals: map[string]bool{}, dial: dial, rc: rc,
+		remembered: map[string]string{}, literals: map[string]bool{}, frameValues: map[string]frameValue{}, dial: dial, rc: rc,
 	}
 	// Detached from ctx: a caller's start deadline must not end a long-lived link.
 	drv.ctx, drv.cancel = context.WithCancel(context.Background())
@@ -162,6 +166,7 @@ func (drv *Driver) pump(conn wire) {
 		if err := json.Unmarshal(frame.Params, &params); err != nil {
 			continue // a malformed params object is dropped, never fatal
 		}
+		drv.remember(frame.Method, params)
 		primary, ok := dispatch.Resolve(drv.d, frame.Method, params)
 		if !ok {
 			drv.refuseUnmapped(conn, frame)
@@ -185,7 +190,7 @@ func (drv *Driver) deliver(frame jsonrpc.Frame, params map[string]any, canonical
 	raw := frame.Params
 	// by_wire: literals are merged here because this is the only place the
 	// matched wire method is known; downstream sees them as provider fields.
-	if overlay := byWireOverlay(drv.d, canonical, frame.Method); len(overlay) > 0 {
+	if overlay := drv.overlay(canonical, frame.Method); len(overlay) > 0 {
 		if merged, err := withOverlay(params, overlay); err == nil {
 			raw = merged
 		}
@@ -195,6 +200,19 @@ func (drv *Driver) deliver(frame jsonrpc.Frame, params map[string]any, canonical
 		askID = drv.httpAskID(canonical, params)
 	}
 	drv.out <- Event{Canonical: canonical, Raw: raw, AskID: askID}
+}
+
+// overlay is what is merged into a frame before its map: resolves: its by_wire
+// literals and the values remember: kept from earlier frames.
+func (drv *Driver) overlay(canonical, wireMethod string) map[string]any {
+	out := drv.capturedValues()
+	for k, v := range byWireOverlay(drv.d, canonical, wireMethod) {
+		if out == nil {
+			out = map[string]any{}
+		}
+		out[k] = v
+	}
+	return out
 }
 
 // byWireOverlay is the literal fields this event's api: block declares for
@@ -209,7 +227,7 @@ func byWireOverlay(d *spec.Descriptor, canonical, wireMethod string) map[string]
 
 // withOverlay merges overlay into a copy of decoded and re-marshals; decoded is
 // never mutated, so when: matching keeps seeing only what the provider sent.
-func withOverlay(decoded map[string]any, overlay map[string]string) (json.RawMessage, error) {
+func withOverlay(decoded, overlay map[string]any) (json.RawMessage, error) {
 	merged := make(map[string]any, len(decoded)+len(overlay))
 	for k, v := range decoded {
 		merged[k] = v
@@ -231,13 +249,15 @@ func (drv *Driver) Reply(askID json.RawMessage, rendered []byte) error {
 }
 
 // Send calls an outbound canonical event (interrupt, compact_start) resolved via
-// outbound.Resolve over remembered values, and waits for the reply so a malformed call
-// surfaces as an error. Events needing a session or nested payload use Dispatch.
+// outbound.Resolve over remembered values and frame values (as captured.NAME), and
+// waits for the reply so a malformed call surfaces as an error. Events needing a
+// session or nested payload use Dispatch.
 func (drv *Driver) Send(ctx context.Context, canonical string, values map[string]string) error {
 	drv.mu.Lock()
 	merged := cloneValues(drv.remembered)
 	merged[callIDKey] = newCallID()
 	literals := maps.Clone(drv.literals)
+	drv.addFrameValues(merged, literals)
 	drv.mu.Unlock()
 	for k, v := range values {
 		merged[k] = v

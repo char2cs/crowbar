@@ -14,12 +14,17 @@ import {
   chatStore,
   dropFeed,
   failFeed,
+  fillRow,
   foldsLive,
   openFeed,
+  prependRows,
   refoldFeed,
   showStoredFeed,
   type LiveFrame,
 } from '@/features/agent/stores/chat-store'
+import { PAGE_BYTES, openRows } from '@/features/agent/lib/feed-window'
+import { readOlderRows, readRow } from '@/features/agent/api/chat-rows-reads'
+import { report } from '@/lib/errors/report'
 import {
   forgetChatFeeds,
   forgetFeed,
@@ -40,18 +45,17 @@ interface Attachment {
   frame: number | null
   /** A synced disagreed with the last applied row and the scope was asked for again. */
   reasked: boolean
-  /** About how many of the newest rows a fresh replay opens on, in whole turns. */
-  rows: number
   /** A fresh window is replaying: the next sub asks for it, not for rows after the head. */
   widening: boolean
+  /** An older page is on its way. */
+  paging: boolean
   /** The shown feed came from the stored copy and the daemon has not confirmed it yet. */
   cached: boolean
 }
 
-/** A long chat opens on its newest rows; older ones replay as the reader reaches them.
- *  Rows, not turns: one turn of a heavy chat can hold a thousand of them. */
-const OPEN_ROWS = 1500
-const OLDER_ROWS = 3000
+/** A long chat opens on about three screens of its newest rows; older ones replay as the
+ *  reader nears them. Sized by what is seen (`feed-window`), not by a fixed row count. */
+const openWindow = () => openRows(typeof window === 'undefined' ? 0 : window.innerHeight)
 
 /** How many chats keep their folded feed after their last view detaches. */
 const KEPT_FEEDS = 8
@@ -206,8 +210,10 @@ registerScopeKind('chat', {
   since: (hostId, chatId) => {
     const attachment = attachments.get(chatId)
     const held = attachment?.hostId === hostId && !attachment.widening
-    return (held && chatStore.getState().feeds[chatId]?.seq) || -(attachment?.rows ?? OPEN_ROWS)
+    return (held && chatStore.getState().feeds[chatId]?.seq) || -openWindow()
   },
+  // A replay of any kind sends its rows as previews within this size.
+  bytes: () => PAGE_BYTES,
   // A kept feed's seq means nothing in another run's ledger: it replays from the newest rows.
   epoch: (hostId, next) => {
     const was = epochs.get(hostId)
@@ -240,16 +246,36 @@ registerScopeKind('chat', {
   },
 })
 
-/** Opens the chat on more of its older turns: a wider window replays behind the
- *  shown feed and replaces it at ready. No-op while one replays or none is older. */
-export function loadOlder(chatId: string) {
+/** Pages the turns before the feed's first row in over REST and lays them above it. No-op while
+ *  a page is on its way, the feed replays, or nothing is older; a failed page is asked for again. */
+export async function loadOlder(chatId: string) {
   const attachment = attachments.get(chatId)
-  if (!attachment || attachment.widening || !chatStore.getState().feeds[chatId]?.from) return
-  attachment.rows += OLDER_ROWS
-  attachment.widening = true
-  flush(chatId, attachment)
-  refoldFeed(chatId)
-  resubscribe(attachment.hostId, scopeOf(chatId))
+  const from = chatStore.getState().feeds[chatId]?.from
+  if (!attachment || attachment.paging || !from || !foldsLive(chatId)) return
+  attachment.paging = true
+  try {
+    const page = await readOlderRows(attachment.hostId, chatId, from)
+    if (attachments.get(chatId) === attachment) {
+      prependRows(chatId, from, page.rows, page.more ? page.from : 0)
+    }
+  } catch (err) {
+    report(err, { action: 'Load older messages' })
+  } finally {
+    attachment.paging = false
+  }
+}
+
+/** Fetches the row an item's preview was cut from and shows it whole in the item's place. */
+export async function showFull(chatId: string, itemId: string) {
+  const attachment = attachments.get(chatId)
+  const item = chatStore.getState().feeds[chatId]?.items.get(itemId)
+  const seq = item && 'fullSeq' in item ? item.fullSeq : undefined
+  if (!attachment || seq === undefined) return
+  const row = await readRow(attachment.hostId, chatId, seq)
+  const now = chatStore.getState().feeds[chatId]?.items.get(itemId)
+  if (attachments.get(chatId) === attachment && now && 'fullSeq' in now && now.fullSeq === seq) {
+    fillRow(chatId, itemId, row)
+  }
 }
 
 /** Keeps a detached chat's live feed so its next attach shows it at once and resumes from its
@@ -278,8 +304,8 @@ export function attachFeed(hostId: string, chatId: string): () => void {
       pending: [],
       frame: null,
       reasked: false,
-      rows: OPEN_ROWS,
       widening: false,
+      paging: false,
       cached: false,
     }
     attachment = fresh

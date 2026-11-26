@@ -294,7 +294,7 @@ func TestRecorder_SessionEventsAreTheRunnersNotTheLedgers(t *testing.T) {
 // nested conversation the chat's agent opened.
 func TestRecorder_AnotherSessionsEventIsForeignUnlessNested(t *testing.T) {
 	f := newRecorderFixture(t, "claude")
-	bound, err := ledger.Announce(f.state(t), "claude", "main", "")
+	bound, err := ledger.Announce(f.state(t), "claude", "main", "", "")
 	require.NoError(t, err)
 	_, _, err = f.ledger.Append(t.Context(), testChat, bound...)
 	require.NoError(t, err)
@@ -408,26 +408,6 @@ func TestRecorder_AManualCompactionIsMarkedAsAsked(t *testing.T) {
 	require.NoError(t, err)
 	rows := f.rows(t)
 	assert.Equal(t, "manual", bodyOf[ledger.Marker](t, rows[len(rows)-1]).Detail)
-}
-
-func TestRecorder_TelemetryIsHeldAndPushed(t *testing.T) {
-	f := newRecorderFixture(t, "claude")
-
-	require.NoError(t, f.r.RecordTelemetry(t.Context(), f.runner, f.agent, []byte(`{}`)), "an empty report is no report")
-	_, ok := f.r.Telemetry(testChat)
-	assert.False(t, ok)
-
-	require.NoError(t, f.r.RecordTelemetry(t.Context(), f.runner, f.agent,
-		[]byte(`{"context_window":{"context_window_size":200000,"used_percentage":19},"model":{"id":"m","display_name":"M"}}`)))
-	_, ok = f.r.Telemetry(testChat)
-	assert.True(t, ok)
-	assert.Equal(t, 1, f.feed.telemetry)
-
-	err := f.r.RecordTelemetry(t.Context(), f.runner, f.agent, []byte(`not json`))
-	require.ErrorIs(t, err, problem.ErrUnprocessable)
-	gone := f.runner
-	gone.CurrentChatID = ""
-	require.ErrorIs(t, f.r.RecordTelemetry(t.Context(), gone, f.agent, []byte(`{}`)), problem.ErrNotFound)
 }
 
 func TestRecorder_DescriptorIsTheRunnersProviders(t *testing.T) {

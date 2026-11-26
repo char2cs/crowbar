@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -157,4 +159,83 @@ func labelled(
 	var buf bytes.Buffer
 	require.NoError(t, pprof.Lookup("goroutine").WriteTo(&buf, 1))
 	return strings.Contains(buf.String(), fmt.Sprintf("%q:%q", key, value))
+}
+
+// device drives a real daemon the way the desktop and a phone do: the local
+// socket for the owner, TLS and a bearer for another device.
+type device struct {
+	t     *testing.T
+	local *http.Client
+	tls   *http.Client
+	port  string
+}
+
+func (d *device) do(client *http.Client, base, method, path, bearer, body string) (int, []byte) {
+	d.t.Helper()
+	req, err := http.NewRequestWithContext(d.t.Context(), method, base+path, strings.NewReader(body))
+	require.NoError(d.t, err)
+	req.Header.Set("Content-Type", "application/json")
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, []byte(err.Error())
+	}
+	defer func() { _ = resp.Body.Close() }()
+	raw, err := io.ReadAll(resp.Body)
+	require.NoError(d.t, err)
+	return resp.StatusCode, raw
+}
+
+func (d *device) local200(method, path, body string, out any) {
+	d.t.Helper()
+	code, raw := d.do(d.local, "http://daemon", method, path, "", body)
+	require.Equal(d.t, http.StatusOK, code, string(raw))
+	d.decode(raw, out)
+}
+
+func (d *device) remote(method, path, bearer, body string) (int, []byte) {
+	d.t.Helper()
+	d.tls.CloseIdleConnections()
+	return d.do(d.tls, "https://127.0.0.1:"+d.port, method, path, bearer, body)
+}
+
+// dial opens a TLS connection to the device port, trusting any certificate: the tests compare
+// its fingerprint to the one the daemon reports instead.
+func (d *device) dial() (*tls.Conn, error) {
+	conn, err := (&tls.Dialer{Config: &tls.Config{InsecureSkipVerify: true}}).DialContext(d.t.Context(), "tcp", "127.0.0.1:"+d.port)
+	if err != nil {
+		return nil, err
+	}
+	tlsConn, ok := conn.(*tls.Conn)
+	require.True(d.t, ok)
+	return tlsConn, nil
+}
+
+func (d *device) decode(raw []byte, out any) {
+	d.t.Helper()
+	if out == nil {
+		return
+	}
+	var env struct {
+		Data json.RawMessage `json:"data"`
+	}
+	require.NoError(d.t, json.Unmarshal(raw, &env), string(raw))
+	require.NoError(d.t, json.Unmarshal(env.Data, out), string(raw))
+}
+
+func freePort(t *testing.T) string {
+	t.Helper()
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer func() { _ = ln.Close() }()
+	_, port, err := net.SplitHostPort(ln.Addr().String())
+	require.NoError(t, err)
+	return port
+}
+
+type accessBody struct {
+	Enabled     bool   `json:"enabled"`
+	Fingerprint string `json:"fingerprint"`
 }

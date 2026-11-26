@@ -20,7 +20,10 @@ var InjectedPromptKinds = map[string]struct{}{
 type InjectedPromptSpec struct {
 	Kind string `yaml:"kind"`
 
-	Needle string `yaml:"needle"`
+	// Needle is the literal prefix a prompt opens with; Match an anchored regexp
+	// for one whose prefix varies. An entry names exactly one.
+	Needle string       `yaml:"needle"`
+	Match  *PromptMatch `yaml:"match"`
 
 	// ScopeID, Status and Result read a subagent_result's fields out of the prompt.
 	ScopeID *PromptPattern `yaml:"scope_id"`
@@ -31,6 +34,8 @@ type InjectedPromptSpec struct {
 	// StatusMap turns the provider's word for how into Crowbar's.
 	TaskID    *PromptPattern    `yaml:"task_id"`
 	StatusMap map[string]string `yaml:"status_map"`
+	// Items is for a prompt naming many tasks: every match of every pattern is one.
+	Items []TaskPattern `yaml:"items"`
 	// Summary is the provider's account of the task; Event a line it printed.
 	Summary *PromptPattern `yaml:"summary"`
 	Event   *PromptPattern `yaml:"event"`

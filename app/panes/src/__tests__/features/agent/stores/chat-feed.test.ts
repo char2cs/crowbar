@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { attachFeed as attachReal, loadOlder } from '@/features/agent/stores/chat-feed'
+import { PAGE_BYTES, openRows } from '@/features/agent/lib/feed-window'
+import { readRow } from '@/features/agent/api/chat-rows-reads'
+import { attachFeed as attachReal, showFull } from '@/features/agent/stores/chat-feed'
 import { forgetEntities } from '@/core/entities/entity-store'
 import { followChatLifecycle } from '@/features/agent/stores/chat-lifecycle'
 import { chatStore } from '@/features/agent/stores/chat-store'
@@ -13,6 +15,8 @@ import { forgetFeed, loadFeed, saveFeed } from '@/features/agent/stores/lib/feed
 import { applyReady } from '@/features/agent/stores/lib/fold-live'
 import { applyRows } from '@/__tests__/__fixtures__/ledger-rows'
 import { emptyFeed } from '@/features/agent/stores/lib/fold-rows'
+
+vi.mock('@/features/agent/api/chat-rows-reads', () => ({ readRow: vi.fn() }))
 
 const SCOPE = 'chat:chat-1'
 const feed = (chatId = 'chat-1') => chatStore.getState().feeds[chatId]
@@ -34,6 +38,7 @@ beforeEach(async () => {
   streamDaemon.deliver({ t: 'ready', epoch: 'e1' })
   await settled() // a new run's forget of the previous test's host must land before this one stores
   streamDaemon.sent.length = 0
+  vi.mocked(readRow).mockReset()
   vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
 })
 afterEach(async () => {
@@ -53,7 +58,9 @@ describe('attachFeed', () => {
   it('attaching a feed holds chat:<id> and detaching releases it', async () => {
     const a = await attachFeed('chat-1')
     const b = await attachFeed('chat-1')
-    expect(subs()).toEqual([{ op: 'sub', scope: SCOPE, since: -1500 }])
+    expect(subs()).toEqual([
+      { op: 'sub', scope: SCOPE, since: -openRows(window.innerHeight), bytes: PAGE_BYTES },
+    ])
     a()
     a()
     expect(heldScopes('chat:')).toEqual([SCOPE])
@@ -72,7 +79,7 @@ describe('attachFeed', () => {
     streamDaemon.sent.length = 0
     await attachFeed('chat-1')
     expect(feed()).toMatchObject({ status: 'live', order: ['p:r1'] })
-    expect(subs()).toEqual([{ op: 'sub', scope: SCOPE, since: 1 }])
+    expect(subs()).toEqual([{ op: 'sub', scope: SCOPE, since: 1, bytes: PAGE_BYTES }])
   })
 
   it('drops a feed that detaches before its replay lands', async () => {
@@ -119,7 +126,9 @@ describe('attachFeed', () => {
     streamDaemon.sent.length = 0
     await attachFeed('chat-1')
     expect(feed()).toMatchObject({ status: 'connecting', order: [] })
-    expect(subs()).toEqual([{ op: 'sub', scope: SCOPE, since: -1500 }])
+    expect(subs()).toEqual([
+      { op: 'sub', scope: SCOPE, since: -openRows(window.innerHeight), bytes: PAGE_BYTES },
+    ])
   })
 
   it('does not resume a kept feed from another host’s seq', async () => {
@@ -138,7 +147,11 @@ describe('attachFeed', () => {
     await Promise.resolve()
     host1.answer = () => []
     held.push(attachReal('host-1', 'chat-1'))
-    await vi.waitFor(() => expect(subsOn()).toEqual([{ op: 'sub', scope: SCOPE, since: -1500 }]))
+    await vi.waitFor(() =>
+      expect(subsOn()).toEqual([
+        { op: 'sub', scope: SCOPE, since: -openRows(window.innerHeight), bytes: PAGE_BYTES },
+      ]),
+    )
     expect(subs()).toEqual([])
     host1.deliver({ t: 'row', scope: SCOPE, row: ledger().prompt('r1', 'hi') })
     host1.deliver({ t: 'synced', scope: SCOPE, seq: 1 })
@@ -147,7 +160,7 @@ describe('attachFeed', () => {
     expect(subs()).toEqual([])
     host1.drop()
     host1.deliver({ t: 'ready', epoch: 'h1' })
-    expect(subsOn().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: 1 })
+    expect(subsOn().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: 1, bytes: PAGE_BYTES })
   })
 
   it('publishes replayed rows once, at synced', async () => {
@@ -173,11 +186,11 @@ describe('attachFeed', () => {
     push({ t: 'synced', seq: 2 })
     expect(feed()?.order).toEqual(['p:r1'])
     push({ t: 'closed', reason: 'resync', seq: 2 })
-    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: 2 })
+    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: 2, bytes: PAGE_BYTES })
 
     streamDaemon.drop()
     streamDaemon.deliver({ t: 'ready', epoch: 'e1' })
-    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: 2 })
+    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: 2, bytes: PAGE_BYTES })
   })
 
   it('rebuilds from the newest rows when a resync names a seq behind the feed', async () => {
@@ -190,43 +203,10 @@ describe('attachFeed', () => {
     expect(subs().at(-1)).toEqual({
       op: 'sub',
       scope: SCOPE,
-      since: -1500,
+      since: -openRows(window.innerHeight),
+      bytes: PAGE_BYTES,
     })
     expect(feed()?.order).toEqual([])
-  })
-
-  it('opens on a window of the newest rows, and loads older ones behind the shown feed', async () => {
-    const l = ledger('chat-1', 39)
-    const [p39, s39, p41, s41] = [
-      l.prompt('r39', 'older'),
-      l.start('turn-39', 'r39'),
-      l.prompt('r41', 'newest'),
-      l.start('turn-41', 'r41'),
-    ]
-    await attachFeed('chat-1')
-    expect(subs()).toEqual([{ op: 'sub', scope: SCOPE, since: -1500 }])
-    push({ t: 'row', row: p41, from: 40 })
-    push({ t: 'row', row: s41 })
-    push({ t: 'synced', seq: 42 })
-    expect(feed()).toMatchObject({ status: 'live', from: 40, seq: 42, order: ['p:r41'] })
-
-    loadOlder('chat-1')
-    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: -4500 })
-    // The old sub's live row lands before the wider replay: it is not the window's start.
-    push({ t: 'row', row: l.prompt('r43', 'live') })
-    push({ t: 'row', row: p39, from: 38 })
-    for (const row of [s39, p41, s41]) push({ t: 'row', row })
-    expect(feed()?.order).toEqual(['p:r41'])
-    push({ t: 'synced', seq: 42 })
-    expect(feed()).toMatchObject({ from: 38, seq: 42, order: ['p:r39', 'p:r41'] })
-  })
-
-  it('asks for no older turns when the feed holds the chat from its start', async () => {
-    await attachFeed('chat-1')
-    push({ t: 'row', row: ledger().prompt('r1', 'hi') })
-    push({ t: 'synced', seq: 1 })
-    loadOlder('chat-1')
-    expect(subs()).toHaveLength(1)
   })
 
   it('drops a row that does not follow the last applied one, so the replay fills the hole', async () => {
@@ -235,7 +215,7 @@ describe('attachFeed', () => {
     for (const id of ['r1', 'r2', 'r3']) push({ t: 'row', row: l.prompt(id, id) })
     push({ t: 'synced', seq: 3 })
     push({ t: 'closed', reason: 'resync', seq: 3 })
-    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: 3 })
+    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: 3, bytes: PAGE_BYTES })
     const [r4, r5, r6] = [l.prompt('r4', 'r4'), l.prompt('r5', 'r5'), l.prompt('r6', 'r6')]
 
     // The old sub's row 5 was still in flight when the new sub went out.
@@ -273,7 +253,7 @@ describe('attachFeed', () => {
     push({ t: 'synced', seq: 5 })
     expect(streamDaemon.sent.slice(sent)).toEqual([
       { op: 'unsub', scope: SCOPE },
-      { op: 'sub', scope: SCOPE, since: 2 },
+      { op: 'sub', scope: SCOPE, since: 2, bytes: PAGE_BYTES },
     ])
 
     push({ t: 'synced', seq: 5 })
@@ -292,7 +272,7 @@ describe('attachFeed', () => {
     push({ t: 'synced', seq: 4 })
 
     expect(feed()?.status).toBe('live')
-    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: 3 })
+    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: 3, bytes: PAGE_BYTES })
   })
 
   it('discards an unpublished replay on a resync before synced', async () => {
@@ -302,7 +282,8 @@ describe('attachFeed', () => {
     expect(subs().at(-1)).toEqual({
       op: 'sub',
       scope: SCOPE,
-      since: -1500,
+      since: -openRows(window.innerHeight),
+      bytes: PAGE_BYTES,
     })
     push({ t: 'row', row: ledger().prompt('r9', 'replayed') })
     push({ t: 'synced', seq: 1 })
@@ -411,13 +392,13 @@ describe('the stored feed', () => {
   }
   const shown = (n: number) => Array.from({ length: n }, (_, i) => `p:r${i + 1}`)
   const entry = () => loadFeed('local', 'chat-1')
-  const window = () => -1500
+  const window = () => -openRows(globalThis.window.innerHeight)
 
   it('shows a cold start’s stored rows before any daemon frame, then resumes from its cursor', async () => {
     await store(2)
     await attachFeed('chat-1')
     await vi.waitFor(() => expect(feed()).toMatchObject({ status: 'live', order: shown(2) }))
-    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: 2 })
+    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: 2, bytes: PAGE_BYTES })
 
     push({ t: 'row', row: ledger('chat-1', 3).prompt('r3', 'text 3') })
     push({ t: 'synced', seq: 3 })
@@ -429,14 +410,14 @@ describe('the stored feed', () => {
     await attachFeed('chat-1')
     await settled()
     expect(feed()).toMatchObject({ status: 'connecting', order: [] })
-    expect(subs()).toEqual([{ op: 'sub', scope: SCOPE, since: window() }])
+    expect(subs()).toEqual([{ op: 'sub', scope: SCOPE, since: window(), bytes: PAGE_BYTES }])
   })
 
   it('sends one sub on a hit, at the cursor, with no window replay', async () => {
     await store(2)
     await attachFeed('chat-1')
     await vi.waitFor(() => expect(feed()?.order).toEqual(shown(2)))
-    expect(subs()).toEqual([{ op: 'sub', scope: SCOPE, since: 2 }])
+    expect(subs()).toEqual([{ op: 'sub', scope: SCOPE, since: 2, bytes: PAGE_BYTES }])
   })
 
   it('holds the scope until the cache read settles, so a slow read delays the one sub, not doubles it', async () => {
@@ -461,14 +442,14 @@ describe('the stored feed', () => {
     const db = await getDB()
     vi.spyOn(db, 'get').mockRejectedValue(new Error('unreadable'))
     await attachFeed('chat-1')
-    expect(subs()).toEqual([{ op: 'sub', scope: SCOPE, since: window() }])
+    expect(subs()).toEqual([{ op: 'sub', scope: SCOPE, since: window(), bytes: PAGE_BYTES }])
   })
 
   it('replaces a copy of another run in one write, with the window of the new run', async () => {
     await store(2, 'old-run')
     await attachFeed('chat-1')
     await vi.waitFor(() => expect(feed()?.order).toEqual(shown(2)))
-    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: window() })
+    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: window(), bytes: PAGE_BYTES })
     const writes = vi.fn()
     const stop = chatStore.subscribe(writes)
     const [r1, r2] = rowsOf(2)
@@ -504,7 +485,7 @@ describe('the stored feed', () => {
     await vi.waitFor(() => expect(feed()?.order).toEqual(shown(3)))
     push(frame)
     expect(feed()?.order).toEqual(shown(3))
-    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: window() })
+    expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: window(), bytes: PAGE_BYTES })
     push({ t: 'row', row: rowsOf(1)[0], from: 0 })
     push({ t: 'synced', seq: 1 })
     expect(feed()).toMatchObject({ seq: 1, order: shown(1) })
@@ -523,6 +504,25 @@ describe('the stored feed', () => {
     vi.advanceTimersToNextFrame()
     await settled()
     expect((await entry())?.order).toEqual(shown(2))
+  })
+
+  it('keeps a previewed row’s mark in the stored copy, and stores the whole row once it is fetched', async () => {
+    await attachFeed('chat-1')
+    const cut = {
+      ...ledger().row('reasoning', { text: 'cut' }, { turnId: 't1' }),
+      trimmed: ['text'],
+    }
+    push({ t: 'row', row: cut })
+    push({ t: 'synced', seq: 1 })
+    await settled()
+    expect((await entry())?.items.get('r:1')).toMatchObject({ text: 'cut', fullSeq: 1 })
+
+    vi.mocked(readRow).mockResolvedValue({ ...cut, body: { text: 'whole' }, trimmed: undefined })
+    await showFull('chat-1', 'r:1')
+    expect(readRow).toHaveBeenCalledWith('local', 'chat-1', 1)
+    expect(feed()?.items.get('r:1')).toMatchObject({ text: 'whole', fullSeq: undefined })
+    await settled()
+    expect((await entry())?.items.get('r:1')).toMatchObject({ text: 'whole', fullSeq: undefined })
   })
 
   it('writes a running turn through when it settles, not on each live row and delta', async () => {

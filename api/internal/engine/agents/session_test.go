@@ -61,6 +61,14 @@ func TestSessionAssignArg_IsClaudesAlone(t *testing.T) {
 	assert.False(t, ok, "codex announces its own thread id")
 }
 
+// Only a descriptor whose session calls name {relay_id} keeps an identity for the session.
+func TestSessionPinsRelay_IsWhatTheSessionCallsName(t *testing.T) {
+	assert.True(t, get(t, "hermes").SessionPinsRelay())
+	assert.False(t, get(t, "codex").SessionPinsRelay())
+	assert.False(t, get(t, "claude").SessionPinsRelay())
+	assert.False(t, stubAgent(t, "sh").SessionPinsRelay())
+}
+
 // codex writes no rollout until a turn completes; claude writes its session
 // as soon as a turn starts.
 func TestSessionPersists_IsWhenTheCLIHasWrittenItsSession(t *testing.T) {

@@ -16,6 +16,7 @@ import (
 
 	adapterstore "github.com/char2cs/crowbar/api/internal/adapter/store"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
+	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/pairing"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -93,11 +94,15 @@ func TestRequireBearerAuth_TLS_UnknownToken_Rejects(t *testing.T) {
 func TestRequireBearerAuth_TLS_ValidToken_Passes(t *testing.T) {
 	token := "abc123"
 	store := &stubClientStore{clients: []domain.Client{
-		{ID: "c1", TokenHash: pairing.HashToken(token)},
+		{ID: "c1", Name: "phone", TokenHash: pairing.HashToken(token)},
 	}}
+	var who libs.PairedClient
 	r := gin.New()
 	r.Use(requireBearerAuth(store, newClientConns()))
-	r.GET("/x", func(c *gin.Context) { c.Status(http.StatusOK) })
+	r.GET("/x", func(c *gin.Context) {
+		who, _ = libs.PairedClientFrom(c)
+		c.Status(http.StatusOK)
+	})
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil)
 	req.TLS = &tls.ConnectionState{}
@@ -106,6 +111,7 @@ func TestRequireBearerAuth_TLS_ValidToken_Passes(t *testing.T) {
 	r.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusOK, rec.Code, "expected 200 for a valid token")
+	assert.Equal(t, libs.PairedClient{ID: "c1", Name: "phone"}, who, "handlers learn which device called")
 }
 
 // TestRequireBearerAuth_TLS_RevokedToken_Rejects proves a revoked client's

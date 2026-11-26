@@ -20,6 +20,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
@@ -67,7 +68,10 @@ type ChatUsecase interface {
 	) error
 
 	// OpenFeed is the chat's row feed from since: see Usecase.OpenFeed.
-	OpenFeed(ctx context.Context, chatID string, since int64) (<-chan FeedFrame, error)
+	OpenFeed(ctx context.Context, chatID string, since, windowBytes int64) (<-chan FeedFrame, error)
+	// ReadRows and ReadRow page older rows and read one whole: see feed_window.go.
+	ReadRows(ctx context.Context, chatID string, before, bytes int64) (RowsPage, error)
+	ReadRow(ctx context.Context, chatID string, seq int64) (ledger.Row, error)
 	// ReadBlob is a payload the chat's rows name: see Usecase.ReadBlob.
 	ReadBlob(ctx context.Context, chatID, ref string) ([]byte, error)
 

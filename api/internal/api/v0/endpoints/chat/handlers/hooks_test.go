@@ -89,9 +89,11 @@ type fakeAgentUsecase struct {
 	selectionErr   error
 
 	dispatchMCPCalls []dispatchMCPCall
-	dispatchMCPOut   []byte
-	dispatchMCPSend  bool
-	dispatchMCPErr   error
+	// dispatchRelayCalls are the relay route's calls; runnerID holds the relay id.
+	dispatchRelayCalls []dispatchMCPCall
+	dispatchMCPOut     []byte
+	dispatchMCPSend    bool
+	dispatchMCPErr     error
 
 	purgeCalls []string
 	purgeErr   error
@@ -378,6 +380,19 @@ func (f *fakeAgentUsecase) DispatchMCP(
 		return nil, false, f.dispatchMCPErr
 	}
 	return f.dispatchMCPOut, f.dispatchMCPSend, nil
+}
+
+func (f *fakeAgentUsecase) DispatchRelayMCP(
+	_ context.Context,
+	relayID, token string,
+	message []byte,
+) ([]byte, bool, error) {
+	f.dispatchRelayCalls = append(f.dispatchRelayCalls, dispatchMCPCall{
+		runnerID: relayID,
+		token:    token,
+		message:  message,
+	})
+	return f.dispatchMCPOut, f.dispatchMCPSend, f.dispatchMCPErr
 }
 
 func (f *fakeAgentUsecase) PurgeChat(

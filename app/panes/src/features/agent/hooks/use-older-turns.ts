@@ -1,4 +1,5 @@
 import { type RefObject, useEffect, useLayoutEffect } from 'react'
+import { nearsLoadedTop } from '@/features/agent/lib/feed-window'
 import { loadOlder } from '@/features/agent/stores/chat-feed'
 import { useChatStore } from '@/features/agent/stores/chat-store'
 
@@ -14,8 +15,11 @@ export function useOlderTurns(
   useEffect(() => {
     const el = scrollRef.current
     if (from === 0 || !el) return
-    const load = () => el.scrollTop <= el.clientHeight * 2 && loadOlder(chatId)
-    load()
+    const load = () => {
+      if (nearsLoadedTop(el.scrollTop, el.clientHeight)) void loadOlder(chatId)
+    }
+    // A fresh open rests at the bottom, which is never a reason to page: only a feed too short to scroll is.
+    if (el.scrollHeight <= el.clientHeight) load()
     el.addEventListener('scrollend', load)
     return () => el.removeEventListener('scrollend', load)
   }, [chatId, from, scrollRef])

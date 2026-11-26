@@ -1,6 +1,7 @@
 package v0
 
 import (
+	accesshandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/access/handlers"
 	pairinghandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/pairing/handlers"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/pairing"
@@ -12,6 +13,8 @@ import (
 type Container struct {
 	app *app.Container
 	eng *engine.Container
+	// access opens and closes device connections.
+	access *accesshandlers.Handlers
 	// pairing serves the pairing/client-registry routes (router.go); its
 	// usecase holds the single outstanding pairing code in memory.
 	pairing *pairinghandlers.Handlers
@@ -21,12 +24,17 @@ type Container struct {
 	logs logring.Ring
 }
 
-// New builds the v0 container. serverFingerprint is the daemon's TLS identity,
-// which a minted pairing code carries so the client can check what it dialed.
+// Access is the device listener: its state, which a minted pairing code carries
+// (the TLS identity the client checks it dialed), and the switch for it.
+type Access interface {
+	accesshandlers.Access
+}
+
+// New builds the v0 container.
 func New(
 	appContainer *app.Container,
 	engContainer *engine.Container,
-	serverFingerprint string,
+	access Access,
 	options ...Option,
 ) *Container {
 	if appContainer == nil {
@@ -36,7 +44,8 @@ func New(
 	c := &Container{
 		app:     appContainer,
 		eng:     engContainer,
-		pairing: pairinghandlers.New(pairing.New(appContainer.GORM.Clients), appContainer.GORM.Clients, conns, serverFingerprint),
+		pairing: pairinghandlers.New(pairing.New(appContainer.GORM.Clients), appContainer.GORM.Clients, conns, access),
+		access:  accesshandlers.New(access),
 		conns:   conns,
 	}
 	for _, option := range options {

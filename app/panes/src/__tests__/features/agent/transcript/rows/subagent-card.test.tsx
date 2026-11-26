@@ -150,4 +150,22 @@ describe('SubagentCard', () => {
     expect(container.querySelector('[data-flicker-spinner]')).toBeNull()
     expect(container.querySelector('[data-outcome="stopped"]')).toHaveTextContent('Stopped')
   })
+
+  it('says a cut result is a preview and offers the whole of it', () => {
+    const l = ledger()
+    const spawn = { toolId: 'c', phase: 'pre' as const, name: 'Agent', kind: 'subagent' }
+    const turn = { turnId: 'turn-1', scope: 'sub-1' }
+    seed('chat-1', [
+      l.start('turn-1'),
+      l.row('tool_call', spawn, { turnId: 'turn-1' }),
+      l.row('subagent', { phase: 'bound', spawnToolId: 'c' }, turn),
+      {
+        ...l.row('subagent', { phase: 'result', spawnToolId: 'c', result: 'half of it' }, turn),
+        trimmed: ['result'],
+      },
+    ])
+    render(<SubagentCard chatId="chat-1" id="s:c" />)
+    fireEvent.click(screen.getByTestId('agent-subagent-card').querySelector('.subagent-head')!)
+    expect(screen.getByRole('button', { name: 'Show full result' })).toBeInTheDocument()
+  })
 })

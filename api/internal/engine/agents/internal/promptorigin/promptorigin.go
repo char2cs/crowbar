@@ -22,7 +22,7 @@ func Match(d *spec.Descriptor, prompt string) (spec.InjectedPromptSpec, bool) {
 	var generic spec.InjectedPromptSpec
 	var found bool
 	for _, p := range d.InjectedPrompts {
-		if p.Needle == "" || (!strings.HasPrefix(body, p.Needle) && !strings.HasPrefix(inner, p.Needle)) {
+		if !opens(p, body) && !opens(p, inner) {
 			continue
 		}
 		if p.Kind != "" {
@@ -34,6 +34,17 @@ func Match(d *spec.Descriptor, prompt string) (spec.InjectedPromptSpec, bool) {
 		}
 	}
 	return generic, found
+}
+
+// opens is whether text begins as p declares: by its needle, else its anchored match.
+func opens(p spec.InjectedPromptSpec, text string) bool {
+	if text == "" {
+		return false
+	}
+	if p.Needle != "" {
+		return strings.HasPrefix(text, p.Needle)
+	}
+	return p.Match.Matches(text)
 }
 
 // unwrap drops one leading `<tag ...>` line, returning "" when there is none.

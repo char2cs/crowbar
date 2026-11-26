@@ -92,6 +92,25 @@ func TestValidate_UnknownFieldWithinAKnownEvent_IsRejected(t *testing.T) {
 	}
 }
 
+// The relay vars may ride a prompt's session call; the relay token may not, since a
+// request body is logged.
+func TestValidate_PromptAdmitsTheRelayVarsButNotTheRelayToken(t *testing.T) {
+	v := load(t)
+	prompt := func(field string) error {
+		return v.Validate("acme", map[string]map[string][]string{
+			"prompt": {"text": {"text"}, field: {field}},
+		})
+	}
+	for _, field := range []string{"crowbar", "relay_id", "relay_token_file", "daemon_host", "crowbar_home"} {
+		if err := prompt(field); err != nil {
+			t.Errorf("relay var %q must be admitted: %v", field, err)
+		}
+	}
+	if err := prompt("relay_token"); err == nil {
+		t.Error("relay_token must be refused: it is file-only")
+	}
+}
+
 // suggestion_label.* is a PREFIX FAMILY: its keys are the provider's own machine names
 // for a broader grant, which Go must never enumerate.
 func TestValidate_PrefixFamilyAcceptsAnyMemberButNotAnUnrelatedField(t *testing.T) {

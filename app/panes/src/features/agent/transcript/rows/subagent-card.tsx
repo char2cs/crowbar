@@ -13,6 +13,7 @@ import { displayRows } from '@/features/agent/transcript/lib/tool-runs'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 import { TextRow } from '@/features/agent/transcript/rows/text-row'
 import { AskRow, ToolRow } from '@/features/agent/transcript/rows/tool-row'
+import { ShowFull } from '@/features/agent/transcript/rows/show-full'
 import { ToolRunRow } from '@/features/agent/transcript/rows/tool-run-row'
 
 const NO_IDS: string[] = []
@@ -149,6 +150,7 @@ function SubagentCardBody({ chatId, id }: { chatId: string; id: string }) {
         {open && card.result && (
           <div className="subagent-result" data-testid="agent-subagent-result">
             <MarkdownMessageStatic variant="chat">{card.result}</MarkdownMessageStatic>
+            <ShowFull chatId={chatId} id={card.id} fullSeq={card.fullSeq} what="result" />
           </div>
         )}
       </div>

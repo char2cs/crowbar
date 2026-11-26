@@ -96,6 +96,7 @@ events:
     fresh:
       - call: turn/start
         send:
+          developerInstructions: "{context}"
           text: "{text}"
 runtime:
   transport: api
