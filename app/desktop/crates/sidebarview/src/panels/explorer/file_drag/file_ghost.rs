@@ -94,8 +94,10 @@ mod tests {
     #[gpui::test]
     fn the_card_sits_ten_pixels_right_of_and_above_the_pointer(cx: &mut TestAppContext) {
         let grabbed = point(px(40.0), px(13.0));
+        let held = Rc::new(std::cell::OnceCell::new());
         let cx = mount(cx, move |window, cx| {
-            file_ghost("pricing.test.ts".into(), grabbed, (window, cx))
+            held.get_or_init(|| file_ghost("pricing.test.ts".into(), grabbed, (window, cx)))
+                .clone()
         });
         let bounds = cx.debug_bounds("file-ghost").unwrap_or_default();
         assert_eq!(bounds.origin, point(px(50.0), px(3.0)));
