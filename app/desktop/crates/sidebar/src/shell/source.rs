@@ -44,8 +44,8 @@ impl<T> Source for T where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::DemoShell;
     use crate::shell::switcher::ScopeSync;
+    use crate::test_support::DemoShell;
 
     #[test]
     fn the_active_project_is_one_the_data_lists() {

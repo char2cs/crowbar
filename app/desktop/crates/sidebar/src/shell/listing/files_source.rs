@@ -20,7 +20,7 @@ pub trait FilesSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::DemoShell;
+    use crate::test_support::DemoShell;
 
     #[test]
     fn the_demo_files_have_a_root() {
