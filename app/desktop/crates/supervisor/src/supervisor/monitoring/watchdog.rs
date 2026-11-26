@@ -1,5 +1,4 @@
 mod adapters;
-mod exoneration;
 pub(crate) mod failure_tracker;
 mod guard;
 mod process_cpu;
@@ -15,13 +14,10 @@ use std::time::Duration;
 
 use crate::health::{Probe, probe_ready};
 use crate::supervisor::daemon_event::DaemonEvent;
-use crate::supervisor::monitoring::watchdog::exoneration::Exoneration;
 use crate::supervisor::monitoring::watchdog::process_cpu::{cpu_time, is_suspended};
 use crate::supervisor::monitoring::watchdog::watch_state::WatchState;
 use crate::supervisor::monitoring::watchdog::watchdog_event::WatchdogEvent;
-use crate::supervisor::monitoring::watchdog::wedge::{
-    cycle_was_suspended, made_progress, should_kill_wedged,
-};
+use crate::supervisor::monitoring::watchdog::wedge::{cycle_was_suspended, made_progress};
 
 async fn probe_within(
     ctx: &WatchContext,
@@ -69,17 +65,8 @@ async fn confirmed_wedge(
         .take()
         .unwrap_or(((ctx.clock.instant)(), None));
     let busy = made_progress(before, daemon_cpu(ctx).await, silent_at.elapsed());
-    let mut exonerations = Vec::new();
-    if suspended {
-        exonerations.push(Exoneration::Suspended);
-    }
-    if answering {
-        exonerations.push(Exoneration::Answering);
-    }
-    if busy {
-        exonerations.push(Exoneration::Busy);
-    }
-    if should_kill_wedged(&exonerations) {
+    let exonerated = suspended || answering || busy;
+    if !exonerated {
         return true;
     }
     crate::journal_sink::emit(&WatchdogEvent::NotWedged {

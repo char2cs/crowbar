@@ -42,22 +42,15 @@ impl Event for SuperviseEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    type Case = (SuperviseEvent, &'static str, Level, &'static str);
-
-    const CASES: [Case; 1] = [(
-        SuperviseEvent::Unserved,
-        "daemon_unserved",
-        Level::Warn,
-        "the daemon is not serving yet; it keeps running under the watchdog",
-    )];
+    use crate::test_support::events::assert_events;
 
     #[test]
-    fn each_supervise_event_has_its_name_level_and_message() {
-        for (event, name, level, shown) in CASES {
-            assert_eq!(event.name(), name);
-            assert_eq!(event.level(), level, "{name}");
-            assert_eq!(event.to_string(), shown, "{name}");
-        }
+    fn an_unserved_daemon_is_a_warning() {
+        assert_events([(
+            SuperviseEvent::Unserved,
+            "daemon_unserved",
+            Level::Warn,
+            "the daemon is not serving yet; it keeps running under the watchdog",
+        )]);
     }
 }

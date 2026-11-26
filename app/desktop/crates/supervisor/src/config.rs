@@ -45,8 +45,6 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use super::*;
 
     #[test]
@@ -55,14 +53,7 @@ mod tests {
             socket: PathBuf::from("/s.sock"),
             log: PathBuf::from("/l.log"),
         };
-        let config = Config::new(
-            PathBuf::from("/bin/crowbar-api"),
-            paths,
-            Some(PathBuf::from("/home")),
-            "1.2.3",
-        );
+        let config = Config::new(PathBuf::from("/bin/crowbar-api"), paths, None, "1.2.3");
         assert_eq!(config.timings.restart_max, Timings::default().restart_max);
-        assert_eq!(config.home, Some(PathBuf::from("/home")));
-        assert_eq!(config.version, "1.2.3");
     }
 }

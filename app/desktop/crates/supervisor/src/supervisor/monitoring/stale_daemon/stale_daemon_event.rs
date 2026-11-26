@@ -46,15 +46,17 @@ impl Event for StaleDaemonEvent<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::events::assert_events;
 
     #[test]
     fn each_stale_daemon_event_has_its_name_level_and_message() {
         let denied = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
-        let cases = [
+        let refused = StaleDaemonEvent::Refused {
+            reason: "the daemon is pid 7, not 8",
+        };
+        assert_events([
             (
-                StaleDaemonEvent::Refused {
-                    reason: "the daemon is pid 7, not 8",
-                },
+                refused,
                 "stale_daemon_refused",
                 Level::Error,
                 "the daemon is pid 7, not 8",
@@ -65,11 +67,6 @@ mod tests {
                 Level::Warn,
                 "stopping the daemon that lost the socket: permission denied",
             ),
-        ];
-        for (event, name, level, shown) in cases {
-            assert_eq!(event.name(), name);
-            assert_eq!(event.level(), level, "{name}");
-            assert_eq!(event.to_string(), shown, "{name}");
-        }
+        ]);
     }
 }

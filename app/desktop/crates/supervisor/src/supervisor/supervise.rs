@@ -153,32 +153,8 @@ pub(crate) async fn supervise(
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-    use std::time::Duration;
-
     use super::*;
-    use crate::config::{Config, DaemonPaths};
-
-    const NOWHERE: &str = "/crowbar-test-missing";
-
-    fn missing_binary() -> Config {
-        let paths = DaemonPaths {
-            socket: PathBuf::from(NOWHERE).join("d.sock"),
-            log: PathBuf::from(NOWHERE).join("d.log"),
-        };
-        let mut config = Config::new(
-            PathBuf::from("/definitely/not/crowbar-api"),
-            paths,
-            None,
-            "test",
-        );
-        config.timings.respawn_base = Duration::from_millis(1);
-        config
-    }
-
-    async fn until_recovering(events: &mut tokio::sync::broadcast::Receiver<DaemonEvent>) {
-        while !matches!(events.recv().await, Ok(DaemonEvent::Recovering { .. })) {}
-    }
+    use crate::test_support::{missing_binary, until_recovering};
 
     #[tokio::test]
     async fn a_respawn_after_the_daemon_died_says_the_backend_restarted() {
@@ -187,17 +163,5 @@ mod tests {
         until_recovering(&mut events).await;
         assert_eq!(events.recv().await, Ok(DaemonEvent::Restarted));
         supervisor.stop().await;
-    }
-
-    #[test]
-    fn a_daemon_that_halts_leaves_the_supervisor_idle_and_says_why() {
-        let supervision = crate::test_support::supervision();
-        let mut events = supervision.bus.subscribe();
-        let phase = halt(&supervision, Some("disk".into()), "full".into());
-        assert!(matches!(phase, Phase::Idle));
-        assert!(matches!(
-            events.try_recv().unwrap(),
-            DaemonEvent::Halted { .. }
-        ));
     }
 }

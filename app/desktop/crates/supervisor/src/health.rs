@@ -266,83 +266,32 @@ mod tests {
         );
     }
 
-    struct Failing {
-        what: &'static str,
-        daemon: FakeDaemon,
-        attempts: u32,
-        gave_up: Option<u32>,
-        dials: Option<usize>,
+    fn halted_on_a_newer_layout(outcome: &Result<Option<u32>, Error>) -> bool {
+        matches!(outcome, Err(Error::Halted { reason, message })
+            if reason.as_deref() == Some("layout_newer") && message == HALT_MESSAGE)
     }
 
-    impl Failing {
-        fn halted() -> Self {
-            Self {
-                what: "halted",
-                daemon: daemon(vec![MIGRATING, HALTED]),
-                attempts: 30,
-                gave_up: None,
-                dials: None,
-            }
-        }
-
-        fn unreachable() -> Self {
-            let daemon = FakeDaemon::answering(|_, _| (200, String::new()))
-                .refusing(|_| Some(std::io::Error::from(std::io::ErrorKind::NotFound)));
-            Self {
-                what: "never answers",
-                daemon,
-                attempts: 2,
-                gave_up: Some(2),
-                dials: Some(2),
-            }
-        }
-
-        fn refused() -> Self {
-            Self {
-                what: "an answer that is not success",
-                daemon: FakeDaemon::answering(|_, _| (503, "{}".into())),
-                attempts: 3,
-                gave_up: Some(3),
-                dials: None,
-            }
-        }
-    }
-
-    fn how_it_ended(
-        gave_up: Option<u32>,
-        outcome: &Result<Option<u32>, Error>,
-    ) -> bool {
-        match (gave_up, outcome) {
-            (Some(budget), Err(Error::GaveUp(spent))) => *spent == budget,
-            (None, Err(Error::Halted { reason, message })) => {
-                reason.as_deref() == Some("layout_newer") && message == HALT_MESSAGE
-            },
-            _ => false,
-        }
-    }
-
-    async fn each_ends_as_expected(cases: [Failing; 3]) {
-        for case in cases {
-            let outcome = wait_with(&case.daemon, &timings(case.attempts), ignore).await;
-            assert!(
-                how_it_ended(case.gave_up, &outcome),
-                "{}: {outcome:?}",
-                case.what
-            );
-            let dialled = case
-                .dials
-                .is_none_or(|dials| case.daemon.dialled() == dials);
-            assert!(dialled, "{}: one dial per attempt", case.what);
+    async fn assert_gave_up(cases: [(&str, FakeDaemon, u32); 2]) {
+        for (name, daemon, attempts) in cases {
+            let outcome = wait_with(&daemon, &timings(attempts), ignore).await;
+            let gave_up = matches!(outcome, Err(Error::GaveUp(spent)) if spent == attempts);
+            assert!(gave_up, "{name}: {outcome:?}");
+            let dials = usize::try_from(attempts).unwrap();
+            assert_eq!(daemon.dialled(), dials, "{name}: one dial per attempt");
         }
     }
 
     #[tokio::test(start_paused = true)]
     async fn a_daemon_that_halts_or_never_answers_well_ends_the_wait_with_the_reason() {
+        let halted = wait_with(&daemon(vec![MIGRATING, HALTED]), &timings(30), ignore).await;
+        assert!(halted_on_a_newer_layout(&halted), "{halted:?}");
+        let unreachable = FakeDaemon::answering(|_, _| (200, String::new()))
+            .refusing(|_| Some(std::io::Error::from(std::io::ErrorKind::NotFound)));
+        let not_success = FakeDaemon::answering(|_, _| (503, "{}".into()));
         let cases = [
-            Failing::halted(),
-            Failing::unreachable(),
-            Failing::refused(),
+            ("never answers", unreachable, 2),
+            ("not success", not_success, 3),
         ];
-        each_ends_as_expected(cases).await;
+        assert_gave_up(cases).await;
     }
 }

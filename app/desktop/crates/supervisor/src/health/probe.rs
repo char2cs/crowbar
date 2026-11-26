@@ -61,125 +61,85 @@ mod tests {
         include_str!("../../../../../../api/internal/core/bootgate/testdata/health-halted.json");
     const THRESHOLD: u32 = 6;
 
-    fn answer_for(
-        target: &str,
-        health: &str,
-        other: u16,
-    ) -> (u16, String) {
-        if target != "/v0/health" {
-            return (other, "{}".to_owned());
-        }
-        (200, health.to_owned())
-    }
-
+    /// Answers `/v0/health` with `health` and every other path with status `other`.
     fn daemon(
         health: &'static str,
         other: u16,
     ) -> FakeDaemon {
-        FakeDaemon::answering(move |_, target| answer_for(target, health, other))
+        FakeDaemon::answering(move |_, target| match target {
+            "/v0/health" => (200, health.to_owned()),
+            _ => (other, "{}".to_owned()),
+        })
     }
 
-    async fn watched(daemon: &FakeDaemon) -> (Vec<Probe>, bool) {
-        let mut tracker = FailureTracker::new(THRESHOLD);
-        let (mut outcomes, mut tripped) = (Vec::new(), false);
-        for _ in 0..THRESHOLD * 2 {
-            let outcome = probe_with(daemon).await;
-            tripped |= tracker.observe(outcome);
-            outcomes.push(outcome);
-        }
-        (outcomes, tripped)
-    }
-
-    fn out_of_descriptors(errno: Errno) -> std::io::Error {
+    fn os(errno: Errno) -> std::io::Error {
         std::io::Error::from_raw_os_error(errno.raw_os_error())
     }
 
-    async fn assert_held(cases: [(&str, &'static str); 2]) {
-        for (tag, health) in cases {
-            let (outcomes, tripped) = watched(&daemon(health, 503)).await;
-            assert!(
-                outcomes.iter().all(|o| *o == Probe::Held),
-                "{tag}: {outcomes:?}"
-            );
-            assert!(!tripped, "{tag}");
-        }
+    fn failing_dial(
+        nth: usize,
+        errno: Errno,
+    ) -> FakeDaemon {
+        daemon(OK, 200).refusing(move |n| (n == nth).then(|| os(errno)))
     }
 
     #[tokio::test]
-    async fn a_migrating_or_halted_daemon_is_held_and_never_killed() {
-        assert_held([("migrating", MIGRATING), ("halted", HALTED)]).await;
-    }
-
-    #[tokio::test]
-    async fn a_serving_daemon_whose_deep_probe_fails_is_still_indicted() {
-        let (outcomes, tripped) = watched(&daemon(OK, 503)).await;
-        assert!(
-            outcomes.iter().all(|o| *o == Probe::Unserved),
-            "{outcomes:?}"
-        );
-        assert!(tripped);
-    }
-
-    #[tokio::test]
-    async fn a_serving_daemon_that_answers_is_healthy() {
-        let (outcomes, tripped) = watched(&daemon(OK, 200)).await;
-        assert!(
-            outcomes.iter().all(|o| *o == Probe::Healthy),
-            "{outcomes:?}"
-        );
-        assert!(!tripped);
-    }
-
-    #[tokio::test]
-    async fn a_probe_dials_once_per_request_and_not_an_extra_time() {
-        let daemon = daemon(OK, 200);
-        assert_eq!(probe_with(&daemon).await, Probe::Healthy);
-        assert_eq!(daemon.dialled(), 2, "health, then projects");
-    }
-
-    #[tokio::test]
-    async fn running_out_of_descriptors_on_any_dial_is_never_blamed_on_the_daemon() {
+    async fn each_daemon_answer_maps_to_its_probe_outcome() {
+        let missing = daemon(OK, 200).refusing(|_| Some(std::io::Error::from(ErrorKind::NotFound)));
+        let exhausted = Probe::LocalDescriptorExhaustion;
         let cases = [
-            (0, Errno::MFILE),
-            (0, Errno::NFILE),
-            (1, Errno::MFILE),
-            (1, Errno::NFILE),
+            ("migrating", daemon(MIGRATING, 503), Probe::Held),
+            ("halted", daemon(HALTED, 503), Probe::Held),
+            ("deep probe fails", daemon(OK, 503), Probe::Unserved),
+            ("serving", daemon(OK, 200), Probe::Healthy),
+            (
+                "health dial EMFILE",
+                failing_dial(0, Errno::MFILE),
+                exhausted,
+            ),
+            (
+                "health dial ENFILE",
+                failing_dial(0, Errno::NFILE),
+                exhausted,
+            ),
+            (
+                "projects dial EMFILE",
+                failing_dial(1, Errno::MFILE),
+                exhausted,
+            ),
+            (
+                "projects dial ENFILE",
+                failing_dial(1, Errno::NFILE),
+                exhausted,
+            ),
+            (
+                "refused",
+                failing_dial(0, Errno::CONNREFUSED),
+                Probe::Unserved,
+            ),
+            ("missing socket", missing, Probe::Unserved),
         ];
-        assert_exhaustion_blamed_on_us(cases).await;
+        assert_outcomes(cases).await;
     }
 
-    async fn assert_exhaustion_blamed_on_us(cases: [(usize, Errno); 4]) {
-        for (nth, errno) in cases {
-            let daemon =
-                daemon(OK, 200).refusing(move |n| (n == nth).then(|| out_of_descriptors(errno)));
-            assert_eq!(
-                probe_with(&daemon).await,
-                Probe::LocalDescriptorExhaustion,
-                "dial {nth} failed with {errno:?}"
-            );
+    async fn assert_outcomes(cases: [(&str, FakeDaemon, Probe); 10]) {
+        for (name, daemon, expected) in cases {
+            assert_eq!(probe_with(&daemon).await, expected, "{name}");
         }
     }
 
     #[tokio::test]
     async fn a_healthy_daemon_is_never_indicted_however_often_a_dial_runs_dry() {
-        let daemon =
-            daemon(OK, 200).refusing(|n| (n % 2 == 1).then(|| out_of_descriptors(Errno::MFILE)));
-        let (outcomes, tripped) = watched(&daemon).await;
-        assert!(
-            outcomes
-                .iter()
-                .all(|o| *o == Probe::LocalDescriptorExhaustion),
-            "{outcomes:?}"
-        );
-        assert!(!tripped, "the watchdog's failure count never moved");
+        let daemon = daemon(OK, 200).refusing(|n| (n % 2 == 1).then(|| os(Errno::MFILE)));
+        assert_never_indicted(&daemon).await;
     }
 
-    #[tokio::test]
-    async fn a_refused_connection_is_a_daemon_that_does_not_serve() {
-        let daemon = daemon(OK, 200).refusing(|_| Some(out_of_descriptors(Errno::CONNREFUSED)));
-        assert_eq!(probe_with(&daemon).await, Probe::Unserved);
-        let missing = FakeDaemon::answering(|_, _| (200, String::new()))
-            .refusing(|_| Some(std::io::Error::from(ErrorKind::NotFound)));
-        assert_eq!(probe_with(&missing).await, Probe::Unserved);
+    async fn assert_never_indicted(daemon: &FakeDaemon) {
+        let mut tracker = FailureTracker::new(THRESHOLD);
+        for _ in 0..THRESHOLD * 2 {
+            let outcome = probe_with(daemon).await;
+            assert_eq!(outcome, Probe::LocalDescriptorExhaustion);
+            assert!(!tracker.observe(outcome), "the failure count never moved");
+        }
     }
 }

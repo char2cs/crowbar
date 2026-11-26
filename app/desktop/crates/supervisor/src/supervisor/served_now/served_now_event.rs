@@ -52,6 +52,7 @@ impl Event for ServedNowEvent<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::events::assert_events;
 
     #[tokio::test]
     async fn each_served_now_event_has_its_name_level_and_message() {
@@ -59,32 +60,23 @@ mod tests {
             .await
             .unwrap_err();
         let refused = Error::GaveUp(1);
-        let cases = [
+        let not_answering = ServedNowEvent::NotAnswering {
+            budget: Duration::from_secs(2),
+            elapsed,
+        };
+        assert_events([
             (
                 ServedNowEvent::NotServing { error: &refused },
                 "heard_daemon_not_serving",
+                Level::Debug,
                 "the daemon was heard but does not serve yet: daemon did not become healthy in 1 attempts",
             ),
             (
-                ServedNowEvent::NotAnswering {
-                    budget: Duration::from_secs(2),
-                    elapsed,
-                },
+                not_answering,
                 "heard_daemon_not_answering",
+                Level::Debug,
                 "the daemon was heard but did not answer in 2s: deadline has elapsed",
             ),
-        ];
-        assert_each(cases, Level::Debug);
-    }
-
-    fn assert_each<M: fmt::Display>(
-        cases: impl IntoIterator<Item = (impl Event, &'static str, M)>,
-        level: Level,
-    ) {
-        for (event, name, shown) in cases {
-            assert_eq!(event.name(), name);
-            assert_eq!(event.level(), level, "{name}");
-            assert_eq!(event.to_string(), shown.to_string(), "{name}");
-        }
+        ]);
     }
 }
