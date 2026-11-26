@@ -126,11 +126,13 @@ jobs:
 
   linux:
     name: linux (${{ matrix.goarch }})
+    # Both architectures build on 24.04: the packages need the glibc they were built against,
+    # and ubuntu-latest (26.04) would shut out every 24.04 user.
     strategy:
       fail-fast: false
       matrix:
         include:
-          - runner: ubuntu-latest
+          - runner: ubuntu-24.04
             goarch: amd64
           - runner: ubuntu-24.04-arm
             goarch: arm64
