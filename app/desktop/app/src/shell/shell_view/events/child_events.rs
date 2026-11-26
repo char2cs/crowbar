@@ -1,4 +1,4 @@
-use gpui::{App, Context, Entity, MouseDownEvent, Subscription, Window};
+use gpui::{Context, Entity, MouseDownEvent, Subscription, Window};
 use layout::Command;
 use layoutview::{LayoutEvent, LayoutView};
 use sidebarview::Sidebar;
@@ -36,12 +36,8 @@ impl ShellView {
                     this.on_sidebar(source, event, cx);
                 },
             ),
-            cx.observe_window_activation(window, |this, window, cx| {
-                this.on_window_activation(window, cx);
-            }),
-            cx.observe_global_in::<ui::WindowActivity>(window, |this, window, cx| {
-                this.on_window_activation(window, cx);
-            }),
+            cx.observe_window_activation(window, Self::on_gpui_activation),
+            cx.observe_global_in::<ui::WindowActivity>(window, Self::on_window_activation),
             cx.observe_window_appearance(window, |this, window, cx| {
                 this.follow_system_appearance(window.appearance(), cx);
             }),
@@ -68,32 +64,6 @@ impl ShellView {
     fn close_before_quitting(&mut self) -> impl Future<Output = ()> + use<> {
         self.state.close_web_views();
         async {}
-    }
-
-    fn on_window_activation(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        if !ui::WindowActivity::of(window, cx) {
-            self.sidebar
-                .update(cx, |sidebar, cx| sidebar.cancel_drag(window, cx));
-        }
-        self.notices
-            .update(cx, |notices, cx| notices.follow_window(window, cx));
-        self.return_keyboard(window, cx);
-    }
-
-    fn return_keyboard(
-        &self,
-        window: &Window,
-        cx: &mut App,
-    ) {
-        let held_elsewhere = self.modal_open(cx) || ui::holds_keys(window, cx);
-        if !ui::WindowActivity::of(window, cx) || held_elsewhere {
-            return;
-        }
-        self.state.apply_keyboard();
     }
 
     fn on_workspace(

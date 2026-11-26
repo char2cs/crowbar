@@ -6,8 +6,8 @@ mod browser;
 mod editor;
 mod files;
 mod git;
-mod hosts;
 mod keybindings;
+mod machines;
 mod rows;
 mod search_index;
 mod sessions;
@@ -23,7 +23,15 @@ pub const DESCRIPTOR_RECORDS: &str = agents::DESCRIPTORS;
 /// Source name of the active sessions list.
 pub const SESSION_RECORDS: &str = sessions::SESSIONS;
 /// Source name of the hosts list.
-pub const HOST_RECORDS: &str = hosts::HOSTS;
+pub const HOST_RECORDS: &str = machines::hosts::HOSTS;
+/// Source name of the paired devices list.
+pub const DEVICE_RECORDS: &str = machines::devices::DEVICES;
+/// Whether other devices may connect to this computer's daemon, which stores it.
+pub const DEVICE_CONNECTIONS: &str = machines::devices::ALLOW;
+/// The address the daemon listens on for devices.
+pub const DEVICE_ADDRESS: &str = machines::devices::ADDRESS;
+/// Where devices reach the daemon while connections are allowed.
+pub const DEVICE_LISTENING: &str = machines::devices::LISTENING;
 /// The terminal line height develop once defaulted to, read on load as today's default.
 pub const LEGACY_TERMINAL_LINE_HEIGHT: crate::schema::LegacyNumber = terminal::LEGACY_LINE_HEIGHT;
 /// The setting that stores custom keybindings.
@@ -36,8 +44,8 @@ pub fn preset_overrides(preset: &str) -> std::collections::BTreeMap<String, Stri
     keybindings::preset_overrides(preset)
 }
 
-/// The ten pages of the shell: Appearance, Editor, Files, Git, Terminal, Browser, Agents, Active
-/// sessions, Keybindings and Hosts, in rail order.
+/// The eleven pages of the shell: Appearance, Editor, Files, Git, Terminal, Browser, Agents,
+/// Active sessions, Keybindings, Hosts and Devices, in rail order.
 ///
 /// # Errors
 /// [`Error::Duplicate`] when the built-in pages repeat an id or key, which the tests rule out.
@@ -52,7 +60,8 @@ pub fn default_schema() -> Result<Schema, Error> {
         agents::page(),
         sessions::page(),
         keybindings::page(),
-        hosts::page(),
+        machines::hosts::page(),
+        machines::devices::page(),
     ])
 }
 
@@ -66,7 +75,7 @@ mod tests {
     use crate::values::Choice;
     use crate::values::Value;
 
-    fn ten_pages_in_rail_order_with_unique_keys() {
+    fn eleven_pages_in_rail_order_with_unique_keys() {
         let schema = default_schema().unwrap();
         let ids: Vec<&str> = schema
             .pages()
@@ -86,6 +95,7 @@ mod tests {
                 "active-sessions",
                 "keybindings",
                 "hosts",
+                "devices",
             ]
         );
     }
@@ -153,6 +163,7 @@ mod tests {
             "pulse",
             "keyboard",
             "hard-drives",
+            "device-mobile",
         ];
         for page in schema.pages() {
             assert!(stems.contains(&page.icon.as_str()), "{}", page.icon);
@@ -161,8 +172,8 @@ mod tests {
 
     const CASES: &[Case] = &[
         (
-            "ten pages in rail order with unique keys",
-            ten_pages_in_rail_order_with_unique_keys,
+            "eleven pages in rail order with unique keys",
+            eleven_pages_in_rail_order_with_unique_keys,
         ),
         (
             "every default matches the shape its control stores",

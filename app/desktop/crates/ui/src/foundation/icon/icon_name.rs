@@ -76,6 +76,7 @@ icon_names! {
     Pulse => "pulse",
     Keyboard => "keyboard",
     HardDrives => "hard-drives",
+    DeviceMobile => "device-mobile",
     PaintBrush => "paint-brush",
     CodeBlock => "code-block",
     TreeStructure => "tree-structure",

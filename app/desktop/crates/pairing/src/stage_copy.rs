@@ -1,24 +1,27 @@
 //! The words of each stage of the dialog.
 
-use store::PairingStage;
+use store::{PairingPending, PairingStage, PairingState};
 
-pub(crate) fn lead(stage: PairingStage) -> &'static str {
+// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/hosts/components/add-host-dialog.tsx
+const ADDRESS_LEAD: &str = "On the host, open Settings → Devices and tap Add a device, or run crowbar pair: either shows the address, fingerprint and code you’ll need.";
+const FINGERPRINT_LEAD: &str = "Confirm this matches the fingerprint shown on that host:";
+
+pub(crate) fn lead(stage: PairingStage) -> Option<&'static str> {
     match stage {
-        PairingStage::Address => "Name the host and say where it listens.",
-        PairingStage::Fingerprint => {
-            "Compare this fingerprint with the one `crowbar pair` shows on the host."
-        },
-        PairingStage::Code => "Enter the one-time code `crowbar pair` printed on the host.",
-        PairingStage::Paired => "The host is paired and its spaces are loading.",
+        PairingStage::Address => Some(ADDRESS_LEAD),
+        PairingStage::Fingerprint => Some(FINGERPRINT_LEAD),
+        PairingStage::Code | PairingStage::Paired => None,
     }
 }
 
-pub(crate) fn primary(stage: PairingStage) -> &'static str {
-    match stage {
-        PairingStage::Address => "Continue",
-        PairingStage::Fingerprint => "It matches",
-        PairingStage::Code => "Pair",
-        PairingStage::Paired => "Done",
+pub(crate) fn primary(state: &PairingState) -> &'static str {
+    match (state.pending, state.stage) {
+        (PairingPending::Probing, _) => "Connecting…",
+        (PairingPending::Pairing, _) => "Pairing…",
+        (PairingPending::Idle, PairingStage::Address) => "Continue",
+        (PairingPending::Idle, PairingStage::Fingerprint) => "Confirm fingerprint",
+        (PairingPending::Idle, PairingStage::Code) => "Pair",
+        (PairingPending::Idle, PairingStage::Paired) => "Done",
     }
 }
 
@@ -33,19 +36,52 @@ pub(crate) fn secondary(stage: PairingStage) -> &'static str {
 mod tests {
     use super::*;
 
-    const CASES: [(PairingStage, &str, &str); 4] = [
-        (PairingStage::Address, "Continue", "Cancel"),
-        (PairingStage::Fingerprint, "It matches", "Back"),
-        (PairingStage::Code, "Pair", "Back"),
-        (PairingStage::Paired, "Done", "Cancel"),
+    type Case = (PairingStage, PairingPending, &'static str, &'static str);
+
+    const CASES: [Case; 5] = [
+        (
+            PairingStage::Address,
+            PairingPending::Idle,
+            "Continue",
+            "Cancel",
+        ),
+        (
+            PairingStage::Address,
+            PairingPending::Probing,
+            "Connecting…",
+            "Cancel",
+        ),
+        (
+            PairingStage::Fingerprint,
+            PairingPending::Idle,
+            "Confirm fingerprint",
+            "Back",
+        ),
+        (PairingStage::Code, PairingPending::Idle, "Pair", "Back"),
+        (
+            PairingStage::Code,
+            PairingPending::Pairing,
+            "Pairing…",
+            "Back",
+        ),
     ];
 
+    fn state_at(
+        stage: PairingStage,
+        pending: PairingPending,
+    ) -> PairingState {
+        PairingState {
+            stage,
+            pending,
+            ..PairingState::default()
+        }
+    }
+
     #[test]
-    fn each_stage_names_its_buttons_and_says_what_to_do() {
-        for (stage, primary_label, secondary_label) in CASES {
-            assert_eq!(primary(stage), primary_label);
+    fn each_stage_names_its_buttons_in_develop_s_words() {
+        for (stage, pending, primary_label, secondary_label) in CASES {
+            assert_eq!(primary(&state_at(stage, pending)), primary_label);
             assert_eq!(secondary(stage), secondary_label);
-            assert_ne!(lead(stage), "");
         }
     }
 }

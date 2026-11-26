@@ -31,6 +31,18 @@ impl WindowActivity {
             .unwrap_or_else(|| window.is_window_active())
     }
 
+    /// Whether a platform reports `window`; from then on GPUI's own activation changes are
+    /// echoes of child-window focus and only the reports count.
+    #[must_use]
+    pub fn is_reported(
+        window: &Window,
+        cx: &App,
+    ) -> bool {
+        let id = window.window_handle().window_id();
+        cx.try_global::<Self>()
+            .is_some_and(|activity| activity.reported.contains_key(&id))
+    }
+
     /// Records the platform's report that the keyboard came into `window`, one of its child
     /// windows included; notifies this global's observers and redraws every window.
     pub fn gained(
@@ -69,5 +81,6 @@ mod tests {
         });
         let reported = cx.update(|window, cx| WindowActivity::of(window, cx));
         assert_eq!((unreported, reported), (false, true));
+        assert!(cx.update(|window, cx| WindowActivity::is_reported(window, cx)));
     }
 }

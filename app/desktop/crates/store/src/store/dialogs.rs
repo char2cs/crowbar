@@ -11,12 +11,15 @@ use crate::store::Store;
 use crate::store::branch_import::BranchImport;
 use crate::store::folder_browse::FolderBrowse;
 use crate::store::folder_browse::{FolderChoice, folder_choice};
+use crate::store::pairing::device_offer::DeviceOffer;
 use crate::store::pairing::pairing_session::PairingSession;
 use crate::store::settings_core::JsonFile;
 use crate::store::settings_core::Parts;
 use crate::store::settings_core::SystemFonts;
 use crate::store::settings_core::{SettingsAdapter, SettingsCore};
 use crate::store::system_check::SystemCheck;
+
+const NO_LOCAL_HOST: &str = "no local host is followed";
 
 impl Store {
     /// The import dialog's data for the repository header or branch `row`; the dialog loads the
@@ -77,7 +80,7 @@ impl Store {
         let local = self
             .hub
             .read(State::local_client)
-            .ok_or_else(|| Error::Stream("no local host is followed".to_owned()))?;
+            .ok_or_else(|| Error::Stream(NO_LOCAL_HOST.to_owned()))?;
         let core = SettingsCore::open(Parts {
             file: JsonFile::new(file, Arc::clone(&self.commands.files)),
             hub: Arc::clone(&self.hub),
@@ -105,8 +108,28 @@ impl Store {
         let local = self
             .hub
             .read(State::local_client)
-            .ok_or_else(|| Error::Stream("no local host is followed".to_owned()))?;
+            .ok_or_else(|| Error::Stream(NO_LOCAL_HOST.to_owned()))?;
         Ok(SystemCheck::start(
+            local,
+            self.commands.handle.clone(),
+            signal,
+        ))
+    }
+
+    /// A one-time code for a device to pair with this computer's daemon, minted at once and
+    /// signalling `signal` when it is ready.
+    ///
+    /// # Errors
+    /// [`Error::Stream`] when no local host is followed.
+    pub fn device_offer(
+        &self,
+        signal: ChangeSignal,
+    ) -> Result<Arc<DeviceOffer>> {
+        let local = self
+            .hub
+            .read(State::local_client)
+            .ok_or_else(|| Error::Stream(NO_LOCAL_HOST.to_owned()))?;
+        Ok(DeviceOffer::start(
             local,
             self.commands.handle.clone(),
             signal,

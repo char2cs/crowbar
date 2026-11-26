@@ -16,6 +16,8 @@ pub enum Outcome {
     PickDescriptor,
     /// The user asked to add a host: the shell opens the pairing dialog.
     PairHost,
+    /// The user asked to add a device: the shell shows a one-time pairing code for it.
+    AddDevice,
     /// The user confirmed clearing browsing data: the shell clears the browser panes' storage.
     ClearBrowsingData,
     /// A file was read for the clipboard: the shell puts this text on it.

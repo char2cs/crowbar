@@ -8,6 +8,7 @@ use crate::live::{Outcome, OutcomeSink};
 use settings::{Error, RecordCommand, Records};
 
 use crate::store::settings_core::agents::{descriptor_records, records as agent_records};
+use crate::store::settings_core::devices::device::{self, REVOKE_DEVICE};
 use crate::store::settings_core::{AGENTS, DESCRIPTORS, HOSTS, SESSIONS, SettingsCore, locked};
 use crate::store::settings_core::{
     live_records,
@@ -39,6 +40,7 @@ impl SettingsCore {
             SESSIONS => Records::Ready(self.hub.read(live_records::sessions)),
             HOSTS => Records::Ready(self.hub.read(live_records::hosts)),
             DESCRIPTORS => locked(&self.descriptors).records(|all| descriptor_records::of(all)),
+            settings::DEVICE_RECORDS => locked(&self.devices).records(|all| device::records(all)),
             _ => Records::Failed,
         }
     }
@@ -58,6 +60,16 @@ impl SettingsCore {
             },
             (HOSTS, RecordCommand::Run { action }) if action == REMOVE_ANYWAY => {
                 self.roster.remove_anyway(&self.handle, record);
+                Ok(())
+            },
+            (settings::DEVICE_RECORDS, RecordCommand::Run { action })
+                if action == REVOKE_DEVICE =>
+            {
+                self.revoke_device(record);
+                Ok(())
+            },
+            (settings::DEVICE_RECORDS, RecordCommand::Refresh) => {
+                self.reread_devices();
                 Ok(())
             },
             (_, RecordCommand::Refresh) => {

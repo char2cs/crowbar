@@ -27,7 +27,7 @@ interface DraftChatPaneProps {
  *  Sending creates the chat and hands it this prompt; closing the pane leaves
  *  nothing on the daemon or in the sidebar. */
 export function DraftChatPane({ paneId, wsId, hostId, belowOverlayHeader }: DraftChatPaneProps) {
-  const providers = usePaneProviders(wsId, hostId)
+  const providers = usePaneProviders(hostId)
   const editorRef = useRef<ChatMarkdownEditorHandle>(null)
   const docRef = useRef<HTMLDivElement>(null)
   const [hasText, setHasText] = useState(false)

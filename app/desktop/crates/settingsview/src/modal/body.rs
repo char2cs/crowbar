@@ -106,9 +106,9 @@ mod tests {
         cx.simulate_keystrokes("down");
         assert_eq!(page_id(&harness, cx), "editor");
         cx.simulate_keystrokes("end");
-        assert_eq!(page_id(&harness, cx), "hosts");
+        assert_eq!(page_id(&harness, cx), "devices");
         cx.simulate_keystrokes("up");
-        assert_eq!(page_id(&harness, cx), "keybindings");
+        assert_eq!(page_id(&harness, cx), "hosts");
         cx.simulate_keystrokes("escape");
         assert_eq!(harness.closed.get(), 1);
     }

@@ -67,7 +67,7 @@ mod tests {
             Intent::Search(TextInputEvent::Changed(String::new())),
             cx,
         );
-        assert_eq!(pages(&harness, cx), 10);
+        assert_eq!(pages(&harness, cx), 11);
     }
 
     fn rail_and_page(

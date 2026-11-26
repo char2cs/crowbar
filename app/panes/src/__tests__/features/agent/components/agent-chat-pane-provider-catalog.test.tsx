@@ -213,7 +213,7 @@ beforeEach(() => {
   resetChatStore()
   for (const id of ['c1', 'c2', 'c3']) seedFeed(id, spokenIn(id))
   slashCatalogFn.mockResolvedValue([])
-  listProvidersFn.mockResolvedValue(providers)
+  listGlobalProvidersFn.mockResolvedValue(providers)
   useAgentProvidersStore.setState({ providers: [], status: 'idle', remote: {} })
   useSettingsStore.setState((state) => ({
     settings: { ...state.settings, chatIsDefaultPresentation: true },
@@ -252,7 +252,7 @@ describe('reopening an already-run conversation', () => {
     await renderPane(store, paneId)
     await settle()
 
-    expect(listProvidersFn).toHaveBeenCalledWith('w1')
+    expect(listGlobalProvidersFn).toHaveBeenCalledWith()
     expect(screen.queryByTestId('agent-selection-picker')).not.toBeNull()
   })
 })
@@ -262,7 +262,7 @@ describe('reopening an already-run conversation', () => {
 describe('a chat that records no agent', () => {
   async function openUnassigned(list: AgentProvider[]) {
     useAgentProvidersStore.getState().setProviders(list)
-    listProvidersFn.mockResolvedValue(list)
+    listGlobalProvidersFn.mockResolvedValue(list)
     await renderPane(unmountedWorkspace([dormantChat('c3', '')]), openChatPane('c3'))
     await settle()
   }

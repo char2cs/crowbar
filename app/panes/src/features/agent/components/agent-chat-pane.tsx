@@ -107,7 +107,7 @@ export function AgentChatPaneBody({
   const chatEffort = useChatField(shownChatId, (c) => c?.effort ?? '')
   // What the live runner spawned as: the current launch, never the next one's request.
   const launchModel = useChatField(shownChatId, (c) => c?.launchModel ?? '')
-  const providers = usePaneProviders(wsId, hostId)
+  const providers = usePaneProviders(hostId)
   // Without hot-swap the daemon has one view of this chat, and the pane shows that one.
   const heldView = onTerminalSurface ? 'terminal' : 'chat'
   const hotswap = isHotswap(providers, activeProviderId).hotswap

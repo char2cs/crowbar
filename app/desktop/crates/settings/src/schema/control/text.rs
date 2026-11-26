@@ -11,7 +11,7 @@ impl Control {
     ) -> String {
         match (self, value.map(|value| self.loaded(value))) {
             (Self::Number { range, .. }, Some(Value::Number(number))) => range.format(number),
-            (Self::Text { .. }, Some(Value::Text(text))) => text,
+            (Self::Text { .. } | Self::Readout { .. }, Some(Value::Text(text))) => text,
             (Self::TextList { .. }, Some(Value::List(items))) => items.join(", "),
             _ => String::new(),
         }
@@ -105,6 +105,12 @@ mod tests {
         assert_eq!(url.issue(""), None);
     }
 
+    fn a_readout_shows_the_text_it_holds() {
+        let readout = Control::Readout { mono: true };
+        let text = Value::Text("192.168.1.4:3737".to_owned());
+        assert_eq!(readout.text_of(Some(&text)), "192.168.1.4:3737");
+    }
+
     const CASES: &[Case] = &[
         (
             "text round trips through the value",
@@ -117,6 +123,10 @@ mod tests {
         (
             "text is kept as typed but flagged",
             text_is_kept_as_typed_but_flagged,
+        ),
+        (
+            "a readout shows the text it holds",
+            a_readout_shows_the_text_it_holds,
         ),
     ];
 
