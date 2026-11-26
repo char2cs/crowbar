@@ -1,5 +1,4 @@
 use crate::state::page_update::PageUpdate;
-use crate::state::tab_name::tab_name;
 
 /// What the browser chrome shows for one page: address, title and whether it is loading.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -10,15 +9,6 @@ pub struct PageState {
 }
 
 impl PageState {
-    /// A page that has not loaded yet, showing `url` in the address bar.
-    #[must_use]
-    pub fn at(url: &str) -> Self {
-        Self {
-            url: url.to_owned(),
-            ..Self::default()
-        }
-    }
-
     /// Folds one engine report into the state. A new navigation drops the old title.
     pub fn apply(
         &mut self,
@@ -59,12 +49,6 @@ impl PageState {
     pub fn title(&self) -> Option<&str> {
         self.title.as_deref()
     }
-
-    /// The tab label: the title, else the host, else a placeholder.
-    #[must_use]
-    pub fn name(&self) -> String {
-        tab_name(self.title.as_deref(), &self.url)
-    }
 }
 
 #[cfg(test)]
@@ -72,31 +56,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_navigation_runs_from_loading_to_loaded() {
-        let mut state = PageState::at("");
+    fn a_navigation_runs_from_loading_to_loaded_and_forgets_the_old_title() {
+        let mut state = PageState::default();
+        state.apply(PageUpdate::title("Old"));
         state.apply(PageUpdate::Loading {
             url: "https://a.test/x".into(),
         });
-        assert!(state.is_loading());
+        assert_eq!((state.is_loading(), state.title()), (true, None));
         state.apply(PageUpdate::title("A page"));
         state.apply(PageUpdate::Loaded {
             url: "https://a.test/x".into(),
         });
         assert_eq!(
-            (state.url(), state.is_loading(), state.name().as_str()),
-            ("https://a.test/x", false, "A page")
+            (state.url(), state.is_loading(), state.title()),
+            ("https://a.test/x", false, Some("A page"))
         );
-    }
-
-    #[test]
-    fn a_title_belongs_to_its_page_and_a_new_navigation_forgets_it() {
-        let mut state = PageState::at("https://a.test");
-        assert_eq!(state.title(), None);
-        state.apply(PageUpdate::title("Old"));
-        assert_eq!(state.title(), Some("Old"));
-        state.apply(PageUpdate::Loading {
-            url: "https://b.test".into(),
-        });
-        assert_eq!((state.title(), state.name().as_str()), (None, "b.test"));
     }
 }
