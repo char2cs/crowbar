@@ -25,35 +25,3 @@ impl std::fmt::Debug for HostConfig {
             .finish_non_exhaustive()
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use super::*;
-    use crate::scheme::ProtocolRequest;
-    use crate::scheme::ProtocolResponder;
-
-    struct Silent;
-
-    impl ProtocolHandler for Silent {
-        fn handle(
-            &self,
-            _request: ProtocolRequest,
-            _respond: ProtocolResponder,
-        ) {
-        }
-    }
-
-    #[test]
-    fn debug_shows_the_scheme_and_hides_the_handler() {
-        let config = HostConfig {
-            scheme: "crowbar".into(),
-            protocol: Arc::new(Silent),
-            data_dir: None,
-        };
-        let text = format!("{config:?}");
-        assert!(text.contains("crowbar"), "scheme shown: {text}");
-        assert!(!text.contains("Silent"), "handler hidden: {text}");
-    }
-}

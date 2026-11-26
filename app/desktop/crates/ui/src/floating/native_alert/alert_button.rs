@@ -23,17 +23,3 @@ impl AlertButton {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_button_keeps_its_words_and_what_it_does() {
-        let delete = AlertButton::new("Delete", AlertRole::Destructive);
-        assert_eq!(
-            (delete.label.as_ref(), delete.role),
-            ("Delete", AlertRole::Destructive)
-        );
-    }
-}

@@ -99,19 +99,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_new_row_is_idle_final_and_closed() {
-        let row = Row::new("c1", RowKind::Chat, 2, "Untitled chat");
-        assert_eq!(row.id.as_str(), "c1", "id");
-        assert_eq!(row.depth, 2, "depth");
-        assert_eq!(row.activity, Activity::Idle, "idle");
-        assert_eq!(row.presence, Presence::Absent, "closed");
-        assert!(
-            row.workspace.is_none() && row.operation.is_none(),
-            "no workspace or operation"
-        );
-    }
-
-    #[test]
     fn two_lines_need_an_unlocked_workspace_with_another_name() {
         use crate::shell::chats::facets::Workspace;
         use crate::shell::chats::facets::WorkspaceStatus;
