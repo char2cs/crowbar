@@ -79,10 +79,15 @@ fn refused(
     status: u16,
     envelope: Envelope,
 ) -> Error {
+    // SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/hosts/lib/host-failure-notice.ts
+    let worded = envelope.error.is_some() || envelope.code.is_some();
+    let code = envelope
+        .code
+        .or_else(|| (!worded).then(|| proxy_failure::UNEXPLAINED_CODE.to_owned()));
     Error::Refused {
         path: path.to_owned(),
         status,
-        code: envelope.code,
+        code,
         message: envelope
             .error
             .unwrap_or_else(|| format!("the daemon answered {status}")),
@@ -119,7 +124,7 @@ mod tests {
         }
     }
 
-    const CASES: [(u16, &str, &str); 6] = [
+    const CASES: [(u16, &str, &str); 7] = [
         (
             200,
             r#"{"success":true,"data":{"id":"a"}}"#,
@@ -142,6 +147,11 @@ mod tests {
             "refused 502 unexplained the daemon answered 502 null",
         ),
         (200, "nope", "body"),
+        (
+            429,
+            r#"{"success":false}"#,
+            "refused 429 unexplained the daemon answered 429 null",
+        ),
     ];
 
     #[test]
