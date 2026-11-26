@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::thread;
 
 use x11rb::connection::Connection as _;
-use x11rb::errors::{ConnectionError, ReplyError, ReplyOrIdError};
+use x11rb::errors::{ConnectionError, ReplyOrIdError};
 use x11rb::protocol::Event;
 use x11rb::protocol::xproto::{
     AtomEnum, ClientMessageEvent, ConnectionExt as _, CreateWindowAux, EventMask, PropMode,
@@ -75,12 +75,10 @@ impl XdndProxy {
 impl Drop for XdndProxy {
     fn drop(&mut self) {
         let connection = &self.connection;
-        // PLATFORM: linux X11 flush only sends; the round trip makes every client see the removal.
         let removed = connection
             .delete_property(self.window, self.atoms.XdndProxy)
             .and_then(|_| connection.destroy_window(self.proxy))
-            .map_err(ReplyError::from)
-            .and_then(|_| connection.sync());
+            .and_then(|_| connection.flush());
         if let Err(error) = removed {
             tracing::debug!(%error, "the drag proxy outlived its connection");
         }
@@ -150,6 +148,7 @@ fn client_message(event: &Event) -> Option<ClientMessageEvent> {
 #[cfg(test)]
 mod tests {
     use x11rb::NONE;
+    use x11rb::protocol::xproto::ChangeWindowAttributesAux;
 
     use super::*;
 
@@ -167,6 +166,26 @@ mod tests {
             .value32()
             .and_then(|mut ids| ids.next())
             .unwrap_or(NONE)
+    }
+
+    fn watch_for_destroy(
+        connection: &RustConnection,
+        window: u32,
+    ) {
+        let aux = ChangeWindowAttributesAux::new().event_mask(EventMask::STRUCTURE_NOTIFY);
+        connection
+            .change_window_attributes(window, &aux)
+            .unwrap()
+            .check()
+            .unwrap();
+    }
+
+    fn destroyed(
+        connection: &RustConnection,
+        window: u32,
+    ) -> bool {
+        std::iter::from_fn(|| connection.wait_for_event().ok())
+            .any(|event| matches!(event, Event::DestroyNotify(gone) if gone.window == window))
     }
 
     #[test]
@@ -201,7 +220,9 @@ mod tests {
             proxy,
             "the proxy names itself"
         );
+        watch_for_destroy(&connection, proxy);
         drop(installed);
+        assert!(destroyed(&connection, proxy), "the proxy window goes");
         assert_eq!(
             proxy_named_on(&connection, window),
             NONE,

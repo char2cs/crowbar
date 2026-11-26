@@ -7958,12 +7958,12 @@ version = "0.1.0"
 dependencies = [
  "atomicfile",
  "base64",
- "chrono",
  "daemonapi",
  "editor",
  "futures-util",
  "ignore",
  "indexmap",
+ "jiff",
  "journal",
  "protocol",
  "rusqlite",

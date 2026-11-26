@@ -51,7 +51,6 @@ editor = { path = "desktop/crates/editor" }
 editorview = { path = "desktop/crates/editorview" }
 
 async-channel = "2"
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
 gdkx11 = "0.18"
 gpui = { package = "gpui-pre", version = "=0.3.14" }
 gpui-kit = { version = "=0.11.0", default-features = false, features = [
@@ -73,6 +72,7 @@ gpui_wgpu = { package = "gpui-pre-wgpu", version = "=0.3.14" }
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.14", default-features = false, features = ["font-kit", "wayland", "x11"] }
 gtk = "0.18"
 image = { version = "0.25", default-features = false }
+jiff = "1"
 lsp-types = "0.97"
 webkit2gtk = "2.0.1"
 raw-window-handle = "0.6"

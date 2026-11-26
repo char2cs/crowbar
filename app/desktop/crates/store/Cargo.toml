@@ -18,10 +18,10 @@ journal.workspace = true
 daemonapi.workspace = true
 editor.workspace = true
 base64 = "0.22"
-chrono.workspace = true
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 ignore = { version = "0.4", default-features = false }
 indexmap = "2"
+jiff.workspace = true
 protocol.workspace = true
 rusqlite = { version = "0.43", features = ["bundled", "collation"] }
 serde.workspace = true
