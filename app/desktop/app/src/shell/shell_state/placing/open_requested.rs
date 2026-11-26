@@ -69,17 +69,13 @@ mod tests {
     use protocol::{PaneFrame, PaneTypeId, Params, encode};
 
     use super::*;
-    use crate::test_support::{open_chat, resync, shell_rig};
+    use crate::test_support::{ShellRig, resync, shell_rig, synced_chat};
 
-    fn opened_from_the_chat(
-        file: &str,
-        mode: OpenMode,
-    ) -> (Option<String>, Option<serde_json::Value>) {
-        let mut rig = shell_rig();
-        open_chat(&mut rig.shell, "t1");
-        resync(&mut rig);
-        let tab = rig.shell.showing().unwrap();
-        let chat = tab.pane_ids().into_iter().next().unwrap();
+    fn page_opens(
+        rig: &mut ShellRig,
+        chat: &PaneId,
+        (file, mode): (&str, OpenMode),
+    ) {
         let frame = PaneFrame::Open(PaneOpen {
             type_id: PaneTypeId::new(EDITOR).unwrap(),
             params: Params::default(),
@@ -87,11 +83,18 @@ mod tests {
             mode,
         });
         let text = encode(&frame).unwrap();
-        let outcome = rig.shell.handle_ipc(IpcMessage {
-            pane: chat.clone(),
-            text,
-        });
+        let pane = chat.clone();
+        let outcome = rig.shell.handle_ipc(IpcMessage { pane, text });
         rig.shell.apply(outcome.opens);
+    }
+
+    fn opened_from_the_chat(
+        file: &str,
+        mode: OpenMode,
+    ) -> (Option<String>, Option<serde_json::Value>) {
+        let mut rig = shell_rig();
+        let chat = synced_chat(&mut rig);
+        page_opens(&mut rig, &chat, (file, mode));
         let tab = rig.shell.showing().unwrap();
         let group = tab.group_of(&chat).unwrap();
         let opened = group
@@ -117,23 +120,12 @@ mod tests {
 
     fn shown_after_the_chat_opens((file, mode): (&str, OpenMode)) -> Option<serde_json::Value> {
         let mut rig = shell_rig();
-        open_chat(&mut rig.shell, "t1");
-        resync(&mut rig);
-        let tab = rig.shell.showing().unwrap();
-        let chat = tab.pane_ids().into_iter().next().unwrap();
+        let chat = synced_chat(&mut rig);
         for kept in ["src/a.ts", "src/pricing.ts"] {
             rig.shell.open_spec(PaneSpec::editor("t1", kept).unwrap());
         }
         resync(&mut rig);
-        let frame = PaneFrame::Open(PaneOpen {
-            type_id: PaneTypeId::new(EDITOR).unwrap(),
-            params: Params::default(),
-            file: Some(DocumentPath::new(file).unwrap()),
-            mode,
-        });
-        let text = encode(&frame).unwrap();
-        let outcome = rig.shell.handle_ipc(IpcMessage { pane: chat, text });
-        rig.shell.apply(outcome.opens);
+        page_opens(&mut rig, &chat, (file, mode));
         let layout = rig.shell.layout();
         let editor = layout.find_pane(&PaneTypeId::new(EDITOR).unwrap(), &file_params(file))?;
         let group = layout.tab_of(&editor.pane_id)?.group_of(&editor.pane_id)?;

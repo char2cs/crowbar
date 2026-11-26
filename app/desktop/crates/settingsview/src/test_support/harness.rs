@@ -23,7 +23,7 @@ pub(crate) struct Harness {
     pub(crate) closed: Rc<Cell<u32>>,
 }
 
-pub(crate) fn backend() -> FakeBackend {
+fn backend() -> FakeBackend {
     let agent = Record::new("claude", "Claude Code")
         .flag(RecordFlag::new("enabled", "Enabled").on())
         .movable();
@@ -109,14 +109,7 @@ pub(crate) fn open<'a>(
     });
     let backend = backend();
     let closed = Rc::new(Cell::new(0));
-    let counter = Rc::clone(&closed);
-    let config = ModalConfig::new(
-        default_schema().unwrap(),
-        Rc::new(backend.clone()),
-        Rc::new(backend.clone()),
-    )
-    .page(PageId::from(page))
-    .on_close(move |_, _| counter.set(counter.get() + 1));
+    let config = config(page, &backend, &closed);
     let (modal, cx) = cx.add_window_view(|window, cx| SettingsModal::new(config, window, cx));
     cx.run_until_parked();
     (

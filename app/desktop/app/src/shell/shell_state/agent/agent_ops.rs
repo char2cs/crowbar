@@ -234,6 +234,13 @@ mod tests {
         rig
     }
 
+    fn with_blank_tab() -> (ShellRig, String) {
+        let mut rig = chat_rig();
+        run(&mut rig, &command("1", ("c1", ""), open_op(None)));
+        let tab = rig.shell.browser_tabs()[0].id.clone();
+        (rig, tab)
+    }
+
     fn run(
         rig: &mut ShellRig,
         command: &AgentCommand,
@@ -309,10 +316,8 @@ mod tests {
     }
 
     #[test]
-    fn a_chat_cannot_reach_a_tab_of_another_chat_or_one_that_is_not_there() {
-        let mut rig = chat_rig();
-        run(&mut rig, &command("1", ("c1", ""), open_op(None)));
-        let tab = rig.shell.browser_tabs()[0].id.clone();
+    fn a_chat_closes_its_own_tab_but_not_one_of_another_chat_or_one_that_is_not_there() {
+        let (mut rig, tab) = with_blank_tab();
         let cases = [("c2", tab.as_str()), ("c1", "nope")];
         for (chat, id) in cases {
             let answer = run(&mut rig, &command("2", (chat, id), AgentOp::Close));
@@ -322,16 +327,9 @@ mod tests {
             );
         }
         assert_eq!(rig.shell.browser_tabs().len(), 1, "nothing was closed");
-    }
-
-    #[test]
-    fn closing_a_tab_removes_its_pane() {
-        let mut rig = chat_rig();
-        run(&mut rig, &command("1", ("c1", ""), open_op(None)));
-        let tab = rig.shell.browser_tabs()[0].id.clone();
-        let answer = run(&mut rig, &command("2", ("c1", &tab), AgentOp::Close));
+        let answer = run(&mut rig, &command("3", ("c1", &tab), AgentOp::Close));
         assert_eq!(answer, AgentAnswer::Done(json!("closed")));
-        assert_eq!(rig.shell.browser_tabs(), []);
+        assert_eq!(rig.shell.browser_tabs(), [], "its own tab closes");
     }
 
     fn go(url: &str) -> AgentOp {
@@ -358,9 +356,7 @@ mod tests {
 
     #[test]
     fn navigating_loads_the_address_in_the_view_and_answers_when_the_page_has_loaded() {
-        let mut rig = chat_rig();
-        run(&mut rig, &command("1", ("c1", ""), open_op(None)));
-        let tab = rig.shell.browser_tabs()[0].id.clone();
+        let (mut rig, tab) = with_blank_tab();
         let wait = rig.shell.replies.register("2", None);
         let go_b = command("2", ("c1", &tab), go("http://b.test/"));
         rig.shell.run_agent(&go_b, WINDOW);
@@ -395,9 +391,7 @@ mod tests {
 
     #[test]
     fn a_navigation_waiting_for_a_tab_that_is_closed_fails_without_waiting_for_the_limit() {
-        let mut rig = chat_rig();
-        run(&mut rig, &command("1", ("c1", ""), open_op(None)));
-        let tab = rig.shell.browser_tabs()[0].id.clone();
+        let (mut rig, tab) = with_blank_tab();
         let wait = rig.shell.replies.register("2", None);
         let go_b = command("2", ("c1", &tab), go("http://b.test/"));
         rig.shell.run_agent(&go_b, WINDOW);
@@ -412,9 +406,7 @@ mod tests {
 
     #[test]
     fn without_a_window_to_hold_it_a_browser_cannot_be_brought_up() {
-        let mut rig = chat_rig();
-        run(&mut rig, &command("1", ("c1", ""), open_op(None)));
-        let tab = rig.shell.browser_tabs()[0].id.clone();
+        let (mut rig, tab) = with_blank_tab();
         let wait = rig.shell.replies.register("2", None);
         let go_b = command("2", ("c1", &tab), go("http://b.test/"));
         rig.shell.run_agent(&go_b, None);

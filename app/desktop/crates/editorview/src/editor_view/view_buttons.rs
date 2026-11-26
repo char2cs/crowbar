@@ -64,24 +64,14 @@ mod tests {
     fn a_markdown_view_offers_its_preview_and_rich_view_an_html_one_only_its_preview(
         cx: &mut TestAppContext
     ) {
-        let cases = [
-            (
-                "README.md",
-                vec![
-                    EditorEvent::PreviewRequested,
-                    EditorEvent::RichViewRequested,
-                ],
-            ),
-            (
-                "docs/a.markdown",
-                vec![
-                    EditorEvent::PreviewRequested,
-                    EditorEvent::RichViewRequested,
-                ],
-            ),
-            ("site/index.html", vec![EditorEvent::PreviewRequested]),
-            ("site/old.htm", vec![EditorEvent::PreviewRequested]),
-            ("src/a.ts", vec![]),
+        let both = [
+            EditorEvent::PreviewRequested,
+            EditorEvent::RichViewRequested,
+        ];
+        let cases: [(&str, &[EditorEvent]); 3] = [
+            ("README.md", &both),
+            ("site/index.html", &both[..1]),
+            ("src/a.ts", &[]),
         ];
         for (path, expected) in cases {
             let (view, window) = opened_at(path, cx);

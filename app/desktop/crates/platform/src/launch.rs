@@ -88,7 +88,6 @@ fn opener(desktop: Desktop) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsString;
     use std::path::Path;
 
     use super::*;
@@ -102,29 +101,21 @@ mod tests {
     }
 
     #[test]
-    fn opening_uses_the_desktop_opener() {
-        let linux = Launch::open(Desktop::Linux, OsString::from("https://example.com"));
-        assert_eq!(
-            (linux.program, args(&linux)),
-            ("xdg-open", vec!["https://example.com".into()])
-        );
-        let mac = Launch::open(Desktop::MacOs, OsString::from("https://example.com"));
-        assert_eq!(mac.program, "open");
-    }
-
-    #[test]
-    fn reveal_selects_on_macos_and_opens_the_directory_on_linux() {
+    fn each_desktop_opens_with_its_opener_and_reveals_in_its_own_way() {
+        let file = Path::new("/a/b.txt");
         let cases = [
             (
-                Launch::reveal(Desktop::MacOs, Path::new("/a/b.txt")),
+                Launch::open(Desktop::Linux, file),
+                "xdg-open",
+                vec!["/a/b.txt"],
+            ),
+            (Launch::open(Desktop::MacOs, file), "open", vec!["/a/b.txt"]),
+            (
+                Launch::reveal(Desktop::MacOs, file),
                 "open",
                 vec!["-R", "/a/b.txt"],
             ),
-            (
-                Launch::reveal(Desktop::Linux, Path::new("/a/b.txt")),
-                "xdg-open",
-                vec!["/a"],
-            ),
+            (Launch::reveal(Desktop::Linux, file), "xdg-open", vec!["/a"]),
             (
                 Launch::reveal_directory(Desktop::Linux, Path::new("/a/b")),
                 "xdg-open",

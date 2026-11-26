@@ -19,7 +19,6 @@ pub(crate) struct Colors {
     pub(crate) current_match: Hsla,
     pub(crate) thumb: Hsla,
     pub(crate) thumb_hover: Hsla,
-    pub(crate) notice_text: Hsla,
 }
 
 impl Colors {
@@ -34,7 +33,6 @@ impl Colors {
             current_match: tokens.primary().opacity(CURRENT_MATCH_ALPHA),
             thumb: thumb.opacity(THUMB_ALPHA),
             thumb_hover: thumb.opacity(THUMB_HOVER_ALPHA),
-            notice_text: tokens.foreground(),
         }
     }
 }

@@ -64,18 +64,13 @@ impl ShellView {
 mod tests {
     use gpui::TestAppContext;
 
+    use crate::shell::shell_view::test_support::open_file;
     use crate::shell::shell_view::tests::open_shell;
-
-    const PATH: &str = "src/pricing.ts";
 
     #[gpui::test]
     fn reloading_a_tab_with_unsaved_edits_asks_before_discarding_them(cx: &mut TestAppContext) {
         let mut opened = open_shell(cx);
-        let pane = opened.shell.update(&mut opened.window, |shell, cx| {
-            shell.open_workspace_file(PATH, cx);
-            let focused = shell.state.showing().and_then(layout::Tab::focused);
-            focused.cloned().expect("the file pane has focus")
-        });
+        let pane = open_file(&mut opened, "src/pricing.ts");
         let event = layoutview::LayoutEvent::ReloadTab { pane: pane.clone() };
         let ask = |opened: &mut crate::shell::shell_view::tests::Opened| {
             let layout = opened

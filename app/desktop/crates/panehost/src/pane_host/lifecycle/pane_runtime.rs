@@ -81,115 +81,57 @@ mod tests {
 
     use super::*;
 
-    fn pane() -> PaneId {
-        PaneId::new("p1").unwrap()
+    fn kept(
+        event: Lifecycle,
+        instance: Option<&PaneInstance>,
+    ) -> (bool, bool) {
+        let mut runtime = PaneRuntime::new(PaneTypeId::new("core.chat").unwrap());
+        runtime.discard_state = true;
+        let pane = PaneId::new("p1").unwrap();
+        match runtime.lifecycle_frame(&pane, event, instance) {
+            ShellFrame::Lifecycle { state, params, .. } => {
+                (state != PaneState::default(), params != Params::default())
+            },
+            other => panic!("not a lifecycle frame: {other:?}"),
+        }
     }
 
-    fn instance() -> PaneInstance {
-        PaneInstance {
-            pane_id: pane(),
+    #[test]
+    fn a_discarded_state_is_mounted_empty_but_other_events_keep_it_and_gone_panes_send_none() {
+        let instance = PaneInstance {
+            pane_id: PaneId::new("p1").unwrap(),
             type_id: PaneTypeId::new("core.chat").unwrap(),
             params: Params::default().with("threadId", "t").unwrap(),
             state: PaneState::new(json!({"scroll": 3})).unwrap(),
+        };
+        let cases = [
+            (
+                "mount after a discard",
+                Lifecycle::Mount,
+                Some(&instance),
+                (false, true),
+            ),
+            (
+                "destroy after a discard",
+                Lifecycle::Destroy,
+                Some(&instance),
+                (true, true),
+            ),
+            (
+                "park after a discard",
+                Lifecycle::Park,
+                Some(&instance),
+                (true, true),
+            ),
+            (
+                "a pane the model no longer has",
+                Lifecycle::Destroy,
+                None,
+                (false, false),
+            ),
+        ];
+        for (name, event, instance, expected) in cases {
+            assert_eq!(kept(event, instance), expected, "{name}");
         }
-    }
-
-    fn runtime() -> PaneRuntime {
-        PaneRuntime::new(PaneTypeId::new("core.chat").unwrap())
-    }
-
-    fn frame_state(
-        runtime: &PaneRuntime,
-        event: Lifecycle,
-    ) -> PaneState {
-        let ShellFrame::Lifecycle { state, .. } =
-            runtime.lifecycle_frame(&pane(), event, Some(&instance()))
-        else {
-            panic!("not a lifecycle frame");
-        };
-        state
-    }
-
-    #[test]
-    fn mount_carries_params_and_state_from_the_model() {
-        let frame = runtime().lifecycle_frame(&pane(), Lifecycle::Mount, Some(&instance()));
-        let ShellFrame::Lifecycle {
-            pane_id,
-            event,
-            params,
-            state,
-        } = frame
-        else {
-            panic!("not a lifecycle frame");
-        };
-        assert_eq!(
-            (pane_id.as_str(), event),
-            ("p1", Lifecycle::Mount),
-            "identity"
-        );
-        assert_eq!(params.get("threadId"), Some("t"), "params");
-        assert_eq!(state.as_value(), &json!({"scroll": 3}), "state");
-    }
-
-    type Case = (&'static str, Lifecycle, bool, bool);
-
-    const CASES: &[Case] = &[
-        (
-            "mount carries the model state",
-            Lifecycle::Mount,
-            false,
-            true,
-        ),
-        (
-            "mount after a discard is empty",
-            Lifecycle::Mount,
-            true,
-            false,
-        ),
-        (
-            "destroy keeps the state after a discard",
-            Lifecycle::Destroy,
-            true,
-            true,
-        ),
-        ("park keeps the state", Lifecycle::Park, false, true),
-    ];
-
-    #[test]
-    fn a_discarded_state_is_mounted_empty_but_other_events_keep_it() {
-        for (name, event, discard, keeps_state) in CASES {
-            let mut runtime = runtime();
-            runtime.discard_state = *discard;
-            let carried = frame_state(&runtime, *event) != PaneState::default();
-            assert_eq!(carried, *keeps_state, "{name}");
-        }
-    }
-
-    #[test]
-    fn a_pane_the_model_no_longer_has_gets_an_empty_frame() {
-        let frame = runtime().lifecycle_frame(&pane(), Lifecycle::Destroy, None);
-        let ShellFrame::Lifecycle { params, state, .. } = frame else {
-            panic!("not a lifecycle frame");
-        };
-        assert_eq!(
-            (params, state),
-            (Params::default(), PaneState::default()),
-            "empty"
-        );
-    }
-
-    #[test]
-    fn detach_returns_the_pane_to_parked() {
-        let mut runtime = runtime();
-        runtime.phase = PanePhase::Mounted;
-        runtime.slot = Some(Id(1));
-        runtime.stage = Stage::Active;
-        assert!(runtime.is_mounted(), "mounted");
-        runtime.detach();
-        assert_eq!(
-            (runtime.slot, runtime.stage, runtime.phase.clone()),
-            (None, Stage::Hidden, PanePhase::Parked),
-            "reset"
-        );
     }
 }

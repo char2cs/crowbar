@@ -53,34 +53,24 @@ mod tests {
     use std::cell::Cell;
     use std::rc::Rc;
 
-    use gpui::{Context, Render, TestAppContext, point};
+    use gpui::{TestAppContext, point};
 
     use super::*;
+    use crate::test_support::mount;
 
-    struct Host {
-        clicks: Rc<Cell<u32>>,
-    }
-
-    impl Render for Host {
-        fn render(
-            &mut self,
-            _: &mut Window,
-            _: &mut Context<'_, Self>,
-        ) -> impl IntoElement {
-            let clicks = Rc::clone(&self.clicks);
-            FilterButton {
-                active: true,
-                on_click: Box::new(move |_, _, _| clicks.set(clicks.get() + 1)),
-            }
-        }
+    fn counting(clicks: &Rc<Cell<u32>>) -> ClickHandler {
+        let clicks = Rc::clone(clicks);
+        Box::new(move |_, _, _| clicks.set(clicks.get() + 1))
     }
 
     #[gpui::test]
     fn a_click_on_the_funnel_runs_the_handler(cx: &mut TestAppContext) {
-        cx.update(|cx| ui::init(cx).expect("ui installs"));
         let clicks = Rc::new(Cell::new(0));
         let shared = Rc::clone(&clicks);
-        let (_, cx) = cx.add_window_view(|_, _| Host { clicks: shared });
+        let cx = mount(cx, move |_, _| FilterButton {
+            active: true,
+            on_click: counting(&shared),
+        });
         cx.simulate_click(point(px(4.0), px(4.0)), gpui::Modifiers::none());
         assert_eq!(clicks.get(), 1);
     }

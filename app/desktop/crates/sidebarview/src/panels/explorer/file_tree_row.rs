@@ -257,10 +257,9 @@ mod tests {
         }
     }
 
-    #[gpui::test]
-    fn a_row_is_twenty_six_pixels_tall(cx: &mut TestAppContext) {
-        let bounds = measure(cx, |_, _| FileTreeRow {
-            entry: entry(FileKind::File, "main.rs"),
+    fn row(entry: FileTreeEntry) -> FileTreeRow {
+        FileTreeRow {
+            entry,
             neighbours: (0, 0),
             input: None,
             selected: false,
@@ -270,7 +269,12 @@ mod tests {
             look: TreeLook::default(),
             scope: std::rc::Rc::default(),
             handler: std::rc::Rc::new(|_, _, _| {}),
-        });
+        }
+    }
+
+    #[gpui::test]
+    fn a_row_is_twenty_six_pixels_tall(cx: &mut TestAppContext) {
+        let bounds = measure(cx, |_, _| row(entry(FileKind::File, "main.rs")));
         assert_eq!(f32::from(bounds.size.height), 26.0);
     }
 
@@ -281,18 +285,7 @@ mod tests {
             counts: Some((3, 1)),
             ..entry(FileKind::File, "a.rs")
         };
-        let cx = mount(cx, move |_, _| FileTreeRow {
-            entry: changed.clone(),
-            neighbours: (0, 0),
-            input: None,
-            selected: false,
-            cut: false,
-            note: None,
-            target: None,
-            look: TreeLook::default(),
-            scope: std::rc::Rc::default(),
-            handler: std::rc::Rc::new(|_, _, _| {}),
-        });
+        let cx = mount(cx, move |_, _| row(changed.clone()));
         let letter = cx.debug_bounds("status-letter").unwrap_or_default();
         let counts = cx.debug_bounds("row-counts").unwrap_or_default();
         let name = cx.debug_bounds("file-name").unwrap_or_default();

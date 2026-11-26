@@ -145,28 +145,14 @@ fn forward(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn only_browser_panes_reserve_a_chrome_strip() {
-        let (requests, _queue) = async_channel::unbounded();
-        let bars = BrowserBars::new(BrowserIds::default(), requests);
-        assert!((bars.height(&PaneId::new("p1").unwrap())).abs() < f32::EPSILON);
-    }
+    use crate::test_support::{one_tab, pane};
 
     #[test]
     fn a_browser_pane_lays_the_pane_fill_under_its_page_and_other_panes_do_not() {
-        let mut layout = layout::Layout::default();
-        let tab = layout::TabId(1);
-        layout
-            .apply(layout::Command::AddTab {
-                id: tab,
-                title: "t".into(),
-                space: layout::SpaceId::default(),
-            })
-            .unwrap();
-        for (pane, kind) in [("b1", browser::BROWSER_PANE_TYPE), ("c1", "core.chat")] {
-            layout.apply(opening(tab, pane, kind)).unwrap();
-        }
+        let layout = one_tab([
+            pane("b1", browser::BROWSER_PANE_TYPE),
+            pane("c1", "core.chat"),
+        ]);
         let ids = BrowserIds::default();
         ids.follow(&layout);
         let bars = BrowserBars::new(ids, async_channel::unbounded().0);
@@ -175,23 +161,7 @@ mod tests {
         let ground = |pane: &str| bars.ground(&PaneId::new(pane).unwrap(), palette);
         assert_eq!(ground("b1"), Some(palette.background()));
         assert_eq!(ground("c1"), None);
-    }
-
-    fn opening(
-        tab: layout::TabId,
-        pane: &str,
-        kind: &str,
-    ) -> layout::Command {
-        let instance = layout::PaneInstance {
-            pane_id: PaneId::new(pane).unwrap(),
-            type_id: protocol::PaneTypeId::new(kind).unwrap(),
-            params: protocol::Params::default(),
-            state: protocol::PaneState::default(),
-        };
-        layout::Command::OpenPane {
-            tab,
-            instance,
-            placement: None,
-        }
+        let chat = PaneId::new("c1").unwrap();
+        assert!(bars.height(&chat).abs() < f32::EPSILON, "no chrome strip");
     }
 }

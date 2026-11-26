@@ -14,8 +14,8 @@ use std::time::Instant;
 use async_channel::{Receiver, Sender};
 use gpui::{
     App, AsyncApp, Context, Div, EventEmitter, ExternalPaths, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, MouseButton, ParentElement, Render, SharedString, Stateful,
-    Styled, Subscription, Task, WeakEntity, Window, canvas, div,
+    InteractiveElement, IntoElement, MouseButton, ParentElement, Render, Stateful, Styled,
+    Subscription, Task, WeakEntity, Window, canvas, div,
 };
 use terminal::{
     ClickTracker, ClientMessage, CursorCell, DaemonFrame, Link, ScrollAccumulator, Terminal,
@@ -36,8 +36,6 @@ use crate::terminal_view::paint::request::Request;
 use crate::terminal_view::paint::shaping::line_cache::LineCache;
 use crate::terminal_view::paint::view_layout::ViewLayout;
 
-const NOTICE_BACKDROP_ALPHA: f32 = 0.8;
-
 /// A terminal attached to a daemon PTY through a [`daemon::Link`].
 pub struct TerminalView {
     pub(crate) terminal: Terminal,
@@ -57,12 +55,9 @@ pub struct TerminalView {
     pub(crate) search: Option<Session>,
     pub(crate) preedit: Option<String>,
     pub(crate) unread: Option<Receiver<DaemonFrame>>,
-    pub(crate) pending_command: Option<String>,
-    pub(crate) notice: Option<SharedString>,
     pub(crate) cache: LineCache,
     pub(crate) cursor_cell: Option<CursorCell>,
     pub(crate) auto_scroll: Option<AutoScroll>,
-    pub(crate) inset: f32,
     pub(crate) subscriptions: Vec<Subscription>,
     pub(crate) tasks: Vec<Task<()>>,
 }
@@ -119,12 +114,9 @@ impl TerminalView {
             search: None,
             preedit: None,
             unread: Some(link.frames),
-            pending_command: None,
-            notice: None,
             cache: LineCache::default(),
             cursor_cell: None,
             auto_scroll: None,
-            inset: ViewLayout::default_inset(),
             subscriptions: Vec::new(),
             tasks: Vec::new(),
         };
@@ -183,7 +175,6 @@ impl Render for TerminalView {
         let colors = Colors::of(cx);
         let root = self.root(&colors, cx);
         root.children(self.search.as_ref().map(|session| session.bar.clone()))
-            .children(self.notice_element(&colors))
     }
 }
 
@@ -196,7 +187,7 @@ impl TerminalView {
                 laid_out.update(cx, |this, cx| this.lay_out(bounds, window, cx))
             },
             move |bounds, frame, window, cx| {
-                let request = Request::new(bounds, frame);
+                let request = Request { bounds, frame };
                 view.update(cx, |this, cx| this.paint_frame(request, window, cx));
             },
         )
@@ -225,24 +216,6 @@ impl TerminalView {
         [MouseButton::Left, MouseButton::Middle, MouseButton::Right]
             .into_iter()
             .fold(root, |root, button| with_button(root, button, cx))
-    }
-
-    fn notice_element(
-        &self,
-        colors: &Colors,
-    ) -> Option<impl IntoElement + use<>> {
-        let message = self.notice.clone()?;
-        Some(
-            div()
-                .absolute()
-                .inset_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .bg(colors.pane.opacity(NOTICE_BACKDROP_ALPHA))
-                .text_color(colors.notice_text)
-                .child(message),
-        )
     }
 }
 
@@ -301,7 +274,12 @@ mod tests {
             cx.new(|cx| TerminalView::new(link, Settings::default(), window, cx))
         });
         let screen = format!("again\r\n$ {}\u{1b}[2;3H", "\r\n".repeat(lines - 2));
-        peer.deliver_blocking(DaemonFrame::Snapshot(screen.into_bytes()));
+        let (frames, _messages) = peer.into_channels();
+        assert!(
+            frames
+                .send_blocking(DaemonFrame::Snapshot(screen.into_bytes()))
+                .is_ok()
+        );
         cx.run_until_parked();
         let size = cx.update(|window, _| window.viewport_size());
         let origin = point(px(0.0), px(0.0));
@@ -330,18 +308,5 @@ mod tests {
             .iter()
             .any(|message| matches!(message, ClientMessage::Theme { .. }));
         assert!(resized && themed, "{messages:?}");
-    }
-
-    #[gpui::test]
-    fn a_notice_covers_the_terminal_until_cleared(cx: &mut TestAppContext) {
-        let (harness, cx) = open(cx);
-        harness.view.update(cx, |view, cx| {
-            view.set_notice(Some("host offline".into()), cx);
-        });
-        assert!(harness.view.read_with(cx, |view, _| view.notice.is_some()));
-        harness
-            .view
-            .update(cx, |view, cx| view.set_notice(None, cx));
-        assert!(harness.view.read_with(cx, |view, _| view.notice.is_none()));
     }
 }

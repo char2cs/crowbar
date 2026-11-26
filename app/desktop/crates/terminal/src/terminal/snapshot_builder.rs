@@ -113,31 +113,9 @@ mod tests {
     use super::*;
     use crate::snapshot::Rgb;
     use crate::snapshot::{StyleFlags, Underline};
-    use crate::test_support::{emulator_showing, row_text};
+    use crate::test_support::emulator_showing;
     use alacritty_terminal::index::{Column, Line, Point, Side};
     use alacritty_terminal::selection::{Selection, SelectionType};
-
-    #[test]
-    fn the_snapshot_carries_rows_cursor_and_viewport_size() {
-        let term = emulator_showing("hi\r\nthere", 10, 3);
-        let viewport = viewport_of(&term);
-        assert_eq!((viewport.columns, viewport.lines), (10, 3));
-        let reference = Palette {
-            foreground: Rgb::from_hex(1),
-            background: Rgb::from_hex(2),
-            cursor: Rgb::from_hex(3),
-            ansi: [Rgb::from_hex(4); 16],
-        };
-        let snapshot = build_snapshot(&term, &reference, None);
-        assert_eq!(
-            snapshot.rows.iter().map(row_text).collect::<Vec<_>>(),
-            ["hi", "there", ""]
-        );
-        assert_eq!(
-            snapshot.cursor.map(|cell| (cell.row, cell.column)),
-            Some((1, 5))
-        );
-    }
 
     type Span = (usize, Rgb, StyleFlags, Underline);
 

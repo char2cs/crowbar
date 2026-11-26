@@ -94,11 +94,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn no_files_means_no_upload() {
-        assert_eq!(upload_action("src", &[]), None);
-    }
-
     #[gpui::test]
     fn files_dropped_on_a_row_are_uploaded_into_its_folder(cx: &mut gpui::TestAppContext) {
         let (handler, seen) = recording_handler();

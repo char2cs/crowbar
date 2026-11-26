@@ -186,20 +186,13 @@ mod tests {
     use super::*;
     use crate::panes::editor::document_request::DocumentRequest;
     use crate::panes::editor::editor_panes::tests::{
-        PANE, landed, layout_with, panes_over, two_panes_on,
+        PANE, editors_in, landed, layout_with, panes_over, two_panes_on,
     };
     use crate::shell::inbox::shell_request::ShellRequest;
     use crate::test_support::FakeDocuments;
 
     const README: &str = "README.md";
     const TITLE: &str = "# Title\n";
-
-    fn kind(
-        panes: &EditorPanes,
-        pane: &PaneId,
-    ) -> Option<PaneKind> {
-        panes.kind_of(pane)
-    }
 
     #[test]
     fn markdown_opens_in_its_page_other_files_in_the_native_editor() {
@@ -219,7 +212,7 @@ mod tests {
             let documents = Rc::new(FakeDocuments::default());
             let (panes, _heard) = panes_over(&documents);
             panes.follow(&layout_with(state.clone()), "");
-            assert_eq!(kind(&panes, &pane), expected, "{state}");
+            assert_eq!(panes.kind_of(&pane), expected, "{state}");
         }
     }
 
@@ -231,12 +224,12 @@ mod tests {
         panes.follow(&layout_with(json!({"path": README})), "");
         landed(&panes, &heard);
         let pane = PaneId::new(PANE).unwrap();
-        assert_eq!(kind(&panes, &pane), Some(PaneKind::Native), "gone");
+        assert_eq!(panes.kind_of(&pane), Some(PaneKind::Native), "gone");
         documents.holding(README, TITLE);
         panes.retry(&pane);
-        assert_eq!(kind(&panes, &pane), Some(PaneKind::Native), "trying again");
+        assert_eq!(panes.kind_of(&pane), Some(PaneKind::Native), "trying again");
         landed(&panes, &heard);
-        assert_eq!(kind(&panes, &pane), Some(PaneKind::Web), "read");
+        assert_eq!(panes.kind_of(&pane), Some(PaneKind::Web), "read");
     }
 
     fn rich_pane(
@@ -246,10 +239,7 @@ mod tests {
         async_channel::Receiver<ShellRequest>,
         &mut gpui::VisualTestContext,
     ) {
-        cx.update(|cx| ui::init(cx).unwrap());
-        cx.update(editorview::init);
-        let documents = Rc::new(FakeDocuments::default());
-        documents.loading("c1");
+        let documents = editors_in(cx);
         documents.holding(README, TITLE);
         let (panes, heard) = panes_over(&documents);
         panes.follow(&layout_with(json!({"path": README})), "");
@@ -309,7 +299,7 @@ mod tests {
             "the edit dirties the pane"
         );
         assert!(panes.show(&pane, PaneView::Source), "to source");
-        assert_eq!(kind(&panes, &pane), Some(PaneKind::Native));
+        assert_eq!(panes.kind_of(&pane), Some(PaneKind::Native));
         assert_eq!(
             text_of(&panes, window),
             None,
@@ -322,15 +312,12 @@ mod tests {
             "one text"
         );
         panes.follow(&layout::Layout::default(), "");
-        assert_eq!(kind(&panes, &pane), None, "closing forgets the view");
+        assert_eq!(panes.kind_of(&pane), None, "closing forgets the view");
     }
 
     #[gpui::test]
     fn markdown_too_large_for_a_page_frame_opens_in_the_native_editor(cx: &mut TestAppContext) {
-        cx.update(|cx| ui::init(cx).unwrap());
-        cx.update(editorview::init);
-        let documents = Rc::new(FakeDocuments::default());
-        documents.loading("c1");
+        let documents = editors_in(cx);
         documents.holding(README, &"x".repeat(protocol::MAX_FRAME_BYTES));
         let (panes, heard) = panes_over(&documents);
         panes.follow(&layout_with(json!({"path": README})), "");
@@ -339,7 +326,7 @@ mod tests {
         let (_root, window) = cx.add_window_view(|_, _| gpui::Empty);
         let flipped = window.update(|window, cx| panes.prepare(&pane, window, cx));
         assert!(flipped, "flipped to source");
-        assert_eq!(kind(&panes, &pane), Some(PaneKind::Native));
+        assert_eq!(panes.kind_of(&pane), Some(PaneKind::Native));
     }
 
     #[test]
@@ -350,7 +337,7 @@ mod tests {
         panes.follow(&two_panes_on(README), "");
         assert!(panes.show(&one, PaneView::Source), "to source");
         assert_eq!(
-            kind(&panes, &two),
+            panes.kind_of(&two),
             Some(PaneKind::Native),
             "both views flip"
         );
@@ -358,12 +345,12 @@ mod tests {
             panes.show(&two, PaneView::Rich),
             "back to rich from the other"
         );
-        assert_eq!(kind(&panes, &one), Some(PaneKind::Web));
+        assert_eq!(panes.kind_of(&one), Some(PaneKind::Web));
         assert!(panes.show(&two, PaneView::Source));
         panes.follow(&layout::Layout::default(), "");
         panes.follow(&layout_with(json!({"path": README})), "");
         assert_eq!(
-            kind(&panes, &one),
+            panes.kind_of(&one),
             Some(PaneKind::Web),
             "a reopened file is rich"
         );

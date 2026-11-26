@@ -220,10 +220,7 @@ pub enum Command {
 }
 
 impl Command {
-    /// Whether the command changes the arrangement, as opposed to focus, sizes or pane state.
-    /// Only structural commands can be undone.
-    #[must_use]
-    pub fn is_structural(&self) -> bool {
+    pub(crate) fn is_structural(&self) -> bool {
         !matches!(
             self,
             Self::ActivateTab { .. }
@@ -242,134 +239,38 @@ impl Command {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::layout_fixtures::{add, instance, open};
+    use crate::test_support::tab_fixtures::{at, id, screen};
     use crate::tree::edge::Edge;
-
-    fn instance(pane: &PaneId) -> PaneInstance {
-        PaneInstance {
-            pane_id: pane.clone(),
-            type_id: protocol::PaneTypeId::new("core.chat").unwrap(),
-            params: Params::default(),
-            state: PaneState::default(),
-        }
-    }
-
-    fn tab_commands() -> [Command; 4] {
-        let tab = TabId(1);
-        [
-            Command::AddTab {
-                id: tab,
-                title: String::new(),
-                space: SpaceId::default(),
-            },
-            Command::CloseTab { tab },
-            Command::MoveTab { tab, to_index: 0 },
-            Command::RenameTab {
-                tab,
-                title: String::new(),
-            },
-        ]
-    }
-
-    fn pane_commands() -> Vec<Command> {
-        let pane = PaneId::new("a").unwrap();
-        let other = PaneId::new("b").unwrap();
-        let tab = TabId(1);
-        let placement = Placement {
-            target: other.clone(),
-            edge: Edge::Left,
-        };
-        let mut commands = group_commands(&pane, &other);
-        commands.extend([
-            Command::OpenPane {
-                tab,
-                instance: instance(&pane),
-                placement: None,
-            },
-            Command::ClosePane { pane: pane.clone() },
-            Command::ClosePanes {
-                panes: vec![pane.clone()],
-            },
-            Command::PinPane { pane: pane.clone() },
-            Command::UnpinPane { pane: pane.clone() },
-            Command::MovePane {
-                pane: pane.clone(),
-                placement,
-            },
-            Command::MovePaneToTab {
-                pane: pane.clone(),
-                to: tab,
-                placement: None,
-            },
-            Command::DetachPane {
-                pane: pane.clone(),
-                new_tab: tab,
-                title: String::new(),
-            },
-            Command::SwapPanes { a: pane, b: other },
-        ]);
-        commands
-    }
-
-    fn group_commands(
-        pane: &PaneId,
-        other: &PaneId,
-    ) -> Vec<Command> {
-        vec![
-            Command::OpenPaneInGroup {
-                instance: instance(pane),
-                onto: other.clone(),
-                index: None,
-            },
-            Command::MoveToGroup {
-                pane: pane.clone(),
-                onto: other.clone(),
-                index: None,
-            },
-            Command::SetEditorView {
-                pane: pane.clone(),
-                view: EditorView::Open,
-            },
-        ]
-    }
-
-    fn view_only() -> [Command; 6] {
-        let pane = PaneId::new("a").unwrap();
-        let tab = TabId(1);
-        [
-            Command::ActivateTab { tab },
-            Command::FocusPane { pane: pane.clone() },
-            Command::ResizeSplit {
-                tab,
-                path: Vec::new(),
-                bounds: Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    width: 1.0,
-                    height: 1.0,
-                },
-                first_extent: 0.5,
-            },
-            Command::ResetSplit {
-                tab,
-                path: Vec::new(),
-            },
-            Command::SetPaneState {
-                pane: pane.clone(),
-                state: PaneState::default(),
-            },
-            Command::SetPaneParams {
-                pane,
-                params: Params::default(),
-            },
-        ]
-    }
 
     #[test]
     fn only_arrangement_changes_are_structural() {
-        for command in tab_commands().into_iter().chain(pane_commands()) {
+        let (tab, pane, path) = (TabId(1), id("a"), Vec::new());
+        let bounds = screen(1.0, 1.0);
+        let placement = at("b", Edge::Left);
+        let structural = [
+            add(1),
+            open(1, instance("a")),
+            Command::ClosePane { pane: pane.clone() },
+            Command::MovePane { pane: pane.clone(), placement },
+            Command::PinPane { pane: pane.clone() },
+            Command::SwapPanes { a: pane.clone(), b: id("b") },
+        ];
+        let view_only = [
+            Command::ActivateTab { tab },
+            Command::FocusPane { pane: pane.clone() },
+            Command::PreviewPane { pane: pane.clone() },
+            Command::KeepPane { pane: pane.clone() },
+            Command::ResizeSplit { tab, path: path.clone(), bounds, first_extent: 0.5 },
+            Command::ResetSplit { tab, path },
+            Command::SetPaneState { pane: pane.clone(), state: PaneState::default() },
+            Command::SetPaneParams { pane, params: Params::default() },
+            Command::AdoptSpace { tab, space: SpaceId::new("p") },
+        ];
+        for command in structural {
             assert!(command.is_structural(), "{command:?}");
         }
-        for command in view_only() {
+        for command in view_only {
             assert!(!command.is_structural(), "{command:?}");
         }
     }

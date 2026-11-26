@@ -72,23 +72,16 @@ mod tests {
     use editorview::DiskTake;
     use gpui::TestAppContext;
 
+    use crate::shell::shell_view::test_support::open_file;
     use crate::shell::shell_view::tests::open_shell;
-
-    const PATH: &str = "src/pricing.ts";
 
     fn said_after(
         took: DiskTake,
         cx: &mut TestAppContext,
     ) -> usize {
         let mut opened = open_shell(cx);
+        let pane = open_file(&mut opened, "src/pricing.ts");
         opened.shell.update(&mut opened.window, |shell, cx| {
-            shell.open_workspace_file(PATH, cx);
-            let pane = shell
-                .state
-                .showing()
-                .and_then(layout::Tab::focused)
-                .cloned();
-            let pane = pane.expect("the file pane has focus");
             let before = shell.notices.read(cx).len();
             shell.disk_taken(&pane, took, cx);
             shell.notices.read(cx).len() - before

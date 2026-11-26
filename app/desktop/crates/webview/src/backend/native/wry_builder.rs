@@ -163,50 +163,32 @@ mod tests {
 
     type Case = (&'static str, f64, f64, f64, f64);
 
-    #[test]
-    fn a_drop_with_files_is_reported_at_its_point_and_taken_from_the_page() {
+    fn dropped(event: DragDropEvent) -> (bool, Vec<PageEvent>) {
         let heard = Arc::new(std::sync::Mutex::new(Vec::new()));
         let kept = Arc::clone(&heard);
         let handler: PageHandler =
             Arc::new(move |event| kept.lock().map(|mut heard| heard.push(event)).is_ok());
-        let path = std::path::PathBuf::from("/tmp/a.txt");
-        let drop = DragDropEvent::Drop {
-            paths: vec![path.clone()],
-            position: (3, 4),
-        };
-        let taken = (
-            take_drop(&handler, drop),
-            take_drop(&handler, DragDropEvent::Leave),
-        );
+        let taken = take_drop(&handler, event);
         let reported = heard.lock().unwrap().clone();
-        assert_eq!(
-            (taken, reported),
-            (
-                (true, false),
-                vec![PageEvent::FilesDropped {
-                    paths: vec![path],
-                    x: 3.0,
-                    y: 4.0,
-                }]
-            )
-        );
+        (taken, reported)
     }
 
     #[test]
-    fn only_a_drop_with_files_is_reported() {
+    fn only_a_drop_with_files_is_reported_at_its_point_and_taken_from_the_page() {
         let path = std::path::PathBuf::from("/tmp/a.txt");
         let at = (3, 4);
+        let files = PageEvent::FilesDropped {
+            paths: vec![path.clone()],
+            x: 3.0,
+            y: 4.0,
+        };
         let cases = [
             (
                 DragDropEvent::Drop {
                     paths: vec![path.clone()],
                     position: at,
                 },
-                Some(PageEvent::FilesDropped {
-                    paths: vec![path.clone()],
-                    x: 3.0,
-                    y: 4.0,
-                }),
+                Some(files),
             ),
             (
                 DragDropEvent::Drop {
@@ -225,7 +207,7 @@ mod tests {
             (DragDropEvent::Leave, None),
         ];
         for (event, want) in cases {
-            assert_eq!(files_dropped(event), want);
+            assert_eq!(dropped(event), (want.is_some(), want.into_iter().collect()));
         }
     }
 

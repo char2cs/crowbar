@@ -207,8 +207,7 @@ mod tests {
             label: "New thread".into(),
             scope: "r".into(),
             parent: "talk".into(),
-            failure: None,
-            operation: None,
+            ..PendingRow::default()
         };
         assert!(ids(&of(&store(), ("p", "r"), std::slice::from_ref(&pending))).contains(&"new"));
         let arrived = PendingRow {

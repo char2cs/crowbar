@@ -214,48 +214,25 @@ mod tests {
     use crate::panes::kinds::core_panes::{chat_params, chat_type};
     use crate::test_support::{ShellRig, open_chat, shell_rig};
 
-    type Refused = (&'static str, Command);
-
-    fn refused() -> Vec<Refused> {
-        vec![
-            (
-                "closing an unknown tab",
-                Command::CloseTab { tab: TabId(99) },
-            ),
-            (
-                "closing an unknown pane",
-                Command::ClosePane {
-                    pane: PaneId::new("nope").unwrap(),
-                },
-            ),
-        ]
-    }
-
-    fn add_tab() -> Command {
-        Command::AddTab {
-            id: TabId(1),
-            title: "ok".into(),
-            space: layout::SpaceId::default(),
-        }
-    }
-
-    fn leaves_the_layout_alone_and_keeps_going(command: &Command) -> bool {
-        let mut rig = shell_rig();
-        let before = rig.shell.layout().clone();
-        rig.shell.apply(vec![command.clone()]);
-        let unchanged = rig.shell.layout() == &before;
-        rig.shell.apply(vec![add_tab()]);
-        unchanged && rig.shell.layout().tabs().len() == 1
-    }
-
     #[test]
     fn refused_commands_change_nothing_and_do_not_stop_the_rest() {
-        let wrong: Vec<&str> = refused()
-            .iter()
-            .filter(|(_, command)| !leaves_the_layout_alone_and_keeps_going(command))
-            .map(|(name, _)| *name)
-            .collect();
-        assert!(wrong.is_empty(), "failed cases: {wrong:?}");
+        let unknown_pane = PaneId::new("nope").unwrap();
+        let refused = [
+            Command::CloseTab { tab: TabId(99) },
+            Command::ClosePane { pane: unknown_pane },
+        ];
+        for command in refused {
+            let mut rig = shell_rig();
+            let before = rig.shell.layout().clone();
+            rig.shell.apply(vec![command.clone()]);
+            assert_eq!(rig.shell.layout(), &before, "{command:?}");
+            open_chat(&mut rig.shell, "t1");
+            assert_eq!(
+                rig.shell.layout().tabs().len(),
+                1,
+                "{command:?}: keeps going"
+            );
+        }
     }
 
     fn handed_back(rig: &ShellRig) -> usize {
@@ -264,27 +241,6 @@ mod tests {
             .iter()
             .filter(|call| matches!(call, webview::Call::FocusParent { .. }))
             .count()
-    }
-
-    fn sync_chat(
-        rig: &mut ShellRig,
-        pane: &PaneId,
-    ) {
-        let bounds = webview::Bounds {
-            x: 0.0,
-            y: 0.0,
-            width: 400.0,
-            height: 300.0,
-        };
-        let shown = panehost::VisiblePane {
-            pane: pane.clone(),
-            bounds,
-        };
-        rig.shell.sync(
-            webview::ParentWindow::X11(9),
-            (vec![shown], &()),
-            panehost::Overlays::default(),
-        );
     }
 
     enum Via {
@@ -352,7 +308,7 @@ mod tests {
             let pane = crate::test_support::synced_chat(&mut rig);
             let before = handed_back(&rig);
             focus_via(&mut rig.shell, via, &pane);
-            sync_chat(&mut rig, &pane);
+            crate::test_support::resync(&mut rig);
             assert_eq!(handed_back(&rig) - before, *handed, "{name}");
         }
     }

@@ -181,129 +181,65 @@ fn divide_down(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::split_fixtures::{bounds, rects, two_by_one};
-    use crate::test_support::tab_fixtures::id;
-    use crate::tree::edge::Edge;
+    use crate::test_support::split_fixtures::{bounds, rects, tiled, two_by_one};
     use crate::tree::split_node::MIN_PANE_EXTENT;
 
     type SashFacts = (Vec<Branch>, Axis, [f32; 4]);
 
+    fn widths(
+        tree: &SplitNode,
+        width: f32,
+    ) -> Vec<f32> {
+        let slots = rects(tree, bounds(width, 100.0));
+        slots.iter().map(|slot| slot.1[2]).collect()
+    }
+
     #[test]
     fn place_leaves_room_for_the_sash_and_divides_nested_splits_by_axis() {
-        let mut nested = two_by_one();
-        assert!(
-            nested.split_leaf(&id("b"), SplitNode::leaf(id("c")), Edge::Bottom),
-            "nest"
-        );
-        let cases = [
-            (
-                "500 + 6 sash + 500",
-                two_by_one(),
-                bounds(1006.0, 600.0),
-                vec![
-                    ("a".to_owned(), [0.0, 0.0, 500.0, 600.0]),
-                    ("b".to_owned(), [506.0, 0.0, 500.0, 600.0]),
-                ],
-            ),
-            (
-                "tiles",
-                nested,
-                bounds(1006.0, 1006.0),
-                vec![
-                    ("a".to_owned(), [0.0, 0.0, 500.0, 1006.0]),
-                    ("b".to_owned(), [506.0, 0.0, 500.0, 500.0]),
-                    ("c".to_owned(), [506.0, 506.0, 500.0, 500.0]),
-                ],
-            ),
+        let side_by_side = rects(&two_by_one(), bounds(1006.0, 600.0));
+        let expected = [[0.0, 0.0, 500.0, 600.0], [506.0, 0.0, 500.0, 600.0]];
+        let named = [("a".to_owned(), expected[0]), ("b".to_owned(), expected[1])];
+        assert_eq!(side_by_side, named, "500 + 6 sash + 500");
+        let tiles: Vec<[f32; 4]> = rects(&tiled(), bounds(1006.0, 1006.0))
+            .into_iter()
+            .map(|slot| slot.1)
+            .collect();
+        let expected = [
+            [0.0, 0.0, 500.0, 1006.0],
+            [506.0, 0.0, 500.0, 500.0],
+            [506.0, 506.0, 500.0, 500.0],
         ];
-        for (name, tree, area, expected) in cases {
-            assert_eq!(rects(&tree, area), expected, "{name}");
-        }
+        assert_eq!(tiles, expected, "tiles");
     }
 
     #[test]
-    fn a_ratio_below_the_pixel_minimum_is_held_at_the_minimum() {
+    fn the_pixel_minimum_holds_unless_the_window_is_too_small_for_it() {
         let mut tree = two_by_one();
         tree.set_ratio(0.01);
-        let slots = rects(&tree, bounds(1006.0, 600.0));
-        assert_eq!(
-            slots.first().map(|s| s.1[2]),
-            Some(MIN_PANE_EXTENT),
-            "first"
-        );
-        assert_eq!(
-            slots.get(1).map(|s| s.1[2]),
-            Some(1000.0 - MIN_PANE_EXTENT),
-            "second takes the rest"
-        );
-    }
-
-    #[test]
-    fn a_window_too_small_for_the_minimum_shows_equal_halves() {
-        let mut tree = two_by_one();
+        let held = [MIN_PANE_EXTENT, 1000.0 - MIN_PANE_EXTENT];
+        assert_eq!(widths(&tree, 1006.0), held, "held at the minimum");
         tree.set_ratio(0.9);
-        let slots = rects(
-            &tree,
-            bounds(2.0 * MIN_PANE_EXTENT + SASH_THICKNESS - 1.0, 100.0),
-        );
-        let widths: Vec<f32> = slots.iter().map(|s| s.1[2]).collect();
-        assert_eq!(widths.first(), widths.get(1), "equal: {widths:?}");
-        let slots = rects(&tree, bounds(1.0, 100.0));
-        assert!(slots.iter().all(|s| s.1[2] >= 0.0), "never negative");
+        let small = widths(&tree, 2.0 * MIN_PANE_EXTENT + SASH_THICKNESS - 1.0);
+        assert_eq!(small.first(), small.get(1), "equal halves: {small:?}");
+        let tiny = widths(&tree, 1.0);
+        assert!(tiny.iter().all(|width| *width >= 0.0), "never negative");
     }
 
     #[test]
-    fn sashes_are_listed_with_their_path_outermost_first() {
-        let mut tree = two_by_one();
-        assert!(
-            tree.split_leaf(&id("b"), SplitNode::leaf(id("c")), Edge::Bottom),
-            "nest"
-        );
+    fn sashes_and_split_rects_follow_paths_outermost_first() {
+        let tree = tiled();
         let sashes = tree.place_sashes(bounds(1006.0, 1006.0), &[]);
-        let found: Vec<SashFacts> = sashes
-            .iter()
-            .map(|s| {
-                (
-                    s.path.clone(),
-                    s.axis,
-                    [s.rect.x, s.rect.y, s.rect.width, s.rect.height],
-                )
-            })
-            .collect();
-        assert_eq!(
-            found,
-            [
-                (vec![], Axis::Horizontal, [500.0, 0.0, 6.0, 1006.0]),
-                (
-                    vec![Branch::Second],
-                    Axis::Vertical,
-                    [506.0, 500.0, 500.0, 6.0]
-                ),
-            ],
-            "sashes"
-        );
-    }
-
-    #[test]
-    fn split_rect_follows_paths_with_the_real_sizes() {
-        let mut tree = two_by_one();
-        assert!(
-            tree.split_leaf(&id("b"), SplitNode::leaf(id("c")), Edge::Bottom),
-            "nest"
-        );
-        let (axis, rect) = tree
-            .split_rect(&[Branch::Second], bounds(1006.0, 1006.0))
-            .unwrap();
-        assert_eq!(axis, Axis::Vertical, "inner axis");
-        assert_eq!(
-            [rect.x, rect.y, rect.width, rect.height],
-            [506.0, 0.0, 500.0, 1006.0],
-            "the space the inner split owns"
-        );
-        assert!(
-            tree.split_rect(&[Branch::First], bounds(1.0, 1.0))
-                .is_none(),
-            "leaf"
-        );
+        let facts = |s: &crate::tree::geometry::sash::Sash| {
+            (s.path.clone(), s.axis, [s.rect.x, s.rect.y, s.rect.width, s.rect.height])
+        };
+        let found: Vec<SashFacts> = sashes.iter().map(facts).collect();
+        let outer = (vec![], Axis::Horizontal, [500.0, 0.0, 6.0, 1006.0]);
+        let inner = (vec![Branch::Second], Axis::Vertical, [506.0, 500.0, 500.0, 6.0]);
+        assert_eq!(found, [outer, inner], "sashes");
+        let (axis, rect) = tree.split_rect(&[Branch::Second], bounds(1006.0, 1006.0)).unwrap();
+        let owned = [rect.x, rect.y, rect.width, rect.height];
+        assert_eq!((axis, owned), (Axis::Vertical, [506.0, 0.0, 500.0, 1006.0]));
+        let leaf = tree.split_rect(&[Branch::First], bounds(1.0, 1.0));
+        assert!(leaf.is_none(), "leaf");
     }
 }

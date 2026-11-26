@@ -167,7 +167,7 @@ mod tests {
     ];
 
     #[gpui::test]
-    fn confirming_sends_the_trimmed_name(cx: &mut TestAppContext) {
+    fn confirming_sends_the_trimmed_name_and_dismissing_none(cx: &mut TestAppContext) {
         for (name, typed, sent) in CASES {
             let (prompt, heard) = prompt(cx, typed);
             prompt.update(cx, NamePrompt::confirm);
@@ -177,13 +177,13 @@ mod tests {
                 "{name}"
             );
         }
-    }
-
-    #[gpui::test]
-    fn dismissing_sends_no_name(cx: &mut TestAppContext) {
         let (prompt, heard) = prompt(cx, "zsh");
         prompt.update(cx, |_, cx| NamePrompt::dismiss(cx));
-        assert_eq!(*heard.borrow(), [NameEvent::Dismissed]);
+        assert_eq!(
+            *heard.borrow(),
+            [NameEvent::Dismissed],
+            "dismissing sends no name"
+        );
     }
 
     #[gpui::test]

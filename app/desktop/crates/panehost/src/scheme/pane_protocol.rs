@@ -10,9 +10,8 @@ use crate::scheme::status;
 
 use crate::catalog::PaneBundles;
 use crate::scheme::access::authorized::Authorized;
-use crate::scheme::access::cross_host;
 use crate::scheme::access::page_caller::PageCaller;
-use crate::scheme::access::policy::allows;
+use crate::scheme::access::policy::{self, allows};
 use crate::scheme::menu::menu_route;
 use crate::scheme::menu::pane_menus::PaneMenus;
 use crate::scheme::origin_table::OriginTable;
@@ -134,12 +133,12 @@ impl ProtocolHandler for PaneProtocol {
         request: ProtocolRequest,
         respond: ProtocolResponder,
     ) {
-        let caller = cross_host::caller_of(&request);
+        let caller = policy::caller_of(&request);
         if caller == PageCaller::Stranger {
             return respond(error_response(status::FORBIDDEN, "origin not allowed"));
         }
         let respond: ProtocolResponder =
-            Box::new(move |answer| respond(cross_host::readable_by(caller, answer)));
+            Box::new(move |answer| respond(policy::readable_by(caller, answer)));
         let Some(Assignment { pane, origin }) = self.origins.get(request.web_view) else {
             return respond(error_response(status::FORBIDDEN, "unknown web view"));
         };
@@ -152,7 +151,7 @@ impl ProtocolHandler for PaneProtocol {
                 "not allowed for this pane",
             ));
         }
-        if let Some(answer) = cross_host::preflight(&request) {
+        if let Some(answer) = policy::preflight(&request) {
             return respond(answer);
         }
         self.serve(
@@ -239,166 +238,31 @@ fn error_response(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
-    use std::sync::mpsc;
-
-    use protocol::{DaemonResponse, ExtensionId, PaneId, PaneOrigin, RelayEndpoint, RelayScope};
-    use webview::ParentWindow;
+    use protocol::{DaemonResponse, ExtensionId};
 
     use super::*;
-    use crate::catalog::BundleAsset;
-    use crate::catalog::BundleSource;
-    use crate::catalog::ExtensionBundles;
-    use crate::test_support::blank_config;
+    use crate::test_support::{Served, header_of, request, served};
 
-    struct Recording {
-        seen: Mutex<Vec<DaemonRequest>>,
-        answer: Mutex<Option<protocol::Result<DaemonResponse>>>,
-    }
-
-    impl DaemonTransport for Recording {
-        fn request(
-            &self,
-            request: DaemonRequest,
-            respond: protocol::Responder,
-        ) {
-            self.seen.lock().unwrap().push(request);
-            let answer = self.answer.lock().unwrap().take();
-            respond(answer.unwrap_or(Err(TransportError::Timeout)));
-        }
-
-        fn relay_endpoint(
-            &self,
-            scope: &RelayScope,
-        ) -> protocol::Result<RelayEndpoint> {
-            Ok(RelayEndpoint::new(
-                format!("ws://127.0.0.1:1/{}", scope.pane()),
-                "token",
-            ))
-        }
-    }
-
-    struct Files;
-
-    impl BundleSource for Files {
-        fn read(
-            &self,
-            path: &str,
-        ) -> Option<BundleAsset> {
-            (path == "chat/index.html").then(|| BundleAsset {
-                mime: "text/html",
-                bytes: b"<p>".to_vec(),
-            })
-        }
-    }
-
-    fn blank_view(host: &webview::Host) -> webview::Id {
-        let config = blank_config(webview::Kind::Core);
-        host.create_in(ParentWindow::X11(1), config).unwrap().id()
-    }
-
-    fn view_ids(count: usize) -> Vec<webview::Id> {
-        let host = webview::Host::with_platform(std::rc::Rc::new(webview::MockPlatform::default()));
-        (0..count).map(|_| blank_view(&host)).collect()
-    }
-
-    struct Fixture {
-        protocol: PaneProtocol,
-        transport: Arc<Recording>,
-        core: webview::Id,
-        ext: webview::Id,
-    }
-
-    fn fixture() -> Fixture {
-        let transport = Arc::new(Recording {
-            seen: Mutex::new(Vec::new()),
-            answer: Mutex::new(None),
-        });
-        let origins = OriginTable::default();
-        let ids = view_ids(2);
-        origins.set(ids[0], PaneId::new("p1").unwrap(), PaneOrigin::Core);
-        origins.set(
-            ids[1],
-            PaneId::new("p2").unwrap(),
-            PaneOrigin::Extension(ExtensionId::new("git").unwrap()),
-        );
-        let protocol = PaneProtocol::new(
-            "crowbar",
-            Arc::clone(&transport) as Arc<dyn DaemonTransport>,
-            PaneBundles {
-                core: Arc::new(Files),
-                extensions: ExtensionBundles::default(),
-            },
-            PaneTables {
-                origins,
-                menus: PaneMenus::default(),
-            },
-        );
-        Fixture {
-            protocol,
-            transport,
-            core: ids[0],
-            ext: ids[1],
-        }
-    }
-
-    fn ask(
-        f: &Fixture,
-        view: webview::Id,
-        uri: &str,
-    ) -> ProtocolResponse {
-        let (sender, receiver) = mpsc::channel();
-        let request = ProtocolRequest {
-            web_view: view,
-            uri: uri.into(),
-            method: "GET".into(),
-            headers: Vec::new(),
-            body: Vec::new(),
-        };
-        f.protocol.handle(
-            request,
-            Box::new(move |response| sender.send(response).unwrap()),
-        );
-        receiver.recv().unwrap()
+    fn answer_with(
+        f: &Served,
+        status: u16,
+        body: &[u8],
+    ) {
+        let response = DaemonResponse::new(status, Vec::new(), body.to_vec());
+        *f.transport.answer.lock().unwrap() = Some(Ok(response));
     }
 
     fn ask_from(
-        f: &Fixture,
-        (method, uri): (&str, &str),
+        f: &Served,
+        asked: (&str, &str),
         headers: &[(&str, &str)],
     ) -> ProtocolResponse {
-        let (sender, receiver) = mpsc::channel();
-        let request = ProtocolRequest {
-            web_view: f.core,
-            uri: uri.into(),
-            method: method.into(),
-            headers: headers
-                .iter()
-                .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
-                .collect(),
-            body: Vec::new(),
-        };
-        f.protocol.handle(
-            request,
-            Box::new(move |response| sender.send(response).unwrap()),
-        );
-        receiver.recv().unwrap()
-    }
-
-    fn header_of<'a>(
-        response: &'a ProtocolResponse,
-        name: &str,
-    ) -> Option<&'a str> {
-        response
-            .headers
-            .iter()
-            .find(|(key, _)| key.eq_ignore_ascii_case(name))
-            .map(|(_, value)| value.as_str())
+        f.ask(request(f.core, asked, headers)).recv().unwrap()
     }
 
     #[test]
     fn a_document_of_any_other_origin_is_refused_before_the_daemon() {
-        let f = fixture();
+        let f = served();
         let strangers = ["null", "crowbar://host-1", "https://evil.example"];
         let asks = strangers
             .into_iter()
@@ -409,11 +273,11 @@ mod tests {
                 ("Access-Control-Request-Method", "POST"),
             ];
             let answer = ask_from(&f, (method, "crowbar://local/v0/projects"), &asked);
-            assert_eq!(answer.status, 403, "{method} from {stranger}");
+            let granted = header_of(&answer, "access-control-allow-origin");
             assert_eq!(
-                header_of(&answer, "access-control-allow-origin"),
-                None,
-                "{method} from {stranger} is granted nothing"
+                (answer.status, granted),
+                (403, None),
+                "{method} from {stranger}"
             );
         }
         assert!(
@@ -424,21 +288,20 @@ mod tests {
 
     #[test]
     fn the_shells_page_is_granted_its_own_origin_and_the_headers_panes_send() {
-        let f = fixture();
-        *f.transport.answer.lock().unwrap() =
-            Some(Ok(DaemonResponse::new(200, Vec::new(), b"ok".to_vec())));
-        let answer = ask_from(
-            &f,
-            ("GET", "crowbar://host-1/v0/health"),
-            &[("Origin", "crowbar://local")],
-        );
+        let f = served();
+        answer_with(&f, 200, b"ok");
+        let origin = ("Origin", "crowbar://local");
+        let answer = ask_from(&f, ("GET", "crowbar://host-1/v0/health"), &[origin]);
+        let grants = [
+            "access-control-allow-origin",
+            "access-control-expose-headers",
+            "vary",
+        ]
+        .map(|grant| header_of(&answer, grant));
         assert_eq!(answer.status, 200);
-        assert_eq!(
-            header_of(&answer, "access-control-allow-origin"),
-            Some("crowbar://local")
-        );
+        assert_eq!(grants, [Some("crowbar://local"), Some("*"), Some("Origin")]);
         let asked = [
-            ("Origin", "crowbar://local"),
+            origin,
             ("Access-Control-Request-Method", "POST"),
             ("Access-Control-Request-Headers", "content-type, x-evil"),
         ];
@@ -453,29 +316,19 @@ mod tests {
 
     #[test]
     fn core_bundle_files_are_served_with_their_media_type() {
-        let f = fixture();
-        let response = ask(&f, f.core, "crowbar://local/panes/core/chat/index.html");
-        assert_eq!(response.status, 200, "status");
-        assert!(
-            response
-                .headers
-                .iter()
-                .any(|(k, v)| k == CONTENT_TYPE && v == "text/html"),
-            "mime"
-        );
-        assert_eq!(
-            ask(&f, f.core, "crowbar://local/panes/core/nope.js").status,
-            404,
-            "missing file"
-        );
+        let f = served();
+        let page = f.get(f.core, "crowbar://local/panes/core/chat/index.html");
+        let mime = header_of(&page, CONTENT_TYPE);
+        assert_eq!((page.status, mime), (200, Some("text/html")), "a file");
+        let missing = f.get(f.core, "crowbar://local/panes/core/nope.js");
+        assert_eq!(missing.status, 404, "missing file");
     }
 
     #[test]
     fn daemon_requests_carry_the_origin_of_the_web_view() {
-        let f = fixture();
-        *f.transport.answer.lock().unwrap() =
-            Some(Ok(DaemonResponse::new(200, Vec::new(), b"ok".to_vec())));
-        let response = ask(&f, f.core, "crowbar://local/v0/health?x=1");
+        let f = served();
+        answer_with(&f, 200, b"ok");
+        let response = f.get(f.core, "crowbar://local/v0/health?x=1");
         assert_eq!(
             (response.status, response.body),
             (200, b"ok".to_vec()),
@@ -488,55 +341,41 @@ mod tests {
 
     #[test]
     fn extension_webviews_are_confined_to_their_own_routes() {
-        let f = fixture();
-        assert_eq!(
-            ask(&f, f.ext, "crowbar://local/v0/threads").status,
-            403,
-            "general api"
-        );
-        assert_eq!(
-            ask(&f, f.ext, "crowbar://local/panes/core/chat/index.html").status,
-            403,
-            "core bundle"
-        );
+        let f = served();
+        let general = f.get(f.ext, "crowbar://local/v0/threads").status;
+        let core = f
+            .get(f.ext, "crowbar://local/panes/core/chat/index.html")
+            .status;
+        assert_eq!((general, core), (403, 403), "general api, core bundle");
         assert!(
             f.transport.seen.lock().unwrap().is_empty(),
             "nothing reached the daemon"
         );
-        *f.transport.answer.lock().unwrap() =
-            Some(Ok(DaemonResponse::new(204, Vec::new(), Vec::new())));
-        assert_eq!(
-            ask(&f, f.ext, "crowbar://local/v0/ext/git/review.diff").status,
-            204,
-            "own route"
-        );
+        answer_with(&f, 204, b"");
+        let own = f.get(f.ext, "crowbar://local/v0/ext/git/review.diff");
+        assert_eq!(own.status, 204, "own route");
         let seen = f.transport.seen.lock().unwrap();
+        let git = ExtensionId::new("git").ok();
         assert_eq!(
             seen[0].origin().extension(),
-            ExtensionId::new("git").ok().as_ref(),
+            git.as_ref(),
             "extension id forwarded"
         );
     }
 
     #[test]
-    fn unknown_views_and_bad_urls_are_refused() {
-        let f = fixture();
-        let stranger = view_ids(3)[2];
+    fn unknown_views_bad_urls_and_transport_errors_map_to_http_statuses() {
+        let f = served();
         assert_eq!(
-            ask(&f, stranger, "crowbar://local/v0/x").status,
+            f.get(f.stranger, "crowbar://local/v0/x").status,
             403,
             "unknown view"
         );
         assert_eq!(
-            ask(&f, f.core, "http://local/v0/x").status,
+            f.get(f.core, "http://local/v0/x").status,
             400,
             "foreign scheme"
         );
-    }
-
-    #[test]
-    fn transport_errors_map_to_http_statuses() {
-        let f = fixture();
         let cases = [
             (TransportError::UnknownHost("x".to_owned()), 404),
             (TransportError::Denied("no"), 403),
@@ -545,21 +384,27 @@ mod tests {
         ];
         for (error, status) in cases {
             *f.transport.answer.lock().unwrap() = Some(Err(error));
-            assert_eq!(ask(&f, f.core, "crowbar://local/v0/x").status, status);
+            assert_eq!(f.get(f.core, "crowbar://local/v0/x").status, status);
         }
     }
 
     #[test]
     fn a_pane_gets_a_relay_endpoint_scoped_to_itself() {
-        let f = fixture();
-        let core = ask(&f, f.core, "crowbar://local/__crowbar/relay");
-        let ext = ask(&f, f.ext, "crowbar://local/__crowbar/relay");
-        let url_of = |response: &ProtocolResponse| {
+        let f = served();
+        let url_of = |view| {
+            let response = f.get(view, "crowbar://local/__crowbar/relay");
             let value: serde_json::Value = serde_json::from_slice(&response.body).unwrap();
-            value["url"].as_str().unwrap().to_owned()
+            (response.status, value["url"].as_str().unwrap().to_owned())
         };
-        assert_eq!(core.status, 200, "status");
-        assert_eq!(url_of(&core), "ws://127.0.0.1:1/p1", "core pane");
-        assert_eq!(url_of(&ext), "ws://127.0.0.1:1/p2", "extension pane");
+        assert_eq!(
+            url_of(f.core),
+            (200, "ws://127.0.0.1:1/p1".into()),
+            "core pane"
+        );
+        assert_eq!(
+            url_of(f.ext),
+            (200, "ws://127.0.0.1:1/p2".into()),
+            "extension pane"
+        );
     }
 }

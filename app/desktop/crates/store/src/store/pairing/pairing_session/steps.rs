@@ -40,7 +40,7 @@ impl PairingSession {
         endpoint: &str,
         fingerprint: String,
     ) -> Result<String, Words> {
-        let known = already_paired::reason(
+        let known = already_paired(
             (self.fleet.hub(), &self.desk.notes),
             (endpoint, &fingerprint),
         );

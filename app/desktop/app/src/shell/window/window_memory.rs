@@ -140,7 +140,7 @@ mod tests {
     };
 
     #[test]
-    fn a_closed_window_is_remembered_with_its_restore_size() {
+    fn a_closed_window_is_remembered_with_its_restore_size_and_opens_as_it_was() {
         let cases = [
             (WindowBounds::Windowed(BOUNDS), false),
             (WindowBounds::Maximized(BOUNDS), true),
@@ -149,35 +149,26 @@ mod tests {
             let state = state_of(bounds);
             assert_eq!(state.maximized, maximized);
             assert_eq!(from_rect(&state.bounds), BOUNDS);
+            let placement = Placement {
+                bounds: to_rect(BOUNDS),
+                maximized,
+            };
+            assert_eq!(window_bounds(&placement), bounds, "reopened");
         }
     }
 
-    #[test]
-    fn a_placement_opens_as_windowed_or_maximized() {
-        let rect = to_rect(BOUNDS);
-        let windowed = window_bounds(&Placement {
-            bounds: rect,
-            maximized: false,
-        });
-        let maximized = window_bounds(&Placement {
-            bounds: rect,
-            maximized: true,
-        });
-        assert_eq!(windowed, WindowBounds::Windowed(BOUNDS));
-        assert_eq!(maximized, WindowBounds::Maximized(BOUNDS));
-    }
-
     #[gpui::test]
-    fn the_window_may_shrink_below_the_sidebar_drawer_breakpoint(cx: &mut gpui::TestAppContext) {
+    fn the_window_has_no_minimum_size_and_is_classed_crowbar(cx: &mut gpui::TestAppContext) {
         let memory = WindowMemory::new(Path::new("/nonexistent/crowbar/window.json"));
-        let least = cx.update(|cx| memory.options(cx).window_min_size);
-        assert_eq!(least, None, "develop's window declares no minimum size");
-    }
-
-    #[gpui::test]
-    fn the_window_is_classed_crowbar_for_the_desktop_file(cx: &mut gpui::TestAppContext) {
-        let memory = WindowMemory::new(Path::new("/nonexistent/crowbar/window.json"));
-        let app_id = cx.update(|cx| memory.options(cx).app_id);
-        assert_eq!(app_id.as_deref(), Some("Crowbar"));
+        let options = cx.update(|cx| memory.options(cx));
+        assert_eq!(
+            options.window_min_size, None,
+            "develop's window declares no minimum size"
+        );
+        assert_eq!(
+            options.app_id.as_deref(),
+            Some("Crowbar"),
+            "for the desktop file"
+        );
     }
 }

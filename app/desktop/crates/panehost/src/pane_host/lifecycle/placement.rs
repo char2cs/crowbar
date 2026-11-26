@@ -161,27 +161,38 @@ impl PaneHost {
 
 #[cfg(test)]
 mod tests {
-    use protocol::PaneId;
+    use webview::{Bounds, Call};
 
+    use crate::pane_host::reconcile::Overlays;
     use crate::test_support::{fixture, instance};
 
     #[test]
-    fn releasing_a_shown_pane_keeps_an_idle_core_view_and_revokes_its_relay() {
+    fn the_handle_s_hole_is_cut_from_the_view_under_it_and_filled_when_it_goes() {
         let mut f = fixture();
-        let pane = PaneId::new("p1").unwrap();
-        f.sync(&[instance("p1", "core.chat")], &["p1"], Some("p1"));
-        f.host.release_slot(&pane).unwrap();
-        assert_eq!(f.host.web_view_count(), 1, "idle view kept for reuse");
-        assert_eq!(f.revoked.panes(), [pane], "relay revoked");
-    }
-
-    #[test]
-    fn releasing_a_pane_without_a_view_does_nothing() {
-        let mut f = fixture();
-        f.host
-            .release_slot(&PaneId::new("missing").unwrap())
-            .unwrap();
-        assert_eq!(f.host.web_view_count(), 0, "no view");
-        assert!(f.revoked.panes().is_empty(), "nothing revoked");
+        let panes = [instance("c", "core.chat")];
+        let rect = |x, y, height| Bounds {
+            x,
+            y,
+            width: 69.0,
+            height,
+        };
+        let (handle, hole) = (rect(125.5, 10.0, 21.0), rect(115.5, 0.0, 11.0));
+        let cut = |cutout| Overlays {
+            cutout,
+            ..Overlays::default()
+        };
+        for cutout in [Some(handle), Some(handle), None] {
+            f.sync_under(&panes, &["c"], cut(cutout));
+        }
+        let cuts: Vec<Option<Bounds>> = f
+            .mock
+            .calls()
+            .iter()
+            .filter_map(|call| match call {
+                Call::SetCutout { hole, .. } => Some(*hole),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(cuts, [Some(hole), Some(hole), None], "cut, then filled");
     }
 }

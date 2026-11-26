@@ -512,34 +512,6 @@ fn state_sent_per_keystroke_never_grows_history_or_copies_the_layout() -> Fixtur
     Ok(())
 }
 
-#[test]
-fn commands_naming_nothing_that_exists_are_refused_and_change_nothing() -> Fixture<()> {
-    let cases = [
-        (
-            "closing an unknown tab",
-            Command::CloseTab { tab: tab_id(1) },
-        ),
-        (
-            "activating an unknown tab",
-            Command::ActivateTab { tab: tab_id(1) },
-        ),
-        (
-            "closing an unknown pane",
-            Command::ClosePane { pane: pane_id(1)? },
-        ),
-        (
-            "focusing an unknown pane",
-            Command::FocusPane { pane: pane_id(1)? },
-        ),
-    ];
-    for (name, refused) in cases {
-        let mut layout = Layout::default();
-        assert!(layout.apply(refused).is_err(), "{name}");
-        assert_eq!(layout, Layout::default(), "{name}");
-    }
-    Ok(())
-}
-
 fn open_step(pane: u8) -> Step {
     Step::Open {
         tab: 0,
@@ -591,13 +563,9 @@ fn shown_in(
 
 fn two_spaces() -> Fixture<Layout> {
     let mut layout = Layout::default();
-    for step in [
-        add_in(1, "p1"),
-        open_in(1, 1)?,
-        add_in(2, "p2"),
-        open_in(2, 2)?,
-    ] {
-        layout.apply(step)?;
+    for (tab, space) in [(1, "p1"), (2, "p2")] {
+        layout.apply(add_in(tab, space))?;
+        layout.apply(open_in(tab, tab)?)?;
     }
     Ok(layout)
 }
@@ -605,74 +573,39 @@ fn two_spaces() -> Fixture<Layout> {
 #[test]
 fn a_tab_shown_in_one_space_is_not_shown_in_another() -> Fixture<()> {
     let mut layout = two_spaces()?;
-    assert_eq!(shown_in(&layout, "p1"), Some(tab_id(1)), "p1 shows its tab");
-    assert_eq!(shown_in(&layout, "p2"), Some(tab_id(2)), "p2 shows its tab");
-    assert_eq!(shown_in(&layout, "p3"), None, "p3 shows its stage");
-    assert_eq!(
-        layout.tab(tab_id(2)).map(Tab::space),
-        Some("p2"),
-        "made in p2"
-    );
+    let shown = |layout: &Layout| ["p1", "p2", "p3"].map(|space| shown_in(layout, space));
+    assert_eq!(shown(&layout), [Some(tab_id(1)), Some(tab_id(2)), None], "own tabs, p3 none");
+    assert_eq!(layout.tab(tab_id(2)).map(Tab::space), Some("p2"), "made in p2");
     layout.apply(Command::FocusPane { pane: pane_id(2)? })?;
-    assert_eq!(
-        shown_in(&layout, "p1"),
-        Some(tab_id(1)),
-        "focus stays in p2"
-    );
+    assert_eq!(shown_in(&layout, "p1"), Some(tab_id(1)), "focus stays in p2");
     layout.apply(Command::CloseTab { tab: tab_id(1) })?;
-    assert_eq!(shown_in(&layout, "p1"), None, "p1 falls back to its stage");
-    assert_eq!(shown_in(&layout, "p2"), Some(tab_id(2)), "p2 untouched");
+    assert_eq!(shown(&layout), [None, Some(tab_id(2)), None], "p1 falls back");
     layout.validate()?;
-    Ok(())
-}
-
-#[test]
-fn closing_a_shown_tab_hands_over_within_its_own_space() -> Fixture<()> {
     let mut layout = two_spaces()?;
-    for step in [
-        add_in(3, "p1"),
-        open_in(3, 3)?,
-        add_in(4, "p2"),
-        open_in(4, 4)?,
-    ] {
+    let more = [add_in(3, "p1"), open_in(3, 3)?, add_in(4, "p2"), open_in(4, 4)?];
+    for step in more {
         layout.apply(step)?;
     }
     layout.apply(Command::CloseTab { tab: tab_id(3) })?;
-    assert_eq!(shown_in(&layout, "p1"), Some(tab_id(1)), "p1's other tab");
-    assert_eq!(shown_in(&layout, "p2"), Some(tab_id(4)), "p2 untouched");
+    let handed = [Some(tab_id(1)), Some(tab_id(4)), None];
+    assert_eq!(shown(&layout), handed, "a close hands over within its space");
     Ok(())
 }
 
 #[test]
 fn withdrawing_an_open_restores_the_shown_tab_only_of_the_space_it_changed() -> Fixture<()> {
     let mut history = LayoutHistory::default();
-    for step in [
-        add_in(1, "p1"),
-        open_in(1, 1)?,
-        add_in(2, "p1"),
-        open_in(2, 2)?,
-        add_in(3, "p2"),
-        open_in(3, 3)?,
-        add_in(4, "p2"),
-        open_in(4, 4)?,
-        Command::ActivateTab { tab: tab_id(1) },
-        open_in(2, 5)?,
-    ] {
-        history.apply(step)?;
+    for (tab, space) in [(1, "p1"), (2, "p1"), (3, "p2"), (4, "p2")] {
+        history.apply(add_in(tab, space))?;
+        history.apply(open_in(tab, tab)?)?;
     }
+    history.apply(Command::ActivateTab { tab: tab_id(1) })?;
+    history.apply(open_in(2, 5)?)?;
     history.apply(Command::ActivateTab { tab: tab_id(3) })?;
     history.withdraw(&pane_id(5)?)?;
     let layout = history.layout();
-    assert_eq!(
-        shown_in(layout, "p1"),
-        Some(tab_id(1)),
-        "p1 back where it was"
-    );
-    assert_eq!(
-        shown_in(layout, "p2"),
-        Some(tab_id(3)),
-        "p2 keeps the later switch"
-    );
+    assert_eq!(shown_in(layout, "p1"), Some(tab_id(1)), "p1 back");
+    assert_eq!(shown_in(layout, "p2"), Some(tab_id(3)), "p2 keeps the switch");
     layout.validate()?;
     Ok(())
 }
@@ -687,20 +620,8 @@ fn a_space_with_tabs_and_none_remembered_shows_its_first_tab_in_strip_order() ->
     for (tab, space) in [(3, "p2"), (2, "p1"), (1, "p1")] {
         layout.apply(adopt(tab, space))?;
     }
-    assert_eq!(
-        shown_in(&layout, "p2"),
-        Some(tab_id(3)),
-        "p2 remembers its tab"
-    );
-    assert_eq!(
-        shown_in(&layout, "p1"),
-        Some(tab_id(1)),
-        "p1 falls back to its first tab"
-    );
-    assert_eq!(
-        shown_in(&layout, "p3"),
-        None,
-        "a space with no tabs shows its stage"
-    );
+    assert_eq!(shown_in(&layout, "p2"), Some(tab_id(3)), "remembered");
+    assert_eq!(shown_in(&layout, "p1"), Some(tab_id(1)), "first in strip");
+    assert_eq!(shown_in(&layout, "p3"), None, "no tabs, the stage");
     Ok(())
 }

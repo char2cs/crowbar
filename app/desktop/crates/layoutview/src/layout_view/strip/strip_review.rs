@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use gpui::Context;
 use layout::PaneGroup;
 use protocol::PaneId;
@@ -19,11 +17,10 @@ impl LayoutView {
         if !self.source.reviews_branch(instance) {
             return None;
         }
-        let (view, onto) = (cx.entity(), anchor.clone());
-        let review = LayoutEvent::ReviewBranch { onto };
-        Some(Rc::new(move |_, cx| {
-            view.update(cx, |_, cx| cx.emit(review.clone()));
-        }))
+        let review = LayoutEvent::ReviewBranch {
+            onto: anchor.clone(),
+        };
+        Some(Self::emitting(review, cx))
     }
 }
 

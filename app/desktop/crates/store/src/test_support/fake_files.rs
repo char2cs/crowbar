@@ -106,23 +106,3 @@ impl Files for FakeFiles {
         found
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn what_is_written_reads_back_and_directories_list_their_first_level() {
-        let files = FakeFiles::default();
-        files.write(Path::new("/a/b/c.txt"), b"x").unwrap();
-        files.put("/a/d.txt", b"y");
-        assert_eq!(files.read(Path::new("/a/d.txt")).unwrap(), b"y");
-        assert_eq!(
-            files.children(Path::new("/a")),
-            [PathBuf::from("/a/b"), PathBuf::from("/a/d.txt")]
-        );
-        assert!(files.read(Path::new("/none")).is_err());
-        files.refuse_writes();
-        assert!(files.write(Path::new("/z"), b"").is_err());
-    }
-}

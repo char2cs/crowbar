@@ -154,10 +154,7 @@ mod tests {
         let row = PendingRow {
             id: "n".into(),
             label: "New".into(),
-            scope: String::new(),
-            parent: String::new(),
-            failure: None,
-            operation: None,
+            ..PendingRow::default()
         };
         let plan = Plan::of("local", vec![Call::get("/v0/x")])
             .showing(row)

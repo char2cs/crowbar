@@ -142,19 +142,14 @@ mod tests {
         listened(&view, window);
         let document = document_of(&view, window);
         let since = mark(&document, window);
-        assert_eq!(
-            take(&document, ("a\nB\nc\nd", since), window),
-            DiskTake::Taken
-        );
+        let taken = take(&document, ("a\nB\nc\nd", since), window);
+        assert_eq!(taken, DiskTake::Taken);
         assert_eq!(view.read_with(window, EditorView::text), "a\nB\nc\nd");
         assert!(!dirty(&document, window), "clean");
         assert_eq!(view.read_with(window, |view, cx| view.caret(cx).line), 3);
         press("@input::Undo", window);
-        assert_eq!(
-            view.read_with(window, EditorView::text),
-            "a\nb\nc",
-            "undone"
-        );
+        let undone = view.read_with(window, EditorView::text);
+        assert_eq!(undone, "a\nb\nc", "undone");
         assert!(dirty(&document, window), "undo leaves disk");
     }
 
@@ -220,10 +215,7 @@ mod tests {
         assert_eq!(view.read_with(window, EditorView::text), "a b");
         assert_eq!(*heard.borrow(), [EditorEvent::DirtyChanged(true)]);
         press("@input::Undo", window);
-        assert_eq!(
-            view.read_with(window, EditorView::text),
-            "a",
-            "one undo step"
-        );
+        let undone = view.read_with(window, EditorView::text);
+        assert_eq!(undone, "a", "one undo step");
     }
 }

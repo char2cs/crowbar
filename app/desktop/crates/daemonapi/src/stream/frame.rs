@@ -94,27 +94,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_frame_type_the_projects_scope_uses_decodes() {
+    fn every_frame_type_the_projects_scope_uses_decodes_and_an_unknown_one_does_not() {
         let cases = [
-            r#"{"t":"ready","epoch":"e1"}"#,
-            r#"{"t":"entity","scope":"projects","kind":"chat","id":"c","v":3,"data":{"id":"c"}}"#,
-            r#"{"t":"entity","scope":"projects","kind":"chat","id":"c","v":4,"gone":true}"#,
-            r#"{"t":"synced","scope":"projects","unread":["r"]}"#,
-            r#"{"t":"closed","scope":"projects","reason":"resync"}"#,
-            r#"{"t":"error","problem":{"code":"x","message":"y"}}"#,
-            r#"{"t":"row","scope":"chat:c","row":{},"from":1}"#,
-            r#"{"t":"delta","scope":"chat:c","delta":{}}"#,
-            r#"{"t":"signal","scope":"git:w","kind":"git_status"}"#,
+            (r#"{"t":"ready","epoch":"e1"}"#, true),
+            (
+                r#"{"t":"entity","scope":"projects","kind":"chat","id":"c","v":3,"data":{"id":"c"}}"#,
+                true,
+            ),
+            (r#"{"t":"synced","scope":"projects","unread":["r"]}"#, true),
+            (r#"{"t":"closed","scope":"projects","reason":"resync"}"#, true),
+            (r#"{"t":"error","problem":{"code":"x","message":"y"}}"#, true),
+            (r#"{"t":"row","scope":"chat:c","row":{},"from":1}"#, true),
+            (r#"{"t":"delta","scope":"chat:c","delta":{}}"#, true),
+            (r#"{"t":"signal","scope":"git:w","kind":"git_status"}"#, true),
+            (r#"{"t":"gossip"}"#, false),
+            ("nope", false),
         ];
-        for text in cases {
-            assert!(Frame::decode(text).is_ok(), "{text}");
+        for (text, decodes) in cases {
+            assert_eq!(Frame::decode(text).is_ok(), decodes, "{text}");
         }
-    }
-
-    #[test]
-    fn an_unknown_type_is_an_error() {
-        assert!(Frame::decode(r#"{"t":"gossip"}"#).is_err());
-        assert!(Frame::decode("nope").is_err());
     }
 
     #[test]

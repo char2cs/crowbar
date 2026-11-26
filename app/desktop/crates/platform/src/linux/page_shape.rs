@@ -116,62 +116,20 @@ impl PageShape {
 
 #[cfg(test)]
 mod tests {
-    use x11rb::COPY_DEPTH_FROM_PARENT;
-    use x11rb::protocol::xproto::{CreateWindowAux, WindowClass};
-
     use super::*;
     use crate::linux::float::Card;
+    use crate::linux::test_support::{Geometry, input_rectangles as input, mapped_in};
 
-    fn child(
-        connection: &RustConnection,
-        parent: u32,
-    ) -> u32 {
-        let window = connection.generate_id().unwrap();
-        let aux = CreateWindowAux::new().override_redirect(1);
-        connection
-            .create_window(
-                COPY_DEPTH_FROM_PARENT,
-                window,
-                parent,
-                0,
-                0,
-                200,
-                100,
-                0,
-                WindowClass::INPUT_OUTPUT,
-                0,
-                &aux,
-            )
-            .unwrap();
-        connection.map_window(window).unwrap();
-        connection.flush().unwrap();
-        window
-    }
-
-    fn input(
-        connection: &RustConnection,
-        window: u32,
-    ) -> Vec<(i16, i16, u16, u16)> {
-        let input = connection
-            .shape_get_rectangles(window, SK::INPUT)
-            .unwrap()
-            .reply()
-            .unwrap();
-        input
-            .rectangles
-            .iter()
-            .map(|rect| (rect.x, rect.y, rect.width, rect.height))
-            .collect()
-    }
+    const AREA: Geometry = (0, 0, 200, 100);
 
     #[test]
     #[ignore = "needs display"]
     fn the_hole_is_cut_from_the_owner_s_child_and_filled_again_on_a_display() {
         let (connection, screen) = RustConnection::connect(None).unwrap();
         let root = connection.setup().roots[screen].root;
-        let owner = child(&connection, root);
-        let holder = child(&connection, owner);
-        let page = child(&connection, holder);
+        let owner = mapped_in(&connection, root, AREA);
+        let holder = mapped_in(&connection, owner, AREA);
+        let page = mapped_in(&connection, holder, AREA);
         let shape = PageShape::connect().unwrap();
         let hole = Card {
             x: 60,

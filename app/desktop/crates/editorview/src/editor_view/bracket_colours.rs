@@ -122,23 +122,11 @@ mod tests {
 
     #[test]
     fn a_bracket_takes_monaco_s_pair_colour_outside_strings_and_comments() {
-        let cases: [Case; 6] = [
-            (
-                ("markdown", "a `f()` b\n"),
-                4,
-                Some(Palette::muted_foreground),
-            ),
-            (
-                ("markdown", "a `f()` b\n"),
-                5,
-                Some(Palette::muted_foreground),
-            ),
+        let muted: Option<Token> = Some(Palette::muted_foreground);
+        let cases: [Case; 5] = [
+            (("markdown", "a `f()` b\n"), 4, muted),
             (("markdown", "[a](b(c))\n"), 5, None),
-            (
-                ("typescript", "f(\"(\")\n"),
-                1,
-                Some(Palette::muted_foreground),
-            ),
+            (("typescript", "f(\"(\")\n"), 1, muted),
             (("typescript", "f(\"(\")\n"), 3, None),
             (("typescript", "// (\n"), 3, None),
         ];

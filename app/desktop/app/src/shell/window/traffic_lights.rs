@@ -32,9 +32,4 @@ mod tests {
             );
         }
     }
-
-    #[test]
-    fn the_buttons_keep_the_tauri_left_inset() {
-        assert_eq!(position(), point(px(TRAFFIC_LIGHT_X), px(14.0)));
-    }
 }

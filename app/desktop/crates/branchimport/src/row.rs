@@ -92,22 +92,19 @@ mod tests {
 
     struct Rows;
 
+    fn branch(availability: Availability) -> ImportBranch {
+        ImportBranch {
+            name: "a".to_owned(),
+            availability,
+        }
+    }
+
     fn choice() -> RowChoice {
         RowChoice {
             picked: Pose::On,
             locked: Pose::Off,
             toggle: Box::new(|_, _| {}),
             toggle_lock: Box::new(|_, _| {}),
-        }
-    }
-
-    fn branch(
-        name: &str,
-        availability: Availability,
-    ) -> ImportBranch {
-        ImportBranch {
-            name: name.to_owned(),
-            availability,
         }
     }
 
@@ -118,22 +115,14 @@ mod tests {
             cx: &mut Context<'_, Self>,
         ) -> impl IntoElement {
             let palette = *ui::Theme::of(cx).palette(ui::Surface::Window);
-            div()
-                .child(branch_row(
-                    0,
-                    &branch("a", Availability::Importable),
-                    (choice(), &palette),
-                ))
-                .child(branch_row(
-                    1,
-                    &branch("b", Availability::Imported),
-                    (choice(), &palette),
-                ))
-                .child(branch_row(
-                    2,
-                    &branch("c", Availability::Protected),
-                    (choice(), &palette),
-                ))
+            let all = [
+                Availability::Importable,
+                Availability::Imported,
+                Availability::Protected,
+            ];
+            div().children(all.into_iter().enumerate().map(|(index, availability)| {
+                branch_row(index, &branch(availability), (choice(), &palette))
+            }))
         }
     }
 

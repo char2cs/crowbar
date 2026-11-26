@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use gpui::Context;
-use layout::{DragSubject, PaneGroup};
+use layout::{Command, DragSubject, PaneGroup};
 use protocol::PaneId;
 
 use crate::layout_event::LayoutEvent;
@@ -25,6 +25,9 @@ impl LayoutView {
             .iter()
             .map(|pane| self.strip_tab(group, pane, cx))
             .collect();
+        let add = LayoutEvent::NewTab {
+            onto: anchor.clone(),
+        };
         Some(PaneStrip {
             key: group.chat().or_else(|| group.tabs().first())?.clone(),
             toggle: Self::toggle_of(group, anchor, cx),
@@ -36,7 +39,7 @@ impl LayoutView {
                 .position(|pane| pane == anchor)
                 .unwrap_or(0),
             reorder: Self::reorder_action(cx),
-            add: Self::add_action(anchor, cx),
+            add: Self::emitting(add, cx),
             keys: self.keys_action(group, cx),
             overflow: self.overflow_of(group, cx),
             review: self.review_action((group, anchor), cx),
@@ -66,7 +69,8 @@ impl LayoutView {
         pane: &PaneId,
         cx: &mut Context<'_, Self>,
     ) -> TabActions {
-        let remove = Self::strip_close_action(pane, cx);
+        let close = Command::ClosePane { pane: pane.clone() };
+        let remove = Self::emitting(LayoutEvent::Apply(close), cx);
         TabActions {
             select: Self::select_action(pane, cx),
             close: Self::end_action(group, pane, &remove, cx),
@@ -82,7 +86,8 @@ impl LayoutView {
         cx: &mut Context<'_, Self>,
     ) -> TabAction {
         if group.is_pinned(pane) {
-            return Self::unpin_action(pane, cx);
+            let unpin = Command::UnpinPane { pane: pane.clone() };
+            return Self::emitting(LayoutEvent::Apply(unpin), cx);
         }
         Rc::clone(remove)
     }
@@ -91,23 +96,7 @@ impl LayoutView {
         pane: &PaneId,
         cx: &mut Context<'_, Self>,
     ) -> TabAction {
-        let (view, pane) = (cx.entity(), pane.clone());
-        Rc::new(move |_, cx| view.update(cx, |_, cx| Self::emit_focus(&pane, cx)))
-    }
-
-    fn strip_close_action(
-        pane: &PaneId,
-        cx: &mut Context<'_, Self>,
-    ) -> TabAction {
-        let (view, pane) = (cx.entity(), pane.clone());
-        Rc::new(move |_, cx| view.update(cx, |_, cx| Self::close(&pane, cx)))
-    }
-
-    fn emit_focus(
-        pane: &PaneId,
-        cx: &mut Context<'_, Self>,
-    ) {
-        cx.emit(LayoutEvent::StripFocus { pane: pane.clone() });
+        Self::emitting(LayoutEvent::StripFocus { pane: pane.clone() }, cx)
     }
 
     pub(crate) fn joins_strip(
@@ -170,11 +159,13 @@ fn look_in(
 
 #[cfg(test)]
 mod tests {
-    use gpui::{Modifiers, MouseButton, TestAppContext, point, px};
+    use gpui::{
+        Entity, Modifiers, MouseButton, Pixels, Point, TestAppContext, VisualTestContext, point, px,
+    };
     use layout::{Command, DragSubject, Layout};
 
     use super::*;
-    use crate::test_support::{FakeSource, editor, open_with, pane_id, stacked_layout, strip_of};
+    use crate::test_support::{editor, open, pane_id, stacked_layout, strip_of};
 
     /// The stacked layout with the editor tab `d` in chat `a`'s group.
     fn with_tab_by_the_chat() -> Layout {
@@ -188,17 +179,25 @@ mod tests {
         layout
     }
 
+    /// Where tab `b` of the stacked layout's strip sits.
+    fn tab_b(
+        view: &Entity<LayoutView>,
+        cx: &mut VisualTestContext,
+    ) -> Point<Pixels> {
+        let size = view.read_with(cx, |view, _| view.bounds.size);
+        point(size.width * 0.5 + px(74.0), px(20.0))
+    }
+
     fn joins(
         view: &LayoutView,
-        dragged: &str,
-        target: &str,
+        (dragged, target): (&str, &str),
     ) -> bool {
         view.joins_strip(&DragSubject::Pane(pane_id(dragged)), &pane_id(target))
     }
 
     #[gpui::test]
     fn every_group_has_a_strip_with_a_tab_per_editor_tab(cx: &mut TestAppContext) {
-        let harness = open_with(cx, &stacked_layout(), FakeSource::starting_at_first_tab());
+        let harness = open(cx, &stacked_layout());
         let (view, cx) = (harness.view, harness.cx);
         let counts = view.update(cx, |view, cx| {
             ["a", "b", "c"].map(|pane| strip_of(view, &pane_id(pane), cx).map(|s| s.tabs.len()))
@@ -208,10 +207,8 @@ mod tests {
 
     #[gpui::test]
     fn the_tab_actions_focus_and_close_and_the_bar_reorders_in_place(cx: &mut TestAppContext) {
-        let source = FakeSource::starting_at_first_tab();
-        let harness = open_with(cx, &with_tab_by_the_chat(), source);
+        let harness = open(cx, &with_tab_by_the_chat());
         let (view, cx, commands) = (harness.view, harness.cx, harness.commands);
-        let opened = harness.opened;
         let strip = view
             .update(cx, |view, cx| strip_of(view, &pane_id("b"), cx))
             .expect("strip");
@@ -229,20 +226,19 @@ mod tests {
                 index: Some(0),
             },
         ];
-        assert_eq!(commands.borrow().as_slice(), &expected, "close, reorder");
+        assert_eq!(*commands.borrow(), expected, "close, reorder");
         assert_eq!(
-            opened.borrow().as_slice(),
-            &[LayoutEvent::StripFocus { pane: pane_id("b") }],
+            *harness.opened.borrow(),
+            [LayoutEvent::StripFocus { pane: pane_id("b") }],
             "select keeps the keyboard in the strip"
         );
     }
 
     #[gpui::test]
     fn a_strip_tab_dragged_over_the_layout_never_offers_a_pane_drop(cx: &mut TestAppContext) {
-        let harness = open_with(cx, &stacked_layout(), FakeSource::starting_at_first_tab());
+        let harness = open(cx, &stacked_layout());
         let (view, cx) = (harness.view, harness.cx);
-        let size = view.read_with(cx, |view, _| view.bounds.size);
-        let tab = point(size.width * 0.5 + px(74.0), px(20.0));
+        let tab = tab_b(&view, cx);
         let none = Modifiers::none();
         cx.simulate_mouse_down(tab, MouseButton::Left, none);
         cx.simulate_mouse_move(tab + point(px(20.0), px(2.0)), MouseButton::Left, none);
@@ -253,13 +249,10 @@ mod tests {
 
     #[gpui::test]
     fn an_editor_tab_joins_another_group_and_a_chat_never_does(cx: &mut TestAppContext) {
-        let source = FakeSource::starting_at_first_tab();
-        let harness = open_with(cx, &with_tab_by_the_chat(), source);
+        let harness = open(cx, &with_tab_by_the_chat());
         let (view, cx) = (harness.view, harness.cx);
-        let joins = view.update(cx, |view, _| {
-            [("b", "c"), ("d", "c"), ("a", "c"), ("c", "b")]
-                .map(|(dragged, target)| joins(view, dragged, target))
-        });
+        let pairs = [("b", "c"), ("d", "c"), ("a", "c"), ("c", "b")];
+        let joins = view.update(cx, |view, _| pairs.map(|pair| joins(view, pair)));
         assert_eq!(
             joins,
             [false, true, false, false],
@@ -274,21 +267,19 @@ mod tests {
         let mut layout = stacked_layout();
         layout
             .apply(Command::FocusPane { pane: pane_id("a") })
-            .unwrap();
-        let harness = open_with(cx, &layout, FakeSource::starting_at_first_tab());
+            .expect("a focused");
+        let harness = open(cx, &layout);
         let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
-        let commands = harness.commands;
-        let size = view.read_with(cx, |view, _| view.bounds.size);
-        let tab = point(size.width * 0.5 + px(74.0), px(20.0));
+        let tab = tab_b(&view, cx);
         cx.simulate_mouse_down(tab, MouseButton::Left, Modifiers::none());
         cx.simulate_mouse_up(tab, MouseButton::Left, Modifiers::none());
         assert_eq!(
-            opened.borrow().as_slice(),
-            &[LayoutEvent::StripFocus { pane: pane_id("b") }],
+            *opened.borrow(),
+            [LayoutEvent::StripFocus { pane: pane_id("b") }],
             "the strip focuses the tab and keeps the keyboard"
         );
         assert!(
-            commands.borrow().is_empty(),
+            harness.commands.borrow().is_empty(),
             "the pane press behind the tab must not undo it"
         );
     }
@@ -298,19 +289,16 @@ mod tests {
         cx: &mut TestAppContext
     ) {
         let mut layout = stacked_layout();
-        let harness = open_with(cx, &layout, FakeSource::starting_at_first_tab());
+        let harness = open(cx, &layout);
         let (view, cx, commands) = (harness.view, harness.cx, harness.commands);
-        let size = view.read_with(cx, |view, _| view.bounds.size);
-        let tab = point(size.width * 0.5 + px(74.0), px(20.0));
+        let tab = tab_b(&view, cx);
         let none = Modifiers::none();
         cx.simulate_mouse_down(tab, MouseButton::Left, none);
         cx.simulate_mouse_move(tab + point(px(10.0), px(0.0)), MouseButton::Left, none);
         layout
             .apply(Command::FocusPane { pane: pane_id("b") })
             .expect("the lift shows b");
-        view.update(cx, |view, cx| {
-            view.set_tab(layout.showing("").cloned(), cx);
-        });
+        view.update(cx, |view, cx| view.set_tab(layout.showing("").cloned(), cx));
         cx.run_until_parked();
         let past_c = tab + point(px(400.0), px(0.0));
         cx.simulate_mouse_move(past_c, MouseButton::Left, none);

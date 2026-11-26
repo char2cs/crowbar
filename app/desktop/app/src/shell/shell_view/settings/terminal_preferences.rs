@@ -95,12 +95,6 @@ mod tests {
     }
 
     #[test]
-    fn nothing_stored_keeps_every_default() {
-        let settings = terminal_settings(|_| None);
-        assert_eq!(settings, terminalview::Settings::default());
-    }
-
-    #[test]
     fn every_stored_setting_reaches_the_terminal() {
         let stored: Stored = BTreeMap::from([
             ("terminalFontFamily", Value::Text("Fira Code".into())),
@@ -123,13 +117,6 @@ mod tests {
         assert!((settings.cursor_width - 3.0).abs() < f32::EPSILON);
     }
 
-    #[test]
-    fn the_retired_line_height_default_reads_as_todays() {
-        let stored: Stored = BTreeMap::from([("terminalLineHeight", Value::Number(1.2))]);
-        let settings = terminal_settings(read(&stored));
-        assert!((settings.line_height - 1.0).abs() < f32::EPSILON);
-    }
-
     type Case = (&'static str, &'static str, Value, terminalview::Settings);
 
     fn clamped(edit: impl FnOnce(&mut terminalview::Settings)) -> terminalview::Settings {
@@ -138,9 +125,14 @@ mod tests {
         settings
     }
 
-    #[test]
-    fn out_of_range_or_unknown_values_are_held_to_what_the_page_allows() {
-        let cases: [Case; 5] = [
+    fn cases() -> [Case; 6] {
+        [
+            (
+                "the retired line height default reads as today's",
+                "terminalLineHeight",
+                Value::Number(1.2),
+                clamped(|s| s.line_height = 1.0),
+            ),
             (
                 "tiny",
                 "terminalFontSize",
@@ -171,8 +163,18 @@ mod tests {
                 Value::Text("  ".into()),
                 terminalview::Settings::default(),
             ),
-        ];
-        for (name, key, value, expected) in cases {
+        ]
+    }
+
+    #[test]
+    fn nothing_stored_or_out_of_range_or_unknown_values_keep_what_the_page_allows() {
+        let defaults = terminal_settings(|_| None);
+        assert_eq!(
+            defaults,
+            terminalview::Settings::default(),
+            "nothing stored"
+        );
+        for (name, key, value, expected) in cases() {
             let stored: Stored = BTreeMap::from([(key, value)]);
             assert_eq!(terminal_settings(read(&stored)), expected, "{name}");
         }

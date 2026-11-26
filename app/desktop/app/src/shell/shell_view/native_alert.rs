@@ -35,10 +35,8 @@ fn forward(
 
 #[cfg(test)]
 mod tests {
-    fn saves_asked(mock: &webview::MockPlatform) -> usize {
-        let asks = |call: &&webview::Call| matches!(call, webview::Call::Eval { script, .. } if script.contains("pane.save"));
-        mock.calls().iter().filter(asks).count()
-    }
+    use crate::shell::shell_view::test_support::saves_asked;
+    use crate::shell::shell_view::tests::PLACED;
 
     fn alerts_asked(mock: &webview::MockPlatform) -> Vec<Option<String>> {
         let title = |call: &webview::Call| match call {
@@ -55,14 +53,8 @@ mod tests {
         let mut opened = crate::shell::shell_view::tests::open_shell(cx);
         let pane = opened.pane.clone();
         opened.mock.press_button(2);
-        let area = webview::Bounds {
-            x: 0.0,
-            y: 0.0,
-            width: 900.0,
-            height: 700.0,
-        };
         let closes = opened.shell.update(&mut opened.window, |shell, cx| {
-            shell.pane_area.placement = Some((webview::ParentWindow::X11(9), area));
+            shell.pane_area.placement = Some((webview::ParentWindow::X11(9), PLACED));
             shell.state.mark_dirty(pane);
             shell.allow_window_close(cx)
         });

@@ -215,26 +215,9 @@ mod tests {
     use gpui::TestAppContext;
 
     use super::*;
+    use crate::panes::kinds::core_panes::TERMINAL;
+    use crate::shell::shell_view::test_support::panes_of;
     use crate::shell::shell_view::tests::open_shell;
-
-    fn is_terminal(
-        layout: &layout::Layout,
-        pane: &protocol::PaneId,
-    ) -> bool {
-        let kind = layout.pane(pane).map(|instance| instance.type_id.as_str());
-        kind == Some(core_panes::TERMINAL)
-    }
-
-    fn terminals(shell: &ShellView) -> Vec<protocol::PaneId> {
-        let layout = shell.state.layout();
-        let tab = shell
-            .state
-            .showing()
-            .map_or_else(Vec::new, layout::Tab::pane_ids);
-        tab.into_iter()
-            .filter(|pane| is_terminal(layout, pane))
-            .collect()
-    }
 
     #[gpui::test]
     fn pressing_a_terminal_s_tab_hands_that_terminal_the_keyboard(cx: &mut TestAppContext) {
@@ -245,7 +228,9 @@ mod tests {
             shell.new_terminal(window, cx);
             window.focus(&shell.focus, cx);
         });
-        let first = shell.update(&mut opened.window, |shell, _| terminals(shell))[0].clone();
+        let first = shell
+            .update(&mut opened.window, |shell, _| panes_of(shell, TERMINAL))
+            .remove(0);
         shell.update_in(&mut opened.window, |shell, window, cx| {
             shell.on_layout(&LayoutEvent::StripFocus { pane: first }, window, cx);
         });

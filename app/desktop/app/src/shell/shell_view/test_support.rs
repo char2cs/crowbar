@@ -61,3 +61,31 @@ pub(super) fn keys_of(command: ShellCommand) -> String {
         .collect::<Vec<_>>()
         .join("-")
 }
+
+pub(super) fn notice_count(opened: &mut Opened) -> usize {
+    opened.window.run_until_parked();
+    opened
+        .shell
+        .read_with(&opened.window, |shell, cx| shell.notices.read(cx).len())
+}
+
+pub(super) fn saves_asked(mock: &webview::MockPlatform) -> usize {
+    let asks = |call: &&webview::Call| matches!(call, webview::Call::Eval { script, .. } if script.contains("pane.save"));
+    mock.calls().iter().filter(asks).count()
+}
+
+pub(super) fn settled_notice_count(opened: &mut Opened) -> usize {
+    opened.window.executor().advance_clock(ui::timing::SLOW);
+    notice_count(opened)
+}
+
+pub(super) fn open_file(
+    opened: &mut Opened,
+    path: &str,
+) -> PaneId {
+    opened.shell.update(&mut opened.window, |shell, cx| {
+        shell.open_workspace_file(path, cx);
+        let focused = shell.state.showing().and_then(layout::Tab::focused);
+        focused.cloned().expect("the file pane has focus")
+    })
+}

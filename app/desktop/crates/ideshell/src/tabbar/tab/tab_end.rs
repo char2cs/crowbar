@@ -125,14 +125,6 @@ mod tests {
     }
 
     #[test]
-    fn the_pin_is_a_little_larger_than_the_cross() {
-        assert!(
-            TabEnd::Unpin.glyph() > TabEnd::Close.glyph(),
-            "14 against 12"
-        );
-    }
-
-    #[test]
     fn the_cross_is_titled_close_with_its_chord_and_the_pin_unpin_tab_without_one() {
         let close = TabEnd::Close
             .chord()

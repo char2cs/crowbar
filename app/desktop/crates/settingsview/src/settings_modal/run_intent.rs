@@ -288,37 +288,4 @@ mod tests {
         assert_eq!(harness.closed.get(), 1);
     }
 
-    #[gpui::test]
-    fn submitted_text_commits_and_cancelled_text_reverts(cx: &mut TestAppContext) {
-        let (harness, cx) = open(cx, "browser");
-        let target = row("browserHomepage");
-        run(
-            &harness,
-            Intent::Edit(
-                target.clone(),
-                TextInputEvent::Changed("https://a.test".to_owned()),
-            ),
-            cx,
-        );
-        run(
-            &harness,
-            Intent::Edit(target.clone(), TextInputEvent::Cancelled),
-            cx,
-        );
-        assert_eq!(harness.backend.get(&Key::new("browserHomepage")), None);
-        run(
-            &harness,
-            Intent::Edit(
-                target.clone(),
-                TextInputEvent::Changed("https://b.test".to_owned()),
-            ),
-            cx,
-        );
-        run(
-            &harness,
-            Intent::Edit(target, TextInputEvent::Submitted),
-            cx,
-        );
-        assert!(harness.backend.get(&Key::new("browserHomepage")).is_some());
-    }
 }

@@ -50,40 +50,18 @@ mod tests {
 
     use super::*;
 
-    struct Case {
-        name: &'static str,
-        after: DaemonFrame,
-        expected: Vec<DaemonFrame>,
-    }
-
     fn output(len: usize) -> DaemonFrame {
         DaemonFrame::Output(vec![b'x'; len])
     }
 
     #[test]
     fn output_merges_and_other_frames_stay_apart() {
-        let cases = [
-            Case {
-                name: "output then exit",
-                after: DaemonFrame::Exit(0),
-                expected: vec![output(3), DaemonFrame::Exit(0)],
-            },
-            Case {
-                name: "output then snapshot",
-                after: DaemonFrame::Snapshot(vec![1]),
-                expected: vec![output(3), DaemonFrame::Snapshot(vec![1])],
-            },
-        ];
-        for case in cases {
+        for after in [DaemonFrame::Exit(0), DaemonFrame::Snapshot(vec![1])] {
             let (sender, frames) = unbounded();
             sender.try_send(output(2)).unwrap();
-            sender.try_send(case.after).unwrap();
-            assert_eq!(
-                take_batch(output(1), &frames),
-                case.expected,
-                "{}",
-                case.name
-            );
+            sender.try_send(after.clone()).unwrap();
+            let expected = vec![output(3), after];
+            assert_eq!(take_batch(output(1), &frames), expected);
         }
     }
 

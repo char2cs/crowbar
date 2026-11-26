@@ -1,5 +1,5 @@
 use layout::Layout;
-use protocol::{ExtensionStatus, Lifecycle, PaneFrame, PaneId, PaneTypeId, ShellFrame, StatusKind};
+use protocol::{Lifecycle, PaneFrame, PaneId, PaneTypeId, ShellFrame};
 
 use crate::error::Result;
 use crate::pane_host::PaneHost;
@@ -7,7 +7,6 @@ use crate::pane_host::context::setting_event;
 use crate::pane_host::lifecycle::pane_phase::PanePhase;
 use crate::pane_host::lifecycle::pane_runtime::PaneRuntime;
 use crate::pane_host::lifecycle::stage::Stage;
-use crate::pane_host::lifecycle::toast_frames::toast_events;
 use crate::pane_host::reconcile::Keyboard;
 use crate::slot::HostEvent;
 
@@ -20,6 +19,33 @@ fn wanted_stage(
         return Stage::Active;
     }
     Stage::Shown
+}
+
+fn chat_fills(
+    layout: &Layout,
+    pane: &PaneId,
+) -> bool {
+    let group = layout.tab_of(pane).and_then(|tab| tab.group_of(pane));
+    group.is_some_and(|group| {
+        group.chat() == Some(pane) && group.tabs().is_empty() && !group.editor_open()
+    })
+}
+
+fn toast_events(
+    pane: PaneId,
+    frame: PaneFrame,
+) -> Vec<HostEvent> {
+    let event = match frame {
+        PaneFrame::Toast(toast) => HostEvent::ToastShown { pane, toast },
+        PaneFrame::ToastClose { key } => HostEvent::ToastClosed { pane, key },
+        PaneFrame::OpenRefused { title, message } => HostEvent::OpenRefused {
+            pane,
+            title,
+            message,
+        },
+        _ => return Vec::new(),
+    };
+    vec![event]
 }
 
 fn lifecycle_for(stage: Stage) -> Lifecycle {
@@ -92,7 +118,7 @@ impl PaneHost {
                 return self.refuse_request(&pane, id, &method);
             },
             PaneFrame::Subscribe { event, .. } => {
-                return self.refuse(&pane, format!("no extension serves the event {event}"));
+                return self.refuse(&pane, &format!("no extension serves the event {event}"));
             },
             PaneFrame::Unsubscribe { .. } => return Ok(Vec::new()),
             frame @ PaneFrame::SettingsSet { .. } => return Ok(setting_event(pane, frame)),
@@ -128,7 +154,7 @@ impl PaneHost {
                 "page registered as {type_id} but was opened as {}",
                 runtime.type_id
             );
-            return self.fail(pane, message);
+            return self.fail(pane, &message);
         }
         runtime.phase = PanePhase::Mounted;
         let mount = runtime.lifecycle_frame(pane, Lifecycle::Mount, layout.pane(pane));
@@ -140,120 +166,57 @@ impl PaneHost {
         self.route_activation(layout)
     }
 
-    fn send_context(
-        &self,
-        pane: &PaneId,
-    ) -> Result<()> {
-        if !self.keybindings.is_empty() {
-            let bindings = self.keybindings.clone();
-            self.send(pane, &ShellFrame::Keybindings { bindings })?;
-        }
-        if let Some(tokens) = self.theme.clone() {
-            self.send(pane, &ShellFrame::Theme { tokens })?;
-        }
-        [
-            self.breakpoints_context(),
-            self.chat_zoom_context(),
-            self.settings_context(),
-            self.paired_hosts_context(),
-        ]
-        .into_iter()
-        .flatten()
-        .try_for_each(|frame| self.send(pane, &frame))
-    }
-
     pub(crate) fn fail(
         &mut self,
         pane: &PaneId,
-        message: String,
+        message: &str,
     ) -> Result<()> {
         let Some(runtime) = self.panes.get_mut(pane) else {
             return Ok(());
         };
-        runtime.phase = PanePhase::Failed(message);
+        tracing::warn!(%pane, %message, "the pane failed");
+        runtime.phase = PanePhase::Failed;
         runtime.stage = Stage::Shown;
         self.refresh_native_visibility(pane)
     }
 
-    pub(crate) fn apply_status(
+    pub(crate) fn send_groups(
         &mut self,
-        pane: &PaneId,
-        status: &ExtensionStatus,
         layout: &Layout,
     ) -> Result<()> {
-        if self.panes.get(pane).is_some_and(PaneRuntime::is_mounted) {
-            self.send(pane, &ShellFrame::ExtensionStatus(status.clone()))?;
+        let changed: Vec<(PaneId, bool)> = self
+            .panes
+            .iter_mut()
+            .filter(|(_, runtime)| runtime.is_mounted() && runtime.type_id.is_chat())
+            .filter_map(|(id, runtime)| {
+                let fills = chat_fills(layout, id);
+                let told = runtime.chat_fills.replace(fills);
+                (told != Some(fills)).then(|| (id.clone(), fills))
+            })
+            .collect();
+        for (pane, chat_fills) in changed {
+            self.send(&pane, &ShellFrame::Group { chat_fills })?;
         }
-        match status.status() {
-            StatusKind::Unavailable | StatusKind::Disabled => {
-                let reason = status.reason().map_or_else(
-                    || format!("extension {:?}", status.status()),
-                    ToString::to_string,
-                );
-                self.fail(pane, reason)
-            },
-            StatusKind::Running | StatusKind::Back => self.recover(pane, layout),
-        }
-    }
-
-    fn recover(
-        &mut self,
-        pane: &PaneId,
-        layout: &Layout,
-    ) -> Result<()> {
-        let Some(runtime) = self.panes.get_mut(pane) else {
-            return Ok(());
-        };
-        if !matches!(runtime.phase, PanePhase::Failed(_)) || runtime.slot.is_none() {
-            return Ok(());
-        }
-        runtime.phase = PanePhase::Mounted;
-        let mount = runtime.lifecycle_frame(pane, Lifecycle::Mount, layout.pane(pane));
-        self.send(pane, &mount)?;
-        self.refresh_native_visibility(pane)
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use protocol::{CommandId, DisplayText, ExtensionId, PaneFrame, PaneState, PaneTitle, encode};
+    use protocol::{CommandId, DisplayText, PaneState, PaneTitle, Params, ViewedFile, encode};
     use serde_json::json;
-    use webview::{Call, Visibility};
 
     use super::*;
-    use crate::pane_host::reconcile::PaneDisplay;
     use crate::slot::IpcMessage;
-    use crate::test_support::{Fixture, fixture, instance, lifecycle_events, register};
+    use crate::test_support::{
+        Fixture, fixture, frames_sent, instance, lifecycle_events, register,
+    };
 
-    #[test]
-    fn a_page_takes_native_focus_on_activation_only_while_the_keyboard_is_the_pages() {
-        let cases = [
-            ("the pane holds the keyboard", Keyboard::Pane, true, false),
-            ("the shell holds the keyboard", Keyboard::Shell, false, true),
-        ];
-        for (name, keyboard, focuses_page, returns_to_shell) in cases {
-            let mut f = fixture();
-            let panes = [instance("p1", "core.chat"), instance("p2", "core.chat")];
-            f.sync(&panes, &["p1", "p2"], Some("p1"));
-            register(&mut f, "p1", "core.chat");
-            register(&mut f, "p2", "core.chat");
-            let before = f.mock.calls().len();
-            f.sync_with(&panes, &["p1", "p2"], (Some("p2"), keyboard));
-            let calls = f.mock.calls();
-            let after = calls.iter().skip(before);
-            let focused = after.clone().any(|call| matches!(call, Call::Focus { .. }));
-            let returned = after
-                .clone()
-                .any(|call| matches!(call, Call::FocusParent { .. }));
-            assert_eq!(
-                (focused, returned),
-                (focuses_page, returns_to_shell),
-                "{name}"
-            );
-        }
+    fn p1() -> PaneId {
+        PaneId::new("p1").unwrap()
     }
 
-    pub(crate) fn started() -> Fixture {
+    fn started() -> Fixture {
         let mut f = fixture();
         f.sync(&[instance("p1", "core.chat")], &["p1"], Some("p1"));
         f
@@ -261,32 +224,21 @@ mod tests {
 
     fn post(
         f: &mut Fixture,
-        frame: &PaneFrame,
+        text: &str,
     ) -> Vec<HostEvent> {
-        let text = encode(frame).unwrap();
-        f.ipc(IpcMessage {
-            pane: PaneId::new("p1").unwrap(),
-            text,
-        })
+        let text = text.to_owned();
+        f.ipc(IpcMessage { pane: p1(), text })
     }
 
-    type Case = (&'static str, PaneFrame, HostEvent);
+    type Case = (PaneFrame, HostEvent);
 
-    fn assert_events(cases: Vec<Case>) {
-        for (name, frame, expected) in cases {
-            assert_eq!(post(&mut started(), &frame), [expected], "{name}");
-        }
-    }
-
-    #[test]
-    fn content_frames_become_their_events() {
-        let pane = PaneId::new("p1").unwrap();
+    fn content_cases(pane: &PaneId) -> [Case; 4] {
         let title = PaneTitle::new("Hi").unwrap();
         let state = PaneState::new(json!({"k": 1})).unwrap();
-        let params = protocol::Params::default().with("threadId", "c1").unwrap();
-        let cases: Vec<Case> = vec![
+        let params = Params::default().with("threadId", "c1").unwrap();
+        let (pane, dirty) = (pane.clone(), true);
+        [
             (
-                "a title frame",
                 PaneFrame::SetTitle {
                     title: title.clone(),
                 },
@@ -296,7 +248,6 @@ mod tests {
                 },
             ),
             (
-                "a state frame",
                 PaneFrame::SetState {
                     state: state.clone(),
                 },
@@ -306,31 +257,30 @@ mod tests {
                 },
             ),
             (
-                "a params frame",
                 PaneFrame::SetParams {
                     params: params.clone(),
                 },
-                HostEvent::ParamsChanged { pane, params },
-            ),
-        ];
-        assert_events(cases);
-    }
-
-    #[test]
-    fn control_frames_become_their_events() {
-        let pane = PaneId::new("p1").unwrap();
-        let command = CommandId::new("palette.open").unwrap();
-        let cases: Vec<Case> = vec![
-            (
-                "a dirty frame",
-                PaneFrame::SetDirty { dirty: true },
-                HostEvent::DirtyChanged {
+                HostEvent::ParamsChanged {
                     pane: pane.clone(),
-                    dirty: true,
+                    params,
                 },
             ),
             (
-                "a command frame",
+                PaneFrame::SetDirty { dirty },
+                HostEvent::DirtyChanged { pane, dirty },
+            ),
+        ]
+    }
+
+    fn command_cases(pane: &PaneId) -> [Case; 2] {
+        let command = CommandId::new("palette.open").unwrap();
+        let files = vec![ViewedFile {
+            path: "src/a.ts".into(),
+            signature: "M||1|0".into(),
+        }];
+        let (pane, viewed) = (pane.clone(), true);
+        [
+            (
                 PaneFrame::RunCommand {
                     command: command.clone(),
                 },
@@ -340,85 +290,53 @@ mod tests {
                 },
             ),
             (
-                "a viewed mark",
                 PaneFrame::ReviewSetViewed {
-                    files: vec![viewed_file()],
-                    viewed: true,
+                    files: files.clone(),
+                    viewed,
                 },
                 HostEvent::ReviewViewedSet {
-                    pane,
-                    files: vec![viewed_file()],
-                    viewed: true,
+                    pane: pane.clone(),
+                    files,
+                    viewed,
                 },
             ),
-        ];
-        assert_events(cases);
+        ]
     }
 
-    #[test]
-    fn a_file_page_s_document_frames_become_their_events() {
-        let pane = PaneId::new("p1").unwrap();
-        let cases: Vec<Case> = vec![
+    fn document_cases(pane: &PaneId) -> [Case; 3] {
+        let (pane, text) = (pane.clone(), String::from("Title\n"));
+        [
             (
-                "a rich view's edit",
-                PaneFrame::DocumentEdit {
-                    text: "Title\n".into(),
-                },
+                PaneFrame::DocumentEdit { text: text.clone() },
                 HostEvent::DocumentEdited {
                     pane: pane.clone(),
-                    text: "Title\n".into(),
+                    text,
                 },
             ),
             (
-                "a rich view's ask for the source",
                 PaneFrame::DocumentShowSource,
                 HostEvent::SourceRequested { pane: pane.clone() },
             ),
             (
-                "a rich view's save",
                 PaneFrame::DocumentSave,
                 HostEvent::DocumentSaveRequested { pane },
             ),
-        ];
-        assert_events(cases);
+        ]
     }
 
-    fn viewed_file() -> protocol::ViewedFile {
-        protocol::ViewedFile {
-            path: "src/a.ts".into(),
-            signature: "M||1|0".into(),
-        }
-    }
-
-    #[test]
-    fn a_page_that_registers_is_reported_mounted_and_one_of_the_wrong_type_is_not() {
-        let mut f = fixture();
-        f.sync(&[instance("p1", "core.chat")], &["p1"], Some("p1"));
-        let wrong = register(&mut f, "p1", "core.term");
-        assert!(wrong.is_empty(), "{wrong:?}");
-        let mut f = fixture();
-        f.sync(&[instance("p1", "core.chat")], &["p1"], Some("p1"));
-        let pane = PaneId::new("p1").unwrap();
-        assert_eq!(
-            register(&mut f, "p1", "core.chat"),
-            [HostEvent::Mounted { pane }]
-        );
-    }
-
-    #[test]
-    fn toast_frames_become_their_events() {
-        let pane = PaneId::new("p1").unwrap();
+    fn toast_cases(pane: &PaneId) -> [Case; 3] {
         let key = DisplayText::new("save").unwrap();
         let toast = protocol::PaneToast {
             key: key.clone(),
             tone: protocol::ToastTone::Error,
             title: DisplayText::new("Save the file").unwrap(),
-            description: Some(DisplayText::new("disk full").unwrap()),
+            description: None,
             pinned: false,
         };
-        let cases: Vec<Case> = vec![
+        let (pane, message) = (pane.clone(), key.clone());
+        let title = Some(DisplayText::new("Not found").unwrap());
+        [
             (
-                "a toast frame",
                 PaneFrame::Toast(toast.clone()),
                 HostEvent::ToastShown {
                     pane: pane.clone(),
@@ -426,28 +344,73 @@ mod tests {
                 },
             ),
             (
-                "a toast close frame",
                 PaneFrame::ToastClose { key: key.clone() },
-                HostEvent::ToastClosed { pane, key },
+                HostEvent::ToastClosed {
+                    pane: pane.clone(),
+                    key,
+                },
             ),
-        ];
-        assert_events(cases);
+            (
+                PaneFrame::OpenRefused {
+                    title: title.clone(),
+                    message: message.clone(),
+                },
+                HostEvent::OpenRefused {
+                    pane,
+                    title,
+                    message,
+                },
+            ),
+        ]
     }
 
     #[test]
-    fn a_refused_open_becomes_its_event() {
-        let title = DisplayText::new("File not found").unwrap();
-        let message = DisplayText::new("src/a.ts").unwrap();
-        let frame = PaneFrame::OpenRefused {
-            title: Some(title.clone()),
-            message: message.clone(),
-        };
-        let expected = HostEvent::OpenRefused {
-            pane: PaneId::new("p1").unwrap(),
-            title: Some(title),
-            message,
-        };
-        assert_events(vec![("a refused open", frame, expected)]);
+    fn each_frame_a_page_posts_becomes_its_event() {
+        let pane = p1();
+        let cases = content_cases(&pane).into_iter().chain(command_cases(&pane));
+        let cases = cases.chain(document_cases(&pane));
+        for (frame, expected) in cases.chain(toast_cases(&pane)) {
+            assert_eq!(
+                post(&mut started(), &encode(&frame).unwrap()),
+                [expected],
+                "{frame:?}"
+            );
+        }
+        let hover = post(
+            &mut started(),
+            r#"{"sdk":1,"kind":"shell.hover","hovered":true}"#,
+        );
+        let pane = p1();
+        assert_eq!(
+            hover,
+            [HostEvent::HoverChanged {
+                pane,
+                hovered: true
+            }],
+            "hover"
+        );
+    }
+
+    #[test]
+    fn a_page_that_registers_is_mounted_and_one_of_the_wrong_type_fails_hidden() {
+        let mut f = started();
+        assert!(!f.host.is_mounted(&p1()), "not before it registers");
+        assert_eq!(
+            register(&mut f, "p1", "core.chat"),
+            [HostEvent::Mounted { pane: p1() }]
+        );
+        assert!(f.host.is_mounted(&p1()), "mounted");
+        let mut f = started();
+        let before = f.calls();
+        assert!(
+            register(&mut f, "p1", "core.term").is_empty(),
+            "the wrong type"
+        );
+        assert_eq!(f.view_calls(before), ["hide"], "web view hidden");
+        assert!(
+            lifecycle_events(&f.mock).is_empty() && !f.host.is_mounted(&p1()),
+            "never mounted"
+        );
     }
 
     #[test]
@@ -455,95 +418,48 @@ mod tests {
         let mut f = fixture();
         let panes = [instance("p1", "core.chat"), instance("p2", "core.chat")];
         f.sync(&panes, &["p1"], Some("p1"));
+        let text = encode(&PaneFrame::SetDirty { dirty: true }).unwrap();
         let stale = IpcMessage {
             pane: PaneId::new("p2").unwrap(),
-            text: "{}".into(),
+            text,
         };
         assert!(f.ipc(stale).is_empty(), "p2 has no web view; ignored");
-        assert_eq!(
-            f.host.display(&PaneId::new("p2").unwrap()),
-            PaneDisplay::Empty,
-            "p2 untouched"
-        );
     }
 
     #[test]
-    fn a_page_that_registers_the_wrong_type_fails_inside_its_own_frame() {
-        let mut f = fixture();
-        f.sync(&[instance("p1", "core.chat")], &["p1"], Some("p1"));
-        register(&mut f, "p1", "core.term");
-        assert!(
-            matches!(
-                f.host.display(&PaneId::new("p1").unwrap()),
-                PaneDisplay::Error { .. }
-            ),
-            "error display"
-        );
-        assert!(
-            matches!(
-                f.mock.calls().last(),
-                Some(Call::SetVisibility {
-                    visibility: Visibility::Hidden,
-                    ..
+    fn a_page_takes_native_focus_on_activation_only_while_the_keyboard_is_the_pages() {
+        let cases = [
+            (Keyboard::Pane, ["focus"]),
+            (Keyboard::Shell, ["focus_parent"]),
+        ];
+        for (keyboard, wanted) in cases {
+            let mut f = fixture();
+            let panes = [instance("p1", "core.chat"), instance("p2", "core.chat")];
+            f.mount(&panes, Some("p1"));
+            let before = f.calls();
+            f.sync_with(&panes, &["p1", "p2"], (Some("p2"), keyboard));
+            assert_eq!(f.focus_calls(before), wanted, "{keyboard:?}");
+        }
+    }
+
+    #[test]
+    fn a_chat_learns_whether_it_fills_its_group_on_mount_and_on_each_change_only() {
+        let groups = |f: &Fixture| -> Vec<bool> {
+            let frames = frames_sent(&f.mock).into_iter();
+            frames
+                .filter_map(|frame| match frame {
+                    ShellFrame::Group { chat_fills } => Some(chat_fills),
+                    _ => None,
                 })
-            ),
-            "web view hidden"
-        );
-        assert!(lifecycle_events(&f.mock).is_empty(), "never mounted");
-    }
-
-    #[test]
-    fn extension_panes_get_their_own_web_view_kind_and_react_to_status() {
-        let mut f = fixture();
-        let review = instance("r", "ext.git.review");
-        f.sync(&[review], &["r"], Some("r"));
-        let git = ExtensionId::new("git").unwrap();
-        assert!(
-            matches!(&f.mock.calls()[0], Call::Create { kind: webview::Kind::Extension(e), .. } if e.as_str() == git.as_str()),
-            "extension view"
-        );
-        register(&mut f, "r", "ext.git.review");
-        let down = ExtensionStatus::new(
-            git.clone(),
-            StatusKind::Unavailable,
-            Some(DisplayText::new("crashed").unwrap()),
-        );
-        f.host.extension_status(&down, &f.layout).unwrap();
-        assert_eq!(
-            f.host.display(&PaneId::new("r").unwrap()),
-            PaneDisplay::Error {
-                message: "crashed".into()
-            },
-            "error in frame"
-        );
-        let back = ExtensionStatus::new(git, StatusKind::Back, None);
-        f.host.extension_status(&back, &f.layout).unwrap();
-        assert_eq!(
-            f.host.display(&PaneId::new("r").unwrap()),
-            PaneDisplay::Web,
-            "recovered"
-        );
-        let mounts = lifecycle_events(&f.mock)
-            .iter()
-            .filter(|e| **e == Lifecycle::Mount)
-            .count();
-        assert_eq!(mounts, 2, "mount re-sent with the saved state");
-    }
-
-    #[test]
-    fn the_pointer_report_becomes_a_hover_event() {
-        let mut f = started();
-        let report = IpcMessage {
-            pane: PaneId::new("p1").unwrap(),
-            text: r#"{"sdk":1,"kind":"shell.hover","hovered":true}"#.into(),
+                .collect()
         };
-        assert_eq!(
-            f.ipc(report),
-            [HostEvent::HoverChanged {
-                pane: PaneId::new("p1").unwrap(),
-                hovered: true
-            }],
-            "hover"
-        );
+        let mut f = fixture();
+        let (chat, tab) = (instance("p1", "core.chat"), instance("t1", "core.term"));
+        f.mount(std::slice::from_ref(&chat), Some("p1"));
+        assert_eq!(groups(&f), [true], "alone, on mount");
+        f.sync(std::slice::from_ref(&chat), &["p1"], Some("p1"));
+        assert_eq!(groups(&f), [true], "nothing changed, nothing sent");
+        f.sync(&[chat, tab], &["p1", "t1"], Some("t1"));
+        assert_eq!(groups(&f), [true, false], "an editor tab joined");
     }
 }

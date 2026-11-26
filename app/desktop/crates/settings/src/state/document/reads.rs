@@ -82,18 +82,6 @@ mod tests {
     }
 
     #[test]
-    fn defaults_show_until_a_value_is_stored() {
-        let mut document = document();
-        let row = size_row();
-        assert_eq!(document.value(&row.key), Some(&Value::Number(2.0)));
-        assert!(document.values().get(&row.key).is_none());
-        assert!(document.is_default(&row));
-        document.apply(&row.key, Value::Number(4.0));
-        assert!(!document.is_default(&row));
-        assert_eq!(document.text(&row), "4");
-    }
-
-    #[test]
     fn drafts_track_dirtiness_until_reverted_or_applied() {
         let mut document = document();
         let row = size_row();

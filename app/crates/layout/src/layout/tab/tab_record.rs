@@ -21,51 +21,36 @@ pub(crate) struct TabRecord {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
+    use serde_json::{Value, json};
 
     use crate::layout::tab::Tab;
 
+    fn leaf(member: &str) -> Value {
+        json!({"node": "leaf", "chat": null, "tabs": [member], "active": member, "pinned": 0,
+            "editorOpen": true, "chatSelected": false})
+    }
+
     fn stored(
-        tree: &serde_json::Value,
-        focused: &serde_json::Value,
-    ) -> serde_json::Value {
-        json!({
-            "id": 1,
-            "title": "t",
-            "space": "",
-            "panes": {"a": {"paneId": "a", "type": "core.terminal", "params": {}, "state": null}},
-            "tree": tree,
-            "focused": focused,
-        })
+        tree: &Value,
+        focused: &Value,
+    ) -> Value {
+        let pane = json!({"paneId": "a", "type": "core.terminal", "params": {}, "state": null});
+        json!({"id": 1, "title": "t", "space": "", "panes": {"a": pane}, "tree": tree,
+            "focused": focused})
     }
 
     #[test]
-    fn a_consistent_record_becomes_a_tab() {
-        let record = stored(
-            &json!({"node": "leaf", "chat": null, "tabs": ["a"], "active": "a", "pinned": 0, "editorOpen": true, "chatSelected": false}),
-            &json!("a"),
-        );
-        let tab: Tab = serde_json::from_value(record).unwrap();
-        assert_eq!(tab.len(), 1);
-    }
-
-    #[test]
-    fn a_record_that_breaks_a_tab_invariant_is_refused() {
-        let leaf = json!({"node": "leaf", "chat": null, "tabs": ["a"], "active": "a", "pinned": 0, "editorOpen": true, "chatSelected": false});
+    fn only_a_record_that_keeps_the_tab_invariants_becomes_a_tab() {
         let cases = [
-            ("tree missing", stored(&json!(null), &json!("a"))),
-            ("focus on nothing", stored(&leaf, &json!(null))),
-            ("focus elsewhere", stored(&leaf, &json!("zz"))),
-            (
-                "leaf without a pane",
-                stored(
-                    &json!({"node": "leaf", "chat": null, "tabs": ["zz"], "active": "zz", "pinned": 0, "editorOpen": true, "chatSelected": false}),
-                    &json!("a"),
-                ),
-            ),
+            ("consistent", stored(&leaf("a"), &json!("a")), true),
+            ("tree missing", stored(&json!(null), &json!("a")), false),
+            ("focus on nothing", stored(&leaf("a"), &json!(null)), false),
+            ("focus elsewhere", stored(&leaf("a"), &json!("zz")), false),
+            ("leaf without a pane", stored(&leaf("zz"), &json!("a")), false),
         ];
-        for (name, record) in cases {
-            assert!(serde_json::from_value::<Tab>(record).is_err(), "{name}");
+        for (name, record, loads) in cases {
+            let tab = serde_json::from_value::<Tab>(record);
+            assert_eq!(tab.map(|tab| tab.len()).ok(), loads.then_some(1), "{name}");
         }
     }
 }

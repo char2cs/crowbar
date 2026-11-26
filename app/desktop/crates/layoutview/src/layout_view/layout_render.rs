@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use gpui::{
-    AnyElement, App, Context, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
+    AnyElement, App, Context, Hsla, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
     ParentElement, Render, Styled, Window, canvas, div, px,
 };
 use layout::{Axis, DragSubject, Sash as ModelSash};
@@ -10,7 +10,6 @@ use ui::{DraggedRow, Motion, Portal, Sash, SashDrag, Surface, Theme, Wordmark};
 
 use crate::geometry::pane_frame::PaneFrame;
 use crate::layout_view::LayoutView;
-use crate::layout_view::drag::drop_preview::drop_preview;
 use crate::layout_view::hover_source::HoverSource;
 use crate::layout_view::pane::pane_cell::pane_box;
 use crate::layout_view::pane::pane_handle::PaneHandle;
@@ -19,6 +18,9 @@ use ideshell::STRIP_HEIGHT;
 const LOGO_SHARE: f32 = 0.14;
 const LOGO_MIN_WIDTH: f32 = 96.0;
 const LOGO_MAX_WIDTH: f32 = 148.0;
+const PREVIEW_BORDER: f32 = 2.0;
+const PREVIEW_FILL: f32 = 0.14;
+const PREVIEW_RING: f32 = 0.25;
 
 impl Render for LayoutView {
     fn render(
@@ -26,7 +28,7 @@ impl Render for LayoutView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
-        let (now, motion) = (self.clock.now(), Motion::of(cx));
+        let (now, motion) = ((self.clock)(), Motion::of(cx));
         let busy = self.rings.is_running(now, motion)
             || self.handles.is_running(now, motion)
             || self.drop.is_running(now, motion);
@@ -155,7 +157,7 @@ impl LayoutView {
         &self,
         cx: &App,
     ) -> Option<AnyElement> {
-        let rect = self.drop.preview(self.clock.now(), Motion::of(cx))?;
+        let rect = self.drop.preview((self.clock)(), Motion::of(cx))?;
         let accent = Theme::of(cx).palette(Surface::Window).secondary();
         let preview = Portal::here("drop-preview", move |_, _| {
             ui::Shaped::seen(drop_preview(rect, accent), ui::radius::LG)
@@ -172,19 +174,70 @@ fn ui_axis(axis: Axis) -> ui::Axis {
     }
 }
 
+fn drop_preview(
+    rect: Rect,
+    accent: Hsla,
+) -> gpui::Div {
+    div()
+        .absolute()
+        .left(px(rect.x))
+        .top(px(rect.y))
+        .w(px(rect.width))
+        .h(px(rect.height))
+        .child(tinted(accent))
+}
+
+fn tinted(accent: Hsla) -> gpui::Div {
+    div()
+        .debug_selector(|| "drop-preview".into())
+        .absolute()
+        .size_full()
+        .rounded(ui::radius::LG)
+        .border(px(PREVIEW_BORDER))
+        .border_color(accent)
+        .bg(accent.opacity(PREVIEW_FILL))
+        .shadow(vec![gpui::BoxShadow {
+            color: accent.opacity(PREVIEW_RING),
+            offset: gpui::point(px(0.0), px(0.0)),
+            blur_radius: px(0.0),
+            spread_radius: px(1.0),
+            inset: false,
+        }])
+}
+
 #[cfg(test)]
 mod tests {
-    use layout::Axis;
+    use gpui::{Bounds, TestAppContext, point, red, size};
+    use layout::Rect;
 
     use super::*;
 
-    #[test]
-    fn model_axes_map_to_the_matching_sash_axes() {
-        assert_eq!(
-            ui_axis(Axis::Horizontal),
-            ui::Axis::Horizontal,
-            "side by side"
-        );
-        assert_eq!(ui_axis(Axis::Vertical), ui::Axis::Vertical, "stacked");
+    struct Shown;
+
+    impl Render for Shown {
+        fn render(
+            &mut self,
+            _: &mut Window,
+            _: &mut Context<'_, Self>,
+        ) -> impl IntoElement {
+            let rect = Rect {
+                x: 10.0,
+                y: 20.0,
+                width: 60.0,
+                height: 30.0,
+            };
+            div()
+                .relative()
+                .size_full()
+                .child(drop_preview(rect, red()))
+        }
+    }
+
+    #[gpui::test]
+    fn the_preview_tints_exactly_the_rectangle_it_is_given(cx: &mut TestAppContext) {
+        let (_, window) = cx.add_window_view(|_, _| Shown);
+        window.run_until_parked();
+        let expected = Bounds::new(point(px(10.0), px(20.0)), size(px(60.0), px(30.0)));
+        assert_eq!(window.debug_bounds("drop-preview"), Some(expected));
     }
 }

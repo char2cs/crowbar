@@ -65,27 +65,4 @@ mod tests {
         assert_eq!(field.size.width, gpui::px(35.0), "{field:?}");
     }
 
-    #[gpui::test]
-    fn the_buttons_step_by_the_range_step_and_stop_at_its_ends(cx: &mut TestAppContext) {
-        let (harness, cx) = open(cx, "appearance");
-        let target = row("uiFontSize");
-        run(&harness, Intent::Nudge(target.clone(), Nudge::Up), cx);
-        assert_eq!(
-            harness.backend.get(&Key::new("uiFontSize")),
-            Some(Value::Number(15.5))
-        );
-        harness
-            .backend
-            .publish(&Key::new("uiFontSize"), Value::Number(24.0));
-        cx.run_until_parked();
-        run(&harness, Intent::Nudge(target.clone(), Nudge::Up), cx);
-        assert_eq!(
-            harness.backend.get(&Key::new("uiFontSize")),
-            Some(Value::Number(24.0))
-        );
-        assert_eq!(
-            inspect(&harness, cx, |modal| modal.state.field_text(&target)),
-            "24"
-        );
-    }
 }

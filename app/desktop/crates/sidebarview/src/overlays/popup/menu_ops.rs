@@ -163,14 +163,6 @@ mod tests {
     }
 
     #[gpui::test]
-    fn escape_closes_the_menu(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoShell::reference());
-        show(&sidebar, cx);
-        sidebar.update_in(cx, |this, window, cx| this.menu_key("escape", window, cx));
-        assert!(sidebar.read_with(cx, |this, _| this.menu.is_none()));
-    }
-
-    #[gpui::test]
     fn arrows_skip_separators_and_enter_applies_the_entry(cx: &mut TestAppContext) {
         let (_, sidebar, cx) = open(cx, DemoShell::reference());
         show(&sidebar, cx);
@@ -190,12 +182,5 @@ mod tests {
             this.choose(Intent::StartRename(RowId::from("chat")), window, cx);
         });
         assert!(sidebar.read_with(cx, |this, _| this.menu.is_none() && this.inline.is_some()));
-    }
-
-    #[gpui::test]
-    fn highlight_without_a_menu_is_ignored(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoShell::reference());
-        sidebar.update(cx, |this, cx| this.highlight(Some(1), cx));
-        assert!(sidebar.read_with(cx, |this, _| this.menu.is_none()));
     }
 }

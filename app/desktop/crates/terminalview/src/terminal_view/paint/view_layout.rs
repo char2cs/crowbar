@@ -19,9 +19,8 @@ impl ViewLayout {
     pub(crate) fn new(
         bounds: Bounds<Pixels>,
         cell: (f32, f32),
-        inset: f32,
     ) -> Self {
-        let width = (f32::from(bounds.size.width) - inset - SCROLLBAR_WIDTH).max(0.0);
+        let width = (f32::from(bounds.size.width) - LEFT_INSET - SCROLLBAR_WIDTH).max(0.0);
         let height = f32::from(bounds.size.height);
         let (columns, lines) = CellMetrics::fit(cell.0, cell.1, width, height);
         let metrics = CellMetrics {
@@ -35,14 +34,10 @@ impl ViewLayout {
             size(px(SCROLLBAR_WIDTH), px(whole_lines(metrics, height))),
         );
         Self {
-            origin: bounds.origin + point(px(inset), px(0.0)),
+            origin: bounds.origin + point(px(LEFT_INSET), px(0.0)),
             metrics,
             track,
         }
-    }
-
-    pub(crate) fn default_inset() -> f32 {
-        LEFT_INSET
     }
 
     pub(crate) fn thumb_bounds(
@@ -82,7 +77,7 @@ mod tests {
     #[test]
     fn the_grid_fits_between_the_inset_and_the_scrollbar() {
         let bounds = Bounds::new(point(px(100.0), px(50.0)), size(px(430.0), px(410.0)));
-        let layout = ViewLayout::new(bounds, (8.0, 16.0), ViewLayout::default_inset());
+        let layout = ViewLayout::new(bounds, (8.0, 16.0));
         assert_eq!((layout.metrics.columns, layout.metrics.lines), (50, 25));
         assert_eq!(layout.origin, point(px(116.0), px(50.0)));
         assert_eq!(layout.track.size.width, px(14.0), "xterm 6's scrollbar");
@@ -98,12 +93,6 @@ mod tests {
             (px(519.0), px(8.0)),
             "the app's 3px inset thumb"
         );
-    }
-
-    #[test]
-    fn local_coordinates_are_relative_to_the_grid() {
-        let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(300.0), px(100.0)));
-        let layout = ViewLayout::new(bounds, (8.0, 16.0), 0.0);
-        assert_eq!(layout.local(point(px(24.0), px(32.0))), (24.0, 32.0));
+        assert_eq!(layout.local(point(px(140.0), px(82.0))), (24.0, 32.0));
     }
 }

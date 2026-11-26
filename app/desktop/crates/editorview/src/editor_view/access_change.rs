@@ -33,11 +33,8 @@ mod tests {
         for (access, expected) in cases {
             window.update(|_, cx| view.update(cx, |view, cx| view.set_access(access, cx)));
             window.simulate_input("x");
-            assert_eq!(
-                window.read(|cx| view.read(cx).text(cx)),
-                expected,
-                "{access:?}"
-            );
+            let text = window.read(|cx| view.read(cx).text(cx));
+            assert_eq!(text, expected, "{access:?}");
         }
     }
 }

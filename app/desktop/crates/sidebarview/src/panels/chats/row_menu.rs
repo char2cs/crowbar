@@ -184,42 +184,26 @@ mod tests {
         (row, MenuContext::default())
     }
 
-    fn chat() -> (Row, MenuContext) {
-        let row = Row::new("c", RowKind::Chat, 2, "hi");
-        let target = MoveTarget {
+    fn chat(
+        pending_move: Option<&str>,
+        running: Option<&str>,
+    ) -> (Row, MenuContext) {
+        let mut row = Row::new("c", RowKind::Chat, 2, "hi");
+        row.pending_move = pending_move.map(str::to_owned);
+        let context = MenuContext {
+            running: running.map(str::to_owned),
+            ..MenuContext::default()
+        };
+        (row, context)
+    }
+
+    fn chat_with_a_target() -> (Row, MenuContext) {
+        let (row, mut context) = chat(None, None);
+        context.targets = vec![MoveTarget {
             id: RowId::from("f"),
             label: "src".into(),
             kind: RowKind::Folder,
-        };
-        let context = MenuContext {
-            targets: vec![target],
-            running: None,
-        };
-        (row, context)
-    }
-
-    fn moving_chat() -> (Row, MenuContext) {
-        let mut row = Row::new("c", RowKind::Chat, 2, "hi");
-        row.pending_move = Some("src".into());
-        (row, MenuContext::default())
-    }
-
-    fn running_chat() -> (Row, MenuContext) {
-        let row = Row::new("c", RowKind::Chat, 2, "hi");
-        let context = MenuContext {
-            running: Some("hi".into()),
-            ..MenuContext::default()
-        };
-        (row, context)
-    }
-
-    fn running_moving_chat() -> (Row, MenuContext) {
-        let mut row = Row::new("c", RowKind::Chat, 2, "hi");
-        row.pending_move = Some("src".into());
-        let context = MenuContext {
-            running: Some("hi".into()),
-            ..MenuContext::default()
-        };
+        }];
         (row, context)
     }
 
@@ -253,22 +237,22 @@ mod tests {
         ),
         (
             "chats offer move and branching in order",
-            chat,
+            chat_with_a_target,
             &["Rename", "New folder", "Move to…", "Make a branch"],
         ),
         (
             "a running agent can be killed",
-            running_chat,
+            || chat(None, Some("hi")),
             &["Rename", "New folder", "Make a branch", "---", "Kill agent"],
         ),
         (
             "cancel move comes before the kill, which sits apart",
-            running_moving_chat,
+            || chat(Some("src"), Some("hi")),
             &["Rename", "New folder", "Cancel move", "---", "Kill agent"],
         ),
         (
             "a pending move replaces make a branch with cancel",
-            moving_chat,
+            || chat(Some("src"), None),
             &["Rename", "New folder", "Cancel move"],
         ),
     ];
@@ -283,7 +267,7 @@ mod tests {
 
     #[test]
     fn move_to_lists_the_destinations() {
-        let (row, context) = chat();
+        let (row, context) = chat_with_a_target();
         let entries = row_menu(&row, &context);
         let MenuEntry::Submenu {
             entries: targets, ..

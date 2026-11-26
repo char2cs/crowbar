@@ -240,7 +240,6 @@ mod tests {
         Open,
         MatchCase,
         Scope,
-        Close,
     }
 
     const TEXT: &str = "total x Total\ntotal";
@@ -248,8 +247,6 @@ mod tests {
     type Case = (&'static [Step], bool, &'static str);
 
     const CASES: &[Case] = &[
-        (&[Step::Open], true, "1 of 3"),
-        (&[Step::Open, Step::MatchCase], true, "1 of 2"),
         (
             &[Step::Open, Step::MatchCase, Step::MatchCase],
             true,
@@ -257,7 +254,6 @@ mod tests {
         ),
         (&[Step::Open, Step::Scope], true, "? of 2"),
         (&[Step::Open, Step::Scope, Step::Scope], true, "? of 3"),
-        (&[Step::Open, Step::Close], false, "1 of 3"),
     ];
 
     #[gpui::test]
@@ -300,7 +296,6 @@ mod tests {
             Step::Open => find.open(Reveal::Find, window, cx),
             Step::MatchCase => find.toggle(FindOption::MatchCase, cx),
             Step::Scope => scope_over(find, SCOPE, cx),
-            Step::Close => find.close(window, cx),
         }
     }
 

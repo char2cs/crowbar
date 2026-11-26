@@ -175,11 +175,7 @@ mod tests {
     use protocol::PaneTitle;
 
     use super::*;
-
-    fn saves_asked(mock: &webview::MockPlatform) -> usize {
-        let asks = |call: &&webview::Call| matches!(call, webview::Call::Eval { script, .. } if script.contains("pane.save"));
-        mock.calls().iter().filter(asks).count()
-    }
+    use crate::shell::shell_view::test_support::{keys_of, saves_asked};
 
     #[gpui::test]
     fn ctrl_shift_s_asks_every_unsaved_pane_to_save(cx: &mut gpui::TestAppContext) {
@@ -191,9 +187,7 @@ mod tests {
         let before = saves_asked(&opened.mock);
         opened
             .window
-            .simulate_keystrokes(&crate::shell::shell_view::test_support::keys_of(
-                keymap::ShellCommand::SaveAll,
-            ));
+            .simulate_keystrokes(&keys_of(keymap::ShellCommand::SaveAll));
         opened.window.run_until_parked();
         assert_eq!(saves_asked(&opened.mock) - before, 1, "the dirty chat page");
     }

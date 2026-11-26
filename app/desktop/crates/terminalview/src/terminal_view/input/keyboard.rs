@@ -124,22 +124,17 @@ mod tests {
 
     use crate::terminal_view::TerminalView;
     use crate::terminal_view::event::Event;
-    use crate::test_support::{feed, first_row, focus, open, record_events, typed};
+    use crate::test_support::{feed, focus, open, record_events, typed};
 
     #[gpui::test]
-    fn typing_goes_to_the_daemon_as_input(cx: &mut TestAppContext) {
+    fn typing_goes_to_the_daemon_in_terminal_encodings(cx: &mut TestAppContext) {
+        let cases = [("l s enter", "ls\r"), ("ctrl-c up", "\x03\x1b[A")];
         let (harness, cx) = open(cx);
         focus(&harness, cx);
-        cx.simulate_keystrokes("l s enter");
-        assert!(typed(&harness).ends_with("ls\r"));
-    }
-
-    #[gpui::test]
-    fn control_keys_and_arrows_use_terminal_encodings(cx: &mut TestAppContext) {
-        let (harness, cx) = open(cx);
-        focus(&harness, cx);
-        cx.simulate_keystrokes("ctrl-c up");
-        assert!(typed(&harness).ends_with("\x03\x1b[A"));
+        for (keystrokes, expected) in cases {
+            cx.simulate_keystrokes(keystrokes);
+            assert!(typed(&harness).ends_with(expected), "{keystrokes}");
+        }
     }
 
     #[gpui::test]
@@ -165,6 +160,5 @@ mod tests {
             .view
             .read_with(cx, |view, _| view.terminal.snapshot().history_size);
         assert_eq!(history, 0);
-        assert!(!first_row(&harness, cx).is_empty() || history == 0);
     }
 }

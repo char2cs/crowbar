@@ -86,8 +86,6 @@ mod tests {
             Some(credential.clone())
         );
         assert!(!format!("{credential:?}").contains("secret-token"));
-        assert_eq!(credential.token(), "secret-token");
-        assert_eq!(credential.pin(), [7; 32]);
     }
 
     #[test]

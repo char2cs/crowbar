@@ -16,8 +16,7 @@ pub const TOP_ROW_HEIGHT: f32 = 42.0;
 /// the user drags the sash.
 pub const DEFAULT_CHAT_SHARE: f32 = 0.45;
 
-/// Below this many pixels on its longer side a group shows chat and editor one at a time.
-pub const SIDE_BY_SIDE_MIN: f32 = 780.0;
+pub(crate) const SIDE_BY_SIDE_MIN: f32 = 780.0;
 
 const SEAM: f32 = 1.0;
 
@@ -25,18 +24,12 @@ const SEAM: f32 = 1.0;
 /// hidden is `None`; the chat and the editor stay open while hidden.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Presentation {
-    /// How chat and editor are arranged.
-    pub mode: ViewMode,
-    /// The chat-only header, drawn over the top of the chat when the chat fills the group.
-    pub chat_header: Option<Rect>,
     /// The tab bar: across the group when one view shows, else at the top of the editor.
     pub tab_bar: Option<Rect>,
     /// Whether the tab bar leads with a tab for the chat.
     pub chat_tab: bool,
     /// The chat view.
     pub chat: Option<Rect>,
-    /// The sash between the chat and the editor.
-    pub sash: Option<Rect>,
     /// The editor view, below its tab bar.
     pub editor: Option<Rect>,
     /// The 1 px line on the editor's edge facing the chat when both show together.
@@ -55,10 +48,11 @@ impl Presentation {
     ) -> Self {
         let mode = mode_of(group, area);
         if group.chat().is_none() {
-            return Self::editor_only(mode, area);
+            let (row, rest) = cut_top(area, TOP_ROW_HEIGHT);
+            return Self::parts(Some(row), None, Some(rest));
         }
         if group.tabs().is_empty() && !group.editor_open() {
-            return Self::chat_only(mode, area);
+            return Self::parts(None, Some(area), None);
         }
         if mode == ViewMode::Tabs {
             return Self::one_at_a_time(group, area);
@@ -66,36 +60,16 @@ impl Presentation {
         Self::together(mode, area, side, chat_share)
     }
 
-    fn editor_only(
-        mode: ViewMode,
-        area: Rect,
+    fn parts(
+        tab_bar: Option<Rect>,
+        chat: Option<Rect>,
+        editor: Option<Rect>,
     ) -> Self {
-        let (row, rest) = cut_top(area, TOP_ROW_HEIGHT);
         Self {
-            mode,
-            chat_header: None,
-            tab_bar: Some(row),
+            tab_bar,
             chat_tab: false,
-            chat: None,
-            sash: None,
-            editor: Some(rest),
-            seam: None,
-        }
-    }
-
-    fn chat_only(
-        mode: ViewMode,
-        area: Rect,
-    ) -> Self {
-        let (row, _) = cut_top(area, TOP_ROW_HEIGHT);
-        Self {
-            mode,
-            chat_header: Some(row),
-            tab_bar: None,
-            chat_tab: false,
-            chat: Some(area),
-            sash: None,
-            editor: None,
+            chat,
+            editor,
             seam: None,
         }
     }
@@ -107,14 +81,12 @@ impl Presentation {
         let (row, rest) = cut_top(area, TOP_ROW_HEIGHT);
         let chat_shows = group.chat_selected();
         Self {
-            mode: ViewMode::Tabs,
-            chat_header: None,
-            tab_bar: Some(row),
             chat_tab: true,
-            chat: chat_shows.then_some(rest),
-            sash: None,
-            editor: (!chat_shows).then_some(rest),
-            seam: None,
+            ..Self::parts(
+                Some(row),
+                chat_shows.then_some(rest),
+                (!chat_shows).then_some(rest),
+            )
         }
     }
 
@@ -126,33 +98,25 @@ impl Presentation {
     ) -> Self {
         if mode == ViewMode::SideBySide && side == SidebarSide::Right {
             let parts = divide(area, Axis::Horizontal, 1.0 - chat_share);
-            return Self::split(mode, parts.second, parts.sash, parts.first);
+            return Self::split(parts.second, parts.first);
         }
         let axis = match mode {
             ViewMode::Stacked => Axis::Vertical,
             ViewMode::SideBySide | ViewMode::Tabs => Axis::Horizontal,
         };
         let parts = divide(area, axis, chat_share);
-        Self::split(mode, parts.first, parts.sash, parts.second)
+        Self::split(parts.first, parts.second)
     }
 
     fn split(
-        mode: ViewMode,
         chat: Rect,
-        sash: Rect,
         editor_box: Rect,
     ) -> Self {
         let (seam, editor_box) = cut_seam(editor_box, chat);
         let (row, editor) = cut_top(editor_box, TOP_ROW_HEIGHT);
         Self {
-            mode,
-            chat_header: None,
-            tab_bar: Some(row),
-            chat_tab: false,
-            chat: Some(chat),
-            sash: Some(sash),
-            editor: Some(editor),
             seam: Some(seam),
+            ..Self::parts(Some(row), Some(chat), Some(editor))
         }
     }
 }
@@ -230,10 +194,10 @@ fn cut_top(
 
 #[cfg(test)]
 mod tests {
-    use protocol::{PaneId, PaneState, PaneTypeId, Params};
+    use protocol::PaneId;
 
     use super::*;
-    use crate::layout::tab::pane_instance::PaneInstance;
+    use crate::test_support::tab_fixtures::pane;
 
     const fn at(
         (x, y): (f32, f32),
@@ -248,12 +212,7 @@ mod tests {
     }
 
     fn chat() -> PaneGroup {
-        PaneGroup::holding(&PaneInstance {
-            pane_id: PaneId::new("c").unwrap(),
-            type_id: PaneTypeId::new(PaneTypeId::CHAT).unwrap(),
-            params: Params::default(),
-            state: PaneState::default(),
-        })
+        PaneGroup::holding(&pane("c"))
     }
 
     fn with_tab() -> PaneGroup {
@@ -280,138 +239,92 @@ mod tests {
         PaneGroup::single(PaneId::new("t").unwrap())
     }
 
-    struct Case {
-        name: &'static str,
-        group: fn() -> PaneGroup,
-        size: (f32, f32),
-        side: SidebarSide,
-        expected: Presentation,
-    }
-
     const NOTHING: Presentation = Presentation {
-        mode: ViewMode::Tabs,
-        chat_header: None,
         tab_bar: None,
         chat_tab: false,
         chat: None,
-        sash: None,
         editor: None,
         seam: None,
     };
 
+    const BAR: Rect = at((0.0, 0.0), (1200.0, TOP_ROW_HEIGHT));
+    const SMALL_BAR: Rect = at((0.0, 0.0), (640.0, TOP_ROW_HEIGHT));
+
+    /// A case, its group, area and sidebar side, and where the parts go.
+    type Case = (&'static str, fn() -> PaneGroup, (f32, f32), SidebarSide, Presentation);
+
     const CASES: &[Case] = &[
-        Case {
-            name: "a lone chat fills the group under its own header",
-            group: chat,
-            size: (1200.0, 800.0),
-            side: SidebarSide::Left,
-            expected: Presentation {
-                chat_header: Some(at((0.0, 0.0), (1200.0, TOP_ROW_HEIGHT))),
-                chat: Some(at((0.0, 0.0), (1200.0, 800.0))),
-                ..NOTHING
-            },
-        },
-        Case {
-            name: "wide: the chat beside a left sidebar, the editor under its tab bar",
-            group: with_tab,
-            size: (1206.0, 800.0),
-            side: SidebarSide::Left,
-            expected: Presentation {
-                mode: ViewMode::SideBySide,
-                chat: Some(at((0.0, 0.0), (600.0, 800.0))),
-                sash: Some(at((600.0, 0.0), (6.0, 800.0))),
-                seam: Some(at((606.0, 0.0), (1.0, 800.0))),
-                tab_bar: Some(at((607.0, 0.0), (599.0, TOP_ROW_HEIGHT))),
-                editor: Some(at((607.0, 42.0), (599.0, 758.0))),
-                ..NOTHING
-            },
-        },
-        Case {
-            name: "wide: the chat beside a right sidebar",
-            group: with_tab,
-            size: (1206.0, 800.0),
-            side: SidebarSide::Right,
-            expected: Presentation {
-                mode: ViewMode::SideBySide,
-                tab_bar: Some(at((0.0, 0.0), (599.0, TOP_ROW_HEIGHT))),
-                editor: Some(at((0.0, 42.0), (599.0, 758.0))),
-                seam: Some(at((599.0, 0.0), (1.0, 800.0))),
-                sash: Some(at((600.0, 0.0), (6.0, 800.0))),
-                chat: Some(at((606.0, 0.0), (600.0, 800.0))),
-                ..NOTHING
-            },
-        },
-        Case {
-            name: "tall: the chat stacked on top whatever the sidebar side",
-            group: with_tab,
-            size: (800.0, 1206.0),
-            side: SidebarSide::Right,
-            expected: Presentation {
-                mode: ViewMode::Stacked,
-                chat: Some(at((0.0, 0.0), (800.0, 600.0))),
-                sash: Some(at((0.0, 600.0), (800.0, 6.0))),
-                seam: Some(at((0.0, 606.0), (800.0, 1.0))),
-                tab_bar: Some(at((0.0, 607.0), (800.0, TOP_ROW_HEIGHT))),
-                editor: Some(at((0.0, 649.0), (800.0, 557.0))),
-                ..NOTHING
-            },
-        },
-        Case {
-            name: "small: the selected editor tab under a tab bar with a chat tab",
-            group: with_tab,
-            size: (640.0, 480.0),
-            side: SidebarSide::Left,
-            expected: Presentation {
-                tab_bar: Some(at((0.0, 0.0), (640.0, TOP_ROW_HEIGHT))),
-                chat_tab: true,
-                editor: Some(at((0.0, 42.0), (640.0, 438.0))),
-                ..NOTHING
-            },
-        },
-        Case {
-            name: "small: the selected chat under the same tab bar",
-            group: chat_picked,
-            size: (640.0, 480.0),
-            side: SidebarSide::Left,
-            expected: Presentation {
-                tab_bar: Some(at((0.0, 0.0), (640.0, TOP_ROW_HEIGHT))),
-                chat_tab: true,
-                chat: Some(at((0.0, 42.0), (640.0, 438.0))),
-                ..NOTHING
-            },
-        },
-        Case {
-            name: "a closed editor keeps its tabs behind the chat tab",
-            group: editor_closed,
-            size: (1200.0, 800.0),
-            side: SidebarSide::Left,
-            expected: Presentation {
-                tab_bar: Some(at((0.0, 0.0), (1200.0, TOP_ROW_HEIGHT))),
-                chat_tab: true,
-                chat: Some(at((0.0, 42.0), (1200.0, 758.0))),
-                ..NOTHING
-            },
-        },
-        Case {
-            name: "a group without a chat is its tab bar and editor",
-            group: chatless,
-            size: (1200.0, 800.0),
-            side: SidebarSide::Left,
-            expected: Presentation {
-                mode: ViewMode::SideBySide,
-                tab_bar: Some(at((0.0, 0.0), (1200.0, TOP_ROW_HEIGHT))),
-                editor: Some(at((0.0, 42.0), (1200.0, 758.0))),
-                ..NOTHING
-            },
-        },
+        (
+            "a lone chat fills the group",
+            chat, (1200.0, 800.0), SidebarSide::Left, Presentation {
+            chat: Some(at((0.0, 0.0), (1200.0, 800.0))),
+            ..NOTHING
+        }),
+        (
+            "wide: the chat beside a left sidebar, the editor under its tab bar",
+            with_tab, (1206.0, 800.0), SidebarSide::Left, Presentation {
+            chat: Some(at((0.0, 0.0), (600.0, 800.0))),
+            seam: Some(at((606.0, 0.0), (1.0, 800.0))),
+            tab_bar: Some(at((607.0, 0.0), (599.0, TOP_ROW_HEIGHT))),
+            editor: Some(at((607.0, 42.0), (599.0, 758.0))),
+            ..NOTHING
+        }),
+        (
+            "wide: the chat beside a right sidebar",
+            with_tab, (1206.0, 800.0), SidebarSide::Right, Presentation {
+            tab_bar: Some(at((0.0, 0.0), (599.0, TOP_ROW_HEIGHT))),
+            editor: Some(at((0.0, 42.0), (599.0, 758.0))),
+            seam: Some(at((599.0, 0.0), (1.0, 800.0))),
+            chat: Some(at((606.0, 0.0), (600.0, 800.0))),
+            ..NOTHING
+        }),
+        (
+            "tall: the chat stacked on top whatever the sidebar side",
+            with_tab, (800.0, 1206.0), SidebarSide::Right, Presentation {
+            chat: Some(at((0.0, 0.0), (800.0, 600.0))),
+            seam: Some(at((0.0, 606.0), (800.0, 1.0))),
+            tab_bar: Some(at((0.0, 607.0), (800.0, TOP_ROW_HEIGHT))),
+            editor: Some(at((0.0, 649.0), (800.0, 557.0))),
+            ..NOTHING
+        }),
+        (
+            "small: the selected editor tab under a tab bar with a chat tab",
+            with_tab, (640.0, 480.0), SidebarSide::Left, Presentation {
+            tab_bar: Some(SMALL_BAR),
+            chat_tab: true,
+            editor: Some(at((0.0, 42.0), (640.0, 438.0))),
+            ..NOTHING
+        }),
+        (
+            "small: the selected chat under the same tab bar",
+            chat_picked, (640.0, 480.0), SidebarSide::Left, Presentation {
+            tab_bar: Some(SMALL_BAR),
+            chat_tab: true,
+            chat: Some(at((0.0, 42.0), (640.0, 438.0))),
+            ..NOTHING
+        }),
+        (
+            "a closed editor keeps its tabs behind the chat tab",
+            editor_closed, (1200.0, 800.0), SidebarSide::Left, Presentation {
+            tab_bar: Some(BAR),
+            chat_tab: true,
+            chat: Some(at((0.0, 42.0), (1200.0, 758.0))),
+            ..NOTHING
+        }),
+        (
+            "a group without a chat is its tab bar and editor",
+            chatless, (1200.0, 800.0), SidebarSide::Left, Presentation {
+            tab_bar: Some(BAR),
+            editor: Some(at((0.0, 42.0), (1200.0, 758.0))),
+            ..NOTHING
+        }),
     ];
 
     #[test]
     fn a_group_lays_out_its_chat_and_editor_as_develop_does() {
-        for case in CASES {
-            let area = at((0.0, 0.0), case.size);
-            let shown = Presentation::of(&(case.group)(), area, case.side, 0.5);
-            assert_eq!(shown, case.expected, "{}", case.name);
+        for &(name, group, size, side, expected) in CASES {
+            let shown = Presentation::of(&group(), at((0.0, 0.0), size), side, 0.5);
+            assert_eq!(shown, expected, "{name}");
         }
     }
 }

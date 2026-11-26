@@ -18,7 +18,7 @@ pub(crate) use row_draggable::draggable;
 pub(crate) use row_ghost::{GhostBuild, RowGhost};
 
 use gpui::{Context, Window, px};
-use sidebar::{Command, DragArm, DropMode, RowId};
+use sidebar::{Command, DragArm, RowId};
 
 use crate::panels::chats::reorder::drop_hint::DropHint;
 use crate::sidebar::DragPoint;
@@ -31,19 +31,6 @@ impl Sidebar {
         press: DragPress,
     ) {
         self.drag.press = Some(press);
-    }
-
-    /// Shows the indicators of `subject` being dragged over `target`, as the gallery's drag
-    /// state; the pointer is not involved.
-    pub fn preview_drag(
-        &mut self,
-        (subject, target, mode): (RowId, RowId, DropMode),
-        cx: &mut Context<'_, Self>,
-    ) {
-        self.drag.lifted = Some(subject);
-        self.drag.hint = Some(DropHint { row: target, mode });
-        self.aim_line(cx);
-        cx.notify();
     }
 
     pub(crate) fn drag_over(
@@ -184,103 +171,52 @@ impl Sidebar {
 
 #[cfg(test)]
 mod tests {
-    use gpui::{Bounds, point, px, size};
-
     use super::*;
+    use crate::test_support::drag::{drag, over_at};
     use crate::test_support::prelude::*;
+    use sidebar::DropMode;
 
-    const ROW_TOP: f32 = 200.0;
     const BELOW_THE_TREE: f32 = 790.0;
 
-    fn over_at(
+    fn dropped(
+        cx: &mut TestAppContext,
         rows: (&str, &str),
-        top: f32,
         at: (f32, f32),
-    ) -> DragPoint {
-        let ((subject, target), (x, y)) = (rows, at);
-        DragPoint {
-            subject: RowId::from(subject),
-            target: RowId::from(target),
-            bounds: Bounds::new(point(px(0.0), px(top)), size(px(200.0), px(36.0))),
-            at: point(px(x), px(top + y)),
-        }
-    }
-
-    fn over(
-        subject: &str,
-        target: &str,
-        at: (f32, f32),
-    ) -> DragPoint {
-        over_at((subject, target), ROW_TOP, at)
-    }
-
-    fn press(row: &str) -> DragPress {
-        DragPress {
-            row: RowId::from(row),
-            at: point(px(0.0), px(ROW_TOP)),
-        }
+    ) -> Vec<Command> {
+        let (recorder, sidebar, cx) = open(cx, DemoShell::rich());
+        sidebar.update(cx, |this, cx| {
+            drag(this, rows, at, cx);
+            this.drop_on((RowId::from(rows.0), RowId::from(rows.1)), cx);
+        });
+        recorder.sent()
     }
 
     #[gpui::test]
-    fn a_drop_after_the_threshold_sends_the_placement(cx: &mut TestAppContext) {
-        let (recorder, sidebar, cx) = open(cx, DemoShell::rich());
-        sidebar.update(cx, |this, cx| {
-            this.press_row(press("working"));
-            this.drag_over(&over("working", "folder", (20.0, 18.0)), cx);
-            this.drop_on((RowId::from("working"), RowId::from("folder")), cx);
-        });
-        let want = Command::Drop {
+    fn a_release_drops_after_the_threshold_and_clicks_before_it(cx: &mut TestAppContext) {
+        let into = Command::Drop {
             row: RowId::from("working"),
             target: RowId::from("folder"),
             mode: DropMode::Into,
         };
-        assert_eq!(recorder.sent(), vec![want]);
-    }
-
-    #[gpui::test]
-    fn a_release_below_the_threshold_is_not_a_drop(cx: &mut TestAppContext) {
-        let (recorder, sidebar, cx) = open(cx, DemoShell::rich());
-        sidebar.update(cx, |this, cx| {
-            this.press_row(press("working"));
-            this.drag_over(&over("working", "folder", (2.0, 2.0)), cx);
-            this.drop_on((RowId::from("working"), RowId::from("folder")), cx);
-        });
-        assert_eq!(recorder.sent(), vec![]);
-    }
-
-    #[gpui::test]
-    fn a_release_below_the_threshold_on_the_pressed_row_is_a_click_that_opens_it(
-        cx: &mut TestAppContext
-    ) {
-        let (recorder, sidebar, cx) = open(cx, DemoShell::rich());
-        sidebar.update(cx, |this, cx| {
-            this.press_row(press("working"));
-            this.drag_over(&over("working", "working", (5.0, 0.0)), cx);
-            this.drop_on((RowId::from("working"), RowId::from("working")), cx);
-        });
-        assert_eq!(
-            recorder.sent(),
-            vec![Command::OpenRow(RowId::from("working"))]
-        );
-    }
-
-    #[gpui::test]
-    fn the_gallery_preview_marks_the_source_and_the_target(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoShell::rich());
-        let (subject, target) = (RowId::from("working"), RowId::from("folder"));
-        sidebar.update(cx, |this, cx| {
-            this.preview_drag((subject.clone(), target.clone(), DropMode::After), cx);
-            assert!(this.drag.is_lifted(&subject), "source");
-            assert_eq!(this.drag.mode_on(&target), Some(DropMode::After), "target");
-        });
+        let cases = [
+            (("working", "folder"), (20.0, 18.0), vec![into]),
+            (("working", "folder"), (2.0, 2.0), Vec::new()),
+            (
+                ("working", "working"),
+                (5.0, 0.0),
+                vec![Command::OpenRow(RowId::from("working"))],
+            ),
+        ];
+        for (rows, at, want) in cases {
+            assert_eq!(dropped(cx, rows, at), want, "{rows:?} at {at:?}");
+        }
     }
 
     #[gpui::test]
     fn a_release_anywhere_ends_a_drag_that_never_reached_a_row(cx: &mut TestAppContext) {
         let (_, sidebar, cx) = open(cx, DemoShell::rich());
         sidebar.update(cx, |this, cx| {
-            this.press_row(press("working"));
-            this.drag_over(&over("working", "folder", (20.0, 18.0)), cx);
+            drag(this, ("working", "folder"), (20.0, 18.0), cx);
             assert!(this.drag.lifted.is_some(), "lifted");
             this.release_drag(cx);
             assert!(this.drag.lifted.is_none(), "dropped elsewhere");
@@ -292,24 +228,10 @@ mod tests {
     fn a_row_scrolled_out_of_the_tree_is_no_drop_target(cx: &mut TestAppContext) {
         let (_, sidebar, cx) = open(cx, DemoShell::rich());
         sidebar.update(cx, |this, cx| {
-            this.press_row(press("working"));
-            this.drag_over(&over("working", "folder", (20.0, 18.0)), cx);
+            drag(this, ("working", "folder"), (20.0, 18.0), cx);
             let hidden = over_at(("working", "folder"), BELOW_THE_TREE, (20.0, 4.0));
             this.drag_over(&hidden, cx);
             assert_eq!(this.drag.hint, None);
-        });
-    }
-
-    #[gpui::test]
-    fn hovering_selects_a_hint_and_ending_clears_it(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoShell::rich());
-        sidebar.update(cx, |this, cx| {
-            this.press_row(press("working"));
-            this.drag_over(&over("working", "folder", (20.0, 18.0)), cx);
-            let target = RowId::from("folder");
-            assert_eq!(this.drag.mode_on(&target), Some(DropMode::Into), "hint");
-            this.end_drag(cx);
-            assert_eq!(this.drag.mode_on(&target), None, "cleared");
         });
     }
 }

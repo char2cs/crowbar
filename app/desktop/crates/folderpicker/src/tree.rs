@@ -117,41 +117,7 @@ mod tests {
     use std::collections::{BTreeSet, HashMap};
 
     use super::*;
-    use crate::folder_source::Reader;
-    use crate::folder_source::Requests;
-
-    struct Listed(HashMap<String, FolderListing>);
-
-    impl Reader for Listed {
-        fn host_name(&self) -> String {
-            "Box".to_owned()
-        }
-
-        fn can_ask(&self) -> bool {
-            true
-        }
-
-        fn listing(
-            &self,
-            path: &str,
-        ) -> Option<FolderListing> {
-            self.0.get(path).cloned()
-        }
-    }
-
-    impl Requests for Listed {
-        fn request(
-            &self,
-            _: &str,
-        ) {
-        }
-
-        fn retry(
-            &self,
-            _: &str,
-        ) {
-        }
-    }
+    use crate::test_support::Fake;
 
     fn entry(
         path: &str,
@@ -245,7 +211,10 @@ mod tests {
 
     #[test]
     fn the_rows_follow_the_listings_and_the_folders_the_user_opened() {
-        let source = Listed(listings());
+        let source = Fake {
+            listings: listings().into(),
+            ..Fake::default()
+        };
         let root = loaded_root(&source);
         for (name, opened, expected) in CASES {
             assert_eq!(rows_when(&source, &root, opened), expected, "{name}");
@@ -253,7 +222,7 @@ mod tests {
     }
 
     fn rows_when(
-        source: &Listed,
+        source: &Fake,
         root: &[BrowseEntry],
         opened: &[&str],
     ) -> Vec<String> {
@@ -265,8 +234,8 @@ mod tests {
         summary(&rows("/", root, &shown, 1))
     }
 
-    fn loaded_root(source: &Listed) -> Vec<BrowseEntry> {
-        match source.0["/"].clone() {
+    fn loaded_root(source: &Fake) -> Vec<BrowseEntry> {
+        match source.listings.borrow()["/"].clone() {
             FolderListing::Loaded(root) => root,
             other => panic!("the root is loaded, got {other:?}"),
         }
@@ -301,7 +270,7 @@ mod tests {
         let FolderListing::Loaded(entries) = loaded(&pairs) else {
             panic!("loaded");
         };
-        let source = Listed(HashMap::new());
+        let source = Fake::default();
         let expanded = BTreeSet::new();
         let shown = Shown {
             source: &source,

@@ -83,24 +83,19 @@ fn reloaded_into(
 
 #[cfg(test)]
 mod tests {
-    use std::rc::Rc;
-
     use gpui::{Focusable as _, TestAppContext};
     use serde_json::json;
 
     use super::*;
+    use crate::panes::editor::editor_panes::tests::editors_in;
     use crate::panes::editor::editor_panes::tests::{
         PANE, PATH, TEXT, landed, layout_with, panes_over, shown_in,
     };
     use crate::shell::inbox::shell_request::ShellRequest;
-    use crate::test_support::FakeDocuments;
 
     #[gpui::test]
     fn a_reload_reads_the_file_again_and_shows_it_as_saved_over_the_edits(cx: &mut TestAppContext) {
-        cx.update(|cx| ui::init(cx).unwrap());
-        cx.update(editorview::init);
-        let documents = Rc::new(FakeDocuments::default());
-        documents.loading("c1");
+        let documents = editors_in(cx);
         documents.holding(PATH, TEXT);
         let (panes, heard) = panes_over(&documents);
         panes.follow(&layout_with(json!({"path": PATH})), "");

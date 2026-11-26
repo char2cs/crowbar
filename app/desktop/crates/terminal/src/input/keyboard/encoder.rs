@@ -2,7 +2,6 @@
 
 use crate::input::keyboard::cursor_keys::CursorKeys;
 use crate::input::keyboard::key_input::KeyInput;
-use crate::input::keyboard::named::named_sequence;
 use crate::input::modifiers::Modifiers;
 
 const ESC: u8 = 0x1b;
@@ -14,6 +13,36 @@ const UNIT_SEPARATOR: u8 = 0x1f;
 const CSI_U_SHIFT_ENTER: &[u8] = b"\x1b[13;2u";
 const CSI_U_ALT_ENTER: &[u8] = b"\x1b[13;3u";
 const CARRIAGE_RETURN: &[u8] = b"\r";
+const ESC_TEXT: &str = "\x1b";
+const FUNCTION_TILDE_CODES: [(&str, &str); 8] = [
+    ("f5", "15"),
+    ("f6", "17"),
+    ("f7", "18"),
+    ("f8", "19"),
+    ("f9", "20"),
+    ("f10", "21"),
+    ("f11", "23"),
+    ("f12", "24"),
+];
+const TILDE_KEYS: [(&str, &str); 4] = [
+    ("pageup", "5"),
+    ("pagedown", "6"),
+    ("delete", "3"),
+    ("insert", "2"),
+];
+const SS3_FUNCTION_KEYS: [(&str, char); 4] = [("f1", 'P'), ("f2", 'Q'), ("f3", 'R'), ("f4", 'S')];
+const CURSOR_KEYS: [(&str, char); 6] = [
+    ("up", 'A'),
+    ("down", 'B'),
+    ("right", 'C'),
+    ("left", 'D'),
+    ("home", 'H'),
+    ("end", 'F'),
+];
+
+const TAB: &str = "tab";
+const BACKSPACE: &str = "backspace";
+
 const CONTROL_SYMBOLS: [(char, u8); 14] = [
     ('@', NUL),
     (' ', NUL),
@@ -104,15 +133,128 @@ fn printable(input: &KeyInput) -> Option<Vec<u8>> {
     Some(bytes)
 }
 
+fn named_sequence(
+    key: &str,
+    modifiers: Modifiers,
+    cursor_keys: CursorKeys,
+) -> Option<Vec<u8>> {
+    let parameter = modifiers.xterm_parameter();
+    if let Some((_, code)) = CURSOR_KEYS.iter().find(|(name, _)| *name == key) {
+        return Some(cursor_key(*code, parameter, cursor_keys).into_bytes());
+    }
+    let tilde_keys = TILDE_KEYS.iter().chain(FUNCTION_TILDE_CODES.iter());
+    if let Some((_, code)) = tilde_keys.into_iter().find(|(name, _)| *name == key) {
+        return Some(tilde_key(code, parameter).into_bytes());
+    }
+    if let Some((_, final_byte)) = SS3_FUNCTION_KEYS.iter().find(|(name, _)| *name == key) {
+        return Some(ss3_key(*final_byte, parameter).into_bytes());
+    }
+    simple_key(key, modifiers)
+}
+
+fn cursor_key(
+    final_byte: char,
+    parameter: u8,
+    cursor_keys: CursorKeys,
+) -> String {
+    if parameter > 1 {
+        return format!("{ESC_TEXT}[1;{parameter}{final_byte}");
+    }
+    match cursor_keys {
+        CursorKeys::Application => format!("{ESC_TEXT}O{final_byte}"),
+        CursorKeys::Normal => format!("{ESC_TEXT}[{final_byte}"),
+    }
+}
+
+fn tilde_key(
+    code: &str,
+    parameter: u8,
+) -> String {
+    if parameter > 1 {
+        return format!("{ESC_TEXT}[{code};{parameter}~");
+    }
+    format!("{ESC_TEXT}[{code}~")
+}
+
+fn ss3_key(
+    final_byte: char,
+    parameter: u8,
+) -> String {
+    if parameter > 1 {
+        return format!("{ESC_TEXT}[1;{parameter}{final_byte}");
+    }
+    format!("{ESC_TEXT}O{final_byte}")
+}
+
+fn simple_key(
+    key: &str,
+    modifiers: Modifiers,
+) -> Option<Vec<u8>> {
+    let alt = modifiers.contains(Modifiers::ALT);
+    let sequence: &[u8] = match key {
+        TAB if modifiers.contains(Modifiers::SHIFT) => b"\x1b[Z",
+        TAB if alt => b"\x1b\t",
+        TAB => b"\t",
+        "escape" => b"\x1b",
+        BACKSPACE if modifiers.contains(Modifiers::CONTROL) => b"\x08",
+        BACKSPACE if alt => b"\x1b\x7f",
+        BACKSPACE => b"\x7f",
+        _ => return None,
+    };
+    Some(sequence.to_vec())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn press(
-        key: &str,
-        text: Option<&str>,
-        modifiers: Modifiers,
-    ) -> KeyInput {
+    const NO: Modifiers = Modifiers::NONE;
+    const SHIFT: Modifiers = Modifiers::SHIFT;
+    const ALT: Modifiers = Modifiers::ALT;
+    const CTRL: Modifiers = Modifiers::CONTROL;
+    const CTRL_ALT: Modifiers = CTRL.with(ALT);
+    const CTRL_SHIFT: Modifiers = CTRL.with(SHIFT);
+    const NORMAL: CursorKeys = CursorKeys::Normal;
+    const APP: CursorKeys = CursorKeys::Application;
+
+    type Key = (&'static str, Option<&'static str>, Modifiers, CursorKeys);
+
+    const CASES: &[(Key, Option<&str>)] = &[
+        (("a", Some("a"), NO, NORMAL), Some("a")),
+        (("a", Some("A"), SHIFT, NORMAL), Some("A")),
+        (("c", Some("c"), CTRL, NORMAL), Some("\x03")),
+        (("space", Some(" "), CTRL, NORMAL), Some("\0")),
+        (("space", Some(" "), NO, NORMAL), Some(" ")),
+        (("b", Some("b"), ALT, NORMAL), Some("\x1bb")),
+        (("d", Some("d"), CTRL_ALT, NORMAL), Some("\x1b\x04")),
+        (("]", Some("]"), CTRL, NORMAL), Some("\x1d")),
+        (("é", Some("é"), NO, NORMAL), Some("é")),
+        (("c", Some("c"), Modifiers::PLATFORM, NORMAL), None),
+        (("f13", None, NO, NORMAL), None),
+        (("n", Some("N"), CTRL_SHIFT, NORMAL), None),
+        (("2", Some("@"), CTRL_SHIFT, NORMAL), Some("\0")),
+        (("_", Some("_"), CTRL_SHIFT, NORMAL), Some("\x1f")),
+        (("enter", None, NO, NORMAL), Some("\r")),
+        (("enter", None, SHIFT, NORMAL), Some("\x1b[13;2u")),
+        (("enter", None, ALT, NORMAL), Some("\x1b[13;3u")),
+        (("up", None, NO, NORMAL), Some("\x1b[A")),
+        (("up", None, NO, APP), Some("\x1bOA")),
+        (("left", None, CTRL, APP), Some("\x1b[1;5D")),
+        (("home", None, NO, APP), Some("\x1bOH")),
+        (("pageup", None, NO, NORMAL), Some("\x1b[5~")),
+        (("delete", None, SHIFT, NORMAL), Some("\x1b[3;2~")),
+        (("f1", None, NO, NORMAL), Some("\x1bOP")),
+        (("f4", None, ALT, NORMAL), Some("\x1b[1;3S")),
+        (("f5", None, NO, NORMAL), Some("\x1b[15~")),
+        (("f12", None, CTRL, NORMAL), Some("\x1b[24;5~")),
+        (("tab", None, SHIFT, NORMAL), Some("\x1b[Z")),
+        (("backspace", None, NO, NORMAL), Some("\x7f")),
+        (("backspace", None, ALT, NORMAL), Some("\x1b\x7f")),
+        (("backspace", None, CTRL, NORMAL), Some("\x08")),
+        (("escape", None, NO, NORMAL), Some("\x1b")),
+    ];
+
+    fn press(&(key, text, modifiers, _): &Key) -> KeyInput {
         KeyInput {
             key: key.into(),
             text: text.map(str::to_owned),
@@ -121,69 +263,11 @@ mod tests {
     }
 
     #[test]
-    fn keys_encode_to_their_bytes() {
-        let none = Modifiers::NONE;
-        let cases = [
-            (press("a", Some("a"), none), Some(b"a".to_vec())),
-            (press("a", Some("A"), Modifiers::SHIFT), Some(b"A".to_vec())),
-            (press("c", Some("c"), Modifiers::CONTROL), Some(vec![3])),
-            (press("space", Some(" "), Modifiers::CONTROL), Some(vec![0])),
-            (
-                press("b", Some("b"), Modifiers::ALT),
-                Some(b"\x1bb".to_vec()),
-            ),
-            (
-                press("d", Some("d"), Modifiers::CONTROL.with(Modifiers::ALT)),
-                Some(vec![0x1b, 4]),
-            ),
-            (press("enter", None, none), Some(b"\r".to_vec())),
-            (
-                press("enter", None, Modifiers::SHIFT),
-                Some(b"\x1b[13;2u".to_vec()),
-            ),
-            (
-                press("enter", None, Modifiers::ALT),
-                Some(b"\x1b[13;3u".to_vec()),
-            ),
-            (press("space", Some(" "), none), Some(b" ".to_vec())),
-            (press("c", Some("c"), Modifiers::PLATFORM), None),
-            (press("f13", None, none), None),
-            (press("é", Some("é"), none), Some("é".as_bytes().to_vec())),
-            (press("]", Some("]"), Modifiers::CONTROL), Some(vec![0x1d])),
-            (press("up", None, none), Some(b"\x1b[A".to_vec())),
-        ];
-        for (input, expected) in cases {
-            assert_eq!(
-                encode_key(&input, CursorKeys::Normal),
-                expected,
-                "{input:?}"
-            );
+    fn keys_encode_by_modifier_and_cursor_mode() {
+        for (key, expected) in CASES {
+            let bytes = encode_key(&press(key), key.3);
+            let wanted = expected.map(|text| text.as_bytes().to_vec());
+            assert_eq!(bytes, wanted, "{key:?}");
         }
-    }
-
-    #[test]
-    fn ctrl_shift_leaves_letters_to_the_shell_as_xterm_does() {
-        let held = Modifiers::CONTROL.with(Modifiers::SHIFT);
-        let cases = [
-            (press("n", Some("N"), held), None),
-            (press("2", Some("@"), held), Some(vec![0])),
-            (press("_", Some("_"), held), Some(vec![0x1f])),
-        ];
-        for (input, expected) in cases {
-            assert_eq!(
-                encode_key(&input, CursorKeys::Normal),
-                expected,
-                "{input:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn application_cursor_mode_changes_arrows() {
-        let up = press("up", None, Modifiers::NONE);
-        assert_eq!(
-            encode_key(&up, CursorKeys::Application),
-            Some(b"\x1bOA".to_vec())
-        );
     }
 }

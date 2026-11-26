@@ -35,34 +35,17 @@ pub fn route_wheel(
 mod tests {
     use super::*;
 
+    use MouseTracking::{Click, Motion, Off};
+    use ScreenBuffer::{Alternate, Primary};
+
     const CASES: [(MouseTracking, ScreenBuffer, Modifiers, WheelRoute); 5] = [
+        (Off, Primary, Modifiers::NONE, WheelRoute::Scrollback),
+        (Off, Alternate, Modifiers::NONE, WheelRoute::ArrowKeys),
+        (Click, Primary, Modifiers::NONE, WheelRoute::ReportToProgram),
+        (Click, Primary, Modifiers::SHIFT, WheelRoute::Scrollback),
         (
-            MouseTracking::Off,
-            ScreenBuffer::Primary,
-            Modifiers::NONE,
-            WheelRoute::Scrollback,
-        ),
-        (
-            MouseTracking::Off,
-            ScreenBuffer::Alternate,
-            Modifiers::NONE,
-            WheelRoute::ArrowKeys,
-        ),
-        (
-            MouseTracking::Click,
-            ScreenBuffer::Primary,
-            Modifiers::NONE,
-            WheelRoute::ReportToProgram,
-        ),
-        (
-            MouseTracking::Click,
-            ScreenBuffer::Primary,
-            Modifiers::SHIFT,
-            WheelRoute::Scrollback,
-        ),
-        (
-            MouseTracking::Motion,
-            ScreenBuffer::Alternate,
+            Motion,
+            Alternate,
             Modifiers::SHIFT,
             WheelRoute::ReportToProgram,
         ),
@@ -70,8 +53,7 @@ mod tests {
 
     #[test]
     fn routing_follows_the_programs_declared_tracking() {
-        let cases = CASES;
-        for (tracking, buffer, modifiers, expected) in cases {
+        for (tracking, buffer, modifiers, expected) in CASES {
             assert_eq!(
                 route_wheel(tracking, buffer, modifiers),
                 expected,

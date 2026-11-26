@@ -74,29 +74,16 @@ fn blink_of(settings: &gtk::Settings) -> CaretBlink {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend::native::linux::test_support::idle_platform;
 
     #[test]
-    fn following_the_caret_is_posted_to_the_gtk_thread() {
-        let (jobs, inbox) = async_channel::unbounded();
-        let platform = GtkPlatform {
-            jobs,
-            stopped: None,
-        };
-        assert!(platform.follow_caret(Arc::new(|_| ())).is_ok(), "posted");
-        assert_eq!(inbox.len(), 1, "one job waits for the GTK thread");
-    }
-
-    #[test]
-    fn the_widgets_scheme_is_posted_to_the_gtk_thread() {
-        let (jobs, inbox) = async_channel::unbounded();
-        let platform = GtkPlatform {
-            jobs,
-            stopped: None,
-        };
+    fn caret_and_widget_settings_are_posted_to_the_gtk_thread() {
+        let (platform, inbox) = idle_platform();
+        assert!(platform.follow_caret(Arc::new(|_| ())).is_ok(), "caret");
         assert!(
             platform.draw_widgets_in(ColorScheme::Dark).is_ok(),
-            "posted"
+            "scheme"
         );
-        assert_eq!(inbox.len(), 1, "one job waits for the GTK thread");
+        assert_eq!(inbox.len(), 2, "two jobs wait for the GTK thread");
     }
 }

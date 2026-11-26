@@ -198,18 +198,6 @@ mod tests {
         })
     }
 
-    #[gpui::test]
-    fn system_mode_follows_the_colour_scheme_the_window_reports(cx: &mut gpui::TestAppContext) {
-        let mut opened = crate::shell::shell_view::tests::open_shell(cx);
-        let schemes = [
-            (gpui::WindowAppearance::Dark, ui::Appearance::Dark),
-            (gpui::WindowAppearance::Light, ui::Appearance::Light),
-        ];
-        for (reported, shown) in schemes {
-            assert_eq!(shown_after(&mut opened, reported), shown, "{reported:?}");
-        }
-    }
-
     fn placed(cx: &mut gpui::TestAppContext) -> crate::shell::shell_view::tests::Opened {
         let mut opened = crate::shell::shell_view::tests::open_shell(cx);
         opened.shell.update(&mut opened.window, |shell, cx| {
@@ -251,16 +239,22 @@ mod tests {
     }
 
     #[gpui::test]
-    fn the_desktop_s_widgets_follow_a_desktop_colour_scheme_change_in_system_mode(
+    fn system_mode_and_the_desktop_s_widgets_follow_the_colour_scheme_the_window_reports(
         cx: &mut gpui::TestAppContext
     ) {
         let mut opened = placed(cx);
         let schemes = [
-            (gpui::WindowAppearance::Light, webview::ColorScheme::Light),
-            (gpui::WindowAppearance::Dark, webview::ColorScheme::Dark),
+            (
+                gpui::WindowAppearance::Light,
+                (ui::Appearance::Light, webview::ColorScheme::Light),
+            ),
+            (
+                gpui::WindowAppearance::Dark,
+                (ui::Appearance::Dark, webview::ColorScheme::Dark),
+            ),
         ];
-        for (reported, drawn) in schemes {
-            shown_after(&mut opened, reported);
+        for (reported, (shown, drawn)) in schemes {
+            assert_eq!(shown_after(&mut opened, reported), shown, "{reported:?}");
             assert_eq!(last_widget_scheme(&opened), Some(drawn), "{reported:?}");
         }
     }

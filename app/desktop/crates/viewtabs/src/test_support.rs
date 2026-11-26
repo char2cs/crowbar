@@ -55,16 +55,20 @@ fn record_events(
     .detach();
 }
 
-pub(crate) fn open(
-    cx: &mut TestAppContext,
-    tabs: Vec<TabView>,
-    active: u64,
-) -> Harness<'_> {
+fn init(cx: &mut TestAppContext) {
     cx.update(|cx| {
         ui::init(cx).expect("ui init");
         cx.set_global(Theme::default());
         cx.set_global(Motion::default());
     });
+}
+
+pub(crate) fn open(
+    cx: &mut TestAppContext,
+    tabs: Vec<TabView>,
+    active: u64,
+) -> Harness<'_> {
+    init(cx);
     let (bar, cx) = cx.add_window_view(|_, _| TabBar::new(TabId(50)));
     let events = Rc::new(RefCell::new(Vec::new()));
     let sink = Rc::clone(&events);
@@ -84,12 +88,8 @@ pub(crate) fn open_floating(
     tabs: Vec<TabView>,
     active: u64,
 ) -> Floating {
-    cx.update(|cx| {
-        ui::init(cx).expect("ui init");
-        cx.set_global(Theme::default());
-        cx.set_global(Motion::default());
-        ui::testing::open_float_windows(cx);
-    });
+    init(cx);
+    cx.update(ui::testing::open_float_windows);
     let window = cx.add_window(|_, _| TabBar::new(TabId(50)));
     let bar = window.entity(cx).expect("the strip");
     let owner: gpui::AnyWindowHandle = window.into();
@@ -139,11 +139,7 @@ pub(crate) fn open_under_row_source(
     tabs: Vec<TabView>,
     active: u64,
 ) -> Harness<'_> {
-    cx.update(|cx| {
-        ui::init(cx).expect("ui init");
-        cx.set_global(Theme::default());
-        cx.set_global(Motion::default());
-    });
+    init(cx);
     let (host, cx) = cx.add_window_view(|_, cx| RowSource {
         bar: cx.new(|_| TabBar::new(TabId(50))),
     });

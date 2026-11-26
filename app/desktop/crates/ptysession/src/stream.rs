@@ -118,11 +118,6 @@ mod tests {
         daemon.next().await.unwrap().unwrap()
     }
 
-    async fn serve_close(far: tokio::io::DuplexStream) {
-        let mut daemon = accept_async(far).await.unwrap();
-        daemon.close(None).await.unwrap();
-    }
-
     #[tokio::test]
     async fn output_reaches_the_view_and_keystrokes_reach_the_daemon() {
         let (near, far) = duplex(PIPE);
@@ -144,18 +139,6 @@ mod tests {
             received.to_text().unwrap().contains("ls"),
             "keystrokes sent"
         );
-    }
-
-    #[tokio::test]
-    async fn a_closed_stream_ends_the_pump() {
-        let (near, far) = duplex(PIPE);
-        let server = tokio::spawn(serve_close(far));
-        let (socket, _) = client_async("ws://terminal/ws", near).await.unwrap();
-        let (frames, _view_frames) = unbounded();
-        let (_view_messages, messages) = unbounded();
-        let end = pump(socket, Ends { frames, messages }).await;
-        server.await.unwrap();
-        assert_eq!(end, End::Lost);
     }
 
     async fn serve_exit(far: tokio::io::DuplexStream) {

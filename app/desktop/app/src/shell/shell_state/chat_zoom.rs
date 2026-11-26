@@ -30,30 +30,16 @@ impl ShellState {
 mod tests {
     use keymap::ShellCommand::{ZoomChatIn, ZoomChatOut, ZoomChatReset};
 
-    use crate::test_support::{ShellRig, open_chat, resync, shell_rig, synced_chat};
-
-    fn register(
-        rig: &mut ShellRig,
-        pane: protocol::PaneId,
-    ) {
-        let register = protocol::PaneFrame::Register {
-            type_id: crate::panes::kinds::core_panes::chat_type().unwrap(),
-            sdk: protocol::SDK_VERSION,
-        };
-        let text = protocol::encode(&register).unwrap();
-        rig.shell.handle_ipc(panehost::IpcMessage { pane, text });
-    }
+    use crate::test_support::{
+        ShellRig, evals_with, open_chat, register_chat, resync, shell_rig, synced_chat,
+    };
 
     fn told(
         rig: &ShellRig,
         percent: u16,
     ) -> usize {
         let frame = format!(r#"{{\"sdk\":1,\"kind\":\"chat.zoom\",\"percent\":{percent}}}"#);
-        rig.mock
-            .calls()
-            .into_iter()
-            .filter(|call| matches!(call, webview::Call::Eval { script, .. } if script.contains(&frame)))
-            .count()
+        evals_with(rig, &frame)
     }
 
     #[test]
@@ -81,7 +67,7 @@ mod tests {
     fn a_chat_opened_after_a_zoom_shows_it_as_the_first_did() {
         let mut rig = shell_rig();
         let first = synced_chat(&mut rig);
-        register(&mut rig, first.clone());
+        register_chat(&mut rig, first.clone());
         rig.shell.zoom_chat(ZoomChatIn);
         open_chat(&mut rig.shell, "t2");
         let (tab, second) = rig
@@ -94,7 +80,7 @@ mod tests {
             .expect("the second chat opened");
         rig.shell.apply(vec![layout::Command::ActivateTab { tab }]);
         resync(&mut rig);
-        register(&mut rig, second);
+        register_chat(&mut rig, second);
         assert_eq!(told(&rig, 110), 2, "{:?}", rig.mock.calls());
     }
 }

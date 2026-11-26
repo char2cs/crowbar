@@ -57,22 +57,14 @@ mod tests {
     use crate::test_support::state;
 
     #[test]
-    fn with_no_workspace_open_the_panels_are_empty() {
-        let (state, _) = state();
-        let view = SidebarView::new(Hub::new(state, Arc::new(|| {})), SettingsSlot::default());
-        assert_eq!(view.files().len(), 0);
-        assert_eq!(view.folder_phase(), FolderPhase::NoFolder);
-        assert_eq!(view.workspace_root(), None);
-        assert_eq!(view.changes().files.len(), 0);
-    }
-
-    #[test]
     fn the_folder_loads_from_its_ask_until_its_root_is_listed() {
-        let (mut state, _) = state();
-        state.panels.follow(Some("hc".into()));
-        state.panels.ask();
+        let (state, _) = state();
         let hub = Hub::new(state, Arc::new(|| {}));
         let view = SidebarView::new(Arc::clone(&hub), SettingsSlot::default());
+        let empty = (view.folder_phase(), view.workspace_root());
+        assert_eq!(empty, (FolderPhase::NoFolder, None), "no workspace open");
+        hub.edit(|state| state.panels.follow(Some("hc".into())));
+        assert!(hub.edit(|state| state.panels.ask().is_some()));
         assert_eq!(view.folder_phase(), FolderPhase::Loading);
         hub.edit(|state| state.panels.list("hc", "", Vec::new()));
         assert_eq!(view.folder_phase(), FolderPhase::Listed);

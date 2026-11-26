@@ -97,12 +97,6 @@ mod tests {
     }
 
     #[test]
-    fn a_plain_chat_shows_the_bubble() {
-        let row = Row::new("c", RowKind::Chat, 1, "hi");
-        assert_eq!(ChatGlyph::of(&row).icon, IconName::ChatsCircle);
-    }
-
-    #[test]
     fn every_status_has_the_spec_glyph() {
         use GlyphTone::{Attention, Closed, Merged, Open, Plain};
         use WorkspaceStatus as Status;

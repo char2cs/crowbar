@@ -12,6 +12,16 @@ pub(crate) fn two_by_one() -> SplitNode {
     tree
 }
 
+/// `[a|[b/c]]`: `b` split with `c` below it.
+pub(crate) fn tiled() -> SplitNode {
+    let mut tree = two_by_one();
+    assert!(
+        tree.split_leaf(&id("b"), SplitNode::leaf(id("c")), Edge::Bottom),
+        "c below b"
+    );
+    tree
+}
+
 /// `[[a|b]|x]`: the layout whose right pane used to hand focus to the far left.
 pub(crate) fn nested_left() -> SplitNode {
     let mut tree = SplitNode::leaf(id("a"));

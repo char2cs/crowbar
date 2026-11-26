@@ -159,10 +159,4 @@ mod tests {
             Some(PageUpdate::PickEnded)
         );
     }
-
-    #[test]
-    fn text_from_a_page_is_never_a_page_update_unless_it_is_one() {
-        let frame = r#"{"sdk":1,"kind":"command.run","command":"x"}"#;
-        assert_eq!(PageUpdate::decode(frame), None);
-    }
 }

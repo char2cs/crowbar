@@ -167,12 +167,6 @@ mod tests {
     }
 
     #[test]
-    fn a_plan_carries_the_title_its_failure_is_shown_under() {
-        let lock = plan_of(&Command::Lock(RowId::from("b"))).unwrap();
-        assert_eq!(lock.failure.as_deref(), Some("Failed to update lock"));
-    }
-
-    #[test]
     fn a_plain_new_thread_opens_a_draft_and_sends_nothing() {
         for command in [
             Command::NewThread(ProjectId::from("p")),
@@ -261,7 +255,7 @@ mod tests {
     ];
 
     #[test]
-    fn each_row_command_names_its_daemon_route() {
+    fn each_row_command_names_its_daemon_route_and_the_title_its_failure_shows_under() {
         let chats = "/v0/projects/p/repos/r/chats";
         for (verb, row, method, path) in CASES {
             let plan = plan_of(&command(verb, row)).unwrap();
@@ -272,6 +266,8 @@ mod tests {
                 "{verb} {row}"
             );
         }
+        let lock = plan_of(&command("lock", "b")).unwrap();
+        assert_eq!(lock.failure.as_deref(), Some("Failed to update lock"));
     }
 
     #[test]

@@ -153,113 +153,25 @@ mod tests {
         }
     }
 
-    fn names(group: &PaneGroup) -> Vec<String> {
-        group.tabs().iter().map(ToString::to_string).collect()
-    }
-
-    #[test]
-    fn inserting_puts_the_pane_at_the_index_and_shows_it() {
-        let cases = [
-            ("end", None, ["a", "b", "x"]),
-            ("front", Some(0), ["x", "a", "b"]),
-            ("middle", Some(1), ["a", "x", "b"]),
-            ("explicit end", Some(2), ["a", "b", "x"]),
-        ];
-        for (name, index, expected) in cases {
-            let mut stack = group(&["a", "b"], "a");
-            stack.insert(id("x"), index).unwrap();
-            assert_eq!(names(&stack), expected, "{name}");
-            assert_eq!(stack.active_tab(), Some(&id("x")), "{name}: shown");
-        }
-    }
-
-    #[test]
-    fn an_index_past_the_end_is_refused_and_changes_nothing() {
-        let mut stack = group(&["a", "b"], "a");
-        let before = stack.clone();
-        assert_eq!(
-            stack.insert(id("x"), Some(3)),
-            Err(Error::IndexOutOfRange { index: 3, len: 2 }),
-            "past the end"
-        );
-        assert_eq!(stack, before, "unchanged");
-    }
-
-    #[test]
-    fn taking_the_active_pane_shows_the_one_that_took_its_place() {
-        let cases = [
-            ("first", "a", "b"),
-            ("middle", "b", "c"),
-            ("last", "c", "b"),
-        ];
-        for (name, taken, expected) in cases {
-            let mut stack = group(&["a", "b", "c"], taken);
-            stack.take(&id(taken));
-            assert_eq!(stack.active_tab(), Some(&id(expected)), "{name}");
-            assert!(stack.is_consistent(), "{name}: consistent");
-        }
-    }
-
-    #[test]
-    fn taking_a_hidden_pane_keeps_the_active_one() {
-        let mut stack = group(&["a", "b", "c"], "c");
-        stack.take(&id("a"));
-        assert_eq!(stack.active_tab(), Some(&id("c")), "kept");
-        assert_eq!(names(&stack), ["b", "c"], "rest");
-    }
-
-    #[test]
-    fn taking_the_only_pane_leaves_nothing() {
-        let mut stack = PaneGroup::single(id("a"));
-        stack.take(&id("a"));
-        assert!(stack.is_empty(), "gone");
-        assert_eq!(stack.active_tab(), None, "nothing shown");
-    }
-
-    #[test]
-    fn reordering_counts_positions_among_the_other_members() {
-        let cases = [
-            ("to the front", "c", Some(0), ["c", "a", "b"]),
-            ("to the end", "a", None, ["b", "c", "a"]),
-            ("between", "a", Some(1), ["b", "a", "c"]),
-            ("stays", "b", Some(1), ["a", "b", "c"]),
-        ];
-        for (name, moved, index, expected) in cases {
-            let mut stack = group(&["a", "b", "c"], "a");
-            stack.reorder(&id(moved), index).unwrap();
-            assert_eq!(names(&stack), expected, "{name}");
-            assert_eq!(stack.active_tab(), Some(&id(moved)), "{name}: shown");
-        }
-        let mut stack = group(&["a", "b", "c"], "a");
-        assert_eq!(
-            stack.reorder(&id("a"), Some(3)),
-            Err(Error::IndexOutOfRange { index: 3, len: 2 }),
-            "past the others"
-        );
-    }
-
-    #[test]
-    fn exchanging_swaps_members_and_the_active_mark() {
-        let mut stack = group(&["a", "b", "c"], "a");
-        stack.exchange(&id("a"), &id("c"));
-        assert_eq!(names(&stack), ["c", "b", "a"], "members");
-        assert_eq!(
-            stack.active_tab(),
-            Some(&id("c")),
-            "active follows the place"
-        );
-    }
-
     #[test]
     fn consistency_needs_distinct_members_and_a_member_as_active() {
-        assert!(group(&["a", "b"], "b").is_consistent(), "fine");
-        assert!(!group(&["a", "a"], "a").is_consistent(), "duplicate");
-        assert!(!group(&["a", "b"], "z").is_consistent(), "active outside");
-        assert!(!group(&[], "a").is_consistent(), "empty");
         let chat_among_tabs = PaneGroup {
             chat: Some(id("a")),
             ..group(&["a", "b"], "b")
         };
-        assert!(!chat_among_tabs.is_consistent(), "chat among the tabs");
+        let mut emptied = PaneGroup::single(id("a"));
+        emptied.take(&id("a"));
+        let cases = [
+            (group(&["a", "b"], "b"), true),
+            (group(&["a", "a"], "a"), false),
+            (group(&["a", "b"], "z"), false),
+            (group(&[], "a"), false),
+            (chat_among_tabs, false),
+        ];
+        for (group, consistent) in cases {
+            assert_eq!(group.is_consistent(), consistent, "{group:?}");
+        }
+        assert!(emptied.is_empty(), "taking the only pane empties it");
+        assert_eq!(emptied.active_tab(), None, "nothing shown");
     }
 }

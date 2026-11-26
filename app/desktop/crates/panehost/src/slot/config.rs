@@ -55,15 +55,4 @@ mod tests {
             "unset"
         );
     }
-
-    #[test]
-    fn clones_keep_the_page_handler() {
-        let handler: PageHandler = Arc::new(|_| true);
-        let copy = config(Some(Arc::clone(&handler))).clone();
-        assert!(
-            copy.page_handler
-                .is_some_and(|kept| Arc::ptr_eq(&kept, &handler)),
-            "same handler"
-        );
-    }
 }

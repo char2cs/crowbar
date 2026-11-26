@@ -259,35 +259,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_failed_delete_names_the_row_to_show_again() {
-        let (commands, daemon, mut heard) = heard_commands();
-        daemon.answer(("DELETE", OWNER_DELETE), 500, FAULT);
-        commands
-            .dispatch(Command::CommitRemoval(RowId::from("b")))
-            .unwrap();
-        let refused = Outcome::RemovalRefused {
-            row: RowId::from("b"),
-            reason: "rig fault: injected 500".into(),
-        };
-        assert_eq!(heard.recv().await, Some(refused));
-    }
-
-    #[tokio::test]
-    async fn a_delete_whose_cascade_took_unselected_chats_names_them() {
-        let (commands, daemon, mut heard) = heard_commands();
-        let answer = r#"{"takenChatIds":["bo","t","hc"]}"#;
-        daemon.ok("DELETE", OWNER_DELETE, answer);
-        commands
-            .dispatch(Command::CommitRemoval(RowId::from("bo")))
-            .unwrap();
-        let named = Outcome::AlsoRemoved {
-            titles: vec!["Hello".into()],
-        };
-        assert_eq!(
-            heard.recv().await,
-            Some(named),
-            "only the home chat was not selected"
-        );
+    async fn a_failed_delete_names_its_row_and_a_cascade_names_the_unselected_chats_it_took() {
+        let took = r#"{"success":true,"data":{"takenChatIds":["bo","t","hc"]}}"#;
+        let cases = [
+            (500, FAULT, "b", Outcome::RemovalRefused {
+                row: RowId::from("b"),
+                reason: "rig fault: injected 500".into(),
+            }),
+            (200, took, "bo", Outcome::AlsoRemoved {
+                titles: vec!["Hello".into()],
+            }),
+        ];
+        for (status, answer, row, told) in cases {
+            let (commands, daemon, mut heard) = heard_commands();
+            daemon.answer(("DELETE", OWNER_DELETE), status, answer);
+            commands
+                .dispatch(Command::CommitRemoval(RowId::from(row)))
+                .unwrap();
+            assert_eq!(heard.recv().await, Some(told), "{row}");
+        }
     }
 
     fn status_asked(daemon: &FakeDaemon) -> bool {

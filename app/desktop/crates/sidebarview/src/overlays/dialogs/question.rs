@@ -134,22 +134,7 @@ mod tests {
         sidebar.update_in(cx, |this, window, cx| {
             this.apply(Intent::Ask(question), window, cx);
         });
-    }
-
-    #[gpui::test]
-    fn a_question_sends_its_command_only_when_accepted(cx: &mut TestAppContext) {
-        let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
-        ask(&sidebar, cx);
-        sidebar.update(cx, Sidebar::cancel_question);
-        assert!(recorder.sent().is_empty(), "cancelling sends nothing");
-        ask(&sidebar, cx);
-        assert!(recorder.sent().is_empty(), "asking sends nothing");
-        sidebar.update(cx, Sidebar::accept_question);
-        assert_eq!(
-            recorder.sent(),
-            vec![Command::KillAgent(RowId::from("chat"))]
-        );
-        assert!(sidebar.read_with(cx, |this, _| this.question.is_none()));
+        cx.run_until_parked();
     }
 
     #[gpui::test]
@@ -188,11 +173,7 @@ mod tests {
     ) {
         let mut floating = crate::test_support::open_floating(cx, DemoShell::reference());
         let sidebar = floating.sidebar.clone();
-        let question = Question::kill(RowId::from("chat"), "Refactor");
-        sidebar.update_in(&mut floating.window, |this, window, cx| {
-            this.apply(Intent::Ask(question), window, cx);
-        });
-        floating.window.run_until_parked();
+        ask(&sidebar, &mut floating.window);
         assert!(
             ui::testing::covered(&mut floating.window).0,
             "every web view is hidden"
@@ -215,11 +196,7 @@ mod tests {
     fn escape_cancels_the_question(cx: &mut TestAppContext) {
         let mut floating = crate::test_support::open_floating(cx, DemoShell::reference());
         let sidebar = floating.sidebar.clone();
-        let question = Question::kill(RowId::from("chat"), "Refactor");
-        sidebar.update_in(&mut floating.window, |this, window, cx| {
-            this.apply(Intent::Ask(question), window, cx);
-        });
-        floating.window.run_until_parked();
+        ask(&sidebar, &mut floating.window);
         crate::test_support::press(&mut floating.window, "escape");
         assert_eq!(floating.recorder.sent(), Vec::new());
         assert!(sidebar.read_with(&floating.window, |this, _| this.question.is_none()));

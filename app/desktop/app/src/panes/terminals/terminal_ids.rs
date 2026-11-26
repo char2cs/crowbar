@@ -134,55 +134,26 @@ fn label_of(instance: &PaneInstance) -> String {
 
 #[cfg(test)]
 mod tests {
-    use layout::{Command, TabId};
-    use protocol::{PaneState, PaneTypeId, Params};
+    use layout::Command;
 
     use super::*;
+    use crate::test_support::{chat_pane, one_tab, pane};
 
-    fn ensure_tab(
-        layout: &mut Layout,
-        tab: TabId,
-    ) {
-        if !layout.tabs().is_empty() {
-            return;
-        }
-        let add = Command::AddTab {
-            id: tab,
-            title: String::new(),
-            space: layout::SpaceId::default(),
-        };
-        layout.apply(add).unwrap();
-    }
-
-    fn open(
-        layout: &mut Layout,
-        (pane, type_id): (&str, &str),
-        params: Params,
-    ) {
-        let instance = PaneInstance {
-            pane_id: PaneId::new(pane).unwrap(),
-            type_id: PaneTypeId::new(type_id).unwrap(),
-            params,
-            state: PaneState::default(),
-        };
-        let tab = TabId(1);
-        ensure_tab(layout, tab);
-        let placement = None;
-        let command = Command::OpenPane {
-            tab,
-            instance,
-            placement,
-        };
-        layout.apply(command).unwrap();
+    fn terminal(state: &str) -> Layout {
+        let state = PaneState::new(serde_json::from_str(state).unwrap()).unwrap();
+        one_tab([PaneInstance {
+            state,
+            ..pane("t1", TERMINAL)
+        }])
     }
 
     #[test]
-    fn terminal_panes_are_followed_with_their_chat() {
-        let mut layout = Layout::default();
-        let chat = Params::default().with("threadId", "c1").unwrap();
-        open(&mut layout, ("t1", TERMINAL), chat);
-        open(&mut layout, ("t2", TERMINAL), Params::default());
-        open(&mut layout, ("p3", "core.chat"), Params::default());
+    fn terminal_panes_are_followed_with_their_chat_until_they_close() {
+        let mut layout = one_tab([
+            chat_pane(("t1", TERMINAL), "c1"),
+            pane("t2", TERMINAL),
+            pane("p3", "core.chat"),
+        ]);
         let ids = TerminalIds::default();
         ids.follow(&layout);
         let (t1, t2) = (PaneId::new("t1").unwrap(), PaneId::new("t2").unwrap());
@@ -197,124 +168,76 @@ mod tests {
             !ids.contains(&PaneId::new("p3").unwrap()),
             "a chat is no terminal"
         );
-    }
-
-    #[test]
-    fn a_closed_terminal_is_forgotten() {
-        let mut layout = Layout::default();
-        open(&mut layout, ("t1", TERMINAL), Params::default());
-        let ids = TerminalIds::default();
-        ids.follow(&layout);
         layout
-            .apply(Command::ClosePane {
-                pane: PaneId::new("t1").unwrap(),
-            })
+            .apply(Command::ClosePane { pane: t1.clone() })
             .unwrap();
         ids.follow(&layout);
-        assert!(!ids.contains(&PaneId::new("t1").unwrap()));
+        assert!(!ids.contains(&t1), "a closed terminal is forgotten");
     }
 
     #[test]
     fn a_terminal_remembers_the_session_it_was_bound_to() {
-        let mut layout = Layout::default();
-        open_with_state(&mut layout, serde_json::json!({ "sessionId": "s7" }));
         let ids = TerminalIds::default();
-        ids.follow(&layout);
+        ids.follow(&terminal(r#"{"sessionId": "s7"}"#));
         let pane = PaneId::new("t1").unwrap();
         assert_eq!(ids.saved_session(&pane).as_deref(), Some("s7"));
     }
 
-    type LabelCase = (&'static str, Option<&'static str>, &'static str);
+    type LabelCase = (
+        &'static str,
+        &'static str,
+        Option<&'static str>,
+        &'static str,
+    );
 
-    const CASES: [LabelCase; 4] = [
-        ("a folder", Some("/work/src"), "src"),
-        ("a trailing slash", Some("docs/"), "docs"),
-        ("the root", Some("/"), "Terminal"),
-        ("no folder", None, "Terminal"),
+    const CASES: [LabelCase; 6] = [
+        ("a folder", r#"{"directory": "/work/src"}"#, None, "src"),
+        (
+            "a trailing slash",
+            r#"{"directory": "docs/"}"#,
+            None,
+            "docs",
+        ),
+        ("the root", r#"{"directory": "/"}"#, None, "Terminal"),
+        ("no folder", "null", None, "Terminal"),
+        (
+            "a name the user gave wins over the folder",
+            r#"{"directory": "/w/src", "title": "logs"}"#,
+            None,
+            "logs",
+        ),
+        (
+            "a title the terminal already has is kept",
+            r#"{"directory": "/work/src"}"#,
+            Some("vim"),
+            "vim",
+        ),
     ];
 
-    fn open_in(
-        layout: &mut Layout,
-        directory: Option<&str>,
-    ) {
-        let state = directory.map_or_else(PaneState::default, |dir| {
-            PaneState::new(serde_json::json!({ "directory": dir })).unwrap()
-        });
-        open_pane_with(layout, state);
-    }
-
-    fn open_with_state(
-        layout: &mut Layout,
-        state: serde_json::Value,
-    ) {
-        open_pane_with(layout, PaneState::new(state).unwrap());
-    }
-
-    fn open_pane_with(
-        layout: &mut Layout,
-        state: PaneState,
-    ) {
-        let instance = PaneInstance {
-            pane_id: PaneId::new("t1").unwrap(),
-            type_id: PaneTypeId::new(TERMINAL).unwrap(),
-            params: Params::default(),
-            state,
+    fn holding(
+        pane: &PaneId,
+        held: Option<&str>,
+    ) -> Titles {
+        let titles = Titles::default();
+        let Some(held) = held else {
+            return titles;
         };
-        let tab = TabId(1);
-        ensure_tab(layout, tab);
-        let placement = None;
-        layout
-            .apply(Command::OpenPane {
-                tab,
-                instance,
-                placement,
-            })
-            .unwrap();
+        titles.set(pane.clone(), PaneTitle::new(held).unwrap());
+        titles
     }
 
     #[test]
     fn terminals_are_titled_by_their_folder() {
-        for (name, directory, expected) in CASES {
-            let mut layout = Layout::default();
-            open_in(&mut layout, directory);
-            let (ids, titles) = (TerminalIds::default(), Titles::default());
-            ids.follow(&layout);
-            ids.name_into(&titles);
+        for (name, state, held, expected) in CASES {
             let pane = PaneId::new("t1").unwrap();
+            let (ids, titles) = (TerminalIds::default(), holding(&pane, held));
+            ids.follow(&terminal(state));
+            ids.name_into(&titles);
             assert_eq!(
                 titles.get(&pane).map(|t| t.to_string()),
                 Some(expected.into()),
                 "{name}"
             );
         }
-    }
-
-    #[test]
-    fn a_name_the_user_gave_wins_over_the_folder() {
-        let mut layout = Layout::default();
-        open_with_state(
-            &mut layout,
-            serde_json::json!({"directory": "/w/src", "title": "logs"}),
-        );
-        let (ids, titles) = (TerminalIds::default(), Titles::default());
-        ids.follow(&layout);
-        ids.name_into(&titles);
-        let pane = PaneId::new("t1").unwrap();
-        assert_eq!(
-            titles.get(&pane).map(|t| t.to_string()),
-            Some("logs".into())
-        );
-    }
-
-    #[test]
-    fn a_title_the_terminal_already_has_is_kept() {
-        let mut layout = Layout::default();
-        open_in(&mut layout, Some("/work/src"));
-        let (ids, titles) = (TerminalIds::default(), Titles::default());
-        let pane = PaneId::new("t1").unwrap();
-        titles.set(pane.clone(), PaneTitle::new("vim").unwrap());
-        ids.follow(&layout);
-        ids.name_into(&titles);
-        assert_eq!(titles.get(&pane).map(|t| t.to_string()), Some("vim".into()));
     }
 }

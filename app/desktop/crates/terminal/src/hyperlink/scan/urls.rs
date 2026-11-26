@@ -1,7 +1,8 @@
-//! Finds web addresses in text.
+//! Finds web addresses in text, and the address runs file-path detection skips.
 
 use std::ops::Range;
 
+const WWW: &str = "www.";
 const SCHEMES: [&str; 2] = ["http://", "https://"];
 const FORBIDDEN_INSIDE: &str = "\"'!*(){}|\\^<>`";
 const FORBIDDEN_LAST: &str = "\"':,.!?{}|\\^~[]`()<>";
@@ -73,33 +74,96 @@ fn has_host(
         .is_some_and(|first| first.is_alphanumeric() || first == '[')
 }
 
+pub(crate) fn address_runs(text: &str) -> Vec<Range<usize>> {
+    let mut runs = scheme_runs(text);
+    runs.extend(www_runs(text));
+    runs
+}
+
+fn scheme_runs(text: &str) -> Vec<Range<usize>> {
+    text.match_indices("://")
+        .map(|(index, _)| scheme_start(text, index)..run_end(text, index))
+        .collect()
+}
+
+fn scheme_start(
+    text: &str,
+    separator: usize,
+) -> usize {
+    let before = text.get(..separator).unwrap_or_default();
+    let scheme_len = before
+        .chars()
+        .rev()
+        .take_while(|character| character.is_ascii_alphanumeric() || "+.-".contains(*character))
+        .map(char::len_utf8)
+        .sum::<usize>();
+    separator - scheme_len
+}
+
+fn www_runs(text: &str) -> Vec<Range<usize>> {
+    text.match_indices(WWW)
+        .filter(|(index, _)| starts_word(text, *index))
+        .map(|(index, _)| index..run_end(text, index))
+        .collect()
+}
+
+fn starts_word(
+    text: &str,
+    index: usize,
+) -> bool {
+    let before = text.get(..index).and_then(|head| head.chars().next_back());
+    before.is_none_or(|character| character.is_whitespace() || "\"'`([<".contains(character))
+}
+
+fn run_end(
+    text: &str,
+    from: usize,
+) -> usize {
+    let tail = text.get(from..).unwrap_or_default();
+    from + tail.find(char::is_whitespace).unwrap_or(tail.len())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn urls(text: &str) -> Vec<&str> {
-        find_urls(text)
+    fn texts(
+        text: &str,
+        ranges: Vec<Range<usize>>,
+    ) -> Vec<&str> {
+        ranges
             .into_iter()
             .filter_map(|range| text.get(range))
             .collect()
     }
 
+    const CASES: &[(&str, &[&str])] = &[
+        ("see (https://x.dev/a).", &["https://x.dev/a"]),
+        (
+            "go to http://localhost:3000/path?q=1, now",
+            &["http://localhost:3000/path?q=1"],
+        ),
+        (
+            "\"https://a.io/x\" and HTTPS://B.io",
+            &["https://a.io/x", "HTTPS://B.io"],
+        ),
+        ("http:// alone", &[]),
+        ("no links here", &[]),
+    ];
+
     #[test]
-    fn addresses_stop_before_trailing_punctuation_and_brackets() {
-        assert_eq!(urls("see (https://x.dev/a)."), ["https://x.dev/a"]);
-        assert_eq!(
-            urls("go to http://localhost:3000/path?q=1, now"),
-            ["http://localhost:3000/path?q=1"]
-        );
-        assert_eq!(
-            urls("\"https://a.io/x\" and HTTPS://B.io"),
-            ["https://a.io/x", "HTTPS://B.io"]
-        );
+    fn addresses_stop_before_trailing_punctuation_and_need_a_host() {
+        for (text, expected) in CASES {
+            assert_eq!(texts(text, find_urls(text)), *expected, "{text}");
+        }
     }
 
     #[test]
-    fn a_scheme_without_a_host_is_not_a_link() {
-        assert_eq!(urls("http:// alone").len(), 0, "no host");
-        assert_eq!(urls("no links here").len(), 0, "no scheme");
+    fn schemes_and_free_standing_www_start_address_runs() {
+        let text = "ftp://h/a/b and www.x.com/y but bin/www.js";
+        assert_eq!(
+            texts(text, address_runs(text)),
+            ["ftp://h/a/b", "www.x.com/y"]
+        );
     }
 }

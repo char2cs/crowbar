@@ -199,13 +199,6 @@ mod tests {
     }
 
     #[gpui::test]
-    fn every_visible_row_is_drawn(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoShell::rich());
-        let (shown, listed) = drawn(&sidebar, cx);
-        assert!(shown > 0 && shown <= listed + 1);
-    }
-
-    #[gpui::test]
     fn a_fork_input_takes_the_final_slot_under_its_parent(cx: &mut TestAppContext) {
         let (_, sidebar, cx) = open(cx, DemoShell::rich());
         sidebar.update_in(cx, |this, window, cx| {

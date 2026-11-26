@@ -54,6 +54,5 @@ mod tests {
         assert!(slot_for(&transport, spec("lab")).is_some());
         assert!(relay_for(&transport, spec("Bad Id")).is_none());
         assert!(slot_for(&transport, spec("Bad Id")).is_none());
-        assert!(addressable("lab").is_some());
     }
 }

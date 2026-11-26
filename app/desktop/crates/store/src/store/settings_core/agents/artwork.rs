@@ -47,14 +47,10 @@ mod tests {
     ];
 
     #[test]
-    fn only_static_svg_artwork_is_drawn() {
+    fn only_static_svg_artwork_of_a_bounded_size_is_drawn() {
         for &(markup, drawn) in CASES {
             assert_eq!(vetted(markup).is_some(), drawn, "{markup}");
         }
-    }
-
-    #[test]
-    fn oversized_markup_is_refused() {
         let big = format!("<svg>{}</svg>", "a".repeat(MAX_BYTES));
         assert!(vetted(&big).is_none());
     }

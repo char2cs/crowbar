@@ -178,17 +178,6 @@ mod tests {
     use crate::test_support::prelude::*;
 
     #[gpui::test]
-    fn the_changes_panel_renders_the_changed_files(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoShell::reference());
-        sidebar.update(cx, |this, cx| this.set_mode(Mode::Changes, cx));
-        cx.run_until_parked();
-        assert_eq!(
-            sidebar.read_with(cx, |this, _| this.data.changes().files.len()),
-            1
-        );
-    }
-
-    #[gpui::test]
     fn a_workspace_git_cannot_read_shows_the_error_instead_of_the_files(cx: &mut TestAppContext) {
         let data = DemoShell::reference().with_git_error("not a git repository");
         let (_, sidebar, cx) = open(cx, data);

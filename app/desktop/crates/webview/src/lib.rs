@@ -1,7 +1,7 @@
 //! The one platform crate: native web views embedded as children of a window.
 //!
 //! [`Host::native`] starts the backend of the current platform and
-//! [`Host::create`] returns a [`Handle`] with `set_bounds`, `show`, `hide`,
+//! [`Host::create_in`] returns a [`Handle`] with `set_bounds`, `show`, `hide`,
 //! `eval`, `post_message` and `destroy`.
 //!
 //! * Linux: web views are X11 children of the GPUI window. `WebKitGTK` is single-threaded, so a
@@ -71,6 +71,4 @@ pub use view::{
 };
 
 #[cfg(feature = "mock")]
-pub use backend::Call;
-#[cfg(feature = "mock")]
-pub use backend::MockPlatform;
+pub use backend::{Call, MockPlatform};

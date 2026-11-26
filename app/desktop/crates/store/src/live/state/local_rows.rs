@@ -52,10 +52,7 @@ mod tests {
         PendingRow {
             id: id.into(),
             label: "New".into(),
-            scope: String::new(),
-            parent: String::new(),
-            failure: None,
-            operation: None,
+            ..PendingRow::default()
         }
     }
 

@@ -155,9 +155,9 @@ mod tests {
     }
 
     #[test]
-    fn a_query_keeps_matching_names_and_the_folders_that_hold_them() {
+    fn a_query_keeps_matches_and_their_folders_but_not_a_matched_folders_children() {
         type Case = (&'static str, &'static [&'static str]);
-        const CASES: [Case; 6] = [
+        const CASES: [Case; 7] = [
             (
                 "",
                 &[
@@ -184,15 +184,11 @@ mod tests {
             ("GUIDE", &["docs", "docs/Guide.md"]),
             (".md", &["docs", "docs/Guide.md", "README.md"]),
             ("zzz", &[]),
+            ("docs", &["docs"]),
         ];
         for (query, expected) in CASES {
             assert_eq!(paths(matching(tree(), query)), expected, "query {query:?}");
         }
-    }
-
-    #[test]
-    fn a_folder_whose_name_matches_is_kept_without_its_children() {
-        assert_eq!(paths(matching(tree(), "docs")), ["docs"]);
     }
 
     #[gpui::test]

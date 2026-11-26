@@ -14,7 +14,6 @@ mod theme;
 pub use chrome::toolbar::caret::Caret;
 pub use document::Document;
 pub use document::disk_take::DiskTake;
-pub use document::document_event::DocumentEvent;
 pub use document::document_opening::DocumentOpening;
 pub use document::save_mark::SaveMark;
 pub use editor_event::EditorEvent;

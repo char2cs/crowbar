@@ -180,33 +180,40 @@ fn framed(
 
 #[cfg(test)]
 mod tests {
-    use layout::Rect;
+    use gpui::{TestAppContext, point, px};
+    use layout::{DragSubject, Edge};
 
-    use super::*;
-    use crate::geometry::chrome_context::ChromeContext;
+    use crate::test_support::{layout_of, open_floating};
 
-    #[test]
-    fn the_handle_sits_centred_on_the_top_edge_of_the_box() {
-        let slot = Rect {
-            x: 0.0,
-            y: 0.0,
-            width: 400.0,
-            height: 300.0,
-        };
-        let frame = PaneFrame::new(slot, slot, ChromeContext::default());
-        let at = handle_rect(&frame);
-        let (width, _) = PaneHandle::size();
+    #[gpui::test]
+    fn while_the_drop_preview_shows_the_panes_are_tinted_and_the_window_covered(
+        cx: &mut TestAppContext
+    ) {
+        let mut floating = open_floating(cx, &layout_of("a", &[("b", "a", Edge::Right)]));
+        let view = floating.view.clone();
+        let over = DragSubject::Chat("t1".into());
+        let window = &mut floating.window;
         assert_eq!(
-            at.x,
-            frame.outer.x + (frame.outer.width - width) / 2.0,
-            "centred"
+            window.debug_bounds("pane-drag-tint"),
+            None,
+            "no drag, no tint"
         );
-        assert_eq!(at.y, frame.outer.y, "on the top edge");
-    }
-
-    #[test]
-    fn the_ring_is_two_pixels_in_light_mode_and_one_in_dark() {
-        assert_eq!(RING_WIDTH_LIGHT, 2.0, "light");
-        assert_eq!(RING_WIDTH_DARK, 1.0, "dark");
+        view.update(window, |view, cx| {
+            view.hover(&over, point(px(10.0), px(100.0)), cx);
+        });
+        window.run_until_parked();
+        assert!(
+            window.debug_bounds("drop-preview").is_some(),
+            "in the window"
+        );
+        assert!(ui::testing::covered(window).0, "the web views are hidden");
+        assert!(window.debug_bounds("pane-drag-tint").is_some(), "tinted");
+        view.update(window, |view, cx| {
+            view.hover(&over, point(px(-5.0), px(-5.0)), cx);
+        });
+        window.run_until_parked();
+        assert_eq!(window.debug_bounds("drop-preview"), None, "gone outside");
+        assert!(!ui::testing::covered(window).0, "the web views are back");
+        assert_eq!(window.debug_bounds("pane-drag-tint"), None, "untinted");
     }
 }

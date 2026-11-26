@@ -210,7 +210,7 @@ mod tests {
         cx.simulate_event(press(from, Modifiers::default()));
         cx.simulate_mouse_move(to, None, Modifiers::default());
         cx.simulate_event(release(to, Modifiers::default()));
-        let selected = harness.view.read_with(cx, |view, _| view.selected_text());
+        let selected = harness.view.read_with(cx, |view, _| view.terminal.selected_text());
         assert_eq!(selected.as_deref(), Some("select"));
         let elsewhere = cell_position(&harness, cx, 8);
         cx.simulate_event(press(elsewhere, Modifiers::default()));
@@ -218,7 +218,7 @@ mod tests {
         assert!(
             harness
                 .view
-                .read_with(cx, |view, _| view.selected_text())
+                .read_with(cx, |view, _| view.terminal.selected_text())
                 .is_none()
         );
     }

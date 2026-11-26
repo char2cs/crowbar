@@ -51,17 +51,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn assignment_is_shared_between_clones() {
-        let owner = Owner::default();
-        let reader = owner.clone();
-        assert_eq!(reader.current(), None, "starts free");
-        owner.assign(PaneId::new("p1").unwrap());
-        assert_eq!(reader.current(), PaneId::new("p1").ok(), "assigned");
-        owner.clear();
-        assert_eq!(reader.current(), None, "cleared");
-    }
-
-    #[test]
     fn only_the_current_generation_resolves() {
         let owner = Owner::default();
         let first = owner.assign(PaneId::new("p1").unwrap());

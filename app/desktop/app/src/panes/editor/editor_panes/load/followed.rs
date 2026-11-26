@@ -181,6 +181,7 @@ mod tests {
     use protocol::DocumentPath;
 
     use super::*;
+    use crate::panes::editor::editor_panes::tests::editors_in;
 
     fn target(file: Option<&str>) -> EditorTarget {
         EditorTarget {
@@ -252,10 +253,7 @@ mod tests {
         cx: &mut gpui::TestAppContext
     ) {
         use crate::panes::editor::editor_panes::tests::{PATH, TEXT, opened};
-        cx.update(|cx| ui::init(cx).unwrap());
-        cx.update(editorview::init);
-        let documents = Rc::new(crate::test_support::FakeDocuments::default());
-        documents.loading("c1");
+        let documents = editors_in(cx);
         documents.holding(PATH, TEXT);
         let _opened = opened(&documents, cx);
         let told = documents.servers().told();

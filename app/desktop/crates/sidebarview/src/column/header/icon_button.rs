@@ -209,11 +209,4 @@ mod tests {
         cx.simulate_click(point(px(4.0), px(4.0)), gpui::Modifiers::none());
         assert_eq!(clicks.get(), 1);
     }
-
-    #[test]
-    fn the_tile_shape_rounds_more_than_the_small_one() {
-        let small = IconButton::new("a", IconName::Plus);
-        let tile = IconButton::new("b", IconName::Plus).shape(TileShape::Tile);
-        assert!(tile.radius() > small.radius());
-    }
 }

@@ -1,8 +1,7 @@
 use std::sync::mpsc;
 use std::time::Duration;
 
-use crate::backend::native::linux::bounded_wait::wait_for;
-use crate::backend::native::linux::create_reply::CreateReply;
+use crate::backend::native::linux::create_reply::{CreateReply, wait_for};
 use crate::backend::native::linux::gtk_platform::{GtkPlatform, log_failure};
 use crate::backend::native::linux::gtk_state::GtkState;
 use crate::backend::view::browsing_data::BrowsingData;
@@ -131,14 +130,11 @@ impl BrowsingData for GtkPlatform {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend::native::linux::test_support::idle_platform;
 
     #[test]
     fn requests_for_unknown_views_are_posted_not_answered_with_errors() {
-        let (jobs, _inbox) = async_channel::unbounded();
-        let platform = GtkPlatform {
-            jobs,
-            stopped: None,
-        };
+        let (platform, _inbox) = idle_platform();
         let id = Id(9);
         assert!(
             platform.set_visibility(id, Visibility::Hidden).is_ok(),

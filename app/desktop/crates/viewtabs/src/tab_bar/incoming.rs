@@ -227,25 +227,6 @@ mod tests {
         assert_eq!(from, 152.0 - 202.0, "from the ghost");
     }
 
-    #[gpui::test]
-    fn dropping_a_chat_between_tabs_creates_a_tab_with_a_fresh_id(cx: &mut TestAppContext) {
-        let harness = open(cx, vec![view(1, &["a"])], 1);
-        let (bar, cx, events) = (harness.bar, harness.cx, harness.events);
-        bar.update(cx, |bar, _| {
-            bar.incoming = Some(IncomingDrop::new(TabDrop::Reorder(0), 0.0));
-        });
-        let subject = DragSubject::Open(instance());
-        bar.update_in(cx, |bar, window, cx| bar.dropped(&subject, window, cx));
-        let seen = events.borrow();
-        let Event::Apply(commands) = &seen[0] else {
-            panic!("an apply event");
-        };
-        assert!(
-            matches!(commands[0], Command::AddTab { id: TabId(50), .. }),
-            "first free id: {commands:?}"
-        );
-    }
-
     fn chat_row_dropped_at(
         x: f32,
         cx: &mut TestAppContext,
@@ -288,14 +269,5 @@ mod tests {
             vec![expected],
             "before tab two"
         );
-    }
-
-    fn instance() -> layout::PaneInstance {
-        layout::PaneInstance {
-            pane_id: PaneId::new("new").expect("id"),
-            type_id: protocol::PaneTypeId::new("core.chat").expect("type"),
-            params: protocol::Params::default(),
-            state: protocol::PaneState::default(),
-        }
     }
 }

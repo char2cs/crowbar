@@ -9,14 +9,13 @@ every `crowbar://` request a page makes.
 ## Public interface
 
 - `PaneHost`: `new`, `sync` (with `LayoutSnapshot`, `VisiblePane`, `Keyboard`; returns
-  `SyncReport`), `handle_ipc`, `display` (`PaneDisplay`), `send`, `inbox` (`HostEvent`,
-  `IpcMessage`) and browser panes (`BrowseAction`).
+  `SyncReport`), `handle_ipc`, `send`, `inbox` (`HostEvent`, `IpcMessage`), `menu_asks`
+  (`MenuAsk`) and browser panes (`BrowseAction`).
 - `Config`, `Error`, `Result`.
 - Pane types: `PaneRegistry`, `PaneType`, `PaneKind`, `PaneLifecycle`, `Multiplicity`.
 - Pane pages: the `BundleSource` port, `BundleAsset`, `DirBundle`, `ExtensionBundles`,
   `PaneBundles`.
-- The `crowbar://` router: `PaneProtocol`, `OriginTable`, `Assignment`, and `PaneOrigin`
-  (re-exported from `protocol`).
+- The `crowbar://` router: `PaneProtocol` and the `PaneTables` it shares with the host.
 
 ## Depends on
 

@@ -17,17 +17,10 @@ impl std::error::Error for LspError {}
 mod tests {
     use super::*;
 
-    fn provided(failed: Result<(), LspError>) -> gpui::Result<()> {
-        failed?;
-        Ok(())
-    }
-
     #[test]
     fn a_failed_request_reaches_a_provider_s_result_with_its_reason() {
-        let failed = provided(Err(LspError("refused".to_owned())));
-        assert_eq!(
-            failed.map_err(|error| error.to_string()),
-            Err("refused".to_owned())
-        );
+        let failed: gpui::Result<()> = Err(LspError("refused".to_owned()).into());
+        let reason = failed.map_err(|error| error.to_string());
+        assert_eq!(reason, Err("refused".to_owned()));
     }
 }

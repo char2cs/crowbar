@@ -7,9 +7,7 @@ use crate::ide::pane_group::close_scope::CloseScope;
 use crate::ide::pane_group::strip_step::StripStep;
 
 impl PaneGroup {
-    /// How many tabs, from the front, are pinned.
-    #[must_use]
-    pub fn pinned_count(&self) -> usize {
+    pub(crate) fn pinned_count(&self) -> usize {
         self.pinned
     }
 
@@ -116,112 +114,47 @@ mod tests {
         PaneId::new(name).unwrap()
     }
 
-    fn group(
-        names: &[&str],
-        active: &str,
-    ) -> PaneGroup {
-        PaneGroup {
-            tabs: names.iter().map(|name| id(name)).collect(),
-            active: Some(id(active)),
-            ..PaneGroup::single(id(active))
-        }
-    }
-
     fn pinned_group(
         names: &[&str],
         pinned: usize,
     ) -> PaneGroup {
         PaneGroup {
+            tabs: names.iter().map(|name| id(name)).collect(),
             pinned,
-            ..group(names, names[0])
+            ..PaneGroup::single(id(names[0]))
         }
     }
 
-    fn names(group: &PaneGroup) -> Vec<String> {
-        group.tabs().iter().map(ToString::to_string).collect()
+    fn names(group: &PaneGroup) -> String {
+        let names: Vec<String> = group.tabs().iter().map(ToString::to_string).collect();
+        names.join(" ")
     }
 
     #[test]
-    fn pinning_moves_the_pane_behind_the_pinned_ones_and_unpinning_in_front_of_the_rest() {
-        let mut stack = group(&["a", "b", "c", "d"], "a");
-        stack.pin(&id("c"));
-        assert_eq!(names(&stack), ["c", "a", "b", "d"], "c pinned");
-        stack.pin(&id("d"));
-        assert_eq!(names(&stack), ["c", "d", "a", "b"], "d pinned after c");
-        assert_eq!(stack.pinned_count(), 2, "count");
-        stack.pin(&id("d"));
-        assert_eq!(
-            names(&stack),
-            ["c", "d", "a", "b"],
-            "pinning twice is a no-op"
-        );
-        stack.unpin(&id("c"));
-        assert_eq!(
-            names(&stack),
-            ["d", "c", "a", "b"],
-            "c unpinned first of the rest"
-        );
-        stack.unpin(&id("b"));
-        assert_eq!(
-            names(&stack),
-            ["d", "c", "a", "b"],
-            "unpinning a loose pane is a no-op"
-        );
-        assert_eq!(
-            stack.active_tab(),
-            Some(&id("a")),
-            "the shown pane never changes"
-        );
-        assert!(
-            stack.is_pinned(&id("d")) && !stack.is_pinned(&id("c")),
-            "flags"
-        );
-    }
-
-    #[test]
-    fn a_new_pane_never_lands_among_the_pinned_ones() {
-        let cases = [
-            ("front", Some(0), ["a", "b", "x", "c"]),
-            ("inside", Some(1), ["a", "b", "x", "c"]),
-            ("behind", Some(2), ["a", "b", "x", "c"]),
-            ("end", None, ["a", "b", "c", "x"]),
+    fn a_pane_lands_and_reorders_only_on_its_own_side_of_the_pin_line() {
+        let inserted = [
+            (Some(0), "a b x c"),
+            (Some(1), "a b x c"),
+            (Some(2), "a b x c"),
+            (None, "a b c x"),
         ];
-        for (name, index, expected) in cases {
+        for (index, expected) in inserted {
             let mut stack = pinned_group(&["a", "b", "c"], 2);
             stack.insert(id("x"), index).unwrap();
-            assert_eq!(names(&stack), expected, "{name}");
-            assert_eq!(stack.pinned_count(), 2, "{name}: pins kept");
+            assert_eq!(names(&stack), expected, "insert at {index:?}");
+            assert_eq!(stack.pinned_count(), 2, "{index:?}: pins kept");
         }
-    }
-
-    #[test]
-    fn a_pane_reorders_only_inside_its_own_side_of_the_pin_line() {
-        let cases = [
-            (
-                "pinned to the end clamps",
-                "a",
-                Some(3),
-                ["b", "a", "c", "d", "e"],
-            ),
-            (
-                "pinned to the front",
-                "b",
-                Some(0),
-                ["b", "a", "c", "d", "e"],
-            ),
-            (
-                "loose to the front clamps",
-                "e",
-                Some(0),
-                ["a", "b", "e", "c", "d"],
-            ),
-            ("loose to the end", "c", None, ["a", "b", "d", "e", "c"]),
+        let reordered = [
+            ("a", Some(3), "b a c d e"),
+            ("b", Some(0), "b a c d e"),
+            ("e", Some(0), "a b e c d"),
+            ("c", None, "a b d e c"),
         ];
-        for (name, moved, index, expected) in cases {
+        for (moved, index, expected) in reordered {
             let mut stack = pinned_group(&["a", "b", "c", "d", "e"], 2);
             stack.reorder(&id(moved), index).unwrap();
-            assert_eq!(names(&stack), expected, "{name}");
-            assert_eq!(stack.pinned_count(), 2, "{name}: pins kept");
+            assert_eq!(names(&stack), expected, "{moved} to {index:?}");
+            assert_eq!(stack.pinned_count(), 2, "{moved}: pins kept");
         }
     }
 
@@ -232,24 +165,26 @@ mod tests {
         assert_eq!(stack.pinned_count(), 2, "loose pane taken");
         stack.take(&id("a"));
         assert_eq!(stack.pinned_count(), 1, "pinned pane taken");
+        assert!(pinned_group(&["a", "b"], 2).is_consistent(), "all pinned");
+        assert!(!pinned_group(&["a", "b"], 3).is_consistent(), "too many");
     }
 
     #[test]
     fn stepping_walks_the_strip_without_wrapping() {
-        let stack = group(&["a", "b", "c"], "b");
+        let stack = pinned_group(&["a", "b", "c"], 0);
         let cases = [
-            ("previous", "b", StripStep::Previous, Some("a")),
-            ("next", "b", StripStep::Next, Some("c")),
-            ("before the first", "a", StripStep::Previous, None),
-            ("after the last", "c", StripStep::Next, None),
-            ("first", "c", StripStep::First, Some("a")),
-            ("last", "a", StripStep::Last, Some("c")),
-            ("first of the first", "a", StripStep::First, None),
-            ("a stranger", "z", StripStep::Next, None),
+            ("b", StripStep::Previous, Some("a")),
+            ("b", StripStep::Next, Some("c")),
+            ("a", StripStep::Previous, None),
+            ("c", StripStep::Next, None),
+            ("c", StripStep::First, Some("a")),
+            ("a", StripStep::Last, Some("c")),
+            ("a", StripStep::First, None),
+            ("z", StripStep::Next, None),
         ];
-        for (name, from, step, expected) in cases {
-            let got = stack.step(&id(from), step).map(ToString::to_string);
-            assert_eq!(got.as_deref(), expected, "{name}");
+        for (from, step, expected) in cases {
+            let got = stack.step(&id(from), step).map(PaneId::as_str);
+            assert_eq!(got, expected, "{step:?} from {from}");
         }
     }
 
@@ -257,30 +192,16 @@ mod tests {
     fn closable_panes_leave_out_the_pinned_ones_and_the_pane_itself() {
         let stack = pinned_group(&["p", "a", "b", "c"], 1);
         let cases = [
-            ("others", "b", CloseScope::Others, vec!["a", "c"]),
-            ("to the right", "a", CloseScope::ToRight, vec!["b", "c"]),
-            ("all", "a", CloseScope::All, vec!["a", "b", "c"]),
-            ("to the right of the last", "c", CloseScope::ToRight, vec![]),
-            (
-                "to the right of a pinned one",
-                "p",
-                CloseScope::ToRight,
-                vec!["a", "b", "c"],
-            ),
+            ("b", CloseScope::Others, "a c"),
+            ("a", CloseScope::ToRight, "b c"),
+            ("a", CloseScope::All, "a b c"),
+            ("c", CloseScope::ToRight, ""),
+            ("p", CloseScope::ToRight, "a b c"),
         ];
-        for (name, anchor, scope, expected) in cases {
-            let got: Vec<String> = stack
-                .closable(&id(anchor), scope)
-                .iter()
-                .map(ToString::to_string)
-                .collect();
-            assert_eq!(got, expected, "{name}");
+        for (anchor, scope, expected) in cases {
+            let closable = stack.closable(&id(anchor), scope);
+            let got: Vec<&str> = closable.iter().map(PaneId::as_str).collect();
+            assert_eq!(got.join(" "), expected, "{scope:?} of {anchor}");
         }
-    }
-
-    #[test]
-    fn a_pin_run_longer_than_the_strip_is_inconsistent() {
-        assert!(pinned_group(&["a", "b"], 2).is_consistent(), "all pinned");
-        assert!(!pinned_group(&["a", "b"], 3).is_consistent(), "too many");
     }
 }

@@ -11,7 +11,8 @@ shortcut capture UI and key routing from GPUI keystrokes to the state machine.
 ## Public interface
 
 - `ModalConfig`: `new(schema, settings, records)`, then `page(PageId)` and `on_close(handler)`.
-- `SettingsModal`: `new(ModalConfig, window, cx)`, `focus`, `with_query`.
+- `SettingsModal`: `new(ModalConfig, window, cx)`, `focus`.
+- `bindings`: the dialog keys, unbound while a shortcut is captured.
 
 ## Depends on
 

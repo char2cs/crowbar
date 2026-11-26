@@ -150,22 +150,28 @@ mod tests {
     }
 
     #[gpui::test]
-    fn a_definition_in_another_file_is_told_with_its_line(cx: &mut TestAppContext) {
-        let answer = json!([at("/usr/lib/x.d.ts", (0, 0, 1)), at("src/b.ts", (3, 2, 3))]);
-        let told = told_after_f12(answer, cx);
+    fn a_definition_elsewhere_is_told_with_its_line_or_as_outside_the_workspace(
+        cx: &mut TestAppContext
+    ) {
+        let outside = at("/usr/lib/x.d.ts", (0, 0, 1));
         let definition = EditorEvent::Definition {
             path: "src/b.ts".to_owned(),
             line: 3,
             character: 2,
         };
-        assert_eq!(told, [definition]);
-    }
-
-    #[gpui::test]
-    fn a_definition_only_outside_the_workspace_is_told_as_outside(cx: &mut TestAppContext) {
-        let told = told_after_f12(json!([at("/usr/lib/x.d.ts", (0, 0, 1))]), cx);
-        let outside = EditorEvent::DefinitionOutside("/usr/lib/x.d.ts".to_owned());
-        assert_eq!(told, [outside]);
+        let cases = [
+            (
+                json!([outside.clone(), at("src/b.ts", (3, 2, 3))]),
+                definition,
+            ),
+            (
+                json!([outside]),
+                EditorEvent::DefinitionOutside("/usr/lib/x.d.ts".to_owned()),
+            ),
+        ];
+        for (answer, told) in cases {
+            assert_eq!(told_after_f12(answer, cx), [told]);
+        }
     }
 
     #[gpui::test]

@@ -10,11 +10,12 @@ use crate::chrome::find_widget::FindWidget;
 use crate::chrome::goto_line::GotoLine;
 use crate::chrome::toolbar::Toolbar;
 use crate::document::Document;
+use crate::document::document_event::DocumentEvent;
 use crate::editor_view::find::occurrence_session::OccurrenceSession;
 use crate::keys::save_key::{CONTEXT, Save};
 use crate::theme::highlight_name;
 use crate::theme::{ground, ink};
-use crate::{Access, Caret, DocumentEvent, EditorEvent, Opening, Settings};
+use crate::{Access, Caret, EditorEvent, Opening, Settings};
 use bracket_colours::BracketColours;
 
 const BODY: &str = "editor-body";
@@ -252,7 +253,7 @@ fn editor_state(
 
 #[cfg(test)]
 mod tests {
-    use gpui::TestAppContext;
+    use gpui::{TestAppContext, VisualTestContext};
 
     use super::test_support::{
         document_of, document_opening, listened, opened, opened_at, press, shown,
@@ -262,22 +263,20 @@ mod tests {
 
     fn language_of(
         view: &Entity<EditorView>,
-        cx: &App,
+        window: &mut VisualTestContext,
     ) -> &'static str {
-        view.read(cx).toolbar.language().display_name()
+        window.read(|cx| view.read(cx).toolbar.language().display_name())
     }
 
     #[gpui::test]
-    fn an_untitled_view_shows_its_name_as_plain_text(cx: &mut TestAppContext) {
-        let (view, cx) = opened_at("untitled:Untitled-1", cx);
-        assert_eq!(cx.read(|cx| language_of(&view, cx)), "Plain Text");
-    }
-
-    #[gpui::test]
-    fn a_view_holds_the_text_it_was_given(cx: &mut TestAppContext) {
-        let (view, cx) = opened(("a\nb", None), Access::ReadOnly, cx);
-        cx.run_until_parked();
-        assert_eq!(view.read_with(cx, EditorView::text), "a\nb");
+    fn a_view_shows_its_file_s_language_and_follows_it_when_rebound(cx: &mut TestAppContext) {
+        let (untitled, window) = opened_at("untitled:Untitled-1", cx);
+        assert_eq!(language_of(&untitled, window), "Plain Text");
+        let (view, window) = opened(("a", None), Access::Editable, cx);
+        assert_eq!(language_of(&view, window), "TypeScript", "src/a.ts");
+        let document = document_of(&view, window);
+        document.update(window, |document, cx| document.rebind("notes.md", cx));
+        assert_eq!(language_of(&view, window), "Markdown");
     }
 
     #[gpui::test]
@@ -287,11 +286,8 @@ mod tests {
             let (view, window) = opened(("a", None), access, cx);
             window.update(|window, cx| window.focus(&view.focus_handle(cx), cx));
             window.simulate_input("xyz");
-            assert_eq!(
-                view.read_with(window, EditorView::text),
-                expected,
-                "{access:?}"
-            );
+            let text = view.read_with(window, EditorView::text);
+            assert_eq!(text, expected, "{access:?}");
         }
     }
 
@@ -335,28 +331,12 @@ mod tests {
             "opened dirty"
         );
         press("@input::Undo", window);
-        assert_eq!(
-            view.read_with(window, EditorView::text),
-            "draft",
-            "nothing to undo"
-        );
+        let text = view.read_with(window, EditorView::text);
+        assert_eq!(text, "draft", "nothing to undo");
         document.update(window, |document, cx| document.mark_saved("draft", cx));
-        assert_eq!(
-            document.read_with(window, |document, _| document.saved_text()),
-            "draft"
-        );
+        let saved = document.read_with(window, |document, _| document.saved_text());
+        assert_eq!(saved, "draft");
         assert_eq!(*heard.borrow(), [EditorEvent::DirtyChanged(false)]);
-    }
-
-    #[gpui::test]
-    fn a_rebound_view_follows_its_new_file_s_language(cx: &mut TestAppContext) {
-        let (view, window) = opened(("a", None), Access::Editable, cx);
-        let language =
-            |window: &mut gpui::VisualTestContext| window.read(|cx| language_of(&view, cx));
-        assert_eq!(language(window), "TypeScript", "src/a.ts");
-        let document = document_of(&view, window);
-        document.update(window, |document, cx| document.rebind("notes.md", cx));
-        assert_eq!(language(window), "Markdown");
     }
 
     #[gpui::test]

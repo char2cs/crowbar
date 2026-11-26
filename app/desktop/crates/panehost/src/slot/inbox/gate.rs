@@ -87,6 +87,11 @@ fn is_coalescable(text: &str) -> bool {
         .is_ok_and(|frame| COALESCABLE_KINDS.contains(&frame.kind))
 }
 
+pub(crate) fn open_envelope(text: &str) -> Option<(u64, &str)> {
+    let (generation, frame) = text.split_once(':')?;
+    Some((generation.parse().ok()?, frame))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

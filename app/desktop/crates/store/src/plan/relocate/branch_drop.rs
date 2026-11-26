@@ -191,32 +191,17 @@ impl BranchDrop<'_> {
 
 #[cfg(test)]
 mod tests {
-    use daemonapi::Frame;
     use sidebar::DropMode;
 
     use super::*;
     use crate::live::{Hub, OutcomeSink, State};
     use crate::plan::relocate::drop_row;
     use crate::plan::runner::run;
-    use crate::test_support::{quiet, state};
+    use crate::test_support::{entity_frame, quiet, state};
 
     const BRANCH: &str = "/v0/projects/p/repos/r/workspaces/b/placement";
     const REPARENT: &str = "/v0/projects/p/repos/r/chats/bo/reparent";
     const SHIFTED_ORDER: i64 = 3;
-
-    fn entity(
-        (kind, id): (&str, &str),
-        data: Value,
-    ) -> Frame {
-        Frame::Entity {
-            scope: "projects".into(),
-            kind: kind.into(),
-            id: id.into(),
-            v: 1,
-            data: Some(data),
-            gone: false,
-        }
-    }
 
     fn with_a_second_branch(provisioning: &str) -> State {
         let (mut state, _) = state();
@@ -224,8 +209,8 @@ mod tests {
             "owningChatId": "co", "provisioning": provisioning});
         let owner = json!({"id": "co", "projectId": "p", "repoId": "r", "workspaceId": "c",
             "title": "Other", "createdAt": "2026-01-05T00:00:00Z"});
-        state.apply("local", entity(("workspace", "c"), ws));
-        state.apply("local", entity(("chat", "co"), owner));
+        state.apply("local", entity_frame("workspace", "c", ws));
+        state.apply("local", entity_frame("chat", "co", owner));
         state
     }
 

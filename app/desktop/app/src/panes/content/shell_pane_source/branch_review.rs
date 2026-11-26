@@ -25,47 +25,15 @@ impl layoutview::BranchReview for ShellPaneSource {
 #[cfg(test)]
 mod tests {
     use layoutview::BranchReview as _;
-    use protocol::PaneId;
 
-    use super::*;
-    use crate::panes::browser::browser_bars::BrowserBars;
-    use crate::panes::content::native_panes::NativePanes;
-    use crate::panes::content::new_tab::new_tab_panes::NewTabPanes;
-    use crate::panes::kinds::serials::Serials;
-    use crate::panes::terminals::terminal_ids::TerminalIds;
+    use crate::panes::content::shell_pane_source::tests::idle_source;
     use crate::panes::tracking::titles::Titles;
-    use crate::test_support::idle_terminals;
-
-    fn pane(
-        kind: &str,
-        thread: &str,
-    ) -> PaneInstance {
-        PaneInstance {
-            pane_id: PaneId::new("p1").unwrap(),
-            type_id: protocol::PaneTypeId::new(kind).unwrap(),
-            params: protocol::Params::default()
-                .with("threadId", thread)
-                .unwrap(),
-            state: protocol::PaneState::default(),
-        }
-    }
+    use crate::test_support::chat_pane;
 
     #[test]
     fn only_a_chat_pane_whose_chat_owns_a_branch_offers_a_review() {
-        let source = ShellPaneSource::new(
-            Titles::default(),
-            Serials::above(&layout::Layout::default()),
-            BrowserBars::new(
-                crate::panes::browser::browser_ids::BrowserIds::default(),
-                async_channel::unbounded().0,
-            ),
-            NativePanes::new(
-                idle_terminals(TerminalIds::default()),
-                NewTabPanes::new(async_channel::unbounded().0),
-                crate::test_support::idle_editors(),
-            ),
-        )
-        .reviewing(std::rc::Rc::new(|chat| chat == "owner"));
+        let source =
+            idle_source(Titles::default()).reviewing(std::rc::Rc::new(|chat| chat == "owner"));
         let cases = [
             ("core.chat", "owner", true),
             ("core.chat", "thread", false),
@@ -73,7 +41,7 @@ mod tests {
         ];
         for (kind, thread, expected) in cases {
             assert_eq!(
-                source.reviews_branch(&pane(kind, thread)),
+                source.reviews_branch(&chat_pane(("p1", kind), thread)),
                 expected,
                 "{kind} {thread}"
             );

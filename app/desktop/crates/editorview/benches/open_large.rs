@@ -3,7 +3,9 @@
 //!
 //! Run with `cargo bench -p editorview --bench open_large`.
 
-mod adapters;
+mod adapters {
+    pub(crate) mod stopwatch;
+}
 
 use std::io::Write;
 use std::sync::Arc;

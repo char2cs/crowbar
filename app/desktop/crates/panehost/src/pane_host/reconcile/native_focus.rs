@@ -56,76 +56,48 @@ impl PaneHost {
 
 #[cfg(test)]
 mod tests {
-    use webview::Call;
-
     use super::*;
     use crate::catalog::{PaneKind, PaneLifecycle};
     use crate::test_support::{browser_at, fixture, instance, pane_type, register};
 
     #[test]
     fn the_keyboard_goes_back_to_its_owner() {
-        let cases = [
-            ("the page holds the keyboard", Keyboard::Pane, Some("focus")),
-            (
-                "the shell holds the keyboard",
-                Keyboard::Shell,
-                Some("focus_parent"),
-            ),
-        ];
-        for (name, keyboard, wanted) in cases {
+        let cases = [(Keyboard::Pane, "focus"), (Keyboard::Shell, "focus_parent")];
+        for (keyboard, wanted) in cases {
             let mut f = fixture();
             let panes = [instance("p1", "core.chat")];
-            f.sync(&panes, &["p1"], Some("p1"));
-            register(&mut f, "p1", "core.chat");
+            f.mount(&panes, Some("p1"));
             f.sync_with(&panes, &["p1"], (Some("p1"), keyboard));
-            let before = f.mock.calls().len();
+            let before = f.calls();
             f.host.apply_keyboard().unwrap();
-            let focus_calls: Vec<&str> = f.mock.calls()[before..]
-                .iter()
-                .filter_map(focus_call)
-                .collect();
-            assert_eq!(focus_calls, Vec::from_iter(wanted), "{name}");
+            assert_eq!(f.focus_calls(before), [wanted], "{keyboard:?}");
         }
     }
 
     #[test]
     fn the_active_page_takes_the_keyboard_back_when_the_shell_hands_it_over() {
-        let cases = [
-            ("handed from the shell", Keyboard::Shell, vec!["focus"]),
-            ("already the page's", Keyboard::Pane, vec![]),
-        ];
-        for (name, held_by, wanted) in cases {
+        let cases = [(Keyboard::Shell, vec!["focus"]), (Keyboard::Pane, vec![])];
+        for (held_by, wanted) in cases {
             let mut f = fixture();
             let panes = [instance("p1", "core.chat")];
-            f.sync(&panes, &["p1"], Some("p1"));
-            register(&mut f, "p1", "core.chat");
+            f.mount(&panes, Some("p1"));
             f.sync_with(&panes, &["p1"], (Some("p1"), held_by));
-            let before = f.mock.calls().len();
+            let before = f.calls();
             f.sync_with(&panes, &["p1"], (Some("p1"), Keyboard::Pane));
-            let focus_calls: Vec<&str> = f.mock.calls()[before..]
-                .iter()
-                .filter_map(focus_call)
-                .collect();
-            assert_eq!(focus_calls, wanted, "{name}");
+            assert_eq!(f.focus_calls(before), wanted, "held by {held_by:?}");
         }
     }
 
     #[test]
     fn a_browser_page_takes_the_keyboard_without_registering() {
         let mut f = fixture();
-        f.host
-            .registry_mut()
-            .register(pane_type("core.browser", PaneLifecycle::Parkable))
-            .unwrap();
+        let browser = pane_type("core.browser", PaneLifecycle::Parkable);
+        f.host.registry_mut().register(browser).unwrap();
         let panes = [browser_at("b1", "https://example.com/")];
         f.sync_with(&panes, &["b1"], (Some("b1"), Keyboard::Pane));
-        let before = f.mock.calls().len();
+        let before = f.calls();
         f.host.apply_keyboard().unwrap();
-        let focus_calls: Vec<&str> = f.mock.calls()[before..]
-            .iter()
-            .filter_map(focus_call)
-            .collect();
-        assert_eq!(focus_calls, ["focus"]);
+        assert_eq!(f.focus_calls(before), ["focus"]);
     }
 
     #[test]
@@ -137,25 +109,12 @@ mod tests {
         let panes = [instance("c1", "core.chat"), instance("n1", "core.native")];
         f.sync(&panes, &["c1"], Some("c1"));
         register(&mut f, "c1", "core.chat");
-        f.sync_with(&panes, &["c1"], (Some("c1"), Keyboard::Pane));
-        let before = f.mock.calls().len();
+        let before = f.calls();
         f.sync(&panes, &["n1"], Some("n1"));
-        let focus_calls: Vec<&str> = f.mock.calls()[before..]
-            .iter()
-            .filter_map(focus_call)
-            .collect();
         assert_eq!(
-            focus_calls,
+            f.focus_calls(before),
             ["focus_parent"],
-            "the hidden chat kept the keys the terminal opened over it"
+            "the hidden chat kept the keys"
         );
-    }
-
-    fn focus_call(call: &Call) -> Option<&'static str> {
-        match call {
-            Call::Focus { .. } => Some("focus"),
-            Call::FocusParent { .. } => Some("focus_parent"),
-            _ => None,
-        }
     }
 }

@@ -56,46 +56,16 @@ mod tests {
     use protocol::PaneId;
 
     use super::*;
-    use crate::panes::kinds::core_panes::{chat_params, chat_type};
-
-    fn open_pane(
-        layout: &mut Layout,
-        instance: PaneInstance,
-    ) {
-        let command = Command::OpenPane {
-            tab: TabId(1),
-            instance,
-            placement: None,
-        };
-        layout.apply(command).unwrap();
-    }
+    use crate::panes::kinds::core_panes::CHAT;
+    use crate::test_support::{chat_pane, one_tab};
 
     fn file(id: &str) -> PaneInstance {
         let spec = PaneSpec::editor("c1", &format!("src/{id}.ts")).unwrap();
         spec.instance(PaneId::new(id).unwrap())
     }
 
-    fn layout_of(instances: Vec<PaneInstance>) -> Layout {
-        let mut layout = Layout::default();
-        let add = Command::AddTab {
-            id: TabId(1),
-            title: String::new(),
-            space: layout::SpaceId::default(),
-        };
-        layout.apply(add).unwrap();
-        for instance in instances {
-            open_pane(&mut layout, instance);
-        }
-        layout
-    }
-
     fn mixed() -> Layout {
-        let chat = PaneInstance {
-            pane_id: PaneId::new("chat").unwrap(),
-            type_id: chat_type().unwrap(),
-            params: chat_params("c1").unwrap(),
-            state: protocol::PaneState::default(),
-        };
+        let chat = chat_pane(("chat", CHAT), "c1");
         let untitled = PaneSpec::untitled("c1", ("1", "Untitled")).unwrap();
         let preview = PaneSpec::preview(
             "c1",
@@ -104,7 +74,7 @@ mod tests {
                 editor::Preview::Markdown,
             ),
         );
-        layout_of(vec![
+        one_tab([
             chat,
             file("a"),
             untitled.instance(PaneId::new("u").unwrap()),
@@ -148,7 +118,7 @@ mod tests {
 
     #[test]
     fn the_last_closed_comes_back_first_and_only_the_newest_ten_are_kept() {
-        let layout = layout_of(vec![file("a"), file("b")]);
+        let layout = one_tab([file("a"), file("b")]);
         let both = ClosedPanes::closing(&layout, &Command::CloseTab { tab: TabId(1) });
         let mut closed = ClosedPanes::default();
         closed.remember(both.clone());

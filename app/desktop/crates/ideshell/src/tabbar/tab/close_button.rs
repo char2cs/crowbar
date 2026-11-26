@@ -5,8 +5,8 @@ use gpui::{
 };
 use ui::{Icon, Surface, Theme, Tooltip, TooltipSide};
 
+use crate::tabbar::tab::strip_tab::{HEIGHT, group_of};
 use crate::tabbar::tab::tab_end::TabEnd;
-use crate::tabbar::tab::tab_frame::{HEIGHT, group_of};
 use crate::tabbar::tab::tab_state::TabState;
 use crate::tabbar::tab_actions::TabAction;
 

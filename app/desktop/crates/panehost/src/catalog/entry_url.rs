@@ -36,53 +36,20 @@ pub(crate) fn tagged(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalog::multiplicity::Multiplicity;
-    use crate::catalog::pane_lifecycle::PaneLifecycle;
-
-    fn pane_type(
-        id: &str,
-        entry: &str,
-    ) -> PaneType {
-        PaneType {
-            id: PaneTypeId::new(id).unwrap(),
-            title: String::new(),
-            entry: entry.into(),
-            kind: crate::catalog::pane_kind::PaneKind::Web,
-            lifecycle: PaneLifecycle::Parkable,
-            multiplicity: Multiplicity::Single,
-        }
-    }
+    use crate::catalog::PaneLifecycle;
+    use crate::test_support::pane_type;
 
     #[test]
-    fn core_and_extension_entries_live_under_their_own_prefix() {
+    fn entries_live_under_their_owner_s_prefix_tagged_with_the_page_generation() {
         let host = HostId::new("local").unwrap();
+        let mut review = pane_type("ext.git.review", PaneLifecycle::Parkable);
+        review.entry = "/ui/review.html".into();
+        let url = entry_url("crowbar", &host, &review);
         assert_eq!(
-            entry_url("crowbar", &host, &pane_type("core.chat", "chat/index.html")),
-            "crowbar://local/panes/core/chat/index.html",
-            "core"
-        );
-        assert_eq!(
-            entry_url(
-                "crowbar",
-                &host,
-                &pane_type("ext.git.review", "/ui/review.html")
-            ),
-            "crowbar://local/panes/ext/git/ui/review.html",
+            url, "crowbar://local/panes/ext/git/ui/review.html",
             "extension"
         );
-    }
-
-    #[test]
-    fn urls_are_tagged_with_the_page_generation() {
-        assert_eq!(
-            tagged("crowbar://local/panes/core/x.html", 4),
-            "crowbar://local/panes/core/x.html?g=4",
-            "plain"
-        );
-        assert_eq!(
-            tagged("crowbar://local/x.html?a=1", 4),
-            "crowbar://local/x.html?a=1&g=4",
-            "with a query"
-        );
+        assert_eq!(tagged(&url, 4), format!("{url}?g=4"), "plain");
+        assert_eq!(tagged("x.html?a=1", 4), "x.html?a=1&g=4", "with a query");
     }
 }

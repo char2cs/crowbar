@@ -23,11 +23,6 @@ impl Terminal {
         self.term.scroll_display(Scroll::PageDown);
     }
 
-    /// Jumps to the oldest line.
-    pub fn scroll_to_top(&mut self) {
-        self.term.scroll_display(Scroll::Top);
-    }
-
     /// Jumps to the live screen.
     pub fn scroll_to_bottom(&mut self) {
         self.term.scroll_display(Scroll::Bottom);
@@ -63,8 +58,8 @@ mod tests {
         assert!(terminal.snapshot().history_size > 400);
         terminal.resize(20, 4);
         assert_eq!(terminal.size(), (20, 4));
-        terminal.scroll_to_top();
-        assert!(terminal.snapshot().display_offset > 0);
+        terminal.set_display_offset(10);
+        assert_eq!(terminal.snapshot().display_offset, 10);
         terminal.clear_scrollback();
         assert_eq!(terminal.snapshot().history_size, 0);
     }

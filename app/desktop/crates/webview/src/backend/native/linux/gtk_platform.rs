@@ -11,7 +11,7 @@ use crate::backend::native::linux::gtk_state::GtkState;
 use crate::backend::platform::Platform;
 use crate::error::{Error, Result};
 
-mod channels;
+pub(crate) mod channels;
 
 #[derive(Debug)]
 pub(crate) struct GtkPlatform {

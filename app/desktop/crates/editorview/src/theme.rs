@@ -79,50 +79,6 @@ mod tests {
         (theme.is_dark(), theme.highlight_theme.appearance.is_dark())
     }
 
-    fn painted_and_projected(cx: &App) -> (HighlightThemeStyle, HighlightThemeStyle) {
-        let palette = Theme::of(cx).palette(Surface::Window);
-        let painted = KitTheme::global(cx).highlight_theme.style.clone();
-        (painted, highlight_style(palette).unwrap())
-    }
-
-    #[gpui::test]
-    fn the_editor_paints_develop_s_token_colours_in_either_mode(cx: &mut TestAppContext) {
-        cx.update(|cx| {
-            Theme::default().install(cx);
-            crate::init(cx);
-        });
-        for mode in [ThemeMode::Dark, ThemeMode::Light] {
-            cx.update(|cx| Theme::default().with_mode(mode).install(cx));
-            let (painted, expected) = cx.read(painted_and_projected);
-            assert_eq!(painted, expected, "{mode:?}");
-        }
-    }
-
-    #[gpui::test]
-    fn the_editor_s_ink_reads_on_its_light_or_dark_ground(cx: &mut TestAppContext) {
-        const CASES: [(ThemeMode, bool); 2] = [(ThemeMode::Dark, true), (ThemeMode::Light, false)];
-        cx.update(|cx| {
-            Theme::default().install(cx);
-            crate::init(cx);
-        });
-        for (mode, light_ink) in CASES {
-            cx.update(|cx| Theme::default().with_mode(mode).install(cx));
-            assert_eq!(cx.read(|cx| ink(cx).l > 0.5), light_ink, "{mode:?}");
-        }
-    }
-
-    #[gpui::test]
-    fn a_shell_theme_installed_in_the_update_that_starts_the_editor_is_followed(
-        cx: &mut TestAppContext
-    ) {
-        cx.update(|cx| {
-            Theme::default().with_mode(ThemeMode::Light).install(cx);
-            crate::init(cx);
-            Theme::default().with_mode(ThemeMode::Dark).install(cx);
-        });
-        assert_eq!(cx.read(|cx| drawn_dark(KitTheme::global(cx))), (true, true));
-    }
-
     #[gpui::test]
     fn the_editor_theme_follows_the_shell_s_light_and_dark_switch(cx: &mut TestAppContext) {
         const CASES: [(ThemeMode, bool); 3] = [
@@ -136,24 +92,33 @@ mod tests {
         });
         for (mode, dark) in CASES {
             cx.update(|cx| Theme::default().with_mode(mode).install(cx));
+            let palette = cx.read(|cx| *Theme::of(cx).palette(Surface::Window));
+            let painted = cx.read(|cx| KitTheme::global(cx).highlight_theme.style.clone());
             assert_eq!(
-                cx.read(|cx| drawn_dark(KitTheme::global(cx))),
-                (dark, dark),
-                "{mode:?}"
+                painted,
+                highlight_style(&palette).unwrap(),
+                "{mode:?} colours"
             );
+            assert_eq!(
+                cx.read(ground),
+                palette.pane_background(),
+                "{mode:?} ground"
+            );
+            assert_eq!(cx.read(|cx| ink(cx).l > 0.5), dark, "{mode:?} ink");
+            let drawn = cx.read(|cx| drawn_dark(KitTheme::global(cx)));
+            assert_eq!(drawn, (dark, dark), "{mode:?}");
         }
     }
 
     #[gpui::test]
-    fn the_editor_s_ground_is_the_shell_s_pane_background_in_either_mode(cx: &mut TestAppContext) {
+    fn a_shell_theme_installed_in_the_update_that_starts_the_editor_is_followed(
+        cx: &mut TestAppContext
+    ) {
         cx.update(|cx| {
-            Theme::default().install(cx);
+            Theme::default().with_mode(ThemeMode::Light).install(cx);
             crate::init(cx);
+            Theme::default().with_mode(ThemeMode::Dark).install(cx);
         });
-        for mode in [ThemeMode::Dark, ThemeMode::Light] {
-            cx.update(|cx| Theme::default().with_mode(mode).install(cx));
-            let pane = cx.read(|cx| Theme::of(cx).palette(Surface::Window).pane_background());
-            assert_eq!(cx.read(ground), pane, "{mode:?}");
-        }
+        assert_eq!(cx.read(|cx| drawn_dark(KitTheme::global(cx))), (true, true));
     }
 }

@@ -103,22 +103,6 @@ impl SettingsModal {
             .update(cx, |search, cx| search.focus(window, cx));
     }
 
-    /// Starts with `query` typed into the search field.
-    #[must_use]
-    pub fn with_query(
-        mut self,
-        query: Option<&str>,
-        cx: &mut Context<'_, Self>,
-    ) -> Self {
-        let Some(query) = query else {
-            return self;
-        };
-        self.state.set_query(query);
-        self.search
-            .update(cx, |input, cx| input.set_text(query, cx));
-        self
-    }
-
     fn on_change(
         &mut self,
         change: &Change,
@@ -282,56 +266,6 @@ mod tests {
         let (harness, cx) = open(cx, "appearance");
         run(&harness, Intent::Close, cx);
         assert_eq!(harness.closed.get(), 1);
-    }
-
-    #[gpui::test]
-    fn every_page_renders_with_and_without_a_search(cx: &mut TestAppContext) {
-        let (harness, cx) = open(cx, "appearance");
-        let pages: Vec<_> = inspect(&harness, cx, |modal| {
-            modal
-                .state
-                .visible_pages()
-                .iter()
-                .map(|page| page.id().clone())
-                .collect()
-        });
-        assert_eq!(pages.len(), 11);
-        for page in pages {
-            run(&harness, Intent::Select(page.clone()), cx);
-            assert_eq!(
-                inspect(&harness, cx, |modal| modal
-                    .state
-                    .page()
-                    .map(|page| page.id().clone())),
-                Some(page)
-            );
-        }
-        let typed = Intent::Search(ui::TextInputEvent::Changed("zzzzzz".to_owned()));
-        run(&harness, typed, cx);
-        assert!(inspect(&harness, cx, |modal| modal
-            .state
-            .visible_pages()
-            .is_empty()));
-    }
-
-    #[gpui::test]
-    fn the_query_option_fills_the_search_field(cx: &mut TestAppContext) {
-        cx.update(|cx| ui::init(cx).unwrap());
-        let backend = crate::test_support::backend();
-        let config = crate::settings_modal::modal_config::ModalConfig::new(
-            settings::default_schema().unwrap(),
-            std::rc::Rc::new(backend.clone()),
-            std::rc::Rc::new(backend),
-        );
-        let (modal, cx) = cx.add_window_view(|window, cx| {
-            crate::settings_modal::SettingsModal::new(config, window, cx)
-                .with_query(Some("font"), cx)
-        });
-        cx.run_until_parked();
-        assert_eq!(
-            modal.read_with(cx, |modal, _| modal.state.query().to_owned()),
-            "font"
-        );
     }
 
     #[gpui::test]

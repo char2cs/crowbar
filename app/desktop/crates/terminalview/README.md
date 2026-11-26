@@ -8,8 +8,7 @@ that joins a view to its daemon session.
 
 ## Public interface
 
-- `TerminalView`: `new`, `focus`, `set_settings`, `run_after_attach`, `grid_size`; it emits
-  `Event`.
+- `TerminalView`: `new`, `set_settings`, `grid_size`; it emits `Event`.
 - `Settings`: the theme and font a view draws with.
 - `Link` (the view end) and `Peer` (the host end) of the daemon channel.
 

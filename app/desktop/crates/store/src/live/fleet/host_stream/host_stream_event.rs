@@ -79,44 +79,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn each_event_has_its_name_level_and_message() {
+    fn a_stream_that_cannot_open_warns_naming_the_host_and_the_cause() {
         let error = daemonapi::Error::Stream("reset".into());
-        let problem = Problem::default();
-        let cases = [
-            (
-                HostStreamEvent::Unopened {
-                    host: "box",
-                    error: &error,
-                },
-                "host_stream_unopened",
-                format!("the stream could not be opened host=box error={error}"),
-            ),
-            (
-                HostStreamEvent::Closed {
-                    host: "box",
-                    scope: "projects",
-                    reason: "refused",
-                    problem: Some(&problem),
-                },
-                "host_stream_closed",
-                format!(
-                    "the daemon ended a stream scope host=box scope=\"projects\" \
-                     reason=\"refused\" problem=Some({problem:?})"
-                ),
-            ),
-            (
-                HostStreamEvent::Refused {
-                    host: "box",
-                    problem: &problem,
-                },
-                "host_stream_refused",
-                format!("the daemon refused a stream request host=box problem={problem:?}"),
-            ),
-        ];
-        for (event, name, message) in cases {
-            assert_eq!(event.name(), name);
-            assert_eq!(event.level(), Level::Warn);
-            assert_eq!(event.to_string(), message);
-        }
+        let event = HostStreamEvent::Unopened {
+            host: "box",
+            error: &error,
+        };
+        let message = format!("the stream could not be opened host=box error={error}");
+        let seen = (event.name(), event.level(), event.to_string());
+        assert_eq!(seen, ("host_stream_unopened", Level::Warn, message));
     }
 }

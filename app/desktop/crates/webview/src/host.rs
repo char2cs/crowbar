@@ -7,8 +7,6 @@ pub use handle::Handle;
 use std::cell::Cell;
 use std::rc::Rc;
 
-use raw_window_handle::HasWindowHandle;
-
 use crate::backend::HostConfig;
 use crate::backend::Platform;
 use crate::error::Result;
@@ -82,23 +80,10 @@ impl Host {
         self.platform.settle()
     }
 
-    /// Creates a web view inside `window` and returns its handle.
+    /// Creates a web view inside `parent` and returns its handle.
     ///
     /// # Errors
     /// An [`Error`](crate::Error) when the window cannot host web views or the engine fails.
-    pub fn create(
-        &self,
-        window: &impl HasWindowHandle,
-        config: Config,
-    ) -> Result<Handle> {
-        let parent = ParentWindow::from_window(window)?;
-        self.create_in(parent, config)
-    }
-
-    /// Like [`Host::create`], for a parent that is already extracted.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the engine fails.
     pub fn create_in(
         &self,
         parent: ParentWindow,
@@ -126,46 +111,22 @@ fn start_native(config: HostConfig) -> Result<Rc<dyn Platform>> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use super::*;
     use crate::backend::Call;
     use crate::backend::MockPlatform;
-    use crate::view::Bounds;
+    use crate::test_support::view_fixtures::config;
+    use crate::view::Color;
     use crate::view::Kind;
     use crate::view::Visibility;
 
-    fn rect(
-        x: f64,
-        y: f64,
-        width: f64,
-        height: f64,
-    ) -> Bounds {
-        Bounds {
-            x,
-            y,
-            width,
-            height,
-        }
-    }
-
-    fn config(kind: Kind) -> Config {
-        Config {
-            url: "crowbar://local/".into(),
-            bounds: rect(1.0, 2.0, 3.0, 4.0),
-            kind,
-            visibility: Visibility::Hidden,
-            background: None,
-            initialization_script: None,
-            on_ipc: Arc::new(|_| {}),
-            on_page: None,
-        }
+    fn mocked() -> (Rc<MockPlatform>, Host) {
+        let mock = Rc::new(MockPlatform::default());
+        (Rc::clone(&mock), Host::with_platform(mock))
     }
 
     #[test]
     fn every_view_gets_a_fresh_id() {
-        let mock = Rc::new(MockPlatform::default());
-        let host = Host::with_platform(Rc::<MockPlatform>::clone(&mock));
+        let (mock, host) = mocked();
         let a = host
             .create_in(ParentWindow::X11(7), config(Kind::Core))
             .unwrap();
@@ -177,9 +138,8 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_create_registers_nothing() {
-        let mock = Rc::new(MockPlatform::default());
-        let host = Host::with_platform(Rc::<MockPlatform>::clone(&mock));
+    fn a_failed_create_registers_nothing_and_the_next_one_works() {
+        let (mock, host) = mocked();
         mock.fail_next_create();
         assert!(
             host.create_in(ParentWindow::X11(7), config(Kind::Core))
@@ -190,57 +150,55 @@ mod tests {
             mock.calls().is_empty() && mock.live_views().is_empty(),
             "nothing recorded"
         );
-    }
-
-    #[test]
-    fn the_background_of_the_config_is_what_the_view_is_created_with() {
-        let mock = Rc::new(MockPlatform::default());
-        let host = Host::with_platform(Rc::<MockPlatform>::clone(&mock));
-        let color = crate::view::Color {
-            red: 1,
-            green: 2,
-            blue: 3,
-            alpha: 255,
-        };
-        let mut with_background = config(Kind::Core);
-        with_background.background = Some(color);
-        host.create_in(ParentWindow::X11(7), with_background)
-            .unwrap();
         assert!(
-            matches!(
-                mock.calls().first(),
-                Some(Call::Create { background: Some(made), .. }) if *made == color
-            ),
-            "{:?}",
-            mock.calls()
+            host.create_in(ParentWindow::X11(7), config(Kind::Core))
+                .is_ok(),
+            "the next one works"
         );
     }
 
-    #[test]
-    fn clearing_browsing_data_reaches_the_backend() {
-        let mock = Rc::new(MockPlatform::default());
-        let host = Host::with_platform(Rc::<MockPlatform>::clone(&mock));
-        assert!(host.clear_browsing_data().is_ok(), "accepted");
-        assert_eq!(mock.calls(), [Call::ClearBrowsingData]);
+    fn created(
+        kind: Kind,
+        background: Option<Color>,
+    ) -> Option<Call> {
+        let (mock, host) = mocked();
+        let made = Config {
+            background,
+            ..config(kind)
+        };
+        let _view = host.create_in(ParentWindow::X11(7), made).unwrap();
+        mock.calls().first().cloned()
     }
 
     #[test]
     fn the_config_reaches_the_backend_unchanged() {
         let git = protocol::ExtensionId::new("git").unwrap();
-        let cases = [("core", Kind::Core), ("extension", Kind::Extension(git))];
-        for (name, kind) in cases {
-            let mock = Rc::new(MockPlatform::default());
-            let host = Host::with_platform(Rc::<MockPlatform>::clone(&mock));
-            let _view = host
-                .create_in(ParentWindow::X11(7), config(kind.clone()))
-                .unwrap();
+        let dark = Color {
+            red: 1,
+            green: 2,
+            blue: 3,
+            alpha: 255,
+        };
+        let cases = [
+            ("core", Kind::Core, None),
+            ("extension", Kind::Extension(git), None),
+            ("background", Kind::Core, Some(dark)),
+        ];
+        for (name, kind, background) in cases {
             assert!(
                 matches!(
-                    mock.calls().first(),
-                    Some(Call::Create { parent: ParentWindow::X11(7), kind: made, visibility: Visibility::Hidden, .. }) if *made == kind
+                    created(kind.clone(), background),
+                    Some(Call::Create { parent: ParentWindow::X11(7), kind: made, visibility: Visibility::Hidden, background: shown, .. }) if made == kind && shown == background
                 ),
                 "{name}"
             );
         }
+    }
+
+    #[test]
+    fn clearing_browsing_data_reaches_the_backend() {
+        let (mock, host) = mocked();
+        assert!(host.clear_browsing_data().is_ok(), "accepted");
+        assert_eq!(mock.calls(), [Call::ClearBrowsingData]);
     }
 }

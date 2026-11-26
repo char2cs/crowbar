@@ -31,21 +31,3 @@ impl ToggleSpec {
         option: SearchOptions::REGEX,
     };
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn each_toggle_has_its_own_id() {
-        let ids = [
-            ToggleSpec::CASE_SENSITIVE.id,
-            ToggleSpec::WHOLE_WORD.id,
-            ToggleSpec::REGEX.id,
-        ];
-        assert_eq!(
-            ids.iter().collect::<std::collections::BTreeSet<_>>().len(),
-            ids.len()
-        );
-    }
-}

@@ -55,8 +55,12 @@ mod tests {
     }
 
     #[test]
-    fn the_report_names_version_location_and_message() {
-        let text = report().render();
+    fn the_report_file_is_written_into_the_directory_naming_version_location_and_message() {
+        let files = InMemoryFiles::default();
+        let now = UNIX_EPOCH + std::time::Duration::from_secs(7);
+        let path = report().write(&files, Path::new("logs"), now).unwrap();
+        assert_eq!(path, Path::new("logs/crash-7.txt"));
+        let text = String::from_utf8(files.read(&path).unwrap()).unwrap();
         for part in [
             "Crowbar 1.2.3",
             "src/main.rs:7:5",
@@ -65,19 +69,5 @@ mod tests {
         ] {
             assert!(text.contains(part), "{part} missing from {text}");
         }
-    }
-
-    #[test]
-    fn the_report_file_is_written_into_the_directory() {
-        let files = InMemoryFiles::default();
-        let now = UNIX_EPOCH + std::time::Duration::from_secs(7);
-        let path = report().write(&files, Path::new("logs"), now).unwrap();
-        assert_eq!(path, Path::new("logs/crash-7.txt"));
-        let written = files.read(&path).unwrap();
-        assert!(
-            String::from_utf8(written)
-                .unwrap()
-                .contains("index out of bounds")
-        );
     }
 }

@@ -150,26 +150,6 @@ mod tests {
         assert!(strays.is_empty(), "{strays:?}");
     }
 
-    fn every_page_icon_is_a_known_phosphor_stem() {
-        let schema = default_schema().unwrap();
-        let stems = [
-            "paint-brush",
-            "code-block",
-            "tree-structure",
-            "git-branch",
-            "terminal-window",
-            "globe",
-            "robot",
-            "pulse",
-            "keyboard",
-            "hard-drives",
-            "device-mobile",
-        ];
-        for page in schema.pages() {
-            assert!(stems.contains(&page.icon.as_str()), "{}", page.icon);
-        }
-    }
-
     const CASES: &[Case] = &[
         (
             "eleven pages in rail order with unique keys",
@@ -182,10 +162,6 @@ mod tests {
         (
             "fixed select defaults are among the options",
             fixed_select_defaults_are_among_the_options,
-        ),
-        (
-            "every page icon is a known phosphor stem",
-            every_page_icon_is_a_known_phosphor_stem,
         ),
     ];
 

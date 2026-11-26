@@ -93,49 +93,41 @@ mod tests {
     use crate::slot::owner::Owner;
     use crate::test_support::blank_config;
 
-    fn slot(
+    fn owned_slot(
         host: &webview::Host,
-        id: u64,
+        id: Id,
         kind: webview::Kind,
     ) -> Slot {
         let config = blank_config(kind.clone());
         let handle = host.create_in(ParentWindow::X11(1), config).unwrap();
+        let owner = Owner::default();
+        owner.assign(protocol::PaneId::new("p").unwrap());
         Slot {
-            id: Id(id),
+            id,
             kind,
             handle,
-            owner: Owner::default(),
+            owner,
         }
     }
 
-    fn host() -> webview::Host {
-        webview::Host::with_platform(Rc::new(MockPlatform::default()))
+    fn kept_after_releasing(
+        kind: &webview::Kind,
+        limit: usize,
+        released: u64,
+    ) -> usize {
+        let host = webview::Host::with_platform(Rc::new(MockPlatform::default()));
+        let mut pool = Pool::new(limit);
+        for n in 0..released {
+            let id = pool.insert(owned_slot(&host, Id(n), kind.clone()));
+            pool.release(id);
+        }
+        pool.len()
     }
 
     #[test]
-    fn a_free_slot_of_the_right_kind_is_found() {
-        let host = host();
-        let mut pool = Pool::new(2);
-        let ext = webview::Kind::Extension(protocol::ExtensionId::new("git").unwrap());
-        let core = pool.insert(slot(&host, 1, webview::Kind::Core));
-        pool.insert(slot(&host, 2, ext.clone()));
-        assert_eq!(pool.find_free(&webview::Kind::Core), Some(core), "core");
-        assert!(pool.find_free(&ext).is_some(), "extension");
-        pool.get(core)
-            .unwrap()
-            .owner
-            .assign(protocol::PaneId::new("p").unwrap());
-        assert_eq!(pool.find_free(&webview::Kind::Core), None, "taken");
-    }
-
-    type Case = (&'static str, webview::Kind, usize, usize, usize);
-
-    fn git() -> webview::Kind {
-        webview::Kind::Extension(protocol::ExtensionId::new("git").unwrap())
-    }
-
-    fn cases() -> Vec<Case> {
-        vec![
+    fn released_slots_are_kept_or_destroyed_by_kind() {
+        let git = webview::Kind::Extension(protocol::ExtensionId::new("git").unwrap());
+        let cases = [
             (
                 "core slots are kept up to the idle limit",
                 webview::Kind::Core,
@@ -150,35 +142,10 @@ mod tests {
                 3,
                 3,
             ),
-            ("extension slots are never reused", git(), 4, 1, 0),
-        ]
-    }
-
-    fn kept_after_releasing(
-        kind: &webview::Kind,
-        limit: usize,
-        released: u64,
-    ) -> usize {
-        let host = host();
-        let mut pool = Pool::new(limit);
-        for n in 0..released {
-            let id = pool.insert(slot(&host, n, kind.clone()));
-            let owned = pool.get(id).unwrap();
-            owned.owner.assign(protocol::PaneId::new("p").unwrap());
-            pool.release(id);
+            ("extension slots are never reused", git, 4, 1, 0),
+        ];
+        for (name, kind, limit, released, kept) in cases {
+            assert_eq!(kept_after_releasing(&kind, limit, released), kept, "{name}");
         }
-        pool.len()
-    }
-
-    #[test]
-    fn released_slots_are_kept_or_destroyed_by_kind() {
-        let wrong: Vec<&str> = cases()
-            .into_iter()
-            .filter(|(_, kind, limit, released, kept)| {
-                kept_after_releasing(kind, *limit, *released as u64) != *kept
-            })
-            .map(|(name, ..)| name)
-            .collect();
-        assert!(wrong.is_empty(), "failed cases: {wrong:?}");
     }
 }

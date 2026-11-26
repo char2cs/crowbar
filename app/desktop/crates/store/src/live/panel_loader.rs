@@ -20,8 +20,8 @@ use crate::journal_sink::emit;
 use crate::live::held::FileEntry;
 use crate::live::held::OpenThreads;
 use crate::live::panel_loader::git_status_body::GitStatusBody;
+use crate::live::panel_loader::git_status_body::LineCounts;
 use crate::live::panel_loader::git_status_body::git_diff_body::GitDiffBody;
-use crate::live::panel_loader::git_status_body::line_counts::LineCounts;
 use crate::live::panel_loader::listed_directory::ListedDirectory;
 use crate::live::panel_loader::panel_loader_event::PanelLoaderEvent;
 use crate::live::panel_loader::review_files_body::ReviewFilesBody;
@@ -178,7 +178,7 @@ async fn load_counts(
 ) -> LineCounts {
     let mut diffs = diff_of(client, chat, "false").await;
     diffs.extend(diff_of(client, chat, "true").await);
-    git_status_body::line_counts::of(&diffs)
+    git_status_body::line_counts(&diffs)
 }
 
 async fn diff_of(
@@ -201,7 +201,7 @@ mod tests {
     use sidebar::GitStatus;
 
     use super::*;
-    use crate::test_support::{FakeDaemon, state};
+    use crate::test_support::{FakeDaemon, Told, recorder, state};
 
     fn first_file_counts(state: &crate::live::state::State) -> Option<(u32, u32)> {
         let file = state.panels.changes.files.first()?;
@@ -254,16 +254,7 @@ mod tests {
         );
     }
 
-    type Heard = Arc<std::sync::Mutex<Vec<Outcome>>>;
-
-    fn heard() -> (OutcomeSink, Heard) {
-        let heard = Heard::default();
-        let keep = Arc::clone(&heard);
-        let sink: OutcomeSink = Arc::new(move |outcome| keep.lock().unwrap().push(outcome));
-        (sink, heard)
-    }
-
-    fn titles(heard: &Heard) -> Vec<(String, String)> {
+    fn titles(heard: &Told) -> Vec<(String, String)> {
         let heard = heard.lock().unwrap();
         let refused = heard.iter().filter_map(|outcome| match outcome {
             Outcome::Refused { title, reason } => Some((title.clone(), reason.clone())),
@@ -277,7 +268,7 @@ mod tests {
         client: &daemonapi::Client,
         directory: &str,
     ) -> Vec<(String, String)> {
-        let (sink, heard) = heard();
+        let (sink, heard) = recorder();
         load_reported(hub, (client, &sink), ("hc", directory)).await;
         titles(&heard)
     }

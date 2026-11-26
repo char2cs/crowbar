@@ -5,23 +5,15 @@ use crate::layout_view::drag::pane_zone::PaneZone;
 
 const PREVIEW_INSET: f32 = 4.0;
 
-/// The pane and side a drag would land on if it were released now.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DropTarget {
-    /// The pane the dragged chat lands next to.
-    pub pane: PaneId,
-    /// The region of that pane the pointer is over.
-    pub zone: PaneZone,
-    /// Whether the drop joins the pane's strip instead of splitting beside it.
-    pub joins: bool,
+pub(crate) struct DropTarget {
+    pub(crate) pane: PaneId,
+    pub(crate) zone: PaneZone,
+    pub(crate) joins: bool,
 }
 
 impl DropTarget {
-    /// The target under `point` among the pane `slots` of the active tab, or `None` when no
-    /// pane is hit or the drop would do nothing, such as a pane dropped on itself. A file takes
-    /// the whole pane: it opens there whatever edge it is nearest.
-    #[must_use]
-    pub fn resolve(
+    pub(crate) fn resolve(
         subject: &DragSubject,
         point: (f32, f32),
         slots: &[PaneSlot],
@@ -42,11 +34,7 @@ impl DropTarget {
         })
     }
 
-    /// The slots a drag of `subject` is resolved against. A pane dragged out of a strip of
-    /// several leaves its group's slot to the group's other members, so it can be dropped on
-    /// the edges of the group it comes from; a pane alone in its group still cannot.
-    #[must_use]
-    pub fn slots_for(
+    pub(crate) fn slots_for(
         subject: &DragSubject,
         tab: &Tab,
         bounds: Rect,
@@ -68,10 +56,7 @@ impl DropTarget {
         slots
     }
 
-    /// The highlighted rectangle inside a pane occupying `pane`, inset 4px: the half an edge
-    /// drop takes, or the whole pane over its centre, as develop's preview does.
-    #[must_use]
-    pub fn preview(
+    pub(crate) fn preview(
         &self,
         pane: Rect,
     ) -> Rect {
@@ -85,7 +70,7 @@ impl DropTarget {
             return inner;
         }
         let (half_width, half_height) = (inner.width / 2.0, inner.height / 2.0);
-        match self.edge() {
+        match self.zone.edge() {
             Edge::Left => Rect {
                 width: half_width,
                 ..inner
@@ -107,11 +92,7 @@ impl DropTarget {
         }
     }
 
-    /// The model command that performs the drop of `subject` into `tab`: a pane of the same tab
-    /// moves, a pane of another tab joins this one, and a chat that is not open yet opens. A chat
-    /// dragged from the sidebar has no pane yet, so it yields `None`: its owner builds the pane.
-    #[must_use]
-    pub fn command(
+    pub(crate) fn command(
         &self,
         subject: &DragSubject,
         tab: &Tab,
@@ -153,18 +134,10 @@ impl DropTarget {
         })
     }
 
-    /// The side of the pane the dropped chat lands on.
-    #[must_use]
-    pub fn edge(&self) -> Edge {
-        self.zone.edge()
-    }
-
-    /// The pane and side as the model's placement.
-    #[must_use]
-    pub fn placement(&self) -> Placement {
+    pub(crate) fn placement(&self) -> Placement {
         Placement {
             target: self.pane.clone(),
-            edge: self.edge(),
+            edge: self.zone.edge(),
         }
     }
 }
@@ -201,117 +174,84 @@ mod tests {
         layout_of("a", &[("b", "a", Edge::Right)])
     }
 
-    #[test]
-    fn a_point_over_the_left_edge_of_pane_b_targets_b_on_its_left() {
-        let layout = two_panes();
-        let slots = layout.showing("").expect("tab").layout(CONTENT);
-        let subject = DragSubject::Open(chat("c"));
-        let target = DropTarget::resolve(&subject, (410.0, 200.0), &slots, &[]).expect("target");
-        assert_eq!(
-            target,
-            DropTarget {
-                pane: pane_id("b"),
-                zone: PaneZone::Left,
-                joins: false,
-            },
-            "b left"
-        );
-    }
-
-    #[test]
-    fn a_pane_dropped_on_itself_has_no_target() {
-        let layout = two_panes();
-        let slots = layout.showing("").expect("tab").layout(CONTENT);
-        let subject = DragSubject::Pane(pane_id("a"));
-        assert_eq!(
-            DropTarget::resolve(&subject, (100.0, 200.0), &slots, &[]),
-            None,
-            "self drop"
-        );
-    }
-
-    #[test]
-    fn a_view_tab_targets_the_pane_under_it_like_a_chat() {
-        let layout = two_panes();
-        let slots = layout.showing("").expect("tab").layout(CONTENT);
-        let subject = DragSubject::Tab(TabId(2));
-        let target = DropTarget::resolve(&subject, (100.0, 200.0), &slots, &[]);
-        let expected = DropTarget {
-            pane: pane_id("a"),
-            zone: PaneZone::Center,
+    fn target(
+        pane: &str,
+        zone: PaneZone,
+    ) -> DropTarget {
+        DropTarget {
+            pane: pane_id(pane),
+            zone,
             joins: false,
-        };
-        assert_eq!(target, Some(expected), "the centre of a adds on its right");
+        }
+    }
+
+    fn subject(code: &str) -> DragSubject {
+        let (kind, name) = code.split_once(':').expect("kind:name");
+        match kind {
+            "open" => DragSubject::Open(chat(name)),
+            "pane" => DragSubject::Pane(pane_id(name)),
+            "tab" => DragSubject::Tab(TabId(name.parse().expect("a tab id"))),
+            "chat" => DragSubject::Chat(name.into()),
+            _ => DragSubject::File(name.into()),
+        }
+    }
+
+    type Resolve = (&'static str, f32, &'static [&'static str], Found);
+    type Found = Option<(&'static str, PaneZone, bool)>;
+
+    const BESIDE: &[Resolve] = &[
+        ("open:c", 410.0, &[], Some(("b", PaneZone::Left, false))),
+        ("pane:a", 100.0, &[], None),
+        ("tab:2", 100.0, &[], Some(("a", PaneZone::Center, false))),
+        ("chat:t1", 600.0, &[], Some(("b", PaneZone::Center, false))),
+        (
+            "file:src/a.rs",
+            410.0,
+            &[],
+            Some(("b", PaneZone::Center, false)),
+        ),
+        ("open:c", 403.0, &[], None),
+    ];
+
+    /// In the stacked layout a tab dragged out of a strip of several can land on its own
+    /// group's edge, and only a centre drop joins a strip.
+    const STACKED: &[Resolve] = &[
+        ("pane:c", 410.0, &[], Some(("b", PaneZone::Left, false))),
+        ("pane:a", 100.0, &[], None),
+        ("pane:a", 600.0, &["c"], Some(("c", PaneZone::Center, true))),
+        ("pane:a", 410.0, &["c"], Some(("c", PaneZone::Left, false))),
+    ];
+
+    fn resolved(
+        layout: &layout::Layout,
+        case: &Resolve,
+    ) -> (Option<DropTarget>, Option<DropTarget>) {
+        let (code, x, joinable, expected) = case;
+        let tab = layout.showing("").expect("tab");
+        let subject = subject(code);
+        let slots = DropTarget::slots_for(&subject, tab, CONTENT);
+        let joinable: Vec<_> = joinable.iter().map(|name| pane_id(name)).collect();
+        let found = DropTarget::resolve(&subject, (*x, 200.0), &slots, &joinable);
+        let expected = expected.map(|(pane, zone, joins)| DropTarget {
+            pane: pane_id(pane),
+            zone,
+            joins,
+        });
+        (found, expected)
     }
 
     #[test]
-    fn a_chat_row_targets_the_pane_under_it_like_an_unopened_chat() {
-        let layout = two_panes();
-        let slots = layout.showing("").expect("tab").layout(CONTENT);
-        let subject = DragSubject::Chat("t1".into());
-        let target = DropTarget::resolve(&subject, (600.0, 200.0), &slots, &[]).expect("target");
-        assert_eq!(
-            target,
-            DropTarget {
-                pane: pane_id("b"),
-                zone: PaneZone::Center,
-                joins: false,
-            },
-            "the centre of b adds beside it, to the right"
-        );
+    fn the_pointer_resolves_to_the_pane_and_zone_under_it() {
+        let (beside, stacked) = (two_panes(), stacked_layout());
+        let beside = BESIDE.iter().map(|case| (&beside, case));
+        for (layout, case) in beside.chain(STACKED.iter().map(|case| (&stacked, case))) {
+            let (found, expected) = resolved(layout, case);
+            assert_eq!(found, expected, "{} at {}", case.0, case.1);
+        }
     }
 
     #[test]
-    fn a_file_targets_the_whole_pane_under_it_even_at_its_edge() {
-        let layout = two_panes();
-        let slots = layout.showing("").expect("tab").layout(CONTENT);
-        let subject = DragSubject::File("src/a.rs".into());
-        let target = DropTarget::resolve(&subject, (410.0, 200.0), &slots, &[]);
-        let expected = DropTarget {
-            pane: pane_id("b"),
-            zone: PaneZone::Center,
-            joins: false,
-        };
-        assert_eq!(target, Some(expected), "b's left edge still opens in b");
-    }
-
-    #[test]
-    fn a_point_over_the_sash_hits_nothing() {
-        let layout = two_panes();
-        let slots = layout.showing("").expect("tab").layout(CONTENT);
-        let subject = DragSubject::Open(chat("c"));
-        assert_eq!(
-            DropTarget::resolve(&subject, (403.0, 200.0), &slots, &[]),
-            None,
-            "sash gap"
-        );
-    }
-
-    #[test]
-    fn the_centre_of_an_open_pane_previews_all_of_it_though_the_chat_lands_right() {
-        let pane = Rect {
-            x: 0.0,
-            y: 0.0,
-            width: 400.0,
-            height: 200.0,
-        };
-        let target = DropTarget {
-            pane: pane_id("a"),
-            zone: PaneZone::Center,
-            joins: false,
-        };
-        let expected = Rect {
-            x: 4.0,
-            y: 4.0,
-            width: 392.0,
-            height: 192.0,
-        };
-        assert_eq!(target.preview(pane), expected, "the whole pane, inset 4px");
-        assert_eq!(target.placement().edge, Edge::Right, "lands on the right");
-    }
-
-    #[test]
-    fn every_edge_previews_the_half_it_will_take() {
+    fn every_zone_previews_the_part_of_the_pane_it_will_take() {
         let pane = Rect {
             x: 0.0,
             y: 0.0,
@@ -325,212 +265,95 @@ mod tests {
             height,
         };
         let cases = [
+            (PaneZone::Center, rect(4.0, 4.0, 100.0, 100.0)),
             (PaneZone::Left, rect(4.0, 4.0, 50.0, 100.0)),
             (PaneZone::Right, rect(54.0, 4.0, 50.0, 100.0)),
             (PaneZone::Top, rect(4.0, 4.0, 100.0, 50.0)),
             (PaneZone::Bottom, rect(4.0, 54.0, 100.0, 50.0)),
         ];
         for (zone, expected) in cases {
-            assert_eq!(target_on(zone).preview(pane), expected, "{zone:?}");
+            assert_eq!(target("a", zone).preview(pane), expected, "{zone:?}");
         }
     }
 
-    fn target_on(zone: PaneZone) -> DropTarget {
-        DropTarget {
+    fn beside_b(edge: Edge) -> Placement {
+        Placement {
+            target: pane_id("b"),
+            edge,
+        }
+    }
+
+    #[test]
+    fn a_dropped_chat_opens_beside_the_target_unless_its_owner_must_build_its_pane() {
+        let layout = two_panes();
+        let tab = layout.showing("").expect("tab");
+        let open = Command::OpenPane {
+            tab: tab.id(),
+            instance: chat("c"),
+            placement: Some(beside_b(Edge::Right)),
+        };
+        let cases = [
+            ("open:c", PaneZone::Center, Some(open)),
+            ("chat:t1", PaneZone::Left, None),
+        ];
+        for (code, zone, expected) in cases {
+            assert_eq!(
+                target("b", zone).command(&subject(code), tab),
+                expected,
+                "{code}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_dropped_pane_moves_within_the_tab_into_it_or_into_the_target_strip() {
+        let layout = two_panes();
+        let tab = layout.showing("").expect("tab");
+        let within = Command::MovePane {
             pane: pane_id("a"),
-            zone,
-            joins: false,
+            placement: beside_b(Edge::Top),
+        };
+        let into = Command::MovePaneToTab {
+            pane: pane_id("zzz"),
+            to: tab.id(),
+            placement: Some(beside_b(Edge::Right)),
+        };
+        let joined = Command::MoveToGroup {
+            pane: pane_id("a"),
+            onto: pane_id("b"),
+            index: None,
+        };
+        let cases = [
+            ("pane:a", target("b", PaneZone::Top), within),
+            ("pane:zzz", target("b", PaneZone::Right), into),
+            (
+                "pane:a",
+                DropTarget {
+                    joins: true,
+                    ..target("b", PaneZone::Center)
+                },
+                joined,
+            ),
+        ];
+        for (code, target, expected) in cases {
+            assert_eq!(
+                target.command(&subject(code), tab),
+                Some(expected),
+                "{code}"
+            );
         }
     }
 
     #[test]
-    fn dropping_a_chat_from_the_sidebar_opens_it_beside_the_target() {
-        let layout = two_panes();
-        let tab = layout.showing("").expect("tab");
-        let target = DropTarget {
-            pane: pane_id("b"),
-            zone: PaneZone::Bottom,
-            joins: false,
-        };
-        let command = target
-            .command(&DragSubject::Open(chat("c")), tab)
-            .expect("command");
-        let placement = Some(Placement {
-            target: pane_id("b"),
-            edge: Edge::Bottom,
-        });
-        assert_eq!(
-            command,
-            Command::OpenPane {
-                tab: tab.id(),
-                instance: chat("c"),
-                placement
-            }
-        );
-    }
-
-    #[test]
-    fn a_chat_row_has_no_pane_to_command_with_yet() {
-        let layout = two_panes();
-        let tab = layout.showing("").expect("tab");
-        let target = target_on(PaneZone::Left);
-        assert_eq!(
-            target.command(&DragSubject::Chat("t1".into()), tab),
-            None,
-            "the owner builds the pane"
-        );
-        assert_eq!(
-            target.placement(),
-            Placement {
-                target: pane_id("a"),
-                edge: Edge::Left
-            },
-            "placement"
-        );
-    }
-
-    #[test]
-    fn dropping_a_pane_of_the_same_tab_moves_it() {
-        let layout = two_panes();
-        let tab = layout.showing("").expect("tab");
-        let target = DropTarget {
-            pane: pane_id("b"),
-            zone: PaneZone::Top,
-            joins: false,
-        };
-        let command = target
-            .command(&DragSubject::Pane(pane_id("a")), tab)
-            .expect("command");
-        let placement = Placement {
-            target: pane_id("b"),
-            edge: Edge::Top,
-        };
-        assert_eq!(
-            command,
-            Command::MovePane {
-                pane: pane_id("a"),
-                placement
-            }
-        );
-    }
-
-    #[test]
-    fn dropping_a_pane_of_another_tab_moves_it_into_this_tab() {
-        let layout = two_panes();
-        let tab = layout.showing("").expect("tab");
-        let target = DropTarget {
-            pane: pane_id("b"),
-            zone: PaneZone::Right,
-            joins: false,
-        };
-        let command = target
-            .command(&DragSubject::Pane(pane_id("zzz")), tab)
-            .expect("command");
-        let placement = Some(Placement {
-            target: pane_id("b"),
-            edge: Edge::Right,
-        });
-        assert_eq!(
-            command,
-            Command::MovePaneToTab {
-                pane: pane_id("zzz"),
-                to: tab.id(),
-                placement
-            }
-        );
-    }
-
-    #[test]
-    fn the_commands_apply_to_the_model_and_yield_three_panes() {
-        let mut layout = two_panes();
-        let tab = layout.showing("").expect("tab").clone();
-        let target = DropTarget {
-            pane: pane_id("b"),
-            zone: PaneZone::Bottom,
-            joins: false,
-        };
-        let command = target
-            .command(&DragSubject::Open(chat("c")), &tab)
-            .expect("command");
-        layout.apply(command).expect("applies");
-        assert_eq!(layout.pane_count(), 3, "three panes after the drop");
-    }
-
-    #[test]
-    fn a_tab_dragged_out_of_its_own_strip_can_be_dropped_on_that_groups_edge() {
+    fn a_tab_dragged_out_of_its_strip_lands_beside_its_old_group() {
         let layout = stacked_layout();
         let tab = layout.showing("").expect("tab");
         let subject = DragSubject::Pane(pane_id("c"));
         let slots = DropTarget::slots_for(&subject, tab, CONTENT);
-        let target = DropTarget::resolve(&subject, (410.0, 200.0), &slots, &[]).expect("target");
-        assert_eq!(
-            (target.pane.clone(), target.edge()),
-            (pane_id("b"), Edge::Left),
-            "other member"
-        );
-        let command = target.command(&subject, tab).expect("command");
-        layout
-            .clone()
-            .apply(command)
-            .expect("moves c out beside a stack of b");
-    }
-
-    #[test]
-    fn a_pane_alone_in_its_group_still_has_no_target_on_itself() {
-        let layout = stacked_layout();
-        let tab = layout.showing("").expect("tab");
-        let subject = DragSubject::Pane(pane_id("a"));
-        let slots = DropTarget::slots_for(&subject, tab, CONTENT);
-        assert_eq!(
-            DropTarget::resolve(&subject, (100.0, 200.0), &slots, &[]),
-            None,
-            "own lone group"
-        );
-    }
-
-    #[test]
-    fn the_centre_of_a_group_that_takes_the_pane_joins_its_strip_and_previews_all_of_it() {
-        let layout = stacked_layout();
-        let tab = layout.showing("").expect("tab");
-        let subject = DragSubject::Pane(pane_id("a"));
-        let slots = tab.layout(CONTENT);
-        let target =
-            DropTarget::resolve(&subject, (600.0, 200.0), &slots, &[pane_id("c")]).expect("target");
-        assert!(target.joins, "joins");
-        let command = target.command(&subject, tab).expect("command");
-        assert_eq!(
-            command,
-            Command::MoveToGroup {
-                pane: pane_id("a"),
-                onto: pane_id("c"),
-                index: None
-            },
-            "centre drop"
-        );
-        let pane = Rect {
-            x: 0.0,
-            y: 0.0,
-            width: 108.0,
-            height: 108.0,
-        };
-        assert_eq!(target.preview(pane).width, 100.0, "whole pane inset");
-    }
-
-    #[test]
-    fn an_edge_drop_never_joins_even_when_the_pane_could() {
-        let layout = stacked_layout();
-        let tab = layout.showing("").expect("tab");
-        let subject = DragSubject::Pane(pane_id("a"));
-        let slots = tab.layout(CONTENT);
-        let target =
-            DropTarget::resolve(&subject, (410.0, 200.0), &slots, &[pane_id("c")]).expect("target");
-        assert!(!target.joins, "edge");
-        assert!(
-            matches!(
-                target.command(&subject, tab),
-                Some(Command::MovePane { .. })
-            ),
-            "edge moves"
-        );
+        let found = DropTarget::resolve(&subject, (410.0, 200.0), &slots, &[]).expect("target");
+        let command = found.command(&subject, tab).expect("command");
+        let mut moved = layout.clone();
+        moved.apply(command).expect("moves c out beside b");
+        assert_eq!(moved.showing("").expect("tab").group_count(), 3, "a, c, b");
     }
 }

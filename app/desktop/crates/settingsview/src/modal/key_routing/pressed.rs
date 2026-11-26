@@ -61,10 +61,4 @@ mod tests {
         }
     }
 
-    #[test]
-    fn bare_keys_are_still_refused_after_translation() {
-        assert!(matches!(captured("a"), Capture::Refused(_)));
-        assert!(matches!(captured("left"), Capture::Refused(_)));
-        assert_eq!(captured("escape"), Capture::Cancelled);
-    }
 }

@@ -1,6 +1,8 @@
 //! A stretch of consecutive cells shaped as one piece of text.
 
+use crate::snapshot::row::style_flags::StyleFlags;
 use crate::snapshot::row::style_span::StyleSpan;
+use crate::snapshot::row::underline::Underline;
 
 /// Text that starts at `column` and advances one cell per character (two for a wide glyph).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -18,8 +20,7 @@ pub struct Segment {
 }
 
 impl Segment {
-    /// Removes plain trailing spaces; true when nothing is left.
-    pub fn trim_blanks(&mut self) -> bool {
+    pub(crate) fn trim_blanks(&mut self) -> bool {
         while self.text.ends_with(' ') && self.last_span_is_plain() {
             self.text.pop();
             self.columns -= 1;
@@ -30,10 +31,7 @@ impl Segment {
 
     fn last_span_is_plain(&self) -> bool {
         self.spans.last().is_some_and(|span| {
-            span.underline == crate::snapshot::row::underline::Underline::None
-                && !span
-                    .flags
-                    .contains(crate::snapshot::row::style_flags::StyleFlags::STRIKE)
+            span.underline == Underline::None && !span.flags.contains(StyleFlags::STRIKE)
         })
     }
 
@@ -52,8 +50,6 @@ impl Segment {
 mod tests {
     use super::*;
     use crate::snapshot::palette::Rgb;
-    use crate::snapshot::row::style_flags::StyleFlags;
-    use crate::snapshot::row::underline::Underline;
 
     fn segment(
         text: &str,

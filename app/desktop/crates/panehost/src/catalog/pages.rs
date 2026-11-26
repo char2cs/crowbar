@@ -4,7 +4,6 @@ mod adapters;
 mod bundle_asset;
 mod bundle_source;
 mod extension_bundles;
-mod mime;
 mod pane_bundles;
 
 pub use adapters::DirBundle;

@@ -5,6 +5,8 @@ use gpui::{
     Window,
 };
 
+use gpui_kit::component::input::EditorState;
+
 use super::EditorView;
 use crate::chrome::find_widget::FindWidget;
 use crate::document::Document;
@@ -22,15 +24,16 @@ pub(crate) fn opened<'cx>(
     )
 }
 
+const EDITABLE: Opening = Opening {
+    line: None,
+    access: Access::Editable,
+};
+
 pub(crate) fn opened_at<'cx>(
     path: &str,
     cx: &'cx mut TestAppContext,
 ) -> (Entity<EditorView>, &'cx mut VisualTestContext) {
-    let opening = Opening {
-        line: None,
-        access: Access::Editable,
-    };
-    shown((document_opening(path, "# Title\n"), opening), None, cx)
+    shown((document_opening(path, "# Title\n"), EDITABLE), None, cx)
 }
 
 pub(crate) fn document_opening(
@@ -79,25 +82,12 @@ pub(crate) fn selected_of(
     window.read(|cx| view.read(cx).state.read(cx).selected_range())
 }
 
-pub(crate) fn rows_of(
+pub(crate) fn read_state<R>(
     view: &Entity<EditorView>,
     window: &mut VisualTestContext,
-) -> Option<std::ops::Range<usize>> {
-    window.read(|cx| view.read(cx).state.read(cx).visible_row_range())
-}
-
-pub(crate) fn line_height_of(
-    view: &Entity<EditorView>,
-    window: &mut VisualTestContext,
-) -> Option<gpui::Pixels> {
-    window.read(|cx| view.read(cx).state.read(cx).line_height())
-}
-
-pub(crate) fn scroll_top_of(
-    view: &Entity<EditorView>,
-    window: &mut VisualTestContext,
-) -> gpui::Pixels {
-    window.read(|cx| view.read(cx).state.read(cx).scroll_offset().y)
+    read: impl FnOnce(&EditorState) -> R,
+) -> R {
+    window.read(|cx| read(view.read(cx).state.read(cx)))
 }
 
 pub(crate) fn body_of(window: &mut VisualTestContext) -> Option<gpui::Bounds<gpui::Pixels>> {
@@ -107,7 +97,7 @@ pub(crate) fn body_of(window: &mut VisualTestContext) -> Option<gpui::Bounds<gpu
 pub(crate) fn state_of(
     view: &Entity<EditorView>,
     cx: &App,
-) -> Entity<gpui_kit::component::input::EditorState> {
+) -> Entity<EditorState> {
     view.read(cx).state.clone()
 }
 
@@ -210,12 +200,8 @@ pub(crate) fn served<'cx>(
     cx: &'cx mut TestAppContext,
 ) -> (Entity<EditorView>, &'cx mut VisualTestContext, FakeServer) {
     let server = FakeServer::default();
-    let opening = Opening {
-        line: None,
-        access: Access::Editable,
-    };
     let (view, window) = shown(
-        (document_opening(path, text), opening),
+        (document_opening(path, text), EDITABLE),
         Some(server.port()),
         cx,
     );

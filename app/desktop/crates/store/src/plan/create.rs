@@ -202,8 +202,7 @@ fn pending(
         label: label.to_owned(),
         scope: scope.to_owned(),
         parent: parent.to_owned(),
-        failure: None,
-        operation: None,
+        ..PendingRow::default()
     }
 }
 

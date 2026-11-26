@@ -58,39 +58,48 @@ mod tests {
     const FIXTURE: &str =
         include_str!("../../../../../../api/internal/core/bootgate/testdata/health-migrating.json");
 
-    fn detail(body: &Value) -> &Value {
-        &body["data"]["detail"]
+    fn read(detail: &Value) -> Option<(String, u32, u32)> {
+        let progress = MigrationProgress::parse(detail)?;
+        Some((
+            progress.step().to_owned(),
+            progress.index(),
+            progress.total(),
+        ))
     }
 
     #[test]
-    fn the_daemons_own_migrating_answer_reads_as_step_two_of_five() {
-        let body: Value = serde_json::from_str(FIXTURE).unwrap();
-        let progress = MigrationProgress::parse(detail(&body)).unwrap();
-        assert_eq!(progress.step(), "workspace-paths-table");
-        assert_eq!((progress.index(), progress.total()), (1, 5));
-    }
-
-    #[test]
-    fn a_step_without_a_name_is_called_by_its_number() {
-        let detail = json!({"step": {"number": 4}, "index": 3, "total": 5});
-        assert_eq!(MigrationProgress::parse(&detail).unwrap().step(), "step 4");
-        let blank = json!({"step": {"number": 4, "name": ""}, "index": 3, "total": 5});
-        assert_eq!(MigrationProgress::parse(&blank).unwrap().step(), "step 4");
-    }
-
-    #[test]
-    fn no_step_yet_is_no_progress() {
+    fn a_detail_reads_as_its_step_named_or_numbered_or_as_no_progress() {
+        let fixture: Value = serde_json::from_str(FIXTURE).unwrap();
+        let numbered = Some(("step 4".to_owned(), 3, 5));
         let cases = [
-            Value::Null,
-            json!({}),
-            json!({"phase": "pre-open"}),
-            json!({"step": "x", "index": 1, "total": 2}),
-            json!({"step": {"name": "a"}, "index": "1", "total": 2}),
-            json!({"step": {"name": "a"}, "index": 1}),
-            json!({"step": {"name": "a"}, "index": -1, "total": 2}),
+            (
+                fixture["data"]["detail"].clone(),
+                Some(("workspace-paths-table".to_owned(), 1, 5)),
+            ),
+            (
+                json!({"step": {"number": 4}, "index": 3, "total": 5}),
+                numbered.clone(),
+            ),
+            (
+                json!({"step": {"number": 4, "name": ""}, "index": 3, "total": 5}),
+                numbered,
+            ),
+            (Value::Null, None),
+            (json!({}), None),
+            (json!({"phase": "pre-open"}), None),
+            (json!({"step": "x", "index": 1, "total": 2}), None),
+            (
+                json!({"step": {"name": "a"}, "index": "1", "total": 2}),
+                None,
+            ),
+            (json!({"step": {"name": "a"}, "index": 1}), None),
+            (
+                json!({"step": {"name": "a"}, "index": -1, "total": 2}),
+                None,
+            ),
         ];
-        for case in cases {
-            assert_eq!(MigrationProgress::parse(&case), None, "{case}");
+        for (detail, expected) in cases {
+            assert_eq!(read(&detail), expected, "{detail}");
         }
     }
 }

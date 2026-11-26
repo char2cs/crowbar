@@ -4,7 +4,6 @@ use ui::IconName;
 
 use crate::tabbar::tab_actions::TabAction;
 use crate::toprow::row_button::RowButton;
-use crate::toprow::row_ink::RowInk;
 
 /// The toggle leading a pane's top row, outside the tab scroller: it opens the editor view beside
 /// the chat, or closes it.
@@ -26,21 +25,21 @@ impl RenderOnce for SplitToggle {
         _window: &mut Window,
         _cx: &mut App,
     ) -> impl IntoElement {
-        let (tip, ink) = look_of(self.view);
+        let (tip, pressed) = look_of(self.view);
         RowButton {
             id: format!("split-{}", self.key).into(),
             icon: IconName::SquareSplitHorizontal,
             tip: tip.into(),
-            ink,
+            pressed,
             on_click: self.on_toggle,
         }
     }
 }
 
-fn look_of(view: EditorView) -> (&'static str, RowInk) {
+fn look_of(view: EditorView) -> (&'static str, bool) {
     match view {
-        EditorView::Open => ("Show chat only", RowInk::Strong),
-        EditorView::Closed => ("Show editor alongside chat", RowInk::Muted),
+        EditorView::Open => ("Show chat only", true),
+        EditorView::Closed => ("Show editor alongside chat", false),
     }
 }
 
@@ -51,15 +50,11 @@ mod tests {
     #[test]
     fn the_toggle_names_what_a_click_will_show_and_looks_pressed_while_open() {
         let cases = [
-            (EditorView::Open, "Show chat only", RowInk::Strong),
-            (
-                EditorView::Closed,
-                "Show editor alongside chat",
-                RowInk::Muted,
-            ),
+            (EditorView::Open, "Show chat only", true),
+            (EditorView::Closed, "Show editor alongside chat", false),
         ];
-        for (view, tip, ink) in cases {
-            assert_eq!(look_of(view), (tip, ink), "{view:?}");
+        for (view, tip, pressed) in cases {
+            assert_eq!(look_of(view), (tip, pressed), "{view:?}");
         }
     }
 }

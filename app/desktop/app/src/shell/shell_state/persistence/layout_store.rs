@@ -101,10 +101,8 @@ impl LayoutStore {
 
 #[cfg(test)]
 mod tests {
-    use layout::{Command, TabId};
-
     use super::*;
-    use crate::test_support::{FixedClock, MemoryFiles};
+    use crate::test_support::{FixedClock, MemoryFiles, add_tab};
 
     const PATH: &str = "/state/layout.json";
     const CORRUPT: &str = "{ not json";
@@ -112,13 +110,7 @@ mod tests {
 
     fn layout() -> Layout {
         let mut layout = Layout::default();
-        layout
-            .apply(Command::AddTab {
-                id: TabId(1),
-                title: "Chat".into(),
-                space: layout::SpaceId::default(),
-            })
-            .unwrap();
+        add_tab(&mut layout, 1);
         layout
     }
 
@@ -130,90 +122,47 @@ mod tests {
         )
     }
 
-    enum Disk {
-        Absent,
-        Saved,
-        Corrupt,
-    }
-
-    struct Case {
-        name: &'static str,
-        disk: Disk,
-        quarantined: Option<&'static str>,
-    }
-
-    const CASES: &[Case] = &[
-        Case {
-            name: "a first run starts with an empty layout",
-            disk: Disk::Absent,
-            quarantined: None,
-        },
-        Case {
-            name: "a healthy file is loaded as is",
-            disk: Disk::Saved,
-            quarantined: None,
-        },
-        Case {
-            name: "a corrupt file is set aside and the app starts empty",
-            disk: Disk::Corrupt,
-            quarantined: Some(ASIDE),
-        },
-    ];
-
-    fn files_holding(disk: &Disk) -> Arc<MemoryFiles> {
-        let files = Arc::new(MemoryFiles::default());
-        match disk {
-            Disk::Absent => {},
-            Disk::Saved => store_over(&files).save(&layout()).unwrap(),
-            Disk::Corrupt => files.seed(Path::new(PATH), CORRUPT),
-        }
-        files
-    }
-
-    fn expected_layout(disk: &Disk) -> Layout {
-        match disk {
-            Disk::Saved => layout(),
-            Disk::Absent | Disk::Corrupt => Layout::default(),
-        }
-    }
-
     #[test]
-    fn loading_at_startup_never_loses_the_user_a_layout() {
-        for case in CASES {
-            let files = files_holding(&case.disk);
-            let loaded = store_over(&files).load_or_quarantine().unwrap();
-            assert_eq!(loaded.layout, expected_layout(&case.disk), "{}", case.name);
-            let aside = case.quarantined.map(PathBuf::from);
-            assert_eq!(loaded.quarantined, aside, "{}: set aside", case.name);
-            let kept = aside.and_then(|path| files.text(&path));
-            let expected = case.quarantined.map(|_| CORRUPT);
-            assert_eq!(kept.as_deref(), expected, "{}: contents kept", case.name);
-        }
-    }
-
-    #[test]
-    fn a_saved_layout_loads_back() {
+    fn a_saved_layout_loads_back_as_is_and_a_refused_write_is_a_write_error() {
         let files = Arc::new(MemoryFiles::default());
         let store = store_over(&files);
         store.save(&layout()).unwrap();
         assert_eq!(store.load().unwrap(), layout(), "round trip");
+        let loaded = store.load_or_quarantine().unwrap();
+        assert_eq!(
+            (loaded.layout, loaded.quarantined),
+            (layout(), None),
+            "at startup"
+        );
         assert_eq!(files.names(), [PathBuf::from(PATH)], "only the document");
+        let refusing = Arc::new(MemoryFiles::refusing_writes());
+        let saved = store_over(&refusing).save(&layout());
+        assert!(matches!(saved, Err(Error::Write(..))), "{saved:?}");
     }
 
     #[test]
-    fn a_corrupt_file_is_an_error_not_an_empty_layout() {
+    fn a_missing_or_corrupt_file_starts_empty_and_a_corrupt_one_is_set_aside_intact() {
+        let empty = store_over(&Arc::new(MemoryFiles::default()));
+        let first = empty.load_or_quarantine().unwrap();
+        assert_eq!(
+            (first.layout, first.quarantined),
+            (Layout::default(), None),
+            "first run"
+        );
         let files = Arc::new(MemoryFiles::default());
         files.seed(Path::new(PATH), CORRUPT);
+        let refused = store_over(&files).load();
         assert!(
-            matches!(store_over(&files).load(), Err(Error::Parse(..))),
-            "refused"
+            matches!(refused, Err(Error::Parse(..))),
+            "a plain load refuses it"
         );
-    }
-
-    #[test]
-    fn a_refused_write_is_a_write_error() {
-        let files = Arc::new(MemoryFiles::refusing_writes());
-        let saved = store_over(&files).save(&layout());
-        assert!(matches!(saved, Err(Error::Write(..))), "{saved:?}");
+        let loaded = store_over(&files).load_or_quarantine().unwrap();
+        let aside = Some(PathBuf::from(ASIDE));
+        assert_eq!(
+            (loaded.layout, loaded.quarantined),
+            (Layout::default(), aside)
+        );
+        let kept = files.text(Path::new(ASIDE));
+        assert_eq!(kept.as_deref(), Some(CORRUPT), "contents kept");
     }
 }

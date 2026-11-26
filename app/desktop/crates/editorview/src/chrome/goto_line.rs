@@ -218,9 +218,10 @@ fn label_row(label: String) -> gpui::Div {
 #[cfg(test)]
 mod tests {
     use gpui::TestAppContext;
+    use gpui_kit::component::input::EditorState;
 
     use crate::Access;
-    use crate::editor_view::test_support::{opened, rows_of};
+    use crate::editor_view::test_support::{opened, read_state};
 
     const LINES: usize = 200;
     const MIDDLE_SLACK: usize = 2;
@@ -244,7 +245,7 @@ mod tests {
             window.run_until_parked();
             let caret = view.read_with(window, |view, cx| view.caret(cx).line);
             assert_eq!(caret, line, "{typed} {last}");
-            let rows = rows_of(&view, window);
+            let rows = read_state(&view, window, EditorState::visible_row_range);
             let rows = rows.unwrap_or_default();
             let placed = placed(&rows, centred);
             assert!(placed, "{typed} {last}: rows {rows:?}");

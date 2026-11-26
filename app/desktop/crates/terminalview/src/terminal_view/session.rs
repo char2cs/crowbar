@@ -15,12 +15,6 @@ impl TerminalView {
         frames: &[DaemonFrame],
         cx: &mut Context<'_, Self>,
     ) {
-        if frames
-            .iter()
-            .any(|frame| matches!(frame, DaemonFrame::Output(_)))
-        {
-            self.run_pending_command();
-        }
         for event in self.terminal.apply_batch(frames) {
             Self::handle_event(event, cx);
         }
@@ -31,12 +25,6 @@ impl TerminalView {
             self.terminal.scroll_to_bottom();
         }
         cx.notify();
-    }
-
-    fn run_pending_command(&mut self) {
-        if let Some(command) = self.pending_command.take() {
-            self.send(ClientMessage::Input(format!("{command}\n")));
-        }
     }
 
     fn handle_event(
@@ -167,16 +155,14 @@ mod tests {
     use crate::terminal_view::TerminalView;
     use crate::terminal_view::event::Event;
     use crate::terminal_view::paint::BLINK_INTERVAL;
-    use crate::test_support::{feed, focus, open, record_events, sent, typed};
+    use crate::test_support::{deliver, feed, focus, open, record_events, sent, typed};
 
     #[gpui::test]
     fn title_bell_and_exit_become_view_events(cx: &mut TestAppContext) {
         let (harness, cx) = open(cx);
         let events = record_events::<TerminalView, Event>(cx, &harness.view);
         feed(&harness, cx, "\x1b]0;build\x07\x07");
-        harness
-            .peer
-            .deliver_blocking(terminal::DaemonFrame::Exit(2));
+        deliver(&harness, terminal::DaemonFrame::Exit(2));
         cx.run_until_parked();
         let expected = [
             Event::TitleChanged("build".into()),
@@ -220,16 +206,5 @@ mod tests {
         assert!(!harness.view.read_with(cx, |view, _| view.blink.is_shown()));
         harness.view.update(cx, |view, cx| view.send_text("x", cx));
         assert!(harness.view.read_with(cx, |view, _| view.blink.is_shown()));
-    }
-
-    #[gpui::test]
-    fn a_pending_command_runs_after_the_first_output(cx: &mut TestAppContext) {
-        let (harness, cx) = open(cx);
-        harness
-            .view
-            .update(cx, |view, _| view.run_after_attach("ls"));
-        sent(&harness);
-        feed(&harness, cx, "$ ");
-        assert_eq!(typed(&harness), "ls\n");
     }
 }

@@ -2,7 +2,6 @@ use crate::shell::inbox::logged::emit;
 use crate::shell::shell_state::ShellState;
 
 mod theme_event;
-use crate::panes::content::pane_breakpoint;
 use crate::panes::content::pane_theme;
 use theme_event::ThemeEvent;
 
@@ -43,7 +42,7 @@ impl ShellState {
     ) {
         let cleared = ui::Breakpoint::cleared_by(width)
             .into_iter()
-            .map(pane_breakpoint::wire_breakpoint)
+            .map(wire_breakpoint)
             .collect();
         if let Err(error) = self.host.set_breakpoints(cleared) {
             tracing::warn!(%error, "sending the window's breakpoints to panes failed");
@@ -60,27 +59,37 @@ impl ShellState {
     }
 }
 
+fn wire_breakpoint(point: ui::Breakpoint) -> protocol::Breakpoint {
+    match point {
+        ui::Breakpoint::Sm => protocol::Breakpoint::Sm,
+        ui::Breakpoint::Md => protocol::Breakpoint::Md,
+        ui::Breakpoint::Lg => protocol::Breakpoint::Lg,
+        ui::Breakpoint::Xl => protocol::Breakpoint::Xl,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::test_support::{shell_rig, synced_chat};
+    use crate::test_support::{evals_with, register_chat, shell_rig, synced_chat};
 
     #[test]
     fn a_mounted_pane_learns_the_breakpoints_the_window_width_clears() {
-        let mut rig = shell_rig();
-        let pane = synced_chat(&mut rig);
-        let register = protocol::PaneFrame::Register {
-            type_id: crate::panes::kinds::core_panes::chat_type().unwrap(),
-            sdk: protocol::SDK_VERSION,
-        };
-        let text = protocol::encode(&register).unwrap();
-        rig.shell.handle_ipc(panehost::IpcMessage { pane, text });
-        rig.shell.set_window_width(1100.0);
-        let frame = r#"{\"sdk\":1,\"kind\":\"breakpoints\",\"cleared\":[\"sm\",\"md\",\"lg\"]}"#;
-        let told = rig.mock.calls().into_iter().any(|call| match call {
-            webview::Call::Eval { script, .. } => script.contains(frame),
-            _ => false,
-        });
-        assert!(told, "{:?}", rig.mock.calls());
+        let width_cases = [
+            (1100.0, r#"[\"sm\",\"md\",\"lg\"]"#),
+            (4000.0, r#"[\"sm\",\"md\",\"lg\",\"xl\"]"#),
+        ];
+        for (width, cleared) in width_cases {
+            let mut rig = shell_rig();
+            let pane = synced_chat(&mut rig);
+            register_chat(&mut rig, pane);
+            rig.shell.set_window_width(width);
+            let frame = format!(r#"{{\"sdk\":1,\"kind\":\"breakpoints\",\"cleared\":{cleared}}}"#);
+            assert!(
+                evals_with(&rig, &frame) > 0,
+                "{width}: {:?}",
+                rig.mock.calls()
+            );
+        }
     }
 
     #[test]

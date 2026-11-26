@@ -83,12 +83,18 @@ mod tests {
         &'static str,
     );
 
-    const CASES: [Case; 3] = [
+    const CASES: [Case; 5] = [
         (
             "editor",
             || PaneSpec::editor("c1", "src/main.rs"),
             "path",
             "\"src/main.rs\"",
+        ),
+        (
+            "an editor opened now is fresh, so a refused read closes it",
+            || PaneSpec::editor("c1", "src/main.rs"),
+            "fresh",
+            "true",
         ),
         (
             "untitled",
@@ -102,6 +108,12 @@ mod tests {
             "absolute",
             "true",
         ),
+        (
+            "a host file opened now is fresh",
+            || PaneSpec::host_file("c1", "/home/a.rs"),
+            "fresh",
+            "true",
+        ),
     ];
 
     #[test]
@@ -113,36 +125,21 @@ mod tests {
     }
 
     #[test]
-    fn a_file_opened_now_is_marked_fresh_so_a_refused_read_closes_it() {
-        let specs = [
-            PaneSpec::editor("c1", "src/main.rs"),
-            PaneSpec::host_file("c1", "/home/a.rs"),
-        ];
-        for spec in specs {
-            assert_eq!(spec.unwrap().state.as_value()["fresh"], true);
-        }
-    }
-
-    #[test]
-    fn a_file_is_identified_by_its_path_without_a_slash_in_the_params() {
+    fn a_file_is_identified_by_a_stable_id_of_its_path_apart_from_untitled_and_picked_files() {
         let a = PaneSpec::editor("c1", "src/main.rs").unwrap();
         let again = PaneSpec::editor("c1", "src/main.rs").unwrap();
         let other = PaneSpec::editor("c1", "src/lib.rs").unwrap();
         assert_eq!(a.params, again.params, "same file, same pane");
         assert_ne!(a.params, other.params, "other file, other pane");
-    }
-
-    #[test]
-    fn untitled_and_picked_files_are_told_apart_from_workspace_files() {
+        assert_eq!(file_id("a"), "faf63dc4c8601ec8c", "stable across runs");
         let untitled = PaneSpec::untitled("c1", ("p4", "Untitled-1")).unwrap();
         let picked = PaneSpec::host_file("c1", "/home/a.rs").unwrap();
         assert_ne!(untitled.params, picked.params, "ids");
-    }
-
-    #[test]
-    fn a_very_long_path_still_fits_the_params() {
         let path = "a/".repeat(2000);
-        assert!(PaneSpec::editor("c1", &path).is_ok());
+        assert!(
+            PaneSpec::editor("c1", &path).is_ok(),
+            "a very long path fits"
+        );
     }
 
     #[test]
@@ -158,10 +155,5 @@ mod tests {
         let host = protocol::DocumentPath::new("/home/a.html").unwrap();
         let host = PaneSpec::preview("c1", (&host, editor::Preview::Html)).unwrap();
         assert_eq!(host.state.as_value()["absolute"], true);
-    }
-
-    #[test]
-    fn file_ids_are_stable() {
-        assert_eq!(file_id("a"), "faf63dc4c8601ec8c");
     }
 }

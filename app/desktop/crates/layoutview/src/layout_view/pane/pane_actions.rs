@@ -53,61 +53,30 @@ impl LayoutView {
 #[cfg(test)]
 mod tests {
     use gpui::TestAppContext;
-    use layout::Edge;
+    use layout::{Command, Edge};
 
     use super::*;
-    use crate::test_support::{FakeSource, layout_of, open, open_with, pane_id, stacked_layout};
+    use crate::test_support::{layout_of, open, pane_id, stacked_layout};
 
     #[gpui::test]
-    fn the_enter_and_leave_actions_move_the_hover_to_their_pane_and_off_it(
-        cx: &mut TestAppContext
-    ) {
-        let layout = layout_of("a", &[("b", "a", Edge::Right)]);
-        let harness = open(cx, &layout);
-        let (view, cx) = (harness.view, harness.cx);
-        let (enter, leave) = view.update(cx, |_, cx| {
+    fn the_close_action_closes_its_pane_or_every_tab_of_its_group_at_once(cx: &mut TestAppContext) {
+        let group = Command::ClosePanes {
+            panes: vec![pane_id("b"), pane_id("c")],
+        };
+        let cases = [
             (
-                LayoutView::enter_action((HoverSource::Cell, &pane_id("a")), cx),
-                LayoutView::leave_action((HoverSource::Cell, &pane_id("a")), cx),
-            )
-        });
-        cx.update(|window, cx| enter(window, cx));
-        let entered = view.read_with(cx, |view, _| view.hover.pane().cloned());
-        cx.update(|window, cx| leave(window, cx));
-        let left = view.read_with(cx, |view, _| view.hover.pane().cloned());
-        assert_eq!((entered, left), (Some(pane_id("a")), None), "enter, leave");
-    }
-
-    #[gpui::test]
-    fn the_press_action_focuses_the_pane_and_close_removes_it(cx: &mut TestAppContext) {
-        let layout = layout_of("a", &[("b", "a", Edge::Right)]);
-        let harness = open(cx, &layout);
-        let (view, cx, commands) = (harness.view, harness.cx, harness.commands);
-        let (press, close) = view.update(cx, |_, cx| {
-            (
-                LayoutView::press_action(&pane_id("a"), cx),
-                LayoutView::close_action(&pane_id("a"), cx),
-            )
-        });
-        cx.update(|window, cx| {
-            press(window, cx);
-            close(window, cx);
-        });
-        assert_eq!(commands.borrow().len(), 2, "one command per action");
-    }
-
-    #[gpui::test]
-    fn closing_a_group_from_its_handle_closes_every_tab_in_one_command(cx: &mut TestAppContext) {
-        let harness = open_with(cx, &stacked_layout(), FakeSource::starting_at_first_tab());
-        let (view, cx, commands) = (harness.view, harness.cx, harness.commands);
-        let close = view.update(cx, |_, cx| LayoutView::close_action(&pane_id("b"), cx));
-        cx.update(|window, cx| close(window, cx));
-        assert_eq!(
-            commands.borrow().as_slice(),
-            &[layout::Command::ClosePanes {
-                panes: vec![pane_id("b"), pane_id("c")]
-            }],
-            "both tabs of the group at once"
-        );
+                layout_of("a", &[("b", "a", Edge::Right)]),
+                "a",
+                Command::ClosePane { pane: pane_id("a") },
+            ),
+            (stacked_layout(), "b", group),
+        ];
+        for (layout, pane, expected) in cases {
+            let harness = open(cx, &layout);
+            let (view, cx, commands) = (harness.view, harness.cx, harness.commands);
+            let close = view.update(cx, |_, cx| LayoutView::close_action(&pane_id(pane), cx));
+            cx.update(|window, cx| close(window, cx));
+            assert_eq!(*commands.borrow(), [expected], "close from {pane}'s handle");
+        }
     }
 }

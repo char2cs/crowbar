@@ -24,7 +24,7 @@ fn spaced_label(
 
 #[cfg(test)]
 mod tests {
-    use gpui::{TestAppContext, px};
+    use gpui::TestAppContext;
     use ui::{Surface, Theme};
 
     use super::*;
@@ -55,35 +55,6 @@ mod tests {
         assert!(
             (wider - loose - expected).abs() < 1.0,
             "{wider} - {loose} vs {expected}"
-        );
-    }
-
-    /// Develop's `text-[10px]` on the section label.
-    const DEVELOP_LABEL: f32 = 10.0;
-
-    #[gpui::test]
-    fn the_section_label_is_set_at_develops_ten_pixels(cx: &mut TestAppContext) {
-        let label = label_width(cx, 0.0);
-        let window = crate::test_support::mount(cx, move |_, _| {
-            let develop = div()
-                .text_size(px(DEVELOP_LABEL))
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(LABEL);
-            div().flex().child(
-                gpui::InteractiveElement::debug_selector(div().flex_none(), || "develop".into())
-                    .child(develop),
-            )
-        });
-        let develop = f32::from(
-            window
-                .debug_bounds("develop")
-                .unwrap_or_default()
-                .size
-                .width,
-        );
-        assert!(
-            (label - develop).abs() < 0.5,
-            "{label} vs develop {develop}"
         );
     }
 }

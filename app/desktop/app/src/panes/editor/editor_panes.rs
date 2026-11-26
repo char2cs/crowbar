@@ -205,8 +205,8 @@ impl EditorPanes {
 #[cfg(test)]
 mod tests {
     use gpui::{Entity, Focusable as _, IntoElement as _, TestAppContext};
-    use layout::{Command, PaneInstance, TabId};
-    use protocol::{PaneState, PaneTypeId, Params};
+    use layout::PaneInstance;
+    use protocol::PaneState;
     use serde_json::json;
 
     use super::*;
@@ -223,33 +223,21 @@ mod tests {
         layout_in("c1", state)
     }
 
+    fn editor_pane(
+        (pane, chat): (&str, &str),
+        state: serde_json::Value,
+    ) -> PaneInstance {
+        PaneInstance {
+            state: PaneState::new(state).unwrap(),
+            ..crate::test_support::chat_pane((pane, EDITOR), chat)
+        }
+    }
+
     pub(super) fn layout_in(
         chat: &str,
         state: serde_json::Value,
     ) -> Layout {
-        let mut layout = Layout::default();
-        let instance = PaneInstance {
-            pane_id: PaneId::new(PANE).unwrap(),
-            type_id: PaneTypeId::new(EDITOR).unwrap(),
-            params: Params::default().with("threadId", chat).unwrap(),
-            state: PaneState::new(state).unwrap(),
-        };
-        let commands = [
-            Command::AddTab {
-                id: TabId(1),
-                title: String::new(),
-                space: layout::SpaceId::default(),
-            },
-            Command::OpenPane {
-                tab: TabId(1),
-                instance,
-                placement: None,
-            },
-        ];
-        for command in commands {
-            layout.apply(command).unwrap();
-        }
-        layout
+        crate::test_support::one_tab([editor_pane((PANE, chat), state)])
     }
 
     pub(super) fn two_panes_on(path: &str) -> Layout {
@@ -259,21 +247,10 @@ mod tests {
 
     pub(super) fn with_pane(
         mut layout: Layout,
-        (pane, chat): (&str, &str),
+        pane: (&str, &str),
         state: serde_json::Value,
     ) -> Layout {
-        let instance = PaneInstance {
-            pane_id: PaneId::new(pane).unwrap(),
-            type_id: PaneTypeId::new(EDITOR).unwrap(),
-            params: Params::default().with("threadId", chat).unwrap(),
-            state: PaneState::new(state).unwrap(),
-        };
-        let open = Command::OpenPane {
-            tab: TabId(1),
-            instance,
-            placement: None,
-        };
-        layout.apply(open).unwrap();
+        crate::test_support::open_in(&mut layout, 1, editor_pane(pane, state));
         layout
     }
 
@@ -302,6 +279,14 @@ mod tests {
             Rc::new(EditorPanes::new(source, chats, drafts, requests)),
             heard,
         )
+    }
+
+    pub(super) fn editors_in(cx: &mut TestAppContext) -> Rc<FakeDocuments> {
+        cx.update(|cx| ui::init(cx).unwrap());
+        cx.update(editorview::init);
+        let documents = Rc::new(FakeDocuments::default());
+        documents.loading("c1");
+        documents
     }
 
     pub(super) fn landed(
@@ -453,10 +438,7 @@ mod tests {
     fn a_file_of_a_locked_workspace_ignores_typing_and_does_not_take_the_keyboard(
         cx: &mut TestAppContext
     ) {
-        cx.update(|cx| ui::init(cx).unwrap());
-        cx.update(editorview::init);
-        let documents = Rc::new(FakeDocuments::default());
-        documents.loading("c1");
+        let documents = editors_in(cx);
         documents.holding(PATH, TEXT);
         let (panes, heard) = panes_locked(&documents, Rc::new(|chat| chat == "c1"));
         panes.follow(&layout_with(json!({"path": PATH})), "");

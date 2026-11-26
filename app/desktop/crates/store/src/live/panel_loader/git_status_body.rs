@@ -2,13 +2,16 @@
 
 mod file_body;
 pub(super) mod git_diff_body;
-pub(super) mod line_counts;
+
+use std::collections::HashMap;
 
 use serde::Deserialize;
 use sidebar::{ChangedFile, Changes};
 
 use crate::live::panel_loader::git_status_body::file_body::FileBody;
-use crate::live::panel_loader::git_status_body::line_counts::LineCounts;
+use crate::live::panel_loader::git_status_body::git_diff_body::GitDiffBody;
+
+pub(crate) type LineCounts = HashMap<String, (u32, u32)>;
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
@@ -43,6 +46,18 @@ impl GitStatusBody {
     }
 }
 
+pub(crate) fn line_counts(diffs: &[GitDiffBody]) -> LineCounts {
+    let mut counts = LineCounts::new();
+    for diff in diffs {
+        let held = counts.entry(diff.file_path.clone()).or_default();
+        *held = (
+            held.0.saturating_add(diff.additions),
+            held.1.saturating_add(diff.deletions),
+        );
+    }
+    counts
+}
+
 fn changed_file(
     file: &FileBody,
     counts: &LineCounts,
@@ -61,7 +76,6 @@ fn changed_file(
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
 
     #[test]
@@ -84,5 +98,16 @@ mod tests {
             .collect();
         assert_eq!(changes.branch, "main");
         assert_eq!(files, ["a Untracked +0 -0", "b Renamed +4 -2"]);
+    }
+
+    #[test]
+    fn a_file_in_both_diffs_sums_its_lines() {
+        let diffs: Vec<GitDiffBody> = serde_json::from_str(
+            r#"[{"file_path":"a","additions":2,"deletions":1},{"file_path":"a","additions":3},{"file_path":"b"}]"#,
+        )
+        .unwrap();
+        let counts = line_counts(&diffs);
+        assert_eq!(counts["a"], (5, 1));
+        assert_eq!(counts["b"], (0, 0));
     }
 }

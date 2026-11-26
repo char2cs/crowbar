@@ -8,9 +8,9 @@ use alacritty_terminal::term::cell::{Cell, Flags};
 
 use crate::snapshot::palette::ColorSource;
 use crate::snapshot::palette::Rgb;
+use crate::snapshot::palette::cell_colors;
 use crate::snapshot::row::Row;
 use crate::snapshot::row::background_span::BackgroundSpan;
-use crate::snapshot::row::cell_colors::cell_colors;
 use crate::snapshot::row::segment::Segment;
 use crate::snapshot::row::style_flags::StyleFlags;
 use crate::snapshot::row::style_span::StyleSpan;
@@ -224,18 +224,13 @@ mod tests {
 
     #[test]
     fn underline_prefers_the_specific_variant() {
-        assert_eq!(
-            underline_of(Flags::UNDERCURL | Flags::UNDERLINE),
-            Underline::Curly
-        );
-        assert_eq!(underline_of(Flags::UNDERLINE), Underline::Single);
-        assert_eq!(underline_of(Flags::empty()), Underline::None);
-    }
-
-    #[test]
-    fn style_flags_map_bold_italic_strike() {
-        let style = style_flags(Flags::BOLD | Flags::STRIKEOUT);
-        assert!(style.contains(StyleFlags::BOLD) && style.contains(StyleFlags::STRIKE));
-        assert!(!style.contains(StyleFlags::ITALIC));
+        let cases = [
+            (Flags::UNDERCURL | Flags::UNDERLINE, Underline::Curly),
+            (Flags::UNDERLINE, Underline::Single),
+            (Flags::empty(), Underline::None),
+        ];
+        for (flags, expected) in cases {
+            assert_eq!(underline_of(flags), expected, "{flags:?}");
+        }
     }
 }

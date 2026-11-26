@@ -4,18 +4,16 @@ mod clock;
 mod command;
 pub(crate) mod log;
 mod phase;
-mod reply;
 pub(crate) mod restart_budget;
 mod startup;
 mod verdict;
 
 pub(crate) use bus::Bus;
 pub(crate) use clock::Clock;
-pub(crate) use command::{Command, next_command};
+pub(crate) use command::{Command, next_command, reply};
 pub(crate) use log::DaemonLog;
 pub(crate) use log::{MAX_LINE_BYTES, crash_report, crash_summary};
 pub(crate) use phase::Phase;
-pub(crate) use reply::reply;
 pub(crate) use startup::Startup;
 pub(crate) use verdict::Verdict;
 

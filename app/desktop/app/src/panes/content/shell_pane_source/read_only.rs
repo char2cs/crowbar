@@ -23,46 +23,14 @@ impl ShellPaneSource {
 #[cfg(test)]
 mod tests {
     use ideshell::{TabAccess, TabLooks as _};
-    use protocol::PaneId;
 
     use super::*;
-    use crate::panes::browser::browser_bars::BrowserBars;
-    use crate::panes::content::native_panes::NativePanes;
-    use crate::panes::content::new_tab::new_tab_panes::NewTabPanes;
-    use crate::panes::kinds::serials::Serials;
-    use crate::panes::terminals::terminal_ids::TerminalIds;
+    use crate::panes::content::shell_pane_source::tests::idle_source;
     use crate::panes::tracking::titles::Titles;
-    use crate::test_support::idle_terminals;
-
-    fn pane(
-        kind: &str,
-        thread: &str,
-    ) -> PaneInstance {
-        PaneInstance {
-            pane_id: PaneId::new("p1").unwrap(),
-            type_id: protocol::PaneTypeId::new(kind).unwrap(),
-            params: protocol::Params::default()
-                .with("threadId", thread)
-                .unwrap(),
-            state: protocol::PaneState::default(),
-        }
-    }
+    use crate::test_support::chat_pane;
 
     fn source() -> ShellPaneSource {
-        ShellPaneSource::new(
-            Titles::default(),
-            Serials::above(&layout::Layout::default()),
-            BrowserBars::new(
-                crate::panes::browser::browser_ids::BrowserIds::default(),
-                async_channel::unbounded().0,
-            ),
-            NativePanes::new(
-                idle_terminals(TerminalIds::default()),
-                NewTabPanes::new(async_channel::unbounded().0),
-                crate::test_support::idle_editors(),
-            ),
-        )
-        .locking(std::rc::Rc::new(|chat| chat == "locked"))
+        idle_source(Titles::default()).locking(std::rc::Rc::new(|chat| chat == "locked"))
     }
 
     #[test]
@@ -90,7 +58,7 @@ mod tests {
         ];
         for (name, kind, chat, expected) in cases {
             assert_eq!(
-                source.tab_look(&pane(kind, chat)).access,
+                source.tab_look(&chat_pane(("p1", kind), chat)).access,
                 expected,
                 "{name}"
             );

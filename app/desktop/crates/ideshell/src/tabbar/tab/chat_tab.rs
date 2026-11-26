@@ -1,12 +1,11 @@
 use gpui::{
-    App, CursorStyle, ElementId, FontWeight, InteractiveElement, IntoElement, MouseButton,
-    ParentElement, RenderOnce, SharedString, Styled, Window, div, px,
+    AnyElement, App, CursorStyle, ElementId, FontWeight, Hsla, InteractiveElement, IntoElement,
+    MouseButton, ParentElement, RenderOnce, SharedString, Styled, Window, div, px,
 };
 use protocol::PaneId;
-use ui::{IconName, Surface, Theme};
+use ui::{Icon, IconName, ProviderGlyph, Surface, Theme};
 
-use crate::tabbar::tab::tab_frame::HEIGHT;
-use crate::tabbar::tab::tab_glyph::tab_glyph;
+use crate::tabbar::tab::strip_tab::HEIGHT;
 use crate::tabbar::tab::tab_state::TabState;
 use crate::tabbar::tab_actions::TabAction;
 
@@ -14,6 +13,7 @@ const PAD_X: f32 = 10.0;
 const GAP: f32 = 6.0;
 const LABEL_SIZE: f32 = 13.0;
 const TITLE_MAX: f32 = 160.0;
+const GLYPH: f32 = 14.0;
 
 /// The chat's entry leading the tab bar when the group shows one view at a time. It never closes
 /// and never moves, so it sits before the editor tabs.
@@ -83,6 +83,22 @@ fn title_of(label: SharedString) -> gpui::Div {
         .child(label)
 }
 
+pub(crate) fn tab_glyph(
+    icon: IconName,
+    artwork: Option<SharedString>,
+    ink: Hsla,
+) -> AnyElement {
+    let Some(artwork) = artwork else {
+        return Icon::new(icon)
+            .size(px(GLYPH))
+            .color(ink)
+            .into_any_element();
+    };
+    ProviderGlyph::new(artwork, ink)
+        .size(px(GLYPH))
+        .into_any_element()
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
@@ -129,5 +145,43 @@ mod tests {
         assert_eq!(tab.size.height, px(HEIGHT), "as tall as an editor tab");
         cx.simulate_click(tab.center(), Modifiers::none());
         assert_eq!(presses.get(), 1);
+    }
+
+    struct Glyphs;
+
+    impl Render for Glyphs {
+        fn render(
+            &mut self,
+            _: &mut Window,
+            _: &mut Context<'_, Self>,
+        ) -> impl IntoElement {
+            let ink = gpui::black();
+            let art = Some(SharedString::from("<svg viewBox=\"0 0 1 1\"/>"));
+            div()
+                .child(div().debug_selector(|| "icon".into()).child(tab_glyph(
+                    IconName::File,
+                    None,
+                    ink,
+                )))
+                .child(div().debug_selector(|| "art".into()).child(tab_glyph(
+                    IconName::File,
+                    art,
+                    ink,
+                )))
+        }
+    }
+
+    #[gpui::test]
+    fn a_tab_glyph_is_fourteen_pixels_whether_icon_or_artwork(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            ui::init(cx).expect("ui init");
+            cx.set_global(Theme::default());
+        });
+        let (_, cx) = cx.add_window_view(|_, _| Glyphs);
+        cx.run_until_parked();
+        for name in ["icon", "art"] {
+            let height = cx.debug_bounds(name).map(|bounds| bounds.size.height);
+            assert_eq!(height, Some(px(GLYPH)), "{name}");
+        }
     }
 }

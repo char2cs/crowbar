@@ -28,52 +28,22 @@ pub(crate) fn review_panes(layout: &Layout) -> Vec<(PaneId, String)> {
 
 #[cfg(test)]
 mod tests {
-    use layout::{Command, PaneInstance, TabId};
-
     use super::*;
-    use crate::panes::kinds::core_panes::{chat_params, chat_type};
+    use crate::panes::kinds::core_panes::CHAT;
     use crate::panes::kinds::pane_spec::PaneSpec;
-
-    fn open(
-        layout: &mut Layout,
-        instance: PaneInstance,
-    ) {
-        layout
-            .apply(Command::OpenPane {
-                tab: TabId(1),
-                instance,
-                placement: None,
-            })
-            .unwrap();
-    }
+    use crate::test_support::{chat_pane, one_tab};
 
     #[test]
     fn only_review_panes_are_found_each_with_its_chat() {
-        let mut layout = Layout::default();
-        let title = String::new();
-        layout
-            .apply(Command::AddTab {
-                id: TabId(1),
-                title,
-                space: layout::SpaceId::default(),
-            })
-            .unwrap();
-        let review = |chat: &str| PaneSpec::review(chat, None).unwrap();
-        open(
-            &mut layout,
-            review("c1").instance(PaneId::new("r1").unwrap()),
-        );
-        open(
-            &mut layout,
-            review("c2").instance(PaneId::new("r2").unwrap()),
-        );
-        let chat = PaneInstance {
-            pane_id: PaneId::new("ch").unwrap(),
-            type_id: chat_type().unwrap(),
-            params: chat_params("c1").unwrap(),
-            state: protocol::PaneState::default(),
+        let review = |(chat, pane): (&str, &str)| {
+            let spec = PaneSpec::review(chat, None).unwrap();
+            spec.instance(PaneId::new(pane).unwrap())
         };
-        open(&mut layout, chat);
+        let layout = one_tab([
+            review(("c1", "r1")),
+            review(("c2", "r2")),
+            chat_pane(("ch", CHAT), "c1"),
+        ]);
         let found = review_panes(&layout);
         let expected = [
             (PaneId::new("r1").unwrap(), "c1".to_owned()),

@@ -1,12 +1,11 @@
-//! The queue of native menus pages ask the shell for.
+//! The queue of native menus pages ask the shell for. It carries each [`MenuAsk`] from the scheme,
+//! which hears the page, to the shell, which pops the menu over the pane. Clones share one queue:
+//! the protocol sends, the pane host hands the receiving end to the shell.
 
 use crate::scheme::menu::menu_ask::MenuAsk;
 
-/// Carries each [`MenuAsk`] from the scheme, which hears the page, to the shell, which pops the
-/// menu over the pane. Clones share one queue: the [`PaneProtocol`](crate::PaneProtocol) sends,
-/// the [`PaneHost`](crate::PaneHost) hands the receiving end to the shell.
 #[derive(Debug, Clone)]
-pub struct PaneMenus {
+pub(crate) struct PaneMenus {
     sender: async_channel::Sender<MenuAsk>,
     receiver: async_channel::Receiver<MenuAsk>,
 }
@@ -19,9 +18,7 @@ impl Default for PaneMenus {
 }
 
 impl PaneMenus {
-    /// The asks, in the order pages made them.
-    #[must_use]
-    pub fn asks(&self) -> async_channel::Receiver<MenuAsk> {
+    pub(crate) fn asks(&self) -> async_channel::Receiver<MenuAsk> {
         self.receiver.clone()
     }
 

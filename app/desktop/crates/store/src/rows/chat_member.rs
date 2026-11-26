@@ -42,12 +42,12 @@ fn owned<'a>(
 
 #[cfg(test)]
 mod tests {
-    use daemonapi::Frame;
     use serde_json::json;
     use sidebar::{Titling, WorkspaceStatus};
 
     use super::*;
     use crate::rows::look::UNTITLED_CHAT;
+    use crate::test_support::entity_frame;
 
     fn store() -> Entities {
         let mut store = Entities::default();
@@ -66,24 +66,9 @@ mod tests {
             ("chat", "thread", json!({"id": "thread", "title": "Perf"})),
         ];
         for (kind, id, data) in rows {
-            store.apply(entity(kind, id, data));
+            store.apply(entity_frame(kind, id, data));
         }
         store
-    }
-
-    fn entity(
-        kind: &str,
-        id: &str,
-        data: serde_json::Value,
-    ) -> Frame {
-        Frame::Entity {
-            scope: "projects".into(),
-            kind: kind.into(),
-            id: id.into(),
-            v: 1,
-            data: Some(data),
-            gone: false,
-        }
     }
 
     type Seen = (RowKind, String, Titling, Option<WorkspaceStatus>);

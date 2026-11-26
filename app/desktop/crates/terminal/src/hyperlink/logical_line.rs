@@ -128,19 +128,14 @@ mod tests {
     use crate::test_support::emulator_showing;
 
     #[test]
-    fn wrapped_rows_join_into_one_line_and_offsets_map_back_to_cells() {
+    fn wrapped_rows_join_into_one_line_and_separate_lines_stay_apart() {
         let term = emulator_showing("abcdefghijkl", 5, 4);
         let logical = LogicalLine::around(&term, Line(1));
         assert!(logical.text.starts_with("abcdefghijkl"));
         assert_eq!(logical.offset_of(Line(1), 1), Some(6));
         assert_eq!(logical.offset_of(Line(0), 4), Some(4));
-    }
-
-    #[test]
-    fn separate_lines_stay_separate() {
         let term = emulator_showing("ab\r\ncd", 5, 4);
         let logical = LogicalLine::around(&term, Line(1));
-        assert!(logical.text.starts_with("cd"));
-        assert!(!logical.text.contains("ab"));
+        assert!(logical.text.starts_with("cd") && !logical.text.contains("ab"));
     }
 }

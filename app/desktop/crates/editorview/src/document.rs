@@ -8,7 +8,8 @@ use gpui::{App, AppContext as _, Context, Entity, EventEmitter, Subscription, Ta
 use gpui_kit::base::input::Rope;
 
 use crate::lsp::lsp_link::LspLink;
-use crate::{DocumentEvent, DocumentOpening, LanguageServer, SaveMark};
+use crate::{DocumentOpening, LanguageServer, SaveMark};
+use document_event::DocumentEvent;
 
 pub(crate) mod disk_take;
 mod disk_text;
@@ -181,39 +182,69 @@ impl std::fmt::Debug for Document {
 
 #[cfg(test)]
 mod tests {
-    use gpui::Focusable as _;
     use gpui::{
-        IntoElement, ParentElement as _, Render, Styled as _, TestAppContext, VisualTestContext,
-        Window, div,
+        Focusable as _, IntoElement, ParentElement as _, Render, Styled as _, TestAppContext,
+        VisualTestContext, Window, div,
     };
     use gpui_kit::base::input::Position;
     use gpui_kit::component::input::EditorState;
 
     use super::*;
-    use crate::editor_view::test_support::{listened, press, state_of};
+    use crate::editor_view::test_support::{FakeServer, listened, press, state_of};
+    use crate::{Access, EditorEvent, EditorView, Opening};
 
     const TEXT: &str = "one\ntwo\n";
 
-    fn opening(text: &str) -> DocumentOpening {
-        DocumentOpening {
-            text: text.to_owned(),
-            path: "src/a.ts".to_owned(),
-            saved: None,
+    type Pair = (Entity<EditorView>, Entity<EditorView>);
+
+    struct Views {
+        a: Entity<EditorView>,
+        b: Entity<EditorView>,
+    }
+
+    impl Render for Views {
+        fn render(
+            &mut self,
+            _: &mut Window,
+            _: &mut Context<'_, Self>,
+        ) -> impl IntoElement {
+            div()
+                .size_full()
+                .child(self.a.clone())
+                .child(self.b.clone())
         }
     }
 
-    fn pair(cx: &mut TestAppContext) -> (Entity<Views>, &mut VisualTestContext) {
-        two_views(None, cx)
+    fn two_views(
+        server: Option<Rc<dyn LanguageServer>>,
+        cx: &mut TestAppContext,
+    ) -> (Pair, &mut VisualTestContext) {
+        cx.update(|cx| ui::init(cx).unwrap());
+        cx.update(crate::init);
+        let shown = Opening {
+            line: None,
+            access: Access::Editable,
+        };
+        let opening = DocumentOpening {
+            text: TEXT.to_owned(),
+            path: "src/a.ts".to_owned(),
+            saved: None,
+        };
+        let (views, window) = cx.add_window_view(|window, cx| {
+            let document = cx.new(|cx| Document::new(opening, server, cx));
+            let a = cx.new(|cx| EditorView::new(document.clone(), shown, window, cx));
+            let b = cx.new(|cx| EditorView::new(document, shown, window, cx));
+            Views { a, b }
+        });
+        let pair = window.read(|cx| (views.read(cx).a.clone(), views.read(cx).b.clone()));
+        (pair, window)
     }
 
     fn states(
-        views: &Entity<Views>,
+        (a, b): &Pair,
         window: &mut VisualTestContext,
     ) -> (Entity<EditorState>, Entity<EditorState>) {
-        window.read(|cx| {
-            let views = views.read(cx);
-            (state_of(&views.a, cx), state_of(&views.b, cx))
-        })
+        window.read(|cx| (state_of(a, cx), state_of(b, cx)))
     }
 
     fn focus(
@@ -236,8 +267,9 @@ mod tests {
     fn caret(
         state: &Entity<EditorState>,
         window: &mut VisualTestContext,
-    ) -> Position {
-        window.read(|cx| state.read(cx).cursor_position())
+    ) -> (u32, u32) {
+        let at = window.read(|cx| state.read(cx).cursor_position());
+        (at.line, at.character)
     }
 
     fn text(
@@ -251,7 +283,7 @@ mod tests {
     fn two_views_over_one_document_show_each_others_edits_and_keep_their_own_carets(
         cx: &mut TestAppContext
     ) {
-        let (pair, window) = pair(cx);
+        let (pair, window) = two_views(None, cx);
         let (a, b) = states(&pair, window);
         put_caret(&b, (1, 2), window);
         put_caret(&a, (1, 0), window);
@@ -260,25 +292,19 @@ mod tests {
         assert_eq!(text(&b, window), "one\nxytwo\n", "b shows a's typing");
         assert_eq!(
             caret(&b, window),
-            Position {
-                line: 1,
-                character: 4
-            },
+            (1, 4),
             "b's caret moves on past a's typing"
         );
         assert_eq!(
             caret(&a, window),
-            Position {
-                line: 1,
-                character: 2
-            },
+            (1, 2),
             "a's caret follows its own typing"
         );
     }
 
     #[gpui::test]
     fn undo_in_either_state_undoes_the_documents_last_edit(cx: &mut TestAppContext) {
-        let (pair, window) = pair(cx);
+        let (pair, window) = two_views(None, cx);
         let (a, b) = states(&pair, window);
         put_caret(&a, (0, 0), window);
         focus(&a, window);
@@ -292,75 +318,31 @@ mod tests {
 
     #[gpui::test]
     fn a_replacement_of_the_whole_text_keeps_every_states_caret(cx: &mut TestAppContext) {
-        let (pair, window) = pair(cx);
+        let (pair, window) = two_views(None, cx);
         let (_, b) = states(&pair, window);
         put_caret(&b, (1, 1), window);
-        let document = window.read(|cx| pair.read(cx).a.read(cx).document().clone());
+        let document = window.read(|cx| pair.0.read(cx).document().clone());
         document.update(window, |document, cx| {
             document.take_page_text("one\ntwo\nthree\n", cx);
         });
         window.run_until_parked();
         assert_eq!(text(&b, window), "one\ntwo\nthree\n");
-        assert_eq!(
-            caret(&b, window),
-            Position {
-                line: 1,
-                character: 1
-            }
-        );
-    }
-
-    struct Views {
-        a: Entity<crate::EditorView>,
-        b: Entity<crate::EditorView>,
-    }
-
-    impl Render for Views {
-        fn render(
-            &mut self,
-            _: &mut Window,
-            _: &mut Context<'_, Self>,
-        ) -> impl IntoElement {
-            div()
-                .size_full()
-                .child(self.a.clone())
-                .child(self.b.clone())
-        }
-    }
-
-    fn two_views(
-        server: Option<Rc<dyn LanguageServer>>,
-        cx: &mut TestAppContext,
-    ) -> (Entity<Views>, &mut VisualTestContext) {
-        cx.update(|cx| ui::init(cx).unwrap());
-        cx.update(crate::init);
-        let shown = crate::Opening {
-            line: None,
-            access: crate::Access::Editable,
-        };
-        cx.add_window_view(|window, cx| {
-            let document = cx.new(|cx| Document::new(opening(TEXT), server, cx));
-            let a = cx.new(|cx| crate::EditorView::new(document.clone(), shown, window, cx));
-            let b = cx.new(|cx| crate::EditorView::new(document, shown, window, cx));
-            Views { a, b }
-        })
+        assert_eq!(caret(&b, window), (1, 1));
     }
 
     #[gpui::test]
     fn marking_the_document_saved_cleans_every_view_over_it(cx: &mut TestAppContext) {
-        let (views, window) = two_views(None, cx);
-        let (a, b) = window.read(|cx| (views.read(cx).a.clone(), views.read(cx).b.clone()));
+        let ((a, b), window) = two_views(None, cx);
         let (heard_a, heard_b) = (listened(&a, window), listened(&b, window));
-        window
-            .update(|window, cx| window.focus(&gpui::Focusable::focus_handle(a.read(cx), cx), cx));
+        window.update(|window, cx| window.focus(&a.focus_handle(cx), cx));
         window.simulate_input("x");
         let document = window.read(|cx| b.read(cx).document().clone());
         document.update(window, |document, cx| {
             document.mark_saved("xone\ntwo\n", cx);
         });
         let expected = [
-            crate::EditorEvent::DirtyChanged(true),
-            crate::EditorEvent::DirtyChanged(false),
+            EditorEvent::DirtyChanged(true),
+            EditorEvent::DirtyChanged(false),
         ];
         assert_eq!(*heard_a.borrow(), expected, "a");
         assert_eq!(*heard_b.borrow(), expected, "b");
@@ -368,18 +350,16 @@ mod tests {
 
     #[gpui::test]
     fn a_document_shown_twice_sends_one_did_open(cx: &mut TestAppContext) {
-        let server = crate::editor_view::test_support::FakeServer::default();
-        let (views, window) = two_views(Some(server.port()), cx);
-        let a = window.read(|cx| views.read(cx).a.clone());
-        window
-            .update(|window, cx| window.focus(&gpui::Focusable::focus_handle(a.read(cx), cx), cx));
+        let server = FakeServer::default();
+        let ((a, _), window) = two_views(Some(server.port()), cx);
+        window.update(|window, cx| window.focus(&a.focus_handle(cx), cx));
         window.simulate_input("x");
         window
             .executor()
             .advance_clock(std::time::Duration::from_secs(1));
         window.run_until_parked();
-        let told = server.verbs();
-        let document_verbs: Vec<&str> = told
+        let verbs = server.verbs();
+        let document_verbs: Vec<&str> = verbs
             .into_iter()
             .filter(|verb| verb.starts_with("did"))
             .collect();

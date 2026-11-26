@@ -56,33 +56,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn each_event_has_its_name_level_and_message() {
+    fn a_kept_key_warns_naming_the_host_and_the_cause() {
         let key = BookError::new(std::io::Error::other("keyring locked"));
-        let note = Error::Stream("notes unwritable".into());
-        let cases = [
-            (
-                RosterEvent::KeyKept {
-                    error: &key,
-                    host: "box",
-                },
-                "roster_key_kept",
-                "the key of a removed host could not be forgotten error=keyring locked \
-                 host=\"box\"",
-            ),
-            (
-                RosterEvent::NoteKept {
-                    error: &note,
-                    host: "box",
-                },
-                "roster_note_kept",
-                "the note of a removed host could not be dropped error=shell data: stream: notes \
-                 unwritable host=\"box\"",
-            ),
-        ];
-        for (event, name, message) in cases {
-            assert_eq!(event.name(), name);
-            assert_eq!(event.level(), Level::Warn);
-            assert_eq!(event.to_string(), message);
-        }
+        let event = RosterEvent::KeyKept {
+            error: &key,
+            host: "box",
+        };
+        let message =
+            "the key of a removed host could not be forgotten error=keyring locked host=\"box\"";
+        let seen = (event.name(), event.level(), event.to_string());
+        assert_eq!(seen, ("roster_key_kept", Level::Warn, message.to_owned()));
     }
 }

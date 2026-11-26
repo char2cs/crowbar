@@ -57,33 +57,19 @@ fn escape(text: &str) -> String {
 mod tests {
     use super::*;
 
-    fn query(
-        text: &str,
-        options: SearchOptions,
-    ) -> SearchQuery {
-        SearchQuery {
-            text: text.into(),
-            options,
-        }
-    }
-
     #[test]
     fn patterns_follow_the_options() {
+        let query = |text: &str, options| SearchQuery {
+            text: text.into(),
+            options,
+        };
+        let sensitive = SearchOptions::CASE_SENSITIVE;
         let cases = [
             (query("a.b", SearchOptions::NONE), "(?i)a\\.b"),
-            (query("a.b", SearchOptions::CASE_SENSITIVE), "a\\.b"),
+            (query("a.b", sensitive), "a\\.b"),
+            (query("a.b", SearchOptions::REGEX.with(sensitive)), "a.b"),
             (
-                query(
-                    "a.b",
-                    SearchOptions::REGEX.with(SearchOptions::CASE_SENSITIVE),
-                ),
-                "a.b",
-            ),
-            (
-                query(
-                    "w",
-                    SearchOptions::WHOLE_WORD.with(SearchOptions::CASE_SENSITIVE),
-                ),
+                query("w", SearchOptions::WHOLE_WORD.with(sensitive)),
                 "(?-u:\\b)w(?-u:\\b)",
             ),
         ];

@@ -28,15 +28,14 @@ impl Modifiers {
 
     /// The union of both sets.
     #[must_use]
-    pub fn with(
+    pub const fn with(
         self,
         other: Self,
     ) -> Self {
         Self(self.0 | other.0)
     }
 
-    /// The xterm modifier parameter: 1 plus shift 1, alt 2 and control 4; 1 means none.
-    pub fn xterm_parameter(self) -> u8 {
+    pub(crate) fn xterm_parameter(self) -> u8 {
         let shift = u8::from(self.contains(Self::SHIFT));
         let alt = u8::from(self.contains(Self::ALT)) * 2;
         let control = u8::from(self.contains(Self::CONTROL)) * CONTROL_WEIGHT;

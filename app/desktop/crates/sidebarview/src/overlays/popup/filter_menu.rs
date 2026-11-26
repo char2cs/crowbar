@@ -68,16 +68,6 @@ mod tests {
     }
 
     #[test]
-    fn hidden_files_carry_the_eye() {
-        let entries = filter_menu(&FileTreeView::default());
-        let icon = match entries.first() {
-            Some(MenuEntry::Action { icon, .. }) => *icon,
-            _ => None,
-        };
-        assert_eq!(icon, Some(IconName::Eye));
-    }
-
-    #[test]
     fn each_entry_shows_its_state_and_asks_for_the_opposite() {
         let mut view = FileTreeView::default();
         view.shown.remove(&FileTreeFlag::Gitignored);

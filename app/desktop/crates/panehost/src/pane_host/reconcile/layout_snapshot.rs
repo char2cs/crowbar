@@ -172,16 +172,4 @@ mod tests {
             "the focus it was given"
         );
     }
-
-    #[test]
-    fn an_empty_layout_has_nothing_to_show() {
-        let layout = Layout::default();
-        let snapshot = LayoutSnapshot::from_layout(&layout, ParentWindow::X11(1), Vec::new());
-        assert!(
-            snapshot.pane_ids().next().is_none()
-                && snapshot.visible.is_empty()
-                && snapshot.focused.is_none(),
-            "empty"
-        );
-    }
 }

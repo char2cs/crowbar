@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use settings::Value;
 
 use crate::store::settings_core::json_file::legacy_import::source::Entries;
-use crate::store::settings_core::json_file::stored_value::from_json;
+use crate::store::settings_core::json_file::from_json;
 
 const PREFIX: &str = "crowbar:settings:";
 const EXTRA_KEYS: [&str; 2] = ["theme", "themeMode"];

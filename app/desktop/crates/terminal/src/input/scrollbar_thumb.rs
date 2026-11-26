@@ -51,38 +51,27 @@ mod tests {
     use super::*;
 
     const TRACK: f32 = 100.0;
-    const LINES: usize = 10;
     const HISTORY: usize = 90;
 
-    type Case = (usize, usize, Option<f32>);
-
     #[test]
-    fn thumb_position_follows_the_scroll_offset() {
-        const CASES: [Case; 3] = [
+    fn the_thumb_follows_the_scroll_offset_and_maps_back() {
+        let tops = [
             (0, 0, None),
             (HISTORY, 0, Some(76.0)),
             (HISTORY, HISTORY, Some(0.0)),
         ];
-        for (history, offset, expected_top) in CASES {
-            let thumb = ScrollbarThumb::new(TRACK, LINES, history, offset);
-            let top = thumb.map(|thumb| thumb.top);
-            match (top, expected_top) {
-                (Some(actual), Some(wanted)) => assert!((actual - wanted).abs() < 0.01, "{offset}"),
-                (actual, wanted) => assert_eq!(actual.is_some(), wanted.is_some(), "{offset}"),
-            }
+        for (history, offset, expected_top) in tops {
+            let top = ScrollbarThumb::new(TRACK, 10, history, offset).map(|thumb| thumb.top);
+            let close = match (top, expected_top) {
+                (Some(actual), Some(wanted)) => (actual - wanted).abs() < 0.01,
+                (actual, wanted) => actual.is_some() == wanted.is_some(),
+            };
+            assert!(close, "{offset}: {top:?}");
         }
-    }
-
-    #[test]
-    fn dragging_maps_back_to_an_offset() {
-        const LENGTH: f32 = 24.0;
-        const CASES: [(f32, usize); 3] = [(0.0, HISTORY), (38.0, 45), (1000.0, 0)];
-        for (top, expected) in CASES {
-            assert_eq!(
-                ScrollbarThumb::offset_at(TRACK, LENGTH, HISTORY, top),
-                expected,
-                "{top}"
-            );
+        let offsets = [(0.0, HISTORY), (38.0, 45), (1000.0, 0)];
+        for (top, expected) in offsets {
+            let offset = ScrollbarThumb::offset_at(TRACK, MIN_THUMB, HISTORY, top);
+            assert_eq!(offset, expected, "{top}");
         }
     }
 }

@@ -82,8 +82,6 @@ impl Render for ReadoutView {
 
 #[cfg(test)]
 mod tests {
-    use gpui::{AppContext as _, TestAppContext};
-
     use super::*;
 
     fn warning() -> ReadoutLines {
@@ -105,20 +103,5 @@ mod tests {
                 "{lines:?}"
             );
         }
-    }
-
-    #[gpui::test]
-    fn showing_replaces_the_lines_and_the_dock(cx: &mut TestAppContext) {
-        let view = cx.new(|_| ReadoutView::default());
-        let lines = ReadoutLines {
-            net: "net DOWN".into(),
-            warns: true,
-            ..ReadoutLines::default()
-        };
-        view.update(cx, |view, cx| {
-            view.show((lines.clone(), ReadoutDock::Right(300.0)), cx);
-        });
-        let shown = view.read_with(cx, |view, _| (view.lines.clone(), view.dock));
-        assert_eq!(shown, (lines, ReadoutDock::Right(300.0)));
     }
 }

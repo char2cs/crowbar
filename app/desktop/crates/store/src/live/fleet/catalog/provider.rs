@@ -31,36 +31,25 @@ impl Provider {
 mod tests {
     use super::*;
 
-    fn provider(json: &str) -> Provider {
-        serde_json::from_str(json).unwrap()
-    }
-
-    const CASES: [(&str, bool); 4] = [
-        (r#"{"enabled":true,"hasTerminal":true}"#, true),
-        (r#"{"enabled":true,"hasTerminal":false}"#, false),
-        (r#"{"enabled":false,"hasTerminal":true}"#, false),
-        (r"{}", false),
+    const CASES: [(&str, bool, bool); 5] = [
+        (
+            r#"{"enabled":true,"hasTerminal":true,"terminalStartHere":true}"#,
+            true,
+            true,
+        ),
+        (r#"{"enabled":true,"hasTerminal":true}"#, true, false),
+        (r#"{"enabled":true,"terminalStartHere":true}"#, false, false),
+        (r#"{"enabled":false,"hasTerminal":true}"#, false, false),
+        (r"{}", false, false),
     ];
 
     #[test]
-    fn a_provider_lands_on_a_terminal_only_when_it_may_start_there() {
-        const LANDS: [(&str, bool); 3] = [
-            (
-                r#"{"enabled":true,"hasTerminal":true,"terminalStartHere":true}"#,
-                true,
-            ),
-            (r#"{"enabled":true,"hasTerminal":true}"#, false),
-            (r#"{"enabled":true,"terminalStartHere":true}"#, false),
-        ];
-        for (json, lands) in LANDS {
-            assert_eq!(provider(json).lands_on_terminal(), lands, "{json}");
-        }
-    }
-
-    #[test]
-    fn a_provider_offers_a_terminal_only_when_enabled_and_able() {
-        for (json, offers) in CASES {
-            assert_eq!(provider(json).offers_terminal(), offers, "{json}");
+    fn a_provider_offers_a_terminal_when_enabled_and_able_and_lands_there_when_it_may_start_there()
+    {
+        for (json, offers, lands) in CASES {
+            let provider: Provider = serde_json::from_str(json).unwrap();
+            let seen = (provider.offers_terminal(), provider.lands_on_terminal());
+            assert_eq!(seen, (offers, lands), "{json}");
         }
     }
 }

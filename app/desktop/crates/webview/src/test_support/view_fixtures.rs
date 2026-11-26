@@ -11,24 +11,28 @@ use crate::view::Kind;
 use crate::view::ParentWindow;
 use crate::view::Visibility;
 
-pub(crate) fn handle() -> (Rc<MockPlatform>, Handle) {
-    let mock = Rc::new(MockPlatform::default());
+pub(crate) fn config(kind: Kind) -> Config {
     let bounds = Bounds {
-        x: 0.0,
-        y: 0.0,
-        width: 1.0,
-        height: 1.0,
+        x: 1.0,
+        y: 2.0,
+        width: 3.0,
+        height: 4.0,
     };
-    let config = Config {
-        url: "x".into(),
+    Config {
+        url: "crowbar://local/".into(),
         bounds,
-        kind: Kind::Core,
-        visibility: Visibility::Shown,
+        kind,
+        visibility: Visibility::Hidden,
         background: None,
         initialization_script: None,
         on_ipc: Arc::new(|_| {}),
         on_page: None,
-    };
-    mock.create(Id(0), ParentWindow::X11(1), config).unwrap();
+    }
+}
+
+pub(crate) fn handle() -> (Rc<MockPlatform>, Handle) {
+    let mock = Rc::new(MockPlatform::default());
+    mock.create(Id(0), ParentWindow::X11(1), config(Kind::Core))
+        .unwrap();
     (Rc::clone(&mock), Handle::new(mock, Id(0)))
 }

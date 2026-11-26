@@ -239,7 +239,7 @@ mod tests {
     use crate::test_support::prelude::*;
 
     #[gpui::test]
-    fn the_row_menu_opens_at_the_pointer(cx: &mut TestAppContext) {
+    fn the_row_menu_opens_at_the_pointer_unless_its_row_is_gone(cx: &mut TestAppContext) {
         let (_, sidebar, cx) = open(cx, DemoShell::reference());
         let at = point(px(40.0), px(200.0));
         let action = RowAction::Menu {
@@ -249,17 +249,16 @@ mod tests {
         sidebar.update_in(cx, |this, window, cx| this.act(action, window, cx));
         let menu_at = sidebar.read_with(cx, |this, _| this.menu.as_ref().map(|menu| menu.at));
         assert_eq!(menu_at, Some(at));
-    }
-
-    #[gpui::test]
-    fn a_menu_for_a_missing_row_stays_closed(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoShell::reference());
-        let action = RowAction::Menu {
+        let missing = RowAction::Menu {
             row: RowId::from("gone"),
-            at: point(px(0.0), px(0.0)),
+            at,
         };
-        sidebar.update_in(cx, |this, window, cx| this.act(action, window, cx));
-        assert!(sidebar.read_with(cx, |this, _| this.menu.is_none()));
+        sidebar.update(cx, |this, _| this.menu = None);
+        sidebar.update_in(cx, |this, window, cx| this.act(missing, window, cx));
+        assert!(
+            sidebar.read_with(cx, |this, _| this.menu.is_none()),
+            "a missing row's menu stays closed"
+        );
     }
 
     #[gpui::test]
@@ -312,16 +311,5 @@ mod tests {
             Vec::new(),
             "no view closes before the answer"
         );
-    }
-
-    #[gpui::test]
-    fn a_refused_command_leaves_the_sidebar_unchanged(cx: &mut TestAppContext) {
-        let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
-        let command = Command::Rename {
-            row: RowId::from("chat"),
-            name: "main".into(),
-        };
-        sidebar.update(cx, |this, cx| this.send(command.clone(), cx));
-        assert_eq!(recorder.sent(), vec![command]);
     }
 }

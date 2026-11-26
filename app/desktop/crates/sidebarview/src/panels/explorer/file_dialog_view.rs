@@ -139,30 +139,6 @@ mod tests {
     use crate::test_support::prelude::*;
 
     #[gpui::test]
-    fn deleting_asks_first_and_sends_only_when_confirmed(cx: &mut TestAppContext) {
-        let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
-        let ask = Intent::RequestFileDelete {
-            path: "src/lib.rs".into(),
-            is_dir: false,
-        };
-        sidebar.update_in(cx, |this, window, cx| this.apply(ask, window, cx));
-        assert!(recorder.sent().is_empty(), "nothing is deleted by asking");
-        sidebar.update(cx, Sidebar::close_file_dialog);
-        assert!(recorder.sent().is_empty(), "cancelling deletes nothing");
-        let ask = Intent::RequestFileDelete {
-            path: "src/lib.rs".into(),
-            is_dir: false,
-        };
-        sidebar.update_in(cx, |this, window, cx| this.apply(ask, window, cx));
-        sidebar.update(cx, Sidebar::accept_file_delete);
-        let want = Command::DeleteFile {
-            path: "src/lib.rs".into(),
-        };
-        assert_eq!(recorder.sent(), vec![want]);
-        assert!(sidebar.read_with(cx, |this, _| this.tree.files().dialog().is_none()));
-    }
-
-    #[gpui::test]
     fn with_a_native_dialog_a_delete_is_asked_there_in_develop_s_words(cx: &mut TestAppContext) {
         let asked = crate::test_support::answer_alerts_with(cx, Some(1));
         let (recorder, sidebar, cx) = open(cx, DemoShell::reference());

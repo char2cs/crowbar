@@ -51,13 +51,9 @@ mod tests {
             (19, (1, 13), (1, 14)),
         ];
         for (offset, (line, chars), (lsp_line, units)) in cases {
-            assert_eq!(
-                to_lsp(&text, offset),
-                Position::new(lsp_line, units),
-                "{offset}"
-            );
-            let back = from_lsp(&text, Position::new(lsp_line, units));
-            assert_eq!(back, Position::new(line, chars), "{offset}");
+            let lsp = Position::new(lsp_line, units);
+            assert_eq!(to_lsp(&text, offset), lsp, "{offset}");
+            assert_eq!(from_lsp(&text, lsp), Position::new(line, chars), "{offset}");
         }
     }
 

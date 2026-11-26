@@ -108,36 +108,25 @@ mod tests {
     use super::SHOW_DELAY;
     use crate::daemon::backend::CrashPanel;
     use crate::shell::shell_view::ShellView;
+    use crate::shell::shell_view::test_support::notice_count;
     use crate::shell::shell_view::tests::{
-        Opened, open_shell, open_shell_unsettled, open_started_shell,
+        Opened, open_shell, open_shell_unsettled, open_started_shell, views_set,
     };
-
-    fn shown(opened: &mut Opened) -> usize {
-        opened.window.run_until_parked();
-        opened
-            .shell
-            .update(&mut opened.window, |shell, cx| shell.notices.read(cx).len())
-    }
 
     #[gpui::test]
     fn a_lost_daemon_is_announced_only_once_it_has_stayed_lost_a_moment(cx: &mut TestAppContext) {
         let mut opened = open_shell_unsettled(cx);
-        let before = shown(&mut opened);
+        let before = notice_count(&mut opened);
         opened
             .shell
             .update(&mut opened.window, ShellView::follow_backend);
-        assert_eq!(shown(&mut opened), before, "a blip shows nothing");
+        assert_eq!(notice_count(&mut opened), before, "a blip shows nothing");
         opened.window.executor().advance_clock(SHOW_DELAY);
         assert_eq!(
-            shown(&mut opened),
+            notice_count(&mut opened),
             before + 1,
             "Backend unavailable / Reconnecting…"
         );
-    }
-
-    fn covered_views(opened: &Opened) -> usize {
-        let covers = |call: &&webview::Call| matches!(call, webview::Call::SetVisibility { visibility, .. } if *visibility == webview::Visibility::Covered);
-        opened.mock.calls().iter().filter(covers).count()
     }
 
     #[gpui::test]
@@ -145,7 +134,7 @@ mod tests {
         cx: &mut TestAppContext
     ) {
         let mut opened = open_started_shell(cx);
-        let before = covered_views(&opened);
+        let before = views_set(&opened.mock, webview::Visibility::Covered);
         opened.shell.update(&mut opened.window, |shell, cx| {
             let report = "The backend exited 4 times.".into();
             let panel = cx.new(|_| CrashPanel::new(report, Rc::clone(&shell.link)));
@@ -156,7 +145,11 @@ mod tests {
         opened.window.run_until_parked();
         let drawn = opened.window.debug_bounds("daemon-crash-panel");
         assert!(drawn.is_some(), "drawn in the window");
-        assert_eq!(covered_views(&opened), before + 1, "the chat is covered");
+        assert_eq!(
+            views_set(&opened.mock, webview::Visibility::Covered),
+            before + 1,
+            "the chat is covered"
+        );
     }
 
     const RETRY_SLOT: &str = "projects-retry-slot";
@@ -191,7 +184,9 @@ mod tests {
     }
 
     #[gpui::test]
-    fn a_failed_projects_load_shows_the_landing_below_the_open_tabs(cx: &mut TestAppContext) {
+    fn a_failed_projects_load_shows_the_landing_below_the_open_tabs_and_keeps_it_once_they_close(
+        cx: &mut TestAppContext
+    ) {
         let mut opened = open_shell(cx);
         fail_projects(&mut opened);
         assert!(has_tabs(&mut opened));
@@ -206,12 +201,6 @@ mod tests {
             bottom.is_some_and(|bottom| slot.top() >= bottom),
             "the panes give the landing the lower stage: {slot:?} under {bottom:?}"
         );
-    }
-
-    #[gpui::test]
-    fn closing_the_last_tab_after_the_projects_failed_keeps_the_landing(cx: &mut TestAppContext) {
-        let mut opened = open_shell(cx);
-        fail_projects(&mut opened);
         opened.shell.update(&mut opened.window, |shell, cx| {
             let panes = shell.state.layout().tabs().iter().flat_map(Tab::pane_ids);
             let closes = panes.map(|pane| Command::ClosePane { pane }).collect();

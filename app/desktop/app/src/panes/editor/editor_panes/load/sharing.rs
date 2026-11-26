@@ -155,6 +155,7 @@ mod tests {
 
     use super::*;
     use crate::panes::editor::document_request::DocumentRequest;
+    use crate::panes::editor::editor_panes::tests::editors_in;
     use crate::panes::editor::editor_panes::tests::{
         PANE, PATH, TEXT, landed, layout_in, panes_over, two_panes_on, with_pane,
     };
@@ -196,10 +197,7 @@ mod tests {
     /// A file shown in `f1` under chat `c1`, typed into, then opened in `f2` under chat `c2`
     /// of the same workspace.
     fn shared(cx: &mut TestAppContext) -> Shared<'_> {
-        cx.update(|cx| ui::init(cx).unwrap());
-        cx.update(editorview::init);
-        let documents = Rc::new(FakeDocuments::default());
-        documents.loading("c1");
+        let documents = editors_in(cx);
         documents.loading("c2");
         documents.holding(PATH, TEXT);
         let (panes, heard) = panes_over(&documents);
@@ -321,10 +319,7 @@ mod tests {
 
     #[gpui::test]
     fn a_preview_follows_the_open_documents_text_whichever_chat_typed(cx: &mut TestAppContext) {
-        cx.update(|cx| ui::init(cx).unwrap());
-        cx.update(editorview::init);
-        let documents = Rc::new(FakeDocuments::default());
-        documents.loading("c1");
+        let documents = editors_in(cx);
         documents.loading("c2");
         documents.holding(PATH, TEXT);
         let (panes, heard) = panes_over(&documents);

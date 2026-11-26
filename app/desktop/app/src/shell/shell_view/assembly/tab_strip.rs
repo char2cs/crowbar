@@ -146,29 +146,10 @@ mod tests {
         type_id: &str,
         params: protocol::Params,
     ) -> layout::Layout {
-        let mut layout = layout::Layout::default();
-        let tab = layout::TabId(1);
-        layout
-            .apply(layout::Command::AddTab {
-                id: tab,
-                title: "t".into(),
-                space: layout::SpaceId::default(),
-            })
-            .unwrap();
-        let instance = layout::PaneInstance {
-            pane_id: pane.clone(),
-            type_id: protocol::PaneTypeId::new(type_id).unwrap(),
+        crate::test_support::one_tab([layout::PaneInstance {
             params,
-            state: protocol::PaneState::default(),
-        };
-        layout
-            .apply(layout::Command::OpenPane {
-                tab,
-                instance,
-                placement: None,
-            })
-            .unwrap();
-        layout
+            ..crate::test_support::pane(pane.as_str(), type_id)
+        }])
     }
 
     fn titled(
@@ -224,7 +205,7 @@ mod tests {
     }
 
     #[test]
-    fn a_chat_member_leads_with_its_sidebar_glyph() {
+    fn a_chat_member_leads_with_its_sidebar_glyph_and_spins_while_its_chat_works() {
         let pane = PaneId::new("p7").unwrap();
         let layout = layout_holding(&pane, CHAT, thread("c1"));
         let titles = Titles::default();
@@ -233,23 +214,15 @@ mod tests {
             held.lock = sidebar::Lock::Locked;
             Some(held)
         };
-        let glyph = member((&titles, &layout), &locked, &pane).glyph;
+        let idle = member((&titles, &layout), &locked, &pane);
         assert_eq!(
-            glyph.map(|glyph| glyph.icon),
+            idle.glyph.map(|glyph| glyph.icon),
             Some(ui::IconName::Lock),
             "a locked workspace's chat shows the lock, as develop's view tab does"
         );
-    }
-
-    #[test]
-    fn a_chat_member_spins_while_its_chat_works() {
-        let pane = PaneId::new("p7").unwrap();
-        let layout = layout_holding(&pane, CHAT, thread("c1"));
-        let titles = Titles::default();
+        assert!(!idle.working, "idle");
         let busy = |_: &str| Some(row("Review", Titling::Final, Activity::Working));
         assert!(member((&titles, &layout), &busy, &pane).working, "working");
-        let idle = |_: &str| Some(row("Review", Titling::Final, Activity::Idle));
-        assert!(!member((&titles, &layout), &idle, &pane).working, "idle");
     }
 
     #[test]

@@ -1,7 +1,6 @@
 //! The dialog: a tree of the host's folders, one of which is chosen.
 
 mod actions;
-mod muted;
 mod panels;
 mod widgets;
 
@@ -9,16 +8,15 @@ use std::collections::BTreeSet;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use gpui::{Context, EventEmitter, IntoElement, ParentElement, Render, Styled, Window, div};
+use gpui::{Context, Div, EventEmitter, IntoElement, ParentElement, Render, Styled, Window, div};
 use store::{BrowseEntry, FolderBrowse, FolderListing, ROOT_PATH};
-use ui::{Dialog, DialogSize, Surface, Theme};
+use ui::{Dialog, DialogSize, Palette, Surface, Theme};
 
 use crate::folder_source::FolderSource;
 use crate::folder_source::Reader;
 use crate::folder_source::Requests;
-use crate::look::{GAP, TITLE};
+use crate::look::{GAP, TEXT, TITLE};
 use crate::picker_event::PickerEvent;
-use crate::view::muted::muted;
 
 /// The remote folder picker; it emits a [`PickerEvent`] when a folder is chosen or it is dismissed.
 pub struct View {
@@ -40,6 +38,10 @@ impl std::fmt::Debug for View {
 }
 
 impl EventEmitter<PickerEvent> for View {}
+
+pub(crate) fn muted(palette: &Palette) -> Div {
+    div().text_size(TEXT).text_color(palette.muted_foreground())
+}
 
 impl Reader for Arc<FolderBrowse> {
     fn host_name(&self) -> String {

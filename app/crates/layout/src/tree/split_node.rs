@@ -4,14 +4,9 @@ use serde::{Deserialize, Serialize};
 use crate::ide::pane_group::PaneGroup;
 use crate::tree::axis::Axis;
 
-/// Thickness of the divider between two panes, in logical pixels. Panes share what is left, so
-/// the stored ratio is exactly the rendered ratio.
-pub const SASH_THICKNESS: f32 = 6.0;
+pub(crate) const SASH_THICKNESS: f32 = 6.0;
 
-/// Smallest size either child of a split may have, in logical pixels. One value serves the live
-/// drag, the committed ratio and the layout of a resized window; there is no second, relative
-/// minimum.
-pub const MIN_PANE_EXTENT: f32 = 160.0;
+pub(crate) const MIN_PANE_EXTENT: f32 = 160.0;
 
 pub(crate) const EQUAL_SHARE: f32 = 0.5;
 
@@ -26,7 +21,7 @@ pub enum SplitNode {
         /// How the children are arranged.
         axis: Axis,
         /// Share of the space left after the sash that the first child gets, strictly between
-        /// 0 and 1. A window too small for [`MIN_PANE_EXTENT`] on both sides shows equal halves.
+        /// 0 and 1. A window too small for the pane minimum on both sides shows equal halves.
         ratio: f32,
         /// Left or top child.
         first: Box<SplitNode>,

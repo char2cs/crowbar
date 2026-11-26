@@ -6,8 +6,8 @@ pub(crate) mod descriptor_records;
 pub(crate) mod descriptor_report;
 pub(crate) mod descriptors;
 mod edit;
-pub(crate) mod permission_key;
 mod permission_setting;
 pub(crate) mod records;
 
-pub(crate) use permission_key::{PERMISSION, PERMISSION_PATH};
+pub(crate) const PERMISSION: &str = "defaultPermissionLevel";
+pub(crate) const PERMISSION_PATH: &str = "/v0/settings/chat/permission-level";

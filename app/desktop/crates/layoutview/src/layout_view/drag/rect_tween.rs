@@ -83,29 +83,15 @@ mod tests {
     };
 
     #[test]
-    fn the_rectangle_ends_exactly_on_the_target_after_a_hundred_milliseconds() {
+    fn the_rectangle_glides_between_the_two_and_ends_exactly_on_the_target() {
         let start = Instant::now();
         let mut tween = RectTween::resting(A);
         tween.go_to(B, start, Motion::default());
-        let end = start + Duration::from_millis(100);
-        assert_eq!(tween.rect(end, Motion::default()), B, "arrived");
-        assert!(!tween.is_running(end, Motion::default()), "stopped");
-    }
-
-    #[test]
-    fn it_is_between_the_two_rectangles_while_moving() {
-        let start = Instant::now();
-        let mut tween = RectTween::resting(A);
-        tween.go_to(B, start, Motion::default());
-        let middle = tween.rect(start + Duration::from_millis(50), Motion::default());
-        assert!(
-            middle.x > 0.0 && middle.x < 50.0,
-            "x in between: {}",
-            middle.x
-        );
-        assert!(
-            tween.is_running(start + Duration::from_millis(50), Motion::default()),
-            "running"
-        );
+        let at = |ms| start + Duration::from_millis(ms);
+        let middle = tween.rect(at(50), Motion::default()).x;
+        assert!(middle > 0.0 && middle < 50.0, "x in between: {middle}");
+        assert!(tween.is_running(at(50), Motion::default()), "running");
+        assert_eq!(tween.rect(at(100), Motion::default()), B, "arrived");
+        assert!(!tween.is_running(at(100), Motion::default()), "stopped");
     }
 }

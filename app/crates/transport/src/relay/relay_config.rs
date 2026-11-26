@@ -78,11 +78,6 @@ mod tests {
             config.max_message_bytes >= 16 * 1024 * 1024,
             "a terminal snapshot must fit"
         );
-    }
-
-    #[test]
-    fn handshakes_are_short_and_bounded_apart_from_streams() {
-        let config = RelayConfig::default();
         assert!(
             config.handshake_timeout <= Duration::from_secs(5),
             "pre-auth clients are cheap to drop"

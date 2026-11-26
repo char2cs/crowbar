@@ -1,15 +1,14 @@
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 
 use settings::{Change, Key, Value};
 use tokio::runtime::Handle;
 use tokio::sync::Notify;
 
-use super::{FakeDaemon, FakeFiles, state};
+use super::{FakeDaemon, FakeFiles, Told, recorder, state};
 use crate::live::ChangeSignal;
 use crate::live::Fleet;
 use crate::live::Hub;
 use crate::live::LinkState;
-use crate::live::{Outcome, OutcomeSink};
 use crate::store::SystemFonts;
 use crate::store::settings_core::SettingsCore;
 use crate::store::settings_core::json_file::JsonFile;
@@ -128,20 +127,6 @@ fn listener() -> (ChangeSignal, Arc<Notify>) {
     let changed = Arc::new(Notify::new());
     let wake = Arc::clone(&changed);
     (Arc::new(move || wake.notify_one()), changed)
-}
-
-type Told = Arc<Mutex<Vec<Outcome>>>;
-
-fn recorder() -> (OutcomeSink, Told) {
-    let told = Arc::new(Mutex::new(Vec::new()));
-    let heard = Arc::clone(&told);
-    let sink: OutcomeSink = Arc::new(move |said| {
-        heard
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(said);
-    });
-    (sink, told)
 }
 
 pub(crate) fn agents_ready(changes: &[Change]) -> bool {

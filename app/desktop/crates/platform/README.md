@@ -47,7 +47,7 @@ plugin's C ABI file `app/mobile/ios-plugin/src/ffi.rs`.
 
 | Block | File | Safe API | SAFETY argument | Test |
 |---|---|---|---|---|
-| `std::env::remove_var(key)` | `src/linux/env_change.rs` (`EnvChange::apply`) | `force_x11()` | The shell calls `force_x11` first in `main`, before it starts any other thread, so no thread reads the environment concurrently. | `env_change::tests::a_change_sets_and_removes_a_variable`, `x11_session::tests::the_session_drops_wayland_and_pins_gtk_to_x11` |
+| `std::env::remove_var(key)` | `src/linux/env_change.rs` (`EnvChange::apply`) | `force_x11()` | The shell calls `force_x11` first in `main`, before it starts any other thread, so no thread reads the environment concurrently. | `env_change::tests::a_change_sets_and_removes_a_variable` |
 | `std::env::set_var(key, value)` | `src/linux/env_change.rs` (`EnvChange::apply`) | `force_x11()` | As above. | As above. |
 | `WindowHandle::borrow_raw(Xlib)` | `src/linux/xlib_parent.rs` (`XlibParent::window_handle`) | `XlibParent` | An Xlib window handle holds only the window id, a plain number; it borrows no resource that could dangle. | `xlib_parent::tests::presents_the_id_as_an_xlib_window` |
 | `WindowHandle::borrow_raw(AppKit)` | `src/macos/appkit_parent.rs` (`AppkitParent::window_handle`) | `AppkitParent` | The parent holds a `Retained<NSView>`, a strong reference, for as long as the handle borrows it, so the view cannot be freed under the handle. | `tests/platform.rs` (macOS, `real-infra`: `NSView` needs the main thread, so the target has no harness and its `main` runs the cases under `--ignored` or `--include-ignored`) |

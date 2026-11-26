@@ -77,6 +77,7 @@ mod tests {
     use gpui::TestAppContext;
 
     use super::*;
+    use crate::panes::editor::editor_panes::tests::editors_in;
     use crate::panes::editor::editor_panes::tests::{
         Opened, PANE, PATH, TEXT, opened, typed_and_kept,
     };
@@ -127,10 +128,7 @@ mod tests {
 
     #[gpui::test]
     fn a_restored_dirty_file_says_so_before_its_tab_is_first_drawn(cx: &mut TestAppContext) {
-        cx.update(|cx| ui::init(cx).unwrap());
-        cx.update(editorview::init);
-        let documents = Rc::new(FakeDocuments::default());
-        documents.loading("c1");
+        let documents = editors_in(cx);
         documents.holding(PATH, TEXT);
         drop(typed_and_kept(&documents, cx));
         let (panes, heard) = crate::panes::editor::editor_panes::tests::panes_over(&documents);

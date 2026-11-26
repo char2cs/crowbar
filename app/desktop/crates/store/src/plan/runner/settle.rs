@@ -63,7 +63,7 @@ fn failure_of(op: &OperationRecord) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
     use daemonapi::Frame;
     use serde_json::json;
@@ -72,30 +72,15 @@ mod tests {
     use crate::live::{Outcome, OutcomeSink};
     use crate::plan::Plan;
     use crate::plan::runner::run;
-    use crate::test_support::{FakeDaemon, state};
+    use crate::test_support::{AsyncCase, FakeDaemon, entity_frame, recorder, run_cases, state};
 
     const REPARENT: &str = "/v0/reparent";
     const PLACE: &str = "/v0/placement";
 
-    type Heard = Arc<Mutex<Vec<Outcome>>>;
-
-    fn sink() -> (OutcomeSink, Heard) {
-        let seen = Arc::new(Mutex::new(Vec::new()));
-        let keep = Arc::clone(&seen);
-        let sink: OutcomeSink = Arc::new(move |outcome| keep.lock().unwrap().push(outcome));
-        (sink, seen)
-    }
-
     fn operation(state: &str) -> Frame {
         let problem = json!({"code": "conflict", "message": "the rebase stopped on a conflict"});
-        Frame::Entity {
-            scope: "projects".into(),
-            kind: "operation".into(),
-            id: "op".into(),
-            v: 1,
-            data: Some(json!({"id": "op", "state": state, "label": "Move feat", "error": problem})),
-            gone: false,
-        }
+        let data = json!({"id": "op", "state": state, "label": "Move feat", "error": problem});
+        entity_frame("operation", "op", data)
     }
 
     fn moving() -> (Arc<Hub>, Arc<FakeDaemon>, Plan) {
@@ -124,7 +109,7 @@ mod tests {
     async fn the_next_call_waits_until_the_stream_says_the_operation_succeeded() {
         let (hub, daemon, plan) = moving();
         hub.edit(|state| state.apply("local", operation("running")));
-        let (outcome, _) = sink();
+        let (outcome, _) = recorder();
         let running = spawned(&hub, plan, outcome);
         tokio::task::yield_now().await;
         assert_eq!(paths(&daemon), [REPARENT], "waiting");
@@ -136,7 +121,7 @@ mod tests {
     async fn a_failed_operation_stops_the_plan_with_its_reason() {
         let (hub, daemon, plan) = moving();
         hub.edit(|state| state.apply("local", operation("failed")));
-        let (outcome, heard) = sink();
+        let (outcome, heard) = recorder();
         run(&hub, plan, &outcome).await;
         assert_eq!(paths(&daemon), [REPARENT]);
         let reason = "the rebase stopped on a conflict".to_owned();
@@ -145,7 +130,7 @@ mod tests {
 
     async fn the_wait_ends_when_the_host_is_removed() {
         let (hub, daemon, plan) = moving();
-        let (outcome, heard) = sink();
+        let (outcome, heard) = recorder();
         let running = spawned(&hub, plan, outcome);
         tokio::task::yield_now().await;
         hub.edit(|state| state.remove_host("local"));
@@ -157,7 +142,7 @@ mod tests {
 
     async fn a_dropped_plan_lets_go_of_the_store() {
         let (hub, _, plan) = moving();
-        let (outcome, _) = sink();
+        let (outcome, _) = recorder();
         let running = spawned(&hub, plan, outcome);
         tokio::task::yield_now().await;
         running.abort();
@@ -165,23 +150,15 @@ mod tests {
         assert_eq!(Arc::strong_count(&hub), 1);
     }
 
-    type Case = fn() -> std::pin::Pin<Box<dyn Future<Output = ()>>>;
-
-    const CASES: [Case; 4] = [
+    const CASES: [AsyncCase; 4] = [
         || Box::pin(the_next_call_waits_until_the_stream_says_the_operation_succeeded()),
         || Box::pin(a_failed_operation_stops_the_plan_with_its_reason()),
         || Box::pin(the_wait_ends_when_the_host_is_removed()),
         || Box::pin(a_dropped_plan_lets_go_of_the_store()),
     ];
 
-    async fn run_all() {
-        for case in CASES {
-            case().await;
-        }
-    }
-
     #[tokio::test]
     async fn a_plan_waits_for_the_operation_it_started_and_no_longer() {
-        run_all().await;
+        run_cases(&CASES).await;
     }
 }

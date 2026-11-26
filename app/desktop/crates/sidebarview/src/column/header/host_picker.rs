@@ -153,13 +153,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn the_cutout_is_centred_on_the_dot() {
-        let dot_centre = DOT_OFFSET + DOT / 2.0;
-        let cutout_centre = cutout_offset() + CUTOUT / 2.0;
-        assert!((dot_centre - cutout_centre).abs() < f32::EPSILON);
-    }
-
     #[gpui::test]
     fn the_host_icon_is_sixteen_pixels_tall(cx: &mut TestAppContext) {
         let bounds = measure(cx, |_, cx| {

@@ -2,7 +2,6 @@
 //! `IndexedDB` (decision D7 of the native editor plan).
 
 mod idb;
-mod locate;
 mod script_value;
 
 use std::path::{Path, PathBuf};
@@ -11,6 +10,9 @@ use crate::error::{Error, Result};
 use crate::live::{DiskFiles, Files};
 
 const MARKER: &str = "legacy-drafts-imported";
+const APP_ID: &str = "software.rabbyte.crowbar";
+const DATABASES: [&str; 3] = ["databases", "indexeddb", "v1"];
+const DATABASE_FILE: &str = "IndexedDB.sqlite3";
 
 /// Where the old drafts may be, and the marker that says they were taken.
 #[derive(Debug, Clone)]
@@ -30,7 +32,7 @@ impl LegacyDrafts {
         (webview, state): (&Path, &Path),
     ) -> Self {
         Self {
-            databases: locate::databases(&DiskFiles::default(), (user_home, webview)),
+            databases: databases(&DiskFiles::default(), (user_home, webview)),
             marker: state.join(MARKER),
         }
     }
@@ -73,6 +75,34 @@ fn drafts_in(database: &Path) -> Vec<editor::Draft> {
     })
 }
 
+fn databases(
+    files: &dyn Files,
+    (user_home, webview): (&Path, &Path),
+) -> Vec<PathBuf> {
+    let develop = user_home.join(".local/share").join(APP_ID);
+    let pages = files.children(webview);
+    std::iter::once(develop)
+        .chain(pages)
+        .flat_map(|root| under(files, &root))
+        .collect()
+}
+
+fn under(
+    files: &dyn Files,
+    root: &Path,
+) -> Vec<PathBuf> {
+    let versions = DATABASES
+        .iter()
+        .fold(root.to_path_buf(), |path, part| path.join(part));
+    files
+        .children(&versions)
+        .into_iter()
+        .flat_map(|origin| files.children(&origin))
+        .flat_map(|database| files.children(&database))
+        .filter(|path| path.file_name().is_some_and(|name| name == DATABASE_FILE))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -97,5 +127,22 @@ mod tests {
             files.read(&marker).is_ok(),
             "taken once, even if nothing was there"
         );
+    }
+
+    #[test]
+    fn develop_s_and_each_page_profile_s_databases_are_found() {
+        let files = FakeFiles::default();
+        let found = [
+            "/home/u/.local/share/software.rabbyte.crowbar/databases/indexeddb/v1/tauri_localhost_0/AB/IndexedDB.sqlite3",
+            "/state/webview/core/databases/indexeddb/v1/crowbar_local_0/AB/IndexedDB.sqlite3",
+        ];
+        let other =
+            "/state/webview/core/databases/indexeddb/v1/crowbar_local_0/AB/IndexedDB.sqlite3-wal";
+        for path in found.iter().chain([&other]) {
+            files.write(Path::new(path), b"").unwrap();
+        }
+        let databases = databases(&files, (Path::new("/home/u"), Path::new("/state/webview")));
+        let expected: Vec<PathBuf> = found.iter().map(PathBuf::from).collect();
+        assert_eq!(databases, expected);
     }
 }

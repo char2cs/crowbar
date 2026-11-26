@@ -101,18 +101,11 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use daemonapi::Frame;
+    use crate::test_support::entity_frame;
 
     fn store_with(op: serde_json::Value) -> Entities {
         let mut store = Entities::default();
-        store.apply(Frame::Entity {
-            scope: "projects".into(),
-            kind: "operation".into(),
-            id: "op".into(),
-            v: 1,
-            data: Some(op),
-            gone: false,
-        });
+        store.apply(entity_frame("operation", "op", op));
         store
     }
 

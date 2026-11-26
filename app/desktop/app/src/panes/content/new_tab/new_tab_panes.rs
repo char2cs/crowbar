@@ -150,48 +150,29 @@ fn is_new_tab(
 
 #[cfg(test)]
 mod tests {
-    use layout::{Command, PaneInstance, TabId};
-    use protocol::{PaneState, PaneTypeId, Params};
+    use layout::{Command, PaneInstance};
+    use protocol::Params;
 
     use super::*;
+    use crate::test_support::{one_tab, open_in, pane};
 
     fn instance(
         index: usize,
         type_id: &str,
     ) -> PaneInstance {
         PaneInstance {
-            pane_id: PaneId::new(format!("p{index}")).unwrap(),
-            type_id: PaneTypeId::new(type_id).unwrap(),
             params: Params::default().with("n", index.to_string()).unwrap(),
-            state: PaneState::default(),
+            ..pane(&format!("p{index}"), type_id)
         }
-    }
-
-    fn open(
-        layout: &mut Layout,
-        instance: PaneInstance,
-    ) {
-        let command = Command::OpenPane {
-            tab: TabId(1),
-            instance,
-            placement: None,
-        };
-        layout.apply(command).unwrap();
     }
 
     fn layout_with(types: &[&str]) -> Layout {
-        let mut layout = Layout::default();
-        layout
-            .apply(Command::AddTab {
-                id: TabId(1),
-                title: String::new(),
-                space: layout::SpaceId::default(),
-            })
-            .unwrap();
-        for (index, type_id) in types.iter().enumerate() {
-            open(&mut layout, instance(index, type_id));
-        }
-        layout
+        one_tab(
+            types
+                .iter()
+                .enumerate()
+                .map(|(index, kind)| instance(index, kind)),
+        )
     }
 
     #[test]
@@ -223,7 +204,7 @@ mod tests {
         let shown = cx.update(|cx| panes.empty_editor(&chat, cx).is_some());
         assert!(shown, "the open editor shows the page");
         assert!(!panes.contains(&chat), "the chat stays a web pane");
-        open(&mut layout, instance(1, "core.editor"));
+        open_in(&mut layout, 1, instance(1, "core.editor"));
         panes.follow(&layout, &Titles::default());
         let shown = cx.update(|cx| panes.empty_editor(&chat, cx).is_some());
         assert!(!shown, "a tab replaces the page");

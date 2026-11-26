@@ -158,14 +158,4 @@ mod tests {
         });
         assert_eq!(f32::from(bounds.size.height), 38.0);
     }
-
-    #[gpui::test]
-    fn a_row_without_an_operation_draws_nothing(cx: &mut TestAppContext) {
-        let (handler, _) = recording_handler();
-        let bounds = measure(cx, move |_, _| OperationRow {
-            row: chat("x"),
-            handler: Rc::clone(&handler),
-        });
-        assert_eq!(f32::from(bounds.size.height), 0.0);
-    }
 }

@@ -69,46 +69,37 @@ mod tests {
         PathBuf::from(dir).join(BINARY_NAME)
     }
 
-    fn search(is_executable: impl Fn(&Path) -> bool) -> Result<PathBuf, Error> {
+    fn search(
+        explicit: Option<&str>,
+        executable: &[PathBuf],
+    ) -> Result<PathBuf, Error> {
         let exe = Path::new(APP).join("crowbar");
-        locate_where(None, Some(&exe), Some(OsStr::new(ON_PATH)), is_executable)
+        let path_var = Some(OsStr::new(ON_PATH));
+        locate_where(explicit.map(Path::new), Some(&exe), path_var, |candidate| {
+            executable.iter().any(|path| path == candidate)
+        })
     }
 
     #[test]
-    fn an_explicit_path_wins_without_being_checked() {
-        let found = locate_binary(Some(Path::new("/x/crowbar-api")), None, None).unwrap();
-        assert_eq!(found, PathBuf::from("/x/crowbar-api"));
-    }
-
-    #[test]
-    fn the_binary_is_searched_beside_the_app_then_on_the_path() {
+    fn the_binary_is_explicit_or_searched_beside_the_app_then_on_the_path() {
+        let explicit = PathBuf::from("/x/crowbar-api");
         let cases = [
-            (
-                "beside beats path",
-                vec![at(APP), at(ON_PATH)],
-                Some(at(APP)),
-            ),
-            ("path is searched", vec![at(ON_PATH)], Some(at(ON_PATH))),
-            ("a miss", vec![], None),
+            ("explicit wins unchecked", Some("/x/crowbar-api"), vec![], Some(explicit)),
+            ("beside beats path", None, vec![at(APP), at(ON_PATH)], Some(at(APP))),
+            ("path is searched", None, vec![at(ON_PATH)], Some(at(ON_PATH))),
+            ("a miss", None, vec![], None),
         ];
-        for (name, executable, winner) in cases {
-            let found = search(|candidate| executable.iter().any(|path| path == candidate));
-            assert_eq!(found.ok(), winner, "{name}");
+        for (name, explicit, executable, winner) in cases {
+            assert_eq!(search(explicit, &executable).ok(), winner, "{name}");
         }
     }
 
     #[test]
     fn a_miss_names_every_place_looked() {
-        let err = search(|_| false).unwrap_err();
-        let message = err.to_string();
-        assert!(
-            message.contains(&at(APP).display().to_string()),
-            "{message}"
-        );
-        assert!(
-            message.contains(&at(ON_PATH).display().to_string()),
-            "{message}"
-        );
+        let message = search(None, &[]).unwrap_err().to_string();
+        for place in [at(APP), at(ON_PATH)] {
+            assert!(message.contains(&place.display().to_string()), "{message}");
+        }
     }
 
     #[test]

@@ -17,6 +17,15 @@ pub(crate) async fn next_command(commands: &mut mpsc::Receiver<Command>) -> Opti
     }
 }
 
+pub(crate) fn reply<T>(
+    sender: oneshot::Sender<T>,
+    value: T,
+) {
+    if sender.send(value).is_err() {
+        tracing::debug!("a supervisor command was abandoned before its answer");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -35,5 +44,15 @@ mod tests {
             Some(Command::Stop(_))
         ));
         assert!(next_command(&mut commands).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn a_reply_reaches_the_asker_and_one_that_went_away_is_not_a_failure() {
+        let (sender, receiver) = oneshot::channel();
+        reply(sender, 7);
+        assert_eq!(receiver.await.unwrap(), 7);
+        let (sender, receiver) = oneshot::channel::<u8>();
+        drop(receiver);
+        reply(sender, 7);
     }
 }

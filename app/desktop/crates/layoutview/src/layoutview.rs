@@ -6,11 +6,7 @@ use crate::geometry::pane_frame::PaneFrame;
 use crate::host::pane_hole::PaneHole;
 use crate::host::pane_source::PaneSource;
 
-/// The content hole of every pane of `tab` when the layout fills `content`. The shell gives
-/// these rectangles to the pane host in place of the model's raw slots, so web views sit inside
-/// the pane borders the view draws.
-#[must_use]
-pub fn pane_holes(
+fn pane_holes(
     tab: &Tab,
     content: Rect,
     chrome: ChromeContext,
@@ -43,8 +39,10 @@ fn holes_of(
     .collect()
 }
 
-/// Like [`pane_holes`], but asks `source` about each pane: a native pane gets no hole because no
-/// web view is placed for it, and a pane with a chrome strip gets a hole that starts below it.
+/// The content hole of every pane of `tab` when the layout fills `content`. The shell gives
+/// these rectangles to the pane host in place of the model's raw slots, so web views sit inside
+/// the pane borders the view draws. A native pane gets no hole because no web view is placed for
+/// it, and a pane with a chrome strip gets a hole that starts below it.
 #[must_use]
 pub fn pane_holes_with(
     tab: &Tab,
@@ -95,7 +93,7 @@ mod tests {
     };
 
     #[test]
-    fn every_pane_gets_a_hole_inside_its_slot() {
+    fn every_pane_gets_a_hole_inside_its_borders() {
         let layout = layout_of("a", &[("b", "a", Edge::Right)]);
         let tab = layout.showing("").expect("tab");
         let holes = pane_holes(tab, CONTENT, CHROME);
@@ -103,22 +101,14 @@ mod tests {
         assert_eq!(holes.len(), 2, "two panes");
         for (hole, slot) in holes.iter().zip(&slots) {
             assert_eq!(hole.pane, slot.pane, "same order as the model");
+            let inside = hole.rect.x >= slot.rect.x && hole.rect.y >= slot.rect.y;
             assert!(
-                hole.rect.x >= slot.rect.x && hole.rect.y >= slot.rect.y,
-                "inside top left"
-            );
-            assert!(
-                hole.rect.width < slot.rect.width,
-                "borders and margins take space"
+                inside && hole.rect.width < slot.rect.width,
+                "{hole:?} in {slot:?}"
             );
         }
-    }
-
-    #[test]
-    fn a_lone_pane_hole_is_inside_the_left_and_top_border() {
-        let layout = layout_of("a", &[]);
-        let tab = layout.showing("").expect("tab");
-        let holes = pane_holes(tab, CONTENT, CHROME);
+        let lone = layout_of("a", &[]);
+        let holes = pane_holes(lone.showing("").expect("tab"), CONTENT, CHROME);
         let expected = Rect {
             x: 297.0,
             y: 45.0,
@@ -126,63 +116,29 @@ mod tests {
             height: 755.0,
         };
         assert_eq!(
-            holes.first().map(|hole| (hole.pane.clone(), hole.rect)),
-            Some((pane_id("a"), expected))
+            holes[0].rect, expected,
+            "a lone pane inside the left and top border"
         );
     }
 
-    struct Case {
-        name: &'static str,
-        native: &'static [&'static str],
-        chrome: &'static [(&'static str, f32)],
-        panes: &'static [&'static str],
-        strip_on_b: f32,
-    }
-
-    const CASES: &[Case] = &[
-        Case {
-            name: "a source with nothing special leaves both holes whole",
-            native: &[],
-            chrome: &[],
-            panes: &["a", "b"],
-            strip_on_b: 0.0,
-        },
-        Case {
-            name: "a native pane gets no hole",
-            native: &["a"],
-            chrome: &[],
-            panes: &["b"],
-            strip_on_b: 0.0,
-        },
-        Case {
-            name: "a chrome strip pushes the hole down",
-            native: &[],
-            chrome: &[("b", 40.0)],
-            panes: &["a", "b"],
-            strip_on_b: 40.0,
-        },
-    ];
-
-    fn source_of(case: &Case) -> FakeSource {
-        let source = case
-            .native
-            .iter()
-            .fold(FakeSource::starting_at_first_tab(), |source, name| {
-                source.native(pane_id(name))
-            });
-        case.chrome.iter().fold(source, |source, (name, height)| {
-            source.with_chrome(pane_id(name), *height)
-        })
-    }
-
-    fn shift_between(
-        plain: &PaneHole,
-        moved: &PaneHole,
-    ) -> (f32, f32) {
-        (
-            moved.rect.y - plain.rect.y,
-            plain.rect.height - moved.rect.height,
-        )
+    /// Each pane with a hole, and how far its hole starts below the plain one.
+    fn shifts(
+        plain: &[PaneHole],
+        holes: &[PaneHole],
+    ) -> Vec<(String, f32)> {
+        let shift = |hole: &PaneHole| {
+            let base = plain
+                .iter()
+                .find(|base| base.pane == hole.pane)
+                .expect("plain");
+            assert_eq!(
+                hole.rect.y - base.rect.y,
+                base.rect.height - hole.rect.height,
+                "shrinks"
+            );
+            (hole.pane.to_string(), hole.rect.y - base.rect.y)
+        };
+        holes.iter().map(shift).collect()
     }
 
     #[test]
@@ -190,20 +146,22 @@ mod tests {
         let layout = layout_of("a", &[("b", "a", Edge::Right)]);
         let tab = layout.showing("").expect("tab");
         let plain = pane_holes(tab, CONTENT, CHROME);
-        for case in CASES {
-            let holes = pane_holes_with(tab, CONTENT, CHROME, &source_of(case));
-            let panes: Vec<_> = holes.iter().map(|hole| hole.pane.clone()).collect();
-            let expected: Vec<_> = case.panes.iter().map(|name| pane_id(name)).collect();
-            assert_eq!(panes, expected, "{}", case.name);
-            let b = holes.iter().find(|hole| hole.pane == pane_id("b"));
-            let unshifted = &plain[1];
-            let shifted = b.map(|hole| shift_between(unshifted, hole));
-            assert_eq!(
-                shifted,
-                Some((case.strip_on_b, case.strip_on_b)),
-                "{}",
-                case.name
-            );
+        let source = FakeSource::starting_at_first_tab;
+        let cases = [
+            (source(), vec![("a", 0.0), ("b", 0.0)]),
+            (source().native(pane_id("a")), vec![("b", 0.0)]),
+            (
+                source().with_chrome(pane_id("b"), 40.0),
+                vec![("a", 0.0), ("b", 40.0)],
+            ),
+        ];
+        for (source, expected) in cases {
+            let holes = pane_holes_with(tab, CONTENT, CHROME, &source);
+            let expected: Vec<_> = expected
+                .iter()
+                .map(|(pane, by)| ((*pane).to_owned(), *by))
+                .collect();
+            assert_eq!(shifts(&plain, &holes), expected);
         }
     }
 

@@ -145,177 +145,109 @@ mod tests {
     }
 
     #[test]
-    fn a_chat_opens_in_a_group_of_its_own_with_the_editor_closed() {
-        let tab = tab_with(&["a", "b"]);
+    fn chats_split_right_of_the_focus_each_in_a_group_with_the_editor_closed() {
+        let tab = tab_with(&["a"]);
+        assert_eq!((tab.len(), tab.is_empty()), (1, false), "size");
+        let tab = tab_with(&["a", "b", "c"]);
+        assert_eq!(order(&tab), ["a", "b", "c"], "each right of the last");
+        assert_eq!(tab.focused(), Some(&id("c")), "new pane focused");
         let group = group_of(&tab, "a");
         assert_eq!(group.chat(), Some(&id("a")), "the chat");
         assert!(group.tabs().is_empty(), "no editor tab");
         assert!(!group.editor_open(), "editor closed");
-        assert_eq!(tab.group_count(), 2, "one place per chat");
+        assert_eq!(tab.group_count(), 3, "one place per chat");
+        tab.validate().unwrap();
     }
 
     #[test]
-    fn any_other_pane_joins_the_focused_group_as_its_active_editor_tab() {
+    fn other_panes_join_the_focused_group_unless_placed_at_an_edge() {
         let mut tab = tab_with(&["a", "b"]);
         tab.open(editor("t1"), None).unwrap();
         tab.open(editor("t2"), None).unwrap();
         let group = group_of(&tab, "b");
-        assert_eq!(group.tabs(), [id("t1"), id("t2")], "tabs in opening order");
+        assert_eq!(group.tabs(), [id("t1"), id("t2")], "in opening order");
         assert_eq!(group.active_tab(), Some(&id("t2")), "the newest is active");
-        assert!(
-            group.editor_open() && !group.chat_selected(),
-            "editor shown"
-        );
-        assert_eq!(tab.group_count(), 2, "no new place");
+        assert!(group.editor_open(), "editor shown");
+        assert!(!group.chat_selected(), "tab selected");
         assert_eq!(tab.focused(), Some(&id("t2")), "focused");
+        assert_eq!(tab.group_count(), 2, "no new place");
+        tab.open(editor("t3"), Some(at("a", Edge::Right))).unwrap();
+        assert_eq!(tab.group_count(), 3, "a new place");
+        assert_eq!(group_of(&tab, "t3").chat(), None, "without a chat");
         tab.validate().unwrap();
     }
 
     #[test]
-    fn an_editor_pane_placed_at_an_edge_opens_a_group_of_its_own() {
-        let mut tab = tab_with(&["a"]);
-        tab.open(editor("t1"), Some(at("a", Edge::Right))).unwrap();
-        assert_eq!(tab.group_count(), 2, "a new place");
-        assert_eq!(group_of(&tab, "t1").chat(), None, "without a chat");
-        tab.validate().unwrap();
-    }
-
-    #[test]
-    fn closing_the_last_editor_tab_closes_the_editor_and_focuses_the_chat() {
-        let mut tab = tab_with(&["a"]);
-        tab.open(editor("t1"), None).unwrap();
-        tab.take_pane(&id("t1")).unwrap();
-        let group = group_of(&tab, "a");
-        assert!(
-            group.tabs().is_empty() && !group.editor_open(),
-            "editor closed"
-        );
-        assert_eq!(tab.focused(), Some(&id("a")), "the chat");
-        tab.validate().unwrap();
-    }
-
-    #[test]
-    fn closing_the_chat_leaves_its_editor_tabs_in_place() {
-        let mut tab = tab_with(&["a"]);
-        tab.open(editor("t1"), None).unwrap();
-        tab.take_pane(&id("a")).unwrap();
-        assert_eq!(group_of(&tab, "t1").chat(), None, "chatless");
-        assert_eq!(tab.group_count(), 1, "same place");
-        assert_eq!(tab.focused(), Some(&id("t1")), "focus on the tab");
-        tab.validate().unwrap();
-    }
-
-    #[test]
-    fn first_pane_becomes_root_and_focus() {
-        let tab = tab_with(&["a"]);
-        assert_eq!(order(&tab), ["a"], "order");
-        assert_eq!(tab.focused(), Some(&id("a")), "focus");
-        assert_eq!((tab.len(), tab.is_empty()), (1, false), "size");
-        tab.validate().unwrap();
-    }
-
-    #[test]
-    fn default_placement_splits_the_focused_pane_to_the_right() {
-        let tab = tab_with(&["a", "b", "c"]);
-        assert_eq!(order(&tab), ["a", "b", "c"], "each right of the previous");
-        assert_eq!(tab.focused(), Some(&id("c")), "new pane focused");
-    }
-
-    #[test]
-    fn open_validates_before_changing_anything() {
+    fn open_refuses_without_changes() {
+        let mut full = Tab::new(TabId(1), "t", crate::space_id::SpaceId::default());
+        for index in 0..MAX_PANES_PER_TAB {
+            full.open(pane(&format!("p{index}")), None).unwrap();
+        }
+        let mut unfocused = tab_with(&["a", "b"]);
+        unfocused.focused = None;
+        let limit = MAX_PANES_PER_TAB;
         let cases = [
-            ("duplicate", pane("a"), None, Error::DuplicatePane(id("a"))),
+            (tab_with(&["a"]), "a", None, Error::DuplicatePane(id("a"))),
             (
-                "unknown target",
-                pane("b"),
-                Some(at("zz", Edge::Left)),
+                tab_with(&["a"]),
+                "b",
+                Some("zz"),
                 Error::PaneNotFound(id("zz")),
             ),
+            (unfocused, "c", None, Error::PlacementRequired(TabId(1))),
+            (
+                full,
+                "c",
+                None,
+                Error::TooManyPanes {
+                    tab: TabId(1),
+                    limit,
+                },
+            ),
         ];
-        for (name, instance, placement, error) in cases {
-            let mut tab = tab_with(&["a"]);
+        for (mut tab, new, target, error) in cases {
             let before = tab.clone();
-            assert_eq!(tab.open(instance, placement), Err(error), "{name}");
-            assert_eq!(tab, before, "{name}: unchanged after refusal");
+            let placement = target.map(|target| at(target, Edge::Left));
+            assert_eq!(tab.open(pane(new), placement), Err(error.clone()));
+            assert_eq!(tab, before, "{error}: unchanged");
+            tab.validate().unwrap();
         }
     }
 
     #[test]
-    fn open_without_focus_needs_a_placement() {
-        let mut tab = tab_with(&["a", "b"]);
-        tab.focused = None;
-        assert_eq!(
-            tab.open(pane("c"), None),
-            Err(Error::PlacementRequired(TabId(1))),
-            "no focus"
-        );
-    }
-
-    #[test]
-    fn a_tab_holds_a_bounded_number_of_panes() {
-        let mut tab = Tab::new(TabId(1), "t", crate::space_id::SpaceId::default());
-        for index in 0..MAX_PANES_PER_TAB {
-            tab.open(pane(&format!("p{index}")), None).unwrap();
-        }
-        let before = tab.clone();
-        assert_eq!(
-            tab.open(pane("one-more"), None),
-            Err(Error::TooManyPanes {
-                tab: TabId(1),
-                limit: MAX_PANES_PER_TAB
-            }),
-            "full"
-        );
-        assert_eq!(tab, before, "unchanged");
-        tab.validate().unwrap();
-    }
-
-    #[test]
-    fn closing_the_right_pane_of_a_nested_row_focuses_the_pane_beside_it() {
-        let mut tab = Tab::new(TabId(1), "t", crate::space_id::SpaceId::default());
-        tab.open(pane("a"), None).unwrap();
-        tab.open(pane("x"), Some(at("a", Edge::Right))).unwrap();
-        tab.open(pane("b"), Some(at("a", Edge::Right))).unwrap();
-        tab.focus(&id("x")).unwrap();
-        assert_eq!(order(&tab), ["a", "b", "x"], "[[a|b]|x]");
-        tab.take_pane(&id("x")).unwrap();
-        assert_eq!(
-            tab.focused(),
-            Some(&id("b")),
-            "b is adjacent, not the far left a"
-        );
-        tab.validate().unwrap();
-    }
-
-    #[test]
-    fn closing_a_pane_hands_focus_to_the_neighbour_taking_its_space() {
+    fn closing_hands_focus_to_the_pane_taking_the_space_or_keeps_it() {
         let mut tab = tab_with(&["a", "b", "c"]);
         tab.focus(&id("b")).unwrap();
         let closed = tab.take_pane(&id("b")).unwrap();
         assert_eq!(closed.pane_id, id("b"), "returned instance");
         assert_eq!(tab.focused(), Some(&id("c")), "heir focused");
         assert_eq!(order(&tab), ["a", "c"], "order");
-        tab.validate().unwrap();
-    }
-
-    #[test]
-    fn closing_an_unfocused_pane_keeps_focus() {
-        let mut tab = tab_with(&["a", "b"]);
         tab.focus(&id("a")).unwrap();
-        tab.take_pane(&id("b")).unwrap();
+        tab.take_pane(&id("c")).unwrap();
         assert_eq!(tab.focused(), Some(&id("a")), "focus kept");
+        tab.take_pane(&id("a")).unwrap();
+        assert!(tab.tree().is_none(), "empty tree");
+        assert!(tab.focused().is_none(), "no focus");
+        let again = tab.take_pane(&id("a"));
+        assert_eq!(again, Err(Error::PaneNotFound(id("a"))), "again");
+        tab.validate().unwrap();
     }
 
     #[test]
-    fn removing_the_last_pane_empties_the_tab() {
+    fn closing_inside_a_group_keeps_the_rest_of_it() {
         let mut tab = tab_with(&["a"]);
-        tab.take_pane(&id("a")).unwrap();
-        assert!(tab.tree().is_none() && tab.focused().is_none(), "empty");
+        tab.open(editor("t1"), None).unwrap();
+        let mut chatless = tab.clone();
+        tab.take_pane(&id("t1")).unwrap();
+        let group = group_of(&tab, "a");
+        assert!(group.tabs().is_empty(), "no tabs");
+        assert!(!group.editor_open(), "editor closed");
+        assert_eq!(tab.focused(), Some(&id("a")), "the chat");
+        chatless.take_pane(&id("a")).unwrap();
+        assert_eq!(group_of(&chatless, "t1").chat(), None, "chatless");
+        assert_eq!(chatless.group_count(), 1, "same place");
+        assert_eq!(chatless.focused(), Some(&id("t1")), "focus on the tab");
         tab.validate().unwrap();
-        assert_eq!(
-            tab.take_pane(&id("a")),
-            Err(Error::PaneNotFound(id("a"))),
-            "again"
-        );
+        chatless.validate().unwrap();
     }
 }

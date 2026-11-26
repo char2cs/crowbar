@@ -48,30 +48,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn binary_frames_carry_a_tag() {
-        assert_eq!(
-            DaemonFrame::from_binary(b"\x00hi"),
-            Some(DaemonFrame::Output(b"hi".to_vec()))
-        );
-        assert_eq!(
-            DaemonFrame::from_binary(b"\x01hi"),
-            Some(DaemonFrame::Snapshot(b"hi".to_vec()))
-        );
-        assert_eq!(DaemonFrame::from_binary(b"\x02hi"), None);
-        assert_eq!(DaemonFrame::from_binary(b""), None);
-    }
-
-    #[test]
-    fn text_frames_report_exit() {
-        assert_eq!(
-            DaemonFrame::from_text(r#"{"type":"exit","code":3}"#),
-            Some(DaemonFrame::Exit(3))
-        );
-        assert_eq!(
-            DaemonFrame::from_text(r#"{"type":"exit"}"#),
-            Some(DaemonFrame::Exit(-1))
-        );
-        assert_eq!(DaemonFrame::from_text(r#"{"type":"ping"}"#), None);
-        assert_eq!(DaemonFrame::from_text("nope"), None);
+    fn frames_decode_by_tag_and_type() {
+        let cases = [
+            (
+                DaemonFrame::from_binary(b"\x00hi"),
+                Some(DaemonFrame::Output(b"hi".to_vec())),
+            ),
+            (
+                DaemonFrame::from_binary(b"\x01hi"),
+                Some(DaemonFrame::Snapshot(b"hi".to_vec())),
+            ),
+            (DaemonFrame::from_binary(b"\x02hi"), None),
+            (DaemonFrame::from_binary(b""), None),
+            (
+                DaemonFrame::from_text(r#"{"type":"exit","code":3}"#),
+                Some(DaemonFrame::Exit(3)),
+            ),
+            (
+                DaemonFrame::from_text(r#"{"type":"exit"}"#),
+                Some(DaemonFrame::Exit(-1)),
+            ),
+            (DaemonFrame::from_text(r#"{"type":"ping"}"#), None),
+            (DaemonFrame::from_text("nope"), None),
+        ];
+        for (index, (decoded, expected)) in cases.into_iter().enumerate() {
+            assert_eq!(decoded, expected, "case {index}");
+        }
     }
 }

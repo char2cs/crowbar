@@ -1,11 +1,11 @@
 //! The documents editor panes show, read from the daemon that holds them.
 
-mod decode;
-
 const CONTENT: &str = "/v0/documents/content";
+const BASE64: &str = "base64";
 
 use std::sync::Arc;
 
+use base64::Engine as _;
 use protocol::DocumentPath;
 use serde_json::{Value, json};
 use tokio::runtime::Handle;
@@ -54,7 +54,7 @@ impl Documents {
                 .read(route)
                 .await
                 .map_err(|error| FileError::Daemon(error.into()));
-            done(body.map(|body| decode::text(&body)));
+            done(body.map(|body| text(&body)));
         });
         Ok(())
     }
@@ -96,6 +96,18 @@ impl Store {
             handle: self.commands.handle.clone(),
         }
     }
+}
+
+fn text(body: &DocumentBody) -> String {
+    if body.encoding != BASE64 {
+        return body.content.clone();
+    }
+    base64::engine::general_purpose::STANDARD
+        .decode(&body.content)
+        .map_or_else(
+            |_| body.content.clone(),
+            |bytes| bytes.into_iter().map(char::from).collect(),
+        )
 }
 
 fn owner_of(
@@ -176,16 +188,30 @@ mod tests {
         Ok(receiver.recv().unwrap())
     }
 
+    fn both_read(documents: &Documents) -> Vec<Result<String, String>> {
+        let files = [("hc", "src/a.ts"), ("hc", "logo.bin")];
+        files
+            .into_iter()
+            .map(|file| read(documents, file).unwrap())
+            .collect()
+    }
+
     #[tokio::test(flavor = "multi_thread")]
-    async fn a_workspace_file_is_read_from_the_chats_daemon() {
+    async fn a_workspace_file_is_read_from_the_chats_daemon_and_binary_reads_as_latin_1() {
         let (documents, daemon) = documents();
         daemon.ok(
             "GET",
             "/v0/documents/content?workspace=hw&path=src/a.ts",
             r#"{"content":"let a = 1"}"#,
         );
-        let text = tokio::task::spawn_blocking(move || read(&documents, ("hc", "src/a.ts")));
-        assert_eq!(text.await.unwrap().unwrap(), Ok("let a = 1".to_owned()));
+        daemon.ok(
+            "GET",
+            "/v0/documents/content?workspace=hw&path=logo.bin",
+            r#"{"content":"AP9B","encoding":"base64"}"#,
+        );
+        let texts = tokio::task::spawn_blocking(move || both_read(&documents));
+        let latin = "\u{0}\u{ff}A".to_owned();
+        assert_eq!(texts.await.unwrap(), [Ok("let a = 1".to_owned()), Ok(latin)]);
     }
 
     fn write(

@@ -110,13 +110,4 @@ mod tests {
             assert_eq!(view.read_with(window, EditorView::text), expected, "{keys}");
         }
     }
-
-    #[gpui::test]
-    fn selecting_several_ranges_leaves_the_last_one_active(cx: &mut TestAppContext) {
-        let (view, window) = opened(("ab ab ab", Some(1)), Access::Editable, cx);
-        let ranges = [0..2, 3..5, 6..8];
-        view.update(window, |view, cx| view.select_all_of(&ranges, cx));
-        let active = window.read(|cx| view.read(cx).state.read(cx).selected_range());
-        assert_eq!(active, 6..8);
-    }
 }

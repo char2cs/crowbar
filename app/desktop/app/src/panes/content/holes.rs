@@ -66,11 +66,12 @@ fn placed(
 #[cfg(test)]
 mod tests {
     use ideshell::TabLooks;
-    use layout::{Command, Layout, PaneInstance, TabId};
+    use layout::TabId;
     use layoutview::{PaneChrome, PaneContent, PaneDetach, SidebarEdge};
-    use protocol::{PaneId, PaneState, PaneTypeId, Params};
+    use protocol::PaneId;
 
     use super::*;
+    use crate::test_support::{one_tab, pane};
 
     struct NoChrome;
 
@@ -115,37 +116,9 @@ mod tests {
         }
     }
 
-    fn chat_instance(id: &str) -> PaneInstance {
-        PaneInstance {
-            pane_id: PaneId::new(id).unwrap(),
-            type_id: PaneTypeId::new("core.chat").unwrap(),
-            params: Params::default(),
-            state: PaneState::default(),
-        }
-    }
-
-    fn one_pane_layout() -> Layout {
-        let mut layout = Layout::default();
-        layout
-            .apply(Command::AddTab {
-                id: TabId(1),
-                title: "t".into(),
-                space: layout::SpaceId::default(),
-            })
-            .unwrap();
-        layout
-            .apply(Command::OpenPane {
-                tab: TabId(1),
-                instance: chat_instance("p1"),
-                placement: None,
-            })
-            .unwrap();
-        layout
-    }
-
     #[test]
     fn holes_sit_inside_the_area_in_window_coordinates() {
-        let layout = one_pane_layout();
+        let layout = one_tab([pane("p1", "core.chat")]);
         let area = Bounds {
             x: 294.0,
             y: 42.0,
@@ -169,19 +142,7 @@ mod tests {
                 && bounds.y + bounds.height <= area.y + area.height,
             "ends inside the area: {bounds:?}"
         );
-    }
-
-    #[test]
-    fn no_tab_means_no_panes() {
-        let area = Bounds {
-            x: 0.0,
-            y: 0.0,
-            width: 10.0,
-            height: 10.0,
-        };
-        assert!(
-            visible_panes(None, area, (ChromeContext::default(), &NoChrome)).is_empty(),
-            "none"
-        );
+        let none = visible_panes(None, area, (ChromeContext::default(), &NoChrome));
+        assert!(none.is_empty(), "no tab means no panes");
     }
 }

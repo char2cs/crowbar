@@ -140,17 +140,14 @@ fn file_of(state: &Value) -> Option<DocumentPath> {
 
 #[cfg(test)]
 mod tests {
-    use protocol::{PaneId, PaneTypeId, Params};
     use serde_json::json;
 
     use super::*;
 
     fn instance(state: Value) -> PaneInstance {
         PaneInstance {
-            pane_id: PaneId::new("p1").unwrap(),
-            type_id: PaneTypeId::new(EDITOR).unwrap(),
-            params: Params::default().with(THREAD_ID, "c1").unwrap(),
             state: PaneState::new(state).unwrap(),
+            ..crate::test_support::chat_pane(("p1", EDITOR), "c1")
         }
     }
 

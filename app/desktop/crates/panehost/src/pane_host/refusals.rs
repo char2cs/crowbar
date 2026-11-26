@@ -22,7 +22,7 @@ impl PaneHost {
     pub(crate) fn refuse(
         &mut self,
         pane: &PaneId,
-        message: String,
+        message: &str,
     ) -> Result<Vec<HostEvent>> {
         let Some(runtime) = self.panes.get_mut(pane) else {
             return Ok(Vec::new());
@@ -33,7 +33,7 @@ impl PaneHost {
             return Ok(Vec::new());
         }
         let frame = ShellFrame::ProtocolError {
-            message: reason(&message)?,
+            message: reason(message)?,
         };
         self.send(pane, &frame)?;
         Ok(Vec::new())
@@ -71,7 +71,7 @@ impl PaneHost {
             },
         };
         tracing::warn!(%pane, %message, "a pane frame was not delivered");
-        self.refuse(pane, message)
+        self.refuse(pane, &message)
     }
 }
 
@@ -80,15 +80,13 @@ mod tests {
     use protocol::{PaneFrame, RequestId, encode};
 
     use super::*;
-    use crate::pane_host::reconcile::PaneDisplay;
     use crate::slot::IpcMessage;
     use crate::slot::inbox::gate::COALESCABLE_BACKLOG;
-    use crate::test_support::{Fixture, fixture, frames_sent, instance, register};
+    use crate::test_support::{Fixture, fixture, frames_sent, instance};
 
     fn started() -> Fixture {
         let mut f = fixture();
-        f.sync(&[instance("p1", "core.chat")], &["p1"], Some("p1"));
-        register(&mut f, "p1", "core.chat");
+        f.mount(&[instance("p1", "core.chat")], Some("p1"));
         f
     }
 
@@ -141,11 +139,6 @@ mod tests {
             let mut f = started();
             assert!(post(&mut f, text).is_empty(), "{name}: no events");
             assert_eq!(errors(&f).len(), 1, "{name}: the pane is told");
-            assert_eq!(
-                f.host.display(&PaneId::new("p1").unwrap()),
-                PaneDisplay::Web,
-                "{name}: the pane stays"
-            );
             let title = json(r#"{"sdk":1,"kind":"pane.setTitle","title":"ok"}"#);
             assert_eq!(post(&mut f, title).len(), 1, "{name}: still served");
         }
@@ -155,26 +148,22 @@ mod tests {
     fn a_run_of_bad_frames_fails_the_pane_but_a_good_frame_resets_the_run() {
         let mut f = started();
         let good = json(r#"{"sdk":1,"kind":"pane.setTitle","title":"ok"}"#);
-        for _ in 0..MAX_CONSECUTIVE_VIOLATIONS - 1 {
+        for _ in 1..MAX_CONSECUTIVE_VIOLATIONS {
             post(&mut f, "junk".into());
         }
         post(&mut f, good);
-        for _ in 0..MAX_CONSECUTIVE_VIOLATIONS - 1 {
+        for _ in 1..MAX_CONSECUTIVE_VIOLATIONS {
             post(&mut f, "junk".into());
         }
+        let before = f.calls();
+        let runs = usize::try_from(2 * (MAX_CONSECUTIVE_VIOLATIONS - 1)).unwrap();
         assert_eq!(
-            f.host.display(&PaneId::new("p1").unwrap()),
-            PaneDisplay::Web,
-            "reset by the good frame"
+            errors(&f).len(),
+            runs,
+            "reset by the good frame, so every one is answered"
         );
         post(&mut f, "junk".into());
-        assert!(
-            matches!(
-                f.host.display(&PaneId::new("p1").unwrap()),
-                PaneDisplay::Error { .. }
-            ),
-            "failed after a run"
-        );
+        assert_eq!(f.view_calls(before), ["hide"], "failed after a run");
     }
 
     #[test]

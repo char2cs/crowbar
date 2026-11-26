@@ -4,7 +4,7 @@
 //! [`PaneInstance`]s in a binary split tree ([`SplitNode`]). Every change goes through
 //! [`Layout::apply`] with a [`Command`], which either succeeds completely or changes
 //! nothing, and [`LayoutHistory`] adds undo and redo of structural commands. The stored form
-//! is versioned ([`SCHEMA_VERSION`]) and older versions are migrated on load.
+//! is versioned and older versions are migrated on load.
 //!
 //! ```
 //! use layout::{Command, Layout, PaneInstance, SpaceId, TabId};
@@ -43,15 +43,13 @@ pub use ide::pane_group::close_scope::CloseScope;
 pub use ide::pane_group::strip_step::StripStep;
 pub use ide::presentation::editor_view::EditorView;
 pub use ide::presentation::sidebar_side::SidebarSide;
-pub use ide::presentation::view_mode::ViewMode;
-pub use ide::presentation::{DEFAULT_CHAT_SHARE, Presentation, SIDE_BY_SIDE_MIN, TOP_ROW_HEIGHT};
+pub use ide::presentation::{DEFAULT_CHAT_SHARE, Presentation, TOP_ROW_HEIGHT};
 pub use layout::command::Command;
-pub use layout::layout_history::{LayoutHistory, MAX_PARKED_PANES, MAX_UNDO_STEPS};
-pub use layout::stored::model::{load, store};
-pub use layout::stored::schema::SCHEMA_VERSION;
+pub use layout::layout_history::LayoutHistory;
+pub use layout::stored::layout_stored::{load, store};
 pub use layout::tab::pane_instance::PaneInstance;
-pub use layout::tab::{MAX_PANES_PER_TAB, Tab};
-pub use layout::{Layout, MAX_TABS};
+pub use layout::tab::Tab;
+pub use layout::Layout;
 pub use space_id::SpaceId;
 pub use tab_id::TabId;
 pub use tree::axis::Axis;
@@ -61,4 +59,4 @@ pub use tree::geometry::pane_slot::PaneSlot;
 pub use tree::geometry::rect::Rect;
 pub use tree::geometry::sash::Sash;
 pub use tree::placement::Placement;
-pub use tree::split_node::{MIN_PANE_EXTENT, SASH_THICKNESS, SplitNode};
+pub use tree::split_node::SplitNode;

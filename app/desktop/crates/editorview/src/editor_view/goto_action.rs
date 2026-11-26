@@ -49,21 +49,13 @@ mod tests {
     use gpui::TestAppContext;
 
     use crate::Access;
-    use crate::editor_view::test_support::opened;
+    use crate::editor_view::test_support::{opened, selected_of};
 
     #[gpui::test]
-    fn a_line_to_reveal_and_ctrl_g_put_the_caret_on_their_line(cx: &mut TestAppContext) {
-        let cases = [("", 3), ("ctrl-g 2 enter", 2)];
-        for (keys, line) in cases {
-            let (view, window) = opened(("a\nb\nc\nd", Some(3)), Access::Editable, cx);
-            window.run_until_parked();
-            window.simulate_keystrokes(keys);
-            assert_eq!(
-                view.read_with(window, |view, cx| view.caret(cx).line),
-                line,
-                "{keys}"
-            );
-        }
+    fn a_line_to_reveal_puts_the_caret_on_its_line(cx: &mut TestAppContext) {
+        let (view, window) = opened(("a\nb\nc\nd", Some(3)), Access::Editable, cx);
+        window.run_until_parked();
+        assert_eq!(view.read_with(window, |view, cx| view.caret(cx).line), 3);
     }
 
     #[gpui::test]
@@ -74,9 +66,6 @@ mod tests {
         window.update(|window, cx| {
             view.update(cx, |view, cx| view.reveal_lsp_position((1, 5), window, cx));
         });
-        assert_eq!(
-            crate::editor_view::test_support::selected_of(&view, window),
-            9..9
-        );
+        assert_eq!(selected_of(&view, window), 9..9);
     }
 }

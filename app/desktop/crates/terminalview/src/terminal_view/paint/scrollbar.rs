@@ -35,7 +35,7 @@ mod tests {
     #[test]
     fn the_thumb_is_a_rounded_quad_inside_the_track() {
         let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(300.0), px(100.0)));
-        let layout = ViewLayout::new(bounds, (8.0, 16.0), 0.0);
+        let layout = ViewLayout::new(bounds, (8.0, 16.0));
         let color = hsla(0.5, 0.5, 0.5, 1.0);
         let quad = thumb_quad(
             ScrollbarThumb {

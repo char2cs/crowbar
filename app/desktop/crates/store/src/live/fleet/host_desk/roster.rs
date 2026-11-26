@@ -128,7 +128,9 @@ mod tests {
     use crate::live::fleet::host_desk::note::Note;
     use crate::live::held::HostSpec;
     use crate::live::state::Hub;
-    use crate::test_support::{CLIENT, FakeBook, FakeDaemon, notes, state};
+    use crate::test_support::{
+        AsyncCase, CLIENT, FakeBook, FakeDaemon, notes, recorder, run_cases, state,
+    };
 
     struct Rig {
         roster: Arc<Roster>,
@@ -166,9 +168,7 @@ mod tests {
             endpoint: Some("box:3737".into()),
         };
         fleet.follow(spec).unwrap();
-        let told = Arc::new(Mutex::new(Vec::new()));
-        let sink = Arc::clone(&told);
-        let outcome: OutcomeSink = Arc::new(move |outcome| sink.lock().unwrap().push(outcome));
+        let (outcome, told) = recorder();
         let roster = Roster::new((Arc::clone(&fleet), desk), (outcome, Arc::new(|| {})));
         Rig {
             roster,
@@ -227,22 +227,14 @@ mod tests {
         assert!(rig.hub.read(|state| state.unrevoked.is_empty()));
     }
 
-    type Case = fn() -> std::pin::Pin<Box<dyn Future<Output = ()>>>;
-
-    const CASES: [Case; 3] = [
+    const CASES: [AsyncCase; 3] = [
         || Box::pin(a_host_that_revokes_is_forgotten_everywhere()),
         || Box::pin(a_host_that_refuses_this_client_holds_nothing_to_revoke()),
         || Box::pin(a_failed_revoke_keeps_the_host_until_it_is_removed_anyway()),
     ];
 
-    async fn run_all() {
-        for case in CASES {
-            case().await;
-        }
-    }
-
     #[tokio::test]
     async fn every_case_ends_as_it_says() {
-        run_all().await;
+        run_cases(&CASES).await;
     }
 }

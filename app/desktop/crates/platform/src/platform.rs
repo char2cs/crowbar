@@ -84,33 +84,23 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn only_web_mail_and_phone_links_may_leave_the_app() {
-        const CASES: &[&str] = &[
-            "file:///etc/passwd",
-            "javascript:alert(1)",
-            "crowbar://x",
-            "--help",
-            "",
-        ];
-        for link in CASES {
-            assert!(
-                matches!(open_external(link), Err(Error::Refused { .. })),
-                "{link}"
-            );
-        }
-    }
+    const CASES: &[(&str, bool)] = &[
+        ("crowbar://core/panes/core/chat/index.html", true),
+        ("file:///etc/passwd", false),
+        ("javascript:alert(1)", false),
+        ("data:text/html,x", false),
+        ("--help", false),
+        ("", false),
+    ];
 
     #[test]
-    fn a_view_keeps_app_pages_and_never_follows_refused_links() {
-        const CASES: &[(&str, bool)] = &[
-            ("crowbar://core/panes/core/chat/index.html", true),
-            ("file:///etc/passwd", false),
-            ("javascript:alert(1)", false),
-            ("data:text/html,x", false),
-        ];
+    fn a_view_keeps_app_pages_and_only_web_mail_and_phone_links_leave_the_app() {
         for (link, followed) in CASES {
             assert_eq!(follow_link(link, None), *followed, "{link}");
+            assert!(
+                matches!(open_external(link), Err(Error::Refused { .. })),
+                "{link} does not leave"
+            );
         }
     }
 

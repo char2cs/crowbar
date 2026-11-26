@@ -128,6 +128,7 @@ mod tests {
 
     use super::*;
     use crate::panes::editor::document_request::DocumentRequest;
+    use crate::panes::editor::editor_panes::tests::editors_in;
     use crate::panes::editor::editor_panes::tests::{
         PANE, PATH, TEXT, landed, layout_with, panes_over, shown_in,
     };
@@ -149,10 +150,7 @@ mod tests {
     fn an_untitled_pane_saved_as_a_file_writes_its_text_and_then_shows_that_file_clean(
         cx: &mut TestAppContext
     ) {
-        cx.update(|cx| ui::init(cx).unwrap());
-        cx.update(editorview::init);
-        let documents = Rc::new(FakeDocuments::default());
-        documents.loading("c1");
+        let documents = editors_in(cx);
         let (panes, heard) = panes_over(&documents);
         panes.follow(&layout_with(json!({"untitled": true})), "");
         let (view, window) = shown_in(&panes, cx);
@@ -227,10 +225,7 @@ mod tests {
     fn a_file_pane_adopting_a_save_as_shows_the_written_text_saved_and_keeps_its_undo(
         cx: &mut TestAppContext
     ) {
-        cx.update(|cx| ui::init(cx).unwrap());
-        cx.update(editorview::init);
-        let documents = Rc::new(FakeDocuments::default());
-        documents.loading("c1");
+        let documents = editors_in(cx);
         documents.holding(PATH, TEXT);
         let (panes, heard) = panes_over(&documents);
         panes.follow(&layout_with(json!({"path": PATH})), "");
@@ -301,30 +296,17 @@ mod tests {
     const UNTITLED: &str = "u1";
 
     fn with_untitled(mut layout: layout::Layout) -> layout::Layout {
+        let untitled = crate::test_support::chat_pane(
+            (UNTITLED, crate::panes::kinds::core_panes::EDITOR),
+            "c1",
+        );
         let instance = layout::PaneInstance {
-            pane_id: PaneId::new(UNTITLED).unwrap(),
-            type_id: protocol::PaneTypeId::new(crate::panes::kinds::core_panes::EDITOR).unwrap(),
-            params: protocol::Params::default()
-                .with("threadId", "c1")
-                .and_then(|params| params.with("fileId", "u1"))
-                .unwrap(),
+            params: untitled.params.clone().with("fileId", "u1").unwrap(),
             state: protocol::PaneState::new(json!({"untitled": true})).unwrap(),
+            ..untitled
         };
-        let commands = [
-            layout::Command::AddTab {
-                id: layout::TabId(2),
-                title: String::new(),
-                space: layout::SpaceId::default(),
-            },
-            layout::Command::OpenPane {
-                tab: layout::TabId(2),
-                instance,
-                placement: None,
-            },
-        ];
-        for command in commands {
-            layout.apply(command).unwrap();
-        }
+        crate::test_support::add_tab(&mut layout, 2);
+        crate::test_support::open_in(&mut layout, 2, instance);
         layout
     }
 

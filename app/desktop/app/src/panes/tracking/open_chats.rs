@@ -55,66 +55,21 @@ fn chat_of(pane: PaneInstance) -> Option<(PaneId, String)> {
 
 #[cfg(test)]
 mod tests {
-    use layout::{Command, PaneInstance, TabId};
-    use protocol::{PaneId, PaneState, PaneTypeId, Params};
-
     use super::*;
-    use crate::panes::kinds::core_panes::{chat_params, chat_type};
-
-    fn pane(
-        name: &str,
-        (type_id, params): (PaneTypeId, Params),
-    ) -> PaneInstance {
-        PaneInstance {
-            pane_id: PaneId::new(name).unwrap(),
-            type_id,
-            params,
-            state: PaneState::default(),
-        }
-    }
-
-    fn open(
-        tab: u64,
-        instance: PaneInstance,
-    ) -> Command {
-        Command::OpenPane {
-            tab: TabId(tab),
-            instance,
-            placement: None,
-        }
-    }
-
-    fn add(tab: u64) -> Command {
-        Command::AddTab {
-            id: TabId(tab),
-            title: String::new(),
-            space: layout::SpaceId::default(),
-        }
-    }
+    use crate::panes::kinds::core_panes::{CHAT, EDITOR, TERMINAL};
+    use crate::test_support::{add_tab, chat_pane, one_tab, open_in, pane};
 
     #[test]
     fn every_chat_some_pane_shows_is_open_whatever_its_tab() {
-        let terminal = PaneTypeId::new("core.terminal").unwrap();
-        let editor = PaneTypeId::new(crate::panes::kinds::core_panes::EDITOR).unwrap();
-        let commands = [
-            add(1),
-            open(
-                1,
-                pane("c1", (chat_type().unwrap(), chat_params("t-1").unwrap())),
-            ),
-            open(1, pane("x", (terminal, Params::default()))),
-            open(1, pane("f", (editor, chat_params("t-3").unwrap()))),
-            add(2),
-            open(
-                2,
-                pane("c2", (chat_type().unwrap(), chat_params("t-2").unwrap())),
-            ),
-        ];
         let mut layout = Layout::default();
         assert!(open_chats(&layout).is_empty(), "nothing open");
-        for command in commands {
-            layout.apply(command).unwrap();
-        }
+        layout = one_tab([
+            chat_pane(("c1", CHAT), "t-1"),
+            pane("x", TERMINAL),
+            chat_pane(("f", EDITOR), "t-3"),
+        ]);
+        add_tab(&mut layout, 2);
+        open_in(&mut layout, 2, chat_pane(("c2", CHAT), "t-2"));
         assert_eq!(
             open_chats(&layout),
             ["t-1", "t-2"],

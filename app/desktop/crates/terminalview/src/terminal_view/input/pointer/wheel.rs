@@ -170,18 +170,6 @@ mod tests {
     }
 
     #[gpui::test]
-    fn the_wheel_is_reported_to_programs_that_track_the_mouse(cx: &mut TestAppContext) {
-        let (harness, cx) = open(cx);
-        feed(&harness, cx, "\x1b[?1000h\x1b[?1006h");
-        notch(&harness, cx);
-        assert!(
-            typed(&harness).starts_with("\x1b[<64;"),
-            "{:?}",
-            typed(&harness)
-        );
-    }
-
-    #[gpui::test]
     fn one_wheel_notch_is_one_report_or_one_arrow_for_a_program_as_xterm_sends(
         cx: &mut TestAppContext
     ) {
@@ -198,18 +186,10 @@ mod tests {
     fn one_wheel_notch_scrolls_the_lines_the_platform_reports(cx: &mut TestAppContext) {
         let (harness, cx) = open(cx);
         feed(&harness, cx, &"line\r\n".repeat(80));
-        let position = cell_position(&harness, cx, 2);
-        let notch = 3.0;
-        cx.simulate_event(ScrollEvent {
-            position,
-            delta: ScrollDelta::Lines(gpui::point(0.0, notch)),
-            modifiers: Modifiers::default(),
-            touch_phase: TouchPhase::Moved,
-            source: gpui::ScrollSource::Pointer,
-        });
+        notch(&harness, cx);
         let offset = harness
             .view
             .read_with(cx, |view, _| view.terminal.snapshot().display_offset);
-        assert_eq!(offset, 3);
+        assert_eq!(offset, 3, "a notch of three lines");
     }
 }

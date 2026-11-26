@@ -65,17 +65,15 @@ impl Sidebar {
 
 #[cfg(test)]
 mod tests {
-    use sidebar::{DropMode, RowId};
-
+    use crate::test_support::drag::drag;
     use crate::test_support::prelude::*;
+
+    const BEFORE: (f32, f32) = (20.0, 2.0);
 
     #[gpui::test]
     fn the_line_sits_on_the_laid_out_target_row(cx: &mut TestAppContext) {
         let (_, sidebar, cx) = open(cx, DemoShell::rich());
-        let (subject, target) = (RowId::from("working"), RowId::from("folder"));
-        sidebar.update(cx, |this, cx| {
-            this.preview_drag((subject, target, DropMode::Before), cx);
-        });
+        sidebar.update(cx, |this, cx| drag(this, ("working", "folder"), BEFORE, cx));
         cx.run_until_parked();
         let line = sidebar.read_with(cx, |this, _| this.line_target());
         assert!(line.is_some_and(|at| at.width > 0.0), "{line:?}");
@@ -84,19 +82,14 @@ mod tests {
     #[gpui::test]
     fn the_drop_line_aims_at_a_new_target_when_the_drag_moves(cx: &mut TestAppContext) {
         let (_, sidebar, cx) = open(cx, DemoShell::rich());
-        let subject = RowId::from("working");
-        sidebar.update(cx, |this, cx| {
-            this.preview_drag(
-                (subject.clone(), RowId::from("folder"), DropMode::Before),
-                cx,
-            );
-        });
+        sidebar.update(cx, |this, cx| drag(this, ("working", "folder"), BEFORE, cx));
         cx.run_until_parked();
         let aimed = sidebar.update(cx, |this, cx| {
-            this.preview_drag((subject, RowId::from("folder"), DropMode::After), cx);
+            drag(this, ("working", "folder"), (20.0, 34.0), cx);
             let aim = this.drag.slide.map(|slide| slide.target());
             (aim, this.line_target())
         });
+        assert!(aimed.1.is_some(), "a line after the folder");
         assert_eq!(aimed.0, aimed.1, "aimed on the move, before any paint");
     }
 }

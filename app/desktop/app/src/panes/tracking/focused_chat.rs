@@ -21,40 +21,9 @@ pub(crate) fn chat_of_pane(
 
 #[cfg(test)]
 mod tests {
-    use layout::{Command, PaneInstance, TabId};
-    use protocol::{PaneId, PaneState, Params};
-
     use super::*;
-    use crate::panes::kinds::core_panes::chat_type;
-
-    fn open(
-        layout: &mut Layout,
-        params: Params,
-    ) {
-        let instance = PaneInstance {
-            pane_id: PaneId::new("p1").unwrap(),
-            type_id: chat_type().unwrap(),
-            params,
-            state: PaneState::default(),
-        };
-        let tab = TabId(1);
-        let title = String::new();
-        layout
-            .apply(Command::AddTab {
-                id: tab,
-                title,
-                space: layout::SpaceId::default(),
-            })
-            .unwrap();
-        let placement = None;
-        layout
-            .apply(Command::OpenPane {
-                tab,
-                instance,
-                placement,
-            })
-            .unwrap();
-    }
+    use crate::panes::kinds::core_panes::CHAT;
+    use crate::test_support::one_tab;
 
     #[test]
     fn the_focused_pane_names_its_groups_chat() {
@@ -79,8 +48,7 @@ mod tests {
 
     #[test]
     fn a_pane_without_a_chat_names_none() {
-        let mut layout = Layout::default();
-        open(&mut layout, Params::default());
+        let layout = one_tab([crate::test_support::pane("p1", CHAT)]);
         assert_eq!(focused_chat(&layout, ""), None);
     }
 }

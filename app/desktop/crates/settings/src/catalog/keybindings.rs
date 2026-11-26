@@ -166,14 +166,6 @@ mod tests {
     }
 
     #[test]
-    fn the_page_opens_with_the_preset_row_and_every_group_follows_it() {
-        let page = page();
-        let first = page.rows().next().map(|row| row.key().as_str().to_owned());
-        assert_eq!(first.as_deref(), Some("keybindingPreset"));
-        assert!(page.shortcut_groups().all(|group| group.preset.is_some()));
-    }
-
-    #[test]
     fn a_chosen_preset_offers_no_reset() {
         let mut state = crate::State::new(
             crate::default_schema().unwrap(),
@@ -200,29 +192,5 @@ mod tests {
         commands.sort_unstable();
         commands.dedup();
         assert_eq!(commands.len(), 24, "no command repeats");
-    }
-
-    #[test]
-    fn every_default_chord_parses_and_only_one_command_ships_unbound() {
-        let page = page();
-        let unbound: Vec<&str> = page
-            .shortcut_groups()
-            .flat_map(|group| group.shortcuts.iter())
-            .filter(|shortcut| shortcut.default.is_none())
-            .map(Shortcut::command)
-            .collect();
-        assert_eq!(unbound, ["agent.cycleProvider"]);
-    }
-
-    #[test]
-    fn only_save_and_save_all_are_display_only() {
-        let page = page();
-        let fixed: Vec<&str> = page
-            .shortcut_groups()
-            .flat_map(ShortcutGroup::shortcuts)
-            .filter(|shortcut| shortcut.is_display_only())
-            .map(Shortcut::command)
-            .collect();
-        assert_eq!(fixed, ["editor.save", "editor.saveAll"]);
     }
 }

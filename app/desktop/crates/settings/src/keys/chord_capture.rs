@@ -65,65 +65,13 @@ impl ChordCapture {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::keys::modifier_key::ModifierKey;
-    use crate::test_support::{Case, run_cases};
 
-    fn press(
-        key: &str,
-        held: &[ModifierKey],
-    ) -> Pressed {
-        Pressed::new(key, held)
-    }
-
-    fn idle_capture_ignores_everything() {
-        let mut capture = ChordCapture::default();
-        assert_eq!(
-            capture.feed(&press("t", &[ModifierKey::Control]), Primary::Control),
-            None
-        );
-        assert_eq!(capture.target(), None);
-    }
-
-    fn an_accepted_chord_ends_capture_and_names_the_command() {
+    #[test]
+    fn a_second_begin_toggles_off_and_another_command_takes_over() {
         let mut capture = ChordCapture::default();
         capture.begin("tabs.new");
-        let done = capture.feed(&press("n", &[ModifierKey::Control]), Primary::Control);
-        assert_eq!(
-            done.map(|(command, chord)| (command, chord.as_str().to_owned())),
-            Some(("tabs.new".to_owned(), "mod+n".to_owned()))
-        );
-        assert_eq!(capture.target(), None);
-    }
-
-    fn refusals_keep_capturing_and_remember_why() {
-        let mut capture = ChordCapture::default();
         capture.begin("tabs.new");
-        assert_eq!(capture.feed(&press("a", &[]), Primary::Control), None);
-        assert_eq!(capture.target(), Some("tabs.new"));
-        assert_eq!(capture.refusal(), Some(Refusal::BareKey));
-        assert_eq!(
-            capture.feed(&press("control", &[ModifierKey::Control]), Primary::Control),
-            None
-        );
-        assert_eq!(
-            capture.target(),
-            Some("tabs.new"),
-            "a bare modifier keeps waiting"
-        );
-    }
-
-    fn escape_and_a_second_begin_both_leave_capture() {
-        let mut capture = ChordCapture::default();
-        capture.begin("tabs.new");
-        assert_eq!(capture.feed(&press("escape", &[]), Primary::Control), None);
-        assert_eq!(capture.target(), None);
-        capture.begin("tabs.new");
-        capture.begin("tabs.new");
-        assert_eq!(
-            capture.target(),
-            None,
-            "pressing the capturing button again toggles it off"
-        );
+        assert_eq!(capture.target(), None, "the capturing button toggles off");
         capture.begin("tabs.new");
         capture.begin("tabs.close");
         assert_eq!(
@@ -131,29 +79,5 @@ mod tests {
             Some("tabs.close"),
             "another button takes over"
         );
-    }
-
-    const CASES: &[Case] = &[
-        (
-            "idle capture ignores everything",
-            idle_capture_ignores_everything,
-        ),
-        (
-            "an accepted chord ends capture and names the command",
-            an_accepted_chord_ends_capture_and_names_the_command,
-        ),
-        (
-            "refusals keep capturing and remember why",
-            refusals_keep_capturing_and_remember_why,
-        ),
-        (
-            "escape and a second begin both leave capture",
-            escape_and_a_second_begin_both_leave_capture,
-        ),
-    ];
-
-    #[test]
-    fn every_scenario_holds() {
-        run_cases(CASES);
     }
 }

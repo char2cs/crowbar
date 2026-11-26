@@ -72,7 +72,7 @@ impl TerminalView {
             return None;
         }
         let cell = self.measure_cell(window);
-        let layout = ViewLayout::new(bounds, cell, self.inset);
+        let layout = ViewLayout::new(bounds, cell);
         if self.cell_changed(cell) {
             self.cache.clear();
         }

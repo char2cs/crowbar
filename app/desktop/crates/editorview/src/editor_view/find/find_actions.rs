@@ -195,9 +195,8 @@ mod tests {
             let (view, window) = opened((text, Some(1)), Access::Editable, cx);
             press(keys, window);
             let seen = seen(&view, window);
-            assert_eq!(seen.shown, shown, "{keys}");
-            assert_eq!(seen.label, label, "{keys}");
-            assert_eq!(seen.selected, selected, "{keys}");
+            let seen = (seen.shown, seen.label.as_str(), seen.selected);
+            assert_eq!(seen, (shown, label, selected), "{keys}");
         }
     }
 
@@ -236,8 +235,8 @@ mod tests {
             window.simulate_input(query);
             press(keys, window);
             let seen = seen(&view, window);
-            assert_eq!(seen.label, label, "{query} {keys}");
-            assert_eq!(seen.selected, selected, "{query} {keys}");
+            let seen = (seen.label.as_str(), seen.selected);
+            assert_eq!(seen, (label, selected), "{query} {keys}");
         }
     }
 

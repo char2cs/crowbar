@@ -265,48 +265,67 @@ mod tests {
         assert!(sidebar.read_with(cx, |this, _| this.inline.is_none()));
     }
 
-    #[gpui::test]
-    fn branching_sends_make_branch(cx: &mut TestAppContext) {
-        let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
-        sidebar.update_in(cx, |this, window, cx| {
-            this.start_branching(&RowId::from("chat"), window, cx);
-        });
-        type_name(&sidebar, "feature", cx);
-        sidebar.update(cx, |this, cx| this.finish_edit(Outcome::Confirm, cx));
-        let expected = Command::MakeBranch {
-            row: RowId::from("chat"),
-            name: "feature".into(),
-        };
-        assert_eq!(recorder.sent(), vec![expected]);
+    type Start = fn(&mut Sidebar, &mut Window, &mut Context<'_, Sidebar>);
+
+    fn branch_chat(
+        this: &mut Sidebar,
+        window: &mut Window,
+        cx: &mut Context<'_, Sidebar>,
+    ) {
+        this.start_branching(&RowId::from("chat"), window, cx);
+    }
+
+    fn fork_main(
+        this: &mut Sidebar,
+        window: &mut Window,
+        cx: &mut Context<'_, Sidebar>,
+    ) {
+        this.start_draft(&RowId::from("main"), window, cx);
+    }
+
+    fn rename_lib(
+        this: &mut Sidebar,
+        window: &mut Window,
+        cx: &mut Context<'_, Sidebar>,
+    ) {
+        this.start_file_rename("src/lib.rs".into(), window, cx);
     }
 
     #[gpui::test]
-    fn drafting_sends_a_fork(cx: &mut TestAppContext) {
-        let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
-        sidebar.update_in(cx, |this, window, cx| {
-            this.start_draft(&RowId::from("main"), window, cx);
-        });
-        type_name(&sidebar, "spike", cx);
-        sidebar.update(cx, |this, cx| this.finish_edit(Outcome::Confirm, cx));
-        let expected = Command::Fork {
-            parent: RowId::from("main"),
-            name: "spike".into(),
-        };
-        assert_eq!(recorder.sent(), vec![expected]);
-    }
-    #[gpui::test]
-    fn renaming_a_file_sends_the_new_path_beside_the_old_one(cx: &mut TestAppContext) {
-        let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
-        sidebar.update_in(cx, |this, window, cx| {
-            this.start_file_rename("src/lib.rs".into(), window, cx);
-        });
-        type_name(&sidebar, "core.rs", cx);
-        sidebar.update(cx, |this, cx| this.finish_edit(Outcome::Confirm, cx));
-        let expected = Command::RenameFile {
-            path: "src/lib.rs".into(),
-            new_path: "src/core.rs".into(),
-        };
-        assert_eq!(recorder.sent(), vec![expected]);
+    fn a_confirmed_name_sends_what_its_input_was_opened_for(cx: &mut TestAppContext) {
+        let cases: [(Start, &str, Command); 3] = [
+            (
+                branch_chat,
+                "feature",
+                Command::MakeBranch {
+                    row: RowId::from("chat"),
+                    name: "feature".into(),
+                },
+            ),
+            (
+                fork_main,
+                "spike",
+                Command::Fork {
+                    parent: RowId::from("main"),
+                    name: "spike".into(),
+                },
+            ),
+            (
+                rename_lib,
+                "core.rs",
+                Command::RenameFile {
+                    path: "src/lib.rs".into(),
+                    new_path: "src/core.rs".into(),
+                },
+            ),
+        ];
+        for (start, name, expected) in cases {
+            let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
+            sidebar.update_in(cx, start);
+            type_name(&sidebar, name, cx);
+            sidebar.update(cx, |this, cx| this.finish_edit(Outcome::Confirm, cx));
+            assert_eq!(recorder.sent(), vec![expected]);
+        }
     }
 
     fn create_named(

@@ -2,14 +2,14 @@
 
 mod file_tree;
 mod hosts;
-mod icons;
 mod panels;
 mod space_list;
 
 use std::sync::Arc;
 
 use sidebar::{
-    ActiveSpace, Focus, MoveTarget, PaneFocus, ProjectId, ProjectTree, RowActions, RowId,
+    ActiveSpace, Focus, IconTarget, MoveTarget, PaneFocus, ProjectId, ProjectTree, Requests,
+    RowActions, RowId,
 };
 
 use crate::live::Hub;
@@ -86,6 +86,22 @@ impl RowActions for SidebarView {
     }
 }
 
+impl Requests for SidebarView {
+    fn icon_busy(
+        &self,
+        target: &IconTarget,
+    ) -> bool {
+        self.hub.read(|state| state.marking.contains(target))
+    }
+
+    fn adding(
+        &self,
+        folder: &str,
+    ) -> bool {
+        self.hub.read(|state| state.adding.contains(folder))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use sidebar::{Changes, ChangesSource as _, FilesSource as _, ScopeSync, SpaceList as _};
@@ -103,5 +119,16 @@ mod tests {
         assert_eq!(view.files().len(), 0);
         assert_eq!(view.changes(), Changes::default());
         assert_eq!(view.file_tree_view(), sidebar::FileTreeView::default());
+    }
+
+    #[test]
+    fn a_target_is_busy_while_the_state_marks_it() {
+        let (mut state, _) = state();
+        let busy = IconTarget::Repo(RowId::from("rdo"));
+        state.marking.insert(busy.clone());
+        let view = SidebarView::new(Hub::new(state, Arc::new(|| {})), SettingsSlot::default());
+        assert!(view.icon_busy(&busy), "a request for the repo's icon runs");
+        let space = IconTarget::Space(ProjectId::from("p"));
+        assert!(!view.icon_busy(&space), "none runs for the space's");
     }
 }

@@ -92,48 +92,20 @@ impl Tab {
 
 #[cfg(test)]
 mod tests {
-    use protocol::{PaneState, PaneTypeId, Params};
-
     use super::*;
     use crate::tab_id::TabId;
+    use crate::test_support::tab_fixtures::{at, editor, id};
     use crate::tree::edge::Edge;
-    use crate::tree::placement::Placement;
-
-    fn id(name: &str) -> PaneId {
-        PaneId::new(name).unwrap()
-    }
-
-    fn pane(name: &str) -> PaneInstance {
-        PaneInstance {
-            pane_id: id(name),
-            type_id: PaneTypeId::new("core.terminal").unwrap(),
-            params: Params::default(),
-            state: PaneState::default(),
-        }
-    }
-
-    fn two_groups() -> Tab {
-        let mut tab = Tab::new(TabId(1), "t", crate::space_id::SpaceId::default());
-        tab.open(pane("a"), None).unwrap();
-        tab.open_in_group(pane("b"), (&id("a"), None)).unwrap();
-        let beside = Placement {
-            target: id("a"),
-            edge: Edge::Right,
-        };
-        tab.open(pane("c"), Some(beside)).unwrap();
-        tab
-    }
 
     #[test]
     fn joining_a_group_of_the_same_tab_refuses_a_bad_index_without_changes() {
-        let mut tab = two_groups();
+        let mut tab = Tab::new(TabId(1), "t", crate::space_id::SpaceId::default());
+        tab.open(editor("a"), None).unwrap();
+        tab.open_in_group(editor("b"), (&id("a"), None)).unwrap();
+        tab.open(editor("c"), Some(at("a", Edge::Right))).unwrap();
         let before = tab.clone();
         let refused = tab.join_group(&id("c"), (&id("a"), Some(5)));
-        assert_eq!(
-            refused,
-            Err(Error::IndexOutOfRange { index: 5, len: 2 }),
-            "index"
-        );
+        assert_eq!(refused, Err(Error::IndexOutOfRange { index: 5, len: 2 }));
         assert_eq!(tab, before, "unchanged");
     }
 }

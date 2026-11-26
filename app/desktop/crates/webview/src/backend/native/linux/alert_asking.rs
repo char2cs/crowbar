@@ -106,6 +106,7 @@ fn pressed(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend::native::linux::test_support::idle_platform;
 
     const PARENTS: [(ParentWindow, usize); 2] =
         [(ParentWindow::X11(1), 1), (ParentWindow::AppKit(1), 0)];
@@ -121,11 +122,7 @@ mod tests {
     }
 
     fn post_over(parent: ParentWindow) -> (bool, usize) {
-        let (jobs, inbox) = async_channel::unbounded();
-        let platform = GtkPlatform {
-            jobs,
-            stopped: None,
-        };
+        let (platform, inbox) = idle_platform();
         let request = AlertRequest {
             title: None,
             message: "Reload?".into(),

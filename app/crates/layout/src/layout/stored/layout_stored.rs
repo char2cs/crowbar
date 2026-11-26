@@ -98,6 +98,29 @@ impl Layout {
     }
 }
 
+/// Reads a layout from its stored JSON.
+///
+/// A document of another schema version, older or newer, loads as the default layout with a
+/// warning; the result satisfies every [`Layout`] invariant, so a damaged file is an error rather
+/// than a broken window.
+///
+/// # Errors
+/// [`Error::Unreadable`] for text that is not a layout document and [`Error::Invalid`] for data
+/// that breaks an invariant.
+pub fn load(stored: &[u8]) -> Result<Layout> {
+    let value =
+        serde_json::from_slice(stored).map_err(|source| Error::Unreadable(source.to_string()))?;
+    Layout::from_stored(value)
+}
+
+/// Writes a layout as JSON in the current format.
+///
+/// # Errors
+/// [`Error::Unreadable`] when the layout cannot be encoded.
+pub fn store(layout: &Layout) -> Result<Vec<u8>> {
+    serde_json::to_vec(layout).map_err(|source| Error::Unreadable(source.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -147,16 +170,7 @@ mod tests {
     }
 
     #[test]
-    fn a_layout_round_trips_through_json_with_its_version() {
-        let layout = sample();
-        let value = serde_json::to_value(&layout).unwrap();
-        assert_eq!(value["version"], json!(SCHEMA_VERSION), "versioned");
-        let back: Layout = serde_json::from_value(value).unwrap();
-        assert_eq!(back, layout, "round trip");
-    }
-
-    #[test]
-    fn a_layout_of_another_version_loads_as_the_default_layout() {
+    fn a_layout_of_another_version_loads_as_the_default_and_stray_data_is_refused() {
         let value = serde_json::to_value(sample()).unwrap();
         for version in [None, Some(SCHEMA_VERSION - 2), Some(SCHEMA_VERSION + 1)] {
             let mut document = value.clone();
@@ -164,27 +178,15 @@ mod tests {
             let loaded: Layout = serde_json::from_value(document).unwrap();
             assert_eq!(loaded, Layout::default(), "{version:?}");
         }
-    }
-
-    #[test]
-    fn a_layout_with_stray_or_broken_data_is_refused() {
-        let value = serde_json::to_value(sample()).unwrap();
         let cases = [
-            ("unknown field", "surprise", json!(true), ""),
-            (
-                "dangling shown tab",
-                "shown",
-                json!({"": 77}),
-                "invalid layout",
-            ),
+            ("surprise", json!(true), "unknown field"),
+            ("shown", json!({"": 77}), "invalid layout"),
         ];
-        for (name, field, bad, expected) in cases {
+        for (field, bad, expected) in cases {
             let mut document = value.clone();
             document[field] = bad;
-            let error = serde_json::from_value::<Layout>(document)
-                .unwrap_err()
-                .to_string();
-            assert!(error.contains(expected), "{name}: {error}");
+            let error = serde_json::from_value::<Layout>(document).unwrap_err();
+            assert!(error.to_string().contains(expected), "{error}");
         }
     }
 
@@ -208,7 +210,7 @@ mod tests {
     #[test]
     fn a_v3_layout_loads_with_its_tabs_unowned_and_shown_in_no_space() {
         let stored: Value = serde_json::from_slice(V3_FIXTURE).unwrap();
-        let layout = crate::layout::stored::model::load(V3_FIXTURE).unwrap();
+        let layout = load(V3_FIXTURE).unwrap();
         let ids: Vec<u64> = layout.tabs().iter().map(|tab| tab.id().0).collect();
         assert_eq!(ids, [1, 2, 3], "every tab kept, in order");
         let records = stored["tabs"].as_array().unwrap();
@@ -247,5 +249,24 @@ mod tests {
         crossed["shown"] = json!({"p2": 1});
         let error = serde_json::from_value::<Layout>(crossed).unwrap_err();
         assert!(error.to_string().contains("invalid layout"), "{error}");
+    }
+
+    #[test]
+    fn unreadable_and_broken_data_are_distinct_errors() {
+        let broken = json!({"version": SCHEMA_VERSION, "tabs": [], "shown": {"": 4}});
+        let shape = json!({"version": SCHEMA_VERSION, "tabs": 3});
+        let unreadable = Error::Unreadable(String::new());
+        let cases = [
+            (b"not json".to_vec(), &unreadable),
+            (shape.to_string().into_bytes(), &unreadable),
+            (broken.to_string().into_bytes(), &Error::Invalid("")),
+        ];
+        for (bytes, kind) in cases {
+            let error = load(&bytes).unwrap_err();
+            let same = std::mem::discriminant(&error) == std::mem::discriminant(kind);
+            assert!(same, "{error:?}");
+        }
+        let empty = Layout::default();
+        assert_eq!(load(&store(&empty).unwrap()), Ok(empty), "round trip");
     }
 }

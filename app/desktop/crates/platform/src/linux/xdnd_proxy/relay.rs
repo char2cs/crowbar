@@ -208,11 +208,11 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
+    use x11rb::CURRENT_TIME;
     use x11rb::protocol::Event;
-    use x11rb::protocol::xproto::{CreateWindowAux, WindowClass};
     use x11rb::wrapper::ConnectionExt as _;
-    use x11rb::{COPY_DEPTH_FROM_PARENT, COPY_FROM_PARENT, CURRENT_TIME};
 
+    use crate::linux::test_support::mapped_in;
     use crate::linux::xdnd_proxy::XdndProxy;
 
     use super::*;
@@ -251,32 +251,6 @@ mod tests {
                 _ => "another window",
             }
         }
-    }
-
-    fn window_in(
-        connection: &RustConnection,
-        parent: u32,
-        (at, side): (i16, u16),
-    ) -> u32 {
-        let window = connection.generate_id().unwrap();
-        let aux = CreateWindowAux::new().override_redirect(1);
-        connection
-            .create_window(
-                COPY_DEPTH_FROM_PARENT,
-                window,
-                parent,
-                at,
-                at,
-                side,
-                side,
-                0,
-                WindowClass::INPUT_OUTPUT,
-                COPY_FROM_PARENT,
-                &aux,
-            )
-            .unwrap();
-        connection.map_window(window).unwrap();
-        window
     }
 
     fn atom(
@@ -329,14 +303,18 @@ mod tests {
 
     fn windows(connection: &RustConnection) -> Windows {
         let root = connection.setup().roots[0].root;
-        let window = window_in(connection, root, (0, SIDE));
-        let child = window_in(connection, window, (CHILD_AT, CHILD_SIDE));
-        let inner = window_in(connection, child, (0, CHILD_SIDE));
+        let window = mapped_in(connection, root, (0, 0, SIDE, SIDE));
+        let child = mapped_in(
+            connection,
+            window,
+            (CHILD_AT, CHILD_AT, CHILD_SIDE, CHILD_SIDE),
+        );
+        let inner = mapped_in(connection, child, (0, 0, CHILD_SIDE, CHILD_SIDE));
         let aware = atom(connection, "XdndAware");
         connection
             .change_property32(PropMode::REPLACE, child, aware, AtomEnum::ATOM, &[VERSION])
             .unwrap();
-        let source = window_in(connection, root, (0, 1));
+        let source = mapped_in(connection, root, (0, 0, 1, 1));
         let types: Vec<u32> = TYPES.iter().map(|name| atom(connection, name)).collect();
         let list = atom(connection, "XdndTypeList");
         connection

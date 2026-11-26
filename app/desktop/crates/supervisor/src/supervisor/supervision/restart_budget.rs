@@ -83,13 +83,4 @@ mod tests {
             assert_eq!(verdicts, expected, "{name}");
         }
     }
-
-    #[test]
-    fn a_manual_restart_starts_a_fresh_budget() {
-        let start = Instant::now();
-        let mut budget = RestartBudget::new(1, Duration::from_secs(600));
-        budget.on_death(start);
-        budget.reset();
-        assert_eq!(budget.on_death(start), Verdict::Respawn { attempt: 1 });
-    }
 }

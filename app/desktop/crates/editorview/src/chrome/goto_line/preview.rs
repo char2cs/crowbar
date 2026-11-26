@@ -49,9 +49,10 @@ fn line_highlight(cx: &Context<'_, GotoLine>) -> Hsla {
 #[cfg(test)]
 mod tests {
     use gpui::TestAppContext;
+    use gpui_kit::component::input::EditorState;
 
     use crate::Access;
-    use crate::editor_view::test_support::{opened, rows_of};
+    use crate::editor_view::test_support::{opened, read_state};
 
     #[gpui::test]
     fn typing_a_line_shows_it_without_moving_the_caret(cx: &mut TestAppContext) {
@@ -64,7 +65,7 @@ mod tests {
             window.simulate_input(typed);
             window.run_until_parked();
             let line = view.read_with(window, |view, cx| view.caret(cx).line);
-            let rows = rows_of(&view, window);
+            let rows = read_state(&view, window, EditorState::visible_row_range);
             let moved = rows.is_some_and(|rows| rows.start > 0);
             assert_eq!((line, moved), (caret, scrolled), "{typed}");
         }

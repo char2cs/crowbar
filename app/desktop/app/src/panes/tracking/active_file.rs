@@ -15,52 +15,32 @@ pub(crate) fn active_file(
 
 #[cfg(test)]
 mod tests {
-    use layout::{Command, PaneInstance, TabId};
-    use protocol::{PaneId, PaneState, PaneTypeId, Params};
+    use layout::PaneInstance;
+    use protocol::{PaneState, Params};
     use serde_json::json;
 
     use super::*;
+    use crate::test_support::{one_tab, pane};
 
     fn instance(
         (name, kind): (&str, &str),
         state: serde_json::Value,
     ) -> PaneInstance {
         PaneInstance {
-            pane_id: PaneId::new(name).unwrap(),
-            type_id: PaneTypeId::new(kind).unwrap(),
             params: Params::default().with("id", name).unwrap(),
             state: PaneState::new(state).unwrap(),
+            ..pane(name, kind)
         }
     }
 
     type Opened<'a> = ((&'a str, &'a str), serde_json::Value);
 
     fn layout_of(panes: &[Opened<'_>]) -> Layout {
-        let mut layout = Layout::default();
-        let tab = TabId(1);
-        let add = Command::AddTab {
-            id: tab,
-            title: String::new(),
-            space: layout::SpaceId::default(),
-        };
-        layout.apply(add).unwrap();
-        for (pane, state) in panes {
-            layout
-                .apply(open(tab, instance(*pane, state.clone())))
-                .unwrap();
-        }
-        layout
-    }
-
-    fn open(
-        tab: TabId,
-        instance: PaneInstance,
-    ) -> Command {
-        Command::OpenPane {
-            tab,
-            instance,
-            placement: None,
-        }
+        one_tab(
+            panes
+                .iter()
+                .map(|(pane, state)| instance(*pane, state.clone())),
+        )
     }
 
     #[test]

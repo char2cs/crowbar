@@ -93,7 +93,7 @@ impl LayoutView {
             point: self.local_point(position),
             slots: &slots,
             joinable: &joinable,
-            now: self.clock.now(),
+            now: (self.clock)(),
         };
         self.drop.over(hit, cx);
         cx.notify();
@@ -182,158 +182,73 @@ fn row_subject(row: &DraggedRow) -> Option<DragSubject> {
 
 #[cfg(test)]
 mod tests {
-    use gpui::{TestAppContext, point, px};
-    use layout::Edge;
+    use gpui::TestAppContext;
+    use layout::{Command, Edge, Layout, Placement, SpaceId, TabId};
 
-    use crate::test_support::{layout_of, open};
+    use crate::LayoutEvent;
+    use crate::test_support::{
+        chat_row, drag_row_to, file_row, layout_of, open, open_under_row_source, pane_id,
+    };
 
-    fn dragging_after_hover(
-        view: &gpui::Entity<crate::layout_view::LayoutView>,
-        subject: &layout::DragSubject,
-        spot: gpui::Point<gpui::Pixels>,
-        cx: &mut gpui::VisualTestContext,
-    ) -> bool {
-        view.update(cx, |view, cx| {
-            view.hover(subject, spot, cx);
-            view.drop.is_dragging()
-        })
-    }
-
-    #[gpui::test]
-    fn hovering_inside_the_view_opens_a_drop_and_outside_it_clears_it(cx: &mut TestAppContext) {
-        let layout = layout_of("a", &[("b", "a", Edge::Right)]);
-        let harness = open(cx, &layout);
-        let (view, cx) = (harness.view, harness.cx);
-        let subject = layout::DragSubject::Chat("t1".into());
-        let centre = view.read_with(cx, |view, _| view.bounds.center());
-        let cases = [(centre, true), (point(px(-50.0), px(-50.0)), false)];
-        for (spot, expected) in cases {
-            let dragging = dragging_after_hover(&view, &subject, spot, cx);
-            assert_eq!(dragging, expected, "dragging at {spot:?}");
-        }
-    }
-
-    fn two_tabs() -> layout::Layout {
+    fn two_tabs() -> Layout {
         let mut layout = layout_of("a", &[]);
-        let second = layout::Command::AddTab {
-            id: layout::TabId(2),
+        let second = Command::AddTab {
+            id: TabId(2),
             title: "Two".into(),
-            space: layout::SpaceId::default(),
+            space: SpaceId::default(),
         };
         layout.apply(second).expect("a second tab");
-        let shown = layout::Command::ActivateTab {
-            tab: layout::TabId(1),
-        };
-        layout.apply(shown).expect("tab one shown");
+        layout
+            .apply(Command::ActivateTab { tab: TabId(1) })
+            .expect("tab one shown");
         layout
     }
 
     #[gpui::test]
-    fn a_view_tab_dropped_on_a_pane_asks_to_move_its_chats_beside_it_after_the_mouse_up(
-        cx: &mut TestAppContext
-    ) {
-        let layout = two_tabs();
-        let harness = open(cx, &layout);
+    fn a_view_tab_drops_its_chats_on_a_pane_but_not_on_its_own_panes(cx: &mut TestAppContext) {
+        let harness = open(cx, &two_tabs());
         let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
         let centre = view.read_with(cx, |view, _| view.bounds.center());
-        view.update(cx, |view, cx| {
-            view.tab_dragged_over(layout::TabId(2), centre, cx);
-        });
-        let none = gpui::Modifiers::none();
-        cx.simulate_mouse_up(centre, gpui::MouseButton::Left, none);
-        view.update(cx, |view, cx| {
-            view.tab_dropped(layout::TabId(2), centre, cx);
-        });
-        let placement = layout::Placement {
-            target: crate::test_support::pane_id("a"),
-            edge: Edge::Right,
-        };
-        let expected = crate::LayoutEvent::DropTab {
-            tab: layout::TabId(2),
-            onto: layout::TabId(1),
-            placement,
-        };
-        assert_eq!(opened.borrow().clone(), vec![expected]);
-    }
-
-    #[gpui::test]
-    fn the_shown_tab_dragged_over_its_own_panes_drops_nothing(cx: &mut TestAppContext) {
-        let layout = two_tabs();
-        let harness = open(cx, &layout);
-        let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
-        let previewed = view.update(cx, |view, cx| {
-            let centre = view.bounds.center();
-            view.tab_dragged_over(layout::TabId(1), centre, cx);
-            let previewed = view.drop.preview(view.clock.now(), ui::Motion::default());
-            view.tab_dropped(layout::TabId(1), centre, cx);
+        let own = view.update(cx, |view, cx| {
+            view.tab_dragged_over(TabId(1), centre, cx);
+            let previewed = view.drop.preview((view.clock)(), ui::Motion::default());
+            view.tab_dropped(TabId(1), centre, cx);
             previewed
         });
-        assert_eq!(previewed, None, "no preview over its own panes");
-        assert!(opened.borrow().is_empty(), "no drop");
-    }
-
-    #[gpui::test]
-    fn a_cancelled_view_tab_drag_clears_its_preview(cx: &mut TestAppContext) {
-        let layout = two_tabs();
-        let harness = open(cx, &layout);
-        let (view, cx) = (harness.view, harness.cx);
-        let dragging = view.update(cx, |view, cx| {
-            view.tab_dragged_over(layout::TabId(2), view.bounds.center(), cx);
+        assert_eq!(own, None, "no preview over its own panes");
+        let cancelled = view.update(cx, |view, cx| {
+            view.tab_dragged_over(TabId(2), centre, cx);
             view.tab_drag_cancelled(cx);
             view.drop.is_dragging()
         });
-        assert!(!dragging, "the drag is over");
-    }
-
-    #[gpui::test]
-    fn releasing_a_drag_clears_the_drop_overlay(cx: &mut TestAppContext) {
-        let layout = layout_of("a", &[("b", "a", Edge::Right)]);
-        let harness = open(cx, &layout);
-        let (view, cx) = (harness.view, harness.cx);
-        let subject = layout::DragSubject::Chat("t1".into());
-        let after = view.update(cx, |view, cx| {
-            view.hover(&subject, view.bounds.center(), cx);
-            view.release(&subject, cx);
-            view.drop.is_dragging()
-        });
-        assert!(!after, "no drag after the release");
-    }
-
-    #[gpui::test]
-    fn a_chat_row_released_on_the_empty_stage_asks_to_open_it_there(cx: &mut TestAppContext) {
-        let layout = layout::Layout::default();
-        let harness = crate::test_support::open_under_row_source(
-            cx,
-            &layout,
-            crate::test_support::chat_row(),
-        );
-        let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
-        let centre = view.read_with(cx, |view, _| view.bounds.center());
+        assert!(!cancelled, "a cancelled drag clears its preview");
+        view.update(cx, |view, cx| view.tab_dragged_over(TabId(2), centre, cx));
         let none = gpui::Modifiers::none();
-        let left = gpui::MouseButton::Left;
-        cx.simulate_mouse_down(point(px(4.0), px(4.0)), left, none);
-        cx.simulate_mouse_move(point(px(40.0), px(40.0)), left, none);
-        cx.simulate_mouse_move(centre, left, none);
-        cx.simulate_mouse_up(centre, left, none);
-        let expected = crate::LayoutEvent::StageChat { chat: "t1".into() };
-        assert_eq!(
-            opened.borrow().clone(),
-            vec![expected],
-            "open t1 on the stage"
-        );
+        cx.simulate_mouse_up(centre, gpui::MouseButton::Left, none);
+        view.update(cx, |view, cx| view.tab_dropped(TabId(2), centre, cx));
+        let placement = Placement {
+            target: pane_id("a"),
+            edge: Edge::Right,
+        };
+        let expected = LayoutEvent::DropTab {
+            tab: TabId(2),
+            onto: TabId(1),
+            placement,
+        };
+        assert_eq!(*opened.borrow(), [expected], "resolved after the mouse up");
     }
 
     #[gpui::test]
-    fn a_file_row_released_on_the_empty_stage_opens_nothing(cx: &mut TestAppContext) {
-        let layout = layout::Layout::default();
-        let row = crate::test_support::file_row("src/a.rs");
-        let harness = crate::test_support::open_under_row_source(cx, &layout, row);
-        let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
-        let centre = view.read_with(cx, |view, _| view.bounds.center());
-        let (none, left) = (gpui::Modifiers::none(), gpui::MouseButton::Left);
-        cx.simulate_mouse_down(point(px(4.0), px(4.0)), left, none);
-        cx.simulate_mouse_move(centre, left, none);
-        cx.simulate_mouse_up(centre, left, none);
-        assert!(opened.borrow().is_empty(), "a file needs a pane to open in");
+    fn a_chat_row_released_on_the_empty_stage_opens_there_and_a_file_row_does_not(
+        cx: &mut TestAppContext
+    ) {
+        let chat = LayoutEvent::StageChat { chat: "t1".into() };
+        for (row, expected) in [(chat_row(), vec![chat]), (file_row("src/a.rs"), vec![])] {
+            let harness = open_under_row_source(cx, &Layout::default(), row);
+            let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
+            let centre = view.read_with(cx, |view, _| view.bounds.center());
+            drag_row_to(cx, centre);
+            assert_eq!(*opened.borrow(), expected);
+        }
     }
 }

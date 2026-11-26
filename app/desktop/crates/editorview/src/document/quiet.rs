@@ -1,7 +1,7 @@
 use gpui::{AsyncApp, Context, WeakEntity};
 
 use super::Document;
-use crate::DocumentEvent;
+use super::document_event::DocumentEvent;
 
 const QUIET_PERIOD: std::time::Duration = std::time::Duration::from_secs(1);
 

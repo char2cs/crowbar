@@ -87,30 +87,3 @@ pub enum LayoutEvent {
         onto: PaneId,
     },
 }
-
-impl LayoutEvent {
-    pub(crate) fn tab_path(
-        action: PathAction,
-        path: &str,
-    ) -> Self {
-        Self::TabPath {
-            action,
-            path: path.to_owned(),
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_path_event_names_the_action_and_the_file() {
-        let event = LayoutEvent::tab_path(PathAction::Reveal, "src/main.rs");
-        let expected = LayoutEvent::TabPath {
-            action: PathAction::Reveal,
-            path: "src/main.rs".into(),
-        };
-        assert_eq!(event, expected);
-    }
-}

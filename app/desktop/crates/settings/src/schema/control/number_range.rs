@@ -168,11 +168,10 @@ mod tests {
         type Case = (f64, f64, f64, &'static str);
         const CASES: &[Case] = &[
             (10.0, 24.0, 0.5, "15"),
-            (10.0, 24.0, 0.5, "15"),
             (1.0, 2.0, 0.1, "1.4"),
             (8.0, 32.0, 1.0, "14"),
         ];
-        let values = [15.0, 15.0, 1.4, 14.0];
+        let values = [15.0, 1.4, 14.0];
         for (&(min, max, step, expected), value) in CASES.iter().zip(values) {
             assert_eq!(
                 NumberRange::new(min, max, step).format(value),

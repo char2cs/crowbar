@@ -37,11 +37,7 @@ fn absolute(
 }
 
 impl DaemonPaths {
-    /// Reads the output of `crowbar-api paths`: `{"home": ..., "socket": ..., "log": ...}`.
-    ///
-    /// # Errors
-    /// [`Error::Paths`] for output that is not JSON or names a missing or relative path.
-    pub fn parse(stdout: &[u8]) -> Result<Self, Error> {
+    fn parse(stdout: &[u8]) -> Result<Self, Error> {
         let report: Value = serde_json::from_slice(stdout)
             .map_err(|e| Error::Paths(format!("paths output is not JSON: {e}")))?;
         Ok(Self {
@@ -94,12 +90,11 @@ mod tests {
     #[test]
     fn parse_reads_socket_and_log() {
         let out = br#"{"home":"/Users/a/.crowbar","socket":"/tmp/crowbar-1f.sock","log":"/Users/a/.crowbar/logs/daemon.log"}"#;
-        let paths = DaemonPaths::parse(out).unwrap();
-        assert_eq!(paths.socket, PathBuf::from("/tmp/crowbar-1f.sock"));
-        assert_eq!(
-            paths.log,
-            PathBuf::from("/Users/a/.crowbar/logs/daemon.log")
-        );
+        let expected = DaemonPaths {
+            socket: PathBuf::from("/tmp/crowbar-1f.sock"),
+            log: PathBuf::from("/Users/a/.crowbar/logs/daemon.log"),
+        };
+        assert_eq!(DaemonPaths::parse(out).unwrap(), expected);
     }
 
     #[test]

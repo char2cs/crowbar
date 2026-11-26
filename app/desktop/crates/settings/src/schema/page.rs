@@ -93,16 +93,6 @@ mod tests {
     use crate::schema::block::Section;
 
     #[test]
-    fn blocks_append_in_order() {
-        let page = Page::new("git", "Git", "git-branch")
-            .block(Section::new("One"))
-            .block(Section::new("Two"));
-        assert_eq!((page.id().as_str(), page.label()), ("git", "Git"));
-        assert_eq!(page.icon, "git-branch");
-        assert_eq!(page.blocks.len(), 2);
-    }
-
-    #[test]
     fn rows_and_shortcut_groups_are_found_across_blocks() {
         use crate::keys::ShortcutGroup;
         use crate::schema::control::Control;

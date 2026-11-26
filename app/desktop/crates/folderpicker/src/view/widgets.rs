@@ -1,10 +1,9 @@
-use gpui::{Div, ParentElement, SharedString, Styled};
+use gpui::{Div, ParentElement, SharedString, Styled, div};
 use ui::{Palette, Pose};
 
 use crate::look::TREE_HEIGHT;
 use crate::tree::Toggle;
-use crate::view::View;
-use crate::view::muted::muted;
+use crate::view::{View, muted};
 
 pub(crate) fn centred(
     palette: &Palette,
@@ -46,7 +45,6 @@ pub(crate) fn inert() -> Toggle {
 
 #[cfg(test)]
 mod tests {
-    use gpui::div;
     use ui::{Surface, Theme};
 
     use super::*;

@@ -42,19 +42,6 @@ mod tests {
     };
 
     use super::*;
-    use crate::test_support::measure;
-
-    #[gpui::test]
-    fn the_ghost_draws_whatever_the_row_builds(cx: &mut TestAppContext) {
-        let build: GhostBuild = Rc::new(|_| div().h(px(7.0)).into_any_element());
-        let held = Rc::new(std::cell::OnceCell::new());
-        let bounds = measure(cx, move |_, cx| {
-            let build = Rc::clone(&build);
-            held.get_or_init(|| cx.new(|_| RowGhost::new(build, ui::radius::LG)))
-                .clone()
-        });
-        assert_eq!(f32::from(bounds.size.height), 7.0);
-    }
 
     #[derive(Clone)]
     struct Lifted;

@@ -98,6 +98,42 @@ impl Fixture {
         synced(&mut self.host, &snapshot)
     }
 
+    /// Shows `panes`, `focused` focused, and has each page register.
+    pub(crate) fn mount(
+        &mut self,
+        panes: &[PaneInstance],
+        focused: Option<&str>,
+    ) {
+        let ids: Vec<&str> = panes.iter().map(|pane| pane.pane_id.as_str()).collect();
+        self.sync(panes, &ids, focused);
+        for pane in panes {
+            register(self, pane.pane_id.as_str(), pane.type_id.as_str());
+        }
+    }
+
+    pub(crate) fn calls(&self) -> usize {
+        self.mock.calls().len()
+    }
+
+    /// What the web views were told to show and focus since call `from`.
+    pub(crate) fn view_calls(
+        &self,
+        from: usize,
+    ) -> Vec<&'static str> {
+        let calls = self.mock.calls();
+        let since = calls.get(from..).unwrap_or_default();
+        since.iter().filter_map(view_call).collect()
+    }
+
+    pub(crate) fn focus_calls(
+        &self,
+        from: usize,
+    ) -> Vec<&'static str> {
+        let mut calls = self.view_calls(from);
+        calls.retain(|call| call.starts_with("focus"));
+        calls
+    }
+
     pub(crate) fn ipc(
         &mut self,
         message: IpcMessage,
@@ -292,18 +328,17 @@ pub(crate) fn register(
     })
 }
 
-fn is_shown(call: &Call) -> bool {
-    matches!(
-        call,
-        Call::SetVisibility {
-            visibility: Visibility::Shown,
-            ..
-        }
-    )
-}
-
-pub(crate) fn shown(mock: &MockPlatform) -> usize {
-    mock.calls().iter().filter(|call| is_shown(call)).count()
+fn view_call(call: &Call) -> Option<&'static str> {
+    match call {
+        Call::SetVisibility { visibility, .. } => Some(match visibility {
+            Visibility::Hidden => "hide",
+            Visibility::Covered => "cover",
+            Visibility::Shown => "show",
+        }),
+        Call::Focus { .. } => Some("focus"),
+        Call::FocusParent { .. } => Some("focus_parent"),
+        _ => None,
+    }
 }
 
 pub(crate) fn blank_config(kind: webview::Kind) -> webview::Config {

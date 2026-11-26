@@ -270,20 +270,4 @@ mod tests {
         cx.simulate_mouse_up(point(px(120.0), px(18.0)), MouseButton::Left, none);
         assert!(seen.borrow().is_empty(), "the ghost reports nothing");
     }
-
-    #[gpui::test]
-    fn a_row_is_the_spec_height_plus_its_vertical_margin(cx: &mut TestAppContext) {
-        let (handler, _) = recording_handler();
-        let bounds = measure(cx, move |_, _| TreeRow {
-            row: chat("Refactor"),
-            expansion: Expansion::Expanded,
-            input: None,
-            drag: RowDrag::default(),
-            bounds: RowBounds::default(),
-            width: 294.0,
-            handler: Rc::clone(&handler),
-            icon_editing: None,
-        });
-        assert_eq!(f32::from(bounds.size.height), 38.0);
-    }
 }

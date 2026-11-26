@@ -12,7 +12,7 @@ use crate::layout::tab::pane_instance::PaneInstance;
 /// tabs shown beside it or over it.
 ///
 /// A group is never empty. Its active editor tab is one of its tabs, and `None` only when it has
-/// none. The first [`PaneGroup::pinned_count`] tabs are pinned: they stay in front of the others,
+/// none. The first tabs may be pinned: they stay in front of the others,
 /// and no tab moves across that line except by pinning or unpinning.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -120,44 +120,22 @@ impl PaneGroup {
 
 #[cfg(test)]
 mod tests {
-    use protocol::{PaneState, PaneTypeId, Params};
+    use crate::test_support::tab_fixtures::{editor, id, pane};
 
     use super::*;
 
-    fn instance(
-        name: &str,
-        kind: &str,
-    ) -> PaneInstance {
-        PaneInstance {
-            pane_id: PaneId::new(name).unwrap(),
-            type_id: PaneTypeId::new(kind).unwrap(),
-            params: Params::default(),
-            state: PaneState::default(),
-        }
-    }
-
     #[test]
     fn a_group_shows_its_chat_until_an_editor_tab_is_selected() {
-        let chat = instance("c", PaneTypeId::CHAT);
-        let mut group = PaneGroup::holding(&chat);
-        assert_eq!(group.shown(), Some(&chat.pane_id), "a lone chat");
-        group.tabs = vec![PaneId::new("t").unwrap()];
-        group.active = group.tabs.first().cloned();
-        assert_eq!(group.shown(), Some(&chat.pane_id), "chat still selected");
+        let mut group = PaneGroup::holding(&pane("c"));
+        assert_eq!(group.shown(), Some(&id("c")), "a lone chat");
+        group.tabs = vec![id("t")];
+        group.active = Some(id("t"));
+        assert_eq!(group.shown(), Some(&id("c")), "chat still selected");
         group.chat_selected = false;
-        assert_eq!(group.shown(), group.active_tab(), "the tab once selected");
-    }
-
-    #[test]
-    fn a_pane_that_is_not_a_chat_starts_a_chatless_group_as_its_tab() {
-        let terminal = instance("t", "core.terminal");
-        let group = PaneGroup::holding(&terminal);
-        assert_eq!(group.chat(), None, "no chat");
-        assert_eq!(
-            group.tabs(),
-            std::slice::from_ref(&terminal.pane_id),
-            "the tab"
-        );
-        assert!(group.editor_open(), "its editor shows");
+        assert_eq!(group.shown(), Some(&id("t")), "the tab once selected");
+        let chatless = PaneGroup::holding(&editor("t"));
+        assert_eq!(chatless.chat(), None, "no chat");
+        assert_eq!(chatless.tabs(), [id("t")], "a terminal is its tab");
+        assert!(chatless.editor_open(), "its editor shows");
     }
 }

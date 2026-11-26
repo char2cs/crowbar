@@ -217,63 +217,56 @@ mod tests {
 
     use super::*;
     use crate::panes::kinds::core_panes::chat_type;
-    use crate::test_support::{shell_rig, synced_chat};
+    use crate::shell::shell_state::host::outcome::Outcome;
+    use crate::test_support::{ShellRig, shell_rig, synced_chat};
+
+    fn told(
+        rig: &mut ShellRig,
+        (pane, text): (&PaneId, &str),
+    ) -> Outcome {
+        let message = IpcMessage {
+            pane: pane.clone(),
+            text: text.to_owned(),
+        };
+        rig.shell.handle_ipc(message)
+    }
+
+    fn registered() -> String {
+        let register = PaneFrame::Register {
+            type_id: chat_type().unwrap(),
+            sdk: protocol::SDK_VERSION,
+        };
+        encode(&register).unwrap()
+    }
 
     #[test]
     fn a_chat_takes_the_keyboard_again_when_the_window_is_activated() {
         let mut rig = shell_rig();
         let pane = synced_chat(&mut rig);
-        let register = PaneFrame::Register {
-            type_id: chat_type().unwrap(),
-            sdk: protocol::SDK_VERSION,
-        };
-        let text = encode(&register).unwrap();
-        rig.shell.handle_ipc(IpcMessage { pane, text });
-        let before = rig.mock.calls().len();
-        rig.shell.apply_keyboard();
-        let calls = rig.mock.calls();
-        let focused = calls[before..]
-            .iter()
-            .any(|call| matches!(call, Call::Focus { .. }));
-        assert!(focused, "{calls:?}");
+        assert!(crate::test_support::page_takes_keys(&mut rig, pane));
     }
 
     #[test]
     fn a_pointer_move_over_a_page_is_reported_with_the_pane_and_point() {
         let mut rig = shell_rig();
         let pane = synced_chat(&mut rig);
-        let text = r#"{"sdk":1,"kind":"shell.pointer","x":3.5,"y":120.0}"#.to_owned();
-        let outcome = rig.shell.handle_ipc(IpcMessage {
-            pane: pane.clone(),
-            text,
-        });
+        let text = r#"{"sdk":1,"kind":"shell.pointer","x":3.5,"y":120.0}"#;
+        let outcome = told(&mut rig, (&pane, text));
         assert_eq!(outcome.pointer, Some((pane, 3.5, 120.0)), "the latest move");
-    }
-
-    fn toasts_after(
-        rig: &mut crate::test_support::ShellRig,
-        pane: &PaneId,
-        text: &str,
-    ) -> Vec<PaneToastChange> {
-        let message = IpcMessage {
-            pane: pane.clone(),
-            text: text.to_owned(),
-        };
-        rig.shell.handle_ipc(message).toasts
     }
 
     #[test]
     fn a_pane_toast_and_its_close_reach_the_toast_host() {
         let mut rig = shell_rig();
         let pane = synced_chat(&mut rig);
-        let frames = [
+        let frame_cases = [
             r#"{"sdk":1,"kind":"shell.toast","key":"t1","tone":"error","title":"Save the file"}"#,
             r#"{"sdk":1,"kind":"shell.toastClose","key":"t1"}"#,
         ];
-        let toasts: Vec<PaneToastChange> = frames
-            .iter()
-            .flat_map(|text| toasts_after(&mut rig, &pane, text))
-            .collect();
+        let mut toasts = Vec::new();
+        for text in frame_cases {
+            toasts.extend(told(&mut rig, (&pane, text)).toasts);
+        }
         let key = protocol::DisplayText::new("t1").unwrap();
         let shown = protocol::PaneToast {
             key: key.clone(),
@@ -309,43 +302,27 @@ mod tests {
         assert!(navigated, "{calls:?}");
     }
 
-    fn stored_after_sending(draft: &str) -> (PaneState, Option<PaneState>) {
+    #[test]
+    fn pane_state_flows_into_the_layout() {
         let mut rig = shell_rig();
         let pane = synced_chat(&mut rig);
-        let state = PaneState::new(json!({ "draft": draft })).unwrap();
+        let state = PaneState::new(json!({ "draft": "hi" })).unwrap();
         let sent = PaneFrame::SetState {
             state: state.clone(),
         };
-        let text = encode(&sent).unwrap();
-        rig.shell.handle_ipc(IpcMessage {
-            pane: pane.clone(),
-            text,
-        });
+        told(&mut rig, (&pane, &encode(&sent).unwrap()));
         let stored = rig.shell.layout().pane(&pane).map(|p| p.state.clone());
-        (state, stored)
-    }
-
-    #[test]
-    fn pane_state_flows_into_the_layout() {
-        let cases = ["hi", "hello again"];
-        for draft in cases {
-            let (sent, stored) = stored_after_sending(draft);
-            assert_eq!(stored, Some(sent), "{draft}: the model owns the new state");
-        }
+        assert_eq!(stored, Some(state), "the model owns the new state");
     }
 
     #[test]
     fn a_page_title_is_kept_until_its_pane_closes() {
         let mut rig = shell_rig();
         let pane = synced_chat(&mut rig);
-        let text = encode(&PaneFrame::SetTitle {
+        let title = PaneFrame::SetTitle {
             title: PaneTitle::new("Fix the build").unwrap(),
-        })
-        .unwrap();
-        let outcome = rig.shell.handle_ipc(IpcMessage {
-            pane: pane.clone(),
-            text,
-        });
+        };
+        let outcome = told(&mut rig, (&pane, &encode(&title).unwrap()));
         assert!(outcome.titles_changed, "the tab strip must refresh");
         let kept = rig.shell.titles().get(&pane).map(|t| t.to_string());
         assert_eq!(kept.as_deref(), Some("Fix the build"), "kept");
@@ -358,20 +335,9 @@ mod tests {
     fn a_mounted_page_and_a_viewed_mark_reach_the_outcome_with_their_pane() {
         let mut rig = shell_rig();
         let pane = synced_chat(&mut rig);
-        let register = PaneFrame::Register {
-            type_id: chat_type().unwrap(),
-            sdk: protocol::SDK_VERSION,
-        };
-        let text = encode(&register).unwrap();
-        let mounted = rig.shell.handle_ipc(IpcMessage {
-            pane: pane.clone(),
-            text,
-        });
+        let mounted = told(&mut rig, (&pane, &registered()));
         let text = r#"{"sdk":1,"kind":"review.setViewed","files":[{"path":"a.ts","signature":"M||1|0"},{"path":"b.ts","signature":"A||2|0"}],"viewed":false}"#;
-        let marked = rig.shell.handle_ipc(IpcMessage {
-            pane: pane.clone(),
-            text: text.to_owned(),
-        });
+        let marked = told(&mut rig, (&pane, text));
         assert_eq!(mounted.mounted, std::slice::from_ref(&pane));
         let cleared = vec![("a.ts".to_owned(), None), ("b.ts".to_owned(), None)];
         assert_eq!(marked.viewed, [(pane, cleared)]);

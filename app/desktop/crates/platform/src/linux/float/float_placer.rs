@@ -184,40 +184,12 @@ mod tests {
     use std::num::NonZeroU32;
 
     use raw_window_handle::XcbWindowHandle;
-    use x11rb::COPY_DEPTH_FROM_PARENT;
     use x11rb::protocol::Event;
-    use x11rb::protocol::xproto::{ChangeWindowAttributesAux, CreateWindowAux, WindowClass};
+    use x11rb::protocol::xproto::ChangeWindowAttributesAux;
     use x11rb::wrapper::ConnectionExt as _;
 
     use super::*;
-
-    fn window_at(
-        connection: &RustConnection,
-        root: u32,
-        spot: (i16, i16, u16),
-    ) -> u32 {
-        let (x, y, side) = spot;
-        let window = connection.generate_id().unwrap();
-        let aux = CreateWindowAux::new().override_redirect(1);
-        connection
-            .create_window(
-                COPY_DEPTH_FROM_PARENT,
-                window,
-                root,
-                x,
-                y,
-                side,
-                side,
-                0,
-                WindowClass::INPUT_OUTPUT,
-                0,
-                &aux,
-            )
-            .unwrap();
-        connection.map_window(window).unwrap();
-        connection.flush().unwrap();
-        window
-    }
+    use crate::linux::test_support::{input_rectangles, mapped_in};
 
     fn raw(window: u32) -> RawWindowHandle {
         RawWindowHandle::Xcb(XcbWindowHandle::new(NonZeroU32::new(window).unwrap()))
@@ -227,8 +199,8 @@ mod tests {
         connection: &RustConnection,
         root: u32,
     ) {
-        let owner = window_at(connection, root, (30, 40, 200));
-        let float = window_at(connection, root, (0, 0, 10));
+        let owner = mapped_in(connection, root, (30, 40, 200, 200));
+        let float = mapped_in(connection, root, (0, 0, 10, 10));
         let placer = FloatPlacer::connect().unwrap();
         placer.cover(raw(float), raw(owner)).unwrap();
         placer.connection.sync().unwrap();
@@ -243,7 +215,7 @@ mod tests {
         connection: &RustConnection,
         root: u32,
     ) {
-        let float = window_at(connection, root, (0, 0, 100));
+        let float = mapped_in(connection, root, (0, 0, 100, 100));
         let placer = FloatPlacer::connect().unwrap();
         let hit = Card {
             x: 5,
@@ -254,32 +226,21 @@ mod tests {
         };
         placer.shape(raw(float), &[hit], &[hit]).unwrap();
         placer.connection.sync().unwrap();
-        let input = connection
-            .shape_get_rectangles(float, SK::INPUT)
-            .unwrap()
-            .reply()
-            .unwrap();
-        let rects: Vec<_> = input
-            .rectangles
-            .iter()
-            .map(|rect| (rect.x, rect.y, rect.width, rect.height))
-            .collect();
-        assert_eq!(rects, [(5, 6, 20, 10)]);
+        assert_eq!(input_rectangles(connection, float), [(5, 6, 20, 10)]);
         placer.shape(raw(float), &[], &[]).unwrap();
         placer.connection.sync().unwrap();
-        let input = connection
-            .shape_get_rectangles(float, SK::INPUT)
-            .unwrap()
-            .reply()
-            .unwrap();
-        assert!(input.rectangles.is_empty(), "nothing takes the pointer");
+        assert_eq!(
+            input_rectangles(connection, float),
+            [],
+            "nothing takes the pointer"
+        );
     }
 
     fn a_float_window_cut_away_whole_is_still_exposed_when_woken(
         connection: &RustConnection,
         root: u32,
     ) {
-        let float = window_at(connection, root, (0, 0, 100));
+        let float = mapped_in(connection, root, (0, 0, 100, 100));
         let listen = ChangeWindowAttributesAux::new().event_mask(EventMask::EXPOSURE);
         connection.change_window_attributes(float, &listen).unwrap();
         let placer = FloatPlacer::connect().unwrap();

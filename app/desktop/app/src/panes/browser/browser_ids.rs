@@ -42,43 +42,12 @@ fn is_browser(
 
 #[cfg(test)]
 mod tests {
-    use layout::{Command, PaneInstance, TabId};
-    use protocol::{PaneState, PaneTypeId, Params};
-
     use super::*;
-
-    fn open(
-        layout: &mut Layout,
-        pane: &str,
-        type_id: &str,
-    ) {
-        let instance = PaneInstance {
-            pane_id: PaneId::new(pane).unwrap(),
-            type_id: PaneTypeId::new(type_id).unwrap(),
-            params: Params::default(),
-            state: PaneState::default(),
-        };
-        layout
-            .apply(Command::OpenPane {
-                tab: TabId(1),
-                instance,
-                placement: None,
-            })
-            .unwrap();
-    }
+    use crate::test_support::{one_tab, pane};
 
     #[test]
     fn only_browser_panes_of_the_layout_are_listed() {
-        let mut layout = Layout::default();
-        layout
-            .apply(Command::AddTab {
-                id: TabId(1),
-                title: "t".into(),
-                space: layout::SpaceId::default(),
-            })
-            .unwrap();
-        open(&mut layout, "p1", "core.browser");
-        open(&mut layout, "p2", "core.chat");
+        let layout = one_tab([pane("p1", "core.browser"), pane("p2", "core.chat")]);
         let ids = BrowserIds::default();
         ids.follow(&layout);
         assert!(ids.contains(&PaneId::new("p1").unwrap()));

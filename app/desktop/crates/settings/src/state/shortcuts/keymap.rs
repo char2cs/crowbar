@@ -187,28 +187,6 @@ mod tests {
         assert_eq!(chord_of(&schema, &custom, "tabs.newTerminal"), None);
     }
 
-    fn sources_and_custom_detection() {
-        let schema = schema();
-        let group = first_group(&schema);
-        let custom = document(&[("tabs.new", "mod+n")]);
-        let keymap = Keymap::new(&schema, &custom);
-        let sources: Vec<ChordSource> = group
-            .shortcuts
-            .iter()
-            .map(|s| keymap.source(group, s))
-            .collect();
-        assert_eq!(
-            sources,
-            [
-                ChordSource::Custom,
-                ChordSource::Default,
-                ChordSource::Default
-            ]
-        );
-        assert!(keymap.has_custom());
-        assert!(!Keymap::new(&schema, &document(&[])).has_custom());
-    }
-
     fn a_preset_binds_between_the_override_and_the_default() {
         let group = ShortcutGroup::new("Tabs", "overrides")
             .preset_from("preset")
@@ -261,7 +239,6 @@ mod tests {
             "overrides win over defaults and empty means unbound",
             overrides_win_over_defaults_and_empty_means_unbound,
         ),
-        ("sources and custom detection", sources_and_custom_detection),
         (
             "a preset binds between the override and the default",
             a_preset_binds_between_the_override_and_the_default,

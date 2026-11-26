@@ -185,28 +185,22 @@ mod tests {
     }
 
     #[gpui::test]
-    fn typing_in_the_box_filters_the_files_and_escape_restores_them(cx: &mut TestAppContext) {
+    fn slash_opens_the_box_typing_filters_the_files_and_escape_restores_them(
+        cx: &mut TestAppContext
+    ) {
         let (_, sidebar, cx) = open(cx, DemoShell::reference());
         sidebar.update(cx, |this, cx| this.set_mode(Mode::Files, cx));
         cx.run_until_parked();
         let all = names(&sidebar, cx);
-        sidebar.update_in(cx, Sidebar::open_file_search);
+        sidebar.update_in(cx, |this, window, cx| window.focus(&this.files_focus, cx));
+        cx.simulate_keystrokes("/");
+        cx.run_until_parked();
+        assert!(sidebar.read_with(cx, |this, _| this.search.is_some()));
         cx.simulate_input("lib");
         cx.run_until_parked();
         assert_eq!(names(&sidebar, cx), ["src", "lib.rs"]);
         cx.simulate_keystrokes("escape");
         cx.run_until_parked();
         assert_eq!(names(&sidebar, cx), all);
-    }
-
-    #[gpui::test]
-    fn slash_in_the_files_panel_opens_the_box(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoShell::reference());
-        sidebar.update(cx, |this, cx| this.set_mode(Mode::Files, cx));
-        cx.run_until_parked();
-        sidebar.update_in(cx, |this, window, cx| window.focus(&this.files_focus, cx));
-        cx.simulate_keystrokes("/");
-        cx.run_until_parked();
-        assert!(sidebar.read_with(cx, |this, _| this.search.is_some()));
     }
 }

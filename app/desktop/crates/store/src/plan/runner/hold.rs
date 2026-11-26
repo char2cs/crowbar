@@ -43,42 +43,21 @@ pub(super) fn announce(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex, OnceLock, Weak};
-
     use daemonapi::Call;
 
     use super::*;
-    use crate::live::{ChangeSignal, Hub};
     use crate::plan::runner::run;
-    use crate::test_support::state;
+    use crate::test_support::{recorder, state, watched};
 
     const FOLDER: &str = "/w/app";
-
-    type Seen = Arc<Mutex<Vec<bool>>>;
-
-    fn watched_hub(state: State) -> (Arc<Hub>, Seen) {
-        let hub_of = Arc::new(OnceLock::<Weak<Hub>>::new());
-        let seen = Arc::new(Mutex::new(Vec::new()));
-        let (reader, heard) = (Arc::clone(&hub_of), Arc::clone(&seen));
-        let signal: ChangeSignal = Arc::new(move || {
-            let hub = reader.get().and_then(Weak::upgrade);
-            let adding = hub.map(|hub| hub.read(|state| state.adding.contains(FOLDER)));
-            heard.lock().unwrap().extend(adding);
-        });
-        let hub = Hub::new(state, signal);
-        hub_of.set(Arc::downgrade(&hub)).unwrap();
-        (hub, seen)
-    }
 
     #[tokio::test]
     async fn a_folder_is_adding_while_its_request_runs_and_announced_only_once_added() {
         let (state, daemon) = state();
         daemon.ok("POST", "/v0/projects", "{}");
         daemon.answer(("POST", "/v0/refused"), 500, r#"{"error":"no"}"#);
-        let (hub, seen) = watched_hub(state);
-        let outcomes = Arc::new(Mutex::new(Vec::new()));
-        let keep = Arc::clone(&outcomes);
-        let sink: OutcomeSink = Arc::new(move |outcome| keep.lock().unwrap().push(outcome));
+        let (hub, seen) = watched(state, |state| state.adding.contains(FOLDER));
+        let (sink, outcomes) = recorder();
         let plan = |path: &str| Plan::of("local", vec![Call::post(path)]).adding(FOLDER);
         run(&hub, plan("/v0/projects"), &sink).await;
         run(&hub, plan("/v0/refused"), &sink).await;

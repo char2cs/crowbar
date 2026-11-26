@@ -52,21 +52,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn each_event_has_its_name_level_and_message() {
+    fn an_unread_status_warns_naming_the_chat_and_the_cause() {
         let error = daemonapi::Error::Stream("reset".into());
-        let cases = [(
-            PanelLoaderEvent::StatusUnread {
-                chat: "c",
-                error: &error,
-            },
-            "panel_loader_status_unread",
-            Level::Warn,
-            format!("git status could not be read chat=\"c\" error={error}"),
-        )];
-        for (event, name, level, message) in cases {
-            assert_eq!(event.name(), name);
-            assert_eq!(event.level(), level);
-            assert_eq!(event.to_string(), message);
-        }
+        let event = PanelLoaderEvent::StatusUnread {
+            chat: "c",
+            error: &error,
+        };
+        let message = format!("git status could not be read chat=\"c\" error={error}");
+        let seen = (event.name(), event.level(), event.to_string());
+        assert_eq!(seen, ("panel_loader_status_unread", Level::Warn, message));
     }
 }

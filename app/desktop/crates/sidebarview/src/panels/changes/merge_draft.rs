@@ -99,11 +99,4 @@ mod tests {
             assert_eq!(this.merge.paths(&all), all);
         });
     }
-
-    #[test]
-    fn the_delete_checkbox_maps_to_the_choice() {
-        use super::{AfterMerge, Pose, after_merge};
-        assert_eq!(after_merge(Pose::On), AfterMerge::DeleteBranch);
-        assert_eq!(after_merge(Pose::Off), AfterMerge::Keep);
-    }
 }

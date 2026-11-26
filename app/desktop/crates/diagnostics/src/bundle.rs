@@ -181,10 +181,11 @@ mod tests {
     }
 
     #[test]
-    fn files_dumps_and_the_manifest_round_trip() {
+    fn files_dumps_and_the_manifest_round_trip_and_a_missing_directory_is_noted_not_fatal() {
         let files = Arc::new(InMemoryFiles::default().with("logs/crowbar.log", b"[INFO] hi\n"));
         let mut bundle = bundle_on(&files);
         bundle.add_directory("app", Path::new("logs"));
+        bundle.add_directory("extra", Path::new("none"));
         bundle.add_bytes("goroutine-dump.txt", b"goroutine 1".to_vec());
         bundle.add_file("daemon.log", Path::new("absent.log"));
         bundle.add_missing("heap-profile.txt", "timed out");
@@ -200,18 +201,9 @@ mod tests {
             "exported_epoch: 42",
             "daemon.log not included",
             "heap-profile.txt not included: timed out",
+            "extra not included",
         ] {
             assert!(meta.contains(part), "{part} missing from {meta}");
         }
-    }
-
-    #[test]
-    fn a_missing_directory_is_noted_not_fatal() {
-        let files = Arc::new(InMemoryFiles::default());
-        let mut bundle = bundle_on(&files);
-        bundle.add_directory("app", Path::new("none"));
-        let path = bundle.write(Path::new("out"), UNIX_EPOCH).unwrap();
-        let meta = read_entry(&files, &path, "meta.txt").unwrap();
-        assert!(meta.contains("app not included"));
     }
 }

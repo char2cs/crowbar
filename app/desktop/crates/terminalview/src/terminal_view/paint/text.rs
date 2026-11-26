@@ -115,7 +115,7 @@ mod tests {
     #[test]
     fn rows_stack_by_line_height() {
         let bounds = Bounds::new(point(px(0.0), px(10.0)), size(px(400.0), px(200.0)));
-        let layout = ViewLayout::new(bounds, (8.0, 16.0), 0.0);
+        let layout = ViewLayout::new(bounds, (8.0, 16.0));
         assert_eq!(row_top(&layout, 0), px(10.0));
         assert_eq!(row_top(&layout, 3), px(58.0));
     }

@@ -146,10 +146,10 @@ mod tests {
     use sidebar::{Activity, Nesting, Titling};
 
     use super::*;
-    use daemonapi::Frame;
 
     use crate::rows::forest::Tree;
     use crate::rows::look::UNTITLED_CHAT;
+    use crate::test_support::entity_frame;
 
     fn store() -> Entities {
         let mut store = Entities::default();
@@ -168,24 +168,9 @@ mod tests {
             ("folder", "f", json!({"id": "f", "name": "Stuff"})),
         ];
         for (kind, id, data) in rows {
-            put(&mut store, (kind, id), data);
+            store.apply(entity_frame(kind, id, data));
         }
         store
-    }
-
-    fn put(
-        store: &mut Entities,
-        (kind, id): (&str, &str),
-        data: serde_json::Value,
-    ) {
-        store.apply(Frame::Entity {
-            scope: "projects".into(),
-            kind: kind.into(),
-            id: id.into(),
-            v: 1,
-            data: Some(data),
-            gone: false,
-        });
     }
 
     fn node(
@@ -262,10 +247,8 @@ mod tests {
         let pending = [PendingRow {
             id: "c".into(),
             label: "New thread".into(),
-            scope: String::new(),
-            parent: String::new(),
             failure: Some("no provider".into()),
-            operation: None,
+            ..PendingRow::default()
         }];
         let emitter = Emitter {
             store: &store,

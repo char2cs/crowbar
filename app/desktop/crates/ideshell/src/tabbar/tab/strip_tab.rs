@@ -12,15 +12,14 @@ use ui::{ContextMenu, MenuItem, Palette, Placement, Surface, Theme, Tooltip, Too
 use crate::tabbar::look::tab_access::TabAccess;
 use crate::tabbar::look::tab_keep::TabKeep;
 use crate::tabbar::look::tab_look::TabLook;
+use crate::tabbar::tab::chat_tab::tab_glyph;
 use crate::tabbar::tab::close_button::CloseButton;
-use crate::tabbar::tab::marks::Marks;
 use crate::tabbar::tab::tab_end::TabEnd;
-use crate::tabbar::tab::tab_frame::{HEIGHT, group_of};
-use crate::tabbar::tab::tab_glyph::tab_glyph;
 use crate::tabbar::tab::tab_state::TabState;
 use crate::tabbar::tab::tab_trail::after_label;
 use crate::tabbar::tab_actions::{TabAction, TabActions};
 
+pub(crate) const HEIGHT: f32 = 32.0;
 const MAX_WIDTH: f32 = 200.0;
 const PAD_LEFT: f32 = 10.0;
 const PAD_RIGHT: f32 = 32.0;
@@ -73,10 +72,7 @@ impl StripTab {
             keep,
         } = self.actions;
         let dirty = self.look.dirty;
-        let marks = Marks {
-            unsaved: dirty && self.state == TabState::Active,
-            ringed: self.ringed,
-        };
+        let marks = (dirty && self.state == TabState::Active, self.ringed);
         let tab = framed(&name, self.state, marks, &theme)
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_click(choose(select, keep))
@@ -105,13 +101,13 @@ impl StripTab {
 fn framed(
     name: &str,
     state: TabState,
-    marks: Marks,
+    (unsaved, ringed): (bool, bool),
     theme: &Theme,
 ) -> Stateful<Div> {
     let palette = theme.palette(Surface::Window);
     frame(name, state, palette)
-        .when(marks.unsaved, |tab| tab.border_color(palette.primary()))
-        .when(marks.ringed, |tab| tab.shadow(ui::focus_ring(palette)))
+        .when(unsaved, |tab| tab.border_color(palette.primary()))
+        .when(ringed, |tab| tab.shadow(ui::focus_ring(palette)))
         .font_family(theme.ui_family())
 }
 
@@ -131,6 +127,10 @@ fn choose(
         action(window, cx);
         let _kept = (event.click_count() >= 2).then(|| keep(window, cx));
     }
+}
+
+pub(crate) fn group_of(name: &str) -> SharedString {
+    SharedString::from(format!("strip-tab-{name}"))
 }
 
 fn frame_selector(name: &str) -> impl FnOnce() -> String + use<> {
@@ -329,6 +329,9 @@ mod tests {
         assert_eq!(keeps.get(), 1, "kept once, on the second click");
     }
 
+    const DOT: &str = "strip-tab-dot";
+    const LOCK: &str = "strip-tab-lock";
+
     struct Shown {
         look: TabLook,
         state: TabState,
@@ -349,13 +352,6 @@ mod tests {
         }
     }
 
-    fn dot_shown(
-        cx: &mut TestAppContext,
-        shown: (TabLook, TabState),
-    ) -> bool {
-        shown_has(cx, shown, "strip-tab-dot")
-    }
-
     fn shown_has(
         cx: &mut TestAppContext,
         (look, state): (TabLook, TabState),
@@ -370,26 +366,22 @@ mod tests {
         cx.debug_bounds(selector).is_some()
     }
 
-    fn lock_shown(
-        cx: &mut TestAppContext,
-        look: TabLook,
-    ) -> bool {
-        shown_has(cx, (look, TabState::Active), "strip-tab-lock")
-    }
-
     #[gpui::test]
     fn only_an_unshown_tab_with_unsaved_work_carries_the_dot(cx: &mut TestAppContext) {
         let unsaved = TabLook::plain("File").unsaved();
         let saved = TabLook::plain("File");
         assert!(
-            dot_shown(cx, (unsaved.clone(), TabState::Idle)),
+            shown_has(cx, (unsaved.clone(), TabState::Idle), DOT),
             "unsaved and hidden"
         );
         assert!(
-            !dot_shown(cx, (unsaved, TabState::Active)),
+            !shown_has(cx, (unsaved, TabState::Active), DOT),
             "the shown one has the border"
         );
-        assert!(!dot_shown(cx, (saved, TabState::Idle)), "nothing to save");
+        assert!(
+            !shown_has(cx, (saved, TabState::Idle), DOT),
+            "nothing to save"
+        );
     }
 
     #[test]
@@ -412,7 +404,11 @@ mod tests {
     #[gpui::test]
     fn only_a_read_only_tab_carries_the_lock(cx: &mut TestAppContext) {
         let locked = TabLook::plain("File").read_only();
-        assert!(lock_shown(cx, locked), "locked branch");
-        assert!(!lock_shown(cx, TabLook::plain("File")), "writable");
+        assert!(
+            shown_has(cx, (locked, TabState::Active), LOCK),
+            "locked branch"
+        );
+        let writable = (TabLook::plain("File"), TabState::Active);
+        assert!(!shown_has(cx, writable, LOCK), "writable");
     }
 }

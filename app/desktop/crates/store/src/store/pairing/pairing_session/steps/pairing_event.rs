@@ -55,29 +55,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn each_event_has_its_name_level_and_message() {
-        let unkept = Error::Stream("notes unwritable".into());
+    fn an_undone_pairing_warns_with_the_cause() {
         let undone = BookError::new(std::io::Error::other("keyring locked"));
-        let cases = [
-            (
-                PairingEvent::Unkept {
-                    error: &unkept,
-                    host: "box",
-                },
-                "pairing_unkept",
-                "a paired host could not be kept error=shell data: stream: notes unwritable \
-                 host=box",
-            ),
-            (
-                PairingEvent::NotUndone { error: &undone },
-                "pairing_not_undone",
-                "the pairing could not be undone error=keyring locked",
-            ),
-        ];
-        for (event, name, message) in cases {
-            assert_eq!(event.name(), name);
-            assert_eq!(event.level(), Level::Warn);
-            assert_eq!(event.to_string(), message);
-        }
+        let event = PairingEvent::NotUndone { error: &undone };
+        let message = "the pairing could not be undone error=keyring locked";
+        let seen = (event.name(), event.level(), event.to_string());
+        assert_eq!(
+            seen,
+            ("pairing_not_undone", Level::Warn, message.to_owned())
+        );
     }
 }

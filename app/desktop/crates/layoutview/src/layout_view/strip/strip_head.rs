@@ -1,7 +1,5 @@
-use std::rc::Rc;
-
 use gpui::Context;
-use ideshell::{ChatTab, SplitToggle, TabAction, TabState};
+use ideshell::{ChatTab, SplitToggle, TabState};
 use layout::{Command, EditorView, PaneGroup, Presentation};
 use protocol::PaneId;
 
@@ -19,13 +17,10 @@ impl LayoutView {
             pane: anchor.clone(),
             view: view.flipped(),
         });
-        let emitter = cx.entity();
-        let on_toggle: TabAction =
-            Rc::new(move |_, cx| emitter.update(cx, |_, cx| cx.emit(flip.clone())));
         SplitToggle {
             key: anchor.as_str().to_owned().into(),
             view,
-            on_toggle,
+            on_toggle: Self::emitting(flip, cx),
         }
     }
 

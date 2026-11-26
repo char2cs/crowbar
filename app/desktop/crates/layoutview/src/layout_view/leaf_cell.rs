@@ -35,7 +35,7 @@ impl LayoutView {
         cx: &mut Context<'_, Self>,
     ) -> Option<AnyElement> {
         let pane = group.shown()?.clone();
-        let (now, motion) = (self.clock.now(), Motion::of(cx));
+        let (now, motion) = ((self.clock)(), Motion::of(cx));
         let frame = PaneFrame::new(rect, self.local(), self.chrome);
         let local = Rect {
             x: 0.0,
@@ -175,9 +175,10 @@ fn placed(
 
 #[cfg(test)]
 mod tests {
-    use crate::test_support::{layout_of, open, open_tab, pane_id};
     use gpui::TestAppContext;
     use layout::{Command, EditorView};
+
+    use crate::test_support::{layout_of, open, open_tab, pane_id};
 
     #[gpui::test]
     fn a_chat_and_its_active_editor_tab_render_side_by_side_under_one_tab_bar(
@@ -185,8 +186,7 @@ mod tests {
     ) {
         let mut layout = layout_of("a", &[]);
         open_tab(&mut layout, "t1");
-        let harness = open(cx, &layout);
-        let cx = harness.cx;
+        let cx = open(cx, &layout).cx;
         cx.run_until_parked();
         let chat = cx.debug_bounds("pane-part-a").expect("chat drawn");
         let editor = cx.debug_bounds("pane-part-t1").expect("editor drawn");
@@ -196,45 +196,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn an_open_editor_with_no_tab_draws_the_empty_editor_beside_the_chat(cx: &mut TestAppContext) {
-        let mut layout = layout_of("a", &[]);
-        let open_editor = Command::SetEditorView {
-            pane: pane_id("a"),
-            view: EditorView::Open,
-        };
-        layout.apply(open_editor).expect("open the editor");
-        let harness = open(cx, &layout);
-        let cx = harness.cx;
-        cx.run_until_parked();
-        let chat = cx.debug_bounds("pane-part-a").expect("chat drawn");
-        let empty = cx
-            .debug_bounds("pane-part-empty-a")
-            .expect("empty editor drawn");
-        assert!(
-            empty.left() > chat.right(),
-            "the empty editor beside the chat"
-        );
-    }
-
-    #[gpui::test]
-    fn the_editor_beside_the_chat_draws_a_seam_on_the_edge_facing_it(cx: &mut TestAppContext) {
-        let mut layout = layout_of("a", &[]);
-        let open_editor = Command::SetEditorView {
-            pane: pane_id("a"),
-            view: EditorView::Open,
-        };
-        layout.apply(open_editor).expect("open the editor");
-        let harness = open(cx, &layout);
-        let cx = harness.cx;
-        cx.run_until_parked();
-        let seam = cx.debug_bounds("pane-part-seam").unwrap_or_default();
-        let bar = cx.debug_bounds("pane-part-tab-bar").expect("the row");
-        assert_eq!(seam.size.width, gpui::px(1.0), "{seam:?}");
-        assert_eq!(seam.right(), bar.left(), "the seam leads the editor side");
-    }
-
-    #[gpui::test]
-    fn an_open_editor_with_no_tab_has_a_top_row_with_only_the_split_toggle(
+    fn an_open_editor_with_no_tab_draws_the_empty_editor_past_a_seam_under_only_the_toggle(
         cx: &mut TestAppContext
     ) {
         let mut layout = layout_of("a", &[]);
@@ -243,17 +205,21 @@ mod tests {
             view: EditorView::Open,
         };
         layout.apply(open_editor).expect("open the editor");
-        let harness = open(cx, &layout);
-        let cx = harness.cx;
+        let cx = open(cx, &layout).cx;
         cx.run_until_parked();
-        let bar = cx
-            .debug_bounds("pane-part-tab-bar")
-            .expect("the row is drawn");
+        let chat = cx.debug_bounds("pane-part-a").expect("chat drawn");
+        let empty = cx.debug_bounds("pane-part-empty-a").expect("empty editor");
+        let seam = cx.debug_bounds("pane-part-seam").unwrap_or_default();
+        let bar = cx.debug_bounds("pane-part-tab-bar").expect("the row");
         let toggle = cx.debug_bounds("row-button-split-a").expect("the toggle");
-        assert!(bar.contains(&toggle.center()), "the toggle sits in the row");
         assert!(
-            cx.debug_bounds("row-button-add-a").is_none(),
-            "no + without tabs"
+            empty.left() > chat.right(),
+            "the empty editor beside the chat"
         );
+        assert_eq!(seam.size.width, gpui::px(1.0), "{seam:?}");
+        assert_eq!(seam.right(), bar.left(), "the seam leads the editor side");
+        assert!(bar.contains(&toggle.center()), "the toggle sits in the row");
+        let add = cx.debug_bounds("row-button-add-a");
+        assert!(add.is_none(), "no + without tabs");
     }
 }

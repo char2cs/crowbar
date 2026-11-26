@@ -179,6 +179,7 @@ fn wheel_lock() -> AnyElement {
 mod tests {
     use super::*;
     use crate::test_support::blank::Blank;
+    use crate::test_support::drag::lift_a_row;
     use crate::test_support::prelude::*;
 
     #[gpui::test]
@@ -190,42 +191,12 @@ mod tests {
         assert_eq!(recorder.sent(), vec![Command::OpenRow(RowId::from("chat"))]);
     }
 
-    #[gpui::test]
-    fn selecting_a_space_makes_it_the_active_one(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoShell::rich());
-        let other = sidebar.read_with(cx, |this, _| {
-            let active = this.data.active_project();
-            this.data
-                .projects()
-                .into_iter()
-                .map(|project| project.id)
-                .find(|id| Some(id) != active.as_ref())
-        });
-        let other = other.expect("a second space");
-        sidebar.update(cx, |this, cx| {
-            this.send(Command::SelectProject(other.clone()), cx);
-        });
-        cx.run_until_parked();
-        assert_eq!(
-            sidebar.read_with(cx, |this, _| this.data.active_project()),
-            Some(other)
-        );
-    }
-
     type Setup = fn(&mut Sidebar, &mut Context<'_, Sidebar>);
 
     fn untouched(
         _: &mut Sidebar,
         _: &mut Context<'_, Sidebar>,
     ) {
-    }
-
-    fn lift_a_row(
-        this: &mut Sidebar,
-        cx: &mut Context<'_, Sidebar>,
-    ) {
-        let held = (RowId::from("working"), RowId::from("folder"));
-        this.preview_drag((held.0, held.1, sidebar::DropMode::Into), cx);
     }
 
     fn scrolled_by_the_wheel(
@@ -327,12 +298,5 @@ mod tests {
             (true, false),
             "(waiting for a host, its host down)"
         );
-    }
-
-    #[gpui::test]
-    fn the_loading_state_renders_a_skeleton_instead_of_rows(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoShell::loading());
-        cx.run_until_parked();
-        assert_eq!(sidebar.read_with(cx, |this, _| this.mode), Mode::Chats);
     }
 }

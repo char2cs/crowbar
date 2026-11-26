@@ -1,9 +1,9 @@
 //! Where a node sits among its siblings, as the daemon's `compareNodes` sorts them: order, then
 //! kind (folder, branch, chat, repo), then creation time, then id.
 
-use crate::rows::forest::created_key::created_key;
 use crate::rows::forest::{Item, ItemKind};
 
+const FRACTION_DIGITS: usize = 9;
 const FOLDER_RANK: u8 = 0;
 const BRANCH_RANK: u8 = 1;
 const CHAT_RANK: u8 = 2;
@@ -38,6 +38,13 @@ impl SiblingKey {
             id: id.to_owned(),
         }
     }
+}
+
+fn created_key(stamp: &str) -> String {
+    let (head, rest) = stamp.split_once('.').unwrap_or((stamp, ""));
+    let head = head.trim_end_matches('Z');
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    format!("{head}.{digits:0<FRACTION_DIGITS$}")
 }
 
 fn rank_of(kind: ItemKind) -> u8 {
@@ -83,5 +90,17 @@ mod tests {
         ];
         keys.sort();
         assert_eq!(keys, [folder, chat, tie, repo, later]);
+    }
+
+    #[test]
+    fn stamps_of_different_precision_compare_by_instant() {
+        let earlier = created_key("2026-11-15T02:13:33.05Z");
+        let later = created_key("2026-11-15T02:13:33.050047789Z");
+        assert!(earlier < later);
+        assert_eq!(
+            created_key("2026-11-15T02:13:33Z"),
+            created_key("2026-11-15T02:13:33.0Z")
+        );
+        assert_eq!(created_key(""), ".000000000");
     }
 }

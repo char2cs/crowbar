@@ -3,11 +3,11 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use gpui::{Entity, TestAppContext, VisualTestContext, point, px};
+use async_channel::{Receiver, Sender};
+use gpui::{Entity, Focusable, TestAppContext, VisualTestContext, point, px};
 use terminal::{ClientMessage, DaemonFrame};
 
 use crate::daemon::Link;
-use crate::daemon::Peer;
 use crate::settings::Settings;
 use crate::terminal_view::TerminalView;
 
@@ -16,7 +16,8 @@ const HALF_CELL: f32 = 0.5;
 
 pub(crate) struct Harness {
     pub(crate) view: Entity<TerminalView>,
-    pub(crate) peer: Peer,
+    pub(crate) frames: Sender<DaemonFrame>,
+    pub(crate) messages: Receiver<ClientMessage>,
 }
 
 pub(crate) fn open(cx: &mut TestAppContext) -> (Harness, &mut VisualTestContext) {
@@ -26,7 +27,13 @@ pub(crate) fn open(cx: &mut TestAppContext) -> (Harness, &mut VisualTestContext)
         cx.add_window_view(|window, cx| TerminalView::new(link, Settings::default(), window, cx));
     cx.update(|window, _| window.activate_window());
     draw(cx);
-    (Harness { view, peer }, cx)
+    let (frames, messages) = peer.into_channels();
+    let harness = Harness {
+        view,
+        frames,
+        messages,
+    };
+    (harness, cx)
 }
 
 pub(crate) fn draw(cx: &mut VisualTestContext) {
@@ -40,14 +47,21 @@ pub(crate) fn feed(
     cx: &mut VisualTestContext,
     text: &str,
 ) {
-    harness
-        .peer
-        .deliver_blocking(DaemonFrame::Output(text.as_bytes().to_vec()));
+    deliver(harness, DaemonFrame::Output(text.as_bytes().to_vec()));
     draw(cx);
 }
 
+pub(crate) fn deliver(
+    harness: &Harness,
+    frame: DaemonFrame,
+) {
+    if let Err(error) = harness.frames.send_blocking(frame) {
+        panic!("the view is gone: {error}");
+    }
+}
+
 pub(crate) fn sent(harness: &Harness) -> Vec<ClientMessage> {
-    std::iter::from_fn(|| harness.peer.try_next_message()).collect()
+    std::iter::from_fn(|| harness.messages.try_recv().ok()).collect()
 }
 
 pub(crate) fn typed(harness: &Harness) -> String {
@@ -96,7 +110,7 @@ pub(crate) fn focus(
     harness: &Harness,
     cx: &mut VisualTestContext,
 ) {
-    cx.update(|window, cx| harness.view.update(cx, |view, cx| view.focus(window, cx)));
+    cx.update(|window, cx| window.focus(&harness.view.focus_handle(cx), cx));
     draw(cx);
 }
 

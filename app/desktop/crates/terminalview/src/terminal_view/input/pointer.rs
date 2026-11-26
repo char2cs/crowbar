@@ -151,43 +151,33 @@ mod tests {
     const MULTI_CLICK_WINDOW: Duration = Duration::from_millis(500);
 
     #[gpui::test]
-    fn a_modifier_click_on_a_url_asks_the_host_to_open_it(cx: &mut TestAppContext) {
-        let (harness, cx) = open(cx);
-        feed(&harness, cx, "see https://x.dev/a now");
-        let events = record_events::<TerminalView, Event>(cx, &harness.view);
-        let position = cell_position(&harness, cx, 8);
+    fn a_modifier_click_on_a_link_asks_the_host_to_open_it_as_printed(cx: &mut TestAppContext) {
+        let cases = [
+            ("see https://x.dev/a now", 8, "url https://x.dev/a"),
+            ("at src/pricing.ts:3 now", 5, "file src/pricing.ts Some(3)"),
+        ];
         let modifiers = Modifiers {
             control: true,
             platform: true,
             ..Modifiers::default()
         };
-        cx.simulate_event(press(position, modifiers));
-        let opened = events
-            .borrow()
-            .iter()
-            .any(|event| matches!(event, Event::OpenUrl { url, .. } if url == "https://x.dev/a"));
-        assert!(opened, "{:?}", events.borrow());
+        let (harness, cx) = open(cx);
+        for (output, column, expected) in cases {
+            feed(&harness, cx, &format!("\x1b[2J\x1b[H{output}"));
+            let events = record_events::<TerminalView, Event>(cx, &harness.view);
+            let position = cell_position(&harness, cx, column);
+            cx.simulate_event(press(position, modifiers));
+            let opened: Vec<String> = events.borrow().iter().filter_map(opened).collect();
+            assert_eq!(opened, [expected], "{output}");
+        }
     }
 
-    #[gpui::test]
-    fn a_modifier_click_on_a_relative_path_hands_it_to_the_host_as_printed(
-        cx: &mut TestAppContext
-    ) {
-        let (harness, cx) = open(cx);
-        feed(&harness, cx, "at src/pricing.ts:3 now");
-        let events = record_events::<TerminalView, Event>(cx, &harness.view);
-        let position = cell_position(&harness, cx, 5);
-        let modifiers = Modifiers {
-            control: true,
-            platform: true,
-            ..Modifiers::default()
-        };
-        cx.simulate_event(press(position, modifiers));
-        let expected = Event::OpenFile {
-            path: "src/pricing.ts".into(),
-            line: Some(3),
-        };
-        assert_eq!(events.borrow().as_slice(), [expected]);
+    fn opened(event: &Event) -> Option<String> {
+        match event {
+            Event::OpenUrl { url, .. } => Some(format!("url {url}")),
+            Event::OpenFile { path, line } => Some(format!("file {path} {line:?}")),
+            _ => None,
+        }
     }
 
     #[gpui::test]
@@ -205,7 +195,7 @@ mod tests {
             cx.simulate_event(press(position, Modifiers::default()));
             cx.executor().advance_clock(gap);
             cx.simulate_event(press(position, Modifiers::default()));
-            let selected = harness.view.read_with(cx, |view, _| view.selected_text());
+            let selected = harness.view.read_with(cx, |view, _| view.terminal.selected_text());
             assert_eq!(
                 selected.is_some_and(|text| text.starts_with("hello")),
                 selects_word,

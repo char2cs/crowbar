@@ -238,6 +238,7 @@ mod tests {
             cx.update(|_, cx| cx.subscribe(&sidebar, move |_, _: &Event, _| bump(&seen)));
         sidebar.update(cx, |this, cx| this.dock_to(DockSide::Right, cx));
         assert_eq!(events.get(), 1);
+        cx.run_until_parked();
         assert_eq!(
             sidebar.read_with(cx, |this, _| this.preferences().side),
             DockSide::Right

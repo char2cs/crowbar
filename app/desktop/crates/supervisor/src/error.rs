@@ -119,40 +119,31 @@ mod tests {
         std::io::Error::from_raw_os_error(errno.raw_os_error())
     }
 
+    fn dial(source: std::io::Error) -> Error {
+        Error::Dial { source }
+    }
+
     #[test]
     fn running_out_of_descriptors_is_recognised_wherever_it_sits_in_the_chain() {
-        let direct = Error::Dial {
-            source: os(Errno::MFILE),
-        };
-        let system_wide = Error::Dial {
-            source: os(Errno::NFILE),
-        };
         let nested = Error::Exchange {
             target: "/v0/health".into(),
             source: Box::new(os(Errno::MFILE)),
         };
-        for error in [direct, system_wide, nested] {
-            assert!(error.is_descriptor_exhaustion(), "{error:?}");
-        }
-    }
-
-    #[test]
-    fn other_failures_are_not_descriptor_exhaustion() {
+        let status = Error::Status {
+            target: "/x".into(),
+            status: 503,
+        };
         let cases = [
-            Error::Dial {
-                source: os(Errno::CONNREFUSED),
-            },
-            Error::Dial {
-                source: std::io::Error::from(ErrorKind::NotFound),
-            },
-            Error::Status {
-                target: "/x".into(),
-                status: 503,
-            },
-            Error::GaveUp(3),
+            (dial(os(Errno::MFILE)), true),
+            (dial(os(Errno::NFILE)), true),
+            (nested, true),
+            (dial(os(Errno::CONNREFUSED)), false),
+            (dial(std::io::Error::from(ErrorKind::NotFound)), false),
+            (status, false),
+            (Error::GaveUp(3), false),
         ];
-        for error in cases {
-            assert!(!error.is_descriptor_exhaustion(), "{error:?}");
+        for (error, exhausted) in cases {
+            assert_eq!(error.is_descriptor_exhaustion(), exhausted, "{error:?}");
         }
     }
 }

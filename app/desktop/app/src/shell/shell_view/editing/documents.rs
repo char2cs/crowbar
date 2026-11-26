@@ -180,26 +180,11 @@ mod tests {
 
     use super::*;
     use crate::panes::kinds::pane_spec::PaneSpec;
-    use crate::shell::shell_view::tests::{Opened, PLACED, open_started_shell};
+    use crate::shell::shell_view::test_support::{open_file, settled_notice_count};
+    use crate::shell::shell_view::tests::{Opened, PLACED, open_started_shell, views_set};
 
     const PATH: &str = "src/pricing.ts";
     const README: &str = "README.md";
-
-    fn opened_file(opened: &mut Opened) -> PaneId {
-        opened.shell.update(&mut opened.window, |shell, cx| {
-            shell.open_workspace_file(PATH, cx);
-            let focused = shell.state.showing().and_then(layout::Tab::focused);
-            focused.cloned().expect("the file pane has focus")
-        })
-    }
-
-    fn toasts(opened: &mut Opened) -> usize {
-        opened.window.executor().advance_clock(ui::timing::SLOW);
-        opened.window.run_until_parked();
-        opened
-            .shell
-            .update(&mut opened.window, |shell, cx| shell.notices.read(cx).len())
-    }
 
     fn pane_state(
         opened: &mut Opened,
@@ -231,28 +216,12 @@ mod tests {
         let cases = [(Ok("a".to_owned()), Some(kept), 0), (Err(refused), None, 1)];
         for (read, expected, said) in cases {
             let mut opened = open_started_shell(cx);
-            let pane = opened_file(&mut opened);
-            let before = toasts(&mut opened);
+            let pane = open_file(&mut opened, PATH);
+            let before = settled_notice_count(&mut opened);
             land(&mut opened, &pane, read);
-            assert_eq!(toasts(&mut opened) - before, said, "toasts");
+            assert_eq!(settled_notice_count(&mut opened) - before, said, "toasts");
             assert_eq!(pane_state(&mut opened, &pane), expected);
         }
-    }
-
-    fn shows(call: &webview::Call) -> bool {
-        let webview::Call::SetVisibility { visibility, .. } = call else {
-            return false;
-        };
-        *visibility == webview::Visibility::Shown
-    }
-
-    fn shown_pages(opened: &Opened) -> usize {
-        opened
-            .mock
-            .calls()
-            .iter()
-            .filter(|call| shows(call))
-            .count()
     }
 
     fn restored_readme(opened: &mut Opened) -> PaneId {
@@ -277,8 +246,11 @@ mod tests {
         opened.shell.update(&mut opened.window, |shell, cx| {
             shell.retry_document(&pane, cx);
         });
-        let before = shown_pages(&opened);
+        let before = views_set(&opened.mock, webview::Visibility::Shown);
         land(&mut opened, &pane, Ok("# Title\n".to_owned()));
-        assert!(shown_pages(&opened) > before, "the rich page is shown");
+        assert!(
+            views_set(&opened.mock, webview::Visibility::Shown) > before,
+            "the rich page is shown"
+        );
     }
 }

@@ -139,114 +139,56 @@ mod tests {
     use super::*;
     use crate::input::geometry::ViewPoint;
 
-    fn event(
-        button: MouseButton,
-        action: MouseAction,
-        modifiers: Modifiers,
-    ) -> MouseEvent {
-        MouseEvent {
+    use MouseAction::{Drag, Move, Press, Release};
+    use MouseButton::{Left, None as NoButton, Right, WheelUp};
+    use MouseEncoding::{Legacy, Sgr, Utf8};
+    use MouseTracking::{Click, Drag as Dragging, Motion, Off};
+
+    const FAR: usize = 300;
+
+    type Case = (
+        MouseButton,
+        MouseAction,
+        Modifiers,
+        usize,
+        MouseTracking,
+        MouseEncoding,
+    );
+
+    fn report(case: Case) -> Option<Vec<u8>> {
+        let (button, action, modifiers, column, tracking, encoding) = case;
+        let point = ViewPoint { row: 4, column };
+        let event = MouseEvent {
             button,
             action,
-            point: ViewPoint { row: 4, column: 9 },
+            point,
             modifiers,
-        }
-    }
-
-    type Reported = (MouseEvent, MouseTracking, MouseEncoding, Vec<u8>);
-    type Ignored = (MouseEvent, MouseTracking, MouseEncoding);
-
-    fn press(button: MouseButton) -> MouseEvent {
-        event(button, MouseAction::Press, Modifiers::NONE)
-    }
-
-    fn action(action: MouseAction) -> MouseEvent {
-        event(MouseButton::Left, action, Modifiers::NONE)
-    }
-
-    fn wide() -> MouseEvent {
-        let mut far = press(MouseButton::Left);
-        far.point.column = 300;
-        far
-    }
-
-    fn reported() -> Vec<Reported> {
-        let ctrl_release = event(MouseButton::Right, MouseAction::Release, Modifiers::CONTROL);
-        let (click, drag) = (MouseTracking::Click, MouseTracking::Drag);
-        let (sgr, legacy) = (MouseEncoding::Sgr, MouseEncoding::Legacy);
-        vec![
-            (
-                press(MouseButton::Left),
-                click,
-                sgr,
-                b"\x1b[<0;10;5M".to_vec(),
-            ),
-            (
-                action(MouseAction::Release),
-                click,
-                sgr,
-                b"\x1b[<0;10;5m".to_vec(),
-            ),
-            (
-                ctrl_release,
-                click,
-                legacy,
-                vec![0x1b, b'[', b'M', 51, 42, 37],
-            ),
-            (
-                action(MouseAction::Drag),
-                drag,
-                sgr,
-                b"\x1b[<32;10;5M".to_vec(),
-            ),
-        ]
-    }
-
-    fn reported_motion() -> Vec<Reported> {
-        let hover = event(MouseButton::None, MouseAction::Move, Modifiers::NONE);
-        let (click, motion, sgr) = (
-            MouseTracking::Click,
-            MouseTracking::Motion,
-            MouseEncoding::Sgr,
-        );
-        vec![
-            (hover, motion, sgr, b"\x1b[<35;10;5M".to_vec()),
-            (
-                press(MouseButton::WheelUp),
-                click,
-                sgr,
-                b"\x1b[<64;10;5M".to_vec(),
-            ),
-        ]
-    }
-
-    fn ignored() -> Vec<Ignored> {
-        let hover = event(MouseButton::None, MouseAction::Move, Modifiers::NONE);
-        let (sgr, legacy) = (MouseEncoding::Sgr, MouseEncoding::Legacy);
-        vec![
-            (action(MouseAction::Drag), MouseTracking::Click, sgr),
-            (hover, MouseTracking::Drag, sgr),
-            (press(MouseButton::WheelUp), MouseTracking::Off, sgr),
-            (wide(), MouseTracking::Click, legacy),
-        ]
+        };
+        encode_mouse(&event, tracking, encoding)
     }
 
     #[test]
     fn reports_follow_encoding_and_tracking_mode() {
-        for (event, tracking, encoding, expected) in reported().into_iter().chain(reported_motion())
-        {
-            assert_eq!(
-                encode_mouse(&event, tracking, encoding),
-                Some(expected),
-                "{event:?}"
-            );
+        let no = Modifiers::NONE;
+        let cases = [
+            ((Left, Press, no, 9, Click, Sgr), Some("\x1b[<0;10;5M")),
+            ((Left, Release, no, 9, Click, Sgr), Some("\x1b[<0;10;5m")),
+            (
+                (Right, Release, Modifiers::CONTROL, 9, Click, Legacy),
+                Some("\x1b[M3*%"),
+            ),
+            ((Left, Drag, no, 9, Dragging, Sgr), Some("\x1b[<32;10;5M")),
+            ((NoButton, Move, no, 9, Motion, Sgr), Some("\x1b[<35;10;5M")),
+            ((WheelUp, Press, no, 9, Click, Sgr), Some("\x1b[<64;10;5M")),
+            ((Left, Drag, no, 9, Click, Sgr), None),
+            ((NoButton, Move, no, 9, Dragging, Sgr), None),
+            ((WheelUp, Press, no, 9, Off, Sgr), None),
+            ((Left, Press, no, FAR, Click, Legacy), None),
+            ((Left, Press, no, FAR, Click, Utf8), Some("\x1b[M \u{14d}%")),
+        ];
+        for (case, expected) in cases {
+            let wanted = expected.map(|text| text.as_bytes().to_vec());
+            assert_eq!(report(case), wanted, "{case:?}");
         }
-        for (event, tracking, encoding) in ignored() {
-            assert_eq!(encode_mouse(&event, tracking, encoding), None, "{event:?}");
-        }
-    }
-
-    #[test]
-    fn utf8_encoding_reaches_far_cells() {
-        assert!(encode_mouse(&wide(), MouseTracking::Click, MouseEncoding::Utf8).is_some());
     }
 }

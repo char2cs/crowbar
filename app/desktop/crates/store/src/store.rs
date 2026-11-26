@@ -212,34 +212,20 @@ impl Drop for Store {
 
 #[cfg(test)]
 mod tests {
-    use daemonapi::Dial;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
     use protocol::DaemonTransport;
     use sidebar::{
         ActiveSpace as _, Command, ProjectId, RowId, ScopeSync, Sink as _, SpaceList as _,
     };
-    use tokio::sync::{Notify, mpsc};
+    use tokio::sync::Notify;
 
     use super::*;
-    use daemonapi::{Connection, Opening};
 
     use crate::live::Outcome;
-    use crate::test_support::{FakeDaemon, frames};
-
-    fn refused_when_used(taken: Option<Connection>) -> daemonapi::Result<Connection> {
-        taken.ok_or_else(|| daemonapi::Error::Stream("used".into()))
-    }
-
-    /// One connection, taken on the first dial.
-    struct Once(Mutex<Option<Connection>>);
-
-    impl Dial for Once {
-        fn open(&self) -> Opening<'_> {
-            let taken = self.0.lock().ok().and_then(|mut slot| slot.take());
-            Box::pin(std::future::ready(refused_when_used(taken)))
-        }
-    }
+    use crate::test_support::{
+        AsyncCase, FakeDaemon, Peer, Script, Told, frames, pair, recorder, run_cases,
+    };
 
     fn entity_texts() -> Vec<String> {
         frames()
@@ -254,14 +240,11 @@ mod tests {
         .collect()
     }
 
-    type Opened = Arc<Mutex<Vec<Outcome>>>;
-
     struct Rig {
         data: Store,
-        frames_in: mpsc::Sender<String>,
-        requests: mpsc::UnboundedReceiver<String>,
+        peer: Peer,
         changed: Arc<Notify>,
-        opened: Opened,
+        opened: Told,
         daemon: Arc<FakeDaemon>,
     }
 
@@ -274,30 +257,29 @@ mod tests {
         );
         daemon.ok("POST", "/v0/projects/p/home/chats", "{}");
         let transport: Arc<dyn DaemonTransport> = Arc::<FakeDaemon>::clone(&daemon);
-        let (frames_in, incoming) = mpsc::channel(64);
-        let (outgoing, requests) = mpsc::unbounded_channel();
+        let (connection, peer) = pair();
         let changed = Arc::new(Notify::new());
         let wake = Arc::clone(&changed);
-        let opened = Opened::default();
-        let keep = Arc::clone(&opened);
+        let (outcome, opened) = recorder();
         let spec = HostSpec {
             id: "local".into(),
             name: "This computer".into(),
             endpoint: None,
         };
-        let dial: Arc<dyn Dial> =
-            Arc::new(Once(Mutex::new(Some(Connection { incoming, outgoing }))));
-        let desk = crate::test_support::desk();
         let wiring = Ports {
-            desk,
+            desk: crate::test_support::desk(),
             signal: Arc::new(move || wake.notify_one()),
-            outcome: Arc::new(move |outcome| keep.lock().unwrap().push(outcome)),
+            outcome,
         };
-        let data = Store::start_with(&Handle::current(), &transport, vec![(spec, dial)], wiring);
+        let data = Store::start_with(
+            &Handle::current(),
+            &transport,
+            vec![(spec, Script::of(vec![connection]))],
+            wiring,
+        );
         Rig {
             data,
-            frames_in,
-            requests,
+            peer,
             changed,
             opened,
             daemon,
@@ -306,16 +288,8 @@ mod tests {
 
     impl Rig {
         async fn hear_the_space(&mut self) {
-            self.frames_in
-                .send(r#"{"t":"ready","epoch":"e"}"#.to_owned())
-                .await
-                .unwrap();
-            self.requests.recv().await.unwrap();
-            send_entities(&self.frames_in).await;
-            self.frames_in
-                .send(r#"{"t":"synced","scope":"projects","unread":[]}"#.into())
-                .await
-                .unwrap();
+            self.peer.ready().await;
+            self.peer.snapshot(&entity_texts()).await;
             until_ready(&self.data, &self.changed).await;
         }
 
@@ -328,7 +302,7 @@ mod tests {
         }
 
         async fn next_request(&mut self) -> Option<String> {
-            let asked = tokio::time::timeout(STUCK, self.requests.recv()).await;
+            let asked = tokio::time::timeout(STUCK, self.peer.requests.recv()).await;
             asked.ok().flatten()
         }
 
@@ -336,7 +310,7 @@ mod tests {
             &self,
             frame: &str,
         ) {
-            self.frames_in.send(frame.to_owned()).await.unwrap();
+            self.peer.frames.send(frame.to_owned()).await.unwrap();
         }
     }
 
@@ -347,12 +321,6 @@ mod tests {
     ) {
         while !hub.read(&ready) {
             changed.notified().await;
-        }
-    }
-
-    async fn send_entities(frames_in: &mpsc::Sender<String>) {
-        for text in entity_texts() {
-            frames_in.send(text).await.unwrap();
         }
     }
 
@@ -367,7 +335,7 @@ mod tests {
     }
 
     async fn until_opened(
-        opened: &Opened,
+        opened: &Told,
         changed: &Notify,
     ) {
         while opened.lock().unwrap().is_empty() {
@@ -391,7 +359,7 @@ mod tests {
         );
     }
 
-    async fn commands_reach_the_daemon_and_the_shells_own_are_refused() {
+    async fn commands_reach_the_daemon_and_the_shells_own_are_not_served_here() {
         let mut rig = start();
         rig.hear_the_space().await;
         let commands = rig.data.commands();
@@ -403,42 +371,22 @@ mod tests {
             rig.opened.lock().unwrap()[0],
             Outcome::OpenChat(_)
         ));
-        assert!(
-            commands
-                .dispatch(Command::Lock(RowId::from("ghost")))
-                .is_err()
-        );
-        assert!(commands.dispatch(Command::ImportRepo).is_err());
-    }
-
-    fn the_shells_own_commands_are_not_served_here() {
-        assert!(!Store::serves(&Command::OpenSettings));
-        assert!(!Store::serves(&Command::OpenRow(RowId::from("x"))));
-        assert!(!Store::serves(&Command::SetFileTreeFlag {
-            flag: sidebar::FileTreeFlag::Hidden,
-            on: false,
-        }));
+        let own = [
+            Command::OpenSettings,
+            Command::OpenRow(RowId::from("x")),
+            Command::SetFileTreeFlag {
+                flag: sidebar::FileTreeFlag::Hidden,
+                on: false,
+            },
+        ];
+        assert!(own.iter().all(|command| !Store::serves(command)));
         assert!(Store::serves(&Command::NewThread(ProjectId::from("p"))));
     }
 
-    type Case = fn() -> std::pin::Pin<Box<dyn Future<Output = ()>>>;
-
-    fn the_shells_own_as_a_case() -> std::pin::Pin<Box<dyn Future<Output = ()>>> {
-        the_shells_own_commands_are_not_served_here();
-        Box::pin(std::future::ready(()))
-    }
-
-    const CASES: [Case; 3] = [
+    const CASES: [AsyncCase; 2] = [
         || Box::pin(entities_from_the_stream_reach_the_sidebar()),
-        || Box::pin(commands_reach_the_daemon_and_the_shells_own_are_refused()),
-        the_shells_own_as_a_case,
+        || Box::pin(commands_reach_the_daemon_and_the_shells_own_are_not_served_here()),
     ];
-
-    async fn run_all() {
-        for case in CASES {
-            case().await;
-        }
-    }
 
     const ONE_FILE: &str = r#"[{"name":"a.txt","path":"a.txt","type":"file"}]"#;
     const TWO_FILES: &str = r#"[{"name":"a.txt","path":"a.txt","type":"file"},{"name":"b.txt","path":"b.txt","type":"file"}]"#;
@@ -495,6 +443,6 @@ mod tests {
 
     #[tokio::test]
     async fn every_gateway_call_reaches_its_layer() {
-        run_all().await;
+        run_cases(&CASES).await;
     }
 }

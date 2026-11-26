@@ -30,16 +30,10 @@ mod tests {
     fn keeps_the_first_error_and_ignores_successes() {
         let mut failures = Failures::default();
         failures.note(Ok(()));
+        assert!(failures.first.is_none(), "no failure yet");
         failures.note(Err(Error::NotShown(protocol::PaneId::new("a").unwrap())));
         failures.note(Err(Error::NotShown(protocol::PaneId::new("b").unwrap())));
-        assert_eq!(
-            failures.into_first().unwrap().to_string(),
-            "pane a is not shown"
-        );
-    }
-
-    #[test]
-    fn no_failures_means_no_error() {
-        assert!(Failures::default().into_first().is_none());
+        let first = failures.into_first().map(|error| error.to_string());
+        assert_eq!(first.as_deref(), Some("pane a is not shown"));
     }
 }

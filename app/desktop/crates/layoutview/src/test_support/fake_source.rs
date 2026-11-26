@@ -1,5 +1,3 @@
-use std::cell::Cell;
-
 use gpui::{
     AnyElement, App, InteractiveElement as _, IntoElement, SharedString, Styled as _, Window, div,
     px,
@@ -14,7 +12,6 @@ use crate::host::pane_detach::PaneDetach;
 use ideshell::{TabLook, TabLooks};
 
 pub(crate) struct FakeSource {
-    next: Cell<u64>,
     native: Vec<PaneId>,
     chrome: Vec<(PaneId, f32)>,
     looks: Vec<(PaneId, TabLook)>,
@@ -30,7 +27,6 @@ pub(crate) const PREVIEW_HEIGHT: f32 = 32.0;
 impl FakeSource {
     pub(crate) fn starting_at_first_tab() -> Self {
         Self {
-            next: Cell::new(FIRST_TAB),
             native: Vec::new(),
             chrome: Vec::new(),
             looks: Vec::new(),
@@ -163,8 +159,6 @@ impl PaneDetach for FakeSource {
         &self,
         _pane: &PaneId,
     ) -> (TabId, String) {
-        let id = self.next.get();
-        self.next.set(id + 1);
-        (TabId(id), "Detached".into())
+        (TabId(FIRST_TAB), "Detached".into())
     }
 }

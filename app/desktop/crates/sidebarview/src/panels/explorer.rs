@@ -246,14 +246,6 @@ mod tests {
     use crate::sidebar::Sidebar;
     use crate::test_support::prelude::*;
 
-    #[gpui::test]
-    fn the_files_panel_renders_the_workspace_files(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoShell::reference());
-        sidebar.update(cx, |this, cx| this.set_mode(Mode::Files, cx));
-        cx.run_until_parked();
-        assert!(!sidebar.read_with(cx, |this, _| this.data.files().is_empty()));
-    }
-
     #[test]
     fn an_empty_panel_says_whether_a_folder_is_open_loading_or_empty() {
         let said = [
@@ -300,16 +292,15 @@ mod tests {
     }
 
     #[gpui::test]
-    fn choosing_new_file_from_the_menu_leaves_the_input_focused(cx: &mut TestAppContext) {
+    fn new_file_in_the_root_menu_under_the_rows_opens_a_focused_input(cx: &mut TestAppContext) {
         let (_, sidebar, cx) = open(cx, DemoShell::reference());
         sidebar.update(cx, |this, cx| this.set_mode(Mode::Files, cx));
         cx.run_until_parked();
-        let mut step = 0_u8;
-        while !started(&sidebar, cx) && step < 100 {
-            choose_first_item_at(4.0 + 6.0 * f32::from(step), cx);
-            step += 1;
-        }
-        assert!(started(&sidebar, cx), "no Files row opened an inline input");
+        choose_first_item_at(FAR_BELOW_THE_ROWS, cx);
+        assert!(
+            started(&sidebar, cx),
+            "the root menu's New File opened no input"
+        );
         cx.run_until_parked();
         assert!(input_is_focused(&sidebar, cx));
     }
@@ -436,17 +427,5 @@ mod tests {
             this.tree.files().selected().map(str::to_owned)
         });
         assert_eq!(selected, None);
-    }
-
-    #[gpui::test]
-    fn the_empty_space_at_the_foot_of_the_panel_opens_the_root_menu(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoShell::reference());
-        sidebar.update(cx, |this, cx| this.set_mode(Mode::Files, cx));
-        cx.run_until_parked();
-        choose_first_item_at(FAR_BELOW_THE_ROWS, cx);
-        assert!(
-            started(&sidebar, cx),
-            "the root menu's New File opened no input"
-        );
     }
 }

@@ -201,8 +201,6 @@ fn keep_pin(
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
-
     use super::*;
     use crate::tab_id::TabId;
     use crate::test_support::tab_fixtures::{at, editor, id, order, screen, tab_with};
@@ -211,26 +209,27 @@ mod tests {
 
     type Breaker = fn(&mut Tab);
 
-    #[test]
-    fn focusing_the_chat_selects_it_and_focusing_a_tab_selects_the_tab() {
-        let mut tab = tab_with(&["a"]);
-        tab.open(editor("t1"), None).unwrap();
-        tab.focus(&id("a")).unwrap();
-        let group = tab.group_of(&id("a")).unwrap();
-        assert!(group.chat_selected(), "chat selected");
-        assert_eq!(group.active_tab(), Some(&id("t1")), "the tab stays active");
-        tab.focus(&id("t1")).unwrap();
-        assert!(
-            !tab.group_of(&id("a")).unwrap().chat_selected(),
-            "tab selected"
-        );
-        tab.validate().unwrap();
+    /// A resize path, its bounds and pointer extent, and what the resize answers.
+    type Resize<'a> = (&'a [Branch], Rect, f32, Result<()>);
+
+    fn first_width(tab: &Tab) -> Option<f32> {
+        let slots = tab.layout(screen(1006.0, 600.0));
+        slots.first().map(|slot| slot.rect.width)
     }
 
     #[test]
-    fn moving_a_chat_takes_its_editor_tabs_along() {
+    fn a_chat_selects_itself_moves_with_its_tabs_and_never_swaps_with_one() {
         let mut tab = tab_with(&["a", "b"]);
         tab.open(editor("t1"), None).unwrap();
+        tab.focus(&id("b")).unwrap();
+        let group = tab.group_of(&id("b")).unwrap();
+        assert!(group.chat_selected(), "chat selected");
+        assert_eq!(group.active_tab(), Some(&id("t1")), "the tab stays active");
+        tab.focus(&id("t1")).unwrap();
+        let group = tab.group_of(&id("b")).unwrap();
+        assert!(!group.chat_selected(), "tab selected");
+        let refused = Err(Error::ChatIsNotATab(id("b")));
+        assert_eq!(tab.swap(&id("b"), &id("t1")), refused, "no swap");
         tab.relocate(&id("b"), &at("a", Edge::Left)).unwrap();
         assert_eq!(order(&tab), ["b", "t1", "a"], "b and its tab left of a");
         assert_eq!(tab.group_count(), 2, "still two places");
@@ -238,182 +237,51 @@ mod tests {
     }
 
     #[test]
-    fn a_chat_and_an_editor_tab_never_swap() {
-        let mut tab = tab_with(&["a"]);
-        tab.open(editor("t1"), None).unwrap();
-        assert_eq!(
-            tab.swap(&id("a"), &id("t1")),
-            Err(Error::ChatIsNotATab(id("a"))),
-            "refused"
-        );
-    }
-
-    #[test]
-    fn relocate_lands_on_the_requested_edge() {
-        let mut tab = tab_with(&["a", "b", "c"]);
-        tab.relocate(&id("c"), &at("a", Edge::Left)).unwrap();
-        assert_eq!(order(&tab), ["c", "a", "b"], "c now first");
-        assert_eq!(tab.focused(), Some(&id("c")), "focus untouched: c had it");
-        tab.validate().unwrap();
-    }
-
-    #[test]
-    fn relocate_rejects_bad_requests_without_changes() {
-        let cases = [
-            ("self", "a", at("a", Edge::Left), Error::SamePane(id("a"))),
-            (
-                "target",
-                "a",
-                at("zz", Edge::Left),
-                Error::PaneNotFound(id("zz")),
-            ),
-            (
-                "pane",
-                "zz",
-                at("a", Edge::Left),
-                Error::PaneNotFound(id("zz")),
-            ),
-        ];
-        for (name, moved, placement, error) in cases {
-            let mut tab = tab_with(&["a", "b"]);
-            let before = tab.clone();
-            assert_eq!(tab.relocate(&id(moved), &placement), Err(error), "{name}");
-            assert_eq!(tab, before, "{name}: unchanged");
-        }
-    }
-
-    #[test]
-    fn swap_exchanges_positions_and_validates() {
-        let mut tab = tab_with(&["a", "b", "c"]);
-        tab.swap(&id("a"), &id("c")).unwrap();
-        assert_eq!(order(&tab), ["c", "b", "a"], "swapped");
-        assert_eq!(
-            tab.swap(&id("a"), &id("a")),
-            Err(Error::SamePane(id("a"))),
-            "self"
-        );
-        assert_eq!(
-            tab.swap(&id("a"), &id("q")),
-            Err(Error::PaneNotFound(id("q"))),
-            "unknown"
-        );
-    }
-
-    #[test]
     fn resize_follows_the_pointer_and_holds_the_pixel_minimum() {
         let mut tab = tab_with(&["a", "b"]);
         let bounds = screen(1006.0, 600.0);
-        let first_width = |tab: &Tab| tab.layout(bounds).first().map(|slot| slot.rect.width);
         let cases = [
-            ("exactly where it was dragged", 300.0, 300.0),
-            ("dragged past the minimum", 1.0, MIN_PANE_EXTENT),
-            (
-                "the other side keeps the minimum",
-                5000.0,
-                1000.0 - MIN_PANE_EXTENT,
-            ),
+            (300.0, 300.0),
+            (1.0, MIN_PANE_EXTENT),
+            (5000.0, 1000.0 - MIN_PANE_EXTENT),
+            (100.0, 100.0),
+            (417.0, 417.0),
         ];
-        for (name, pointer, expected) in cases {
+        for (pointer, expected) in cases {
             tab.resize(&[], bounds, pointer).unwrap();
-            assert_eq!(first_width(&tab), Some(expected), "{name}");
+            assert_eq!(first_width(&tab), Some(expected), "{pointer}");
         }
+        let released = tab.clone();
+        assert_eq!(first_width(&released), Some(417.0), "release keeps it");
+        tab.equalize(&[]).unwrap();
+        let widths: Vec<f32> = tab.layout(bounds).iter().map(|s| s.rect.width).collect();
+        assert_eq!(widths, [500.0, 500.0], "equalized");
+        let leaf = tab.equalize(&[Branch::Second]);
+        assert_eq!(leaf, Err(Error::NoSuchSplit), "equalize a leaf");
         tab.validate().unwrap();
     }
 
     #[test]
-    fn the_committed_ratio_is_the_one_last_shown_during_the_drag() {
-        let mut tab = tab_with(&["a", "b"]);
+    fn resize_refuses_bad_input_and_a_split_too_small_and_changes_nothing() {
         let bounds = screen(1006.0, 600.0);
-        for pointer in [100.0, 250.0, 417.0] {
-            tab.resize(&[], bounds, pointer).unwrap();
-        }
-        let shown = tab.layout(bounds).first().map(|slot| slot.rect.width);
-        let released = tab.clone();
-        assert_eq!(
-            released.layout(bounds).first().map(|slot| slot.rect.width),
-            shown,
-            "release changes nothing"
-        );
-        assert_eq!(shown, Some(417.0), "last pointer position");
-    }
-
-    #[test]
-    fn resizing_a_split_too_small_for_the_minimum_changes_nothing() {
-        let mut tab = tab_with(&["a", "b"]);
-        let before = tab.clone();
-        tab.resize(&[], screen(MIN_PANE_EXTENT, 100.0), 10.0)
-            .unwrap();
-        assert_eq!(tab, before, "stays as it was");
-    }
-
-    #[test]
-    fn resize_rejects_bad_input() {
-        let bounds = screen(1006.0, 600.0);
-        let nan_bounds = screen(f32::NAN, 1.0);
-        let cases = [
-            (
-                "NaN extent",
-                &[][..],
-                bounds,
-                f32::NAN,
-                Error::InvalidGeometry,
-            ),
-            (
-                "infinite extent",
-                &[],
-                bounds,
-                f32::INFINITY,
-                Error::InvalidGeometry,
-            ),
-            ("negative extent", &[], bounds, -1.0, Error::InvalidGeometry),
-            ("bounds", &[], nan_bounds, 10.0, Error::InvalidGeometry),
-            (
-                "leaf path",
-                &[Branch::First],
-                bounds,
-                300.0,
-                Error::NoSuchSplit,
-            ),
+        let bad = Err(Error::InvalidGeometry);
+        let cases: [Resize<'_>; 6] = [
+            (&[], bounds, f32::NAN, bad.clone()),
+            (&[], bounds, f32::INFINITY, bad.clone()),
+            (&[], bounds, -1.0, bad.clone()),
+            (&[], screen(f32::NAN, 1.0), 10.0, bad),
+            (&[Branch::First], bounds, 300.0, Err(Error::NoSuchSplit)),
+            (&[], screen(MIN_PANE_EXTENT, 100.0), 10.0, Ok(())),
         ];
-        for (name, path, area, extent, error) in cases {
+        for (path, area, extent, answer) in cases {
             let mut tab = tab_with(&["a", "b"]);
             let before = tab.clone();
-            assert_eq!(tab.resize(path, area, extent), Err(error), "{name}");
-            assert_eq!(tab, before, "{name}: unchanged");
+            assert_eq!(tab.resize(path, area, extent), answer, "{extent}");
+            assert_eq!(tab, before, "{extent}: unchanged");
         }
-        assert_eq!(
-            Tab::new(TabId(2), "e", crate::space_id::SpaceId::default()).resize(&[], bounds, 1.0),
-            Err(Error::NoSuchSplit),
-            "no tree"
-        );
-    }
-
-    #[test]
-    fn equalize_restores_equal_shares() {
-        let mut tab = tab_with(&["a", "b"]);
-        let bounds = screen(1006.0, 600.0);
-        tab.resize(&[], bounds, 200.0).unwrap();
-        tab.equalize(&[]).unwrap();
-        let widths: Vec<f32> = tab.layout(bounds).iter().map(|s| s.rect.width).collect();
-        assert_eq!(widths, [500.0, 500.0], "equal");
-        assert_eq!(
-            tab.equalize(&[Branch::Second]),
-            Err(Error::NoSuchSplit),
-            "leaf"
-        );
-    }
-
-    #[test]
-    fn state_updates_stay_with_the_pane() {
-        let mut tab = tab_with(&["a"]);
-        let state = PaneState::new(json!({"scroll": 4})).unwrap();
-        tab.set_state(&id("a"), state.clone()).unwrap();
-        assert_eq!(tab.pane(&id("a")).map(|p| &p.state), Some(&state), "stored");
-        assert_eq!(
-            tab.set_state(&id("q"), state),
-            Err(Error::PaneNotFound(id("q"))),
-            "unknown"
-        );
+        let mut empty = Tab::new(TabId(2), "e", crate::space_id::SpaceId::default());
+        let no_tree = empty.resize(&[], bounds, 1.0);
+        assert_eq!(no_tree, Err(Error::NoSuchSplit), "no tree");
     }
 
     #[test]

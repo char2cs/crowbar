@@ -61,49 +61,26 @@ fn chats_of(tab: &Tab) -> Vec<PaneId> {
 
 #[cfg(test)]
 mod tests {
-    use layout::{PaneInstance, TabId};
-    use protocol::{PaneState, PaneTypeId, Params};
+    use layout::PaneInstance;
+    use protocol::Params;
 
     use super::*;
+    use crate::test_support::{one_tab, pane};
 
     fn instance(
         name: &str,
         kind: &str,
     ) -> PaneInstance {
         PaneInstance {
-            pane_id: PaneId::new(name).unwrap(),
-            type_id: PaneTypeId::new(kind).unwrap(),
             params: Params::default().with("id", name).unwrap(),
-            state: PaneState::default(),
+            ..pane(name, kind)
         }
     }
 
     type Opened = &'static [(&'static str, &'static str)];
 
     fn layout_of(panes: &[(&str, &str)]) -> Layout {
-        let mut layout = Layout::default();
-        layout
-            .apply(Command::AddTab {
-                id: TabId(1),
-                title: String::new(),
-                space: layout::SpaceId::default(),
-            })
-            .unwrap();
-        for (name, kind) in panes {
-            layout.apply(open(name, kind)).unwrap();
-        }
-        layout
-    }
-
-    fn open(
-        name: &str,
-        kind: &str,
-    ) -> Command {
-        Command::OpenPane {
-            tab: TabId(1),
-            instance: instance(name, kind),
-            placement: None,
-        }
+        one_tab(panes.iter().map(|(name, kind)| instance(name, kind)))
     }
 
     struct Listing {

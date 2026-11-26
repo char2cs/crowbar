@@ -1,21 +1,19 @@
 use std::collections::{BTreeMap, VecDeque};
 
+use protocol::PaneId;
+
 use crate::error::Result;
 use crate::layout::Layout;
 use crate::layout::arrangement::Arrangement;
 use crate::layout::command::Command;
 use crate::layout::tab::pane_instance::PaneInstance;
 use crate::layout::undo_step::UndoStep;
+use crate::space_id::SpaceId;
+use crate::tab_id::TabId;
 
-mod adopt;
-mod withdraw;
+pub(crate) const MAX_UNDO_STEPS: usize = 64;
 
-/// Most undo steps kept; the oldest is forgotten first.
-pub const MAX_UNDO_STEPS: usize = 64;
-
-/// Most closed panes history keeps alive across all steps. A pane holds at most 64 KiB of
-/// state, so this bounds history memory at 16 MiB however large the layout is.
-pub const MAX_PARKED_PANES: usize = 256;
+pub(crate) const MAX_PARKED_PANES: usize = 256;
 
 /// A [`Layout`] with undo and redo of structural commands.
 ///
@@ -47,18 +45,6 @@ impl LayoutHistory {
     #[must_use]
     pub fn layout(&self) -> &Layout {
         &self.current
-    }
-
-    /// Whether [`LayoutHistory::undo`] has something to do.
-    #[must_use]
-    pub fn can_undo(&self) -> bool {
-        !self.undo.is_empty()
-    }
-
-    /// Whether [`LayoutHistory::redo`] has something to do.
-    #[must_use]
-    pub fn can_redo(&self) -> bool {
-        !self.redo.is_empty()
     }
 
     /// Applies a command. A structural command that changed something becomes one undo step
@@ -155,64 +141,69 @@ impl LayoutHistory {
         self.trim();
         true
     }
+
+    /// Takes back the open of `pane`, as if it never happened, when that open is the last
+    /// structural change: the layout returns to the arrangement before it, with its focus and
+    /// the tab its space showed, and no undo step is left for it. A pane opened earlier closes as any other.
+    ///
+    /// # Errors
+    /// The [`Error`](crate::Error) that refused closing `pane`.
+    pub fn withdraw(
+        &mut self,
+        pane: &PaneId,
+    ) -> Result<()> {
+        let close = Command::ClosePane { pane: pane.clone() };
+        let opened_last = self
+            .undo
+            .back()
+            .is_some_and(|step| !step.arrangement.pane_ids().contains(pane));
+        let Some(step) = self.undo.pop_back().filter(|_| opened_last) else {
+            return self.apply(close);
+        };
+        if let Err(step) = self.current.swap_arrangement(step) {
+            self.undo.push_back(step);
+            return self.apply(close);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn carry_adoption(
+        &mut self,
+        (tab, space): (TabId, &SpaceId),
+    ) {
+        for step in self.undo.iter_mut().chain(&mut self.redo) {
+            step.arrangement.adopt((tab, space));
+            let unowned_changed = step.spaces.contains("");
+            step.spaces.extend(unowned_changed.then(|| space.clone()));
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use protocol::{PaneId, PaneState, PaneTypeId, Params};
+    use protocol::PaneState;
     use serde_json::json;
 
     use super::*;
-    use crate::layout::tab::pane_instance::PaneInstance;
+    use crate::layout::tab::{MAX_PANES_PER_TAB, Tab};
     use crate::tab_id::TabId;
+    use crate::test_support::layout_fixtures::{add, instance, open as open_in};
+    use crate::test_support::tab_fixtures::{at, id, pane};
     use crate::tree::edge::Edge;
-    use crate::tree::placement::Placement;
-
-    fn id(name: &str) -> PaneId {
-        PaneId::new(name).unwrap()
-    }
-
-    fn instance(name: &str) -> PaneInstance {
-        PaneInstance {
-            pane_id: id(name),
-            type_id: PaneTypeId::new(PaneTypeId::CHAT).unwrap(),
-            params: Params::default(),
-            state: PaneState::default(),
-        }
-    }
 
     fn open(name: &str) -> Command {
-        Command::OpenPane {
-            tab: TabId(1),
-            instance: instance(name),
-            placement: None,
-        }
+        open_in(1, pane(name))
     }
 
-    fn add(tab: u64) -> Command {
-        Command::AddTab {
-            id: TabId(tab),
-            title: format!("t{tab}"),
-            space: crate::SpaceId::default(),
-        }
-    }
-
+    /// Tab 1 holding `a` and `b`, each opening one undo step.
     fn history() -> LayoutHistory {
         let mut history = LayoutHistory::default();
-        for command in [add(1), open("a"), open("b")] {
-            history.apply(command).unwrap();
-        }
+        apply_all(&mut history, vec![add(1), open("a"), open("b")]);
         history
     }
 
-    fn count(
-        history: &LayoutHistory,
-        tab: u64,
-    ) -> Option<usize> {
-        history
-            .layout()
-            .tab(TabId(tab))
-            .map(crate::layout::tab::Tab::len)
+    fn count(history: &LayoutHistory) -> Option<usize> {
+        history.layout().tab(TabId(1)).map(Tab::len)
     }
 
     fn state(value: serde_json::Value) -> PaneState {
@@ -223,24 +214,15 @@ mod tests {
         name: &str,
         value: serde_json::Value,
     ) -> Command {
-        Command::SetPaneState {
-            pane: id(name),
-            state: state(value),
-        }
+        let (pane, state) = (id(name), state(value));
+        Command::SetPaneState { pane, state }
     }
 
-    fn move_left_of(
-        pane: &str,
-        target: &str,
-    ) -> Command {
-        let placement = Placement {
-            target: id(target),
-            edge: Edge::Left,
-        };
-        Command::MovePane {
-            pane: id(pane),
-            placement,
-        }
+    fn state_of(
+        history: &LayoutHistory,
+        name: &str,
+    ) -> Option<PaneState> {
+        history.layout().pane(&id(name)).map(|p| p.state.clone())
     }
 
     fn apply_all(
@@ -252,218 +234,109 @@ mod tests {
         }
     }
 
-    fn fill_tab(
-        layout: &mut Layout,
-        tab: u64,
-    ) {
-        layout.apply(add(tab)).unwrap();
-        for pane in 0..crate::layout::tab::MAX_PANES_PER_TAB {
-            layout
-                .apply(open_in(tab, &format!("p{tab}-{pane}")))
-                .unwrap();
-        }
-    }
-
-    fn open_in(
-        tab: u64,
-        name: &str,
-    ) -> Command {
-        Command::OpenPane {
-            tab: TabId(tab),
-            instance: instance(name),
-            placement: None,
-        }
-    }
-
-    fn rename(
-        tab: u64,
-        title: String,
-    ) -> Command {
-        Command::RenameTab {
-            tab: TabId(tab),
-            title,
-        }
-    }
-
-    fn swap(
-        a: &str,
-        b: &str,
-    ) -> Command {
-        Command::SwapPanes { a: id(a), b: id(b) }
+    fn close(name: &str) -> Command {
+        Command::ClosePane { pane: id(name) }
     }
 
     #[test]
-    fn undo_and_redo_walk_structural_changes() {
+    fn undo_and_redo_walk_structural_changes_until_a_new_command() {
+        let mut empty = LayoutHistory::new(Layout::default());
+        assert!(!empty.undo() && !empty.redo(), "nothing to walk");
         let mut history = history();
         let full = history.layout().clone();
         assert!(history.undo(), "undo open b");
-        assert_eq!(count(&history, 1), Some(1), "one pane");
-        assert!(history.can_redo(), "redo available");
-        assert!(history.redo(), "redo");
-        assert_eq!(history.layout(), &full, "back to full");
-        assert!(!history.can_redo(), "nothing left to redo");
-    }
-
-    #[test]
-    fn a_new_command_clears_redo() {
-        let mut history = history();
-        assert!(history.undo(), "undo");
+        assert_eq!(count(&history), Some(1), "one pane");
+        let mut redone = history.clone();
+        assert!(redone.redo(), "redo");
+        assert_eq!(redone.layout(), &full, "back to full");
+        assert!(!redone.redo(), "nothing left to redo");
         history.apply(open("c")).unwrap();
-        assert!(!history.can_redo(), "redo cleared");
-    }
-
-    #[test]
-    fn refused_commands_leave_history_alone() {
-        let mut history = history();
+        assert!(!history.redo(), "a new command clears redo");
         let before = history.clone();
         assert!(history.apply(open("a")).is_err(), "duplicate");
-        assert_eq!(history, before, "unchanged");
+        assert_eq!(history, before, "refused: history unchanged");
     }
 
     #[test]
-    fn typing_into_a_pane_is_not_an_undo_step() {
-        let mut history = LayoutHistory::default();
-        history.apply(add(1)).unwrap();
-        history.apply(open("a")).unwrap();
-        let steps = history.undo.len();
-        for keystroke in 0..500 {
-            let text = format!("typed {keystroke}");
-            history
-                .apply(set_state("a", json!({ "draft": text })))
-                .unwrap();
-        }
-        assert_eq!(history.undo.len(), steps, "history did not grow");
-        assert_eq!(history.parked_total(), 0, "nothing parked");
-    }
-
-    #[test]
-    fn commands_that_change_nothing_are_not_recorded() {
+    fn only_changes_of_the_arrangement_are_recorded() {
+        let move_tab = Command::MoveTab {
+            tab: TabId(1),
+            to_index: 0,
+        };
+        let rename = Command::RenameTab {
+            tab: TabId(1),
+            title: "tab 1".into(),
+        };
+        let swap = Command::SwapPanes {
+            a: id("a"),
+            b: id("b"),
+        };
         let cases = [
-            ("focus", Command::FocusPane { pane: id("a") }),
-            (
-                "activate the active tab",
-                Command::ActivateTab { tab: TabId(1) },
-            ),
-            (
-                "move a tab to where it is",
-                Command::MoveTab {
-                    tab: TabId(1),
-                    to_index: 0,
-                },
-            ),
-            (
-                "rename to the same title",
-                Command::RenameTab {
-                    tab: TabId(1),
-                    title: "t1".into(),
-                },
-            ),
+            (Command::FocusPane { pane: id("a") }, 0),
+            (Command::ActivateTab { tab: TabId(1) }, 0),
+            (move_tab, 0),
+            (rename, 0),
+            (set_state("a", json!({"draft": "typed"})), 0),
+            (swap, 1),
         ];
-        for (name, command) in cases {
+        for (command, recorded) in cases {
             let mut history = history();
             let steps = history.undo.len();
-            history.apply(command).unwrap();
-            assert_eq!(history.undo.len(), steps, "{name}");
+            history.apply(command.clone()).unwrap();
+            history.apply(command.clone()).unwrap();
+            let grown = history.undo.len() - steps;
+            assert_eq!(grown, 2 * recorded, "{command:?}");
+            assert_eq!(history.parked_total(), 0, "{command:?}: none parked");
         }
     }
 
     #[test]
-    fn every_swap_of_panes_is_an_undo_step() {
-        let mut history = history();
-        let steps = history.undo.len();
-        for _ in 0..2 {
-            history.apply(swap("a", "b")).unwrap();
-        }
-        assert_eq!(history.undo.len(), steps + 2, "both swaps");
-    }
-
-    #[test]
-    fn undoing_a_close_restores_the_pane_with_the_state_it_had_when_it_closed() {
+    fn undoing_a_close_restores_its_state_and_keeps_later_work() {
         let mut history = history();
         history
             .apply(set_state("b", json!({"draft": "unsent"})))
             .unwrap();
-        history.apply(Command::ClosePane { pane: id("b") }).unwrap();
-        assert_eq!(count(&history, 1), Some(1), "closed");
+        history.apply(close("b")).unwrap();
+        history.apply(set_state("a", json!({"scroll": 7}))).unwrap();
+        assert_eq!(count(&history), Some(1), "closed");
         assert!(history.undo(), "undo the close");
-        let restored = history.layout().pane(&id("b")).map(|p| p.state.clone());
-        assert_eq!(
-            restored,
-            Some(state(json!({"draft": "unsent"}))),
-            "state came back"
-        );
+        let closed = Some(state(json!({"draft": "unsent"})));
+        assert_eq!(state_of(&history, "b"), closed, "state at close");
+        let open = Some(state(json!({"scroll": 7})));
+        assert_eq!(state_of(&history, "a"), open, "work since survives");
         history.layout().validate().unwrap();
     }
 
     #[test]
-    fn undo_keeps_the_latest_state_of_panes_that_stay_open() {
-        let mut history = history();
-        history.apply(Command::ClosePane { pane: id("b") }).unwrap();
-        history.apply(set_state("a", json!({"scroll": 7}))).unwrap();
-        assert!(history.undo(), "undo the close");
-        assert_eq!(
-            history.layout().pane(&id("a")).map(|p| p.state.clone()),
-            Some(state(json!({"scroll": 7}))),
-            "work since the close survives"
-        );
-    }
-
-    #[test]
-    fn closing_the_last_pane_of_a_tab_is_one_undo_step() {
-        let mut history = LayoutHistory::default();
-        for command in [add(1), open("a"), add(2)] {
-            history.apply(command).unwrap();
-        }
-        let before = history.layout().clone();
-        history.apply(Command::ClosePane { pane: id("a") }).unwrap();
-        assert_eq!(
-            history.layout().tabs().len(),
-            1,
-            "tab closed with its last pane"
-        );
-        assert!(history.undo(), "one undo");
-        assert_eq!(history.layout(), &before, "pane and tab are back");
-        assert!(history.redo(), "redo");
-        assert!(history.layout().pane(&id("a")).is_none(), "closed again");
-    }
-
-    #[test]
-    fn a_cross_tab_change_is_one_undo_step() {
+    fn a_change_that_closes_or_spans_tabs_is_one_undo_step() {
+        let detach = Command::DetachPane {
+            pane: id("b"),
+            new_tab: TabId(2),
+            title: "b".into(),
+        };
+        let move_to_tab = Command::MovePaneToTab {
+            pane: id("a"),
+            to: TabId(2),
+            placement: None,
+        };
         let cases = [
-            (
-                "detaching",
-                vec![],
-                Command::DetachPane {
-                    pane: id("b"),
-                    new_tab: TabId(2),
-                    title: "b".into(),
-                },
-                "b",
-            ),
-            (
-                "moving to another tab",
-                vec![add(2)],
-                Command::MovePaneToTab {
-                    pane: id("a"),
-                    to: TabId(2),
-                    placement: None,
-                },
-                "a",
-            ),
+            (vec![], detach, "b", 2),
+            (vec![add(2)], move_to_tab, "a", 2),
+            (vec![add(2), close("b")], close("a"), "a", 1),
         ];
-        for (name, prelude, command, moved) in cases {
+        for (prelude, command, moved, tabs) in cases {
             let mut history = history();
             apply_all(&mut history, prelude);
             let before = history.layout().clone();
-            history.apply(command).unwrap();
-            assert_eq!(history.layout().tabs().len(), 2, "{name}: two tabs");
-            let holder = history
-                .layout()
-                .tab_of(&id(moved))
-                .map(crate::layout::tab::Tab::id);
-            assert_eq!(holder, Some(TabId(2)), "{name}: pane is in the other tab");
-            assert!(history.undo(), "{name}: one undo");
-            assert_eq!(history.layout(), &before, "{name}: back");
+            history.apply(command.clone()).unwrap();
+            let after = history.layout().clone();
+            assert_eq!(after.tabs().len(), tabs, "{command:?}: tabs");
+            let holder = after.tab_of(&id(moved)).map(Tab::id);
+            assert_ne!(holder, Some(TabId(1)), "{command:?}: left tab 1");
+            assert!(history.undo(), "{command:?}: one undo");
+            assert_eq!(history.layout(), &before, "{command:?}: back");
+            assert!(history.redo(), "{command:?}: redo");
+            assert_eq!(history.layout(), &after, "{command:?}: again");
         }
     }
 
@@ -472,58 +345,49 @@ mod tests {
         let mut history = LayoutHistory::default();
         history.apply(add(1)).unwrap();
         for index in 0..(MAX_UNDO_STEPS + 40) {
-            history.apply(rename(1, format!("title {index}"))).unwrap();
+            let title = format!("title {index}");
+            history
+                .apply(Command::RenameTab {
+                    tab: TabId(1),
+                    title,
+                })
+                .unwrap();
         }
         assert_eq!(history.undo.len(), MAX_UNDO_STEPS, "oldest forgotten");
-        let mut undone = 0;
-        while history.undo() {
-            undone += 1;
-        }
+        let undone = std::iter::from_fn(|| history.undo().then_some(())).count();
         assert_eq!(undone, MAX_UNDO_STEPS, "exactly the kept steps");
     }
 
     #[test]
     fn history_is_bounded_in_closed_panes_it_keeps_alive() {
-        let mut layout = Layout::default();
         let tabs = 5_u64;
+        let mut history = LayoutHistory::default();
         for tab in 0..tabs {
-            fill_tab(&mut layout, tab);
+            history.apply(add(tab)).unwrap();
+            let names = (0..MAX_PANES_PER_TAB).map(|pane| format!("p{tab}-{pane}"));
+            let opens = names.map(|name| open_in(tab, pane(&name)));
+            apply_all(&mut history, opens.collect());
         }
-        let mut history = LayoutHistory::new(layout);
-        for tab in 0..tabs {
-            history
-                .apply(Command::CloseTab { tab: TabId(tab) })
-                .unwrap();
-        }
-        assert!(
-            history.parked_total() <= MAX_PARKED_PANES,
-            "{}",
-            history.parked_total()
-        );
-        assert_eq!(
-            history.undo.len(),
-            MAX_PARKED_PANES / crate::layout::tab::MAX_PANES_PER_TAB,
-            "oldest closes forgotten"
-        );
+        let mut history = LayoutHistory::new(history.layout().clone());
+        let closes = (0..tabs).map(|tab| Command::CloseTab { tab: TabId(tab) });
+        apply_all(&mut history, closes.collect());
+        let parked = history.parked_total();
+        assert!(parked <= MAX_PARKED_PANES, "{parked}");
+        let kept = MAX_PARKED_PANES / MAX_PANES_PER_TAB;
+        assert_eq!(history.undo.len(), kept, "oldest closes forgotten");
         assert!(history.undo(), "the newest close is still undoable");
     }
 
     #[test]
     fn a_step_that_can_no_longer_be_applied_is_dropped_not_half_applied() {
         let mut history = history();
-        history.apply(Command::ClosePane { pane: id("b") }).unwrap();
-        if let Some(step) = history.undo.back_mut() {
-            step.parked.clear();
-        }
+        history.apply(close("b")).unwrap();
+        history.undo.back_mut().unwrap().parked.clear();
         let before = history.layout().clone();
         let steps = history.undo.len();
         assert!(!history.undo(), "cannot restore a pane that is gone");
         assert_eq!(history.layout(), &before, "layout untouched");
-        assert_eq!(
-            history.undo.len(),
-            steps - 1,
-            "the broken step is discarded"
-        );
+        assert_eq!(history.undo.len(), steps - 1, "the broken step is gone");
     }
 
     #[test]
@@ -531,27 +395,82 @@ mod tests {
         let mut history = history();
         history.apply(add(2)).unwrap();
         history.apply(Command::FocusPane { pane: id("a") }).unwrap();
-        history.apply(move_left_of("b", "a")).unwrap();
+        let placement = at("a", Edge::Left);
+        let moving = Command::MovePane {
+            pane: id("b"),
+            placement,
+        };
+        history.apply(moving).unwrap();
         assert!(history.undo(), "undo the move");
-        assert_eq!(
-            history
-                .layout()
-                .showing("")
-                .map(crate::layout::tab::Tab::id),
-            Some(TabId(1)),
-            "tab"
-        );
-        assert_eq!(
-            history.layout().tab(TabId(1)).and_then(|t| t.focused()),
-            Some(&id("a")),
-            "focus"
-        );
+        let layout = history.layout();
+        assert_eq!(layout.showing("").map(Tab::id), Some(TabId(1)), "tab");
+        let focused = layout.tab(TabId(1)).and_then(Tab::focused);
+        assert_eq!(focused, Some(&id("a")), "focus");
+    }
+
+    fn add_in(
+        id: u64,
+        space: &str,
+    ) -> Command {
+        let (id, space) = (TabId(id), SpaceId::new(space));
+        let title = String::new();
+        Command::AddTab { id, title, space }
+    }
+
+    fn adopt(space: &str) -> Command {
+        let (tab, space) = (TabId(1), SpaceId::new(space));
+        Command::AdoptSpace { tab, space }
+    }
+
+    fn space_of_first(history: &LayoutHistory) -> Option<&str> {
+        history.layout().tab(TabId(1)).map(Tab::space)
     }
 
     #[test]
-    fn nothing_to_undo_or_redo_is_reported() {
-        let mut history = LayoutHistory::new(Layout::default());
-        assert!(!history.undo() && !history.redo(), "empty");
-        assert!(!history.can_undo() && !history.can_redo(), "flags");
+    fn an_unowned_tab_is_adopted_once_and_undo_and_redo_keep_its_space() {
+        let mut history = LayoutHistory::default();
+        let steps = [add_in(1, ""), open_in(1, instance("a")), add_in(2, "p1"), open_in(2, instance("b"))];
+        for step in steps.into_iter().chain([Command::ActivateTab { tab: TabId(1) }]) {
+            history.apply(step).unwrap();
+        }
+        history.apply(adopt("p2")).unwrap();
+        let layout = history.layout();
+        assert_eq!(space_of_first(&history), Some("p2"), "adopted");
+        assert_eq!(layout.showing("p2").map(Tab::id), Some(TabId(1)), "shown");
+        assert!(layout.showing("").is_none(), "the empty space shows none");
+        assert!(history.apply(adopt("p3")).is_err(), "only once");
+        assert!(history.undo() && history.undo(), "undo the second tab");
+        assert_eq!(space_of_first(&history), Some("p2"), "undo keeps it");
+        assert!(history.redo(), "redo");
+        assert_eq!(space_of_first(&history), Some("p2"), "redo keeps it");
+        history.layout().validate().unwrap();
+    }
+
+    fn history_of(after: &[&str]) -> LayoutHistory {
+        let mut history = LayoutHistory::default();
+        let opens = ["a", "b"].iter().chain(after);
+        let opens = opens.map(|name| open_in(1, instance(name)));
+        let focus = Command::FocusPane { pane: id("a") };
+        let mut commands: Vec<Command> = std::iter::once(add(1)).chain(opens).collect();
+        commands.insert(3, focus);
+        for command in commands {
+            history.apply(command).unwrap();
+        }
+        history
+    }
+
+    #[test]
+    fn withdrawing_returns_to_the_focus_before_the_open_or_closes_an_older_pane() {
+        let cases: [(&[&str], &str, bool); 2] = [(&["c"], "a", false), (&["c", "d"], "d", true)];
+        for (after, focused, undo_brings_it_back) in cases {
+            let mut history = history_of(after);
+            history.withdraw(&id("c")).unwrap();
+            let tab = history.layout().tab(TabId(1)).unwrap();
+            assert_eq!(tab.focused(), Some(&id(focused)), "{after:?}: focus");
+            assert!(history.layout().pane(&id("c")).is_none(), "{after:?}: gone");
+            history.undo();
+            let back = history.layout().pane(&id("c")).is_some();
+            assert_eq!(back, undo_brings_it_back, "{after:?}: undo");
+        }
     }
 }

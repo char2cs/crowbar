@@ -1,6 +1,5 @@
 //! Placing folders, workspaces and chats into one tree, as the daemon's placement rules read.
 
-mod created_key;
 mod item;
 mod item_kind;
 mod sibling_key;

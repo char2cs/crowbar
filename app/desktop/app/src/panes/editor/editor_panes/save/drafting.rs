@@ -168,6 +168,7 @@ mod tests {
 
     use super::*;
     use crate::panes::editor::editor_panes::Landing;
+    use crate::panes::editor::editor_panes::tests::editors_in;
     use crate::panes::editor::editor_panes::tests::{
         Opened, PANE, PATH, TEXT, landed, layout_in, opened, panes_over, shown_in, two_panes_on,
         typed_and_kept,
@@ -203,10 +204,7 @@ mod tests {
 
     #[gpui::test]
     fn a_draft_goes_at_startup_once_no_restored_tab_holds_it(cx: &mut TestAppContext) {
-        cx.update(|cx| ui::init(cx).unwrap());
-        cx.update(editorview::init);
-        let documents = Rc::new(FakeDocuments::default());
-        documents.loading("c1");
+        let documents = editors_in(cx);
         documents.holding(PATH, TEXT);
         drop(typed_and_kept(&documents, cx));
         let (panes, _heard) = panes_over(&documents);
@@ -226,10 +224,7 @@ mod tests {
 
     #[gpui::test]
     fn closing_one_of_two_panes_on_a_file_keeps_its_draft(cx: &mut TestAppContext) {
-        cx.update(|cx| ui::init(cx).unwrap());
-        cx.update(editorview::init);
-        let documents = Rc::new(FakeDocuments::default());
-        documents.loading("c1");
+        let documents = editors_in(cx);
         documents.loading("c2");
         documents.holding(PATH, TEXT);
         let panes = typed_and_kept(&documents, cx);
@@ -244,10 +239,7 @@ mod tests {
 
     #[gpui::test]
     fn a_draft_opens_when_its_file_cannot_be_read(cx: &mut TestAppContext) {
-        cx.update(|cx| ui::init(cx).unwrap());
-        cx.update(editorview::init);
-        let documents = Rc::new(FakeDocuments::default());
-        documents.loading("c1");
+        let documents = editors_in(cx);
         documents.holding(PATH, TEXT);
         drop(typed_and_kept(&documents, cx));
         documents.refusing(PATH, 404);

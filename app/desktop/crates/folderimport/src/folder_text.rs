@@ -16,14 +16,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_a_rooted_path_is_absolute() {
+    fn only_a_rooted_path_is_absolute_and_its_base_name_ignores_trailing_slashes() {
         assert!(absolute("/srv/app"));
         assert!(!absolute("code/x"));
         assert!(!absolute(""));
-    }
-
-    #[test]
-    fn the_base_name_ignores_trailing_slashes() {
         assert_eq!(base_name("/srv/app/"), "app");
         assert_eq!(base_name("/srv/app"), "app");
         assert_eq!(base_name("app"), "app");

@@ -150,6 +150,7 @@ mod tests {
     use x11rb::NONE;
 
     use super::*;
+    use crate::linux::test_support::window_in;
 
     fn proxy_named_on(
         connection: &RustConnection,
@@ -172,25 +173,7 @@ mod tests {
     fn the_proxy_names_itself_on_the_window_and_itself_until_it_is_dropped() {
         let (connection, screen) = RustConnection::connect(None).unwrap();
         let root = connection.setup().roots[screen].root;
-        let window = connection.generate_id().unwrap();
-        let aux = CreateWindowAux::new();
-        connection
-            .create_window(
-                0,
-                window,
-                root,
-                0,
-                0,
-                SIDE,
-                SIDE,
-                0,
-                WindowClass::INPUT_ONLY,
-                0,
-                &aux,
-            )
-            .unwrap()
-            .check()
-            .unwrap();
+        let window = window_in(&connection, root, (0, 0, SIDE, SIDE));
         let installed = XdndProxy::install(window).unwrap();
         let proxy = proxy_named_on(&connection, window);
         assert_ne!(proxy, NONE, "the window names a proxy");

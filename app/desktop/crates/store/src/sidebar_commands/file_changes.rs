@@ -168,17 +168,11 @@ impl SidebarCommands {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
-
     use super::*;
-    use crate::test_support::{FakeDaemon, followed_commands};
+    use crate::test_support::{FakeDaemon, Told, followed_commands, recorder};
 
-    type Said = Arc<Mutex<Vec<Outcome>>>;
-
-    fn commands() -> (SidebarCommands, Arc<FakeDaemon>, Said) {
-        let said = Said::default();
-        let sink = Arc::clone(&said);
-        let outcome: OutcomeSink = Arc::new(move |outcome| sink.lock().unwrap().push(outcome));
+    fn commands() -> (SidebarCommands, Arc<FakeDaemon>, Told) {
+        let (outcome, said) = recorder();
         let (commands, daemon) = followed_commands(outcome, &Arc::default());
         (commands, daemon, said)
     }
@@ -201,7 +195,7 @@ mod tests {
     }
 
     async fn until_said(
-        said: &Said,
+        said: &Told,
         count: usize,
     ) -> Vec<Outcome> {
         while said.lock().unwrap().len() < count {

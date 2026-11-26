@@ -63,61 +63,49 @@ mod tests {
         }
     }
 
-    type Case = (&'static str, RawWindowHandle, ParentWindow);
+    type Case = (&'static str, RawWindowHandle, Option<ParentWindow>);
 
     fn cases() -> Vec<Case> {
         let view = NonNull::<u8>::dangling().cast();
+        let surface = NonNull::<u8>::dangling().cast();
+        let xcb = XcbWindowHandle::new(NonZeroU32::new(77).unwrap());
         vec![
-            (
-                "xcb",
-                RawWindowHandle::Xcb(XcbWindowHandle::new(NonZeroU32::new(77).unwrap())),
-                ParentWindow::X11(77),
-            ),
+            ("xcb", RawWindowHandle::Xcb(xcb), Some(ParentWindow::X11(77))),
             (
                 "xlib",
                 RawWindowHandle::Xlib(XlibWindowHandle::new(77)),
-                ParentWindow::X11(77),
+                Some(ParentWindow::X11(77)),
             ),
             (
                 "appkit",
                 RawWindowHandle::AppKit(AppKitWindowHandle::new(view)),
-                ParentWindow::AppKit(view.as_ptr().addr()),
+                Some(ParentWindow::AppKit(view.as_ptr().addr())),
+            ),
+            (
+                "wayland",
+                RawWindowHandle::Wayland(WaylandWindowHandle::new(surface)),
+                None,
+            ),
+            (
+                "wide xlib id",
+                RawWindowHandle::Xlib(XlibWindowHandle::new(u64::MAX)),
+                None,
             ),
         ]
     }
 
     #[test]
-    fn supported_windows_yield_their_parent() {
-        let wrong: Vec<&str> = cases()
-            .into_iter()
-            .filter(|(_, handle, want)| ParentWindow::from_raw(*handle).ok().as_ref() != Some(want))
-            .map(|(name, ..)| name)
-            .collect();
-        assert!(wrong.is_empty(), "failed cases: {wrong:?}");
-    }
-
-    #[test]
-    fn other_handles_and_missing_handles_are_errors() {
-        let surface = NonNull::<u8>::dangling().cast();
-        let wayland = RawWindowHandle::Wayland(WaylandWindowHandle::new(surface));
-        assert!(
-            matches!(
-                ParentWindow::from_raw(wayland),
-                Err(Error::UnsupportedParent(_))
-            ),
-            "wayland"
-        );
+    fn x11_and_appkit_windows_yield_their_parent_and_other_handles_are_refused() {
+        for (name, handle, want) in cases() {
+            let parent = ParentWindow::from_raw(handle);
+            match want {
+                Some(want) => assert_eq!(parent.ok(), Some(want), "{name}"),
+                None => assert!(matches!(parent, Err(Error::UnsupportedParent(_))), "{name}"),
+            }
+        }
         assert!(
             matches!(ParentWindow::from_window(&NoHandle), Err(Error::Handle(_))),
-            "none"
-        );
-        let wide = RawWindowHandle::Xlib(XlibWindowHandle::new(u64::MAX));
-        assert!(
-            matches!(
-                ParentWindow::from_raw(wide),
-                Err(Error::UnsupportedParent(_))
-            ),
-            "wide xlib id"
+            "no handle"
         );
     }
 }

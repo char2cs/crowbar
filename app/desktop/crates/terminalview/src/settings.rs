@@ -54,9 +54,8 @@ impl Default for Settings {
 }
 
 impl Settings {
-    /// The same settings with the font size moved by `delta` and kept within 8 to 32.
     #[must_use]
-    pub fn zoomed(
+    pub(crate) fn zoomed(
         &self,
         delta: f32,
     ) -> Self {
@@ -66,9 +65,8 @@ impl Settings {
         }
     }
 
-    /// The same settings at the default font size.
     #[must_use]
-    pub fn zoom_reset(&self) -> Self {
+    pub(crate) fn zoom_reset(&self) -> Self {
         Self {
             font_size: DEFAULT_FONT_SIZE,
             ..self.clone()

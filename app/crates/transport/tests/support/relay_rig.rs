@@ -16,7 +16,6 @@ pub(crate) struct RelayRig {
     pub(crate) relay: Relay,
     pub(crate) dialer: MemoryDialer,
     pub(crate) daemon: EchoDaemon,
-    pub(crate) transport: Arc<Transport>,
 }
 
 impl RelayRig {
@@ -29,12 +28,11 @@ impl RelayRig {
         ));
         let origins = ExactOrigins::new(vec![CORE_ORIGIN.to_owned()], "crowbar-ext://{extension}");
         let (acceptor, dialer) = memory_listener(RELAY_PORT);
-        let relay = Relay::start_on(acceptor, Arc::clone(&transport), Arc::new(origins), config)?;
+        let relay = Relay::start_on(acceptor, transport, Arc::new(origins), config)?;
         Ok(Self {
             relay,
             dialer,
             daemon,
-            transport,
         })
     }
 

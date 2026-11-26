@@ -15,9 +15,7 @@ pub enum Covered {
 }
 
 impl Covered {
-    /// Whether a pane at `bounds` is under what is open.
-    #[must_use]
-    pub fn hides(
+    pub(crate) fn hides(
         &self,
         bounds: &Bounds,
     ) -> bool {

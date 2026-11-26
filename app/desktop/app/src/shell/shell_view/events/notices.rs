@@ -136,7 +136,8 @@ mod tests {
 
     use gpui::TestAppContext;
 
-    use crate::shell::shell_view::tests::{open_shell, open_started_shell};
+    use crate::shell::shell_view::test_support::notice_count;
+    use crate::shell::shell_view::tests::{Opened, open_shell, open_started_shell};
     use crate::shell::window::notice_key::NoticeKey;
 
     #[gpui::test]
@@ -194,19 +195,9 @@ mod tests {
         assert_eq!(*asked.borrow(), [request]);
     }
 
-    #[gpui::test]
-    fn a_notice_waits_while_the_window_is_inactive_and_runs_out_once_it_is_active_again(
-        cx: &mut TestAppContext
-    ) {
-        let mut opened = open_started_shell(cx);
-        let count = |opened: &mut crate::shell::shell_view::tests::Opened| {
-            opened
-                .shell
-                .read_with(&opened.window, |shell, cx| shell.notices.read(cx).len())
-        };
+    fn held_while_inactive(opened: &mut Opened) -> usize {
         opened.window.update(|window, _| window.activate_window());
-        opened.window.run_until_parked();
-        let base = count(&mut opened);
+        let base = notice_count(opened);
         opened.shell.update(&mut opened.window, |shell, cx| {
             let text = ("The command failed".to_owned(), NoticeKey::Command);
             shell.show_notice(text.1, (ui::ToastKind::Error, text.0), cx);
@@ -217,16 +208,24 @@ mod tests {
             .window
             .executor()
             .advance_clock(Duration::from_secs(60));
-        assert_eq!(count(&mut opened), base + 1, "held while nobody looks");
+        assert_eq!(notice_count(opened), base + 1, "held while nobody looks");
+        base
+    }
+
+    #[gpui::test]
+    fn a_notice_waits_while_the_window_is_inactive_and_runs_out_once_it_is_active_again(
+        cx: &mut TestAppContext
+    ) {
+        let mut opened = open_started_shell(cx);
+        let base = held_while_inactive(&mut opened);
         opened.window.update(|window, _| window.activate_window());
         opened.window.run_until_parked();
         opened
             .window
             .executor()
-            .advance_clock(Duration::from_secs(60));
-        opened.window.executor().advance_clock(ui::timing::SLOW);
+            .advance_clock(Duration::from_secs(60) + ui::timing::SLOW);
         assert_eq!(
-            count(&mut opened),
+            notice_count(&mut opened),
             base,
             "ran out once the window was active"
         );
@@ -235,29 +234,7 @@ mod tests {
     #[gpui::test]
     fn a_notice_runs_out_while_a_web_view_holds_the_window_s_keyboard(cx: &mut TestAppContext) {
         let mut opened = open_shell(cx);
-        let count = |opened: &mut crate::shell::shell_view::tests::Opened| {
-            opened
-                .shell
-                .read_with(&opened.window, |shell, cx| shell.notices.read(cx).len())
-        };
-        opened.window.update(|window, _| window.activate_window());
-        opened.window.run_until_parked();
-        let base = count(&mut opened);
-        opened.shell.update(&mut opened.window, |shell, cx| {
-            let text = ("The command failed".to_owned(), NoticeKey::Command);
-            shell.show_notice(text.1, (ui::ToastKind::Error, text.0), cx);
-        });
-        opened.window.deactivate_window();
-        opened.window.run_until_parked();
-        opened
-            .window
-            .executor()
-            .advance_clock(Duration::from_secs(60));
-        assert_eq!(
-            count(&mut opened),
-            base + 1,
-            "held while the keyboard is elsewhere"
-        );
+        let base = held_while_inactive(&mut opened);
         opened.window.update(|window, cx| {
             ui::WindowActivity::gained(window.window_handle().window_id(), cx);
         });
@@ -267,7 +244,7 @@ mod tests {
             .executor()
             .advance_clock(Duration::from_secs(60) + ui::timing::SLOW);
         assert_eq!(
-            count(&mut opened),
+            notice_count(&mut opened),
             base,
             "the keyboard stayed in the window"
         );

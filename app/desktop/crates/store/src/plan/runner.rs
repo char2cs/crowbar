@@ -201,7 +201,7 @@ fn fail(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
     use serde_json::json;
 
@@ -210,25 +210,13 @@ mod tests {
 
     use crate::live::PendingRow;
     use crate::plan::after::After;
-    use crate::test_support::state;
-
-    type Heard = Arc<Mutex<Vec<Outcome>>>;
-
-    fn sink() -> (OutcomeSink, Heard) {
-        let seen = Arc::new(Mutex::new(Vec::new()));
-        let keep = Arc::clone(&seen);
-        let sink: OutcomeSink = Arc::new(move |outcome| keep.lock().unwrap().push(outcome));
-        (sink, seen)
-    }
+    use crate::test_support::{AsyncCase, recorder, run_cases, state, watched};
 
     fn pending(id: &str) -> PendingRow {
         PendingRow {
             id: id.into(),
             label: "New thread".into(),
-            scope: String::new(),
-            parent: String::new(),
-            failure: None,
-            operation: None,
+            ..PendingRow::default()
         }
     }
 
@@ -246,7 +234,7 @@ mod tests {
         .showing(pending("n"))
         .then(After::OpenChat("n".into()))
         .with_provider();
-        let (outcome, seen) = sink();
+        let (outcome, seen) = recorder();
         run(&hub, plan, &outcome).await;
         let posted = daemon
             .seen()
@@ -272,7 +260,7 @@ mod tests {
         let plan = Plan::of("local", vec![call])
             .with_provider()
             .landing_on(Surface::Terminal);
-        run(&hub, plan, &sink().0).await;
+        run(&hub, plan, &recorder().0).await;
         let posted = daemon
             .seen()
             .into_iter()
@@ -295,7 +283,7 @@ mod tests {
         let hub = Hub::new(state, Arc::new(|| {}));
         let plan =
             Plan::of("local", vec![Call::post("/v0/projects/p/home/chats")]).showing(pending("n"));
-        let (outcome, seen) = sink();
+        let (outcome, seen) = recorder();
         run(&hub, plan, &outcome).await;
         assert_eq!(
             hub.read(|state| state.local_rows[0].failure.clone())
@@ -318,7 +306,7 @@ mod tests {
         let hub = Hub::new(state, Arc::new(|| {}));
         let plan = Plan::of("local", vec![Call::post("/v0/projects/p/home/chats")])
             .failing_as(Some("New thread failed".into()));
-        let (outcome, seen) = sink();
+        let (outcome, seen) = recorder();
         run(&hub, plan, &outcome).await;
         let refused = Outcome::Refused {
             title: "New thread failed".into(),
@@ -344,7 +332,7 @@ mod tests {
         let (state, daemon) = state();
         daemon.ok("GET", "/v0/settings/chat/providers", "[]");
         let hub = Hub::new(state, Arc::new(|| {}));
-        let (outcome, seen) = sink();
+        let (outcome, seen) = recorder();
         let plan = Plan::of("local", vec![Call::post("/v0/projects/p/home/chats")]).with_provider();
         run(&hub, plan, &outcome).await;
         assert!(daemon.seen().iter().all(|call| call.method == "GET"));
@@ -362,7 +350,7 @@ mod tests {
         let hub = Hub::new(state, Arc::new(|| {}));
         let plan = Plan::of("local", vec![Call::post("/v0/projects")])
             .then(After::SelectProject("q".into()));
-        run(&hub, plan, &sink().0).await;
+        run(&hub, plan, &recorder().0).await;
         assert_eq!(
             hub.read(|state| state.active_project.clone()).as_deref(),
             Some("q")
@@ -380,7 +368,12 @@ mod tests {
         let hub = Hub::new(state, Arc::new(|| {}));
         for path in ["commit", "refused"] {
             let call = Call::post(format!("/v0/chats/hc/git/{path}"));
-            run(&hub, Plan::of("local", vec![call]).committing(), &sink().0).await;
+            run(
+                &hub,
+                Plan::of("local", vec![call]).committing(),
+                &recorder().0,
+            )
+            .await;
             assert!(!hub.read(|state| state.panels.committing), "{path}");
         }
     }
@@ -388,22 +381,13 @@ mod tests {
     async fn an_icon_target_is_busy_while_its_request_runs_and_free_when_it_ends_either_way() {
         let (state, daemon) = state();
         daemon.ok("PUT", "/v0/projects/p/icon/emoji", "{}");
-        let hub_of = Arc::new(std::sync::OnceLock::<std::sync::Weak<Hub>>::new());
-        let marks = Arc::new(Mutex::new(Vec::new()));
-        let (reader, heard) = (Arc::clone(&hub_of), Arc::clone(&marks));
         let target = sidebar::IconTarget::Space(sidebar::ProjectId::from("p"));
-        let watched = target.clone();
-        let signal: crate::live::ChangeSignal = Arc::new(move || {
-            let hub = reader.get().and_then(std::sync::Weak::upgrade);
-            let busy = hub.map(|hub| hub.read(|state| state.marking.contains(&watched)));
-            heard.lock().unwrap().extend(busy);
-        });
-        let hub = Hub::new(state, signal);
-        hub_of.set(Arc::downgrade(&hub)).unwrap();
+        let busy = target.clone();
+        let (hub, marks) = watched(state, move |state| state.marking.contains(&busy));
         for path in ["emoji", "refused"] {
             let call = Call::put(format!("/v0/projects/p/icon/{path}"));
             let plan = Plan::of("local", vec![call]).marking(target.clone());
-            run(&hub, plan, &sink().0).await;
+            run(&hub, plan, &recorder().0).await;
         }
         assert_eq!(*marks.lock().unwrap(), [true, false, true, false]);
     }
@@ -415,7 +399,7 @@ mod tests {
         let hub = Hub::new(state, Arc::new(|| {}));
         let call = Call::post("/v0/projects/p/home/chats/folders");
         let plan = Plan::of("local", vec![call]).then(After::NameFolder);
-        let (outcome, seen) = sink();
+        let (outcome, seen) = recorder();
         run(&hub, plan, &outcome).await;
         let named = Outcome::NameRow {
             row: RowId::from("nf"),
@@ -433,7 +417,7 @@ mod tests {
         let path = plan.calls[0].path.clone();
         daemon.answer(("POST", &path), 400, NOT_A_BRANCH);
         let hub = Hub::new(state, Arc::new(|| {}));
-        let (outcome, seen) = sink();
+        let (outcome, seen) = recorder();
         run(&hub, plan.clone(), &outcome).await;
         daemon.ok("POST", &path, "{}");
         run(&hub, plan, &outcome).await;
@@ -448,9 +432,7 @@ mod tests {
         assert_eq!(*seen.lock().unwrap(), [refused, taken]);
     }
 
-    type Case = fn() -> std::pin::Pin<Box<dyn Future<Output = ()>>>;
-
-    const CASES: [Case; 10] = [
+    const CASES: [AsyncCase; 10] = [
         || Box::pin(a_branch_name_closes_its_input_when_taken_and_keeps_it_over_a_refusal()),
         || Box::pin(a_create_picks_an_agent_sends_its_call_and_opens_the_chat()),
         || {
@@ -471,14 +453,8 @@ mod tests {
         },
     ];
 
-    async fn run_all() {
-        for case in CASES {
-            case().await;
-        }
-    }
-
     #[tokio::test]
     async fn every_run_ends_as_its_command_says() {
-        run_all().await;
+        run_cases(&CASES).await;
     }
 }

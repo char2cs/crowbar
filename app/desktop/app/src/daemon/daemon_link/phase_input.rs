@@ -36,7 +36,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_event_maps_to_its_screen() {
+    fn every_event_and_outage_maps_to_its_screen() {
         let cases = [
             (DaemonEvent::Starting, startup::Input::Starting),
             (DaemonEvent::Restarted, startup::Input::Restarted),
@@ -57,11 +57,7 @@ mod tests {
             ),
         ];
         check(cases);
-    }
-
-    #[test]
-    fn outages_map_to_their_screens() {
-        let cases = [
+        let outages = [
             (
                 DaemonEvent::Unhealthy,
                 startup::Input::Unavailable(Outage::Unresponsive),
@@ -86,7 +82,7 @@ mod tests {
                 startup::Input::Unavailable(Outage::Stopped),
             ),
         ];
-        check(cases);
+        check(outages);
     }
 
     fn check<const N: usize>(cases: [(DaemonEvent, startup::Input); N]) {

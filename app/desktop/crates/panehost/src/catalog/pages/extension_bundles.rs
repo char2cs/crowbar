@@ -9,18 +9,9 @@ type Sources = Arc<RwLock<HashMap<ExtensionId, Arc<dyn BundleSource>>>>;
 
 /// The pane bundles of enabled extensions, shared between the host that registers them and
 /// the protocol router that serves them.
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct ExtensionBundles {
     sources: Sources,
-}
-
-impl std::fmt::Debug for ExtensionBundles {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
-        f.debug_struct("ExtensionBundles").finish_non_exhaustive()
-    }
 }
 
 impl ExtensionBundles {
@@ -66,6 +57,7 @@ mod tests {
     use super::*;
     use crate::catalog::pages::bundle_asset::BundleAsset;
 
+    #[derive(Debug)]
     struct One;
 
     impl BundleSource for One {

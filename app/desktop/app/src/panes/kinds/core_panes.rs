@@ -163,30 +163,19 @@ mod tests {
     ];
 
     #[test]
-    fn every_core_type_is_registered_and_only_ones_with_a_page_have_an_entry() {
-        let registry = registered();
+    fn every_core_type_is_registered_once_and_only_ones_with_a_page_have_an_entry() {
+        let mut registry = registered();
         for (id, bundled) in CASES {
             let pane_type = registry.get(&PaneTypeId::new(id).unwrap()).unwrap();
             assert_eq!(!pane_type.entry.is_empty(), bundled, "{id}");
         }
-    }
-
-    #[test]
-    fn a_chat_stays_mounted_when_it_is_not_showing() {
-        let registry = registered();
         let chat = registry.get(&chat_type().unwrap()).unwrap();
-        assert_eq!(chat.lifecycle, PaneLifecycle::KeepAlive, "never parked");
-    }
-
-    #[test]
-    fn a_second_registration_is_refused() {
-        let mut registry = registered();
-        assert!(register_core_panes(&mut registry, "chat/index.html").is_err());
-    }
-
-    #[test]
-    fn a_chat_is_identified_by_its_thread() {
-        let params = chat_params("t1").unwrap();
-        assert_eq!(params.get("threadId"), Some("t1"), "thread id");
+        assert_eq!(
+            chat.lifecycle,
+            PaneLifecycle::KeepAlive,
+            "a chat is never parked"
+        );
+        let again = register_core_panes(&mut registry, "chat/index.html");
+        assert!(again.is_err(), "a second registration is refused");
     }
 }

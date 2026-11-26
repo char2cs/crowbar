@@ -356,16 +356,10 @@ mod tests {
     }
 
     #[gpui::test]
-    fn an_open_overlay_gets_a_full_window_layer_and_a_closed_one_none(cx: &mut TestAppContext) {
-        let open = cx.new(|_| Probe);
-        assert!(layer(Some(&open)).is_some(), "open");
-        assert!(layer::<Probe>(None).is_none(), "closed");
-    }
-
-    #[gpui::test]
-    fn a_layer_is_pinned_to_every_window_edge_because_a_percent_size_collapses_in_the_live_window(
+    fn an_open_overlay_gets_a_layer_pinned_to_every_window_edge_and_a_closed_one_none(
         cx: &mut TestAppContext
     ) {
+        assert!(layer::<Probe>(None).is_none(), "closed");
         let open = cx.new(|_| Probe);
         let mut shown = layer(Some(&open)).expect("an open overlay has a layer");
         let inset = &shown.style().inset;
@@ -492,7 +486,7 @@ mod tests {
         assert_eq!(kept, ::sidebar::Visibility::Closed);
     }
 
-    fn views_set(
+    pub(super) fn views_set(
         mock: &webview::MockPlatform,
         wanted: webview::Visibility,
     ) -> usize {

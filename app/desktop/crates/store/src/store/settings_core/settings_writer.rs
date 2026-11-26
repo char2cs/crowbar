@@ -124,22 +124,13 @@ fn next(shared: &Shared) -> Option<BTreeMap<String, Value>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::FakeFiles;
+    use crate::test_support::{FakeFiles, Told, recorder};
 
     const PATH: &str = "/state/settings.json";
 
-    type Told = Arc<Mutex<Vec<Outcome>>>;
-
     fn writer_on(files: &Arc<FakeFiles>) -> (SettingsWriter, JsonFile, Told) {
         let file = JsonFile::new(PATH.into(), Arc::<FakeFiles>::clone(files));
-        let told = Arc::new(Mutex::new(Vec::new()));
-        let heard = Arc::clone(&told);
-        let outcome: OutcomeSink = Arc::new(move |said| {
-            heard
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .push(said);
-        });
+        let (outcome, told) = recorder();
         let writer = SettingsWriter::start(file.clone(), outcome).unwrap();
         (writer, file, told)
     }

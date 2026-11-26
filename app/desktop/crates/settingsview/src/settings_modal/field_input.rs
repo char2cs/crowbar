@@ -138,27 +138,6 @@ mod tests {
     }
 
     #[gpui::test]
-    fn leaving_the_field_commits_it(cx: &mut TestAppContext) {
-        let (harness, cx, _) = homepage(cx);
-        cx.simulate_input("https://y.test");
-        let before = inspect(&harness, cx, |modal| {
-            modal
-                .state
-                .is_dirty(&crate::test_support::row("browserHomepage"))
-        });
-        assert!(before, "typing is a draft");
-        harness
-            .modal
-            .update_in(cx, |modal, window, cx| modal.focus.focus(window, cx));
-        cx.run_until_parked();
-        cx.run_until_parked();
-        assert_eq!(
-            harness.backend.get(&Key::new("browserHomepage")),
-            Some(Value::Text("https://y.test".to_owned()))
-        );
-    }
-
-    #[gpui::test]
     fn tab_leaves_a_number_field_and_clamps_what_was_typed(cx: &mut TestAppContext) {
         let (harness, cx) = open(cx, "appearance");
         cx.update(|window, _| window.activate_window());

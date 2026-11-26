@@ -84,3 +84,36 @@ pub(crate) fn sync_shown(shell: &mut ShellState) {
         panehost::Overlays::default(),
     );
 }
+
+pub(crate) fn register_chat(
+    rig: &mut ShellRig,
+    pane: PaneId,
+) {
+    let register = protocol::PaneFrame::Register {
+        type_id: chat_type().unwrap(),
+        sdk: protocol::SDK_VERSION,
+    };
+    let text = protocol::encode(&register).unwrap();
+    rig.shell.handle_ipc(panehost::IpcMessage { pane, text });
+}
+
+pub(crate) fn page_takes_keys(
+    rig: &mut ShellRig,
+    pane: PaneId,
+) -> bool {
+    register_chat(rig, pane);
+    let before = rig.mock.calls().len();
+    rig.shell.apply_keyboard();
+    let calls = rig.mock.calls();
+    calls[before..]
+        .iter()
+        .any(|call| matches!(call, webview::Call::Focus { .. }))
+}
+
+pub(crate) fn evals_with(
+    rig: &ShellRig,
+    frame: &str,
+) -> usize {
+    let has = |call: &webview::Call| matches!(call, webview::Call::Eval { script, .. } if script.contains(frame));
+    rig.mock.calls().iter().filter(|call| has(call)).count()
+}

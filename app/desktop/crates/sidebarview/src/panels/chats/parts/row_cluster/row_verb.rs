@@ -221,15 +221,4 @@ mod tests {
         let want = Question::detach(row.id.clone(), "feature", Some("/w/main"));
         assert_eq!(asked, Some(Intent::Ask(want)));
     }
-
-    #[test]
-    fn intents_act_on_the_row() {
-        let row = branch(WorkspaceStatus::New, None);
-        assert_eq!(RowVerb::RepoMenu.intent(&row), None, "repo menu is a popup");
-        assert_eq!(
-            RowVerb::Fork.intent(&row),
-            Some(Intent::StartDraft(row.id.clone())),
-            "fork starts a draft"
-        );
-    }
 }

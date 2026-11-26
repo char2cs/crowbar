@@ -33,28 +33,13 @@ impl ShellState {
 mod tests {
     use store::HostSpec;
 
-    use crate::test_support::{shell_rig, synced_chat};
-
-    fn told(
-        rig: &crate::test_support::ShellRig,
-        frame: &str,
-    ) -> bool {
-        rig.mock.calls().into_iter().any(|call| match call {
-            webview::Call::Eval { script, .. } => script.contains(frame),
-            _ => false,
-        })
-    }
+    use crate::test_support::{evals_with, register_chat, shell_rig, synced_chat};
 
     #[test]
     fn a_mounted_pane_learns_the_hosts_the_shell_paired() {
         let mut rig = shell_rig();
         let pane = synced_chat(&mut rig);
-        let register = protocol::PaneFrame::Register {
-            type_id: crate::panes::kinds::core_panes::chat_type().unwrap(),
-            sdk: protocol::SDK_VERSION,
-        };
-        let text = protocol::encode(&register).unwrap();
-        rig.shell.handle_ipc(panehost::IpcMessage { pane, text });
+        register_chat(&mut rig, pane);
         let rigremote = HostSpec {
             id: "h1".into(),
             name: "rigremote".into(),
@@ -62,6 +47,6 @@ mod tests {
         };
         rig.shell.set_paired_hosts(&[rigremote]);
         let frame = r#"{\"sdk\":1,\"kind\":\"hosts\",\"hosts\":[{\"id\":\"h1\",\"name\":\"rigremote\",\"endpoint\":\"127.0.0.1:4747\"}]}"#;
-        assert!(told(&rig, frame), "{:?}", rig.mock.calls());
+        assert!(evals_with(&rig, frame) > 0, "{:?}", rig.mock.calls());
     }
 }

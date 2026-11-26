@@ -73,29 +73,16 @@ mod tests {
     use sidebar::{Command, RowId};
 
     #[test]
-    fn constructors_set_the_tone() {
+    fn only_a_destructive_entry_takes_the_destructive_tone() {
         let intent = Intent::Send(Command::Lock(RowId::from("r")));
-        let normal = MenuEntry::action("Lock", IconName::Lock, intent.clone());
-        let destructive = MenuEntry::destructive("Delete", IconName::Trash, intent);
-        assert!(
-            matches!(
-                normal,
-                MenuEntry::Action {
-                    tone: Tone::Normal,
-                    ..
-                }
-            ),
-            "normal"
-        );
-        assert!(
-            matches!(
-                destructive,
-                MenuEntry::Action {
-                    tone: Tone::Destructive,
-                    ..
-                }
-            ),
-            "destructive"
-        );
+        let tones = [
+            MenuEntry::action("Lock", IconName::Lock, intent.clone()),
+            MenuEntry::destructive("Delete", IconName::Trash, intent),
+        ]
+        .map(|entry| match entry {
+            MenuEntry::Action { tone, .. } => Some(tone),
+            _ => None,
+        });
+        assert_eq!(tones, [Some(Tone::Normal), Some(Tone::Destructive)]);
     }
 }

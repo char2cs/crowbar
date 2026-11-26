@@ -2,12 +2,12 @@ mod daemon;
 mod documents;
 mod fake_space;
 mod idle_terminals;
+mod layouts;
 mod mock_host;
 mod native;
 mod settled;
 mod shell_rig;
 mod storage;
-mod terminal_layout;
 
 pub(crate) use daemon::daemon_link::link_without_daemon;
 pub(crate) use daemon::daemon_options::options_without_a_daemon;
@@ -17,13 +17,16 @@ pub(crate) use documents::fake_servers::FakeServers;
 pub(crate) use documents::memory_drafts::{MemoryDraftFile, memory_drafts};
 pub(crate) use fake_space::FakeSpace;
 pub(crate) use idle_terminals::{heard_terminals, idle_terminals, idle_terminals_into};
+pub(crate) use layouts::{add_tab, chat_pane, one_tab, open_in, pane, terminal_layout};
 pub(crate) use mock_host::mock_host;
 pub(crate) use native::file_choices::answer_choices_with;
 pub(crate) use native::keys_bound::keys_bound_to;
 pub(crate) use native::native_menus::answer_menus_with;
 pub(crate) use settled::settled;
-pub(crate) use shell_rig::{ShellRig, open_chat, resync, shell_rig, sync_shown, synced_chat};
+pub(crate) use shell_rig::{
+    ShellRig, evals_with, open_chat, page_takes_keys, register_chat, resync, shell_rig, sync_shown,
+    synced_chat,
+};
 pub(crate) use storage::fixed_clock::FixedClock;
 pub(crate) use storage::memory_files::{LAYOUT_PATH, MemoryFiles};
 pub(crate) use storage::memory_preferences::MemoryPreferences;
-pub(crate) use terminal_layout::terminal_layout;

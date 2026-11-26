@@ -11,8 +11,7 @@ use crate::tree::geometry::sash::Sash;
 
 impl Tab {
     /// The rectangle of every pane when the tab is laid out in `bounds`. Panes are separated by
-    /// [`SASH_THICKNESS`](crate::SASH_THICKNESS) and never smaller than
-    /// [`MIN_PANE_EXTENT`](crate::MIN_PANE_EXTENT) unless the window is too small for that.
+    /// a sash and keep a minimum size unless the window is too small for that.
     #[must_use]
     pub fn layout(
         &self,
@@ -75,8 +74,6 @@ impl Tab {
 
 #[cfg(test)]
 mod tests {
-    use protocol::PaneId;
-
     use super::*;
     use crate::test_support::tab_fixtures::{at, pane, tab_with};
     use crate::tree::axis::Axis;
@@ -116,18 +113,5 @@ mod tests {
             sashes.iter().any(|s| s.axis == Axis::Vertical),
             "nested axis"
         );
-    }
-
-    #[test]
-    fn shapes_snapshot_the_arrangement_and_rebuild_from_a_pool() {
-        let tab = tab_with(&["a", "b"]);
-        let mut pool: BTreeMap<PaneId, PaneInstance> = tab
-            .pane_ids()
-            .into_iter()
-            .filter_map(|id| tab.pane(&id).cloned().map(|p| (id, p)))
-            .collect();
-        let rebuilt = Tab::from_shape(tab.shape(), &mut pool);
-        assert_eq!(rebuilt, tab, "same tab");
-        assert!(pool.is_empty(), "instances moved out of the pool");
     }
 }

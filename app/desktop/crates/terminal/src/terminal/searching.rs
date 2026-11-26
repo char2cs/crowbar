@@ -63,21 +63,21 @@ mod tests {
     use crate::terminal::wire::DaemonFrame;
     use crate::test_support::terminal_showing;
 
-    fn shown(output: &str) -> Terminal {
-        terminal_showing(output, 40, 6)
+    fn query(
+        text: &str,
+        options: SearchOptions,
+    ) -> SearchQuery {
+        SearchQuery {
+            text: text.into(),
+            options,
+        }
     }
 
     #[test]
     fn search_counts_and_steps_through_matches() {
-        let mut terminal = shown("one two ONE");
-        let query = SearchQuery {
-            text: "one".into(),
-            options: SearchOptions::NONE,
-        };
-        assert_eq!(
-            terminal.search(query).map(|summary| summary.total).ok(),
-            Some(2)
-        );
+        let mut terminal = terminal_showing("one two ONE", 40, 6);
+        let summary = terminal.search(query("one", SearchOptions::NONE));
+        assert_eq!(summary.map(|summary| summary.total).ok(), Some(2));
         assert_eq!(terminal.search_next().current, 2);
         assert_eq!(terminal.search_previous().current, 1);
         terminal.clear_search();
@@ -90,12 +90,9 @@ mod tests {
 
     #[test]
     fn a_batch_updates_the_search_matches_once_for_all_its_frames() {
-        let mut terminal = shown("");
-        let query = SearchQuery {
-            text: "ab".into(),
-            options: SearchOptions::NONE,
-        };
-        assert_eq!(terminal.search(query).map(|s| s.total).ok(), Some(0));
+        let mut terminal = terminal_showing("", 40, 6);
+        let started = terminal.search(query("ab", SearchOptions::NONE));
+        assert_eq!(started.map(|summary| summary.total).ok(), Some(0));
         let frames = [
             DaemonFrame::Output(b"ab ".to_vec()),
             DaemonFrame::Output(b"ab ".to_vec()),
@@ -109,22 +106,14 @@ mod tests {
     #[test]
     fn queries_compile_or_are_refused() {
         let cases = [
-            ("one", SearchOptions::NONE, true),
-            ("(", SearchOptions::REGEX, false),
+            ("one", SearchOptions::NONE, Some(1)),
+            ("", SearchOptions::NONE, Some(0)),
+            ("(", SearchOptions::REGEX, None),
         ];
-        for (text, options, accepted) in cases {
-            assert_eq!(accepts(text, options), accepted, "{text}");
+        for (text, options, total) in cases {
+            let mut terminal = terminal_showing("one", 40, 6);
+            let found = terminal.search(query(text, options)).ok();
+            assert_eq!(found.map(|summary| summary.total), total, "{text}");
         }
-    }
-
-    fn accepts(
-        text: &str,
-        options: SearchOptions,
-    ) -> bool {
-        let query = SearchQuery {
-            text: text.into(),
-            options,
-        };
-        shown("one").search(query).is_ok()
     }
 }

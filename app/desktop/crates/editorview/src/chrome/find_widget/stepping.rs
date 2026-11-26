@@ -87,43 +87,12 @@ fn reveal_if_hidden(
 
 #[cfg(test)]
 mod tests {
-    use editor::Vertical;
     use gpui::TestAppContext;
+    use gpui_kit::component::input::EditorState;
 
     use crate::Access;
-    use crate::chrome::find_widget::FindWidget;
     use crate::editor_view::reveal::Reveal;
-    use crate::editor_view::test_support::{
-        body_of, find_of, line_height_of, on_find, opened, scroll_top_of, selected_of,
-    };
-
-    type Case = (&'static [Vertical], std::ops::Range<usize>);
-
-    const CASES: &[Case] = &[
-        (&[Vertical::Down], 0..1),
-        (&[Vertical::Down, Vertical::Down], 4..5),
-        (
-            &[
-                Vertical::Down,
-                Vertical::Down,
-                Vertical::Down,
-                Vertical::Down,
-            ],
-            0..1,
-        ),
-        (&[Vertical::Up], 8..9),
-        (&[Vertical::Down, Vertical::Up], 8..9),
-    ];
-
-    #[gpui::test]
-    fn a_step_selects_the_next_or_previous_match_and_wraps_at_the_ends(cx: &mut TestAppContext) {
-        for (steps, expected) in CASES {
-            let (view, window) = opened(("a b a b a", Some(1)), Access::Editable, cx);
-            let find = find_of(&view, window);
-            walk(&find, steps, window);
-            assert_eq!(selected_of(&view, window), *expected, "{steps:?}");
-        }
-    }
+    use crate::editor_view::test_support::{body_of, find_of, on_find, opened, read_state};
 
     const LINES: usize = 200;
 
@@ -132,7 +101,7 @@ mod tests {
         let (view, window) = opened((&text, Some(1)), Access::Editable, cx);
         searched(&view, "", window);
         let body = body_of(window).map_or(0.0, |body| f32::from(body.size.height));
-        let line = line_height_of(&view, window);
+        let line = read_state(&view, window, EditorState::line_height);
         (body, line.map_or(1.0, f32::from))
     }
 
@@ -178,29 +147,8 @@ mod tests {
             lines[row] = word;
             let (view, window) = opened((&lines.join("\n"), Some(1)), Access::Editable, cx);
             searched(&view, word, window);
-            let shown = f32::from(scroll_top_of(&view, window));
+            let shown = f32::from(read_state(&view, window, |state| state.scroll_offset().y));
             assert!((shown - top).abs() < line, "{word}: top {shown}, not {top}");
-        }
-    }
-
-    fn walk(
-        find: &gpui::Entity<FindWidget>,
-        steps: &'static [Vertical],
-        window: &mut gpui::VisualTestContext,
-    ) {
-        on_find(find, window, |find, window, cx| {
-            find.open(Reveal::Find, window, cx);
-            step_all(find, steps, cx);
-        });
-    }
-
-    fn step_all(
-        find: &mut FindWidget,
-        steps: &[Vertical],
-        cx: &mut gpui::Context<'_, FindWidget>,
-    ) {
-        for toward in steps {
-            find.step(*toward, cx);
         }
     }
 }

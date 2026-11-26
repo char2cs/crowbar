@@ -137,41 +137,33 @@ mod tests {
     use crate::terminal::snapshot_builder::viewport_of;
     use crate::test_support::emulator_showing;
 
-    fn started(text: &str) -> (Term<crate::terminal::EventSink>, SearchState) {
-        let term = emulator_showing("cat dog cat", 20, 3);
-        let query = SearchQuery {
-            text: text.into(),
-            options: SearchOptions::NONE,
-        };
-        let state =
-            SearchState::start(&term, query, Line(0)).unwrap_or_else(|error| panic!("{error}"));
-        (term, state)
-    }
-
     #[test]
     fn matches_are_counted_stepped_and_highlighted() {
-        let (term, mut state) = started("cat");
-        assert_eq!((state.summary().current, state.summary().total), (1, 2));
-        state.advance();
-        assert_eq!(state.summary().current, 2);
-        state.advance();
-        assert_eq!(state.summary().current, 1);
-        state.retreat();
-        assert_eq!(state.summary().current, 2);
-        let viewport = viewport_of(&term);
-        assert_eq!(state.others(&viewport).len(), 1);
-        assert_eq!(state.current_highlights(&viewport).len(), 1);
-    }
-
-    #[test]
-    fn an_empty_query_matches_nothing_and_a_bad_pattern_fails() {
-        let (_, state) = started("");
-        assert_eq!(state.summary().total, 0);
-        let term = emulator_showing("", 5, 2);
+        let term = emulator_showing("cat dog cat", 20, 3);
         let query = SearchQuery {
-            text: "(".into(),
-            options: SearchOptions::REGEX,
+            text: "cat".into(),
+            options: SearchOptions::NONE,
         };
-        assert!(SearchState::start(&term, query, Line(0)).is_err());
+        let started = SearchState::start(&term, query, Line(0));
+        let Ok(mut state) = started else {
+            panic!("a plain query compiles");
+        };
+        let mut steps = vec![state.summary()];
+        for step in [
+            SearchState::advance,
+            SearchState::advance,
+            SearchState::retreat,
+        ] {
+            step(&mut state);
+            steps.push(state.summary());
+        }
+        let current: Vec<(usize, usize)> = steps.iter().map(|s| (s.current, s.total)).collect();
+        assert_eq!(current, [(1, 2), (2, 2), (1, 2), (2, 2)]);
+        let viewport = viewport_of(&term);
+        let shown = (
+            state.others(&viewport).len(),
+            state.current_highlights(&viewport).len(),
+        );
+        assert_eq!(shown, (1, 1));
     }
 }

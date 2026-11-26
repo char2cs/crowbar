@@ -1,4 +1,6 @@
-//! Finds the link under a cell.
+//! Finds the link under a cell among the OSC 8 hyperlinks and the URLs and paths in the text.
+
+use std::ops::Range;
 
 use alacritty_terminal::event::EventListener;
 use alacritty_terminal::grid::Dimensions;
@@ -9,7 +11,10 @@ use crate::hyperlink::link::Link;
 use crate::hyperlink::link_target::LinkTarget;
 use crate::hyperlink::link_token::LinkToken;
 use crate::hyperlink::logical_line::LogicalLine;
-use crate::hyperlink::tokens::tokenize;
+use crate::hyperlink::scan::PathMatch;
+use crate::hyperlink::scan::address_runs;
+use crate::hyperlink::scan::find_paths;
+use crate::hyperlink::scan::find_urls;
 use crate::snapshot::Highlight;
 use crate::snapshot::Viewport;
 
@@ -109,45 +114,92 @@ fn extend_or_push(
     });
 }
 
+fn tokenize(text: &str) -> Vec<LinkToken> {
+    let runs = address_runs(text);
+    let urls = find_urls(text)
+        .into_iter()
+        .filter_map(|span| url_token(text, span));
+    let files = find_paths(text)
+        .into_iter()
+        .filter_map(|found| file_token(text, &found, &runs));
+    urls.chain(files).collect()
+}
+
+fn url_token(
+    text: &str,
+    span: Range<usize>,
+) -> Option<LinkToken> {
+    let address = text.get(span.clone())?.to_owned();
+    Some(LinkToken {
+        target: LinkTarget::Url(address),
+        start: span.start,
+        end: span.end,
+    })
+}
+
+fn file_token(
+    text: &str,
+    found: &PathMatch,
+    runs: &[Range<usize>],
+) -> Option<LinkToken> {
+    let inside_address = runs.iter().any(|run| run.contains(&found.span.start));
+    if inside_address {
+        return None;
+    }
+    let path = text.get(found.span.start..found.path_end)?.to_owned();
+    let target = LinkTarget::File {
+        path,
+        line: found.line,
+    };
+    Some(LinkToken {
+        target,
+        start: found.span.start,
+        end: found.span.end,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::terminal::snapshot_builder::viewport_of;
     use crate::test_support::emulator_showing;
 
+    type Found = (LinkTarget, Vec<(usize, usize)>);
+
     fn link_in(
         output: &str,
         column: usize,
-    ) -> Option<Link> {
+    ) -> Option<Found> {
         let term = emulator_showing(output, 30, 4);
-        find_link(&term, &viewport_of(&term), Line(0), column)
+        let link = find_link(&term, &viewport_of(&term), Line(0), column)?;
+        let cells = link
+            .cells
+            .iter()
+            .map(|cell| (cell.start_column, cell.end_column));
+        Some((link.target, cells.collect()))
     }
 
     #[test]
     fn urls_and_files_are_found_under_the_pointer_only() {
-        let url = link_in("go to https://x.dev/a now", 9);
-        assert_eq!(
-            url.map(|link| link.target),
-            Some(LinkTarget::Url("https://x.dev/a".into()))
-        );
-        let file = link_in("at src/main.rs:12", 5);
-        let expected = LinkTarget::File {
+        let url = |address: &str| LinkTarget::Url(address.into());
+        let file = LinkTarget::File {
             path: "src/main.rs".into(),
             line: Some(12),
         };
-        assert_eq!(file.map(|link| link.target), Some(expected));
-        assert!(link_in("plain words", 2).is_none());
-    }
-
-    #[test]
-    fn the_link_covers_its_cells() {
-        let link = link_in("x https://a.dev/b", 4);
-        let cells = link.map_or_else(Vec::new, |link| link.cells);
-        assert_eq!(
-            cells
-                .first()
-                .map(|cell| (cell.start_column, cell.end_column)),
-            Some((2, 17))
-        );
+        let hyperlink = "\x1b]8;;https://h.dev\x1b\\docs\x1b]8;;\x1b\\ x";
+        let cases = [
+            (
+                "go to https://x.dev/a now",
+                9,
+                Some((url("https://x.dev/a"), vec![(6, 21)])),
+            ),
+            ("at src/main.rs:12", 5, Some((file, vec![(3, 17)]))),
+            ("www.x.com/y", 2, None),
+            ("plain words", 2, None),
+            (hyperlink, 1, Some((url("https://h.dev"), vec![(0, 4)]))),
+        ];
+        for (output, column, expected) in cases {
+            assert_eq!(link_in(output, column), expected, "{output:?}");
+        }
     }
 }

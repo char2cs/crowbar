@@ -40,13 +40,7 @@ mod tests {
                 .iter()
                 .any(|(name, value)| name == "content-type" && value == "application/yaml")
         );
-    }
-
-    #[tokio::test]
-    async fn a_null_answer_lists_no_descriptors() {
-        let (state, daemon) = state();
-        let client = state.hosts[0].client.clone();
         daemon.ok("GET", PATH, "null");
-        assert_eq!(list(&client).await.unwrap().len(), 0);
+        assert_eq!(list(&client).await.unwrap().len(), 0, "a null answer lists none");
     }
 }

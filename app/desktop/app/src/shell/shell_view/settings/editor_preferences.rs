@@ -83,11 +83,6 @@ mod tests {
     }
 
     #[test]
-    fn nothing_stored_keeps_develop_s_defaults() {
-        assert_eq!(editor_settings(|_| None), editorview::Settings::default());
-    }
-
-    #[test]
     fn every_stored_setting_reaches_the_editor() {
         let stored: Stored = BTreeMap::from([
             ("fontSize", Value::Number(18.0)),
@@ -117,8 +112,9 @@ mod tests {
     }
 
     #[test]
-    fn out_of_range_or_unknown_values_are_held_to_what_develop_allows() {
+    fn nothing_stored_or_out_of_range_or_unknown_values_keep_what_develop_allows() {
         let default = editorview::Settings::default();
+        assert_eq!(editor_settings(|_| None), default, "nothing stored");
         let cases: [(&str, Value, editorview::Settings); 6] = [
             (
                 "fontSize",

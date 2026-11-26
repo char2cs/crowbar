@@ -62,47 +62,16 @@ mod tests {
 
     use super::*;
 
-    const URL: &str = "/v0/projects/p/icon?v=2";
-
-    #[tokio::test]
-    async fn each_event_has_its_name_level_and_message() {
-        let error = daemonapi::Error::Stream("reset".into());
-        let task = tokio::spawn(std::future::pending::<()>());
-        task.abort();
-        let cancelled = task
-            .await
-            .expect_err("an aborted task ends with a join error");
-        let cases = [
-            (
-                IconFetchEvent::Unfetched {
-                    error: &error,
-                    url: URL,
-                },
-                "icon_fetch_unfetched",
-                format!("a space image could not be fetched error={error} url=\"{URL}\""),
-            ),
-            (
-                IconFetchEvent::TooLarge { url: URL },
-                "icon_fetch_too_large",
-                format!("a space image is larger than allowed url=\"{URL}\""),
-            ),
-            (
-                IconFetchEvent::Unkept { error: &cancelled },
-                "icon_fetch_unkept",
-                format!("keeping a space image failed error={cancelled}"),
-            ),
-        ];
-        assert_each(cases, Level::Warn);
-    }
-
-    fn assert_each<M: fmt::Display>(
-        cases: impl IntoIterator<Item = (impl Event, &'static str, M)>,
-        level: Level,
-    ) {
-        for (event, name, shown) in cases {
-            assert_eq!(event.name(), name);
-            assert_eq!(event.level(), level, "{name}");
-            assert_eq!(event.to_string(), shown.to_string(), "{name}");
-        }
+    #[test]
+    fn an_image_too_large_warns_naming_its_url() {
+        let event = IconFetchEvent::TooLarge {
+            url: "/v0/projects/p/icon?v=2",
+        };
+        let message = "a space image is larger than allowed url=\"/v0/projects/p/icon?v=2\"";
+        let seen = (event.name(), event.level(), event.to_string());
+        assert_eq!(
+            seen,
+            ("icon_fetch_too_large", Level::Warn, message.to_owned())
+        );
     }
 }

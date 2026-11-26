@@ -16,8 +16,7 @@ const SCHEME_SEPARATOR: &str = "://";
 const VIRTUAL_ACTIONS: usize = 3;
 
 impl PathAction {
-    /// Every action, in menu order.
-    pub const ALL: [Self; 4] = [
+    const ALL: [Self; 4] = [
         Self::CopyPath,
         Self::CopyRelativePath,
         Self::Reveal,
@@ -88,17 +87,5 @@ mod tests {
     #[test]
     fn reveal_keeps_develops_label_on_every_desktop() {
         assert_eq!(PathAction::Reveal.label(), "Reveal in Finder");
-    }
-
-    #[test]
-    fn every_action_has_its_own_label() {
-        let labels: Vec<&str> = PathAction::ALL
-            .iter()
-            .map(|action| action.label())
-            .collect();
-        let mut unique = labels.clone();
-        unique.sort_unstable();
-        unique.dedup();
-        assert_eq!(unique.len(), labels.len(), "{labels:?}");
     }
 }

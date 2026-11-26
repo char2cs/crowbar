@@ -61,19 +61,8 @@ fn serial_of(id: &str) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
-    use layout::{Command, PaneInstance, TabId};
-    use protocol::{PaneId, PaneState, PaneTypeId, Params};
-
     use super::*;
-
-    fn chat_instance(id: &str) -> PaneInstance {
-        PaneInstance {
-            pane_id: PaneId::new(id).unwrap(),
-            type_id: PaneTypeId::new("core.chat").unwrap(),
-            params: Params::default(),
-            state: PaneState::default(),
-        }
-    }
+    use crate::test_support::{add_tab, open_in, pane};
 
     struct Case {
         what: &'static str,
@@ -103,33 +92,14 @@ mod tests {
         },
     ];
 
-    fn open_command(
-        tab: TabId,
-        id: &str,
-    ) -> Command {
-        Command::OpenPane {
-            tab,
-            instance: chat_instance(id),
-            placement: None,
-        }
-    }
-
     fn layout_of(ids: &[&str]) -> Layout {
         let mut layout = Layout::default();
         if ids.is_empty() {
             return layout;
         }
-        let tab = TabId(7);
-        let title = "t".into();
-        layout
-            .apply(Command::AddTab {
-                id: tab,
-                title,
-                space: layout::SpaceId::default(),
-            })
-            .unwrap();
+        add_tab(&mut layout, 7);
         for id in ids {
-            layout.apply(open_command(tab, id)).unwrap();
+            open_in(&mut layout, 7, pane(id, "core.chat"));
         }
         layout
     }
@@ -138,7 +108,7 @@ mod tests {
     fn ids_continue_above_the_ones_in_use_and_browsers_share_the_pane_counter() {
         for case in CASES {
             let serials = Serials::above(&layout_of(case.ids));
-            let tab = TabId(case.next_tab);
+            let tab = layout::TabId(case.next_tab);
             assert_eq!(serials.next_tab(), tab, "{}: tab", case.what);
             let heard = [
                 serials.next_pane(),

@@ -1,6 +1,6 @@
-//! Turns the emulator's colour references into concrete colours.
+//! Turns the emulator's colour references, and a cell's text and fill, into concrete colours.
 
-use alacritty_terminal::term::cell::Flags;
+use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::vte::ansi::{Color, NamedColor, Rgb as AnsiRgb};
 
@@ -13,6 +13,7 @@ const DIM_LAST: usize = NamedColor::DimWhite as usize;
 const BACKGROUND: usize = NamedColor::Background as usize;
 const CURSOR: usize = NamedColor::Cursor as usize;
 const DIM_FOREGROUND: usize = NamedColor::DimForeground as usize;
+const XTERM_CLEAR_AS_INK: Rgb = Rgb::from_hex(0);
 
 #[derive(Clone, Copy)]
 pub(crate) struct ColorSource<'a> {
@@ -90,6 +91,36 @@ fn from_ansi(color: AnsiRgb) -> Rgb {
     }
 }
 
+pub(crate) fn cell_colors(
+    colors: &ColorSource<'_>,
+    cell: &Cell,
+) -> (Rgb, Rgb) {
+    let flags = cell.flags;
+    let mut foreground = colors.resolve(cell.fg, flags);
+    let mut background = colors.resolve(cell.bg, Flags::empty());
+    if flags.contains(Flags::INVERSE) {
+        std::mem::swap(&mut foreground, &mut background);
+        foreground = inverse_ink(colors, foreground);
+    }
+    if flags.contains(Flags::DIM) {
+        foreground = foreground.dimmed();
+    }
+    if flags.contains(Flags::HIDDEN) {
+        foreground = background;
+    }
+    (foreground, background)
+}
+
+fn inverse_ink(
+    colors: &ColorSource<'_>,
+    ink: Rgb,
+) -> Rgb {
+    if ink == colors.palette.background {
+        return XTERM_CLEAR_AS_INK;
+    }
+    ink
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -106,10 +137,16 @@ mod tests {
         }
     }
 
-    fn cases(palette: &Palette) -> Vec<(Color, Flags, Rgb)> {
-        let none = Flags::empty();
-        let named = |color| Color::Named(color);
-        vec![
+    #[test]
+    fn colours_resolve_from_the_palette() {
+        let palette = palette();
+        let overrides = Colors::default();
+        let source = ColorSource {
+            palette: &palette,
+            overrides: &overrides,
+        };
+        let (none, named) = (Flags::empty(), Color::Named);
+        let cases = vec![
             (named(NamedColor::Red), none, palette.ansi[1]),
             (named(NamedColor::Red), Flags::BOLD, palette.ansi[9]),
             (named(NamedColor::Foreground), none, palette.foreground),
@@ -121,18 +158,8 @@ mod tests {
                 none,
                 Rgb::from_hex(0x01_0203),
             ),
-        ]
-    }
-
-    #[test]
-    fn colours_resolve_from_the_palette() {
-        let palette = palette();
-        let overrides = Colors::default();
-        let source = ColorSource {
-            palette: &palette,
-            overrides: &overrides,
-        };
-        for (color, flags, expected) in cases(&palette) {
+        ];
+        for (color, flags, expected) in cases {
             assert_eq!(
                 source.resolve(color, flags),
                 expected,
@@ -152,5 +179,21 @@ mod tests {
         };
         let resolved = source.resolve(Color::Named(NamedColor::Foreground), Flags::empty());
         assert_eq!(resolved.to_hex(), 0x09_0909);
+    }
+
+    #[test]
+    fn inverse_text_on_the_default_background_is_black_as_xterm_draws_it() {
+        let palette = palette();
+        let overrides = Colors::default();
+        let colors = ColorSource {
+            palette: &palette,
+            overrides: &overrides,
+        };
+        let cell = Cell {
+            flags: Flags::INVERSE,
+            ..Cell::default()
+        };
+        let drawn = cell_colors(&colors, &cell);
+        assert_eq!(drawn, (XTERM_CLEAR_AS_INK, palette.foreground));
     }
 }

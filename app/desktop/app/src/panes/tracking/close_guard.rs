@@ -34,39 +34,11 @@ pub(crate) fn dirty_among(
 
 #[cfg(test)]
 mod tests {
-    use layout::{PaneInstance, TabId};
-    use protocol::PaneState;
+    use layout::TabId;
 
     use super::*;
-    use crate::panes::kinds::core_panes::{chat_params, chat_type};
-
-    fn open_chat(id: &str) -> Command {
-        let instance = PaneInstance {
-            pane_id: PaneId::new(id).unwrap(),
-            type_id: chat_type().unwrap(),
-            params: chat_params(id).unwrap(),
-            state: PaneState::default(),
-        };
-        Command::OpenPane {
-            tab: TabId(1),
-            instance,
-            placement: None,
-        }
-    }
-
-    fn layout_with(panes: &[&str]) -> Layout {
-        let mut layout = Layout::default();
-        let add = Command::AddTab {
-            id: TabId(1),
-            title: String::new(),
-            space: layout::SpaceId::default(),
-        };
-        layout.apply(add).unwrap();
-        for id in panes {
-            layout.apply(open_chat(id)).unwrap();
-        }
-        layout
-    }
+    use crate::panes::kinds::core_panes::CHAT;
+    use crate::test_support::{chat_pane, one_tab};
 
     fn close(pane: &str) -> Command {
         Command::ClosePane {
@@ -83,63 +55,41 @@ mod tests {
         }
     }
 
-    struct Case {
-        name: &'static str,
-        commands: Vec<Command>,
-        expected: Vec<&'static str>,
-    }
-
     #[test]
     fn only_dirty_panes_the_commands_close_are_named_once_each() {
-        let layout = layout_with(&["a", "b", "c"]);
+        let layout = one_tab(["a", "b", "c"].map(|id| chat_pane((id, CHAT), id)));
         let flags = DirtyPanes::default();
         flags.mark(PaneId::new("a").unwrap());
         flags.mark(PaneId::new("c").unwrap());
-        let cases = [
-            Case {
-                name: "one dirty pane",
-                commands: vec![close("a")],
-                expected: vec!["a"],
-            },
-            Case {
-                name: "a clean pane",
-                commands: vec![close("b")],
-                expected: vec![],
-            },
-            Case {
-                name: "bulk close names each once",
-                commands: vec![close("a"), close("a"), close("b")],
-                expected: vec!["a"],
-            },
-            Case {
-                name: "a bulk close names the dirty panes among its list",
-                commands: vec![close_many(&["a", "b"])],
-                expected: vec!["a"],
-            },
-            Case {
-                name: "closing the tab names every dirty pane in it",
-                commands: vec![Command::CloseTab { tab: TabId(1) }],
-                expected: vec!["a", "c"],
-            },
-        ];
-        for case in cases {
-            let named: Vec<String> = dirty_among(&layout, &case.commands, &flags)
-                .iter()
-                .map(ToString::to_string)
-                .collect();
-            assert_eq!(named, case.expected, "{}", case.name);
-        }
-    }
-
-    #[test]
-    fn commands_that_close_nothing_name_nothing() {
-        let layout = layout_with(&["a"]);
-        let flags = DirtyPanes::default();
-        flags.mark(PaneId::new("a").unwrap());
         let focus = Command::FocusPane {
             pane: PaneId::new("a").unwrap(),
         };
-        let named = dirty_among(&layout, &[focus], &flags);
-        assert!(named.is_empty(), "closes nothing: {named:?}");
+        let cases = [
+            ("one dirty pane", vec![close("a")], vec!["a"]),
+            ("a clean pane", vec![close("b")], vec![]),
+            (
+                "bulk close names each once",
+                vec![close("a"), close("a"), close("b")],
+                vec!["a"],
+            ),
+            (
+                "a bulk close names the dirty panes among its list",
+                vec![close_many(&["a", "b"])],
+                vec!["a"],
+            ),
+            (
+                "closing the tab names every dirty pane in it",
+                vec![Command::CloseTab { tab: TabId(1) }],
+                vec!["a", "c"],
+            ),
+            ("a command that closes nothing", vec![focus], vec![]),
+        ];
+        for (name, commands, expected) in cases {
+            let named: Vec<String> = dirty_among(&layout, &commands, &flags)
+                .iter()
+                .map(ToString::to_string)
+                .collect();
+            assert_eq!(named, expected, "{name}");
+        }
     }
 }

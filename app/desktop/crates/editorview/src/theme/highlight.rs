@@ -113,13 +113,6 @@ mod tests {
         }
     }
 
-    fn markdown_styles(
-        text: &str,
-        palette: &Palette,
-    ) -> Vec<(std::ops::Range<usize>, HighlightStyle)> {
-        styles_of(("markdown", text), palette)
-    }
-
     fn styles_of(
         (language, text): (&str, &str),
         palette: &Palette,
@@ -143,66 +136,46 @@ mod tests {
     }
 
     #[test]
-    fn a_markdown_heading_is_a_keyword_from_its_marker_on_as_develop_s_editor_paints_it() {
-        let palette = Theme::default()
-            .with_mode(ThemeMode::Dark)
-            .palette(Surface::Window);
-        let text = "# checkout\n\nTitle\n=====\n";
-        let styles = markdown_styles(text, palette);
-        let cases = [
-            ("the marker", 0, Some(palette.syntax_keyword())),
-            ("the heading text", 2, Some(palette.syntax_keyword())),
-            ("a setext heading's text", 12, None),
-            ("its underline", 18, Some(palette.syntax_keyword())),
-        ];
-        for (what, offset, color) in cases {
-            assert_eq!(style_at(&styles, offset).color, color, "{what}");
-        }
-    }
-
-    #[test]
     fn markdown_bold_and_italic_keep_the_text_colour_as_develop_s_editor_draws_them() {
         let palette = Theme::default()
             .with_mode(ThemeMode::Dark)
             .palette(Surface::Window);
-        let text = "**bold** and *it*\n";
-        let styles = markdown_styles(text, palette);
-        let bold = style_at(&styles, 3);
-        let italic = style_at(&styles, 15);
+        let styles = styles_of(("markdown", "**bold** and *it*\n"), palette);
+        let (bold, italic) = (style_at(&styles, 3), style_at(&styles, 15));
         assert_eq!(
-            (bold.color, bold.font_weight),
-            (None, Some(FontWeight::BOLD))
-        );
-        assert_eq!(
-            (italic.color, italic.font_style),
-            (None, Some(FontStyle::Italic))
+            (
+                bold.color,
+                bold.font_weight,
+                italic.color,
+                italic.font_style
+            ),
+            (None, Some(FontWeight::BOLD), None, Some(FontStyle::Italic))
         );
     }
 
     #[test]
-    fn a_typescript_builtin_type_and_markdown_inline_code_take_develop_s_classes() {
-        let cases = [
-            (
-                ("typescript", "let a: string = b\n"),
-                7,
-                Palette::syntax_keyword as Token,
-            ),
-            (("markdown", "a `code` b\n"), 4, Palette::syntax_variable),
-            (("markdown", "a `code` b\n"), 2, Palette::syntax_variable),
+    fn headings_builtin_types_and_inline_code_take_develop_s_classes() {
+        const HEADINGS: &str = "# checkout\n\nTitle\n=====\n";
+        const CODE: &str = "a `code` b\n";
+        let keyword: Option<Token> = Some(Palette::syntax_keyword);
+        let rows = [
+            (("markdown", HEADINGS), 0, keyword),
+            (("markdown", HEADINGS), 2, keyword),
+            (("markdown", HEADINGS), 12, None),
+            (("markdown", HEADINGS), 18, keyword),
+            (("typescript", "let a: string = b\n"), 7, keyword),
+            (("markdown", CODE), 4, Some(Palette::syntax_variable)),
+            (("markdown", CODE), 2, Some(Palette::syntax_variable)),
         ];
         let modes = [ThemeMode::Dark, ThemeMode::Light];
-        for (mode, (source, offset, token)) in modes
+        let cases = modes
             .into_iter()
-            .flat_map(|mode| cases.map(|case| (mode, case)))
-        {
+            .flat_map(|mode| rows.map(|row| (mode, row)));
+        for (mode, (source, offset, token)) in cases {
             let palette = Theme::default().with_mode(mode).palette(Surface::Window);
-            let styles = styles_of(source, palette);
-            let color = style_at(&styles, offset).color;
-            assert_eq!(
-                color,
-                Some(token(palette)),
-                "{mode:?} {source:?} at {offset}"
-            );
+            let color = style_at(&styles_of(source, palette), offset).color;
+            let expected = token.map(|token| token(palette));
+            assert_eq!(color, expected, "{mode:?} {source:?} at {offset}");
         }
     }
 }

@@ -283,9 +283,7 @@ mod tests {
     #[gpui::test]
     fn creating_a_space_needs_a_folder_then_sends_and_closes_once_added(cx: &mut TestAppContext) {
         let (recorder, sidebar, cx) = open(cx, DemoShell::reference());
-        sidebar.update_in(cx, |this, window, cx| {
-            this.apply(Intent::StartCreateSpace, window, cx);
-        });
+        assert!(start(&sidebar, cx));
         sidebar.update(cx, Sidebar::create_space);
         assert!(recorder.sent().is_empty(), "no folder, nothing sent");
         sidebar.update(cx, |this, cx| this.set_space_folder("/w/app".into(), cx));
@@ -325,23 +323,26 @@ mod tests {
         sidebar.read_with(cx, |this, _| this.space.is_some())
     }
 
-    #[gpui::test]
-    fn cancelling_closes_the_panel(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoShell::rich());
-        assert!(start(&sidebar, cx));
-        sidebar.update_in(cx, Sidebar::cancel_create_space);
-        assert!(sidebar.read_with(cx, |this, _| this.space.is_none()));
+    type Close = fn(&mut Sidebar, &mut Window, &mut Context<'_, Sidebar>);
+
+    fn select_website(
+        this: &mut Sidebar,
+        window: &mut Window,
+        cx: &mut Context<'_, Sidebar>,
+    ) {
+        let select = Command::SelectProject(ProjectId::from("website"));
+        this.apply(Intent::Send(select), window, cx);
     }
 
     #[gpui::test]
-    fn selecting_a_space_closes_the_panel(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoShell::rich());
-        assert!(start(&sidebar, cx));
-        let select = Command::SelectProject(ProjectId::from("website"));
-        sidebar.update_in(cx, |this, window, cx| {
-            this.apply(Intent::Send(select), window, cx);
-        });
-        assert!(sidebar.read_with(cx, |this, _| this.space.is_none()));
+    fn cancelling_or_selecting_a_space_closes_the_panel(cx: &mut TestAppContext) {
+        let closers: [Close; 2] = [Sidebar::cancel_create_space, select_website];
+        for close in closers {
+            let (_, sidebar, cx) = open(cx, DemoShell::rich());
+            assert!(start(&sidebar, cx));
+            sidebar.update_in(cx, close);
+            assert!(sidebar.read_with(cx, |this, _| this.space.is_none()));
+        }
     }
 
     #[gpui::test]

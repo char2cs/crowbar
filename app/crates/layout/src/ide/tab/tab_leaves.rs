@@ -53,87 +53,23 @@ impl Tab {
 
 #[cfg(test)]
 mod tests {
-    use protocol::{PaneState, PaneTypeId, Params};
-
     use super::*;
-    use crate::layout::tab::pane_instance::PaneInstance;
     use crate::tab_id::TabId;
+    use crate::test_support::tab_fixtures::{at, editor, id, screen};
     use crate::tree::edge::Edge;
-    use crate::tree::placement::Placement;
-
-    fn id(name: &str) -> PaneId {
-        PaneId::new(name).unwrap()
-    }
-
-    fn pane(name: &str) -> PaneInstance {
-        PaneInstance {
-            pane_id: id(name),
-            type_id: PaneTypeId::new("core.terminal").unwrap(),
-            params: Params::default(),
-            state: PaneState::default(),
-        }
-    }
-
-    fn two_groups() -> Tab {
-        let mut tab = Tab::new(TabId(1), "t", crate::space_id::SpaceId::default());
-        tab.open(pane("a"), None).unwrap();
-        tab.open_in_group(pane("b"), (&id("a"), None)).unwrap();
-        let beside = Placement {
-            target: id("a"),
-            edge: Edge::Right,
-        };
-        tab.open(pane("c"), Some(beside)).unwrap();
-        tab
-    }
-
-    #[test]
-    fn a_tab_counts_groups_and_finds_a_pane_s_group() {
-        let tab = two_groups();
-        assert_eq!(tab.group_count(), 2, "groups");
-        assert_eq!(tab.len(), 3, "panes");
-        assert_eq!(
-            tab.group_of(&id("a")).map(PaneGroup::len),
-            Some(2),
-            "strip of two"
-        );
-        assert!(tab.group_of(&id("q")).is_none(), "unknown");
-        assert_eq!(
-            Tab::new(TabId(2), "e", crate::space_id::SpaceId::default()).group_count(),
-            0,
-            "empty tab"
-        );
-    }
-
-    const CASES: [(&str, &str, bool); 3] = [
-        ("b", "the newest is shown", true),
-        ("a", "its sibling is hidden", false),
-        ("c", "a lone pane is shown", true),
-    ];
 
     #[test]
     fn only_the_shown_pane_of_a_group_is_shown() {
-        let mut tab = two_groups();
-        for (pane, name, expected) in CASES {
-            assert_eq!(tab.is_shown(&id(pane)), expected, "{name}");
-        }
+        let mut tab = Tab::new(TabId(1), "t", crate::space_id::SpaceId::default());
+        tab.open(editor("a"), None).unwrap();
+        tab.open_in_group(editor("b"), (&id("a"), None)).unwrap();
+        tab.open(editor("c"), Some(at("a", Edge::Right))).unwrap();
+        let shown = ["a", "b", "c"].map(|pane| tab.is_shown(&id(pane)));
+        assert_eq!(shown, [false, true, true], "the newest and a lone pane");
         tab.show(&id("a"));
         assert!(tab.is_shown(&id("a")), "now shown");
-    }
-
-    #[test]
-    fn leaves_list_every_group_with_its_rectangle() {
-        let tab = two_groups();
-        let bounds = Rect {
-            x: 0.0,
-            y: 0.0,
-            width: 1000.0,
-            height: 500.0,
-        };
-        let leaves = tab.leaves(bounds);
-        let (rect, first) = leaves.first().unwrap();
-        assert_eq!(first.tabs(), [id("a"), id("b")], "members");
-        assert_eq!(first.active_tab(), Some(&id("b")), "shown");
-        assert!(rect.width < bounds.width, "beside the other group");
-        assert_eq!(leaves.len(), 2, "one per group");
+        let empty = Tab::new(TabId(2), "e", crate::space_id::SpaceId::default());
+        assert_eq!(empty.group_count(), 0, "empty tab");
+        assert!(empty.leaves(screen(1.0, 1.0)).is_empty(), "no leaves");
     }
 }

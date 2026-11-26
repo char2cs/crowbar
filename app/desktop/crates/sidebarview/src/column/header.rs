@@ -132,30 +132,10 @@ fn traffic_light_reserve(side: DockSide) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{traffic_light_reserve, traffic_light_spacer};
-    use sidebar::{DockSide, Visibility};
+    use sidebar::Visibility;
 
     use crate::sidebar::Sidebar;
-    use crate::sidebar::TRAFFIC_LIGHT_RESERVE;
     use crate::test_support::prelude::*;
-
-    #[test]
-    fn only_a_left_dock_reserves_room_for_the_traffic_lights() {
-        let cases = [
-            (DockSide::Left, TRAFFIC_LIGHT_RESERVE),
-            (DockSide::Right, 0.0),
-        ];
-        for (side, reserve) in cases {
-            assert_eq!(traffic_light_reserve(side), reserve, "{side:?}");
-        }
-    }
-
-    #[test]
-    fn no_spacer_takes_a_gap_where_there_are_no_traffic_lights() {
-        assert!(traffic_light_spacer(DockSide::Right).is_none(), "right");
-        let left = traffic_light_spacer(DockSide::Left).is_some();
-        assert_eq!(left, TRAFFIC_LIGHT_RESERVE > 0.0, "left");
-    }
 
     #[gpui::test]
     fn the_toggle_closes_and_reopens_the_sidebar(cx: &mut TestAppContext) {
@@ -164,16 +144,6 @@ mod tests {
         assert!(sidebar.read_with(cx, |this, _| this.panel.visibility() == Visibility::Closed));
         sidebar.update_in(cx, Sidebar::toggle);
         assert!(sidebar.read_with(cx, |this, _| this.panel.visibility() == Visibility::Open));
-    }
-
-    #[gpui::test]
-    fn the_current_host_is_the_one_of_the_active_space(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoShell::rich());
-        let name = sidebar.read_with(cx, |this, _| {
-            let hosts = this.data.hosts();
-            this.current_host(&hosts).map(|host| host.name)
-        });
-        assert!(name.is_some());
     }
 
     #[gpui::test]

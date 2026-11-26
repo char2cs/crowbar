@@ -18,8 +18,7 @@ use crate::space_id::SpaceId;
 use crate::tab_id::TabId;
 use crate::tree::split_node::SplitNode;
 
-/// Most panes one tab may hold; bounds the tree depth and the cost of every tree walk.
-pub const MAX_PANES_PER_TAB: usize = 64;
+pub(crate) const MAX_PANES_PER_TAB: usize = 64;
 
 /// A tab: its panes arranged in a split tree of groups, and which pane has focus.
 ///
@@ -168,22 +167,13 @@ mod tests {
     #[test]
     fn deserializing_a_tab_checks_its_invariants() {
         let tab = tab_with(&["a", "b"]);
-        let mut value = serde_json::to_value(&tab).unwrap();
-        assert_eq!(
-            serde_json::from_value::<Tab>(value.clone()).unwrap(),
-            tab,
-            "round trip"
-        );
-        value["focused"] = json!("ghost");
-        assert!(
-            serde_json::from_value::<Tab>(value.clone()).is_err(),
-            "bad focus"
-        );
-        value["focused"] = json!("a");
-        value["extra"] = json!(1);
-        assert!(
-            serde_json::from_value::<Tab>(value).is_err(),
-            "unknown field"
-        );
+        let value = serde_json::to_value(&tab).unwrap();
+        let back = serde_json::from_value::<Tab>(value.clone()).unwrap();
+        assert_eq!(back, tab, "round trip");
+        for (field, bad) in [("focused", json!("ghost")), ("extra", json!(1))] {
+            let mut broken = value.clone();
+            broken[field] = bad;
+            assert!(serde_json::from_value::<Tab>(broken).is_err(), "{field}");
+        }
     }
 }

@@ -8,17 +8,14 @@ use crate::sidebar::Sidebar;
 use crate::sidebar::{HEADER_HEIGHT, PEEK_INSET};
 
 impl Sidebar {
-    /// Slides the peek card in while the sidebar is closed. The shell calls this when the pointer
-    /// rests on its sidebar toggle.
-    pub fn begin_peek(
+    pub(crate) fn begin_peek(
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
         self.slide_peek(1.0, cx);
     }
 
-    /// Slides the peek card out again.
-    pub fn end_peek(
+    pub(crate) fn end_peek(
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
@@ -126,36 +123,9 @@ mod tests {
     }
 
     #[gpui::test]
-    fn leaving_the_card_dismisses_it(cx: &mut TestAppContext) {
-        let (sidebar, cx) = closed_sidebar(cx);
-        sidebar.update_in(cx, |this, window, cx| {
-            this.track_peek(point(px(2.0), px(300.0)), window, cx);
-            this.track_peek(point(px(900.0), px(300.0)), window, cx);
-        });
-        assert!(!sidebar.read_with(cx, |this, _| this.peek.is_wanted()));
-    }
-
-    #[gpui::test]
     fn an_open_sidebar_ignores_peeking(cx: &mut TestAppContext) {
         let (_, sidebar, cx) = open(cx, DemoShell::reference());
         sidebar.update(cx, Sidebar::begin_peek);
-        assert!(!sidebar.read_with(cx, |this, _| this.peek.is_wanted()));
-    }
-
-    #[gpui::test]
-    fn the_shell_can_begin_and_end_a_peek(cx: &mut TestAppContext) {
-        let (sidebar, cx) = closed_sidebar(cx);
-        sidebar.update(cx, Sidebar::begin_peek);
-        assert!(sidebar.read_with(cx, |this, _| this.peek.is_wanted()));
-        sidebar.update(cx, Sidebar::end_peek);
-        assert!(!sidebar.read_with(cx, |this, _| this.peek.is_wanted()));
-    }
-
-    #[gpui::test]
-    fn leaving_the_window_dismisses_the_card(cx: &mut TestAppContext) {
-        let (sidebar, cx) = closed_sidebar(cx);
-        sidebar.update(cx, Sidebar::begin_peek);
-        sidebar.update(cx, Sidebar::pointer_left_peek);
         assert!(!sidebar.read_with(cx, |this, _| this.peek.is_wanted()));
     }
 

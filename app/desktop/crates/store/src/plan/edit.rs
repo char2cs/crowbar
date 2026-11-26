@@ -205,10 +205,7 @@ mod tests {
         state.add_local(PendingRow {
             id: "x".into(),
             label: "New".into(),
-            scope: String::new(),
-            parent: String::new(),
-            failure: None,
-            operation: None,
+            ..PendingRow::default()
         });
         let plan = dismiss(&state, "x").unwrap();
         assert_eq!(plan.calls.len(), 0);

@@ -224,17 +224,12 @@ mod tests {
     }
 
     #[gpui::test]
-    fn a_browsed_folder_names_an_unnamed_repository(cx: &mut TestAppContext) {
-        assert_eq!(browsed_name(Kind::Repo, "", cx), "app");
-    }
-
-    #[gpui::test]
-    fn a_browsed_folder_keeps_a_typed_repository_name(cx: &mut TestAppContext) {
-        assert_eq!(browsed_name(Kind::Repo, "Mine", cx), "Mine");
-    }
-
-    #[gpui::test]
-    fn a_browsed_folder_never_names_a_space(cx: &mut TestAppContext) {
-        assert_eq!(browsed_name(Kind::Space, "", cx), "");
+    fn a_browsed_folder_names_only_an_unnamed_repository(cx: &mut TestAppContext) {
+        let names = [
+            browsed_name(Kind::Repo, "", cx),
+            browsed_name(Kind::Repo, "Mine", cx),
+            browsed_name(Kind::Space, "", cx),
+        ];
+        assert_eq!(names, ["app", "Mine", ""]);
     }
 }

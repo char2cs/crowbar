@@ -56,19 +56,16 @@ impl SidebarCommands {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
     use sidebar::{Command, Sink};
 
     use super::*;
-    use crate::test_support::{FakeFiles, followed_commands};
+    use crate::test_support::{FakeFiles, followed_commands, recorder};
 
     #[tokio::test]
     async fn a_mark_from_either_surface_lands_in_the_chats_workspace_and_is_told() {
-        let heard = Arc::new(Mutex::new(Vec::new()));
-        let sink = Arc::clone(&heard);
-        let outcome: crate::live::OutcomeSink =
-            Arc::new(move |outcome| sink.lock().unwrap().push(outcome));
+        let (outcome, heard) = recorder();
         let (commands, _) = followed_commands(outcome, &Arc::new(FakeFiles::default()));
         commands
             .dispatch(Command::SetFilesViewed {

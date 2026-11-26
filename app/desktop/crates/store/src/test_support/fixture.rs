@@ -1,12 +1,14 @@
 use daemonapi::Frame;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
 
 use protocol::HostId;
 
 use crate::live::Entities;
 use crate::live::HostSlot;
 use crate::live::HostSpec;
+use crate::live::Hub;
 use crate::live::State;
+use crate::live::{Outcome, OutcomeSink};
 
 use super::FakeDaemon;
 
@@ -65,12 +67,21 @@ const ROWS: [(&str, &str, &str); 11] = [
 ];
 
 fn entity((kind, id, data): (&str, &str, &str)) -> Frame {
+    entity_frame(kind, id, serde_json::from_str(data).unwrap_or_default())
+}
+
+/// A first version of the projects-scope entity `kind`/`id` holding `data`.
+pub(crate) fn entity_frame(
+    kind: &str,
+    id: &str,
+    data: serde_json::Value,
+) -> Frame {
     Frame::Entity {
         scope: "projects".into(),
         kind: kind.into(),
         id: id.into(),
         v: 1,
-        data: serde_json::from_str(data).ok(),
+        data: Some(data),
         gone: false,
     }
 }
@@ -104,6 +115,43 @@ pub(crate) fn quiet() -> crate::live::ChangeSignal {
     Arc::new(|| ())
 }
 
+/// What a watched hub noted, one entry per change.
+pub(crate) type Noted<T> = Arc<Mutex<Vec<T>>>;
+
+/// A hub over `state` that notes `read` of the state on every change it signals.
+pub(crate) fn watched<T: Send + 'static>(
+    state: State,
+    read: impl Fn(&State) -> T + Send + Sync + 'static,
+) -> (Arc<Hub>, Noted<T>) {
+    let hub_of = Arc::new(OnceLock::<Weak<Hub>>::new());
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let (reader, heard) = (Arc::clone(&hub_of), Arc::clone(&seen));
+    let signal: crate::live::ChangeSignal = Arc::new(move || {
+        let hub = reader.get().and_then(Weak::upgrade);
+        let noted = hub.map(|hub| hub.read(&read));
+        heard.lock().unwrap().extend(noted);
+    });
+    let hub = Hub::new(state, signal);
+    hub_of.set(Arc::downgrade(&hub)).ok();
+    (hub, seen)
+}
+
+/// What an outcome sink was told, in order.
+pub(crate) type Told = Arc<Mutex<Vec<Outcome>>>;
+
+/// An outcome sink that records what it is told.
+pub(crate) fn recorder() -> (OutcomeSink, Told) {
+    let told = Told::default();
+    let heard = Arc::clone(&told);
+    let sink: OutcomeSink = Arc::new(move |said| {
+        heard
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(said);
+    });
+    (sink, told)
+}
+
 pub(crate) fn state() -> (State, Arc<FakeDaemon>) {
     let spec = HostSpec {
         id: "local".into(),
@@ -127,4 +175,14 @@ pub(crate) fn state_on(spec: HostSpec) -> (State, Arc<FakeDaemon>) {
 
 pub(crate) fn local() -> HostId {
     HostId::new("local").unwrap_or_else(|error| panic!("local is a valid host id: {error}"))
+}
+
+/// One async test case.
+pub(crate) type AsyncCase = fn() -> std::pin::Pin<Box<dyn Future<Output = ()>>>;
+
+/// Runs each case in turn.
+pub(crate) async fn run_cases(cases: &[AsyncCase]) {
+    for case in cases {
+        case().await;
+    }
 }

@@ -1,16 +1,9 @@
-#[cfg(target_os = "linux")]
 mod adapters;
-#[cfg(target_os = "linux")]
 mod file_chooser;
-#[cfg(target_os = "linux")]
 mod live_view;
-#[cfg(target_os = "linux")]
 mod page_focus;
-#[cfg(target_os = "linux")]
 mod placed;
-#[cfg(target_os = "linux")]
 mod remembered_place;
-#[cfg(target_os = "linux")]
 mod view_cutout;
 mod view_ops;
 
@@ -39,7 +32,6 @@ use crate::view::Kind;
 use crate::view::ParentWindow;
 use crate::view::{PageEvent, PageHandler};
 
-#[cfg(target_os = "linux")]
 pub(crate) use file_chooser::{chooser, keep_over};
 
 const BROWSER_DIR: &str = "browser";

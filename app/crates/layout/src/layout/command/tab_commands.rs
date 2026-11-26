@@ -105,265 +105,143 @@ pub(crate) fn equalize(
 
 #[cfg(test)]
 mod tests {
-    use protocol::{PaneState, PaneTypeId, Params};
-
     use crate::error::Error;
+    use crate::error::Error::{DuplicateTab, IndexOutOfRange, NoSuchSplit, TabNotFound};
     use crate::layout::command::Command;
     use crate::layout::tab::Tab;
-    use crate::layout::tab::pane_instance::PaneInstance;
     use crate::layout::{Layout, MAX_TABS};
     use crate::tab_id::TabId;
-    use crate::tree::geometry::rect::Rect;
-
-    fn instance(name: &str) -> PaneInstance {
-        PaneInstance {
-            pane_id: protocol::PaneId::new(name).unwrap(),
-            type_id: PaneTypeId::new("core.chat").unwrap(),
-            params: Params::default(),
-            state: PaneState::default(),
-        }
-    }
-
-    fn add(tab: u64) -> Command {
-        Command::AddTab {
-            id: TabId(tab),
-            title: format!("tab {tab}"),
-            space: crate::SpaceId::default(),
-        }
-    }
-
-    fn open(
-        tab: u64,
-        name: &str,
-    ) -> Command {
-        Command::OpenPane {
-            tab: TabId(tab),
-            instance: instance(name),
-            placement: None,
-        }
-    }
-
-    fn layout(commands: Vec<Command>) -> Layout {
-        let mut layout = Layout::default();
-        for command in commands {
-            layout.apply(command).unwrap();
-        }
-        layout.validate().unwrap();
-        layout
-    }
+    use crate::test_support::layout_fixtures::{add, instance, layout as build, open};
+    use crate::test_support::tab_fixtures::screen;
+    use crate::tree::branch::Branch;
 
     fn active(layout: &Layout) -> Option<TabId> {
         layout.showing("").map(Tab::id)
     }
 
-    #[test]
-    fn adding_a_tab_activates_it() {
-        let layout = layout(vec![add(1), add(2)]);
-        assert_eq!(active(&layout), Some(TabId(2)), "active");
-        assert_eq!(layout.tabs().len(), 2, "count");
+    fn close(tab: u64) -> Command {
+        Command::CloseTab { tab: TabId(tab) }
     }
 
-    fn refusal_cases() -> Vec<(&'static str, Command, Error)> {
-        vec![
-            ("duplicate id", add(1), Error::DuplicateTab(TabId(1))),
-            (
-                "close missing",
-                Command::CloseTab { tab: TabId(9) },
-                Error::TabNotFound(TabId(9)),
-            ),
-            (
-                "activate missing",
-                Command::ActivateTab { tab: TabId(9) },
-                Error::TabNotFound(TabId(9)),
-            ),
-            (
-                "move out of range",
-                Command::MoveTab {
-                    tab: TabId(3),
-                    to_index: 3,
-                },
-                Error::IndexOutOfRange { index: 3, len: 3 },
-            ),
-            (
-                "move missing",
-                Command::MoveTab {
-                    tab: TabId(7),
-                    to_index: 0,
-                },
-                Error::TabNotFound(TabId(7)),
-            ),
-            (
-                "rename missing",
-                Command::RenameTab {
-                    tab: TabId(8),
-                    title: "x".into(),
-                },
-                Error::TabNotFound(TabId(8)),
-            ),
-        ]
+    fn move_tab(
+        tab: u64,
+        to_index: usize,
+    ) -> Command {
+        let tab = TabId(tab);
+        Command::MoveTab { tab, to_index }
+    }
+
+    fn rename(tab: u64) -> Command {
+        let (tab, title) = (TabId(tab), "new".to_owned());
+        Command::RenameTab { tab, title }
+    }
+
+    fn resize(
+        tab: u64,
+        first_extent: f32,
+    ) -> Command {
+        Command::ResizeSplit {
+            tab: TabId(tab),
+            path: Vec::new(),
+            bounds: screen(1006.0, 400.0),
+            first_extent,
+        }
+    }
+
+    fn reset(path: Vec<Branch>) -> Command {
+        let tab = TabId(1);
+        Command::ResetSplit { tab, path }
+    }
+
+    fn two_panes() -> Layout {
+        build(vec![add(1), open(1, instance("a")), open(1, instance("b"))])
+    }
+
+    fn widths(layout: &Layout) -> Vec<f32> {
+        let slots = layout.tab(TabId(1)).unwrap().layout(screen(1006.0, 400.0));
+        slots.iter().map(|slot| slot.rect.width).collect()
+    }
+
+    fn ids(layout: &Layout) -> Vec<u64> {
+        layout.tabs().iter().map(|t| t.id().0).collect()
     }
 
     #[test]
     fn commands_naming_a_missing_tab_or_bad_target_are_refused() {
-        for (name, command, error) in refusal_cases() {
-            let mut layout = layout(vec![add(1), add(2), add(3)]);
+        let activate = Command::ActivateTab { tab: TabId(9) };
+        let cases = [
+            (add(1), DuplicateTab(TabId(1))),
+            (close(9), TabNotFound(TabId(9))),
+            (activate, TabNotFound(TabId(9))),
+            (move_tab(3, 3), IndexOutOfRange { index: 3, len: 3 }),
+            (move_tab(7, 0), TabNotFound(TabId(7))),
+            (rename(8), TabNotFound(TabId(8))),
+            (resize(5, 1.0), TabNotFound(TabId(5))),
+            (reset(vec![Branch::First]), NoSuchSplit),
+        ];
+        for (command, error) in cases {
+            let mut layout = two_panes();
+            layout.apply(add(2)).unwrap();
+            layout.apply(add(3)).unwrap();
             let before = layout.clone();
-            assert_eq!(layout.apply(command), Err(error), "{name}");
-            assert_eq!(layout, before, "{name}: unchanged");
+            assert_eq!(layout.apply(command), Err(error));
+            assert_eq!(layout, before, "unchanged");
         }
     }
 
     #[test]
     fn the_number_of_tabs_is_bounded() {
-        let mut layout = Layout::default();
-        for tab in 0..MAX_TABS as u64 {
-            layout.apply(add(tab)).unwrap();
-        }
+        let commands = (0..MAX_TABS as u64).map(add).collect();
+        let mut layout = build(commands);
         let before = layout.clone();
-        assert_eq!(
-            layout.apply(add(u64::MAX)),
-            Err(Error::TooManyTabs { limit: MAX_TABS }),
-            "full"
-        );
+        let full = Err(Error::TooManyTabs { limit: MAX_TABS });
+        assert_eq!(layout.apply(add(u64::MAX)), full, "full");
         assert_eq!(layout, before, "unchanged");
     }
 
     #[test]
-    fn closing_the_active_tab_activates_its_neighbour() {
-        let mut layout = layout(vec![
-            add(1),
-            add(2),
-            add(3),
-            Command::ActivateTab { tab: TabId(2) },
-        ]);
-        layout.apply(Command::CloseTab { tab: TabId(2) }).unwrap();
+    fn adding_activating_and_closing_tabs_choose_the_shown_one() {
+        let mut layout = build(vec![add(1), add(2), add(3)]);
+        assert_eq!(active(&layout), Some(TabId(3)), "added is shown");
+        layout
+            .apply(Command::ActivateTab { tab: TabId(2) })
+            .unwrap();
+        assert_eq!(active(&layout), Some(TabId(2)), "activated");
+        layout.apply(close(2)).unwrap();
         assert_eq!(active(&layout), Some(TabId(3)), "next");
-        layout.apply(Command::CloseTab { tab: TabId(3) }).unwrap();
-        assert_eq!(active(&layout), Some(TabId(1)), "previous");
-        layout.apply(Command::CloseTab { tab: TabId(1) }).unwrap();
-        assert!(
-            active(&layout).is_none() && layout.tabs().is_empty(),
-            "none left"
-        );
-        layout.validate().unwrap();
-    }
-
-    #[test]
-    fn closing_an_inactive_tab_keeps_the_active_one() {
-        let mut layout = layout(vec![add(1), add(2)]);
-        layout.apply(Command::CloseTab { tab: TabId(1) }).unwrap();
-        assert_eq!(active(&layout), Some(TabId(2)), "active kept");
+        layout.apply(close(1)).unwrap();
+        assert_eq!(active(&layout), Some(TabId(3)), "inactive closed");
+        layout.apply(close(3)).unwrap();
+        assert!(active(&layout).is_none(), "none shown");
+        assert!(layout.tabs().is_empty(), "none left");
+        let mut layout = build(vec![add(1), add(2), add(3)]);
+        layout.apply(close(3)).unwrap();
+        assert_eq!(active(&layout), Some(TabId(2)), "previous");
     }
 
     #[test]
     fn closing_a_tab_removes_its_panes_and_reports_them() {
-        let mut layout = layout(vec![add(1), open(1, "a"), open(1, "b"), add(2)]);
-        let removed = layout.execute(Command::CloseTab { tab: TabId(1) }).unwrap();
+        let mut layout = two_panes();
+        layout.apply(add(2)).unwrap();
+        let removed = layout.execute(close(1)).unwrap();
         let mut ids: Vec<String> = removed.iter().map(|p| p.pane_id.to_string()).collect();
         ids.sort();
         assert_eq!(ids, ["a", "b"], "both panes handed back for undo");
         assert_eq!(layout.pane_count(), 0, "gone from the layout");
-        assert_eq!(
-            layout.apply(Command::CloseTab { tab: TabId(1) }),
-            Err(Error::TabNotFound(TabId(1))),
-            "again"
-        );
     }
 
     #[test]
-    fn activating_needs_an_existing_tab() {
-        let mut layout = layout(vec![add(1), add(2)]);
-        layout
-            .apply(Command::ActivateTab { tab: TabId(1) })
-            .unwrap();
-        assert_eq!(active(&layout), Some(TabId(1)), "switched");
-    }
-
-    #[test]
-    fn tabs_reorder_within_range() {
-        let mut layout = layout(vec![add(1), add(2), add(3)]);
-        layout
-            .apply(Command::MoveTab {
-                tab: TabId(3),
-                to_index: 0,
-            })
-            .unwrap();
-        let ids: Vec<u64> = layout.tabs().iter().map(|t| t.id().0).collect();
-        assert_eq!(ids, [3, 1, 2], "moved to front");
-    }
-
-    #[test]
-    fn rename_changes_only_the_title() {
-        let mut layout = layout(vec![add(1)]);
-        layout
-            .apply(Command::RenameTab {
-                tab: TabId(1),
-                title: "new".into(),
-            })
-            .unwrap();
+    fn tabs_reorder_rename_and_resize() {
+        let mut layout = two_panes();
+        layout.apply(add(2)).unwrap();
+        layout.apply(add(3)).unwrap();
+        layout.apply(move_tab(3, 0)).unwrap();
+        assert_eq!(ids(&layout), [3, 1, 2], "moved to front");
+        layout.apply(rename(1)).unwrap();
         assert_eq!(layout.tab(TabId(1)).map(Tab::title), Some("new"), "title");
-    }
-
-    const BOUNDS: Rect = Rect {
-        x: 0.0,
-        y: 0.0,
-        width: 1006.0,
-        height: 400.0,
-    };
-
-    fn widths(layout: &Layout) -> Vec<f32> {
-        layout.tab(TabId(1)).map_or_else(Vec::new, |tab| {
-            tab.layout(BOUNDS).iter().map(|s| s.rect.width).collect()
-        })
-    }
-
-    #[test]
-    fn resize_and_reset_address_a_split_by_path() {
-        let mut layout = layout(vec![add(1), open(1, "a"), open(1, "b")]);
-        let bounds = BOUNDS;
-        layout
-            .apply(Command::ResizeSplit {
-                tab: TabId(1),
-                path: Vec::new(),
-                bounds,
-                first_extent: 300.0,
-            })
-            .unwrap();
+        layout.apply(resize(1, 300.0)).unwrap();
         assert_eq!(widths(&layout), [300.0, 700.0], "resized");
-        layout
-            .apply(Command::ResetSplit {
-                tab: TabId(1),
-                path: Vec::new(),
-            })
-            .unwrap();
+        layout.apply(reset(Vec::new())).unwrap();
         assert_eq!(widths(&layout), [500.0, 500.0], "reset");
-    }
-
-    #[test]
-    fn resize_and_reset_refuse_a_missing_tab_or_path() {
-        let cases = [
-            (
-                "tab",
-                Command::ResizeSplit {
-                    tab: TabId(5),
-                    path: Vec::new(),
-                    bounds: BOUNDS,
-                    first_extent: 1.0,
-                },
-                Error::TabNotFound(TabId(5)),
-            ),
-            (
-                "path",
-                Command::ResetSplit {
-                    tab: TabId(1),
-                    path: vec![crate::tree::branch::Branch::First],
-                },
-                Error::NoSuchSplit,
-            ),
-        ];
-        for (name, command, error) in cases {
-            let mut layout = layout(vec![add(1), open(1, "a"), open(1, "b")]);
-            assert_eq!(layout.apply(command), Err(error), "{name}");
-        }
     }
 }

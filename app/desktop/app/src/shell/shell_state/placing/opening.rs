@@ -86,12 +86,8 @@ impl ShellState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{open_chat, resync, shell_rig, synced_chat};
+    use crate::test_support::{open_chat, page_takes_keys, resync, shell_rig, synced_chat};
     use layout::Tab;
-    use protocol::{PaneFrame, encode};
-    use webview::Call;
-
-    use panehost::IpcMessage;
 
     #[test]
     fn a_terminal_opened_from_a_folder_is_titled_by_it() {
@@ -206,26 +202,8 @@ mod tests {
             rig.shell.open_from_sidebar(row);
             resync(&mut rig);
             let pane = rig.shell.showing().and_then(Tab::focused).cloned().unwrap();
-            let took = page_took_keys(&mut rig, pane);
+            let took = page_takes_keys(&mut rig, pane);
             assert_eq!(took, page_keys, "{chat}");
         }
-    }
-
-    fn page_took_keys(
-        rig: &mut crate::test_support::ShellRig,
-        pane: protocol::PaneId,
-    ) -> bool {
-        let register = PaneFrame::Register {
-            type_id: chat_type().unwrap(),
-            sdk: protocol::SDK_VERSION,
-        };
-        let text = encode(&register).unwrap();
-        rig.shell.handle_ipc(IpcMessage { pane, text });
-        let before = rig.mock.calls().len();
-        rig.shell.apply_keyboard();
-        let calls = rig.mock.calls();
-        calls[before..]
-            .iter()
-            .any(|call| matches!(call, Call::Focus { .. }))
     }
 }

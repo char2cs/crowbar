@@ -167,10 +167,11 @@ mod tests {
     use std::rc::Rc;
 
     use protocol::{HostId, PaneId};
-    use webview::{Bounds, Call, MockPlatform, ParentWindow};
+    use webview::{Call, MockPlatform, ParentWindow};
 
     use super::*;
-    use crate::slot::inbox::IpcMessage;
+    use crate::slot::IpcMessage;
+    use crate::test_support::bounds;
 
     fn factory(mock: &Rc<MockPlatform>) -> (Factory, async_channel::Receiver<IpcMessage>) {
         let (sink, inbox) = async_channel::unbounded();
@@ -181,156 +182,75 @@ mod tests {
             page_handler: None,
         };
         let webviews = webview::Host::with_platform(Rc::<MockPlatform>::clone(mock));
-        (
-            Factory::new(webviews, config, Arc::new(Gate::new(sink))),
-            inbox,
-        )
+        let gate = Arc::new(Gate::new(sink));
+        (Factory::new(webviews, config, gate), inbox)
     }
 
-    fn square() -> Bounds {
-        Bounds {
-            x: 0.0,
-            y: 0.0,
-            width: 10.0,
-            height: 10.0,
-        }
-    }
-
-    fn request() -> Request {
+    fn request(kind: webview::Kind) -> Request {
+        let parent = ParentWindow::X11(3);
+        let bounds = bounds();
         Request {
-            parent: ParentWindow::X11(3),
-            kind: webview::Kind::Core,
-            bounds: square(),
+            parent,
+            kind,
+            bounds,
         }
     }
 
     #[test]
-    fn slots_are_born_hidden_and_blank_so_nothing_loads_before_the_origin_is_known() {
+    fn a_pane_view_is_born_in_the_surface_colour_and_a_browser_view_keeps_the_engine_default() {
+        const SURFACE: Color = Color {
+            red: 10,
+            green: 20,
+            blue: 30,
+            alpha: 255,
+        };
         let mock = Rc::new(MockPlatform::default());
         let (factory, _inbox) = factory(&mock);
-        let slot = factory.create(request()).unwrap();
-        assert!(
-            matches!(
-                mock.calls().first(),
-                Some(Call::Create { url, visibility: Visibility::Hidden, parent: ParentWindow::X11(3), .. })
-                    if url == BLANK_URL
-            ),
-            "{:?}",
-            mock.calls()
-        );
-        assert_eq!(slot.id, Id(0), "first slot id");
-        assert_eq!(factory.create(request()).unwrap().id, Id(1), "ids advance");
-    }
-
-    const SURFACE: Color = Color {
-        red: 10,
-        green: 20,
-        blue: 30,
-        alpha: 255,
-    };
-
-    fn created_backgrounds(mock: &MockPlatform) -> Vec<Option<Color>> {
-        mock.calls()
+        factory.set_background(SURFACE);
+        factory.create(request(webview::Kind::Core)).unwrap();
+        factory.create(request(webview::Kind::Browser)).unwrap();
+        let born: Vec<Option<Color>> = mock
+            .calls()
             .iter()
             .filter_map(|call| match call {
                 Call::Create { background, .. } => Some(*background),
                 _ => None,
             })
-            .collect()
+            .collect();
+        assert_eq!(born, vec![Some(SURFACE), None], "pane, browser");
     }
 
     #[test]
-    fn a_pane_view_is_born_in_the_surface_colour_and_a_browser_view_keeps_the_engine_default() {
-        let mock = Rc::new(MockPlatform::default());
-        let (factory, _inbox) = factory(&mock);
-        factory.set_background(SURFACE);
-        factory.create(request()).unwrap();
-        let mut browser = request();
-        browser.kind = webview::Kind::Browser;
-        factory.create(browser).unwrap();
-        assert_eq!(
-            created_backgrounds(&mock),
-            vec![Some(SURFACE), None],
-            "pane, browser"
-        );
-    }
-
-    enum Page {
-        Unowned,
-        Current,
-        Stale,
-    }
-
-    const CASES: &[(&str, Page, bool)] = &[
-        ("nobody owns the slot", Page::Unowned, false),
-        ("the owner's current page", Page::Current, true),
-        (
-            "a page left over from the previous pane",
-            Page::Stale,
-            false,
-        ),
-    ];
-
-    fn generation_for(
-        page: &Page,
-        stale: u64,
-        current: u64,
-    ) -> u64 {
-        if matches!(page, Page::Stale) {
-            return stale;
-        }
-        current
-    }
-
-    fn delivered(page: &Page) -> bool {
+    fn ipc_is_attributed_to_the_current_page_of_the_owner_only() {
         let mock = Rc::new(MockPlatform::default());
         let (factory, inbox) = factory(&mock);
-        let slot = factory.create(request()).unwrap();
-        let stale = slot.owner.assign(PaneId::new("old").unwrap());
-        let current = slot.owner.assign(PaneId::new("new").unwrap());
-        if matches!(page, Page::Unowned) {
-            slot.owner.clear();
-        }
-        let generation = generation_for(page, stale, current);
-        mock.simulate_ipc(slot.handle.id(), &format!("{generation}:hello"))
-            .unwrap();
-        inbox.try_recv().is_ok()
-    }
-
-    #[test]
-    fn only_the_current_page_of_the_owner_is_delivered() {
-        for (name, page, expected) in CASES {
-            assert_eq!(delivered(page), *expected, "{name}");
-        }
-    }
-
-    #[test]
-    fn ipc_is_attributed_to_the_page_generation_of_the_owner() {
-        let mock = Rc::new(MockPlatform::default());
-        let (factory, inbox) = factory(&mock);
-        let slot = factory.create(request()).unwrap();
+        let slot = factory.create(request(webview::Kind::Core)).unwrap();
+        let post = |generation: u64, text: &str| {
+            let enveloped = format!("{generation}:{text}");
+            mock.simulate_ipc(slot.handle.id(), &enveloped).unwrap();
+            inbox
+                .try_recv()
+                .ok()
+                .map(|message| (message.pane.to_string(), message.text))
+        };
         let first = slot.owner.assign(PaneId::new("p1").unwrap());
-        mock.simulate_ipc(slot.handle.id(), &format!("{first}:hello"))
-            .unwrap();
-        let message = inbox.try_recv().unwrap();
         assert_eq!(
-            (message.pane.as_str(), message.text.as_str()),
-            ("p1", "hello"),
+            post(first, "hello"),
+            Some(("p1".into(), "hello".into())),
             "owner"
         );
         let second = slot.owner.assign(PaneId::new("p2").unwrap());
-        mock.simulate_ipc(slot.handle.id(), &format!("{first}:from the old page"))
-            .unwrap();
-        assert!(
-            inbox.try_recv().is_err(),
+        assert_eq!(
+            post(first, "old"),
+            None,
             "the previous pane's page is stale"
         );
-        mock.simulate_ipc(slot.handle.id(), &format!("{second}:again"))
-            .unwrap();
         assert_eq!(
-            inbox.try_recv().unwrap().pane.as_str(),
-            "p2",
-            "the new page"
+            post(second, "again"),
+            Some(("p2".into(), "again".into())),
+            "new page"
         );
+        slot.owner.clear();
+        assert_eq!(post(second, "late"), None, "nobody owns the slot");
     }
 }

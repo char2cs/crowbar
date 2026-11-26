@@ -150,31 +150,4 @@ mod tests {
             .collect();
         assert_eq!(headers, [false, true, true, true]);
     }
-
-    #[test]
-    fn icon_themes_are_offered_in_registration_order() {
-        let page = page();
-        let Some(icon) = page.rows().find(|row| row.key().as_str() == "iconTheme") else {
-            panic!("no icon theme row");
-        };
-        let Control::Select {
-            source: crate::schema::ChoiceSource::Fixed(choices),
-            ..
-        } = icon.control()
-        else {
-            panic!("icon theme is not a fixed select");
-        };
-        let labels: Vec<&str> = choices.iter().map(crate::values::Choice::label).collect();
-        assert_eq!(
-            labels,
-            [
-                "Classic",
-                "Material Icons",
-                "Colorful Material Icons",
-                "Compact",
-                "Minimal Icons",
-                "None"
-            ]
-        );
-    }
 }

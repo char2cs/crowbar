@@ -10,7 +10,7 @@ use crate::error::Error;
 use crate::supervisor::supervision::log::daemon_log::daemon_log_event::DaemonLogEvent;
 use crate::supervisor::supervision::log::message::Message;
 use crate::supervisor::supervision::log::sink::Sink;
-use crate::supervisor::supervision::reply::reply;
+use crate::supervisor::supervision::reply;
 use crate::supervisor::{spawn::private_dir, supervision::log::adapters::Writer};
 
 const QUEUE_LINES: usize = 512;

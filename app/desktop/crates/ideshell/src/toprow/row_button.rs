@@ -5,7 +5,6 @@ use gpui::{
 use ui::{HoverFill, Icon, IconName, Surface, Theme, Tooltip, TooltipSide, radius};
 
 use crate::tabbar::tab_actions::TabAction;
-use crate::toprow::row_ink::RowInk;
 
 const SIZE: f32 = 28.0;
 const GLYPH: f32 = 16.0;
@@ -14,7 +13,7 @@ pub(crate) struct RowButton {
     pub(crate) id: SharedString,
     pub(crate) icon: IconName,
     pub(crate) tip: SharedString,
-    pub(crate) ink: RowInk,
+    pub(crate) pressed: bool,
     pub(crate) on_click: TabAction,
 }
 
@@ -25,9 +24,12 @@ impl RenderOnce for RowButton {
         cx: &mut App,
     ) -> impl IntoElement {
         let palette = Theme::of(cx).palette(Surface::Window);
-        let glyph = Icon::new(self.icon)
-            .size(px(GLYPH))
-            .color(self.ink.color(palette));
+        let ink = if self.pressed {
+            palette.foreground()
+        } else {
+            palette.muted_foreground()
+        };
+        let glyph = Icon::new(self.icon).size(px(GLYPH)).color(ink);
         let base = div()
             .flex()
             .flex_none()
@@ -84,7 +86,7 @@ mod tests {
                 id: "split".into(),
                 icon: IconName::SquareSplitHorizontal,
                 tip: "Show editor alongside chat".into(),
-                ink: RowInk::Muted,
+                pressed: false,
                 on_click: Rc::new(move |_, _| clicks.set(clicks.get() + 1)),
             })
         }

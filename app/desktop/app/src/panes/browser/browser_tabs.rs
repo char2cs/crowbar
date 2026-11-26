@@ -132,69 +132,25 @@ pub(crate) fn browser_tabs(
 #[cfg(test)]
 mod tests {
     use browser::PageUpdate;
-    use layout::{Command, PaneInstance, TabId};
-    use protocol::{PaneState, PaneTypeId, Params};
+    use layout::{PaneInstance, TabId};
+    use protocol::PaneState;
     use serde_json::json;
 
     use super::*;
-
-    type Seed = (u64, &'static str, &'static str, Params, PaneState);
-
-    fn empty_tab(id: TabId) -> Command {
-        Command::AddTab {
-            id,
-            title: String::new(),
-            space: layout::SpaceId::default(),
-        }
-    }
-
-    fn open(
-        layout: &mut Layout,
-        seed: Seed,
-    ) {
-        let (tab, name, type_id, params, state) = seed;
-        let tab = TabId(tab);
-        if layout.tab(tab).is_none() {
-            layout.apply(empty_tab(tab)).unwrap();
-        }
-        let instance = PaneInstance {
-            pane_id: PaneId::new(name).unwrap(),
-            type_id: PaneTypeId::new(type_id).unwrap(),
-            params,
-            state,
-        };
-        let placement = None;
-        layout
-            .apply(Command::OpenPane {
-                tab,
-                instance,
-                placement,
-            })
-            .unwrap();
-    }
-
-    fn thread(chat: &str) -> Params {
-        Params::default().with(THREAD_ID, chat).unwrap()
-    }
-
-    fn at(url: &str) -> PaneState {
-        PaneState::new(json!({ "url": url })).unwrap()
-    }
+    use crate::test_support::{add_tab, chat_pane, one_tab, open_in, pane};
 
     fn two_chats() -> Layout {
-        let mut layout = Layout::default();
-        let none = || (Params::default(), PaneState::default());
-        let seeds: Vec<Seed> = vec![
-            (1, "p1", "core.chat", thread("c1"), PaneState::default()),
-            (1, "b1", BROWSER, none().0, at("https://a.test/")),
-            (2, "p2", "core.chat", thread("c2"), PaneState::default()),
-            (2, "b2", BROWSER, thread("c2"), PaneState::default()),
-            (3, "t1", "core.terminal", none().0, none().1),
-            (3, "b3", BROWSER, none().0, none().1),
-        ];
-        for seed in seeds {
-            open(&mut layout, seed);
-        }
+        let saved = PaneInstance {
+            state: PaneState::new(json!({ "url": "https://a.test/" })).unwrap(),
+            ..pane("b1", BROWSER)
+        };
+        let mut layout = one_tab([chat_pane(("p1", "core.chat"), "c1"), saved]);
+        add_tab(&mut layout, 2);
+        open_in(&mut layout, 2, chat_pane(("p2", "core.chat"), "c2"));
+        open_in(&mut layout, 2, chat_pane(("b2", BROWSER), "c2"));
+        add_tab(&mut layout, 3);
+        open_in(&mut layout, 3, pane("t1", "core.terminal"));
+        open_in(&mut layout, 3, pane("b3", BROWSER));
         layout
     }
 

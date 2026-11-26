@@ -38,7 +38,7 @@ fn close_shown(
 
 #[cfg(test)]
 mod tests {
-    use layout::Command;
+    use layout::{Command, Layout};
 
     use super::*;
     use crate::test_support::{pane_id, strip_layout};
@@ -47,46 +47,43 @@ mod tests {
         StripKey::Focus(pane_id(name))
     }
 
-    #[test]
-    fn keys_walk_the_strip_and_close_the_shown_tab() {
-        let cases = [
-            ("left", "b", "left", Some(focus("a"))),
-            ("right", "b", "right", Some(focus("c"))),
-            ("home", "c", "home", Some(focus("a"))),
-            ("end", "a", "end", Some(focus("c"))),
-            ("left at the start", "a", "left", None),
-            ("right at the end", "c", "right", None),
-            ("end at the end", "c", "end", None),
-            ("delete", "b", "delete", Some(StripKey::Close(pane_id("b")))),
-            (
-                "backspace",
-                "b",
-                "backspace",
-                Some(StripKey::Close(pane_id("b"))),
-            ),
-            ("another key", "b", "x", None),
-        ];
-        for (name, shown, key, expected) in cases {
-            let layout = strip_layout(shown);
-            let tab = layout.showing("").unwrap();
-            let group = tab.group_of(&pane_id("a")).unwrap();
-            let got = strip_command(group, &pane_id(shown), key);
-            assert_eq!(got, expected, "{name}");
+    fn showing(
+        shown: &str,
+        pinned: &[&str],
+    ) -> Layout {
+        let mut layout = strip_layout(shown);
+        for pane in pinned.iter().map(|name| pane_id(name)) {
+            layout.apply(Command::PinPane { pane }).expect("pinned");
         }
+        layout
     }
 
     #[test]
-    fn a_pinned_tab_is_not_closed_by_the_keyboard_and_the_user_is_told() {
-        let mut layout = strip_layout("b");
-        layout
-            .apply(Command::PinPane { pane: pane_id("b") })
-            .unwrap();
-        let tab = layout.tab_of(&pane_id("b")).unwrap();
-        let group = tab.group_of(&pane_id("b")).unwrap();
-        assert_eq!(
-            strip_command(group, &pane_id("b"), "delete"),
-            Some(StripKey::PinnedStays(pane_id("b"))),
-            "pinned"
-        );
+    fn keys_walk_the_strip_and_close_the_shown_tab_unless_it_is_pinned() {
+        let close_b = Some(StripKey::Close(pane_id("b")));
+        let cases: [(&str, &str, &[&str], Option<StripKey>); 11] = [
+            ("b", "left", &[], Some(focus("a"))),
+            ("b", "right", &[], Some(focus("c"))),
+            ("c", "home", &[], Some(focus("a"))),
+            ("a", "end", &[], Some(focus("c"))),
+            ("a", "left", &[], None),
+            ("c", "right", &[], None),
+            ("c", "end", &[], None),
+            ("b", "delete", &[], close_b.clone()),
+            ("b", "backspace", &[], close_b),
+            ("b", "x", &[], None),
+            (
+                "b",
+                "delete",
+                &["b"],
+                Some(StripKey::PinnedStays(pane_id("b"))),
+            ),
+        ];
+        for (shown, key, pinned, expected) in cases {
+            let layout = showing(shown, pinned);
+            let group = layout.showing("").unwrap().group_of(&pane_id("a")).unwrap();
+            let got = strip_command(group, &pane_id(shown), key);
+            assert_eq!(got, expected, "{key} on {shown}, pinned: {pinned:?}");
+        }
     }
 }

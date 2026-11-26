@@ -1,9 +1,7 @@
-use crate::backend::desktop::caret_blink::CaretReport;
-use crate::backend::desktop::color_scheme::ColorScheme;
-use crate::backend::desktop::desktop_settings::DesktopSettings;
 use crate::backend::mock::call::Call;
 use crate::backend::mock::mock_platform::MockPlatform;
-use crate::backend::view::browsing_data::BrowsingData;
+use crate::backend::view::page_control::PageControl;
+use crate::backend::view::view_capture::ViewCapture;
 use crate::backend::view::view_cutout::ViewCutout;
 use crate::backend::view::view_focus::ViewFocus;
 use crate::backend::view::view_layout::ViewLayout;
@@ -14,6 +12,7 @@ use crate::view::Color;
 use crate::view::Config;
 use crate::view::Id;
 use crate::view::ParentWindow;
+use crate::view::Snapshot;
 use crate::view::Visibility;
 
 impl ViewLifecycle for MockPlatform {
@@ -121,91 +120,113 @@ impl ViewFocus for MockPlatform {
     }
 }
 
-impl BrowsingData for MockPlatform {
-    fn clear_browsing_data(&self) -> Result<()> {
-        self.record(Call::ClearBrowsingData);
+impl PageControl for MockPlatform {
+    fn eval(
+        &self,
+        id: Id,
+        script: &str,
+    ) -> Result<()> {
+        self.require_live(id)?;
+        self.record(Call::Eval {
+            id,
+            script: script.to_owned(),
+        });
+        Ok(())
+    }
+
+    fn navigate(
+        &self,
+        id: Id,
+        url: &str,
+    ) -> Result<()> {
+        self.require_live(id)?;
+        self.record(Call::Navigate {
+            id,
+            url: url.to_owned(),
+        });
         Ok(())
     }
 }
 
-impl DesktopSettings for MockPlatform {
-    fn follow_caret(
+impl ViewCapture for MockPlatform {
+    fn snapshot(
         &self,
-        _report: CaretReport,
-    ) -> Result<()> {
-        self.record(Call::FollowCaret);
-        Ok(())
-    }
-
-    fn draw_widgets_in(
-        &self,
-        scheme: ColorScheme,
-    ) -> Result<()> {
-        self.record(Call::DrawWidgetsIn { scheme });
-        Ok(())
+        id: Id,
+    ) -> Result<Option<Snapshot>> {
+        self.record(Call::Snapshot { id });
+        Ok(None)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use super::*;
+    use crate::test_support::view_fixtures::config;
     use crate::view::Kind;
-
-    fn config() -> Config {
-        let bounds = Bounds {
-            x: 0.0,
-            y: 0.0,
-            width: 10.0,
-            height: 10.0,
-        };
-        Config {
-            url: "crowbar://local/".into(),
-            bounds,
-            kind: Kind::Core,
-            visibility: Visibility::Shown,
-            background: None,
-            initialization_script: None,
-            on_ipc: Arc::new(|_| {}),
-            on_page: None,
-        }
-    }
 
     fn kind_of(call: &Call) -> &'static str {
         match call {
             Call::Create { .. } => "create",
+            Call::SetVisibility { .. } => "visibility",
             Call::Focus { .. } => "focus",
             Call::FocusParent { .. } => "focus_parent",
-            Call::ClearBrowsingData => "clear",
-            Call::FollowCaret => "follow_caret",
+            Call::Eval { .. } => "eval",
+            Call::Navigate { .. } => "navigate",
+            Call::Snapshot { .. } => "snapshot",
             Call::Destroy { .. } => "destroy",
             _ => "other",
         }
     }
 
     #[test]
-    fn views_are_created_laid_out_focused_and_destroyed_in_order() {
+    fn the_life_of_a_view_is_recorded_in_order() {
         let mock = MockPlatform::default();
         let id = Id(1);
-        mock.create(id, ParentWindow::X11(9), config()).unwrap();
+        mock.create(id, ParentWindow::X11(9), config(Kind::Core))
+            .unwrap();
+        mock.set_visibility(id, Visibility::Hidden).unwrap();
         mock.focus(id).unwrap();
         mock.focus_parent(id).unwrap();
-        mock.clear_browsing_data().unwrap();
-        mock.follow_caret(Arc::new(|_| ())).unwrap();
+        mock.eval(id, "1").unwrap();
+        mock.navigate(id, "x").unwrap();
+        assert!(matches!(mock.snapshot(id), Ok(None)), "no pixels");
         mock.destroy(id).unwrap();
         let kinds: Vec<&str> = mock.calls().iter().map(kind_of).collect();
-        assert_eq!(
-            kinds,
-            [
-                "create",
-                "focus",
-                "focus_parent",
-                "clear",
-                "follow_caret",
-                "destroy"
-            ],
-            "order"
-        );
+        let want = [
+            "create",
+            "visibility",
+            "focus",
+            "focus_parent",
+            "eval",
+            "navigate",
+            "snapshot",
+            "destroy",
+        ];
+        assert_eq!(kinds, want, "order");
+        assert!(mock.live_views().is_empty(), "nothing alive");
+    }
+
+    type Operation = fn(&MockPlatform, Id) -> Result<()>;
+
+    const CASES: &[(&str, Operation)] = &[
+        ("eval", |mock, id| mock.eval(id, "1")),
+        ("navigate", |mock, id| mock.navigate(id, "x")),
+        ("bounds", |mock, id| {
+            mock.set_bounds(id, config(Kind::Core).bounds)
+        }),
+        ("destroy", |mock, id| mock.destroy(id)),
+        ("ipc", |mock, id| mock.simulate_ipc(id, "x")),
+    ];
+
+    #[test]
+    fn unknown_views_are_errors_and_record_nothing() {
+        let mock = MockPlatform::default();
+        for (name, operation) in CASES {
+            assert!(
+                matches!(operation(&mock, Id(5)), Err(Error::UnknownWebView(_))),
+                "{name}"
+            );
+        }
+        assert!(mock.calls().is_empty(), "nothing recorded");
     }
 }

@@ -38,46 +38,25 @@ impl ShellPaneSource {
 #[cfg(test)]
 mod tests {
     use ideshell::TabLooks as _;
-    use protocol::PaneId;
     use sidebar::IconTheme;
     use ui::{IconName, MaterialTable};
 
     use super::*;
-    use crate::panes::browser::browser_bars::BrowserBars;
-    use crate::panes::content::native_panes::NativePanes;
-    use crate::panes::content::new_tab::new_tab_panes::NewTabPanes;
-    use crate::panes::kinds::serials::Serials;
-    use crate::panes::terminals::terminal_ids::TerminalIds;
+    use crate::panes::content::shell_pane_source::tests::idle_source;
     use crate::panes::tracking::titles::Titles;
-    use crate::test_support::idle_terminals;
 
     fn pane(
         kind: &str,
         state: &str,
     ) -> PaneInstance {
         PaneInstance {
-            pane_id: PaneId::new("p1").unwrap(),
-            type_id: protocol::PaneTypeId::new(kind).unwrap(),
-            params: protocol::Params::default(),
             state: protocol::PaneState::new(serde_json::from_str(state).unwrap()).unwrap(),
+            ..crate::test_support::pane("p1", kind)
         }
     }
 
     fn drawn_by(theme: IconTheme) -> ShellPaneSource {
-        ShellPaneSource::new(
-            Titles::default(),
-            Serials::above(&layout::Layout::default()),
-            BrowserBars::new(
-                crate::panes::browser::browser_ids::BrowserIds::default(),
-                async_channel::unbounded().0,
-            ),
-            NativePanes::new(
-                idle_terminals(TerminalIds::default()),
-                NewTabPanes::new(async_channel::unbounded().0),
-                crate::test_support::idle_editors(),
-            ),
-        )
-        .iconing(std::rc::Rc::new(move || theme))
+        idle_source(Titles::default()).iconing(std::rc::Rc::new(move || theme))
     }
 
     const TEST_FILE: &str = r#"{"path": "src/pricing.test.ts"}"#;

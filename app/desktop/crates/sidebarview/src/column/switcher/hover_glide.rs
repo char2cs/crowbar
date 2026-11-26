@@ -80,7 +80,7 @@ impl std::fmt::Debug for HoverGlide {
 
 #[cfg(test)]
 mod tests {
-    use gpui::{AppContext as _, Context, IntoElement, Render, TestAppContext, Window};
+    use gpui::{AppContext as _, TestAppContext};
 
     use std::time::Instant;
 
@@ -88,31 +88,6 @@ mod tests {
 
     fn clock() -> Rc<dyn Clock> {
         Rc::new(Instant::now)
-    }
-
-    struct Probe {
-        seen: Rc<std::cell::Cell<f32>>,
-    }
-
-    impl Render for Probe {
-        fn render(
-            &mut self,
-            window: &mut Window,
-            cx: &mut Context<'_, Self>,
-        ) -> impl IntoElement {
-            let state = track("probe", &clock(), window, cx);
-            self.seen.set(value(&state, window, cx));
-            gpui::div()
-        }
-    }
-
-    #[gpui::test]
-    fn an_unhovered_element_rests_at_zero(cx: &mut TestAppContext) {
-        cx.update(|cx| ui::init(cx).expect("ui installs"));
-        let seen = Rc::new(std::cell::Cell::new(1.0));
-        let shared = Rc::clone(&seen);
-        let (_, _cx) = cx.add_window_view(|_, _| Probe { seen: shared });
-        assert_eq!(seen.get(), 0.0);
     }
 
     #[gpui::test]

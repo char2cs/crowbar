@@ -17,8 +17,7 @@ use crate::layout::tab::pane_instance::PaneInstance;
 use crate::space_id::SpaceId;
 use crate::tab_id::TabId;
 
-/// Most tabs a layout may hold.
-pub const MAX_TABS: usize = 256;
+pub(crate) const MAX_TABS: usize = 256;
 
 /// All tabs of a window, each in the space it was made in, and which tab each space shows.
 ///

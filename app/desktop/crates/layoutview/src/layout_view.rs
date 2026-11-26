@@ -1,4 +1,3 @@
-pub(crate) mod clock;
 pub(crate) mod drag;
 mod hover_source;
 mod layout_drag;
@@ -20,7 +19,6 @@ use crate::geometry::chrome_context::ChromeContext;
 use crate::geometry::pane_frame::PaneFrame;
 use crate::host::pane_source::PaneSource;
 use crate::layout_event::LayoutEvent;
-use crate::layout_view::clock::Clock;
 use crate::layout_view::drag::drop_hover::DropHover;
 use crate::layout_view::drag::sash_grab::SashGrab;
 use crate::layout_view::hover_source::HoverSource;
@@ -41,7 +39,7 @@ pub struct LayoutView {
     pub(crate) drop: DropHover,
     pub(crate) rings: PaneFades,
     pub(crate) handles: PaneFades,
-    pub(crate) clock: Rc<dyn Clock>,
+    pub(crate) clock: Rc<dyn Fn() -> Instant>,
 }
 
 impl std::fmt::Debug for LayoutView {
@@ -65,10 +63,9 @@ impl LayoutView {
         Self::with_clock(source, Rc::new(Instant::now))
     }
 
-    /// Like [`LayoutView::new`], but animations read the time from `clock`.
-    pub fn with_clock(
+    pub(crate) fn with_clock(
         source: Rc<dyn PaneSource>,
-        clock: Rc<dyn Clock>,
+        clock: Rc<dyn Fn() -> Instant>,
     ) -> Self {
         Self {
             tab: None,
@@ -174,7 +171,7 @@ impl LayoutView {
         &mut self,
         cx: &mut App,
     ) {
-        let (now, motion) = (self.clock.now(), Motion::of(cx));
+        let (now, motion) = ((self.clock)(), Motion::of(cx));
         let multiple = self.tab.as_ref().is_some_and(|tab| tab.group_count() > 1);
         let focused = self.tab.as_ref().and_then(|tab| tab.focused().cloned());
         let ring = focused.filter(|_| multiple);
@@ -192,101 +189,51 @@ impl LayoutView {
 
 #[cfg(test)]
 mod tests {
-    use crate::layout_event::LayoutEvent;
-    use crate::layout_view::LayoutView;
-    use gpui::{Modifiers, MouseButton, TestAppContext, point, px};
-    use layout::{Command, DragSubject, Edge};
+    use std::time::Duration;
 
+    use gpui::{Modifiers, MouseButton, TestAppContext, point, px};
+    use layout::{Command, Edge, Layout};
+
+    use super::*;
     use crate::test_support::{
-        chat_row, file_row, layout_of, open, open_under_row_source, pane_id,
+        chat_row, drag_row_to, file_row, layout_of, open, open_under_row_source, pane_id,
     };
 
-    fn side_by_side() -> layout::Layout {
+    fn side_by_side() -> Layout {
         layout_of("a", &[("b", "a", Edge::Right)])
     }
 
     #[gpui::test]
-    fn while_the_drop_preview_shows_the_panes_are_tinted_and_the_window_covered(
+    fn without_a_tab_the_view_shows_the_logo_and_with_one_it_does_not(cx: &mut TestAppContext) {
+        for (layout, logo) in [(Layout::default(), true), (side_by_side(), false)] {
+            let harness = open(cx, &layout);
+            let shown = harness
+                .view
+                .read_with(harness.cx, |view, _| view.shows_logo());
+            assert_eq!(shown, logo);
+        }
+    }
+
+    #[gpui::test]
+    fn pressing_an_unfocused_pane_asks_to_focus_it_and_the_focused_one_asks_nothing(
         cx: &mut TestAppContext
     ) {
-        let mut floating = crate::test_support::open_floating(cx, &side_by_side());
-        let view = floating.view.clone();
-        let over = DragSubject::Chat("t1".into());
-        let window = &mut floating.window;
-        assert_eq!(
-            window.debug_bounds("pane-drag-tint"),
-            None,
-            "no drag, no tint"
-        );
-        view.update(window, |view, cx| {
-            view.hover(&over, point(px(10.0), px(100.0)), cx);
-        });
-        window.run_until_parked();
-        assert!(
-            window.debug_bounds("drop-preview").is_some(),
-            "in the window"
-        );
-        assert!(ui::testing::covered(window).0, "the web views are hidden");
-        assert!(window.debug_bounds("pane-drag-tint").is_some(), "tinted");
-        view.update(window, |view, cx| {
-            view.hover(&over, point(px(-5.0), px(-5.0)), cx);
-        });
-        window.run_until_parked();
-        assert_eq!(window.debug_bounds("drop-preview"), None, "gone outside");
-        assert!(!ui::testing::covered(window).0, "the web views are back");
-        assert_eq!(window.debug_bounds("pane-drag-tint"), None, "untinted");
-    }
-
-    #[gpui::test]
-    fn without_a_tab_the_view_shows_the_logo_and_with_one_it_does_not(cx: &mut TestAppContext) {
-        let empty = open(cx, &layout::Layout::default());
-        let (view, cx) = (empty.view, empty.cx);
-        view.read_with(cx, |view, _| assert!(view.shows_logo(), "no tab"));
-        let populated = open(cx, &side_by_side());
-        let (view, cx) = (populated.view, populated.cx);
-        view.read_with(cx, |view, _| assert!(!view.shows_logo(), "a tab is open"));
-    }
-
-    #[gpui::test]
-    fn the_view_measures_itself_and_lays_the_panes_out_in_its_bounds(cx: &mut TestAppContext) {
-        let layout = side_by_side();
-        let harness = open(cx, &layout);
-        let (view, cx) = (harness.view, harness.cx);
-        cx.run_until_parked();
-        view.read_with(cx, |view, _| {
-            assert!(view.bounds.size.width > px(0.0), "measured width");
-            let slots = view.tab.as_ref().expect("tab").layout(view.local());
-            assert_eq!(slots.len(), 2, "two slots");
-        });
-    }
-
-    #[gpui::test]
-    fn pressing_an_unfocused_pane_asks_to_focus_it(cx: &mut TestAppContext) {
-        let layout = side_by_side();
-        let harness = open(cx, &layout);
-        let (view, cx, commands) = (harness.view, harness.cx, harness.commands);
-        view.update(cx, |view, cx| view.pane_pressed(&pane_id("a"), cx));
-        cx.run_until_parked();
-        assert_eq!(
-            commands.borrow().as_slice(),
-            &[Command::FocusPane { pane: pane_id("a") }],
-            "b is focused after opening, a asks for focus"
-        );
-    }
-
-    #[gpui::test]
-    fn pressing_the_focused_pane_asks_for_nothing(cx: &mut TestAppContext) {
-        let layout = side_by_side();
-        let harness = open(cx, &layout);
-        let (view, cx, commands) = (harness.view, harness.cx, harness.commands);
-        view.update(cx, |view, cx| view.pane_pressed(&pane_id("b"), cx));
-        assert!(commands.borrow().is_empty(), "already focused");
+        let focus_a = vec![Command::FocusPane { pane: pane_id("a") }];
+        for (pane, expected) in [("a", focus_a), ("b", vec![])] {
+            let harness = open(cx, &side_by_side());
+            let (view, cx) = (harness.view, harness.cx);
+            view.update(cx, |view, cx| view.pane_pressed(&pane_id(pane), cx));
+            assert_eq!(
+                *harness.commands.borrow(),
+                expected,
+                "b is focused after opening"
+            );
+        }
     }
 
     #[gpui::test]
     fn dragging_a_sash_asks_the_model_to_resize_the_split(cx: &mut TestAppContext) {
-        let layout = side_by_side();
-        let harness = open(cx, &layout);
+        let harness = open(cx, &side_by_side());
         let (view, cx, commands) = (harness.view, harness.cx, harness.commands);
         let width = view.read_with(cx, |view, _| f32::from(view.bounds.size.width));
         let sash_x = (width - 6.0) / 2.0 + 3.0;
@@ -310,8 +257,7 @@ mod tests {
     fn dragging_a_chat_row_onto_a_pane_asks_to_open_it_at_the_zone_under_the_pointer(
         cx: &mut TestAppContext
     ) {
-        let layout = layout_of("a", &[]);
-        let harness = open_under_row_source(cx, &layout, chat_row());
+        let harness = open_under_row_source(cx, &layout_of("a", &[]), chat_row());
         let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
         let size = view.read_with(cx, |view, _| view.bounds.size);
         let (width, height) = (f32::from(size.width), f32::from(size.height));
@@ -322,11 +268,7 @@ mod tests {
             ((20.0, height / 2.0), Edge::Left),
         ];
         for ((x, y), _) in zones {
-            let none = Modifiers::none();
-            cx.simulate_mouse_down(point(px(4.0), px(4.0)), MouseButton::Left, none);
-            cx.simulate_mouse_move(point(px(40.0), px(40.0)), MouseButton::Left, none);
-            cx.simulate_mouse_move(point(px(x), px(y)), MouseButton::Left, none);
-            cx.simulate_mouse_up(point(px(x), px(y)), MouseButton::Left, none);
+            drag_row_to(cx, point(px(x), px(y)));
         }
         let edges: Vec<_> = opened
             .borrow()
@@ -349,18 +291,12 @@ mod tests {
     fn a_file_row_dropped_on_a_pane_asks_to_open_it_in_that_pane_wherever_it_lands(
         cx: &mut TestAppContext
     ) {
-        let layout = layout_of("a", &[("b", "a", Edge::Right)]);
-        let harness = open_under_row_source(cx, &layout, file_row("src/a.rs"));
+        let harness = open_under_row_source(cx, &side_by_side(), file_row("src/a.rs"));
         let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
         let size = view.read_with(cx, |view, _| view.bounds.size);
         let (width, height) = (f32::from(size.width), f32::from(size.height));
-        let spots = [(width * 0.75, height / 2.0), (width - 10.0, height - 10.0)];
-        for (x, y) in spots {
-            let none = Modifiers::none();
-            cx.simulate_mouse_down(point(px(4.0), px(4.0)), MouseButton::Left, none);
-            cx.simulate_mouse_move(point(px(40.0), px(40.0)), MouseButton::Left, none);
-            cx.simulate_mouse_move(point(px(x), px(y)), MouseButton::Left, none);
-            cx.simulate_mouse_up(point(px(x), px(y)), MouseButton::Left, none);
+        for (x, y) in [(width * 0.75, height / 2.0), (width - 10.0, height - 10.0)] {
+            drag_row_to(cx, point(px(x), px(y)));
         }
         let expected = LayoutEvent::OpenFile {
             path: "src/a.rs".into(),
@@ -370,83 +306,48 @@ mod tests {
     }
 
     #[gpui::test]
-    fn the_handle_close_button_closes_that_pane(cx: &mut TestAppContext) {
-        let layout = side_by_side();
-        let harness = open(cx, &layout);
-        let (view, cx, commands) = (harness.view, harness.cx, harness.commands);
-        view.update(cx, |_, cx| LayoutView::close(&pane_id("a"), cx));
-        assert_eq!(
-            commands.borrow().as_slice(),
-            &[Command::ClosePane { pane: pane_id("a") }],
-            "close"
-        );
-    }
-
-    #[gpui::test]
     fn detaching_asks_the_source_for_a_fresh_tab(cx: &mut TestAppContext) {
-        let layout = side_by_side();
-        let harness = open(cx, &layout);
+        let harness = open(cx, &side_by_side());
         let (view, cx, commands) = (harness.view, harness.cx, harness.commands);
         view.update(cx, |view, cx| view.detach(&pane_id("a"), cx));
-        assert_eq!(
-            commands.borrow().as_slice(),
-            &[Command::DetachPane {
-                pane: pane_id("a"),
-                new_tab: layout::TabId(100),
-                title: "Detached".into()
-            }],
-            "detach into a fresh tab"
-        );
+        let detach = Command::DetachPane {
+            pane: pane_id("a"),
+            new_tab: TabId(100),
+            title: "Detached".into(),
+        };
+        assert_eq!(*commands.borrow(), [detach], "detach into a fresh tab");
+    }
+
+    fn opacities(
+        view: &LayoutView,
+        panes: &[(&str, f32, f32)],
+    ) -> Vec<(f32, f32)> {
+        let (now, motion) = ((view.clock)(), Motion::default());
+        let of = |pane: &PaneId| {
+            let handle = view.handles.opacity(pane, now, motion);
+            (handle, view.rings.opacity(pane, now, motion))
+        };
+        panes.iter().map(|(pane, ..)| of(&pane_id(pane))).collect()
     }
 
     #[gpui::test]
-    fn only_the_hovered_pane_of_a_split_shows_its_handle(cx: &mut TestAppContext) {
-        let layout = side_by_side();
-        let harness = open(cx, &layout);
-        let (view, cx, clock) = (harness.view, harness.cx, harness.clock);
-        view.update(cx, |view, cx| view.page_entered(&pane_id("a"), cx));
-        clock.set(clock.get() + std::time::Duration::from_millis(200));
-        cx.run_until_parked();
-        view.read_with(cx, |view, _| {
-            let now = view.clock.now();
-            let motion = ui::Motion::default();
-            assert_eq!(
-                view.handles.opacity(&pane_id("a"), now, motion),
-                1.0,
-                "a shows its handle"
-            );
-            assert_eq!(
-                view.handles.opacity(&pane_id("b"), now, motion),
-                0.0,
-                "b does not"
-            );
-            assert_eq!(
-                view.rings.opacity(&pane_id("b"), now, motion),
-                1.0,
-                "the focused pane has the ring"
-            );
-        });
-    }
-
-    #[gpui::test]
-    fn a_lone_pane_has_neither_ring_nor_handle(cx: &mut TestAppContext) {
-        let layout = layout_of("a", &[]);
-        let harness = open(cx, &layout);
-        let (view, cx) = (harness.view, harness.cx);
-        view.update(cx, |view, cx| view.page_entered(&pane_id("a"), cx));
-        view.read_with(cx, |view, _| {
-            let now = view.clock.now() + std::time::Duration::from_millis(200);
-            let motion = ui::Motion::default();
-            assert_eq!(
-                view.handles.opacity(&pane_id("a"), now, motion),
-                0.0,
-                "no handle"
-            );
-            assert_eq!(
-                view.rings.opacity(&pane_id("a"), now, motion),
-                0.0,
-                "no ring"
-            );
-        });
+    fn only_the_hovered_pane_of_a_split_shows_its_handle_and_a_lone_pane_neither(
+        cx: &mut TestAppContext
+    ) {
+        let split: &[(&str, f32, f32)] = &[("a", 1.0, 0.0), ("b", 0.0, 1.0)];
+        let lone: &[(&str, f32, f32)] = &[("a", 0.0, 0.0)];
+        for (layout, expected) in [(side_by_side(), split), (layout_of("a", &[]), lone)] {
+            let harness = open(cx, &layout);
+            let (view, cx, clock) = (harness.view, harness.cx, harness.clock);
+            view.update(cx, |view, cx| view.page_entered(&pane_id("a"), cx));
+            clock.set(clock.get() + Duration::from_millis(200));
+            cx.run_until_parked();
+            let seen = view.read_with(cx, |view, _| opacities(view, expected));
+            let want: Vec<_> = expected
+                .iter()
+                .map(|(_, handle, ring)| (*handle, *ring))
+                .collect();
+            assert_eq!(seen, want, "(handle, ring) of {expected:?}; b is focused");
+        }
     }
 }

@@ -169,7 +169,7 @@ impl Drop for FilesHold {
 mod tests {
     use super::*;
     use crate::live::Outcome;
-    use crate::test_support::state;
+    use crate::test_support::{recorder, state};
 
     const HELD: &str = r#"{"t":"closed","scope":"files:hw","reason":"resync"}"#;
     const OTHER: &str = r#"{"t":"synced","scope":"files:elsewhere"}"#;
@@ -206,9 +206,7 @@ mod tests {
     #[tokio::test]
     async fn an_edit_or_new_file_on_disk_and_each_resync_reach_the_shell() {
         let hub = quiet_hub();
-        let heard = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let log = Arc::clone(&heard);
-        let outcome: OutcomeSink = Arc::new(move |outcome| log.lock().unwrap().push(outcome));
+        let (outcome, heard) = recorder();
         let (outgoing, _sent) = mpsc::unbounded_channel();
         let mut files = Some(FilesHold::new(&hub, "local", outcome));
         hub.edit(|state| state.panels.follow(Some("hc".into())));

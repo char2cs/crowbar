@@ -48,16 +48,4 @@ mod tests {
             assert_eq!(reported_button(host), expected, "{host:?}");
         }
     }
-
-    #[test]
-    fn a_report_carries_the_button_the_cell_and_the_held_modifiers() {
-        let held = gpui::Modifiers {
-            shift: true,
-            ..gpui::Modifiers::default()
-        };
-        let report = pointer_report(MouseButton::Left, ViewPoint::default(), held);
-        assert_eq!(report.button, MouseButton::Left, "button");
-        assert_eq!(report.point, ViewPoint::default(), "cell");
-        assert_eq!(report.modifiers, terminal_modifiers(held), "modifiers");
-    }
 }

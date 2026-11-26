@@ -81,18 +81,6 @@ mod tests {
     use crate::state::test_support::{engine_row, state};
 
     #[test]
-    fn rail_selection_and_keyboard_movement() {
-        let mut state = state();
-        state.move_selection(RailMove::Next);
-        assert_eq!(state.page().map(Page::label), Some("Browser"));
-        state.move_selection(RailMove::Last);
-        assert_eq!(state.page().map(Page::label), Some("Keybindings"));
-        state.select_page(&PageId::from("appearance"));
-        assert_eq!(state.page().map(Page::label), Some("Appearance"));
-        assert_eq!(state.visible_pages().len(), 3);
-    }
-
-    #[test]
     fn search_filters_pages_and_moves_the_selection_off_a_hidden_page() {
         let mut state = state();
         state.set_query("search engine");

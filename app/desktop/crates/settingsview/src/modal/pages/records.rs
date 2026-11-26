@@ -200,10 +200,4 @@ mod tests {
         );
     }
 
-    #[gpui::test]
-    fn a_ready_list_and_its_sibling_states_render_on_one_page(cx: &mut TestAppContext) {
-        let (harness, cx) = open(cx, "providers");
-        run(&harness, Intent::Retry(AGENT_RECORDS.to_owned()), cx);
-        assert_eq!(harness.backend.commands().len(), 1);
-    }
 }

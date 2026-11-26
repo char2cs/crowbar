@@ -31,10 +31,10 @@ use crate::live::Provider;
 use crate::live::Roster;
 use crate::live::{Outcome, OutcomeSink};
 use crate::store::settings_core::agents::descriptor_report::DescriptorReport;
-use crate::store::settings_core::agents::permission_key::PERMISSION;
+use crate::store::settings_core::agents::PERMISSION;
 use crate::store::settings_core::devices::device::Device;
 use crate::store::settings_core::settings_writer::SettingsWriter;
-use crate::store::settings_core::system_fonts::choices as font_choices;
+use crate::store::settings_core::system_fonts as font_choices;
 
 pub(crate) const AGENTS: &str = "agents";
 pub(crate) const SESSIONS: &str = "sessions";

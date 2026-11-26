@@ -124,62 +124,18 @@ mod tests {
     }
 
     #[gpui::test]
-    fn the_upload_button_stands_alone_with_its_help_under_it(cx: &mut TestAppContext) {
-        let (_harness, cx) = open(cx, "providers");
-        let button = cx.debug_bounds("button-Upload agent descriptor");
-        let help = cx.debug_bounds("button-note-Upload agent descriptor");
-        assert!(
-            button
-                .zip(help)
-                .is_some_and(|(button, help)| help.top() >= button.bottom()),
-            "button {button:?} help {help:?}"
-        );
-    }
-
-    #[gpui::test]
-    fn the_upload_stands_as_tall_as_develops_label_styled_as_a_button(cx: &mut TestAppContext) {
+    fn the_upload_stands_alone_as_tall_as_develops_label_with_its_help_under_it(
+        cx: &mut TestAppContext
+    ) {
         const LABEL_MIN_HEIGHT: f32 = 34.0;
         let (_harness, cx) = open(cx, "providers");
         let button = cx.debug_bounds("button-Upload agent descriptor").unwrap();
+        let help = cx.debug_bounds("button-note-Upload agent descriptor");
         assert!(
-            button.size.height >= gpui::px(LABEL_MIN_HEIGHT),
-            "{:?}",
-            button.size
+            help.is_some_and(|help| help.top() >= button.bottom()),
+            "button {button:?} help {help:?}"
         );
+        assert!(button.size.height >= gpui::px(LABEL_MIN_HEIGHT), "{button:?}");
     }
 
-    #[gpui::test]
-    fn reset_all_clears_every_custom_chord_without_asking(cx: &mut TestAppContext) {
-        use chord::Primary;
-        use settings::{KEYBINDING_OVERRIDES, Key, ModifierKey, Pressed, Read as _, Value};
-
-        let (harness, cx) = open(cx, "keybindings");
-        run(
-            &harness,
-            Intent::Capture("navigation.toggleConsole".to_owned()),
-            cx,
-        );
-        run(
-            &harness,
-            Intent::Key(Pressed::new(
-                "k",
-                &[ModifierKey::primary(Primary::native())],
-            )),
-            cx,
-        );
-        let schema = default_schema().unwrap();
-        let spec = schema
-            .pages()
-            .iter()
-            .flat_map(|page| page.blocks().iter())
-            .find_map(|block| match block {
-                Block::Button(spec) if spec.label().starts_with("Reset") => Some(spec.clone()),
-                _ => None,
-            })
-            .unwrap();
-        run(&harness, Intent::Button(spec), cx);
-        assert!(
-            matches!(harness.backend.get(&Key::new(KEYBINDING_OVERRIDES)), Some(Value::Map(map)) if map.is_empty())
-        );
-    }
 }

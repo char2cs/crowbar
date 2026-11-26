@@ -116,24 +116,16 @@ mod tests {
 
     #[test]
     fn builders_fill_the_row() {
+        let rule = Condition::capability("tabs");
         let row = Row::new("tabSize", "Tab Size", Control::switch())
-            .describe("Spaces per tab")
-            .describe_invalid("Bad")
             .default_value(2.0)
-            .when(Condition::capability("editor"))
-            .describe_while((Condition::capability("tabs"), "Fixed"))
-            .frozen_while(Condition::capability("tabs"));
-        assert_eq!((row.key().as_str(), row.label()), ("tabSize", "Tab Size"));
-        assert_eq!(row.description.as_deref(), Some("Spaces per tab"));
-        assert_eq!(row.invalid_description.as_deref(), Some("Bad"));
+            .when(rule.clone())
+            .frozen_while(rule.clone());
         assert_eq!(row.default, Some(Value::Number(2.0)));
-        assert!(row.when.is_some());
         assert_eq!(
-            row.worded.as_ref().map(|(_, text)| text.as_str()),
-            Some("Fixed")
+            (row.when.as_ref(), row.frozen.as_ref()),
+            (Some(&rule), Some(&rule))
         );
-        assert_eq!(row.frozen, Some(Condition::capability("tabs")));
-        assert_eq!(row.label_style(), LabelStyle::Label);
         assert_eq!(row.captioned().label_style(), LabelStyle::Caption);
     }
 }

@@ -35,40 +35,11 @@ impl BrowserPages {
 
 #[cfg(test)]
 mod tests {
-    use layout::{Command, PaneInstance, TabId};
-    use protocol::{PaneState, PaneTypeId, Params};
-
     use super::*;
+    use crate::test_support::one_tab;
 
     fn pane(name: &str) -> PaneId {
         PaneId::new(name).unwrap()
-    }
-
-    fn layout_with(name: &str) -> Layout {
-        let mut layout = Layout::default();
-        let tab = TabId(1);
-        layout
-            .apply(Command::AddTab {
-                id: tab,
-                title: String::new(),
-                space: layout::SpaceId::default(),
-            })
-            .unwrap();
-        let instance = PaneInstance {
-            pane_id: pane(name),
-            type_id: PaneTypeId::new("core.browser").unwrap(),
-            params: Params::default(),
-            state: PaneState::default(),
-        };
-        let placement = None;
-        layout
-            .apply(Command::OpenPane {
-                tab,
-                instance,
-                placement,
-            })
-            .unwrap();
-        layout
     }
 
     #[test]
@@ -98,7 +69,7 @@ mod tests {
             seen,
             Some(("https://a.test/".to_owned(), Some("A".to_owned()), true))
         );
-        pages.retain_open(&layout_with("b1"));
+        pages.retain_open(&one_tab([crate::test_support::pane("b1", "core.browser")]));
         assert!(pages.get(&pane("b1")).is_some(), "open");
         assert!(pages.get(&pane("b2")).is_none(), "closed");
     }

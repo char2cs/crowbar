@@ -102,35 +102,10 @@ impl AsRawFd for InputFocus {
 
 #[cfg(test)]
 mod tests {
-    use x11rb::COPY_DEPTH_FROM_PARENT;
-    use x11rb::protocol::xproto::{CreateWindowAux, WindowClass};
-
     use super::*;
+    use crate::linux::test_support::{Geometry, window_in};
 
-    const SIDE: u16 = 10;
-
-    fn window_in(
-        connection: &RustConnection,
-        parent: u32,
-    ) -> u32 {
-        let window = connection.generate_id().unwrap();
-        connection
-            .create_window(
-                COPY_DEPTH_FROM_PARENT,
-                window,
-                parent,
-                0,
-                0,
-                SIDE,
-                SIDE,
-                0,
-                WindowClass::INPUT_OUTPUT,
-                0,
-                &CreateWindowAux::new().override_redirect(1),
-            )
-            .unwrap();
-        window
-    }
+    const SPOT: Geometry = (0, 0, 10, 10);
 
     fn holder(connection: &RustConnection) -> u32 {
         connection.get_input_focus().unwrap().reply().unwrap().focus
@@ -140,9 +115,9 @@ mod tests {
         connection: &RustConnection,
         root: u32,
     ) {
-        let parent = window_in(connection, root);
-        let child = window_in(connection, parent);
-        let unmapped = window_in(connection, parent);
+        let parent = window_in(connection, root, SPOT);
+        let child = window_in(connection, parent, SPOT);
+        let unmapped = window_in(connection, parent, SPOT);
         connection.map_window(parent).unwrap();
         connection.map_window(child).unwrap();
         connection.flush().unwrap();
@@ -161,9 +136,9 @@ mod tests {
         connection: &RustConnection,
         root: u32,
     ) {
-        let parent = window_in(connection, root);
-        let child = window_in(connection, parent);
-        let elsewhere = window_in(connection, root);
+        let parent = window_in(connection, root, SPOT);
+        let child = window_in(connection, parent, SPOT);
+        let elsewhere = window_in(connection, root, SPOT);
         for window in [parent, child, elsewhere] {
             connection.map_window(window).unwrap();
         }

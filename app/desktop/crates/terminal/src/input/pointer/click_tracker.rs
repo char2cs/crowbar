@@ -48,42 +48,21 @@ impl ClickTracker {
 mod tests {
     use super::*;
 
-    fn at(
-        row: usize,
-        column: usize,
-    ) -> ViewPoint {
-        ViewPoint { row, column }
-    }
-
     #[test]
-    fn quick_repeats_escalate_then_start_over() {
+    fn quick_repeats_escalate_and_slow_or_moved_clicks_start_over() {
+        let presses = [
+            (0, 1, SelectionKind::Simple),
+            (100, 1, SelectionKind::Word),
+            (200, 1, SelectionKind::Line),
+            (300, 1, SelectionKind::Simple),
+            (1200, 1, SelectionKind::Simple),
+            (1250, 1, SelectionKind::Word),
+            (1260, 2, SelectionKind::Simple),
+        ];
         let mut tracker = ClickTracker::default();
-        let kinds: Vec<SelectionKind> = (0..4)
-            .map(|n| tracker.press(at(1, 1), Duration::from_millis(n * 100)))
-            .collect();
-        assert_eq!(
-            kinds,
-            [
-                SelectionKind::Simple,
-                SelectionKind::Word,
-                SelectionKind::Line,
-                SelectionKind::Simple
-            ]
-        );
-    }
-
-    #[test]
-    fn a_slow_or_moved_click_is_a_fresh_click() {
-        let mut tracker = ClickTracker::default();
-        tracker.press(at(1, 1), Duration::ZERO);
-        assert_eq!(
-            tracker.press(at(1, 1), Duration::from_millis(900)),
-            SelectionKind::Simple
-        );
-        tracker.press(at(1, 1), Duration::from_millis(950));
-        assert_eq!(
-            tracker.press(at(2, 1), Duration::from_millis(960)),
-            SelectionKind::Simple
-        );
+        for (millis, row, expected) in presses {
+            let kind = tracker.press(ViewPoint { row, column: 1 }, Duration::from_millis(millis));
+            assert_eq!(kind, expected, "{millis} ms");
+        }
     }
 }

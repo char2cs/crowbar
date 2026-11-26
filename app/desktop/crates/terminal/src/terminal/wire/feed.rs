@@ -36,21 +36,20 @@ impl Feed {
 mod tests {
     use super::*;
     use crate::test_support::emulator_showing;
-    use alacritty_terminal::grid::Dimensions;
 
     #[test]
     fn exit_reports_its_code_and_other_frames_report_nothing() {
         let mut feed = Feed::default();
         let mut term = emulator_showing("", 10, 3);
-        assert_eq!(
-            feed.apply(&mut term, &DaemonFrame::Output(b"x".to_vec())),
-            None
-        );
-        assert_eq!(
-            feed.apply(&mut term, &DaemonFrame::Snapshot(b"y".to_vec())),
-            None
-        );
-        assert_eq!(feed.apply(&mut term, &DaemonFrame::Exit(7)), Some(7));
-        assert_eq!(term.columns(), 10);
+        let frames = [
+            DaemonFrame::Output(b"x".to_vec()),
+            DaemonFrame::Snapshot(b"y".to_vec()),
+            DaemonFrame::Exit(7),
+        ];
+        let codes: Vec<Option<i32>> = frames
+            .iter()
+            .map(|frame| feed.apply(&mut term, frame))
+            .collect();
+        assert_eq!(codes, [None, None, Some(7)]);
     }
 }

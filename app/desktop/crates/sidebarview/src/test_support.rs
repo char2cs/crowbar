@@ -2,6 +2,7 @@
 #![cfg(test)]
 
 pub(crate) mod blank;
+pub(crate) mod drag;
 mod file_choices;
 mod native_alerts;
 mod native_menus;

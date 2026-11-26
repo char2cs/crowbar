@@ -243,19 +243,35 @@ mod tests {
 
     use super::*;
 
-    fn editor(
-        cx: &mut TestAppContext,
-        seen: &Rc<RefCell<Vec<SpaceIcon>>>,
-    ) -> gpui::Entity<IconEditor> {
+    type Seen = Rc<RefCell<Vec<SpaceIcon>>>;
+
+    fn recording(seen: &Seen) -> Pick {
         let sink = Rc::clone(seen);
-        let pick: Pick = Rc::new(move |icon, _| sink.borrow_mut().push(icon));
-        cx.update(|cx| cx.new(|cx| IconEditor::new((pick, Rc::new(|_| false)), cx)))
+        Rc::new(move |icon, _| sink.borrow_mut().push(icon))
+    }
+
+    fn open_editor(
+        cx: &mut TestAppContext,
+        handlers: (Pick, Busy),
+    ) -> (gpui::Entity<IconEditor>, &mut gpui::VisualTestContext) {
+        cx.update(|cx| ui::init(cx).expect("ui installs"));
+        let (editor, cx) = cx.add_window_view(|_, cx| IconEditor::new(handlers, cx));
+        cx.run_until_parked();
+        (editor, cx)
+    }
+
+    fn click_upload(cx: &mut gpui::VisualTestContext) {
+        let row = cx.debug_bounds("icon-actions").unwrap_or_default();
+        let upload = gpui::point(row.left() + px(4.0), row.center().y);
+        cx.simulate_click(upload, gpui::Modifiers::none());
+        cx.run_until_parked();
     }
 
     #[gpui::test]
     fn setting_an_emoji_and_resetting_report_the_choice(cx: &mut TestAppContext) {
-        let seen = Rc::new(RefCell::new(Vec::new()));
-        let editor = editor(cx, &seen);
+        let seen = Seen::default();
+        let editor = cx
+            .update(|cx| cx.new(|cx| IconEditor::new((recording(&seen), Rc::new(|_| false)), cx)));
         editor.update(cx, |this, cx| {
             this.emoji.update(cx, |field, cx| field.set_text("🚀", cx));
             this.set_emoji(cx);
@@ -272,14 +288,11 @@ mod tests {
             SpaceIcon::Default
         );
     }
+
     #[gpui::test]
     fn the_emoji_button_opens_a_focused_field_that_enter_sets_and_closes(cx: &mut TestAppContext) {
-        let seen = Rc::new(RefCell::new(Vec::new()));
-        let sink = Rc::clone(&seen);
-        let pick: Pick = Rc::new(move |icon, _| sink.borrow_mut().push(icon));
-        cx.update(|cx| ui::init(cx).expect("ui installs"));
-        let (editor, cx) =
-            cx.add_window_view(|_, cx| IconEditor::new((pick, Rc::new(|_| false)), cx));
+        let seen = Seen::default();
+        let (editor, cx) = open_editor(cx, (recording(&seen), Rc::new(|_| false)));
         editor.update_in(cx, IconEditor::toggle_typing);
         let focused = editor.update_in(cx, |this, window, cx| {
             gpui::Focusable::focus_handle(this.emoji.read(cx), cx).is_focused(window)
@@ -305,11 +318,7 @@ mod tests {
     fn the_editor_fills_develops_popover_with_a_centred_preview_over_buttons_sharing_the_row(
         cx: &mut TestAppContext
     ) {
-        let pick: Pick = Rc::new(|_, _| {});
-        cx.update(|cx| ui::init(cx).expect("ui installs"));
-        let (editor, cx) =
-            cx.add_window_view(|_, cx| IconEditor::new((pick, Rc::new(|_| false)), cx));
-        cx.run_until_parked();
+        let (editor, cx) = open_editor(cx, (Rc::new(|_, _| {}), Rc::new(|_| false)));
         let root = cx.debug_bounds("icon-editor").unwrap_or_default();
         assert_eq!(
             f32::from(root.size.width),
@@ -334,16 +343,9 @@ mod tests {
     #[gpui::test]
     fn upload_asks_develop_s_image_chooser_and_takes_the_picked_image(cx: &mut TestAppContext) {
         let asked = crate::test_support::answer_choices_with(cx, "/w/mark.png");
-        let seen = Rc::new(RefCell::new(Vec::new()));
-        let sink = Rc::clone(&seen);
-        let pick: Pick = Rc::new(move |icon, _| sink.borrow_mut().push(icon));
-        cx.update(|cx| ui::init(cx).expect("ui installs"));
-        let (_, cx) = cx.add_window_view(|_, cx| IconEditor::new((pick, Rc::new(|_| false)), cx));
-        cx.run_until_parked();
-        let row = cx.debug_bounds("icon-actions").unwrap_or_default();
-        let upload = gpui::point(row.left() + px(4.0), row.center().y);
-        cx.simulate_click(upload, gpui::Modifiers::none());
-        cx.run_until_parked();
+        let seen = Seen::default();
+        let (_, cx) = open_editor(cx, (recording(&seen), Rc::new(|_| false)));
+        click_upload(cx);
         assert_eq!(*asked.borrow(), [ICON_IMAGE]);
         assert_eq!(*seen.borrow(), [SpaceIcon::Image("/w/mark.png".into())]);
     }
@@ -351,14 +353,8 @@ mod tests {
     #[gpui::test]
     fn upload_asks_no_chooser_while_the_icon_is_busy(cx: &mut TestAppContext) {
         let asked = crate::test_support::answer_choices_with(cx, "/w/mark.png");
-        let pick: Pick = Rc::new(|_, _| {});
-        cx.update(|cx| ui::init(cx).expect("ui installs"));
-        let (_, cx) = cx.add_window_view(|_, cx| IconEditor::new((pick, Rc::new(|_| true)), cx));
-        cx.run_until_parked();
-        let row = cx.debug_bounds("icon-actions").unwrap_or_default();
-        let upload = gpui::point(row.left() + px(4.0), row.center().y);
-        cx.simulate_click(upload, gpui::Modifiers::none());
-        cx.run_until_parked();
+        let (_, cx) = open_editor(cx, (Rc::new(|_, _| {}), Rc::new(|_| true)));
+        click_upload(cx);
         assert!(asked.borrow().is_empty(), "a disabled Upload opens nothing");
     }
 }

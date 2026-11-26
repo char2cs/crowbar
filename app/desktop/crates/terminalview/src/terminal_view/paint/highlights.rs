@@ -56,32 +56,19 @@ fn cell_rectangle(
 mod tests {
     use super::*;
     use gpui::Bounds;
-    use terminal::CellMetrics;
 
     #[test]
     fn a_highlight_covers_its_cells() {
         let bounds = Bounds::new(point(px(10.0), px(20.0)), size(px(300.0), px(200.0)));
-        let layout = ViewLayout::new(bounds, (8.0, 16.0), 0.0);
+        let layout = ViewLayout::new(bounds, (8.0, 16.0));
+        let highlight = Highlight {
+            row: 2,
+            start_column: 3,
+            end_column: 6,
+        };
         assert_eq!(
-            layout.metrics,
-            CellMetrics {
-                cell_width: 8.0,
-                line_height: 16.0,
-                columns: 35,
-                lines: 12
-            }
-        );
-        let rectangle = cell_rectangle(
-            &Highlight {
-                row: 2,
-                start_column: 3,
-                end_column: 6,
-            },
-            &layout,
-        );
-        assert_eq!(
-            rectangle,
-            Bounds::new(point(px(34.0), px(52.0)), size(px(24.0), px(16.0)))
+            cell_rectangle(&highlight, &layout),
+            Bounds::new(point(px(50.0), px(52.0)), size(px(24.0), px(16.0)))
         );
     }
 }

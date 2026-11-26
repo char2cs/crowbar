@@ -12,13 +12,12 @@ use ideshell::OverflowEntry;
 use ideshell::{StripKeys, TabAction, TabMove};
 
 impl LayoutView {
-    pub(crate) fn unpin_action(
-        pane: &PaneId,
+    pub(crate) fn emitting(
+        event: LayoutEvent,
         cx: &mut Context<'_, Self>,
     ) -> TabAction {
-        let (view, pane) = (cx.entity(), pane.clone());
-        let unpin = LayoutEvent::Apply(Command::UnpinPane { pane });
-        Rc::new(move |_, cx| tell(&view, unpin.clone(), cx))
+        let view = cx.entity();
+        Rc::new(move |_, cx| tell(&view, event.clone(), cx))
     }
 
     pub(crate) fn keep_action(
@@ -26,12 +25,8 @@ impl LayoutView {
         pane: &PaneId,
         cx: &mut Context<'_, Self>,
     ) -> Option<TabAction> {
-        if group.preview() != Some(pane) {
-            return None;
-        }
-        let (view, pane) = (cx.entity(), pane.clone());
-        let keep = LayoutEvent::Apply(Command::KeepPane { pane });
-        Some(Rc::new(move |_, cx| tell(&view, keep.clone(), cx)))
+        let keep = LayoutEvent::Apply(Command::KeepPane { pane: pane.clone() });
+        (group.preview() == Some(pane)).then(|| Self::emitting(keep, cx))
     }
 
     pub(crate) fn reorder_action(cx: &mut Context<'_, Self>) -> TabMove {
@@ -39,15 +34,6 @@ impl LayoutView {
         Rc::new(move |pane, index, _, cx| {
             tell(&view, LayoutEvent::Apply(reordering(pane, index)), cx);
         })
-    }
-
-    pub(crate) fn add_action(
-        onto: &PaneId,
-        cx: &mut Context<'_, Self>,
-    ) -> TabAction {
-        let (view, onto) = (cx.entity(), onto.clone());
-        let add = LayoutEvent::NewTab { onto };
-        Rc::new(move |_, cx| tell(&view, add.clone(), cx))
     }
 
     pub(crate) fn keys_action(
@@ -105,116 +91,90 @@ fn tell(
 #[cfg(test)]
 mod tests {
     use gpui::TestAppContext;
-    use layout::Command;
+    use layout::{Command, Layout};
 
     use super::*;
-    use crate::test_support::{FakeSource, open_with, pane_id, stacked_layout, strip_of};
+    use crate::test_support::{open, pane_id, stacked_layout, strip_of};
     use ideshell::TabEnd;
     use ideshell::TabState;
 
+    fn pinned(
+        mut layout: Layout,
+        pane: &str,
+    ) -> Layout {
+        let pane = pane_id(pane);
+        layout.apply(Command::PinPane { pane }).expect("pinned");
+        layout
+    }
+
+    fn pressing(
+        cx: &mut TestAppContext,
+        layout: &Layout,
+        keys: &[&str],
+    ) -> (Vec<Command>, Vec<LayoutEvent>) {
+        let harness = open(cx, layout);
+        let (view, cx) = (harness.view, harness.cx);
+        let strip = view
+            .update(cx, |view, cx| strip_of(view, &pane_id("b"), cx))
+            .expect("strip");
+        for key in keys {
+            cx.update(|window, cx| (strip.keys)(key, window, cx));
+        }
+        (harness.commands.take(), harness.opened.take())
+    }
+
     #[gpui::test]
-    fn the_plus_button_asks_for_a_new_tab_in_the_group_of_the_shown_tab(cx: &mut TestAppContext) {
-        let harness = open_with(cx, &stacked_layout(), FakeSource::starting_at_first_tab());
+    fn keys_on_the_strip_select_neighbours_close_the_shown_tab_and_spare_a_pinned_one(
+        cx: &mut TestAppContext
+    ) {
+        let mut pinned_b = pinned(stacked_layout(), "b");
+        let focus_b = Command::FocusPane { pane: pane_id("b") };
+        pinned_b.apply(focus_b).expect("b shown");
+        let announce = LayoutEvent::Announce("Cannot close pinned tab core.terminal".into());
+        let close_c = Command::ClosePane { pane: pane_id("c") };
+        let cases = [
+            (
+                stacked_layout(),
+                &["right", "left", "x"][..],
+                vec![],
+                vec![LayoutEvent::StripFocus { pane: pane_id("b") }],
+            ),
+            (stacked_layout(), &["delete"][..], vec![close_c], vec![]),
+            (pinned_b, &["delete"][..], vec![], vec![announce]),
+        ];
+        for (layout, keys, commands, events) in cases {
+            let heard = pressing(cx, &layout, keys);
+            assert_eq!(
+                heard,
+                (commands, events),
+                "{keys:?}: no right of c, x ignored"
+            );
+        }
+    }
+
+    #[gpui::test]
+    fn the_plus_adds_by_the_shown_tab_and_the_more_tabs_menu_marks_it(cx: &mut TestAppContext) {
+        let harness = open(cx, &stacked_layout());
         let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
         let strip = view
             .update(cx, |view, cx| strip_of(view, &pane_id("b"), cx))
             .expect("strip");
         cx.update(|window, cx| (strip.add)(window, cx));
-        assert_eq!(
-            opened.borrow().as_slice(),
-            &[LayoutEvent::NewTab { onto: pane_id("c") }],
-            "the shown tab is c"
-        );
-    }
-
-    #[gpui::test]
-    fn keys_on_the_strip_select_neighbours_and_ignore_the_rest(cx: &mut TestAppContext) {
-        let harness = open_with(cx, &stacked_layout(), FakeSource::starting_at_first_tab());
-        let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
-        let strip = view
-            .update(cx, |view, cx| strip_of(view, &pane_id("b"), cx))
-            .expect("strip");
-        cx.update(|window, cx| {
-            (strip.keys)("right", window, cx);
-            (strip.keys)("left", window, cx);
-            (strip.keys)("x", window, cx);
-        });
-        assert_eq!(
-            opened.borrow().as_slice(),
-            &[LayoutEvent::StripFocus { pane: pane_id("b") }],
-            "no right of c, b left of c, x ignored"
-        );
-    }
-
-    fn pressing_delete(
-        cx: &mut TestAppContext,
-        layout: &layout::Layout,
-    ) -> (Vec<Command>, Vec<LayoutEvent>) {
-        let harness = open_with(cx, layout, FakeSource::starting_at_first_tab());
-        let (view, cx) = (harness.view, harness.cx);
-        let (commands, opened) = (harness.commands, harness.opened);
-        let strip = view
-            .update(cx, |view, cx| strip_of(view, &pane_id("b"), cx))
-            .expect("strip");
-        cx.update(|window, cx| (strip.keys)("delete", window, cx));
-        (commands.take(), opened.take())
-    }
-
-    #[gpui::test]
-    fn delete_closes_the_shown_tab(cx: &mut TestAppContext) {
-        let (commands, opened) = pressing_delete(cx, &stacked_layout());
-        assert_eq!(
-            (commands, opened),
-            (vec![Command::ClosePane { pane: pane_id("c") }], vec![]),
-            "c is shown and loose"
-        );
-    }
-
-    #[gpui::test]
-    fn delete_on_a_pinned_shown_tab_closes_nothing_and_says_why(cx: &mut TestAppContext) {
-        let mut layout = stacked_layout();
-        layout
-            .apply(Command::PinPane { pane: pane_id("b") })
-            .unwrap();
-        layout
-            .apply(Command::FocusPane { pane: pane_id("b") })
-            .unwrap();
-        let (commands, opened) = pressing_delete(cx, &layout);
-        assert_eq!(
-            (commands, opened),
-            (
-                vec![],
-                vec![LayoutEvent::Announce(
-                    "Cannot close pinned tab core.terminal".into()
-                )]
-            ),
-            "b is shown and pinned"
-        );
-    }
-
-    #[gpui::test]
-    fn the_more_tabs_menu_lists_every_tab_and_marks_the_shown_one(cx: &mut TestAppContext) {
-        let harness = open_with(cx, &stacked_layout(), FakeSource::starting_at_first_tab());
-        let (view, cx) = (harness.view, harness.cx);
-        let entries = view.update(cx, |view, cx| {
-            let strip = strip_of(view, &pane_id("b"), cx).expect("strip");
-            strip.overflow
-        });
-        let states: Vec<_> = entries.iter().map(|entry| entry.state).collect();
+        let states: Vec<_> = strip.overflow.iter().map(|entry| entry.state).collect();
         assert_eq!(
             states,
             [TabState::Idle, TabState::Active],
             "b, then c shown"
         );
+        assert_eq!(
+            *opened.borrow(),
+            [LayoutEvent::NewTab { onto: pane_id("c") }]
+        );
     }
 
     #[gpui::test]
     fn a_pinned_tab_ends_in_a_pin_that_unpins_instead_of_closing(cx: &mut TestAppContext) {
-        let mut layout = stacked_layout();
-        layout
-            .apply(Command::PinPane { pane: pane_id("c") })
-            .unwrap();
-        let harness = open_with(cx, &layout, FakeSource::starting_at_first_tab());
+        let harness = open(cx, &pinned(stacked_layout(), "c"));
         let (view, cx, commands) = (harness.view, harness.cx, harness.commands);
         let strip = view
             .update(cx, |view, cx| strip_of(view, &pane_id("b"), cx))
@@ -227,12 +187,13 @@ mod tests {
             [TabEnd::Unpin, TabEnd::Close],
             "c is pinned and in front"
         );
+        let expected = [
+            Command::UnpinPane { pane: pane_id("c") },
+            Command::ClosePane { pane: pane_id("b") },
+        ];
         assert_eq!(
-            commands.borrow().as_slice(),
-            &[
-                Command::UnpinPane { pane: pane_id("c") },
-                Command::ClosePane { pane: pane_id("b") }
-            ],
+            *commands.borrow(),
+            expected,
             "the pin unpins, the cross closes"
         );
     }

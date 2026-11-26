@@ -93,6 +93,7 @@ fn chosen(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend::native::linux::test_support::idle_platform;
 
     const ACTIONS: [(ChoiceKind, gtk::FileChooserAction); 3] = [
         (ChoiceKind::File, gtk::FileChooserAction::Open),
@@ -111,11 +112,7 @@ mod tests {
     }
 
     fn post_over(parent: ParentWindow) -> (bool, usize) {
-        let (jobs, inbox) = async_channel::unbounded();
-        let platform = GtkPlatform {
-            jobs,
-            stopped: None,
-        };
+        let (platform, inbox) = idle_platform();
         let choice = FileChoice {
             title: "Open File",
             kind: ChoiceKind::File,

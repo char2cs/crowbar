@@ -158,43 +158,17 @@ mod tests {
 
     #[test]
     fn showing_hiding_and_covering_only_change_visibility() {
-        type Change = fn(&Handle);
-        let cases: [(&str, Change, Visibility); 3] = [
-            (
-                "hide",
-                |view| view.set_visibility(Visibility::Hidden).unwrap(),
-                Visibility::Hidden,
-            ),
-            (
-                "show",
-                |view| view.set_visibility(Visibility::Shown).unwrap(),
-                Visibility::Shown,
-            ),
-            (
-                "cover",
-                |view| view.set_visibility(Visibility::Covered).unwrap(),
-                Visibility::Covered,
-            ),
-        ];
-        for (name, change, expected) in cases {
-            assert_change_is_visibility_only(name, change, expected);
+        for visibility in [Visibility::Hidden, Visibility::Shown, Visibility::Covered] {
+            let (mock, view) = handle();
+            view.set_visibility(visibility).unwrap();
+            let calls = mock.calls();
+            let changed = Call::SetVisibility {
+                id: view.id(),
+                visibility,
+            };
+            assert_eq!(calls.last(), Some(&changed), "{visibility:?}");
+            assert_eq!(calls.len(), 2, "{visibility:?}: create plus one change");
         }
-    }
-
-    fn assert_change_is_visibility_only(
-        name: &str,
-        change: fn(&Handle),
-        expected: Visibility,
-    ) {
-        let (mock, view) = handle();
-        change(&view);
-        let calls = mock.calls();
-        let visibility = Call::SetVisibility {
-            id: view.id(),
-            visibility: expected,
-        };
-        assert_eq!(calls.last(), Some(&visibility), "{name}");
-        assert_eq!(calls.len(), 2, "{name}: create plus one visibility change");
     }
 
     #[test]

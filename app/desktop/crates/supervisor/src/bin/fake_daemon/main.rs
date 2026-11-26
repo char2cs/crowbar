@@ -1,10 +1,10 @@
 //! A stand-in for `crowbar-api serve` used by the supervisor's tests. Its behaviour is chosen by
-//! `FAKE_DAEMON_MODE`: `ok`, `migrating`, `steps` (reports no step, step 1 of 2, step 2 of 2,
-//! then serves), `halted`, `crash` (exits at once), `die` (serves one health answer, then
-//! exits), `noisy` (writes a megabyte that is not UTF-8 to stderr before serving), `wedge`
-//! (accepts and never answers), `stall` (answers the first request, then never answers),
-//! `deaf` (serves, and ignores SIGTERM) or `late` (answers health with 503 until `<socket>.serve`
-//! exists, dialling `<socket>.spent` after each such answer so a test hears it).
+//! `FAKE_DAEMON_MODE`: `ok`, `steps` (reports no step, step 1 of 2, step 2 of 2, then serves),
+//! `halted`, `crash` (exits at once), `die` (serves one health answer, then exits), `noisy`
+//! (writes a megabyte that is not UTF-8 to stderr before serving), `stall` (answers the first
+//! request, then never answers), `deaf` (serves, and ignores SIGTERM) or `late` (answers health
+//! with 503 until `<socket>.serve` exists, dialling `<socket>.spent` after each such answer so a
+//! test hears it).
 
 mod answer_event;
 mod journal_sink;
@@ -20,7 +20,6 @@ use tokio::signal::unix::{Signal, SignalKind, signal};
 use crate::answer_event::AnswerEvent;
 
 const OK: &str = r#"{"success":true,"data":{"status":"ok","pid":PID}}"#;
-const MIGRATING: &str = r#"{"success":true,"data":{"status":"migrating"}}"#;
 const STARTING: &str = r#"{"success":true,"data":{"status":"migrating","detail":null}}"#;
 const STEP_ONE: &str = r#"{"success":true,"data":{"status":"migrating","detail":{"phase":"pre-open","step":{"number":1,"name":"first"},"index":1,"total":2}}}"#;
 const STEP_TWO: &str = r#"{"success":true,"data":{"status":"migrating","detail":{"phase":"pre-open","step":{"number":2,"name":"second"},"index":2,"total":2}}}"#;
@@ -50,7 +49,6 @@ fn health_body(
     served: u32,
 ) -> String {
     match (mode, served) {
-        ("migrating", _) => MIGRATING.to_owned(),
         ("halted", _) => HALTED.to_owned(),
         (STEPS, 1) => STARTING.to_owned(),
         (STEPS, 2) => STEP_ONE.to_owned(),
@@ -104,8 +102,7 @@ fn holds_connection(
     mode: &str,
     served: u32,
 ) -> bool {
-    let stalls_now = mode == "stall" && served > 1;
-    mode == "wedge" || stalls_now
+    mode == "stall" && served > 1
 }
 
 async fn serve_one(

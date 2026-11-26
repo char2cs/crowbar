@@ -165,23 +165,7 @@ mod tests {
     use super::*;
     use crate::panes::kinds::core_panes::EDITOR;
     use crate::panes::kinds::pane_spec::PaneSpec;
-    use crate::shell::shell_view::tests::{Opened, PLACED, open_started_shell};
-
-    fn shows(call: &webview::Call) -> bool {
-        let webview::Call::SetVisibility { visibility, .. } = call else {
-            return false;
-        };
-        *visibility == webview::Visibility::Shown
-    }
-
-    fn shown_pages(opened: &Opened) -> usize {
-        opened
-            .mock
-            .calls()
-            .iter()
-            .filter(|call| shows(call))
-            .count()
-    }
+    use crate::shell::shell_view::tests::{Opened, PLACED, open_started_shell, views_set};
 
     fn open_files(
         shell: &mut ShellView,
@@ -209,7 +193,7 @@ mod tests {
         });
         opened.window.run_until_parked();
         assert!(
-            shown_pages(&opened) > 0,
+            views_set(&opened.mock, webview::Visibility::Shown) > 0,
             "the shown file's page is on screen"
         );
         opened
@@ -220,7 +204,7 @@ mod tests {
         (file, mode): (&str, OpenMode),
     ) -> usize {
         let mut opened = with_files_open(cx);
-        let before = shown_pages(&opened);
+        let before = views_set(&opened.mock, webview::Visibility::Shown);
         let frame = PaneFrame::Open(PaneOpen {
             type_id: PaneTypeId::new(EDITOR).unwrap(),
             params: Params::default(),
@@ -237,7 +221,7 @@ mod tests {
                 shell.on_ipc(message, window, cx);
             });
         opened.window.run_until_parked();
-        shown_pages(&opened) - before
+        views_set(&opened.mock, webview::Visibility::Shown) - before
     }
 
     #[gpui::test]

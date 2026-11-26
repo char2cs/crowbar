@@ -168,129 +168,76 @@ impl SplitNode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::split_fixtures::{nested_left, panes, two_by_one};
+    use crate::test_support::split_fixtures::{nested_left, panes, tiled, two_by_one};
     use crate::test_support::tab_fixtures::id;
 
     #[test]
-    fn split_leaf_orders_children_by_edge() {
+    fn split_leaf_orders_children_by_edge_and_misses_an_unknown_target() {
         let cases = [
             (Edge::Left, ["n", "a"], Axis::Horizontal),
             (Edge::Right, ["a", "n"], Axis::Horizontal),
             (Edge::Top, ["n", "a"], Axis::Vertical),
             (Edge::Bottom, ["a", "n"], Axis::Vertical),
         ];
-        for (edge, order, expected_axis) in cases {
+        for (edge, order, expected) in cases {
             let mut tree = SplitNode::leaf(id("a"));
-            assert!(
-                tree.split_leaf(&id("a"), SplitNode::leaf(id("n")), edge),
-                "{edge:?}"
-            );
+            assert!(tree.split_leaf(&id("a"), SplitNode::leaf(id("n")), edge));
             assert_eq!(panes(&tree), order, "{edge:?} order");
-            assert!(
-                matches!(tree, SplitNode::Split { axis, ratio, .. } if axis == expected_axis && (ratio - EQUAL_SHARE).abs() < f32::EPSILON),
-                "{edge:?} shape"
-            );
+            let SplitNode::Split { axis, ratio, .. } = tree else {
+                panic!("{edge:?}: a split");
+            };
+            assert_eq!((axis, ratio), (expected, EQUAL_SHARE), "{edge:?}");
+        }
+        let mut tree = two_by_one();
+        let missing = tree.split_leaf(&id("zz"), SplitNode::leaf(id("n")), Edge::Left);
+        assert!(!missing, "missing target");
+        assert_eq!(tree, two_by_one(), "unchanged");
+    }
+
+    #[test]
+    fn without_collapses_the_parent_split_only() {
+        let rest = two_by_one().without(&id("a"));
+        assert_eq!(rest, Some(SplitNode::leaf(id("b"))), "sibling takes it");
+        assert_eq!(SplitNode::leaf(id("a")).without(&id("a")), None, "last");
+        assert_eq!(two_by_one().without(&id("zz")), Some(two_by_one()), "zz");
+        let SplitNode::Split { first, second, .. } = tiled().without(&id("a")).unwrap() else {
+            panic!("a split remains");
+        };
+        assert_eq!((*first, *second), (SplitNode::leaf(id("b")), SplitNode::leaf(id("c"))));
+    }
+
+    #[test]
+    fn the_neighbour_is_the_pane_facing_the_closed_one() {
+        let left_stack = {
+            let mut tree = two_by_one();
+            assert!(tree.split_leaf(&id("a"), SplitNode::leaf(id("c")), Edge::Bottom));
+            tree
+        };
+        let cases = [
+            (nested_left(), "x", Some("b")),
+            (nested_left(), "b", Some("a")),
+            (nested_left(), "a", Some("b")),
+            (SplitNode::leaf(id("a")), "a", None),
+            (tiled(), "a", Some("b")),
+            (left_stack, "b", Some("c")),
+        ];
+        for (tree, closed, heir) in cases {
+            let found = tree.neighbour_of(&id(closed)).map(PaneId::as_str);
+            assert_eq!(found, heir, "{}: {closed}", panes(&tree).join(" "));
         }
     }
 
     #[test]
-    fn split_leaf_reports_a_missing_target_without_changing_the_tree() {
-        let mut tree = two_by_one();
-        let before = tree.clone();
-        assert!(
-            !tree.split_leaf(&id("zz"), SplitNode::leaf(id("n")), Edge::Left),
-            "missing target"
-        );
-        assert_eq!(tree, before, "unchanged");
-    }
-
-    #[test]
-    fn without_collapses_the_parent_split() {
-        let tree = two_by_one();
-        let rest = tree.clone().without(&id("a")).unwrap();
-        assert_eq!(rest, SplitNode::leaf(id("b")), "sibling replaces the split");
-        assert_eq!(
-            SplitNode::leaf(id("a")).without(&id("a")),
-            None,
-            "last pane"
-        );
-        assert_eq!(tree.clone().without(&id("zz")), Some(tree), "unknown pane");
-    }
-
-    #[test]
-    fn without_keeps_ratios_of_untouched_splits() {
-        let mut tree = two_by_one();
-        assert!(
-            tree.split_leaf(&id("b"), SplitNode::leaf(id("c")), Edge::Bottom),
-            "nest"
-        );
-        let SplitNode::Split { first, second, .. } = tree.without(&id("a")).unwrap() else {
-            panic!("a split remains");
-        };
-        assert_eq!(*first, SplitNode::leaf(id("b")), "b kept");
-        assert_eq!(*second, SplitNode::leaf(id("c")), "c kept");
-    }
-
-    #[test]
-    fn the_neighbour_is_the_pane_next_to_the_closed_one() {
-        let tree = nested_left();
-        assert_eq!(
-            tree.neighbour_of(&id("x")),
-            Some(&id("b")),
-            "closing the right pane focuses the pane beside it, not the far left"
-        );
-        assert_eq!(tree.neighbour_of(&id("b")), Some(&id("a")), "b to a");
-        assert_eq!(tree.neighbour_of(&id("a")), Some(&id("b")), "a to b");
-        assert_eq!(
-            SplitNode::leaf(id("a")).neighbour_of(&id("a")),
-            None,
-            "root"
-        );
-    }
-
-    #[test]
-    fn the_neighbour_of_a_pane_beside_a_stack_is_the_stack_side_facing_it() {
-        let mut tree = two_by_one();
-        assert!(
-            tree.split_leaf(&id("b"), SplitNode::leaf(id("c")), Edge::Bottom),
-            "stack"
-        );
-        assert_eq!(tree.neighbour_of(&id("a")), Some(&id("b")), "a to the top");
-        let mut left_stack = two_by_one();
-        assert!(
-            left_stack.split_leaf(&id("a"), SplitNode::leaf(id("c")), Edge::Bottom),
-            "stack"
-        );
-        assert_eq!(
-            left_stack.neighbour_of(&id("b")),
-            Some(&id("c")),
-            "b to the bottom of the left stack, the last pane facing it"
-        );
-    }
-
-    #[test]
-    fn swap_leaves_exchanges_positions() {
-        let mut tree = two_by_one();
-        tree.swap_leaves(&id("a"), &id("b"));
-        assert_eq!(panes(&tree), ["b", "a"], "swapped");
-    }
-
-    #[test]
     fn split_at_mut_follows_paths_to_splits_only() {
-        let mut tree = two_by_one();
-        assert!(
-            tree.split_leaf(&id("b"), SplitNode::leaf(id("c")), Edge::Bottom),
-            "nest"
-        );
-        assert!(tree.split_at_mut(&[]).is_some(), "root split");
-        assert!(
-            tree.split_at_mut(&[Branch::Second]).is_some(),
-            "inner split"
-        );
-        assert!(tree.split_at_mut(&[Branch::First]).is_none(), "leaf");
-        assert!(
-            tree.split_at_mut(&[Branch::First, Branch::First]).is_none(),
-            "past a leaf"
-        );
+        let mut tree = tiled();
+        let cases: [(&[Branch], bool); 4] = [
+            (&[], true),
+            (&[Branch::Second], true),
+            (&[Branch::First], false),
+            (&[Branch::First, Branch::First], false),
+        ];
+        for (path, found) in cases {
+            assert_eq!(tree.split_at_mut(path).is_some(), found, "{path:?}");
+        }
     }
 }

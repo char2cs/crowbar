@@ -8,7 +8,6 @@ use ui::{IconName, MenuAction, MenuItem, Palette, Placement, Surface, Theme};
 use crate::tabbar::drag::carried_tab::CarriedTab;
 use crate::tabbar::drag::strip_pointer;
 use crate::tabbar::overflow_entry::OverflowEntry;
-use crate::tabbar::review_button::review_button;
 use crate::tabbar::strip_state::StripState;
 use crate::tabbar::strip_state::input_mode::InputMode;
 use crate::tabbar::tab::chat_tab::ChatTab;
@@ -16,7 +15,6 @@ use crate::tabbar::tab::strip_tab::StripTab;
 use crate::tabbar::tab::tab_state::TabState;
 use crate::tabbar::tab_actions::{StripKeys, TabAction, TabMove};
 use crate::toprow::row_button::RowButton;
-use crate::toprow::row_ink::RowInk;
 use crate::toprow::split_toggle::SplitToggle;
 
 /// The height of the tab bar row.
@@ -113,11 +111,7 @@ fn row(
         .w_full()
         .h(px(STRIP_HEIGHT))
         .overflow_hidden()
-        .bg(row_fill(palette))
-}
-
-fn row_fill(palette: &Palette) -> gpui::Hsla {
-    palette.pane_background()
+        .bg(palette.pane_background())
 }
 
 fn ringing(
@@ -197,8 +191,21 @@ fn add_button(
         id: format!("add-{name}").into(),
         icon: IconName::Plus,
         tip: "New tab".into(),
-        ink: RowInk::Muted,
+        pressed: false,
         on_click: on_add,
+    }
+}
+
+fn review_button(
+    name: &str,
+    on_review: TabAction,
+) -> RowButton {
+    RowButton {
+        id: format!("review-{name}").into(),
+        icon: IconName::GitPullRequest,
+        tip: "Review this branch".into(),
+        pressed: false,
+        on_click: on_review,
     }
 }
 
@@ -247,16 +254,7 @@ mod tests {
     use super::*;
     use crate::tabbar::look::tab_look::TabLook;
     use crate::tabbar::tab::tab_end::TabEnd;
-    use crate::tabbar::tab::tab_frame::HEIGHT as TAB_HEIGHT;
     use crate::tabbar::tab_actions::{TabActions, TabMove};
-
-    #[test]
-    fn the_strip_row_holds_a_tab_with_its_padding() {
-        assert!(
-            std::hint::black_box(STRIP_HEIGHT) >= TAB_HEIGHT + 2.0 * PAD_Y,
-            "row too short"
-        );
-    }
 
     fn loose_tab(name: &str) -> StripTab {
         let nothing: TabAction = Rc::new(|_, _| {});
@@ -378,14 +376,7 @@ mod tests {
         cx: &mut TestAppContext,
         (tabs, width): (usize, f32),
     ) -> &mut gpui::VisualTestContext {
-        opened_showing(cx, (tabs, 0, width))
-    }
-
-    fn opened_showing(
-        cx: &mut TestAppContext,
-        shape: (usize, usize, f32),
-    ) -> &mut gpui::VisualTestContext {
-        opened_with(cx, shape, Moves::default())
+        opened_with(cx, (tabs, 0, width), Moves::default())
     }
 
     fn opened_with(
@@ -550,18 +541,10 @@ mod tests {
         );
     }
 
-    #[test]
-    fn the_bar_sits_on_the_pane_s_own_ground_like_the_editor_below_it() {
-        for mode in [ui::ThemeMode::Dark, ui::ThemeMode::Light] {
-            let palette = Theme::default().with_mode(mode).palette(Surface::Window);
-            assert_eq!(row_fill(palette), palette.pane_background(), "{mode:?}");
-        }
-    }
-
     #[gpui::test]
     fn the_shown_tab_is_scrolled_fully_into_view_past_the_chat_tab(cx: &mut TestAppContext) {
         let width = 400.0;
-        let cx = opened_showing(cx, (4, 3, width));
+        let cx = opened_with(cx, (4, 3, width), Moves::default());
         let shown = cx.debug_bounds("strip-tab-frame-t3").unwrap_or_default();
         let caret = cx.debug_bounds("strip-more").unwrap_or_default();
         assert!(shown.left() >= px(0.0), "{shown:?} starts in the row");

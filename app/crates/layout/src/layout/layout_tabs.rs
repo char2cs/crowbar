@@ -137,37 +137,9 @@ impl Layout {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layout::command::Command;
-    use crate::space_id::SpaceId;
     use crate::test_support::layout_fixtures::sample;
     use crate::test_support::tab_fixtures::id;
     use crate::tree::split_node::SplitNode;
-
-    #[test]
-    fn swapping_in_an_arrangement_keeps_live_panes_and_parks_the_rest() {
-        let mut layout = sample();
-        let before = layout.arrangement();
-        let removed = layout
-            .execute(Command::ClosePane { pane: id("b") })
-            .unwrap();
-        let step = UndoStep {
-            arrangement: before.clone(),
-            parked: removed
-                .into_iter()
-                .map(|p| (p.pane_id.clone(), p))
-                .collect(),
-            spaces: [SpaceId::default()].into_iter().collect(),
-        };
-        let after_close = layout.arrangement();
-        let inverse = layout.swap_arrangement(step).unwrap();
-        assert_eq!(layout.arrangement(), before, "arrangement back");
-        assert_eq!(layout.pane_count(), 3, "pane back");
-        assert!(
-            inverse.parked.is_empty() && inverse.arrangement == after_close,
-            "inverse: {inverse:?}"
-        );
-        layout.validate().unwrap();
-    }
 
     #[test]
     fn an_arrangement_naming_a_vanished_pane_is_refused_untouched() {

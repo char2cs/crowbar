@@ -5,7 +5,7 @@ use std::sync::Arc;
 use daemonapi::Call;
 use settings::{Change, Key, Value};
 
-use crate::store::settings_core::agents::permission_key::{PERMISSION, PERMISSION_PATH};
+use crate::store::settings_core::agents::{PERMISSION, PERMISSION_PATH};
 use crate::store::settings_core::{SettingsCore, locked};
 
 impl SettingsCore {

@@ -251,16 +251,15 @@ mod tests {
         .detach();
     }
 
-    fn open<'a>(
-        cx: &'a mut TestAppContext,
-        fake: &Rc<Fake>,
-        events: &Events,
-    ) -> (Entity<View>, &'a mut VisualTestContext) {
-        let source = Rc::clone(fake);
+    type Opened<'a> = (Rc<Fake>, Events, Entity<View>, &'a mut VisualTestContext);
+
+    fn open(cx: &mut TestAppContext) -> Opened<'_> {
+        let (fake, events) = (Rc::new(Fake::default()), Events::default());
+        let source = Rc::clone(&fake);
         let (view, cx) = cx.add_window_view(|window, cx| View::over(source, window, cx));
-        let sink = Rc::clone(events);
+        let sink = Rc::clone(&events);
         cx.update(|_, cx| record(&view, sink, cx));
-        (view, cx)
+        (fake, events, view, cx)
     }
 
     fn at(
@@ -274,8 +273,7 @@ mod tests {
     }
 
     fn each_stage_sends_its_step_to_the_session(cx: &mut TestAppContext) {
-        let (fake, events) = (Rc::new(Fake::default()), Events::default());
-        let (view, cx) = open(cx, &fake, &events);
+        let (fake, _, view, cx) = open(cx);
         view.update(cx, |this, cx| {
             this.name.update(cx, |input, cx| input.set_text("Lab", cx));
             this.address
@@ -298,9 +296,7 @@ mod tests {
     }
 
     fn nothing_dismisses_the_dialog_while_the_host_answers(cx: &mut TestAppContext) {
-        let (fake, events) = (Rc::new(Fake::default()), Events::default());
-        fake.calls.borrow_mut().clear();
-        let (view, cx) = open(cx, &fake, &events);
+        let (fake, events, view, cx) = open(cx);
         at(&fake, PairingStage::Code, PairingPending::Pairing);
         view.update(cx, |this, cx| {
             this.dismiss(cx);
@@ -314,8 +310,7 @@ mod tests {
     }
 
     fn a_finished_pairing_is_announced_once_and_done_closes(cx: &mut TestAppContext) {
-        let (fake, events) = (Rc::new(Fake::default()), Events::default());
-        let (view, cx) = open(cx, &fake, &events);
+        let (fake, events, view, cx) = open(cx);
         at(&fake, PairingStage::Paired, PairingPending::Idle);
         view.update(cx, View::changed);
         view.update(cx, View::changed);
@@ -324,8 +319,7 @@ mod tests {
     }
 
     fn confirming_the_fingerprint_puts_the_keyboard_in_the_code_field(cx: &mut TestAppContext) {
-        let (fake, events) = (Rc::new(Fake::default()), Events::default());
-        let (view, cx) = open(cx, &fake, &events);
+        let (fake, _, view, cx) = open(cx);
         at(&fake, PairingStage::Fingerprint, PairingPending::Idle);
         view.update_in(cx, View::press_primary);
         let on_code = view.update_in(cx, |this, window, cx| {
@@ -335,8 +329,7 @@ mod tests {
     }
 
     fn a_seventh_character_of_the_code_is_refused(cx: &mut TestAppContext) {
-        let (fake, events) = (Rc::new(Fake::default()), Events::default());
-        let (view, cx) = open(cx, &fake, &events);
+        let (fake, _, view, cx) = open(cx);
         at(&fake, PairingStage::Fingerprint, PairingPending::Idle);
         view.update_in(cx, View::press_primary);
         at(&fake, PairingStage::Code, PairingPending::Idle);

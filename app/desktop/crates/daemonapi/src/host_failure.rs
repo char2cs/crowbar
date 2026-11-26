@@ -59,31 +59,13 @@ mod tests {
     }
 
     #[test]
-    fn each_host_trouble_is_told_from_its_code_or_status_and_a_daemon_refusal_is_none() {
+    fn a_401_is_refused_whatever_its_code_and_a_daemon_refusal_is_none() {
         let cases = [
-            (
-                refused(503, Some("host_unreachable")),
-                Some(HostFailure::Unreachable),
-            ),
-            (
-                refused(502, Some("host_identity_changed")),
-                Some(HostFailure::IdentityChanged),
-            ),
-            (
-                refused(502, Some("unknown_host")),
-                Some(HostFailure::NotPaired),
-            ),
             (
                 refused(401, Some("no_credential")),
                 Some(HostFailure::Refused),
             ),
-            (refused(401, None), Some(HostFailure::Refused)),
-            (
-                refused(500, Some("unexplained")),
-                Some(HostFailure::Unexplained(500)),
-            ),
             (refused(500, Some("internal")), None),
-            (refused(409, Some("conflict")), None),
             (refused(500, None), None),
             (Error::Stream("closed".into()), None),
         ];

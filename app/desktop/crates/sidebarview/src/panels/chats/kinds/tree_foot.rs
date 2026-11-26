@@ -132,21 +132,7 @@ mod tests {
     use gpui::{Context, Render, TestAppContext, point, px};
 
     use super::*;
-    use crate::test_support::{measure, recording_handler};
-
-    #[gpui::test]
-    fn the_foot_stacks_two_rows_under_a_divider(cx: &mut TestAppContext) {
-        let (handler, _) = recording_handler();
-        let bounds = measure(cx, move |_, _| TreeFoot {
-            project: ProjectId::from("inv"),
-            handler: Rc::clone(&handler),
-        });
-        let rows = 2.0 * (ROW_HEIGHT + ROW_MARGIN_Y);
-        assert!(
-            f32::from(bounds.size.height) > rows,
-            "the divider adds height"
-        );
-    }
+    use crate::test_support::recording_handler;
 
     struct Foot {
         handler: RowHandler,

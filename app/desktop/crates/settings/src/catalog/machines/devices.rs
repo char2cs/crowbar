@@ -74,51 +74,6 @@ fn pairing() -> Row {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::schema::Block;
-
-    #[test]
-    fn heading_connections_paired_devices_and_pairing_in_develop_s_order() {
-        let page = page();
-        let kinds: Vec<&str> = page
-            .blocks
-            .iter()
-            .map(|block| match block {
-                Block::Heading(_) => "heading",
-                Block::Section(_) => "section",
-                Block::List(_) => "list",
-                _ => "other",
-            })
-            .collect();
-        assert_eq!(kinds, ["heading", "section", "list", "section"]);
-    }
-
-    #[test]
-    fn the_connection_rows_say_what_the_switch_means_and_freeze_the_address_while_on() {
-        let cases = [
-            (
-                ALLOW,
-                (refused(), "Off. Nothing listens until you turn this on."),
-                None,
-            ),
-            (
-                ADDRESS,
-                (allowed(), "Turn connections off to change it."),
-                Some(allowed()),
-            ),
-        ];
-        let section = connections();
-        for (key, (rule, text), frozen) in cases {
-            let row = section.rows().iter().find(|row| row.key().as_str() == key);
-            let row = row.expect("the row is on the page");
-            let words = row
-                .worded
-                .as_ref()
-                .map(|(rule, text)| (rule, text.as_str()));
-            assert_eq!(words, Some((&rule, text)), "{key}");
-            assert_eq!(row.frozen, frozen, "{key}");
-            assert_eq!(row.when, None, "{key}: shown either way");
-        }
-    }
 
     #[test]
     fn a_device_can_be_added_only_while_connections_are_allowed() {

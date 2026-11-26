@@ -306,12 +306,7 @@ mod tests {
         cx: &mut TestAppContext
     ) {
         let mut opened = crate::shell::shell_view::tests::open_shell(cx);
-        let shown = |opened: &mut crate::shell::shell_view::tests::Opened| {
-            opened.window.run_until_parked();
-            opened
-                .shell
-                .read_with(&opened.window, |shell, cx| shell.notices.read(cx).len())
-        };
+        let shown = crate::shell::shell_view::test_support::notice_count;
         for input in [
             startup::Input::Restarted,
             startup::Input::Unavailable(startup::Outage::Unresponsive),
@@ -320,25 +315,6 @@ mod tests {
             feed(&mut opened, input.clone());
             assert_eq!(shown(&mut opened), before + 1, "{input:?} is a toast");
         }
-    }
-
-    #[gpui::test]
-    async fn drain_hands_every_item_to_the_view_in_order_and_ends_with_the_channel(
-        cx: &mut TestAppContext
-    ) {
-        let (view, cx) = cx.add_window_view(|_, _| Collector::default());
-        let (sender, receiver) = async_channel::unbounded();
-        for item in [3, 1, 2] {
-            sender.try_send(item).unwrap();
-        }
-        drop(sender);
-        let weak = view.downgrade();
-        let task = cx.update(|window, cx| {
-            window.spawn(cx, async move |cx| drain(receiver, weak, cx, collect).await)
-        });
-        task.await;
-        let seen = view.read_with(cx, |view, _| view.seen.clone());
-        assert_eq!(seen, [3, 1, 2]);
     }
 
     fn open_reader(
@@ -351,7 +327,7 @@ mod tests {
     }
 
     #[gpui::test]
-    async fn drain_steps_in_the_window_it_runs_in_though_another_window_drew_the_view_last(
+    async fn drain_hands_every_item_in_order_in_the_window_it_runs_in_though_another_drew_the_view(
         cx: &mut TestAppContext
     ) {
         let (view, cx) = cx.add_window_view(|_, _| Collector::default());
@@ -361,17 +337,24 @@ mod tests {
         other.update(cx, |_, window, _| window.refresh()).unwrap();
         cx.run_until_parked();
         let (sender, receiver) = async_channel::unbounded();
-        sender.try_send(1).unwrap();
+        for item in [3, 1, 2] {
+            sender.try_send(item).unwrap();
+        }
         drop(sender);
         let weak = view.downgrade();
         let task = cx.update(|window, cx| {
             window.spawn(cx, async move |cx| drain(receiver, weak, cx, collect).await)
         });
         task.await;
-        let windows = view.read_with(cx, |view, _| view.windows.clone());
+        let (seen, windows) =
+            view.read_with(cx, |view, _| (view.seen.clone(), view.windows.clone()));
         assert_eq!(
-            windows,
-            [own],
+            seen,
+            [3, 1, 2],
+            "every item in order, then the channel ends"
+        );
+        assert_eq!(
+            windows, [own; 3],
             "a float window drawing a view does not move its tasks"
         );
     }

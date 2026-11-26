@@ -105,54 +105,48 @@ mod tests {
         Open(&'static str),
     }
 
-    struct Case {
-        name: &'static str,
-        steps: &'static [Step],
-        preview: Option<&'static str>,
-    }
+    type Case = (&'static str, &'static [Step], Option<&'static str>, usize);
 
     const CASES: &[Case] = &[
-        Case {
-            name: "a file opened from the tree is the preview",
-            steps: &[Step::Preview("a.rs")],
-            preview: Some("a.rs"),
-        },
-        Case {
-            name: "the next one takes it over",
-            steps: &[Step::Preview("a.rs"), Step::Preview("b.rs")],
-            preview: Some("b.rs"),
-        },
-        Case {
-            name: "previewing an open file again leaves the preview where it is",
-            steps: &[
+        (
+            "a file opened from the tree is the preview",
+            &[Step::Preview("a.rs")],
+            Some("a.rs"),
+            2,
+        ),
+        (
+            "the next one takes it over",
+            &[Step::Preview("a.rs"), Step::Preview("b.rs")],
+            Some("b.rs"),
+            3,
+        ),
+        (
+            "previewing an open file again leaves the preview where it is",
+            &[
                 Step::Preview("a.rs"),
                 Step::Preview("b.rs"),
                 Step::Preview("a.rs"),
             ],
-            preview: Some("b.rs"),
-        },
-        Case {
-            name: "a kept open of the preview, as a double click, keeps it",
-            steps: &[
+            Some("b.rs"),
+            3,
+        ),
+        (
+            "a kept open of the preview, as a double click, keeps it",
+            &[
                 Step::Preview("a.rs"),
                 Step::Preview("b.rs"),
                 Step::Open("b.rs"),
             ],
-            preview: None,
-        },
+            None,
+            3,
+        ),
     ];
 
     #[test]
     fn a_file_opened_from_the_tree_is_the_preview_until_another_or_a_kept_open_takes_it() {
-        for case in CASES {
-            let (preview, tabs) = opened(case.steps);
-            assert_eq!(preview.as_deref(), case.preview, "{}", case.name);
-            assert_eq!(
-                tabs,
-                1 + distinct(case.steps),
-                "{}: every file stays open",
-                case.name
-            );
+        for (name, steps, expected, tabs) in CASES {
+            let shown = opened(steps);
+            assert_eq!(shown, (expected.map(str::to_owned), *tabs), "{name}");
         }
     }
 
@@ -171,18 +165,6 @@ mod tests {
 
     fn spec(file: &str) -> PaneSpec {
         PaneSpec::editor("t1", file).unwrap()
-    }
-
-    fn distinct(steps: &[Step]) -> usize {
-        let mut files: Vec<&str> = steps
-            .iter()
-            .map(|step| match step {
-                Step::Preview(file) | Step::Open(file) => *file,
-            })
-            .collect();
-        files.sort_unstable();
-        files.dedup();
-        files.len()
     }
 
     #[test]

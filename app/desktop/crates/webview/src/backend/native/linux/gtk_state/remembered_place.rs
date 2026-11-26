@@ -108,17 +108,15 @@ mod tests {
     }
 
     #[test]
-    fn a_view_moved_and_shown_in_one_go_lands_where_it_was_last_moved() {
-        let (view, place) = (view(), RememberedPlace::new(rect(25.0)));
-        place.place(&view, rect(40.0)).unwrap();
-        place.show(&view).unwrap();
-        assert_eq!(view.settle(), format!("{:?}", rect(40.0)), "moved place");
-    }
-
-    #[test]
-    fn a_view_shown_without_a_move_lands_where_it_was_created() {
-        let (view, place) = (view(), RememberedPlace::new(rect(25.0)));
-        place.show(&view).unwrap();
-        assert_eq!(view.settle(), format!("{:?}", rect(25.0)), "created place");
+    fn a_shown_view_lands_where_it_was_last_moved_or_else_where_it_was_created() {
+        for (moved, lands) in [(Some(40.0), 40.0), (None, 25.0)] {
+            let (view, place) = (view(), RememberedPlace::new(rect(25.0)));
+            moved
+                .into_iter()
+                .try_for_each(|x| place.place(&view, rect(x)))
+                .unwrap();
+            place.show(&view).unwrap();
+            assert_eq!(view.settle(), format!("{:?}", rect(lands)), "{moved:?}");
+        }
     }
 }

@@ -23,11 +23,6 @@ impl ScrollAccumulator {
         }
         moved
     }
-
-    /// Forgets the remainder.
-    pub fn reset(&mut self) {
-        self.remainder = 0.0;
-    }
 }
 
 #[cfg(test)]
@@ -37,12 +32,10 @@ mod tests {
     #[test]
     fn fractions_accumulate_into_whole_lines() {
         let mut accumulator = ScrollAccumulator::default();
-        let moved: Vec<i32> = [0.4, 0.4, 0.4, -2.5]
+        let moved: Vec<i32> = [0.4, 0.4, 0.4, -2.5, 0.3]
             .into_iter()
             .map(|delta| accumulator.add(delta))
             .collect();
-        assert_eq!(moved, [0, 0, 1, -2]);
-        accumulator.reset();
-        assert_eq!(accumulator.add(0.3), 0);
+        assert_eq!(moved, [0, 0, 1, -2, 0]);
     }
 }

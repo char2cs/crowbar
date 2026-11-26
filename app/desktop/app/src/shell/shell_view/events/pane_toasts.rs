@@ -73,6 +73,7 @@ mod tests {
     use gpui::TestAppContext;
     use layout::Command;
 
+    use crate::shell::shell_view::test_support::{open_file, settled_notice_count};
     use crate::shell::shell_view::tests::{Opened, open_shell};
 
     fn post(
@@ -88,24 +89,18 @@ mod tests {
             .update_in(&mut opened.window, |shell, window, cx| {
                 shell.on_ipc(message, window, cx);
             });
-        shown(opened)
-    }
-
-    fn shown(opened: &mut Opened) -> usize {
-        opened.window.executor().advance_clock(ui::timing::SLOW);
-        opened.window.run_until_parked();
-        opened
-            .shell
-            .update(&mut opened.window, |shell, cx| shell.notices.read(cx).len())
+        settled_notice_count(opened)
     }
 
     const TOAST: &str =
         r#"{"sdk":1,"kind":"shell.toast","key":"t1","tone":"error","title":"Save the file"}"#;
 
     #[gpui::test]
-    fn a_pane_toast_shows_in_the_shell_until_the_pane_closes_it(cx: &mut TestAppContext) {
+    fn a_pane_toast_shows_in_the_shell_until_the_pane_or_its_closing_takes_it_down(
+        cx: &mut TestAppContext
+    ) {
         let mut opened = open_shell(cx);
-        let base = shown(&mut opened);
+        let base = settled_notice_count(&mut opened);
         assert_eq!(post(&mut opened, TOAST), base + 1, "shown");
         assert_eq!(
             post(&mut opened, TOAST),
@@ -114,12 +109,22 @@ mod tests {
         );
         let close = r#"{"sdk":1,"kind":"shell.toastClose","key":"t1"}"#;
         assert_eq!(post(&mut opened, close), base, "closed by the pane");
+        assert_eq!(post(&mut opened, TOAST), base + 1, "shown again");
+        let pane = opened.pane.clone();
+        opened.shell.update(&mut opened.window, |shell, cx| {
+            shell.apply_guarded(vec![Command::ClosePane { pane }], cx);
+        });
+        assert_eq!(
+            settled_notice_count(&mut opened),
+            base,
+            "gone with its pane"
+        );
     }
 
     #[gpui::test]
     fn a_refused_open_closes_its_pane_and_says_why(cx: &mut TestAppContext) {
         let mut opened = open_shell(cx);
-        let base = shown(&mut opened);
+        let base = settled_notice_count(&mut opened);
         let refused =
             r#"{"sdk":1,"kind":"pane.openRefused","title":"File not found","message":"src/a.ts"}"#;
         assert_eq!(post(&mut opened, refused), base + 1, "the toast stays");
@@ -128,17 +133,6 @@ mod tests {
             shell.state.layout().pane(&pane).is_some()
         });
         assert!(!open, "the pane closed");
-    }
-
-    fn open_file(
-        opened: &mut Opened,
-        path: &str,
-    ) -> protocol::PaneId {
-        opened.shell.update(&mut opened.window, |shell, cx| {
-            shell.open_workspace_file(path, cx);
-            let focused = shell.state.showing().and_then(layout::Tab::focused);
-            focused.cloned().expect("the file pane has focus")
-        })
     }
 
     #[gpui::test]
@@ -169,17 +163,5 @@ mod tests {
             (tab.focused().cloned(), group.cloned())
         });
         assert_eq!(shown, (Some(before.clone()), Some(before)));
-    }
-
-    #[gpui::test]
-    fn closing_a_pane_takes_its_toasts_down(cx: &mut TestAppContext) {
-        let mut opened = open_shell(cx);
-        let base = shown(&mut opened);
-        assert_eq!(post(&mut opened, TOAST), base + 1, "shown");
-        let pane = opened.pane.clone();
-        opened.shell.update(&mut opened.window, |shell, cx| {
-            shell.apply_guarded(vec![Command::ClosePane { pane }], cx);
-        });
-        assert_eq!(shown(&mut opened), base, "gone with its pane");
     }
 }

@@ -1,14 +1,16 @@
-//! Pixel geometry of the character grid.
+//! Pixel geometry of the character grid, and lossless cell count conversions.
 
 use crate::input::geometry::cell_hit::CellHit;
 use crate::input::geometry::cell_side::CellSide;
-use crate::input::geometry::cell_units::{cells_f32, floor_cells};
 use crate::input::geometry::drag_edge::DragEdge;
 use crate::input::geometry::view_point::ViewPoint;
 
 const MIN_COLUMNS: usize = 2;
 const MIN_LINES: usize = 1;
 const HALF: f32 = 2.0;
+const HALF_WORD_BITS: u32 = 16;
+const HALF_WORD_RANGE: f32 = 65_536.0;
+const SEARCH_STEPS: u32 = 32;
 
 /// The size of one cell and the grid made of them.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -87,43 +89,80 @@ fn whole_cells(
     floor_cells(length / cell)
 }
 
+/// A cell or line count as a float; counts of 2^32 and above saturate.
+pub fn cells_f32(count: usize) -> f32 {
+    let high = u16::try_from(count >> HALF_WORD_BITS).unwrap_or(u16::MAX);
+    let low = u16::try_from(count & usize::from(u16::MAX)).unwrap_or(u16::MAX);
+    f32::from(high) * HALF_WORD_RANGE + f32::from(low)
+}
+
+/// The largest whole count not above `value`; negative and NaN values give 0.
+pub fn floor_cells(value: f32) -> usize {
+    let upper = usize::try_from(u32::MAX).unwrap_or(usize::MAX);
+    let (floor, _) = (0..SEARCH_STEPS).fold((0_usize, upper), |range, _| narrow(range, value));
+    floor
+}
+
+fn narrow(
+    (low, high): (usize, usize),
+    value: f32,
+) -> (usize, usize) {
+    let middle = low + (high - low).div_ceil(2);
+    if cells_f32(middle) <= value {
+        return (middle, high);
+    }
+    (low, middle - 1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn metrics() -> CellMetrics {
-        CellMetrics {
-            cell_width: 8.0,
-            line_height: 16.0,
-            columns: 10,
-            lines: 5,
+    const COUNT_CASES: &[(usize, f32)] = &[
+        (0, 0.0),
+        (80, 80.0),
+        (65_536, 65_536.0),
+        (200_000, 200_000.0),
+    ];
+    const FLOOR_CASES: &[(f32, usize)] = &[
+        (-3.0, 0),
+        (f32::NAN, 0),
+        (0.0, 0),
+        (7.9, 7),
+        (80.0, 80),
+        (150_000.5, 150_000),
+    ];
+
+    #[test]
+    fn counts_and_floors_convert() {
+        for (count, expected) in COUNT_CASES {
+            assert_eq!(cells_f32(*count), *expected);
+        }
+        for (value, expected) in FLOOR_CASES {
+            assert_eq!(floor_cells(*value), *expected);
         }
     }
 
     #[test]
-    fn fit_counts_whole_cells_with_a_floor() {
+    fn pixels_fit_and_hit_whole_cells_clamped_to_the_grid() {
         assert_eq!(CellMetrics::fit(8.0, 16.0, 100.0, 70.0), (12, 4));
         assert_eq!(CellMetrics::fit(8.0, 16.0, 1.0, 1.0), (2, 1));
-    }
-
-    #[test]
-    fn hit_resolves_cell_side_and_clamps() {
-        let hit = metrics().hit(13.0, 20.0);
-        assert_eq!(
-            (hit.point, hit.side, hit.edge),
-            (
-                ViewPoint { row: 1, column: 1 },
-                CellSide::Right,
-                DragEdge::Inside
-            )
-        );
-        let left = metrics().hit(8.5, 0.0);
-        assert_eq!(left.side, CellSide::Left);
-        let far = metrics().hit(500.0, 500.0);
-        assert_eq!(
-            (far.point, far.edge),
-            (ViewPoint { row: 4, column: 9 }, DragEdge::Below)
-        );
-        assert_eq!(metrics().hit(-5.0, -5.0).edge, DragEdge::Above);
+        let metrics = CellMetrics {
+            cell_width: 8.0,
+            line_height: 16.0,
+            columns: 10,
+            lines: 5,
+        };
+        let at = |row, column| ViewPoint { row, column };
+        let cases = [
+            ((13.0, 20.0), (at(1, 1), CellSide::Right, DragEdge::Inside)),
+            ((8.5, 0.0), (at(0, 1), CellSide::Left, DragEdge::Inside)),
+            ((500.0, 500.0), (at(4, 9), CellSide::Right, DragEdge::Below)),
+            ((-5.0, -5.0), (at(0, 0), CellSide::Left, DragEdge::Above)),
+        ];
+        for ((x, y), expected) in cases {
+            let hit = metrics.hit(x, y);
+            assert_eq!((hit.point, hit.side, hit.edge), expected, "{x},{y}");
+        }
     }
 }

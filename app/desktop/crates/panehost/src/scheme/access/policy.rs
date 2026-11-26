@@ -1,5 +1,7 @@
 use protocol::PaneOrigin;
+use webview::{ProtocolRequest, ProtocolResponse};
 
+use crate::scheme::access::page_caller::PageCaller;
 use crate::scheme::route::Route;
 
 pub(crate) fn allows(
@@ -27,6 +29,80 @@ fn is_plain(path_and_query: &str) -> bool {
         .all(|marker| !lowered.contains(marker))
 }
 
+const NO_CONTENT: u16 = 204;
+const PREFLIGHT_METHOD: &str = "OPTIONS";
+const ALLOWED_METHODS: &str = "GET, POST, PUT, PATCH, DELETE";
+const PANE_HEADERS: &str = "content-type, idempotency-key, crowbar-discard-work";
+const PAGE_ORIGIN: &str = "crowbar://local";
+const PREFLIGHT_MAX_AGE: &str = "600";
+const GRANTS: [&str; 3] = [
+    "access-control-allow-origin",
+    "access-control-allow-credentials",
+    "access-control-expose-headers",
+];
+
+pub(crate) fn caller_of(request: &ProtocolRequest) -> PageCaller {
+    match header(&request.headers, "origin") {
+        None => PageCaller::Unstated,
+        Some(PAGE_ORIGIN) => PageCaller::ShellPage,
+        Some(_) => PageCaller::Stranger,
+    }
+}
+
+pub(crate) fn preflight(request: &ProtocolRequest) -> Option<ProtocolResponse> {
+    asked_preflight(&request.method, &request.headers)
+}
+
+fn asked_preflight(
+    method: &str,
+    headers: &[(String, String)],
+) -> Option<ProtocolResponse> {
+    if !method.eq_ignore_ascii_case(PREFLIGHT_METHOD) {
+        return None;
+    }
+    header(headers, "access-control-request-method")?;
+    Some(ProtocolResponse {
+        status: NO_CONTENT,
+        headers: vec![
+            (
+                "access-control-allow-methods".into(),
+                ALLOWED_METHODS.into(),
+            ),
+            ("access-control-allow-headers".into(), PANE_HEADERS.into()),
+            ("access-control-max-age".into(), PREFLIGHT_MAX_AGE.into()),
+        ],
+        body: Vec::new(),
+    })
+}
+
+pub(crate) fn readable_by(
+    caller: PageCaller,
+    mut response: ProtocolResponse,
+) -> ProtocolResponse {
+    if caller != PageCaller::ShellPage {
+        return response;
+    }
+    response
+        .headers
+        .retain(|(key, _)| !GRANTS.iter().any(|grant| key.eq_ignore_ascii_case(grant)));
+    response.headers.extend([
+        ("access-control-allow-origin".into(), PAGE_ORIGIN.into()),
+        ("access-control-expose-headers".into(), "*".into()),
+        ("vary".into(), "Origin".into()),
+    ]);
+    response
+}
+
+fn header<'a>(
+    headers: &'a [(String, String)],
+    name: &str,
+) -> Option<&'a str> {
+    headers
+        .iter()
+        .find(|(key, _)| key.eq_ignore_ascii_case(name))
+        .map(|(_, value)| value.as_str())
+}
+
 #[cfg(test)]
 mod tests {
     use protocol::{ExtensionId, HostId};
@@ -35,169 +111,64 @@ mod tests {
 
     type Case = (&'static str, PaneOrigin, Route, bool);
 
-    fn extension(name: &str) -> PaneOrigin {
-        PaneOrigin::Extension(ExtensionId::new(name).unwrap())
+    fn git() -> PaneOrigin {
+        PaneOrigin::Extension(ExtensionId::new("git").unwrap())
     }
 
     fn daemon(path: &str) -> Route {
+        let host = HostId::new("local").unwrap();
+        let path_and_query = path.into();
         Route::Daemon {
-            host: HostId::new("local").unwrap(),
-            path_and_query: path.into(),
+            host,
+            path_and_query,
         }
     }
 
     fn bundle(name: &str) -> Route {
-        Route::ExtensionBundle {
-            extension: ExtensionId::new(name).unwrap(),
-            path: "a".into(),
-        }
+        let extension = ExtensionId::new(name).unwrap();
+        let path = "a".into();
+        Route::ExtensionBundle { extension, path }
     }
 
     fn core_bundle() -> Route {
-        Route::CoreBundle {
-            path: String::new(),
-        }
+        let path = String::new();
+        Route::CoreBundle { path }
     }
 
     fn relay() -> Route {
-        Route::Relay {
-            host: HostId::new("local").unwrap(),
-        }
+        let host = HostId::new("local").unwrap();
+        Route::Relay { host }
     }
 
-    fn core_cases() -> Vec<Case> {
-        vec![
-            (
-                "core reaches the core bundle",
-                PaneOrigin::Core,
-                core_bundle(),
-                true,
-            ),
-            (
-                "core reaches the whole daemon",
-                PaneOrigin::Core,
-                daemon("/v0/threads"),
-                true,
-            ),
-            (
-                "core cannot read an extension bundle",
-                PaneOrigin::Core,
-                bundle("git"),
-                false,
-            ),
-            (
-                "core may ask for its relay",
-                PaneOrigin::Core,
-                relay(),
-                true,
-            ),
-            (
-                "extension may ask for its relay",
-                extension("git"),
-                relay(),
-                true,
-            ),
-        ]
-    }
-
-    fn extension_bundle_cases() -> Vec<Case> {
-        vec![
-            (
-                "extension reaches its own bundle",
-                extension("git"),
-                bundle("git"),
-                true,
-            ),
-            (
-                "extension cannot read a foreign bundle",
-                extension("git"),
-                bundle("draw"),
-                false,
-            ),
-            (
-                "extension cannot read the core bundle",
-                extension("git"),
-                core_bundle(),
-                false,
-            ),
-        ]
-    }
-
-    fn extension_route_cases() -> Vec<Case> {
-        vec![
-            (
-                "extension reaches its own routes",
-                extension("git"),
-                daemon("/v0/ext/git/review.diff"),
-                true,
-            ),
-            (
-                "extension cannot use a prefix lookalike",
-                extension("git"),
-                daemon("/v0/ext/gitx/x"),
-                false,
-            ),
-            (
-                "extension cannot reach foreign routes",
-                extension("git"),
-                daemon("/v0/ext/draw/x"),
-                false,
-            ),
-            (
-                "extension cannot reach the general api",
-                extension("git"),
-                daemon("/v0/threads"),
-                false,
-            ),
-        ]
-    }
-
-    fn escape_cases() -> Vec<Case> {
-        vec![
-            (
-                "extension cannot climb with dots",
-                extension("git"),
-                daemon("/v0/ext/git/../other/x"),
-                false,
-            ),
-            (
-                "extension cannot climb with encoded dots",
-                extension("git"),
-                daemon("/v0/ext/git/%2e%2e/x"),
-                false,
-            ),
-            (
-                "extension cannot climb with upper-case encoding",
-                extension("git"),
-                daemon("/v0/ext/git/%2E%2E/x"),
-                false,
-            ),
-            (
-                "extension cannot smuggle an encoded slash",
-                extension("git"),
-                daemon("/v0/ext/git/a%2fb"),
-                false,
-            ),
-        ]
+    fn core() -> PaneOrigin {
+        PaneOrigin::Core
     }
 
     fn cases() -> Vec<Case> {
-        [
-            core_cases(),
-            extension_bundle_cases(),
-            extension_route_cases(),
-            escape_cases(),
+        vec![
+            ("core: the core bundle", core(), core_bundle(), true),
+            ("core: the daemon", core(), daemon("/v0/threads"), true),
+            ("core: no ext bundle", core(), bundle("git"), false),
+            ("core: its relay", core(), relay(), true),
+            ("ext: its relay", git(), relay(), true),
+            ("ext: its own bundle", git(), bundle("git"), true),
+            ("ext: no foreign bundle", git(), bundle("draw"), false),
+            ("ext: no core bundle", git(), core_bundle(), false),
+            ("ext: its routes", git(), daemon("/v0/ext/git/a"), true),
+            ("lookalike", git(), daemon("/v0/ext/gitx/x"), false),
+            ("foreign", git(), daemon("/v0/ext/draw/x"), false),
+            ("general api", git(), daemon("/v0/threads"), false),
+            ("dots", git(), daemon("/v0/ext/git/../x"), false),
+            ("%2e", git(), daemon("/v0/ext/git/%2e%2e/x"), false),
+            ("%2E", git(), daemon("/v0/ext/git/%2E%2E/x"), false),
+            ("%2f", git(), daemon("/v0/ext/git/a%2fb"), false),
         ]
-        .concat()
     }
 
     #[test]
     fn every_origin_reaches_exactly_what_it_owns() {
-        let failed: Vec<&str> = cases()
-            .iter()
-            .filter(|(_, origin, route, expected)| allows(origin, route) != *expected)
-            .map(|(name, ..)| *name)
-            .collect();
-        assert!(failed.is_empty(), "failed cases: {failed:?}");
+        for (name, origin, route, expected) in cases() {
+            assert_eq!(allows(&origin, &route), expected, "{name}");
+        }
     }
 }

@@ -39,31 +39,17 @@ impl Sidebar {
 
 #[cfg(test)]
 mod tests {
-    use gpui::{Bounds, point, px, size};
-
-    use crate::sidebar::{DragPoint, DragPress};
+    use crate::test_support::drag::drag;
     use crate::test_support::prelude::*;
 
     fn dragged_onto(
         sidebar: &gpui::Entity<crate::sidebar::Sidebar>,
-        (subject, target): (&str, &str),
+        rows: (&str, &str),
         cx: &mut gpui::VisualTestContext,
     ) {
-        let (subject, target) = (RowId::from(subject), RowId::from(target));
-        let press = DragPress {
-            row: subject.clone(),
-            at: point(px(0.0), px(200.0)),
-        };
-        let over = DragPoint {
-            subject: subject.clone(),
-            target: target.clone(),
-            bounds: Bounds::new(point(px(0.0), px(200.0)), size(px(200.0), px(36.0))),
-            at: point(px(20.0), px(218.0)),
-        };
         sidebar.update(cx, |this, cx| {
-            this.press_row(press);
-            this.drag_over(&over, cx);
-            this.drop_on((subject, target), cx);
+            drag(this, rows, (20.0, 18.0), cx);
+            this.drop_on((RowId::from(rows.0), RowId::from(rows.1)), cx);
         });
     }
 

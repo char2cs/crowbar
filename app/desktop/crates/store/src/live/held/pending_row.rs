@@ -1,6 +1,6 @@
 //! A create that has no entity yet, drawn as an operation row.
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct PendingRow {
     pub(crate) id: String,
     pub(crate) label: String,

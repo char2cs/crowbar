@@ -6,6 +6,6 @@ pub(crate) enum PanePhase {
     Loading,
     /// The page registered and was mounted.
     Mounted,
-    /// The pane cannot run; the message is shown in its frame.
-    Failed(String),
+    /// The pane cannot run; its web view stays hidden.
+    Failed,
 }

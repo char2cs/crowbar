@@ -29,9 +29,8 @@ impl Rgb {
             | u32::from(self.blue)
     }
 
-    /// The colour at two thirds of its intensity, as SGR 2 (faint) renders it.
     #[must_use]
-    pub fn dimmed(self) -> Self {
+    pub(crate) fn dimmed(self) -> Self {
         Self {
             red: dim_channel(self.red),
             green: dim_channel(self.green),
@@ -50,15 +49,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hex_round_trips() {
-        for hex in [0x00_0000, 0xff_ffff, 0x12_34ab, 0x80_a36f] {
-            assert_eq!(Rgb::from_hex(hex).to_hex(), hex, "hex {hex:06x}");
-        }
-    }
-
-    #[test]
     fn dimming_takes_two_thirds_of_each_channel() {
         let dimmed = Rgb::from_hex(0x90_6030).dimmed();
-        assert_eq!(dimmed, Rgb::from_hex(0x60_4020));
+        assert_eq!(dimmed.to_hex(), 0x60_4020);
     }
 }

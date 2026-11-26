@@ -1,9 +1,7 @@
 use layout::{Axis, Branch, Command, PaneSlot, Rect, Sash, SplitNode, Tab, TabId};
 
-/// A sash held by the pointer: where the split's first child started and where the pointer was,
-/// so every move maps to the first child's new size.
 #[derive(Debug, Clone, PartialEq)]
-pub struct SashGrab {
+pub(crate) struct SashGrab {
     tab: TabId,
     path: Vec<Branch>,
     axis: Axis,
@@ -13,10 +11,7 @@ pub struct SashGrab {
 }
 
 impl SashGrab {
-    /// Starts a drag of `sash` with the pointer at `pointer` (window coordinates) in a tab laid
-    /// out in `bounds`.
-    #[must_use]
-    pub fn begin(
+    pub(crate) fn begin(
         tab: &Tab,
         sash: &Sash,
         pointer: (f32, f32),
@@ -33,9 +28,7 @@ impl SashGrab {
         })
     }
 
-    /// The model command that puts the split where the pointer is now.
-    #[must_use]
-    pub fn resize(
+    pub(crate) fn resize(
         &self,
         pointer: (f32, f32),
     ) -> Command {
@@ -48,9 +41,7 @@ impl SashGrab {
         }
     }
 
-    /// The model command for a double click: both children share the space equally again.
-    #[must_use]
-    pub fn reset(&self) -> Command {
+    pub(crate) fn reset(&self) -> Command {
         Command::ResetSplit {
             tab: self.tab,
             path: self.path.clone(),
@@ -130,7 +121,7 @@ fn leaves(
 
 #[cfg(test)]
 mod tests {
-    use layout::{Command, Edge, Rect};
+    use layout::Edge;
 
     use super::*;
     use crate::test_support::layout_of;
@@ -142,29 +133,11 @@ mod tests {
         height: 600.0,
     };
 
-    struct Case {
-        name: &'static str,
-        edge: Edge,
-        grab: (f32, f32),
-        to: (f32, f32),
-        first_extent: f32,
-    }
-
-    const CASES: &[Case] = &[
-        Case {
-            name: "moving the pointer by forty pixels grows the first child by forty",
-            edge: Edge::Right,
-            grab: (503.0, 300.0),
-            to: (543.0, 310.0),
-            first_extent: 440.0,
-        },
-        Case {
-            name: "a vertical split follows the vertical pointer only",
-            edge: Edge::Bottom,
-            grab: (300.0, 340.0),
-            to: (900.0, 300.0),
-            first_extent: 297.0 - 40.0,
-        },
+    /// The second pane's side, where the sash is grabbed and dragged to, and the first child's
+    /// new extent: a horizontal split follows the pointer's x only, a vertical one its y only.
+    const CASES: &[(Edge, (f32, f32), (f32, f32), f32)] = &[
+        (Edge::Right, (503.0, 300.0), (543.0, 310.0), 440.0),
+        (Edge::Bottom, (300.0, 340.0), (900.0, 300.0), 297.0 - 40.0),
     ];
 
     fn grab_at(
@@ -176,31 +149,34 @@ mod tests {
         SashGrab::begin(tab, &sash, pointer, CONTENT).expect("grab")
     }
 
-    fn resized(case: &Case) -> (f32, Rect) {
-        let layout = layout_of("a", &[("b", "a", case.edge)]);
-        let grab = grab_at(&layout, case.grab);
+    fn resized(
+        edge: Edge,
+        grab: (f32, f32),
+        to: (f32, f32),
+    ) -> (f32, Rect) {
+        let layout = layout_of("a", &[("b", "a", edge)]);
+        let resize = grab_at(&layout, grab).resize(to);
         let Command::ResizeSplit {
-            first_extent,
             bounds,
+            first_extent,
             ..
-        } = grab.resize(case.to)
+        } = resize
         else {
-            panic!("a resize command: {}", case.name);
+            panic!("a resize command: {resize:?}");
         };
         (first_extent, bounds)
     }
 
     #[test]
     fn the_pointer_resizes_the_first_child_along_the_split() {
-        for case in CASES {
-            let (first_extent, bounds) = resized(case);
-            assert_eq!(first_extent, case.first_extent, "{}", case.name);
-            assert_eq!(bounds, CONTENT, "{}: bounds of the tab", case.name);
+        for (edge, grab, to, first_extent) in CASES {
+            let resized = resized(*edge, *grab, *to);
+            assert_eq!(resized, (*first_extent, CONTENT), "{edge:?}");
         }
     }
 
     #[test]
-    fn the_command_applies_and_moves_the_sash() {
+    fn the_resize_moves_the_sash_and_the_reset_names_the_same_split() {
         let mut layout = layout_of("a", &[("b", "a", Edge::Right)]);
         let grab = grab_at(&layout, (503.0, 300.0));
         layout
@@ -212,12 +188,6 @@ mod tests {
             600.0,
             "sash followed the pointer by 100px"
         );
-    }
-
-    #[test]
-    fn reset_names_the_same_split() {
-        let layout = layout_of("a", &[("b", "a", Edge::Right)]);
-        let grab = grab_at(&layout, (503.0, 300.0));
         let Command::ResetSplit { path, .. } = grab.reset() else {
             panic!("a reset command");
         };

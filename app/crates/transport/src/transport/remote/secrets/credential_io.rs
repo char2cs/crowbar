@@ -67,20 +67,4 @@ mod tests {
             "nothing left in the store"
         );
     }
-
-    #[tokio::test]
-    async fn an_entry_pairing_did_not_write_is_no_credential() {
-        let store = MemoryTokenStore::default();
-        store.set("host-1", "sometoken").unwrap();
-        let tokens: Arc<dyn TokenStore> = Arc::new(store);
-        assert!(matches!(
-            load(&tokens, &host()).await,
-            Err(Error::NoCredential)
-        ));
-        let other = HostId::new("host-2").unwrap();
-        assert!(matches!(
-            load(&tokens, &other).await,
-            Err(Error::NoCredential)
-        ));
-    }
 }

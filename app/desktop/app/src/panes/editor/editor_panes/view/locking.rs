@@ -16,6 +16,7 @@ impl EditorPanes {
 
 #[cfg(test)]
 mod tests {
+    use crate::panes::editor::editor_panes::tests::editors_in;
     use std::cell::Cell;
     use std::rc::Rc;
 
@@ -26,14 +27,10 @@ mod tests {
     use crate::panes::editor::editor_panes::tests::{
         PATH, TEXT, landed, layout_with, panes_locked, shown_in,
     };
-    use crate::test_support::FakeDocuments;
 
     #[gpui::test]
     fn an_open_file_follows_its_workspace_locking_and_unlocking(cx: &mut TestAppContext) {
-        cx.update(|cx| ui::init(cx).unwrap());
-        cx.update(editorview::init);
-        let documents = Rc::new(FakeDocuments::default());
-        documents.loading("c1");
+        let documents = editors_in(cx);
         documents.holding(PATH, TEXT);
         let locked = Rc::new(Cell::new(false));
         let lock = Rc::clone(&locked);

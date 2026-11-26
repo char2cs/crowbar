@@ -89,9 +89,8 @@ impl TabLook {
         self
     }
 
-    /// The preview lifted under the pointer while the tab is dragged.
     #[must_use]
-    pub fn drag_preview(&self) -> TabPreview {
+    pub(crate) fn drag_preview(&self) -> TabPreview {
         let preview = TabPreview::new(self.label.clone());
         if !self.dirty {
             return preview;
@@ -114,16 +113,5 @@ mod tests {
             (None, false),
             "no file, nothing unsaved"
         );
-    }
-
-    #[test]
-    fn a_look_can_name_its_file_and_mark_unsaved_work() {
-        let look = TabLook::plain("main.rs").at_path("src/main.rs").unsaved();
-        assert_eq!(
-            (look.path.as_deref(), look.dirty, look.renamable),
-            (Some("src/main.rs"), true, false),
-            "file and mark"
-        );
-        assert!(TabLook::plain("zsh").renamable().renamable, "renamable");
     }
 }

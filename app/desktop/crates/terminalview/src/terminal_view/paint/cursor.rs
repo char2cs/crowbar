@@ -112,7 +112,6 @@ mod tests {
         let layout = ViewLayout::new(
             Bounds::new(point(px(0.0), px(0.0)), size(px(800.0), px(400.0))),
             (metrics.cell_width, metrics.line_height),
-            0.0,
         );
         let cell = CursorCell {
             row: 2,
@@ -122,7 +121,7 @@ mod tests {
             character: 'x',
         };
         let bounds = cursor_bounds(&cell, &layout);
-        assert_eq!(bounds.origin, point(px(24.0), px(32.0)));
+        assert_eq!(bounds.origin, point(px(40.0), px(32.0)));
         assert_eq!(bounds.size, size(px(16.0), px(16.0)));
     }
 }

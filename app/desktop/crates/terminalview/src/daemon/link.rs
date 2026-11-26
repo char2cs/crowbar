@@ -32,28 +32,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn frames_flow_to_the_view_and_messages_to_the_host() {
+    fn frames_flow_to_the_view_and_messages_to_the_host_up_to_a_bound() {
         let (link, peer) = Link::open();
-        assert!(peer.deliver_blocking(DaemonFrame::Exit(0)));
+        let (frames, messages) = peer.into_channels();
+        assert!(frames.try_send(DaemonFrame::Exit(0)).is_ok());
         assert_eq!(link.frames.try_recv().ok(), Some(DaemonFrame::Exit(0)));
-        assert!(
-            link.outbound
-                .try_send(ClientMessage::Input("x".into()))
-                .is_ok()
-        );
-        assert_eq!(
-            peer.try_next_message(),
-            Some(ClientMessage::Input("x".into()))
-        );
-    }
-
-    #[test]
-    fn a_host_that_outruns_the_view_is_stalled_not_buffered_without_limit() {
-        let (_link, peer) = Link::open();
-        let (frames, _messages) = peer.into_channels();
+        let input = ClientMessage::Input("x".into());
+        assert!(link.outbound.try_send(input.clone()).is_ok());
+        assert_eq!(messages.try_recv().ok(), Some(input));
         for _ in 0..FRAME_BACKLOG {
-            frames.try_send(DaemonFrame::Exit(0)).unwrap();
+            assert!(frames.try_send(DaemonFrame::Exit(0)).is_ok());
         }
-        assert!(frames.try_send(DaemonFrame::Exit(0)).unwrap_err().is_full());
+        let stalled = frames.try_send(DaemonFrame::Exit(0));
+        assert!(
+            stalled.is_err_and(|error| error.is_full()),
+            "the host is stalled"
+        );
     }
 }

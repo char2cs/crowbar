@@ -118,7 +118,6 @@ fn crosses(
 #[cfg(test)]
 mod tests {
     use gpui::TestAppContext;
-    use protocol::PaneId;
 
     use super::*;
     use crate::panes::kinds::core_panes::{chat_params, chat_type};
@@ -128,28 +127,23 @@ mod tests {
         opened: &mut Opened,
         chats: &[&str],
     ) {
-        let views: Vec<_> = chats
-            .iter()
-            .map(|chat| {
-                (
-                    chat_type().expect("type"),
-                    chat_params(chat).expect("params"),
-                )
-            })
-            .collect();
-        opened.shell.update(&mut opened.window, |shell, cx| {
-            open_views(&mut shell.state, views);
-            shell.refresh(cx);
-        });
+        for chat in chats {
+            open_view(opened, chat);
+        }
+        opened.shell.update(&mut opened.window, ShellView::refresh);
     }
 
-    fn open_views(
-        state: &mut crate::shell::shell_state::ShellState,
-        views: Vec<(protocol::PaneTypeId, protocol::Params)>,
+    fn open_view(
+        opened: &mut Opened,
+        chat: &str,
     ) {
-        for (type_id, params) in views {
-            state.open_view(type_id, params);
-        }
+        let (type_id, params) = (
+            chat_type().expect("type"),
+            chat_params(chat).expect("params"),
+        );
+        opened.shell.update(&mut opened.window, |shell, _| {
+            shell.state.open_view(type_id, params);
+        });
     }
 
     fn tab_of(
@@ -169,16 +163,10 @@ mod tests {
         })
     }
 
-    fn tabs(opened: &mut Opened) -> Vec<Vec<PaneId>> {
-        opened.shell.read_with(&opened.window, |shell, _| {
-            shell
-                .state
-                .layout()
-                .tabs()
-                .iter()
-                .map(layout::Tab::pane_ids)
-                .collect()
-        })
+    fn tab_count(opened: &mut Opened) -> usize {
+        opened
+            .shell
+            .read_with(&opened.window, |shell, _| shell.state.layout().tabs().len())
     }
 
     fn drop_row(
@@ -198,26 +186,17 @@ mod tests {
     }
 
     #[gpui::test]
-    fn a_row_of_an_open_chat_dropped_on_a_tab_middle_moves_the_chat_into_that_tab(
+    fn a_row_dropped_on_a_tab_middle_moves_an_open_chat_or_opens_a_closed_one_in_that_tab(
         cx: &mut TestAppContext
     ) {
         let mut opened = open_shell(cx);
         open_chats(&mut opened, &["t1", "t2"]);
-        let (before, target) = (tabs(&mut opened).len(), tab_of(&mut opened, "t1"));
+        let (before, target) = (tab_count(&mut opened), tab_of(&mut opened, "t1"));
         drop_row(&mut opened, "t2", TabDrop::Merge(target));
-        assert_eq!(tabs(&mut opened).len(), before - 1, "t2's own tab is gone");
+        assert_eq!(tab_count(&mut opened), before - 1, "t2's own tab is gone");
         assert_eq!(tab_of(&mut opened, "t2"), target, "t2 joined t1's tab");
-    }
-
-    #[gpui::test]
-    fn a_row_of_a_closed_chat_dropped_on_a_tab_middle_opens_it_in_that_tab(
-        cx: &mut TestAppContext
-    ) {
-        let mut opened = open_shell(cx);
-        open_chats(&mut opened, &["t1"]);
-        let (before, target) = (tabs(&mut opened).len(), tab_of(&mut opened, "t1"));
         drop_row(&mut opened, "t3", TabDrop::Merge(target));
-        assert_eq!(tabs(&mut opened).len(), before, "no new tab");
+        assert_eq!(tab_count(&mut opened), before - 1, "no new tab");
         assert_eq!(tab_of(&mut opened, "t3"), target, "t3 opened beside t1");
     }
 

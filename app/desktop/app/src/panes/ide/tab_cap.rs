@@ -116,30 +116,22 @@ fn victim_when_full(
 #[cfg(test)]
 mod tests {
     use layout::TabId;
-    use protocol::{PaneState, PaneTypeId, Params};
 
     use super::*;
-    use crate::panes::kinds::core_panes::{EDITOR, chat_params};
+    use crate::panes::kinds::core_panes::EDITOR;
+    use crate::test_support::{add_tab, chat_pane};
 
     fn instance(
         id: &str,
         type_id: &str,
         thread: &str,
     ) -> PaneInstance {
-        let params = match type_id {
-            CHAT => chat_params(thread).unwrap(),
-            _ => Params::default()
-                .with("threadId", thread)
-                .unwrap()
-                .with("path", id)
-                .unwrap(),
-        };
-        PaneInstance {
-            pane_id: PaneId::new(id).unwrap(),
-            type_id: PaneTypeId::new(type_id).unwrap(),
-            params,
-            state: PaneState::default(),
+        let pane = chat_pane((id, type_id), thread);
+        if type_id == CHAT {
+            return pane;
         }
+        let params = pane.params.clone().with("path", id).unwrap();
+        PaneInstance { params, ..pane }
     }
 
     fn open(
@@ -156,12 +148,7 @@ mod tests {
 
     fn layout_of(panes: &[(&str, &str, &str)]) -> Layout {
         let mut layout = Layout::default();
-        let add = Command::AddTab {
-            id: TabId(1),
-            title: String::new(),
-            space: layout::SpaceId::default(),
-        };
-        layout.apply(add).unwrap();
+        add_tab(&mut layout, 1);
         for (id, type_id, thread) in panes {
             let opened = open_in_group(&layout, id, type_id, thread);
             layout.apply(opened).unwrap();

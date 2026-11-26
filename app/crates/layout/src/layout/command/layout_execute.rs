@@ -1,9 +1,7 @@
 use crate::error::Result;
 use crate::ide::command::close_panes;
 use crate::ide::command::group_commands;
-use crate::ide::command::pin_commands;
-use crate::ide::command::preview_commands;
-use crate::ide::command::view_commands;
+use crate::ide::command::group_state;
 use crate::layout::Layout;
 use crate::layout::command::Command;
 use crate::layout::command::pane_commands;
@@ -40,13 +38,13 @@ impl Layout {
                 tab_commands::equalize(self, tab, &path).map(none_removed)
             },
             marking @ (Command::PreviewPane { .. } | Command::KeepPane { .. }) => {
-                preview_commands::execute(self, marking).map(none_removed)
+                group_state::execute(self, marking).map(none_removed)
             },
             Command::AdoptSpace { tab, space } => {
                 tab_commands::adopt(self, tab, space).map(none_removed)
             },
             Command::SetEditorView { pane, view } => {
-                view_commands::set_editor_view(self, &pane, view).map(none_removed)
+                group_state::set_editor_view(self, &pane, view).map(none_removed)
             },
             pane_command => self.execute_pane(pane_command),
         }
@@ -72,8 +70,8 @@ impl Layout {
             },
             Command::ClosePane { pane } => pane_commands::close(self, &pane),
             Command::ClosePanes { panes } => close_panes::close_many(self, &panes),
-            Command::PinPane { pane } => pin_commands::pin(self, &pane).map(none_removed),
-            Command::UnpinPane { pane } => pin_commands::unpin(self, &pane).map(none_removed),
+            Command::PinPane { pane } => group_state::pin(self, &pane).map(none_removed),
+            Command::UnpinPane { pane } => group_state::unpin(self, &pane).map(none_removed),
             Command::FocusPane { pane } => pane_commands::focus(self, &pane).map(none_removed),
             Command::MovePane { pane, placement } => {
                 pane_commands::relocate(self, &pane, &placement).map(none_removed)

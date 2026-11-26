@@ -26,40 +26,15 @@ mod tests {
     use protocol::{PaneId, PaneTitle};
 
     use super::*;
-    use crate::panes::browser::browser_bars::BrowserBars;
-    use crate::panes::content::native_panes::NativePanes;
-    use crate::panes::content::new_tab::new_tab_panes::NewTabPanes;
-    use crate::panes::kinds::serials::Serials;
-    use crate::panes::terminals::terminal_ids::TerminalIds;
+    use crate::panes::content::shell_pane_source::tests::idle_source;
     use crate::panes::tracking::titles::Titles;
-    use crate::test_support::idle_terminals;
 
     fn chat(thread: &str) -> PaneInstance {
-        PaneInstance {
-            pane_id: PaneId::new(thread).unwrap(),
-            type_id: protocol::PaneTypeId::new("core.chat").unwrap(),
-            params: protocol::Params::default()
-                .with("threadId", thread)
-                .unwrap(),
-            state: protocol::PaneState::default(),
-        }
+        crate::test_support::chat_pane((thread, "core.chat"), thread)
     }
 
     fn source(titles: Titles) -> ShellPaneSource {
-        ShellPaneSource::new(
-            titles,
-            Serials::above(&layout::Layout::default()),
-            BrowserBars::new(
-                crate::panes::browser::browser_ids::BrowserIds::default(),
-                async_channel::unbounded().0,
-            ),
-            NativePanes::new(
-                idle_terminals(TerminalIds::default()),
-                NewTabPanes::new(async_channel::unbounded().0),
-                crate::test_support::idle_editors(),
-            ),
-        )
-        .naming(std::rc::Rc::new(|chat| {
+        idle_source(titles).naming(std::rc::Rc::new(|chat| {
             (chat == "held").then(|| "Perf fixture".to_owned())
         }))
     }

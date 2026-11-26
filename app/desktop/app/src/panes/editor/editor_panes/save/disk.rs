@@ -116,14 +116,13 @@ impl EditorPanes {
 
 #[cfg(test)]
 mod tests {
-    use std::rc::Rc;
-
     use gpui::TestAppContext;
     use serde_json::json;
 
     use super::*;
     use crate::panes::editor::document_request::DocumentRequest;
     use crate::panes::editor::editor_panes::Landing;
+    use crate::panes::editor::editor_panes::tests::editors_in;
     use crate::panes::editor::editor_panes::tests::{
         Opened, PANE, PATH, TEXT, landed, layout_with, opened, panes_over, shown_in,
     };
@@ -134,10 +133,7 @@ mod tests {
     fn a_file_changed_in_its_workspace_reads_again_and_a_clean_view_shows_disk(
         cx: &mut TestAppContext
     ) {
-        cx.update(|cx| ui::init(cx).unwrap());
-        cx.update(editorview::init);
-        let documents = Rc::new(FakeDocuments::default());
-        documents.loading("c1");
+        let documents = editors_in(cx);
         documents.holding(PATH, TEXT);
         let (panes, heard) = panes_over(&documents);
         panes.follow(&layout_with(json!({"path": PATH})), "");
@@ -192,10 +188,7 @@ mod tests {
     fn a_clean_file_gone_from_disk_is_unavailable_until_a_sync_finds_it_again(
         cx: &mut TestAppContext
     ) {
-        cx.update(|cx| ui::init(cx).unwrap());
-        cx.update(editorview::init);
-        let documents = Rc::new(FakeDocuments::default());
-        documents.loading("c1");
+        let documents = editors_in(cx);
         documents.holding(PATH, TEXT);
         let Opened {
             panes,
@@ -224,10 +217,7 @@ mod tests {
 
     #[gpui::test]
     fn a_dirty_file_gone_from_disk_keeps_its_edits(cx: &mut TestAppContext) {
-        cx.update(|cx| ui::init(cx).unwrap());
-        cx.update(editorview::init);
-        let documents = Rc::new(FakeDocuments::default());
-        documents.loading("c1");
+        let documents = editors_in(cx);
         documents.holding(PATH, TEXT);
         let Opened {
             panes,

@@ -25,15 +25,6 @@ impl Sidebar {
         });
     }
 
-    /// Takes down the toast shown under `key`, for example once the problem it reports is gone.
-    pub fn clear_toast(
-        &mut self,
-        key: &str,
-        cx: &mut Context<'_, Self>,
-    ) {
-        self.toasts.update(cx, |queue, cx| queue.clear(key, cx));
-    }
-
     /// The window's one toast queue: docked at the bottom of the column while the sidebar is
     /// open, floating at the window corner on the dock edge while it is hidden, where the shell
     /// draws it.
@@ -54,8 +45,7 @@ impl Sidebar {
         Some(div().absolute().inset_0().child(layer).into_any_element())
     }
 
-    /// The toast edge matching the sidebar's dock edge: toasts swipe away toward it.
-    pub fn toast_side(side: DockSide) -> ToastSide {
+    fn toast_side(side: DockSide) -> ToastSide {
         match side {
             DockSide::Left => ToastSide::Left,
             DockSide::Right => ToastSide::Right,
@@ -96,9 +86,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn an_automatic_toast_goes_away_a_pinned_one_stays_and_clear_takes_it_down(
-        cx: &mut TestAppContext
-    ) {
+    fn an_automatic_toast_goes_away_and_a_pinned_one_stays(cx: &mut TestAppContext) {
         let (_, sidebar, cx) = open(cx, DemoShell::reference());
         sidebar.update(cx, |this, cx| {
             this.toast(info("Saved"), (None, ToastLifetime::Auto), cx);
@@ -118,10 +106,6 @@ mod tests {
             .advance_clock(ui::timing::TOAST_TIMEOUT + FADE);
         cx.run_until_parked();
         assert_eq!(shown(&sidebar, cx), 1);
-        sidebar.update(cx, |this, cx| this.clear_toast("connection", cx));
-        cx.executor().advance_clock(FADE);
-        cx.run_until_parked();
-        assert_eq!(shown(&sidebar, cx), 0);
     }
 
     #[gpui::test]
@@ -162,17 +146,6 @@ mod tests {
         sidebar.update_in(cx, Sidebar::toggle);
         let placement = queue.read_with(cx, |queue, _| queue.placement());
         assert_eq!(placement, ToastPlacement::Docked(ToastSide::Left));
-    }
-
-    #[test]
-    fn each_edge_swipes_toward_itself() {
-        const CASES: [(DockSide, ToastSide); 2] = [
-            (DockSide::Left, ToastSide::Left),
-            (DockSide::Right, ToastSide::Right),
-        ];
-        for (side, toast) in CASES {
-            assert_eq!(Sidebar::toast_side(side), toast, "{side:?}");
-        }
     }
 
     #[gpui::test]

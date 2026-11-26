@@ -169,7 +169,7 @@ mod tests {
     use super::*;
     use sidebar::{Deadline, RemovalKind, RowId};
 
-    use crate::test_support::{chat, measure, mount, recording_handler};
+    use crate::test_support::{chat, measure, recording_handler};
 
     #[gpui::test]
     fn a_held_row_keeps_its_height_while_it_drains(cx: &mut TestAppContext) {
@@ -188,21 +188,5 @@ mod tests {
             handler: Rc::clone(&handler),
         });
         assert_eq!(f32::from(bounds.size.height), 38.0);
-    }
-
-    #[gpui::test]
-    fn keep_is_a_square_icon_button_with_no_label(cx: &mut TestAppContext) {
-        let palette = Theme::default().palette(Surface::Chrome);
-        let cx = mount(cx, move |_, _| {
-            div()
-                .flex()
-                .child(keep_button(palette).debug_selector(|| "keep".into()))
-        });
-        let bounds = cx.debug_bounds("keep").unwrap_or_default();
-        assert_eq!(
-            f32::from(bounds.size.width),
-            24.0,
-            "12px glyph, 6px padding"
-        );
     }
 }

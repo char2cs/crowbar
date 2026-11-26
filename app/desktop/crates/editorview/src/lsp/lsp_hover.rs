@@ -44,7 +44,7 @@ fn in_chars(
 #[cfg(test)]
 mod tests {
     use gpui::TestAppContext;
-    use lsp_types::{HoverContents, MarkedString};
+    use lsp_types::{HoverContents, MarkedString, Position, Range};
     use serde_json::json;
 
     use crate::editor_view::test_support::{hover_at, served};
@@ -79,10 +79,7 @@ mod tests {
         let hover = hover_at(&view, 16, window);
         let position = json!({"path": "src/a.ts", "position": {"line": 0, "character": 14}});
         assert_eq!(server.bodies()[1], position);
-        let chars = lsp_types::Range::new(
-            lsp_types::Position::new(0, 13),
-            lsp_types::Position::new(0, 14),
-        );
+        let chars = Range::new(Position::new(0, 13), Position::new(0, 14));
         assert_eq!(hover.and_then(|hover| hover.range), Some(chars));
     }
 }

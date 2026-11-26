@@ -174,7 +174,7 @@ impl PaneHost {
         let Some(slot) = runtime.slot.and_then(|id| self.pool.get(id)) else {
             return Ok(());
         };
-        let failed = matches!(runtime.phase, PanePhase::Failed(_));
+        let failed = runtime.phase == PanePhase::Failed;
         let seen = runtime.is_visible() && !failed;
         let visibility = match (seen, runtime.covered) {
             (false, _) => Visibility::Hidden,
@@ -187,11 +187,8 @@ impl PaneHost {
 
 #[cfg(test)]
 mod tests {
-    use webview::{Bounds, Call, Visibility};
-
     use super::*;
-    use crate::pane_host::reconcile::{Covered, Overlays, PaneDisplay, PaneKinds};
-    use crate::test_support::fixture::Fixture;
+    use crate::pane_host::reconcile::{Covered, Overlays, PaneKinds};
     use crate::test_support::*;
 
     #[test]
@@ -202,40 +199,13 @@ mod tests {
         register(&mut f, "t", "core.term");
         f.sync(&panes, &["c"], Some("c"));
         let events = lifecycle_events(&f.mock);
-        assert_eq!(
-            events,
-            [Lifecycle::Mount, Lifecycle::Activate, Lifecycle::Deactivate],
-            "deactivated, never parked"
-        );
+        let deactivated = [Lifecycle::Mount, Lifecycle::Activate, Lifecycle::Deactivate];
+        assert_eq!(events, deactivated, "deactivated, never parked");
         assert_eq!(
             f.host.web_view_count(),
             2,
             "its web view stays alive beside the chat's"
         );
-        assert_eq!(
-            f.host.display(&PaneId::new("t").unwrap()),
-            PaneDisplay::Empty,
-            "nothing drawn for it"
-        );
-    }
-
-    fn view_calls(
-        f: &Fixture,
-        from: usize,
-    ) -> Vec<&'static str> {
-        f.mock.calls()[from..]
-            .iter()
-            .filter_map(|call| match call {
-                Call::SetVisibility { visibility, .. } => Some(match visibility {
-                    Visibility::Hidden => "hide",
-                    Visibility::Covered => "cover",
-                    Visibility::Shown => "show",
-                }),
-                Call::Focus { .. } => Some("focus"),
-                Call::FocusParent { .. } => Some("focus_parent"),
-                _ => None,
-            })
-            .collect()
     }
 
     #[test]
@@ -243,66 +213,35 @@ mod tests {
      {
         let mut f = fixture();
         let panes = [instance("c", "core.chat")];
-        f.sync(&panes, &["c"], Some("c"));
-        register(&mut f, "c", "core.chat");
-        let shown = f.mock.calls().len();
+        f.mount(&panes, Some("c"));
+        let shown = f.calls();
         let everything = Overlays {
             covered: Covered::Everything,
             cutout: None,
         };
         f.sync_under(&panes, &["c"], everything);
-        assert_eq!(view_calls(&f, shown), ["cover", "focus_parent"], "covered");
-        let covered = f.mock.calls().len();
+        assert_eq!(f.view_calls(shown), ["cover", "focus_parent"], "covered");
+        let covered = f.calls();
         f.sync(&panes, &["c"], Some("c"));
-        assert_eq!(view_calls(&f, covered), ["show", "focus"], "uncovered");
+        assert_eq!(f.view_calls(covered), ["show", "focus"], "uncovered");
+        let events = lifecycle_events(&f.mock);
         assert_eq!(
-            lifecycle_events(&f.mock),
+            events,
             [Lifecycle::Mount, Lifecycle::Activate],
             "never parked nor deactivated"
         );
     }
 
-    #[test]
-    fn the_handle_s_hole_is_cut_from_the_view_under_it_and_filled_when_it_goes() {
-        let mut f = fixture();
-        let panes = [instance("c", "core.chat")];
-        let handle = Bounds {
-            x: 125.5,
-            y: 10.0,
-            width: 69.0,
-            height: 21.0,
-        };
-        let hole = Bounds {
-            x: 115.5,
-            y: 0.0,
-            width: 69.0,
-            height: 11.0,
-        };
-        let cut = |cutout| Overlays {
-            cutout,
-            ..Overlays::default()
-        };
-        f.sync_under(&panes, &["c"], cut(Some(handle)));
-        f.sync_under(&panes, &["c"], cut(Some(handle)));
-        f.sync_under(&panes, &["c"], cut(None));
-        let cuts: Vec<Option<Bounds>> = f
-            .mock
-            .calls()
-            .iter()
-            .filter_map(|call| match call {
-                Call::SetCutout { hole, .. } => Some(*hole),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(cuts, [Some(hole), Some(hole), None], "cut, then filled");
+    fn with_native(f: &mut Fixture) {
+        let mut native = pane_type("core.native", PaneLifecycle::KeepAlive);
+        native.kind = PaneKind::Native;
+        f.host.registry_mut().register(native).unwrap();
     }
 
     #[test]
     fn a_native_pane_gets_no_web_view_and_no_lifecycle() {
         let mut f = fixture();
-        let mut native = pane_type("core.native", PaneLifecycle::KeepAlive);
-        native.kind = PaneKind::Native;
-        f.host.registry_mut().register(native).unwrap();
+        with_native(&mut f);
         let pane = instance("n1", "core.native");
         f.sync(std::slice::from_ref(&pane), &["n1"], Some("n1"));
         assert!(
@@ -310,31 +249,8 @@ mod tests {
             "no web view: {:?}",
             f.mock.calls()
         );
-        assert_eq!(
-            f.host.display(&pane.pane_id),
-            PaneDisplay::Native,
-            "display"
-        );
         f.sync(&[pane], &[], None);
         assert!(f.mock.calls().is_empty(), "still none after hiding");
-    }
-
-    #[test]
-    fn focusing_a_native_pane_takes_keyboard_focus_from_the_web_view() {
-        let mut f = fixture();
-        let mut native = pane_type("core.native", PaneLifecycle::KeepAlive);
-        native.kind = PaneKind::Native;
-        f.host.registry_mut().register(native).unwrap();
-        let panes = [instance("c1", "core.chat"), instance("n1", "core.native")];
-        f.sync(&panes, &["c1", "n1"], Some("c1"));
-        let before = f.mock.calls().len();
-        f.sync(&panes, &["c1", "n1"], Some("n1"));
-        let calls = f.mock.calls();
-        let returned = calls
-            .iter()
-            .skip(before)
-            .any(|call| matches!(call, Call::FocusParent { .. }));
-        assert!(returned, "{calls:?}");
     }
 
     #[derive(Debug)]
@@ -352,22 +268,19 @@ mod tests {
     #[test]
     fn the_shell_decides_per_pane_whether_a_page_or_a_native_view_draws_it() {
         let cases = [
-            ("n1", "core.native", PaneKind::Web, 1, PaneDisplay::Web),
-            ("c1", "core.chat", PaneKind::Native, 0, PaneDisplay::Native),
+            ("n1", "core.native", PaneKind::Web, 1),
+            ("c1", "core.chat", PaneKind::Native, 0),
         ];
-        for (id, type_id, kind, views, display) in cases {
+        for (id, type_id, kind, views) in cases {
             let mut f = fixture();
-            let mut native = pane_type("core.native", PaneLifecycle::KeepAlive);
-            native.kind = PaneKind::Native;
-            f.host.registry_mut().register(native).unwrap();
+            with_native(&mut f);
             let pane = instance(id, type_id);
-            f.sync_kinds(std::slice::from_ref(&pane), &[id], &Says(id, kind));
+            f.sync_kinds(&[pane], &[id], &Says(id, kind));
             assert_eq!(
                 f.host.web_view_count(),
                 views,
                 "{type_id} drawn as {kind:?}"
             );
-            assert_eq!(f.host.display(&pane.pane_id), display, "{type_id}");
         }
     }
 
@@ -390,8 +303,7 @@ mod tests {
         for (name, type_id, expected) in CASES {
             let mut f = fixture();
             let panes = [instance("p", type_id)];
-            f.sync(&panes, &["p"], Some("p"));
-            register(&mut f, "p", type_id);
+            f.mount(&panes, Some("p"));
             f.sync(&panes, &[], None);
             assert_eq!(lifecycle_events(&f.mock).last(), Some(expected), "{name}");
         }

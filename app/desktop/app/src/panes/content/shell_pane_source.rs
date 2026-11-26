@@ -163,12 +163,23 @@ mod tests {
     use super::*;
     use crate::panes::content::new_tab::new_tab_panes::NewTabPanes;
     use crate::panes::terminals::terminal_ids::TerminalIds;
-    use crate::test_support::idle_terminals;
+    use crate::test_support::{chat_pane, idle_terminals};
 
-    fn no_bars() -> BrowserBars {
-        BrowserBars::new(
+    pub(super) fn idle_source(titles: Titles) -> ShellPaneSource {
+        let bars = BrowserBars::new(
             crate::panes::browser::browser_ids::BrowserIds::default(),
             async_channel::unbounded().0,
+        );
+        let native = NativePanes::new(
+            idle_terminals(TerminalIds::default()),
+            NewTabPanes::new(async_channel::unbounded().0),
+            crate::test_support::idle_editors(),
+        );
+        ShellPaneSource::new(
+            titles,
+            Serials::above(&layout::Layout::default()),
+            bars,
+            native,
         )
     }
 
@@ -218,34 +229,16 @@ mod tests {
     fn a_chat_tab_draws_its_provider_s_artwork_once_it_is_known_and_other_tabs_never_do() {
         use ideshell::TabLooks as _;
         const MARK: &str = "<svg/>";
-        let source = ShellPaneSource::new(
-            Titles::default(),
-            Serials::above(&layout::Layout::default()),
-            no_bars(),
-            NativePanes::new(
-                idle_terminals(TerminalIds::default()),
-                NewTabPanes::new(async_channel::unbounded().0),
-                crate::test_support::idle_editors(),
-            ),
-        )
-        .drawing(std::rc::Rc::new(|chat| {
+        let source = idle_source(Titles::default()).drawing(std::rc::Rc::new(|chat| {
             (chat == "c1").then(|| MARK.to_owned())
         }));
-        let pane = |kind: &str, thread: &str| layout::PaneInstance {
-            pane_id: PaneId::new("p1").unwrap(),
-            type_id: protocol::PaneTypeId::new(kind).unwrap(),
-            params: protocol::Params::default()
-                .with("threadId", thread)
-                .unwrap(),
-            state: protocol::PaneState::default(),
-        };
         let cases = [
             ("core.chat", "c1", Some(MARK)),
             ("core.chat", "c2", None),
             ("core.terminal", "c1", None),
         ];
         for (kind, thread, artwork) in cases {
-            let look = source.tab_look(&pane(kind, thread));
+            let look = source.tab_look(&chat_pane(("p1", kind), thread));
             let drawn = look.artwork.map(|svg| svg.to_string());
             assert_eq!(drawn.as_deref(), artwork, "{kind} {thread}");
         }
@@ -255,24 +248,9 @@ mod tests {
     fn a_tab_is_marked_exactly_while_its_pane_has_unsaved_work() {
         use ideshell::TabLooks as _;
         let dirty = DirtyPanes::default();
-        let source = ShellPaneSource::new(
-            Titles::default(),
-            Serials::above(&layout::Layout::default()),
-            no_bars(),
-            NativePanes::new(
-                idle_terminals(TerminalIds::default()),
-                NewTabPanes::new(async_channel::unbounded().0),
-                crate::test_support::idle_editors(),
-            ),
-        )
-        .marking(dirty.clone());
+        let source = idle_source(Titles::default()).marking(dirty.clone());
         let pane = PaneId::new("p1").unwrap();
-        let instance = layout::PaneInstance {
-            pane_id: pane.clone(),
-            type_id: protocol::PaneTypeId::new("core.terminal").unwrap(),
-            params: protocol::Params::default(),
-            state: protocol::PaneState::default(),
-        };
+        let instance = crate::test_support::pane("p1", "core.terminal");
         for case in &CASES {
             case.edit.apply(&dirty, &pane);
             let look = source.tab_look(&instance);

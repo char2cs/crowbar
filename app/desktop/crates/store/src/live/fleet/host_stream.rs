@@ -232,7 +232,6 @@ type Wire<'a> = (&'a mpsc::UnboundedSender<String>, &'a mut Option<FilesHold>);
 
 #[cfg(test)]
 mod tests {
-    use std::collections::VecDeque;
     use std::sync::{Arc, Mutex};
 
     use tokio::sync::Notify;
@@ -243,35 +242,9 @@ mod tests {
     use crate::live::held::HostSlot;
     use crate::live::held::HostSpec;
     use crate::live::state::State;
-    use crate::test_support::{FakeDaemon, local};
-
-    fn refused_when_empty(next: Option<Connection>) -> daemonapi::Result<Connection> {
-        next.ok_or_else(|| daemonapi::Error::Stream("no more connections".into()))
-    }
-
-    /// Hands out the scripted connections one per dial, then fails.
-    struct Script(Mutex<VecDeque<Connection>>);
-
-    impl Dial for Script {
-        fn open(&self) -> Opening<'_> {
-            let next = self.0.lock().ok().and_then(|mut queue| queue.pop_front());
-            Box::pin(std::future::ready(refused_when_empty(next)))
-        }
-    }
-
-    struct Peer {
-        frames: mpsc::Sender<String>,
-        requests: mpsc::UnboundedReceiver<String>,
-    }
-
-    fn pair() -> (Connection, Peer) {
-        let (frames, incoming) = mpsc::channel(64);
-        let (outgoing, requests) = mpsc::unbounded_channel();
-        (Connection { incoming, outgoing }, Peer { frames, requests })
-    }
-
-    const READY: &str = r#"{"t":"ready","epoch":"e"}"#;
-    const SYNCED: &str = r#"{"t":"synced","scope":"projects","unread":[]}"#;
+    use crate::test_support::{
+        AsyncCase, FakeDaemon, Script, local, pair, refused_when_empty, run_cases,
+    };
 
     fn project(id: &str) -> String {
         format!(
@@ -293,7 +266,7 @@ mod tests {
         connections: Vec<Connection>,
         daemon: Arc<FakeDaemon>,
     ) -> Rig {
-        start_dialling(Arc::new(Script(Mutex::new(connections.into()))), daemon)
+        start_dialling(Script::of(connections), daemon)
     }
 
     fn start_dialling(
@@ -352,15 +325,11 @@ mod tests {
         }
     }
 
-    #[tokio::test(start_paused = true)]
     async fn ready_subscribes_and_the_snapshot_syncs_the_host() {
         let (connection, mut peer) = pair();
         let rig = start(vec![connection]);
-        peer.frames.send(READY.into()).await.unwrap();
-        let request = peer.requests.recv().await.unwrap();
-        assert_eq!(request, r#"{"op":"sub","scope":"projects"}"#);
-        peer.frames.send(project("p")).await.unwrap();
-        peer.frames.send(SYNCED.into()).await.unwrap();
+        assert_eq!(peer.ready().await, r#"{"op":"sub","scope":"projects"}"#);
+        peer.snapshot(&[project("p")]).await;
         rig.until(|state| state.hosts[0].store.synced() && state.hosts[0].link == LinkState::Live)
             .await;
         assert!(
@@ -375,83 +344,45 @@ mod tests {
         );
     }
 
-    #[tokio::test(start_paused = true)]
     async fn a_dropped_socket_marks_the_host_down_then_a_redial_replaces_the_snapshot() {
         let (first, mut one) = pair();
         let (second, mut two) = pair();
         let rig = start(vec![first, second]);
-        one.frames.send(READY.into()).await.unwrap();
-        one.requests.recv().await.unwrap();
-        one.frames.send(project("old")).await.unwrap();
-        one.frames.send(SYNCED.into()).await.unwrap();
+        one.ready().await;
+        one.snapshot(&[project("old")]).await;
         rig.until(|state| state.hosts[0].store.projects.get("old").is_some())
             .await;
         drop(one);
         rig.until(|state| state.hosts[0].link == LinkState::Down)
             .await;
-        two.frames.send(READY.into()).await.unwrap();
-        two.requests.recv().await.unwrap();
-        two.frames.send(project("new")).await.unwrap();
-        two.frames.send(SYNCED.into()).await.unwrap();
+        two.ready().await;
+        two.snapshot(&[project("new")]).await;
         rig.until(old_replaced_by_new).await;
     }
 
     const LISTING_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
     const CHAT: &str = r#"{"t":"entity","scope":"projects","kind":"chat","id":"c","v":1,"data":{"id":"c","projectId":"p","workspaceId":"w"}}"#;
 
-    #[tokio::test(start_paused = true)]
     async fn a_chat_followed_before_its_host_knew_it_is_listed_once_it_arrives() {
         let daemon = FakeDaemon::shared();
         daemon.ok("GET", "/v0/chats/c/files/tree?path=.", "[]");
         let (connection, mut peer) = pair();
         let rig = start_on(vec![connection], daemon);
         rig.hub.edit(|state| state.panels.follow(Some("c".into())));
-        peer.frames.send(READY.into()).await.unwrap();
-        peer.requests.recv().await.unwrap();
-        peer.frames.send(CHAT.into()).await.unwrap();
-        peer.frames.send(SYNCED.into()).await.unwrap();
+        peer.ready().await;
+        peer.snapshot(&[CHAT.into()]).await;
         let listed = rig.until(|state| state.panels.listings.contains_key(""));
         tokio::time::timeout(LISTING_DEADLINE, listed)
             .await
             .expect("the root is listed");
     }
 
-    #[derive(Clone, Copy, Debug)]
-    enum Ending {
-        NoConnection,
-        ControlsDropped,
-    }
-
-    async fn no_connection_is_down() -> bool {
-        let rig = start(Vec::new());
-        rig.until(|state| state.hosts[0].link == LinkState::Down)
-            .await;
-        true
-    }
-
-    async fn dropped_controls_stop_the_stream() -> bool {
+    async fn a_stream_without_controls_stops() {
         let (connection, mut peer) = pair();
         let rig = start(vec![connection]);
-        peer.frames.send(READY.into()).await.unwrap();
-        peer.requests.recv().await.unwrap();
+        peer.ready().await;
         drop(rig.controls);
-        peer.requests.recv().await.is_none()
-    }
-
-    async fn each_holds(cases: [Ending; 2]) {
-        for ending in cases {
-            let held = match ending {
-                Ending::NoConnection => no_connection_is_down().await,
-                Ending::ControlsDropped => dropped_controls_stop_the_stream().await,
-            };
-            assert!(held, "{ending:?}");
-        }
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_stream_that_cannot_dial_is_down_and_one_without_controls_stops() {
-        let cases = [Ending::NoConnection, Ending::ControlsDropped];
-        each_holds(cases).await;
+        assert!(peer.requests.recv().await.is_none());
     }
 
     /// Refuses every dial, noting the host's link as each one starts.
@@ -484,7 +415,6 @@ mod tests {
         dial.seen.lock().unwrap().clone()
     }
 
-    #[tokio::test(start_paused = true)]
     async fn a_host_stays_down_while_it_is_dialled_again() {
         let dial = Arc::new(Unreachable::default());
         let rig = start_dialling(Arc::clone(&dial) as Arc<dyn Dial>, FakeDaemon::shared());
@@ -492,5 +422,18 @@ mod tests {
         let seen = links_at(&dial, 3).await;
         let down = LinkState::Down;
         assert_eq!(seen, [LinkState::Connecting, down, down]);
+    }
+
+    const CASES: [AsyncCase; 5] = [
+        || Box::pin(ready_subscribes_and_the_snapshot_syncs_the_host()),
+        || Box::pin(a_dropped_socket_marks_the_host_down_then_a_redial_replaces_the_snapshot()),
+        || Box::pin(a_chat_followed_before_its_host_knew_it_is_listed_once_it_arrives()),
+        || Box::pin(a_stream_without_controls_stops()),
+        || Box::pin(a_host_stays_down_while_it_is_dialled_again()),
+    ];
+
+    #[tokio::test(start_paused = true)]
+    async fn every_stream_case_holds() {
+        run_cases(&CASES).await;
     }
 }

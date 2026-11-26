@@ -94,7 +94,7 @@ fn file_name(instance: &PaneInstance) -> String {
 
 #[cfg(test)]
 mod tests {
-    use protocol::{PaneId, PaneState, PaneTypeId, Params};
+    use protocol::PaneState;
 
     use super::*;
 
@@ -103,10 +103,8 @@ mod tests {
         state: serde_json::Value,
     ) -> PaneInstance {
         PaneInstance {
-            pane_id: PaneId::new("p1").unwrap(),
-            type_id: PaneTypeId::new(kind).unwrap(),
-            params: Params::default(),
             state: PaneState::new(state).unwrap(),
+            ..crate::test_support::pane("p1", kind)
         }
     }
 

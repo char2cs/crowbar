@@ -49,14 +49,14 @@ pub(crate) fn tell(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
     use daemonapi::Call;
 
     use super::*;
     use crate::live::{HostSpec, PendingRow};
     use crate::plan::runner::run;
-    use crate::test_support::{FakeDaemon, state, state_on};
+    use crate::test_support::{FakeDaemon, recorder, state, state_on};
 
     const PROVIDERS: &str = "/v0/settings/chat/providers";
     const CREATE: &str = "/v0/projects/p/home/chats";
@@ -74,10 +74,7 @@ mod tests {
         let row = PendingRow {
             id: "n".into(),
             label: "New thread".into(),
-            scope: String::new(),
-            parent: String::new(),
-            failure: None,
-            operation: None,
+            ..PendingRow::default()
         };
         Plan::of(host, vec![Call::post(CREATE)])
             .showing(row)
@@ -89,9 +86,7 @@ mod tests {
         hub: &Hub,
         plan: Plan,
     ) -> Vec<Outcome> {
-        let heard = Arc::new(Mutex::new(Vec::new()));
-        let keep = Arc::clone(&heard);
-        let sink: OutcomeSink = Arc::new(move |outcome| keep.lock().unwrap().push(outcome));
+        let (sink, heard) = recorder();
         run(hub, plan, &sink).await;
         heard.lock().unwrap().clone()
     }

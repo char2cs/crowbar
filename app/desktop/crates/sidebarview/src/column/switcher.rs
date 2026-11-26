@@ -257,7 +257,7 @@ fn active_block((tile, name, slot): (AnyElement, Div, Div)) -> Div {
 #[cfg(test)]
 mod tests {
     use gpui::{InteractiveElement as _, ParentElement as _, Styled as _, div};
-    use sidebar::{HostId, Intent, Mark, Project};
+    use sidebar::{HostId, Mark, Project};
     use ui::{Surface, Theme};
 
     use super::{NAME_SIZE, spaced_name_cell};
@@ -357,21 +357,5 @@ mod tests {
         let remote = shows_host_line(cx, DemoShell::on_down_host());
         let local = shows_host_line(cx, DemoShell::rich());
         assert_eq!((remote, local), (true, false), "(remote, local)");
-    }
-
-    #[gpui::test]
-    fn several_spaces_render_the_other_marks(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoShell::rich());
-        cx.run_until_parked();
-        assert!(sidebar.read_with(cx, |this, _| this.data.projects().len() > 1));
-    }
-
-    #[gpui::test]
-    fn the_add_button_starts_the_create_space_flow(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoShell::rich());
-        sidebar.update_in(cx, |this, window, cx| {
-            this.apply(Intent::StartCreateSpace, window, cx);
-        });
-        assert!(sidebar.read_with(cx, |this, _| this.space.is_some()));
     }
 }

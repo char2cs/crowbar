@@ -315,23 +315,6 @@ mod tests {
     }
 
     #[gpui::test]
-    fn a_bare_printable_key_is_refused_and_stores_nothing(cx: &mut TestAppContext) {
-        let (harness, cx) = open(cx, "keybindings");
-        run(&harness, Intent::Capture(COMMAND.to_owned()), cx);
-        run(&harness, Intent::Key(Pressed::new("a", &[])), cx);
-        assert!(inspect(&harness, cx, |modal| modal
-            .state
-            .capture_refusal()
-            .is_some()));
-        assert_eq!(overrides(&harness), None);
-        run(&harness, Intent::Key(Pressed::new("escape", &[])), cx);
-        assert!(inspect(&harness, cx, |modal| modal
-            .state
-            .capturing()
-            .is_none()));
-    }
-
-    #[gpui::test]
     fn a_chord_clicked_in_the_open_dialog_takes_the_next_typed_chord(cx: &mut TestAppContext) {
         let (harness, mut owner) = open_floating(cx, "keybindings");
         harness

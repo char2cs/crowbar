@@ -1,21 +1,12 @@
 //! What a host calls on a terminal view.
 
-use gpui::{App, Context, SharedString, Window};
+use gpui::Context;
 
 use crate::settings::Settings;
 use crate::settings::terminal_config;
 use crate::terminal_view::TerminalView;
 
 impl TerminalView {
-    /// Moves keyboard focus to the terminal.
-    pub fn focus(
-        &self,
-        window: &mut Window,
-        cx: &mut App,
-    ) {
-        window.focus(&self.focus, cx);
-    }
-
     /// Applies new settings: font, spacing, scrollback, cursor.
     pub fn set_settings(
         &mut self,
@@ -29,35 +20,7 @@ impl TerminalView {
         cx.notify();
     }
 
-    /// Types `command` and Enter once the shell has drawn its first output.
-    pub fn run_after_attach(
-        &mut self,
-        command: impl Into<String>,
-    ) {
-        self.pending_command = Some(command.into());
-    }
-
-    /// Covers the terminal with a message (host unavailable, waiting); `None` removes it.
-    pub fn set_notice(
-        &mut self,
-        notice: Option<SharedString>,
-        cx: &mut Context<'_, Self>,
-    ) {
-        self.notice = notice;
-        cx.notify();
-    }
-
-    /// Drops the 16px left inset a shell tab has; an agent pane's frame supplies its own.
-    pub fn set_flush(
-        &mut self,
-        cx: &mut Context<'_, Self>,
-    ) {
-        self.inset = 0.0;
-        cx.notify();
-    }
-
-    /// Pastes `text` as if typed, bracketed when the program asked for it.
-    pub fn paste_text(
+    pub(crate) fn paste_text(
         &mut self,
         text: &str,
         cx: &mut Context<'_, Self>,
@@ -66,8 +29,7 @@ impl TerminalView {
         self.send_bytes(&bytes, cx);
     }
 
-    /// Selects everything, scrollback included.
-    pub fn select_all(
+    pub(crate) fn select_all(
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
@@ -75,13 +37,7 @@ impl TerminalView {
         cx.notify();
     }
 
-    /// The selected text.
-    pub fn selected_text(&self) -> Option<String> {
-        self.terminal.selected_text()
-    }
-
-    /// Drops the scrollback.
-    pub fn clear_scrollback(
+    pub(crate) fn clear_scrollback(
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
@@ -112,20 +68,12 @@ mod tests {
         assert_eq!(typed(&harness), "a\rb");
         feed(&harness, cx, "all of it");
         harness.view.update(cx, TerminalView::select_all);
-        let selected = harness.view.read_with(cx, |view, _| view.selected_text());
+        let selected = harness.view.read_with(cx, |view, _| view.terminal.selected_text());
         assert!(selected.is_some_and(|text| text.starts_with("all of it")));
         let settings = Settings::default().zoomed(2.0);
         harness
             .view
             .update(cx, |view, cx| view.set_settings(settings, cx));
         assert!(harness.view.read_with(cx, |view, _| view.grid_size().0 > 0));
-    }
-
-    #[gpui::test]
-    fn a_flush_inset_can_be_set(cx: &mut TestAppContext) {
-        let (harness, cx) = open(cx);
-        harness.view.update(cx, TerminalView::set_flush);
-        let inset = harness.view.read_with(cx, |view, _| view.inset);
-        assert_eq!(inset, 0.0);
     }
 }

@@ -81,82 +81,48 @@ mod tests {
 
     const FULL: Duration = Duration::from_millis(150);
 
-    struct Case {
-        name: &'static str,
-        shown: &'static [&'static str],
-        keep: Option<&'static str>,
-        opacities: &'static [(&'static str, f32)],
-    }
+    /// The panes shown, the one kept when the rest hide, then each pane's opacity once settled.
+    type Case = (
+        &'static [&'static str],
+        Option<&'static str>,
+        &'static [(&'static str, f32)],
+    );
 
     const CASES: &[Case] = &[
-        Case {
-            name: "a pane fades out again when nothing is kept",
-            shown: &["a"],
-            keep: None,
-            opacities: &[("a", 0.0)],
-        },
-        Case {
-            name: "hide_all_but keeps only the named pane",
-            shown: &["a", "b"],
-            keep: Some("a"),
-            opacities: &[("a", 1.0), ("b", 0.0)],
-        },
-        Case {
-            name: "an unknown pane is invisible",
-            shown: &[],
-            keep: None,
-            opacities: &[("x", 0.0)],
-        },
+        (&["a"], None, &[("a", 0.0)]),
+        (&["a", "b"], Some("a"), &[("a", 1.0), ("b", 0.0)]),
+        (&[], None, &[("x", 0.0)]),
     ];
 
-    fn assert_opacities(
-        fades: &PaneFades,
-        case: &Case,
-        at: Instant,
-    ) {
-        for (name, expected) in case.opacities {
-            let actual = fades.opacity(&pane_id(name), at, Motion::default());
-            assert_eq!(actual, *expected, "{}: {name}", case.name);
-        }
-    }
-
-    fn hidden_but_kept(
-        case: &Case,
+    fn settled(
+        (shown, keep, panes): &Case,
         start: Instant,
-    ) -> PaneFades {
+    ) -> Vec<(&'static str, f32)> {
         let mut fades = PaneFades::default();
-        for name in case.shown {
+        for name in *shown {
             fades.show(&pane_id(name), start, Motion::default());
         }
-        let keep = case.keep.map(pane_id);
+        let keep = keep.map(pane_id);
         fades.hide_all_but(keep.as_ref(), start + FULL, Motion::default());
-        fades
+        let at = |name: &&str| fades.opacity(&pane_id(name), start + FULL * 2, Motion::default());
+        panes.iter().map(|(name, _)| (*name, at(name))).collect()
     }
 
     #[test]
     fn hiding_all_but_the_kept_pane_fades_the_others_out() {
         for case in CASES {
-            let start = Instant::now();
-            let fades = hidden_but_kept(case, start);
-            assert_opacities(&fades, case, start + FULL * 2);
+            assert_eq!(settled(case, Instant::now()), case.2, "shown {:?}", case.0);
         }
     }
 
     #[test]
-    fn a_pane_fades_in_over_150_ms() {
+    fn a_pane_fades_in_over_150_ms_and_is_forgotten_once_closed() {
         let start = Instant::now();
         let mut fades = PaneFades::default();
         fades.show(&pane_id("a"), start, Motion::default());
-        let at = |when| fades.opacity(&pane_id("a"), when, Motion::default());
-        assert_eq!(at(start), 0.0, "starts clear");
-        assert_eq!(at(start + FULL), 1.0, "ends shown");
-    }
-
-    #[test]
-    fn retain_forgets_closed_panes() {
-        let start = Instant::now();
-        let mut fades = PaneFades::default();
-        fades.show(&pane_id("a"), start, Motion::default());
+        let at = |fades: &PaneFades, when| fades.opacity(&pane_id("a"), when, Motion::default());
+        assert_eq!(at(&fades, start), 0.0, "starts clear");
+        assert_eq!(at(&fades, start + FULL), 1.0, "ends shown");
         fades.retain(&[pane_id("b")]);
         assert!(
             !fades.is_running(start, Motion::default()),

@@ -8,8 +8,6 @@ use crate::scheme::origin_table::OriginTable;
 /// the protocol reads the one and sends the other.
 #[derive(Debug, Clone, Default)]
 pub struct PaneTables {
-    /// Which pane and origin each web view acts for.
-    pub origins: OriginTable,
-    /// The native menus pages ask for.
-    pub menus: PaneMenus,
+    pub(crate) origins: OriginTable,
+    pub(crate) menus: PaneMenus,
 }
