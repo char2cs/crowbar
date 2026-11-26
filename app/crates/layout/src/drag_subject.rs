@@ -16,4 +16,7 @@ pub enum DragSubject {
     Chat(String),
     /// A whole tab, dragged inside the tab bar.
     Tab(TabId),
+    /// A file of the workspace, by its relative path, dragged out of the Files panel; it opens
+    /// in the pane it is dropped on, never in a pane of its own.
+    File(String),
 }

@@ -125,6 +125,7 @@ impl Render for RowSource {
         let payload = DraggedRow {
             row: "t9".into(),
             chat: Some("t9".into()),
+            file: None,
         };
         let source = div()
             .id("row-source")

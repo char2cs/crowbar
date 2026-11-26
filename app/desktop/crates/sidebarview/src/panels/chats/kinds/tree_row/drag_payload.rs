@@ -10,6 +10,7 @@ pub(super) fn of(row: &Row) -> DraggedRow {
     DraggedRow {
         chat: opens_chat(row).then(|| Arc::clone(&id)),
         row: id,
+        file: None,
     }
 }
 

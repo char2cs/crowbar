@@ -15,7 +15,7 @@ mod row_ghost;
 pub(crate) use drag_state::DragState;
 pub(crate) use row_drag::{RowDrag, tracked};
 pub(crate) use row_draggable::draggable;
-pub(crate) use row_ghost::GhostBuild;
+pub(crate) use row_ghost::{GhostBuild, RowGhost};
 
 use gpui::{Context, Window, px};
 use sidebar::{Command, DragArm, DropMode, RowId};
@@ -136,6 +136,9 @@ impl Sidebar {
     ) {
         if self.drag.press.is_some() || self.drag.lifted.is_some() {
             self.end_drag(cx);
+        }
+        if self.file_drag.is_live() {
+            self.end_file_drag(cx);
         }
     }
 

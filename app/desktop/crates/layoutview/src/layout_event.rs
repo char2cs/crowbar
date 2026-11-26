@@ -19,6 +19,14 @@ pub enum LayoutEvent {
         /// The pane and side the chat lands next to.
         placement: Placement,
     },
+    /// A file row of the Files panel was dropped on a pane: open the file as a tab of the group
+    /// holding `onto`, or show it where the view already shows it.
+    OpenFile {
+        /// The file, relative to the Files panel's workspace.
+        path: String,
+        /// The pane it was dropped on.
+        onto: PaneId,
+    },
     /// A chat row of the sidebar was dropped on the empty stage: open the chat as its own tab,
     /// or show it where it is already open.
     StageChat {

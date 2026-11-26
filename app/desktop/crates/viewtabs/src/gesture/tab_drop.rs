@@ -49,7 +49,7 @@ impl TabDrop {
             (DragSubject::Open(instance), Self::Reorder(index)) => {
                 open_in_new_tab(instance, *index, new_tab, tabs.len())
             },
-            (DragSubject::Tab(_) | DragSubject::Chat(_), _) => Vec::new(),
+            (DragSubject::Tab(_) | DragSubject::Chat(_) | DragSubject::File(_), _) => Vec::new(),
         }
     }
 }

@@ -94,6 +94,19 @@ impl ShellView {
         self.open_spec(PaneSpec::editor(&chat, path), cx);
     }
 
+    pub(in crate::shell::shell_view) fn open_workspace_file_onto(
+        &mut self,
+        (path, onto): (&str, &protocol::PaneId),
+    ) {
+        let Some(chat) = self.chat_for(A_FILE) else {
+            return;
+        };
+        match PaneSpec::editor(&chat, path) {
+            Ok(spec) => self.state.open_spec_onto((spec, onto)),
+            Err(error) => tracing::warn!(%error, "the dropped file could not be described"),
+        }
+    }
+
     pub(in crate::shell::shell_view) fn preview_workspace_file(
         &mut self,
         path: &str,

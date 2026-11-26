@@ -77,7 +77,7 @@ impl ShellState {
         name(n)
     }
 
-    fn fresh_pane(&self) -> Option<PaneId> {
+    pub(super) fn fresh_pane(&self) -> Option<PaneId> {
         match PaneId::new(self.serials.next_pane()) {
             Ok(pane) => Some(pane),
             Err(error) => {
