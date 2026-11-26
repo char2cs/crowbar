@@ -27,12 +27,6 @@ export function useSidebar(): SidebarContextProps {
   return context
 }
 
-/** The sidebar context, or null outside a provider: for consumers that only ADJUST to the
- *  sidebar and must render on their own. */
-export function useSidebarOptional(): SidebarContextProps | null {
-  return React.useContext(SidebarContext)
-}
-
 export function SidebarProvider({
   defaultOpen = true,
   open: openProp,

@@ -26,7 +26,7 @@ interface DragState {
 
 const NO_TARGET: DropTarget = { paneId: null, zone: null }
 
-export const useDragStore = create<DragState>()(() => ({ file: null, hover: NO_TARGET }))
+const useDragStore = create<DragState>()(() => ({ file: null, hover: NO_TARGET }))
 
 export function startFileDrag(file: FileDrag): void {
   useDragStore.setState({ file })

@@ -1,6 +1,5 @@
 import type { useNavigate } from '@tanstack/react-router'
 import { openChatRoute } from '@/components/layout/open-actions'
-import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { paneChatWorkspaceId } from '@/features/panes/lib/pane-chat-workspace-id'
@@ -26,10 +25,4 @@ export function focusRecent(viewId: string, repos: readonly Repo[], navigate: Na
 /** The row's × — ends the whole view. Its agents keep running; only Kill ends one. */
 export function closeRecent(viewId: string): void {
   windowPaneStore.getState().paneActions.closeView(viewId)
-}
-
-/** One chat's ×: closes just that chat; the rest of its group stays. */
-export function closeRecentChat(chatId: string): void {
-  const paneId = chatPaneIndex(windowPaneStore.getState().panes).get(chatId)
-  if (paneId) windowPaneStore.getState().paneActions.closePane(paneId)
 }

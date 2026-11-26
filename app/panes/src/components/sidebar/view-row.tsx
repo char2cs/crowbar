@@ -23,11 +23,7 @@ const pendingLabel = (chatId: string) => (isDraftChatId(chatId) ? 'New thread' :
 
 // A chat as a sidebar row: the workspace store's live title and spinner when mounted, else the
 // sidebar's chat record. With no chat data yet it still draws, as loading.
-export function useMemberRow(
-  chatId: string,
-  workspaceId: string,
-  hasView: boolean,
-): SidebarRowType {
+function useMemberRow(chatId: string, workspaceId: string, hasView: boolean): SidebarRowType {
   const icon = useSelect(useShallow((s) => recentsChatIcon(selectRepos(s), chatId) ?? NO_ICON))
   const known = useRecentsChat(workspaceId, chatId)
   const chat = known ?? { id: chatId, title: '', workspaceId, working: false }
@@ -133,25 +129,6 @@ export function RecentsViewRow({
 const TAB_SHELL = 'group/tab relative mx-0.5 flex h-8 items-center rounded-full border'
 const TAB_CLOSE =
   'absolute right-1.5 top-1/2 z-10 grid size-6 -translate-y-1/2 place-items-center rounded-full text-muted-foreground'
-
-/**
- * A chat as the view tab it would become, lifted: the same shell, row and close
- * button a real single-chat tab renders, for a pane being dragged toward the strip.
- */
-export function ViewTabPreview({ row, width }: { row: SidebarRowType; width: number }) {
-  return (
-    <div className={cn(TAB_SHELL, TAB_ACTIVE, 'shadow-md shadow-black/15')} style={{ width }}>
-      <div className="relative min-w-0 flex-1 [mask-image:linear-gradient(to_right,black_calc(100%_-_34px),transparent_calc(100%_-_24px))]">
-        <SidebarRow row={row} depth={0} onOpen={noop} tab="tab" />
-      </div>
-      <span aria-hidden="true" className={TAB_CLOSE}>
-        <XIcon size={12} />
-      </span>
-    </div>
-  )
-}
-
-const noop = () => {}
 
 // The CossUI raised surface, on our plain background/foreground pair.
 const TAB_ACTIVE =

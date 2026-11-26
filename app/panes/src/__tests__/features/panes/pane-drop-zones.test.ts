@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  getPaneDropZoneFromRect,
-  getPaneSplitDropOptions,
-} from '@/features/panes/utils/pane-drop-zones'
+import { getPaneDropZoneFromRect } from '@/features/panes/utils/pane-drop-zones'
 
 const rect = {
   left: 100,
@@ -24,26 +21,5 @@ describe('pane drop zones', () => {
     const square = { left: 0, top: 0, width: 100, height: 100 }
     const zone = getPaneDropZoneFromRect({ x: 5, y: 5 }, square) // top-left corner
     expect(['left', 'top']).toContain(zone)
-  })
-
-  it('maps split zones to model split options', () => {
-    expect(getPaneSplitDropOptions('left')).toEqual({
-      direction: 'horizontal',
-      placement: 'before',
-    })
-    expect(getPaneSplitDropOptions('right')).toEqual({
-      direction: 'horizontal',
-      placement: 'after',
-    })
-    expect(getPaneSplitDropOptions('top')).toEqual({
-      direction: 'vertical',
-      placement: 'before',
-    })
-    expect(getPaneSplitDropOptions('bottom')).toEqual({
-      direction: 'vertical',
-      placement: 'after',
-    })
-    expect(getPaneSplitDropOptions('center')).toBeNull()
-    expect(getPaneSplitDropOptions(null)).toBeNull()
   })
 })

@@ -8,11 +8,7 @@ vi.mock('@/lib/native-chrome', () => ({
   nativeConfirm: native.confirm,
 }))
 
-import {
-  PrimitiveDialogProvider,
-  primitiveConfirm,
-  primitivePrompt,
-} from '@/components/ui/primitive-dialog-service'
+import { PrimitiveDialogProvider, primitiveConfirm } from '@/components/ui/primitive-dialog-service'
 
 function renderProvider() {
   return render(
@@ -97,21 +93,6 @@ describe('primitive dialog service', () => {
     await expect(second).resolves.toBe(true)
   })
 
-  it('resolves prompt with null when dismissed, and with the value when submitted', async () => {
-    renderProvider()
-    const dismissed = primitivePrompt('Name?')
-    await screen.findByText('Name?')
-    pressEscape()
-    await expect(dismissed).resolves.toBeNull()
-
-    const answered = primitivePrompt('Name?', { defaultValue: 'main' })
-    const input = await screen.findByDisplayValue('main')
-    fireEvent.change(input, { target: { value: 'feature' } })
-    fireEvent.click(screen.getByRole('button', { name: 'OK' }))
-
-    await expect(answered).resolves.toBe('feature')
-  })
-
   // The header carries the dialog's gutter: a message outside it touches the dialog's edge.
   it('a confirm shows its message as the dialog description, inside the header', async () => {
     renderProvider()
@@ -124,15 +105,6 @@ describe('primitive dialog service', () => {
     })
 
     expect(within(dialog).getByText(message).closest('[data-slot="dialog-header"]')).not.toBeNull()
-  })
-
-  it('a prompt labels its input with the message', async () => {
-    renderProvider()
-    void primitivePrompt('Enter a terminal name:', { defaultValue: 'main' })
-
-    expect(await screen.findByRole('textbox', { name: 'Enter a terminal name:' })).toHaveValue(
-      'main',
-    )
   })
 
   it('shows queued dialogs one at a time, in order', async () => {
@@ -167,7 +139,6 @@ describe('primitive dialog service', () => {
       )
 
       await expect(service.primitiveConfirm('Discard changes?')).resolves.toBe(false)
-      await expect(service.primitivePrompt('Name?')).resolves.toBeNull()
       expect(screen.getByText('app')).toBeInTheDocument()
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     } finally {

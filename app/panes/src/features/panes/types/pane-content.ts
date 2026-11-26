@@ -139,20 +139,6 @@ export function hasUnsavedEdits(c: PaneContent): boolean {
   return c.type === 'editor' && c.isDirty
 }
 
-/** Content types that are virtual (not backed by a real file on disk). */
-const VIRTUAL_TYPES: ReadonlySet<EditorTabContentType> = new Set([
-  'terminal',
-  'branchReview',
-  'browser',
-  'newTabPage',
-])
-
-export function isVirtualContent(c: PaneContent): boolean {
-  if (VIRTUAL_TYPES.has(c.type)) return true
-  if (c.type === 'editor') return c.isVirtual
-  return false
-}
-
 // ── Open spec (input to openContent) ────────────────────────────────
 
 // Every spec names its own workspace: an open never falls back to the active one.

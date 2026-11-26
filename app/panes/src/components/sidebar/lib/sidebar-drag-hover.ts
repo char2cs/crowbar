@@ -69,7 +69,7 @@ export interface SidebarPaneHit {
 }
 
 /** A droppable pane element carries this, valued with its pane id. */
-export const PANE_DROP_ATTR = 'data-pane-drop'
+const PANE_DROP_ATTR = 'data-pane-drop'
 
 /** Painted onto the pane element a release would land in, for its CSS ring (spec §8.2). */
 const PANE_HIT_ATTR = 'data-pane-hit'

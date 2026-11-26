@@ -11,7 +11,7 @@ import {
 import type { DialogHostProps, DialogRequest } from './primitive-dialog-host'
 import { hasNativeChrome, nativeConfirm } from '@/lib/native-chrome'
 
-// Promise-based confirm/prompt in the app's own Dialog, shown one at a time. Closing one
+// Promise-based confirm in the app's own Dialog, shown one at a time. Closing one
 // by any route (Cancel, Escape, the backdrop) settles its promise: none is left pending.
 
 interface DialogLabels {
@@ -23,11 +23,6 @@ interface DialogLabels {
 interface ConfirmOptions extends DialogLabels {
   /** The confirm button reads as destructive. Focus starts on cancel whatever this says. */
   destructive?: boolean
-}
-
-interface PromptOptions extends DialogLabels {
-  defaultValue?: string
-  placeholder?: string
 }
 
 // The dialog UI is not needed for first paint, so it loads with the first request.
@@ -82,7 +77,6 @@ export function primitiveConfirm(
   return new Promise((resolve) => {
     enqueue({
       id: nextId++,
-      kind: 'confirm',
       title: options.title ?? 'Confirm',
       message,
       confirmLabel: options.confirmLabel ?? 'Confirm',
@@ -90,27 +84,6 @@ export function primitiveConfirm(
       destructive: options.destructive ?? false,
       onConfirm: () => resolve(true),
       onDismiss: () => resolve(false),
-    })
-  })
-}
-
-// react-doctor-disable-next-line only-export-components -- imperative dialog API backed by this module's shared queue (see primitiveConfirm).
-export function primitivePrompt(
-  message: ReactNode,
-  options: PromptOptions = {},
-): Promise<string | null> {
-  return new Promise((resolve) => {
-    enqueue({
-      id: nextId++,
-      kind: 'prompt',
-      title: options.title ?? 'Input',
-      message,
-      defaultValue: options.defaultValue ?? '',
-      placeholder: options.placeholder,
-      confirmLabel: options.confirmLabel ?? 'OK',
-      cancelLabel: options.cancelLabel ?? 'Cancel',
-      onConfirm: (value) => resolve(value),
-      onDismiss: () => resolve(null),
     })
   })
 }

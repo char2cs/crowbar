@@ -63,7 +63,7 @@ function dropBeside(
 }
 
 const SLIDE_MS = 150
-export const FALLBACK_TAB_PX = 160
+const FALLBACK_TAB_PX = 160
 /** The gap an outside subject opens: every tab from the insertion index on makes room. */
 function gapOffsets(count: number, to: number, pitch: number): number[] {
   return Array.from({ length: count }, (_, i) => (i >= to ? pitch : 0))

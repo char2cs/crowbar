@@ -65,12 +65,3 @@ export function openNewTabPage(wsId: string | null | undefined, paneId: string):
       .bufferActions.openContent({ type: 'newTabPage', workspaceId: wsId }, { paneId: target })
   })
 }
-
-/** Show or hide the editor area beside a pane's chat (`PaneGroup.editorOpen`). */
-export function togglePaneEditor(paneId: string): void {
-  windowPaneStore.setState((state) => {
-    const p = state.panes[paneId]
-    if (!p) return {}
-    return { panes: { ...state.panes, [paneId]: { ...p, editorOpen: !p.editorOpen } } }
-  })
-}

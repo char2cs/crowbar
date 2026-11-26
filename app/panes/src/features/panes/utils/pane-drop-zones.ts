@@ -1,11 +1,4 @@
-import type { SplitDirection, SplitPlacement } from '../types/pane'
-
 export type PaneDropZone = 'left' | 'right' | 'top' | 'bottom' | 'center' | null
-
-export interface PaneSplitDropOptions {
-  direction: SplitDirection
-  placement: SplitPlacement
-}
 
 export function getPaneDropZoneFromRect(
   point: { x: number; y: number },
@@ -22,15 +15,4 @@ export function getPaneDropZoneFromRect(
   if (ny < threshold) return 'top'
   if (ny > 1 - threshold) return 'bottom'
   return 'center'
-}
-
-export function getPaneSplitDropOptions(zone: PaneDropZone): PaneSplitDropOptions | null {
-  if (!zone || zone === 'center') {
-    return null
-  }
-
-  return {
-    direction: zone === 'left' || zone === 'right' ? 'horizontal' : 'vertical',
-    placement: zone === 'left' || zone === 'top' ? 'before' : 'after',
-  }
 }

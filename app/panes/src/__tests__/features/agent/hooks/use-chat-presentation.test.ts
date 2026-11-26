@@ -15,15 +15,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   presetChatLandingPresentation,
   useChatPresentation,
-  usePaneViewPresentation,
 } from '@/features/agent/hooks/use-chat-presentation'
 import { chatStore } from '@/features/agent/stores/chat-store'
 import { useSettingsStore } from '@/features/settings/store'
 import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
 
 const platform = vi.hoisted(() => ({ mobile: false }))
-const SIDE_BY_SIDE_MIN_PX = 780 // the pane floor the hook documents
-
 vi.mock('@/utils/platform', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/utils/platform')>()),
   get IS_MOBILE() {
@@ -126,10 +123,6 @@ describe('useChatPresentation — a view the daemon holds', () => {
     expect(render('terminal').current.presentation).toBe('terminal')
   })
 })
-
-function ref(size: { clientWidth?: number; clientHeight?: number }) {
-  return { current: size as unknown as HTMLElement }
-}
 
 describe('useChatPresentation — a chat remembers its own surface', () => {
   beforeEach(() => {
@@ -242,113 +235,5 @@ describe('presetChatLandingPresentation — choosing a new chat’s surface at c
 
     act(() => result.current.setPresentation('terminal'))
     expect(result.current.presentation).toBe('terminal')
-  })
-})
-
-describe('usePaneViewPresentation', () => {
-  it('is tabs when the split is off, regardless of size', () => {
-    const { result } = renderHook(() =>
-      usePaneViewPresentation(false, ref({ clientWidth: 2000, clientHeight: 2000 })),
-    )
-    expect(result.current).toBe('tabs')
-  })
-
-  it('below the side-by-side floor on both axes, tabs is the only presentation even with the split on', () => {
-    const { result } = renderHook(() => usePaneViewPresentation(true, ref({ clientWidth: 600 })))
-    expect(result.current).toBe('tabs')
-  })
-
-  it('wide enough and landscape presents side by side', () => {
-    const { result } = renderHook(() =>
-      usePaneViewPresentation(true, ref({ clientWidth: SIDE_BY_SIDE_MIN_PX + 100 })),
-    )
-    expect(result.current).toBe('side-by-side')
-  })
-
-  it('tall enough and portrait presents stacked', () => {
-    const { result } = renderHook(() =>
-      usePaneViewPresentation(
-        true,
-        ref({ clientWidth: 500, clientHeight: SIDE_BY_SIDE_MIN_PX + 200 }),
-      ),
-    )
-    expect(result.current).toBe('stacked')
-  })
-
-  it('an unmeasured (0x0) container defaults to side-by-side rather than flashing to tabs first', () => {
-    const { result } = renderHook(() => usePaneViewPresentation(true, { current: null }))
-    expect(result.current).toBe('side-by-side')
-  })
-
-  it('a square pane at exactly the floor is side by side (width >= height wins ties)', () => {
-    const { result } = renderHook(() =>
-      usePaneViewPresentation(
-        true,
-        ref({
-          clientWidth: SIDE_BY_SIDE_MIN_PX,
-          clientHeight: SIDE_BY_SIDE_MIN_PX,
-        }),
-      ),
-    )
-    expect(result.current).toBe('side-by-side')
-  })
-})
-
-/** A sash drag rewrites flex-basis on every pointermove; `usePaneViewPresentation` must re-render
- *  only when one of its three arrangements changes, not once per pixel of the whole pane subtree. */
-describe('usePaneViewPresentation — a resize that does not change the answer does not re-render', () => {
-  function withObservedResize(run: (fire: () => void) => void) {
-    const callbacks: ResizeObserverCallback[] = []
-    vi.stubGlobal(
-      'ResizeObserver',
-      class {
-        constructor(cb: ResizeObserverCallback) {
-          callbacks.push(cb)
-        }
-        observe() {}
-        unobserve() {}
-        disconnect() {}
-      },
-    )
-    try {
-      run(() => {
-        act(() => {
-          for (const cb of callbacks) cb([], {} as ResizeObserver)
-        })
-      })
-    } finally {
-      vi.unstubAllGlobals()
-    }
-  }
-
-  it('stays at one render across a whole drag inside the same bucket, and still switches at the threshold', () => {
-    withObservedResize((fire) => {
-      const box = { clientWidth: 1200, clientHeight: 900 }
-      const container = ref(box)
-      let renders = 0
-      const { result } = renderHook(() => {
-        renders++
-        return usePaneViewPresentation(true, container)
-      })
-
-      expect(result.current).toBe('side-by-side')
-      const rendersAtRest = renders
-
-      // A drag's worth of width changes, every one of them still landscape and
-      // still above the side-by-side floor.
-      for (let w = 1200; w > 900; w -= 5) {
-        box.clientWidth = w
-        fire()
-      }
-      expect(result.current).toBe('side-by-side')
-      expect(renders).toBe(rendersAtRest)
-
-      // Crossing a real threshold still lands, immediately.
-      box.clientWidth = 700
-      box.clientHeight = 500
-      fire()
-      expect(result.current).toBe('tabs')
-      expect(renders).toBeGreaterThan(rendersAtRest)
-    })
   })
 })

@@ -107,7 +107,7 @@ export function DragGhostRows({ rows }: { rows: GhostRows }) {
 
 // The raised white control surface, pinned in every mode: --background goes charcoal in dark,
 // which vanishes over the dark chrome the ghost is dragged across.
-export const LIFTED =
+const LIFTED =
   'control-surface outline outline-1 outline-border! shadow-md shadow-black/15 ' +
   'inset-shadow-[0_1px_var(--elevated-highlight)]'
 

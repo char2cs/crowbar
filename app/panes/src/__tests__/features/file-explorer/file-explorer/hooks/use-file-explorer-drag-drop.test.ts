@@ -4,7 +4,6 @@ import type { MockInstance } from 'vitest'
 import { useFileExplorerDragDrop } from '@/features/file-explorer/file-explorer/hooks/use-file-explorer-drag-drop'
 import type { FileEntry } from '@/features/file-system/types/app'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
-import { useDragStore } from '@/features/panes/stores/drag-store'
 import { workspaceRef } from '@/lib/api/documents'
 import { moveFile } from '@/features/file-system/controllers/platform'
 
@@ -225,7 +224,6 @@ describe('useFileExplorerDragDrop — dropping a file on a pane', () => {
   it('opens the file of its own workspace in the pane it was dropped on, by id', () => {
     setActiveWorkspaceId('ws-other')
     const result = drag(makeFile('a.ts', 'src/a.ts'))
-    expect(useDragStore.getState().file).toEqual({ path: 'src/a.ts', name: 'a.ts', isDir: false })
 
     act(() => {
       // Near the left edge: an EDGE zone, which must not matter for a file.
@@ -236,7 +234,6 @@ describe('useFileExplorerDragDrop — dropping a file on a pane', () => {
       paneId: 'pane-b',
     })
     expect(result.current.dragState.isDragging).toBe(false)
-    expect(useDragStore.getState().file).toBeNull()
   })
 
   it('ignores a directory drop', () => {

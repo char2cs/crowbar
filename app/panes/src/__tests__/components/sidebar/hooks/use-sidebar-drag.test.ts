@@ -13,8 +13,7 @@ import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { createRef } from 'react'
 import { useSidebarDrag } from '@/components/sidebar/hooks/use-sidebar-drag'
-import { PANE_DROP_ATTR, type SidebarPaneZone } from '@/components/sidebar/lib/sidebar-drag-hover'
-import { useDragStore } from '@/features/panes/stores/drag-store'
+import type { SidebarPaneZone } from '@/components/sidebar/lib/sidebar-drag-hover'
 import { toast } from '@/features/window/stores/toast-store'
 import type { DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
@@ -123,6 +122,8 @@ const baseRow: SidebarRow = {
 // Typed to the hook's own callbacks: a bare `vi.fn()` is a mock of anything,
 // which the options object then refuses.
 type DropMock = Mock<(subjects: SidebarRow[], target: SidebarRow, mode: DropMode) => void>
+const PANE_DROP_ATTR = 'data-pane-drop'
+
 type PaneDropMock = Mock<(subjects: SidebarRow[], paneId: string, zone: SidebarPaneZone) => void>
 
 function renderDrag(
@@ -501,81 +502,6 @@ describe('useSidebarDrag', () => {
 
       expect(visiblePane.hasAttribute(PANE_HIT_ATTR)).toBe(true)
       expect(hiddenOtherWorkspacePane.hasAttribute(PANE_HIT_ATTR)).toBe(false)
-    })
-  })
-
-  /**
-   * The live SPLIT PREVIEW — the quadrant rectangle `SplitDropOverlay` draws
-   * inside the hovered pane, telling the user the shape of the split their
-   * release will make before they make it.
-   *
-   * Not a second mechanism: this hook publishes onto the SAME window-level
-   * hover channel `use-tab-drag.ts` has always driven
-   * (`internal-tab-drag.ts` → `PaneContainer`'s
-   * `crowbar-internal-tab-drag-hover` listener → `SplitDropOverlay`'s
-   * `activeZoneOverride`), so a sidebar row and an editor tab get the
-   * identical preview off one already-shared piece of zone math
-   * (`getPaneDropZoneFromRect`). These tests assert the publish, which is
-   * this hook's whole half of that contract.
-   */
-  describe('the split preview a pane hover publishes (spec §8.1)', () => {
-    const pane1Rect = {
-      top: 100,
-      bottom: 300,
-      left: 300,
-      right: 500,
-      width: 200,
-      height: 200,
-    }
-
-    it('names the pane AND the zone a release would land in', () => {
-      const rowA = makeRow(baseRow, 0)
-      makePane('pane-1', pane1Rect)
-      const { result } = renderDrag()
-
-      press(result, baseRow, rowA)
-      move(400, 200) // dead centre
-
-      expect(useDragStore.getState().hover).toEqual({ paneId: 'pane-1', zone: 'center' })
-    })
-
-    it('follows the pointer from the middle out to an edge, within one pane', () => {
-      const rowA = makeRow(baseRow, 0)
-      makePane('pane-1', pane1Rect)
-      const { result } = renderDrag()
-
-      press(result, baseRow, rowA)
-      move(400, 200)
-      move(480, 200) // right edge band
-
-      expect(useDragStore.getState().hover).toEqual({ paneId: 'pane-1', zone: 'right' })
-
-      move(400, 120) // top edge band
-      expect(useDragStore.getState().hover).toEqual({ paneId: 'pane-1', zone: 'top' })
-    })
-
-    it('clears once the pointer leaves every pane', () => {
-      const rowA = makeRow(baseRow, 0)
-      makePane('pane-1', pane1Rect)
-      const { result } = renderDrag()
-
-      press(result, baseRow, rowA)
-      move(400, 200)
-      move(10, ROW_H + 2) // back over the tree
-
-      expect(useDragStore.getState().hover).toEqual({ paneId: null, zone: null })
-    })
-
-    it('clears on release, so the preview never outlives the drag that drew it', () => {
-      const rowA = makeRow(baseRow, 0)
-      makePane('pane-1', pane1Rect)
-      const { result } = renderDrag()
-
-      press(result, baseRow, rowA)
-      move(400, 200)
-      release(400, 200)
-
-      expect(useDragStore.getState().hover).toEqual({ paneId: null, zone: null })
     })
   })
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   getDefaultChatPresentation,
   useSplitPresentationEnabled,
@@ -11,7 +11,7 @@ import { IS_MOBILE } from '@/utils/platform'
 export const SPLIT_MIN_HALF_PX = 340
 const SPLIT_SIDE_BY_SIDE_MIN_PX = 780
 export const SPLIT_MIN_STACKED_PX = 160
-export const SPLIT_DEFAULT_SIZES: [number, number] = [45, 55]
+const SPLIT_DEFAULT_SIZES: [number, number] = [45, 55]
 
 /** Measures the CONTAINER, never the window, so a narrow pane inside a wide
  *  window answers correctly. Reads `clientWidth`/`clientHeight` so a plain
@@ -168,34 +168,6 @@ export function useChatPresentation(
     setSplitSizes,
     splitStacked,
   }
-}
-
-/** How a pane arranges its chat view against its editor view. */
-export type PaneViewPresentation = 'side-by-side' | 'stacked' | 'tabs'
-
-/** Too small on the longer axis downgrades to tabs while keeping the toggle, so
- *  growing the pane recovers the split; one floor serves both axes because a
- *  stacked layout needs height for the same reason side by side needs width. */
-function derivePaneViewPresentation(width: number, height: number): PaneViewPresentation {
-  // Unmeasured: guess the common landscape case, so the pane does not pop
-  // from one view to two when the real measurement lands.
-  if (width === 0 && height === 0) return 'side-by-side'
-  if (Math.max(width, height) < SPLIT_SIDE_BY_SIDE_MIN_PX) return 'tabs'
-  return width >= height ? 'side-by-side' : 'stacked'
-}
-
-export function usePaneViewPresentation(
-  editorOpen: boolean,
-  containerRef: RefObject<HTMLElement | null> | { current: HTMLElement | null },
-): PaneViewPresentation {
-  const measured = useSplitMeasure(
-    editorOpen,
-    containerRef,
-    derivePaneViewPresentation,
-    'side-by-side',
-  )
-
-  return editorOpen ? measured : 'tabs'
 }
 
 /** How far xterm's grid stops short of its element (whole columns plus a
