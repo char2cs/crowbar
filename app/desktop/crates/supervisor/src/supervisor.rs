@@ -134,32 +134,8 @@ impl Drop for Supervisor {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-    use std::time::Duration;
-
     use super::*;
-    use crate::config::DaemonPaths;
-
-    const NOWHERE: &str = "/crowbar-test-missing";
-
-    fn missing_binary() -> Config {
-        let paths = DaemonPaths {
-            socket: PathBuf::from(NOWHERE).join("d.sock"),
-            log: PathBuf::from(NOWHERE).join("d.log"),
-        };
-        let mut config = Config::new(
-            PathBuf::from("/definitely/not/crowbar-api"),
-            paths,
-            None,
-            "test",
-        );
-        config.timings.respawn_base = Duration::from_millis(1);
-        config
-    }
-
-    async fn until_recovering(events: &mut broadcast::Receiver<DaemonEvent>) {
-        while !matches!(events.recv().await, Ok(DaemonEvent::Recovering { .. })) {}
-    }
+    use crate::test_support::{missing_binary, until_recovering};
 
     async fn until_stopped(
         events: &mut broadcast::Receiver<DaemonEvent>

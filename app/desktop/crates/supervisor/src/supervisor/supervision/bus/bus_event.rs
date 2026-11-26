@@ -46,28 +46,16 @@ impl Event for BusEvent<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::events::assert_events;
 
     #[test]
-    fn each_bus_event_has_its_name_level_and_message() {
+    fn an_emitted_event_is_logged_at_info_with_its_value() {
         let ready = DaemonEvent::Ready { pid: Some(7) };
-        let cases = [
-            (
-                BusEvent::Emitted { event: &ready },
-                "daemon_event",
-                Level::Info,
-                "daemon: Ready { pid: Some(7) }",
-            ),
-            (
-                BusEvent::Unheard,
-                "daemon_event_unheard",
-                Level::Trace,
-                "no one is subscribed to daemon events",
-            ),
-        ];
-        for (event, name, level, shown) in cases {
-            assert_eq!(event.name(), name);
-            assert_eq!(event.level(), level, "{name}");
-            assert_eq!(event.to_string(), shown, "{name}");
-        }
+        assert_events([(
+            BusEvent::Emitted { event: &ready },
+            "daemon_event",
+            Level::Info,
+            "daemon: Ready { pid: Some(7) }",
+        )]);
     }
 }

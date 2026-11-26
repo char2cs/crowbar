@@ -53,6 +53,7 @@ impl Event for WedgeKillEvent<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::events::assert_events;
 
     #[tokio::test]
     async fn each_wedge_kill_event_has_its_name_level_and_message() {
@@ -61,7 +62,11 @@ mod tests {
             .unwrap_err();
         let refused = Error::GaveUp(1);
         let denied = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
-        let cases = [
+        let late = WedgeKillEvent::NoDumpInTime {
+            timeout: Duration::from_secs(5),
+            elapsed,
+        };
+        assert_events([
             (
                 WedgeKillEvent::NoDump { error: &refused },
                 "goroutine_dump_failed",
@@ -69,10 +74,7 @@ mod tests {
                 "no goroutine dump: daemon did not become healthy in 1 attempts",
             ),
             (
-                WedgeKillEvent::NoDumpInTime {
-                    timeout: Duration::from_secs(5),
-                    elapsed,
-                },
+                late,
                 "goroutine_dump_timed_out",
                 Level::Debug,
                 "no goroutine dump within 5s: deadline has elapsed",
@@ -83,17 +85,6 @@ mod tests {
                 Level::Warn,
                 "cannot kill the wedged daemon: permission denied",
             ),
-        ];
-        assert_each(cases);
-    }
-
-    fn assert_each<M: fmt::Display>(
-        cases: impl IntoIterator<Item = (impl Event, &'static str, Level, M)>
-    ) {
-        for (event, name, level, shown) in cases {
-            assert_eq!(event.name(), name);
-            assert_eq!(event.level(), level, "{name}");
-            assert_eq!(event.to_string(), shown.to_string(), "{name}");
-        }
+        ]);
     }
 }

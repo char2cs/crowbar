@@ -57,43 +57,35 @@ impl Event for PsEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::events::assert_events;
 
     #[tokio::test]
     async fn each_ps_event_has_its_name_level_and_message() {
         let elapsed = tokio::time::timeout(Duration::ZERO, std::future::pending::<()>())
             .await
             .unwrap_err();
-        let cases = [
+        let failed = PsEvent::Failed {
+            command: "/bin/ps",
+            error: std::io::Error::from(std::io::ErrorKind::NotFound),
+        };
+        let timed_out = PsEvent::TimedOut {
+            command: "/bin/ps",
+            timeout: Duration::from_secs(2),
+            elapsed,
+        };
+        assert_events([
             (
-                PsEvent::Failed {
-                    command: "/bin/ps",
-                    error: std::io::Error::from(std::io::ErrorKind::NotFound),
-                },
+                failed,
                 "ps_failed",
                 Level::Debug,
                 "/bin/ps: entity not found",
             ),
             (
-                PsEvent::TimedOut {
-                    command: "/bin/ps",
-                    timeout: Duration::from_secs(2),
-                    elapsed,
-                },
+                timed_out,
                 "ps_timed_out",
                 Level::Warn,
                 "/bin/ps did not answer within 2s: deadline has elapsed",
             ),
-        ];
-        assert_each(cases);
-    }
-
-    fn assert_each<M: fmt::Display>(
-        cases: impl IntoIterator<Item = (impl Event, &'static str, Level, M)>
-    ) {
-        for (event, name, level, shown) in cases {
-            assert_eq!(event.name(), name);
-            assert_eq!(event.level(), level, "{name}");
-            assert_eq!(event.to_string(), shown.to_string(), "{name}");
-        }
+        ]);
     }
 }

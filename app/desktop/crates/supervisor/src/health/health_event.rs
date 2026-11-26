@@ -47,6 +47,7 @@ impl Event for HealthEvent<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::events::assert_events;
 
     #[tokio::test]
     async fn each_health_event_has_its_name_level_and_message() {
@@ -54,32 +55,23 @@ mod tests {
             .await
             .unwrap_err();
         let error = Error::GaveUp(3);
-        let cases = [
+        let unanswered = HealthEvent::Unanswered {
+            after: Duration::from_secs(2),
+            elapsed,
+        };
+        assert_events([
             (
                 HealthEvent::Unreadable { error: &error },
                 "health_unreadable",
+                Level::Debug,
                 "daemon health: daemon did not become healthy in 3 attempts",
             ),
             (
-                HealthEvent::Unanswered {
-                    after: Duration::from_secs(2),
-                    elapsed,
-                },
+                unanswered,
                 "health_unanswered",
+                Level::Debug,
                 "daemon health: no answer in 2s (deadline has elapsed)",
             ),
-        ];
-        assert_each(cases, Level::Debug);
-    }
-
-    fn assert_each<M: fmt::Display>(
-        cases: impl IntoIterator<Item = (impl Event, &'static str, M)>,
-        level: Level,
-    ) {
-        for (event, name, shown) in cases {
-            assert_eq!(event.name(), name);
-            assert_eq!(event.level(), level, "{name}");
-            assert_eq!(event.to_string(), shown.to_string(), "{name}");
-        }
+        ]);
     }
 }

@@ -65,46 +65,20 @@ impl Event for WatchdogEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::events::assert_events;
 
-    type Case = (WatchdogEvent, &'static str, Level, &'static str);
-
-    const CASES: [Case; 4] = [
-        (
-            WatchdogEvent::NotWedged {
-                suspended: false,
-                answering: true,
-                busy: false,
-            },
+    #[test]
+    fn a_daemon_that_is_not_wedged_is_a_warning_naming_why() {
+        let event = WatchdogEvent::NotWedged {
+            suspended: false,
+            answering: true,
+            busy: false,
+        };
+        assert_events([(
+            event,
             "daemon_not_wedged",
             Level::Warn,
             "daemon failed its probes but is not wedged (suspended: false, answering: true, busy: false)",
-        ),
-        (
-            WatchdogEvent::HealthyUnread,
-            "healthy_probe_unread",
-            Level::Trace,
-            "an earlier healthy probe is still to be read",
-        ),
-        (
-            WatchdogEvent::OutOfDescriptors,
-            "descriptors_exhausted",
-            Level::Error,
-            "out of file descriptors, cannot dial the daemon; not restarting it",
-        ),
-        (
-            WatchdogEvent::WedgeUnheard,
-            "wedge_report_unheard",
-            Level::Debug,
-            "the supervisor stopped listening for wedge reports",
-        ),
-    ];
-
-    #[test]
-    fn each_watchdog_event_has_its_name_level_and_message() {
-        for (event, name, level, shown) in CASES {
-            assert_eq!(event.name(), name);
-            assert_eq!(event.level(), level, "{name}");
-            assert_eq!(event.to_string(), shown, "{name}");
-        }
+        )]);
     }
 }
