@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use gpui::{
     AnyElement, App, Bounds, Context, InteractiveElement, IntoElement, ParentElement, Pixels,
-    Render, Styled, TestAppContext, VisualTestContext, Window, div,
+    Render, Styled, TestAppContext, Window, div,
 };
 
 type Build = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
@@ -29,25 +29,16 @@ impl Render for Probe {
     }
 }
 
-/// Opens a window showing `build()` with the design system installed.
-pub(crate) fn open<E: IntoElement>(
+/// Bounds of the element built by `build`, laid out at its natural size in a test window.
+pub(crate) fn measure<E: IntoElement>(
     cx: &mut TestAppContext,
     build: impl Fn(&mut Window, &mut App) -> E + 'static,
-) -> &mut VisualTestContext {
+) -> Bounds<Pixels> {
     cx.update(|cx| {
         ui::init(cx).expect("the design system installs");
     });
     let build: Build = Rc::new(move |window, cx| build(window, cx).into_any_element());
     let (_, cx) = cx.add_window_view(move |_, _| Probe { build });
     cx.run_until_parked();
-    cx
-}
-
-/// Bounds of the element built by `build`, laid out at its natural size.
-pub(crate) fn measure<E: IntoElement>(
-    cx: &mut TestAppContext,
-    build: impl Fn(&mut Window, &mut App) -> E + 'static,
-) -> Bounds<Pixels> {
-    let cx = open(cx, build);
     cx.debug_bounds("probe").unwrap_or_default()
 }

@@ -10,7 +10,7 @@ toasts and crash panel.
 
 - `View`: the gate, which asks the shell through `Actions` (`Command`) and says whether it
   `covers()` the window.
-- `Input`, `MigrationStep`, `Outage`, `HaltReason`: what the shell feeds it.
+- `Input`, `MigrationStep`, `Outage`: what the shell feeds it.
 
 ## Depends on
 
