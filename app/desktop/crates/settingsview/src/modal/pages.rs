@@ -10,7 +10,7 @@ pub(crate) mod shortcuts;
 mod title_block;
 
 use gpui::{
-    AnyElement, App, IntoElement, ParentElement, Pixels, ScrollHandle, Styled, Window, div,
+    AnyElement, App, IntoElement, ParentElement, Pixels, ScrollHandle, Styled, Window, div, px,
 };
 use settings::Block;
 use ui::ScrollArea;
@@ -43,16 +43,32 @@ fn blocks(
     blocks: &[Block],
     (window, cx): (&mut Window, &mut App),
 ) -> gpui::Div {
-    let drawn: Vec<AnyElement> = blocks
+    let drawn: Vec<(Pixels, AnyElement)> = blocks
         .iter()
         .enumerate()
-        .filter_map(|block| block_view(frame, block, (&mut *window, &mut *cx)))
+        .filter_map(|block| spaced(frame, block, (&mut *window, &mut *cx)))
         .collect();
-    div()
-        .flex()
-        .flex_col()
-        .gap(spacing::GENEROUS)
-        .children(drawn)
+    let gaps: Vec<Pixels> = std::iter::once(px(0.0))
+        .chain(drawn.iter().map(|(gap, _)| *gap))
+        .collect();
+    let views = drawn
+        .into_iter()
+        .zip(gaps)
+        .map(|((_, view), gap)| div().mt(gap).child(view));
+    div().flex().flex_col().children(views.collect::<Vec<_>>())
+}
+
+// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/settings/components/tabs/active-sessions-settings.tsx a heading's `mb-2` outranks its page's `space-y`.
+fn spaced(
+    frame: &Frame<'_>,
+    block: (usize, &Block),
+    (window, cx): (&mut Window, &mut App),
+) -> Option<(Pixels, AnyElement)> {
+    let gap = match block.1 {
+        Block::Heading(_) => px(0.0),
+        _ => spacing::GENEROUS,
+    };
+    block_view(frame, block, (window, cx)).map(|view| (gap, view))
 }
 
 fn page_padding(window: &Window) -> Pixels {
@@ -70,6 +86,19 @@ mod tests {
     use crate::test_support::{inspect, open, run};
     use settings::PageId;
     use ui::TextInputEvent;
+
+    #[gpui::test]
+    fn a_page_heading_sits_only_its_own_eight_pixels_above_the_next_block(cx: &mut TestAppContext) {
+        let (_harness, cx) = open(cx, "providers");
+        let heading = cx.debug_bounds("page-heading").unwrap();
+        let row = cx.debug_bounds("row-text-defaultPermissionLevel").unwrap();
+        let section_and_row_padding = 2.0 + 8.0;
+        assert_eq!(
+            f32::from(row.top() - heading.bottom()),
+            8.0 + section_and_row_padding,
+            "develop's heading margin replaces the page's block gap"
+        );
+    }
 
     #[gpui::test]
     fn a_search_with_no_match_leaves_no_page_to_show(cx: &mut TestAppContext) {

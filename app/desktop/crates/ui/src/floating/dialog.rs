@@ -3,12 +3,11 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnimationExt, AnyElement, App, Div, ElementId, FocusHandle, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, RenderOnce, Stateful, Styled, Window, anchored, div, point, px,
+    AnimationExt, AnyElement, App, Div, ElementId, InteractiveElement, IntoElement, MouseButton,
+    ParentElement, RenderOnce, Stateful, Styled, Window, anchored, div, point, px,
 };
 
 use crate::floating::dialog::actions::{CONTEXT, CloseDialog, FocusNext, FocusPrevious};
-use crate::floating::dialog::description::description_block;
 use crate::floating::dialog::focus::Focus;
 use crate::floating::dialog::header::Header;
 use crate::floating::dialog::veil::fade;
@@ -37,8 +36,6 @@ pub struct Dialog {
     size: DialogSize,
     style: DialogStyle,
     extent: Option<DialogExtent>,
-    description: Option<AnyElement>,
-    first: Option<FocusHandle>,
     body: Option<AnyElement>,
     footer: Option<AnyElement>,
     on_close: Option<CloseHandler>,
@@ -47,7 +44,6 @@ pub struct Dialog {
 mod actions;
 mod app_header;
 mod close_button;
-mod description;
 mod dialog_extent;
 mod dialog_size;
 mod dialog_style;
@@ -73,8 +69,6 @@ impl Dialog {
             size: DialogSize::default(),
             style: DialogStyle::default(),
             extent: None,
-            description: None,
-            first: None,
             body: None,
             footer: None,
             on_close: None,
@@ -143,7 +137,6 @@ impl Dialog {
         let (header, style) = ((!self.header.is_empty()).then_some(self.header), self.style);
         let footer = footer_bar(self.footer, (palette, style));
         let padding = self.extent.map_or(self.style.body_padding(), |_| px(0.0));
-        let description = description_block(self.description, (palette, style));
         let frame = div()
             .id((self.id, "popup"))
             .debug_selector(|| "ui-dialog".into())
@@ -168,7 +161,6 @@ impl Dialog {
             .font_family(theme.ui_family())
             .shadow(shadow::lg(opacity::PERCENT_5))
             .children(header)
-            .children(description)
             .children(
                 self.body
                     .map(|body| div().flex_1().min_h_0().p(padding).child(body)),
@@ -238,11 +230,8 @@ impl RenderOnce for Dialog {
     ) -> impl IntoElement {
         let theme = *Theme::of(cx);
         let viewport = window.viewport_size();
-        let focus = Focus::kept((self.id.clone(), self.first.clone()), window, cx);
-        let scrim_close = self
-            .on_close
-            .clone()
-            .filter(|_| self.style.backdrop_closes());
+        let focus = Focus::kept(self.id.clone(), window, cx);
+        let scrim_close = self.on_close.clone();
         let id = self.id.clone();
         let keyed = keyboard(
             div().id((id.clone(), "scrim")),
@@ -284,7 +273,7 @@ mod tests {
     use std::cell::{Cell, RefCell};
     use std::rc::Rc;
 
-    use gpui::{InteractiveElement, ParentElement, TestAppContext, div, point, px};
+    use gpui::{FocusHandle, InteractiveElement, ParentElement, TestAppContext, div, point, px};
 
     use super::*;
     use crate::floating::Float;
@@ -303,25 +292,6 @@ mod tests {
         });
         cx.simulate_click(point(px(2.0), px(2.0)), gpui::Modifiers::none());
         assert_eq!(closed.get(), 1, "a press on the scrim closes");
-    }
-
-    #[gpui::test]
-    fn a_press_on_an_alert_scrim_does_not_close_it(cx: &mut TestAppContext) {
-        let closed = Rc::new(Cell::new(0));
-        let counter = Rc::clone(&closed);
-        let cx = open(cx, move |_, _| {
-            let counter = Rc::clone(&counter);
-            Dialog::new("d")
-                .style(DialogStyle::Alert)
-                .title("Delete?")
-                .on_close(move |_, _| counter.set(counter.get() + 1))
-        });
-        cx.simulate_click(point(px(2.0), px(2.0)), gpui::Modifiers::none());
-        assert_eq!(
-            closed.get(),
-            0,
-            "develop's AlertDialog ignores the backdrop"
-        );
     }
 
     #[gpui::test]
@@ -443,43 +413,6 @@ mod tests {
             let keystroke = gpui::Keystroke::parse(key).unwrap_or_else(|error| panic!("{error}"));
             cx.simulate_event(gpui::KeyUpEvent { keystroke });
         }
-    }
-
-    fn alert(
-        log: &Log,
-        first: &FocusHandle,
-    ) -> Dialog {
-        let record = Rc::clone(log);
-        let button = crate::control::Button::new("cancel", "Cancel")
-            .focus_handle(first.clone())
-            .on_click(move |_, _, _| record.borrow_mut().push("cancel"));
-        Dialog::new("d")
-            .style(DialogStyle::Alert)
-            .title("Delete?")
-            .description("Gone for good.")
-            .initial_focus(first.clone())
-            .footer(button)
-    }
-
-    #[gpui::test]
-    fn an_alert_opens_on_its_first_focus_with_no_close_button(cx: &mut TestAppContext) {
-        let log = Log::default();
-        let first = cx.update(|cx| cx.focus_handle());
-        let (shown, held) = (Rc::clone(&log), first.clone());
-        let mut owner = open_floating(cx, move |_, _| {
-            let (shown, held) = (Rc::clone(&shown), held.clone());
-            crate::floating::Portal::window("dialog", move |_, _| alert(&shown, &held))
-                .float(Float::Modal)
-        });
-        owner.run_until_parked();
-        press(&mut owner, "enter");
-        assert_eq!(*log.borrow(), vec!["cancel"], "return answers Cancel");
-        press(&mut owner, "tab tab enter");
-        assert_eq!(
-            *log.borrow(),
-            vec!["cancel", "cancel"],
-            "tab wraps onto Cancel: there is no close button"
-        );
     }
 
     #[gpui::test]

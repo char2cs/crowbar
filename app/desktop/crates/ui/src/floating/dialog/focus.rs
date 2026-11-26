@@ -10,22 +10,20 @@ pub(crate) struct Focus {
 
 impl Focus {
     pub(crate) fn kept(
-        (id, first): (gpui::ElementId, Option<FocusHandle>),
+        id: gpui::ElementId,
         window: &mut Window,
         cx: &mut App,
     ) -> Self {
-        let focus = window.use_keyed_state((id, "focus"), cx, |window, cx| {
-            Self::opening(window, cx, first)
-        });
+        let focus =
+            window.use_keyed_state((id, "focus"), cx, |window, cx| Self::opening(window, cx));
         focus.read(cx).clone()
     }
 
     pub(crate) fn opening(
         window: &mut Window,
         cx: &mut App,
-        first: Option<FocusHandle>,
     ) -> Self {
-        let close = first.unwrap_or_else(|| cx.focus_handle()).tab_stop(true);
+        let close = cx.focus_handle().tab_stop(true);
         let focus = Self {
             root: cx.focus_handle(),
             close,
@@ -87,7 +85,7 @@ mod tests {
         let window = open(cx, move |window, cx| {
             let focus = keep
                 .borrow_mut()
-                .get_or_insert_with(|| Focus::opening(window, cx, None))
+                .get_or_insert_with(|| Focus::opening(window, cx))
                 .clone();
             let dialog = div()
                 .track_focus(&focus.root)

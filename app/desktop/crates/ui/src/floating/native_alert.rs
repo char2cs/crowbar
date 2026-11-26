@@ -1,4 +1,4 @@
-//! The desktop's own message dialog, which the shell installs at start in place of drawn confirms.
+//! The desktop's own message dialog, which the shell installs at start: the only way it confirms.
 
 mod alert_button;
 mod alert_request;
@@ -18,8 +18,8 @@ use crate::foundation::opaque_debug;
 /// when the dialog is dismissed.
 pub type AskAlert = Rc<dyn Fn(AlertRequest, &Window, &mut App) -> Task<Option<usize>>>;
 
-/// The installed native message dialog, a global; confirms are drawn in the window until one is
-/// installed.
+/// The installed native message dialog, a global; with none installed every question is answered
+/// as a cancel.
 #[derive(Clone)]
 pub struct NativeAlert(AskAlert);
 
@@ -34,20 +34,18 @@ impl NativeAlert {
         Self(ask)
     }
 
-    /// The installed native message dialog, if the shell installed one.
-    #[must_use]
-    pub fn installed(cx: &App) -> Option<Self> {
-        cx.try_global::<Self>().cloned()
-    }
-
-    /// Asks `request` over `window`; the task ends with the pressed button.
+    /// Asks `request` over `window` with the installed dialog; the task ends with the pressed
+    /// button. With no dialog installed the question is logged and counts as cancelled.
     pub fn ask(
-        &self,
         request: AlertRequest,
         window: &Window,
         cx: &mut App,
     ) -> Task<Option<usize>> {
-        (self.0)(request, window, cx)
+        let Some(native) = cx.try_global::<Self>().cloned() else {
+            tracing::error!(message = %request.message, "no message dialog to ask with; cancelled");
+            return Task::ready(None);
+        };
+        (native.0)(request, window, cx)
     }
 }
 
@@ -76,12 +74,21 @@ mod tests {
             buttons: vec![AlertButton::new("OK", AlertRole::Accept)],
         };
         let (_, window) = cx.add_window_view(|_, _| gpui::Empty);
-        let pressed = window.update(|window, cx| {
-            let native = NativeAlert::installed(cx);
-            native.map(|native| native.ask(request.clone(), window, cx))
-        });
-        let pressed = pressed.map(|task| window.foreground_executor().block_test(task));
-        assert_eq!(pressed, Some(Some(1)));
+        let pressed = window.update(|window, cx| NativeAlert::ask(request.clone(), window, cx));
+        let pressed = window.foreground_executor().block_test(pressed);
+        assert_eq!(pressed, Some(1));
         assert_eq!(*heard.borrow(), [request]);
+    }
+
+    #[gpui::test]
+    fn with_no_dialog_installed_a_question_counts_as_cancelled(cx: &mut TestAppContext) {
+        let request = AlertRequest {
+            title: None,
+            message: "Reload?".into(),
+            buttons: vec![AlertButton::new("OK", AlertRole::Accept)],
+        };
+        let (_, window) = cx.add_window_view(|_, _| gpui::Empty);
+        let pressed = window.update(|window, cx| NativeAlert::ask(request, window, cx));
+        assert_eq!(window.foreground_executor().block_test(pressed), None);
     }
 }

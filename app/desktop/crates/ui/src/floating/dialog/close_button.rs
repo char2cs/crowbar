@@ -17,7 +17,7 @@ pub(crate) fn close_button(
 ) -> Button {
     let size = match style {
         DialogStyle::App => ButtonSize::Sm,
-        DialogStyle::Plain | DialogStyle::Alert => ButtonSize::Lg,
+        DialogStyle::Plain => ButtonSize::Lg,
     };
     let close = Button::icon_only((id, "close"), IconName::X)
         .variant(ButtonVariant::Ghost)

@@ -79,7 +79,7 @@ impl Sidebar {
                 self.start_file_create((dir, entry), window, cx);
             },
             Intent::RequestFileDelete { path, is_dir } => {
-                self.ask_file_delete(FileDialog::Delete { path, is_dir }, window, cx);
+                Self::ask_file_delete(FileDialog::Delete { path, is_dir }, window, cx);
             },
             Intent::ShowProperties(path) => {
                 let properties = FileProperties::of(&path);
@@ -93,7 +93,7 @@ impl Sidebar {
                 self.tree.select_file(Some(path));
             },
             Intent::ToggleChangedFold(path) => self.tree.toggle_changed_fold(path),
-            Intent::Ask(question) => self.ask(question, window, cx),
+            Intent::Ask(question) => Self::ask(question, window, cx),
             Intent::Send(command) => self.send_intent(command, cx),
         }
         cx.notify();

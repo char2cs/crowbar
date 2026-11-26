@@ -1,6 +1,6 @@
-//! Builder methods that choose the heading, the first focus and the width of a dialog.
+//! Builder methods that choose the heading, the style and the width of a dialog.
 
-use gpui::{FocusHandle, IntoElement, SharedString};
+use gpui::{IntoElement, SharedString};
 
 use super::{Dialog, DialogSize, DialogStyle, HeaderFlow, IconName};
 
@@ -42,26 +42,6 @@ impl Dialog {
         icon: IconName,
     ) -> Self {
         self.header = self.header.icon(Some(icon));
-        self
-    }
-
-    /// Sets the line under the title, muted, as an alert dialog's description.
-    #[must_use]
-    pub fn description(
-        mut self,
-        description: impl IntoElement,
-    ) -> Self {
-        self.description = Some(description.into_any_element());
-        self
-    }
-
-    /// Gives the keyboard to `focus` when the dialog opens, in place of the close button.
-    #[must_use]
-    pub fn initial_focus(
-        mut self,
-        focus: FocusHandle,
-    ) -> Self {
-        self.first = Some(focus);
         self
     }
 

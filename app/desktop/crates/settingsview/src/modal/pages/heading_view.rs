@@ -1,6 +1,6 @@
 //! A page heading.
 
-use gpui::{App, IntoElement};
+use gpui::{App, InteractiveElement as _, IntoElement};
 use settings::Heading;
 
 use crate::modal::pages::title_block::title_block;
@@ -10,6 +10,7 @@ pub(crate) fn heading_view(
     cx: &App,
 ) -> impl IntoElement {
     title_block(heading.title(), Some(heading.description()), cx)
+        .debug_selector(|| "page-heading".to_owned())
 }
 
 #[cfg(test)]

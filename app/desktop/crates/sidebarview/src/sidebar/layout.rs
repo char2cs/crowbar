@@ -81,10 +81,7 @@ impl Sidebar {
         &self,
         geometry: &Geometry,
     ) -> ui::Float {
-        let asks = self.tree.removals().confirmation().is_some()
-            || self.tree.files().dialog().is_some()
-            || self.question.is_some();
-        if asks || geometry.is_drawer() {
+        if self.tree.files().dialog().is_some() || geometry.is_drawer() {
             return ui::Float::Modal;
         }
         if self.line_target().is_some() {
@@ -100,9 +97,7 @@ impl Sidebar {
     ) -> bool {
         geometry.is_drawer()
             || self.peek.is_shown(Motion::of(cx))
-            || self.drawn_confirmation(cx).is_some()
             || self.tree.files().dialog().is_some()
-            || self.question.is_some()
             || self.line_target().is_some()
             || self.menu.is_some()
     }
@@ -117,9 +112,7 @@ impl Sidebar {
             .relative()
             .size_full()
             .children(self.floating(geometry, window, cx))
-            .children(self.confirm_layer(cx))
             .children(self.file_dialog_layer(cx))
-            .children(self.question_layer(cx))
             .children(self.drop_line_layer(window, cx))
             .children(self.menu_layer(cx))
     }

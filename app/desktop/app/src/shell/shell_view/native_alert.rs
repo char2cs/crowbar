@@ -1,4 +1,5 @@
-//! Asks the shell's own confirmations as the desktop's message dialog, over the shell window.
+//! Asks the shell's confirmations as the desktop's message dialog over the shell window; when
+//! it cannot be asked the question counts as cancelled.
 
 use super::ShellView;
 use crate::shell::inbox::request_queue::{Requests, send};
@@ -8,19 +9,26 @@ impl ShellView {
     pub(super) fn ask_natively(
         &self,
         request: webview::AlertRequest,
-        answer: impl FnOnce(Option<usize>) -> Option<ShellRequest> + Send + 'static,
-    ) -> bool {
+        answer: impl FnOnce(Option<usize>) -> Option<ShellRequest> + Clone + Send + 'static,
+    ) {
         let Some((parent, _)) = self.pane_area.placement else {
-            return false;
+            return self.cancel(&"no window to ask over", answer);
         };
-        let requests = self.requests.clone();
+        let (requests, cancel) = (self.requests.clone(), answer.clone());
         let answered: webview::ChosenButton =
             Box::new(move |pressed| forward(&requests, answer(pressed)));
-        let asked = self.state.host().desktop().ask(parent, request, answered);
-        if let Err(error) = &asked {
-            tracing::debug!(%error, "the shell draws its own dialog");
+        if let Err(error) = self.state.host().desktop().ask(parent, request, answered) {
+            self.cancel(&error, cancel);
         }
-        asked.is_ok()
+    }
+
+    fn cancel(
+        &self,
+        why: &dyn std::fmt::Display,
+        answer: impl FnOnce(Option<usize>) -> Option<ShellRequest>,
+    ) {
+        tracing::error!(%why, "the message dialog could not be asked; cancelled");
+        forward(&self.requests, answer(None));
     }
 }
 
@@ -49,6 +57,25 @@ mod tests {
     }
 
     #[gpui::test]
+    fn closing_with_unsaved_work_and_no_window_to_ask_over_stays_open_and_cancels(
+        cx: &mut gpui::TestAppContext
+    ) {
+        let mut opened = crate::shell::shell_view::tests::open_shell(cx);
+        let pane = opened.pane.clone();
+        let closes = opened.shell.update(&mut opened.window, |shell, cx| {
+            shell.pane_area.placement = None;
+            shell.state.mark_dirty(pane);
+            shell.allow_window_close(cx)
+        });
+        opened.window.run_until_parked();
+        assert!(!closes, "unsaved work keeps the window");
+        let pending = opened
+            .shell
+            .read_with(&opened.window, |shell, _| shell.pending_close.is_some());
+        assert!(!pending, "the question counts as cancelled");
+    }
+
+    #[gpui::test]
     fn closing_with_unsaved_work_asks_the_desktop_s_dialog_whose_save_saves(
         cx: &mut gpui::TestAppContext
     ) {
@@ -72,11 +99,6 @@ mod tests {
         assert_eq!(
             alerts_asked(&opened.mock),
             [Some("Unsaved Changes".to_owned())]
-        );
-        assert!(
-            opened
-                .shell
-                .read_with(&opened.window, |shell, _| shell.question.is_none())
         );
         assert_eq!(
             saves_asked(&opened.mock) - before,

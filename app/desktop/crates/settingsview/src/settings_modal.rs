@@ -16,7 +16,7 @@ use gpui::{
     Render, ScrollHandle, WeakEntity, Window, div,
 };
 use settings::{Change, RecordBackend, Subscription};
-use ui::{Dialog, IconName, NativeAlert, TextInput, TextInputEvent, TextInputStyle};
+use ui::{Dialog, IconName, TextInput, TextInputEvent, TextInputStyle};
 
 use crate::modal::body;
 use crate::settings_modal::close_handler::CloseHandler;
@@ -29,7 +29,6 @@ use crate::intent::Runner as _;
 use crate::intent::Sink;
 use crate::lift::Lift;
 use crate::modal::notice_view;
-use crate::modal::prompt_view;
 use crate::modal::{extent, headed, search_field};
 
 const SEARCH_PLACEHOLDER: &str = "Search settings...";
@@ -207,12 +206,6 @@ impl Render for SettingsModal {
             .on_close(move |window, cx| closer.deliver(Intent::Close, (window, cx)));
         div()
             .child(dialog)
-            .children(
-                self.state
-                    .prompt()
-                    .filter(|_| NativeAlert::installed(cx).is_none())
-                    .map(|prompt| prompt_view(&sink, prompt)),
-            )
             .children(self.notice.as_deref().map(notice_view))
     }
 }

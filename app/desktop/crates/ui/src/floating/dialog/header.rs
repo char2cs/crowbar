@@ -2,7 +2,7 @@
 
 use gpui::{
     AnyElement, App, ElementId, FocusHandle, IntoElement, ParentElement, Pixels, RenderOnce,
-    SharedString, Styled, Window, div, px,
+    SharedString, Styled, Window, div,
 };
 
 use crate::control::TextInputStyle;
@@ -125,7 +125,6 @@ impl RenderOnce for Header {
         let frame = div().flex().flex_none().px(px_x).py(px_y);
         match style {
             DialogStyle::Plain => corner_close(frame.children(title), close),
-            DialogStyle::Alert => frame.pb(px(0.0)).children(title),
             DialogStyle::App => self.app(frame, (title, close.into_any_element()), palette),
         }
     }

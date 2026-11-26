@@ -6,7 +6,8 @@ use crate::geometry::edge_contact::EdgeContact;
 use crate::geometry::insets::Insets;
 
 /// The box a pane is drawn in: margins, 1px border and corner radii, from where the pane's slot
-/// sits against the layout's bounds. The web view fills `hole`.
+/// sits against the layout's bounds. The web view fills `hole`. Its edges sit on whole pixels, as
+/// the web view does, so a border is never painted under the web view beside it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PaneFrame {
     /// The bordered box, after margins.
@@ -29,13 +30,23 @@ impl PaneFrame {
     ) -> Self {
         let contact = EdgeContact::of(slot, content, chrome);
         let (margin, border) = (contact.margin, contact.border);
-        let outer = shrink(slot, margin);
+        let outer = shrink(snapped(slot), margin);
         Self {
             outer,
             border,
             radius: contact.radius,
             hole: shrink(outer, border),
         }
+    }
+}
+
+fn snapped(rect: Rect) -> Rect {
+    let (left, top) = (rect.x.round(), rect.y.round());
+    Rect {
+        x: left,
+        y: top,
+        width: (rect.x + rect.width).round() - left,
+        height: (rect.y + rect.height).round() - top,
     }
 }
 
@@ -232,6 +243,40 @@ mod tests {
             let frame = PaneFrame::new(case.slot, CONTENT, case.chrome);
             assert_eq!((case.measure)(&frame), case.expected, "{}", case.name);
         }
+    }
+
+    #[test]
+    fn a_split_on_half_pixels_draws_each_border_on_a_whole_pixel_outside_the_web_view() {
+        let left = Rect {
+            width: 449.5,
+            ..LEFT_HALF
+        };
+        let right = Rect {
+            x: 751.5,
+            width: 448.5,
+            ..RIGHT_HALF
+        };
+        let (left, right) = (
+            PaneFrame::new(left, CONTENT, WITH_STRIP),
+            PaneFrame::new(right, CONTENT, WITH_STRIP),
+        );
+        let whole = |value: f32| value.fract() == 0.0;
+        for frame in [left, right] {
+            let edges = [
+                frame.outer.x,
+                frame.outer.width,
+                frame.hole.x,
+                frame.hole.width,
+            ];
+            assert!(edges.into_iter().all(whole), "{frame:?}");
+        }
+        let left_border = left.outer.x + left.outer.width - 1.0;
+        assert_eq!(left_border, left.hole.x + left.hole.width, "its own pixel");
+        assert_eq!(
+            (left_border, right.outer.x),
+            (744.0, 753.0),
+            "develop's columns"
+        );
     }
 
     #[test]

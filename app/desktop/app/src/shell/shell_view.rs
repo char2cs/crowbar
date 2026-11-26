@@ -67,7 +67,6 @@ pub(crate) struct ShellView {
     pairing: Option<Entity<pairing::View>>,
     device_offer: Option<Entity<pairing::OfferView>>,
     first_run: Option<(events::first_run::landing::Landing, Entity<oobe::View>)>,
-    question: Option<gpui::AnyView>,
     pending_close: Option<pending_close::PendingClose>,
     source: Rc<ShellPaneSource>,
     focus: FocusHandle,
@@ -129,7 +128,6 @@ impl ShellView {
             pairing: None,
             device_offer: None,
             first_run: None,
-            question: None,
             pending_close: None,
             focus,
             keymap: Keymap::defaults(),
@@ -186,7 +184,6 @@ impl ShellView {
             || self.pairing.is_some()
             || self.device_offer.is_some()
             || self.first_run.is_some()
-            || self.question.is_some()
             || self.backend.crash.is_some()
     }
 
@@ -224,11 +221,6 @@ impl ShellView {
             .children(layer(self.folder_import.as_ref()))
             .children(layer(self.pairing.as_ref()))
             .children(layer(self.device_offer.as_ref()))
-            .children(
-                self.question
-                    .clone()
-                    .map(|view| div().absolute().inset_0().child(view)),
-            )
             .children(layer(Some(&self.startup).filter(|gate| gate.read(cx).covers())).map(solid))
             .children(self.readout.view.clone().map(solid))
             .children(
