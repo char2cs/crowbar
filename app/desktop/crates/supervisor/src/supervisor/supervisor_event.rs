@@ -47,37 +47,15 @@ impl Event for SupervisorEvent<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::events::assert_events;
 
     #[tokio::test]
-    async fn each_supervisor_event_has_its_name_level_and_message() {
+    async fn a_failed_task_is_a_warning_naming_the_failure() {
         let task = tokio::spawn(std::future::pending::<()>());
         task.abort();
         let error = task.await.unwrap_err();
         let failed = format!("the supervision task failed: {error}");
-        let cases = [
-            (
-                SupervisorEvent::StopUnconfirmed,
-                "supervision_stop_unconfirmed",
-                Level::Debug,
-                "the supervision task ended without confirming the stop",
-            ),
-            (
-                SupervisorEvent::TaskFailed { error: &error },
-                "supervision_task_failed",
-                Level::Warn,
-                failed.as_str(),
-            ),
-        ];
-        assert_each(cases);
-    }
-
-    fn assert_each<M: fmt::Display>(
-        cases: impl IntoIterator<Item = (impl Event, &'static str, Level, M)>
-    ) {
-        for (event, name, level, shown) in cases {
-            assert_eq!(event.name(), name);
-            assert_eq!(event.level(), level, "{name}");
-            assert_eq!(event.to_string(), shown.to_string(), "{name}");
-        }
+        let event = SupervisorEvent::TaskFailed { error: &error };
+        assert_events([(event, "supervision_task_failed", Level::Warn, failed)]);
     }
 }

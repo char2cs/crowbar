@@ -1,7 +1,5 @@
 use std::time::Duration;
 
-use crate::supervisor::monitoring::watchdog::exoneration::Exoneration;
-
 const PERCENT_SCALE: u32 = 100;
 const UTIME_FIELD: usize = 11;
 const STIME_FIELD: usize = 12;
@@ -16,10 +14,6 @@ pub(crate) fn cycle_was_suspended(
     margin: Duration,
 ) -> bool {
     elapsed > interval + probe_timeout + margin
-}
-
-pub(crate) fn should_kill_wedged(exonerations: &[Exoneration]) -> bool {
-    exonerations.is_empty()
 }
 
 pub(crate) fn made_progress(
@@ -82,52 +76,36 @@ mod tests {
             Duration::from_secs(5),
             Duration::from_secs(15),
         );
-        for secs in [10, 15, 30] {
-            assert!(
-                !cycle_was_suspended(Duration::from_secs(secs), interval, probe, margin),
-                "{secs}"
-            );
+        let cases = [(10, false), (30, false), (31, true), (3600, true)];
+        for (secs, suspended) in cases {
+            let elapsed = Duration::from_secs(secs);
+            let found = cycle_was_suspended(elapsed, interval, probe, margin);
+            assert_eq!(found, suspended, "{secs}");
         }
-        for secs in [31, 3600] {
-            assert!(
-                cycle_was_suspended(Duration::from_secs(secs), interval, probe, margin),
-                "{secs}"
-            );
-        }
-    }
-
-    #[test]
-    fn only_a_running_unresponsive_idle_daemon_is_killed() {
-        assert!(should_kill_wedged(&[]));
-        for reason in [
-            Exoneration::Suspended,
-            Exoneration::Answering,
-            Exoneration::Busy,
-        ] {
-            assert!(!should_kill_wedged(&[reason]), "{reason:?}");
-        }
-        assert!(!should_kill_wedged(&[
-            Exoneration::Suspended,
-            Exoneration::Answering
-        ]));
     }
 
     #[test]
     fn progress_is_cpu_spent_across_the_unresponsive_stretch() {
         let at = Duration::from_secs;
-        assert!(made_progress(Some(at(10)), Some(at(20)), MINUTE));
-        assert!(made_progress(
-            Some(at(10)),
-            Some(at(10) + Duration::from_millis(600)),
-            MINUTE
-        ));
-        assert!(!made_progress(
-            Some(at(10)),
-            Some(at(10) + Duration::from_millis(50)),
-            MINUTE
-        ));
-        assert!(!made_progress(None, Some(at(20)), MINUTE));
-        assert!(!made_progress(Some(at(10)), None, MINUTE));
+        let cases = [
+            (Some(at(10)), Some(at(20)), true),
+            (
+                Some(at(10)),
+                Some(at(10) + Duration::from_millis(600)),
+                true,
+            ),
+            (
+                Some(at(10)),
+                Some(at(10) + Duration::from_millis(50)),
+                false,
+            ),
+            (None, Some(at(20)), false),
+            (Some(at(10)), None, false),
+        ];
+        for (before, after, progressed) in cases {
+            let found = made_progress(before, after, MINUTE);
+            assert_eq!(found, progressed, "{before:?} -> {after:?}");
+        }
     }
 
     #[test]

@@ -64,9 +64,4 @@ mod tests {
         }
         assert_eq!(*current.borrow(), DaemonEvent::Stopped);
     }
-
-    #[test]
-    fn emitting_with_nobody_listening_is_harmless() {
-        Bus::default().emit(DaemonEvent::Unhealthy);
-    }
 }

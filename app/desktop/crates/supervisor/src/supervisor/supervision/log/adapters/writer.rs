@@ -95,24 +95,15 @@ mod tests {
 
     #[test]
     #[ignore = "real-infra: the log file adapter itself: 0600 mode, rotation and size cap on a real file"]
-    fn text_is_appended_and_the_file_is_private_to_the_user() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("daemon.log");
-        let mut writer = Writer::open(&path, 1 << 20).unwrap();
-        writer.append("one\n").unwrap();
-        writer.append("two\n").unwrap();
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "one\ntwo\n");
-        assert_eq!(mode(&path), 0o600);
-    }
-
-    #[test]
-    #[ignore = "real-infra: the log file adapter itself: 0600 mode, rotation and size cap on a real file"]
-    fn an_existing_log_with_wider_permissions_is_narrowed() {
+    fn text_is_appended_and_a_wider_log_is_narrowed_to_the_user() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("daemon.log");
         std::fs::write(&path, b"old\n").unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
-        Writer::open(&path, 1 << 20).unwrap();
+        let mut writer = Writer::open(&path, 1 << 20).unwrap();
+        writer.append("one\n").unwrap();
+        writer.append("two\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "old\none\ntwo\n");
         assert_eq!(mode(&path), 0o600);
     }
 

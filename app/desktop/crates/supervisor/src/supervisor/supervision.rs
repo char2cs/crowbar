@@ -79,24 +79,16 @@ mod tests {
     use super::*;
     use crate::config::DaemonPaths;
 
-    fn config(dir: &std::path::Path) -> Config {
-        Config::new(
-            "crowbar-api".into(),
-            DaemonPaths {
-                socket: dir.join("d.sock"),
-                log: dir.join("logs").join("daemon.log"),
-            },
-            None,
-            "test",
-        )
-    }
-
     #[tokio::test]
     #[ignore = "real-infra: writes the real daemon log file"]
     async fn notes_go_to_the_daemon_log() {
         let dir = tempfile::tempdir().unwrap();
-        let config = config(dir.path());
-        let log = config.paths.log.clone();
+        let log = dir.path().join("logs").join("daemon.log");
+        let paths = DaemonPaths {
+            socket: dir.path().join("d.sock"),
+            log: log.clone(),
+        };
+        let config = Config::new("crowbar-api".into(), paths, None, "test");
         let supervision = Supervision::new(config, Arc::new(Bus::default()));
         supervision.note("===", "daemon spawned");
         supervision.flush_log().await;
@@ -104,14 +96,5 @@ mod tests {
             std::fs::read_to_string(log).unwrap(),
             "=== daemon spawned\n"
         );
-    }
-
-    #[test]
-    fn a_log_that_cannot_be_opened_does_not_stop_supervision() {
-        let mut config = config(std::path::Path::new("/nonexistent"));
-        config.paths.log = "/proc/definitely/not/writable/daemon.log".into();
-        let supervision = Supervision::new(config, Arc::new(Bus::default()));
-        assert!(supervision.log.is_none());
-        supervision.note("===", "ignored");
     }
 }

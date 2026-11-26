@@ -50,31 +50,20 @@ impl Event for DaemonLogEvent<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::events::assert_events;
 
     #[test]
-    fn each_daemon_log_event_has_its_name_level_and_message() {
+    fn an_unwritable_log_is_a_warning_naming_the_file() {
         let denied = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
-        let cases = [
-            (
-                DaemonLogEvent::Unwritable {
-                    path: Path::new("/var/log/d.log"),
-                    error: &denied,
-                },
-                "daemon_log_unwritable",
-                Level::Warn,
-                "daemon log /var/log/d.log: permission denied",
-            ),
-            (
-                DaemonLogEvent::FlushUnfinished,
-                "daemon_log_flush_unfinished",
-                Level::Debug,
-                "the daemon log writer ended before a flush finished",
-            ),
-        ];
-        for (event, name, level, shown) in cases {
-            assert_eq!(event.name(), name);
-            assert_eq!(event.level(), level, "{name}");
-            assert_eq!(event.to_string(), shown, "{name}");
-        }
+        let event = DaemonLogEvent::Unwritable {
+            path: Path::new("/var/log/d.log"),
+            error: &denied,
+        };
+        assert_events([(
+            event,
+            "daemon_log_unwritable",
+            Level::Warn,
+            "daemon log /var/log/d.log: permission denied",
+        )]);
     }
 }

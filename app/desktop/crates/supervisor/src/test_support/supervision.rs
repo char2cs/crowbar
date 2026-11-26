@@ -1,7 +1,12 @@
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
+
+use tokio::sync::broadcast;
 
 use crate::config::Config;
 use crate::config::DaemonPaths;
+use crate::supervisor::DaemonEvent;
 use crate::supervisor::supervision::Supervision;
 use crate::supervisor::supervision::adapters::system_clock::system_clock;
 use crate::supervisor::supervision::bus::Bus;
@@ -22,4 +27,20 @@ pub(crate) fn supervision() -> Supervision {
         clock: system_clock(),
         launches: 0,
     }
+}
+
+/// A config whose binary does not exist, respawned after a millisecond.
+pub(crate) fn missing_binary() -> Config {
+    let paths = DaemonPaths {
+        socket: PathBuf::from("/crowbar-test-missing/d.sock"),
+        log: PathBuf::from("/crowbar-test-missing/d.log"),
+    };
+    let binary = PathBuf::from("/definitely/not/crowbar-api");
+    let mut config = Config::new(binary, paths, None, "test");
+    config.timings.respawn_base = Duration::from_millis(1);
+    config
+}
+
+pub(crate) async fn until_recovering(events: &mut broadcast::Receiver<DaemonEvent>) {
+    while !matches!(events.recv().await, Ok(DaemonEvent::Recovering { .. })) {}
 }
