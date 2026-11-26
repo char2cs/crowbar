@@ -1,20 +1,30 @@
 use std::rc::Rc;
 
 use gpui::{
-    App, FontWeight, IntoElement, ParentElement, RenderOnce, SharedString, Styled, Window, div, px,
+    App, FontWeight, InteractiveElement, IntoElement, ParentElement, RenderOnce, SharedString,
+    StatefulInteractiveElement, Styled, Window, div, px,
 };
-use ui::{Badge, BadgeVariant, Icon, IconName, IconWeight, ScaledText, Surface, Theme, radius};
+use ui::{
+    Badge, BadgeVariant, Button, ButtonSize, Icon, IconName, IconWeight, ScaledText, Surface,
+    Theme, radius,
+};
 
 use crate::actions::Actions;
 use crate::command::Command;
 use crate::report::HaltReason;
-use crate::screens::command_button::CommandButton;
-use crate::screens::detail_box::DetailBox;
-use crate::screens::spacing::{CARD_PADDING, GAP_MD, GAP_SM, TITLE_ICON};
 
 const WIDTH: f32 = 480.0;
 const TINT: f32 = 0.1;
 const TINT_BORDER: f32 = 0.2;
+const GAP_SM: f32 = 8.0;
+const GAP_MD: f32 = 12.0;
+const CARD_PADDING: f32 = 20.0;
+const TITLE_ICON: f32 = 20.0;
+const DETAIL_MAX_HEIGHT: f32 = 160.0;
+const DETAIL_TEXT_SIZE: f32 = 12.0;
+const DETAIL_LINE_HEIGHT_RATIO: f32 = 1.5;
+const DETAIL_PADDING_X: f32 = 10.0;
+const DETAIL_PADDING_Y: f32 = 8.0;
 
 #[derive(IntoElement)]
 pub(crate) struct HaltPanel {
@@ -35,9 +45,7 @@ impl HaltPanel {
             actions: Rc::clone(actions),
         }
     }
-}
 
-impl HaltPanel {
     fn title(theme: &Theme) -> impl IntoElement {
         let destructive = theme.palette(Surface::Window).destructive();
         div()
@@ -66,9 +74,46 @@ impl HaltPanel {
             .children(
                 commands
                     .into_iter()
-                    .map(|command| CommandButton::new(command, Command::Quit, &self.actions)),
+                    .map(|command| command_button(command, Command::Quit, &self.actions)),
             )
     }
+}
+
+fn command_button(
+    command: Command,
+    primary: Command,
+    actions: &Rc<dyn Actions>,
+) -> Button {
+    let actions = Rc::clone(actions);
+    Button::new(command.id(), command.label())
+        .icon(command.icon())
+        .size(ButtonSize::Md)
+        .variant(command.variant(primary))
+        .on_click(move |_, _, cx| actions.perform(command, cx))
+}
+
+fn detail_box(
+    id: &'static str,
+    text: SharedString,
+    cx: &App,
+) -> impl IntoElement + use<> {
+    let palette = Theme::of(cx).palette(Surface::Window);
+    div()
+        .id(id)
+        .w_full()
+        .max_h(px(DETAIL_MAX_HEIGHT))
+        .overflow_y_scroll()
+        .px(px(DETAIL_PADDING_X))
+        .py(px(DETAIL_PADDING_Y))
+        .rounded(radius::MD)
+        .border_1()
+        .border_color(palette.border())
+        .bg(palette.muted())
+        .font_family(Theme::of(cx).mono_family())
+        .text_size(px(DETAIL_TEXT_SIZE))
+        .line_height(px(DETAIL_TEXT_SIZE * DETAIL_LINE_HEIGHT_RATIO))
+        .text_color(palette.foreground())
+        .child(text)
 }
 
 impl RenderOnce for HaltPanel {
@@ -104,7 +149,7 @@ impl RenderOnce for HaltPanel {
             .child(Self::title(&theme))
             .children(reason)
             .child(self.reason.explanation())
-            .child(DetailBox::new("startup-halt-message", self.message.clone()))
+            .child(detail_box("startup-halt-message", self.message.clone(), cx))
             .child(hint)
             .child(self.buttons())
     }
@@ -112,9 +157,7 @@ impl RenderOnce for HaltPanel {
 
 #[cfg(test)]
 mod tests {
-    use std::rc::Rc;
-
-    use gpui::{TestAppContext, px};
+    use gpui::TestAppContext;
 
     use super::*;
     use crate::test_support::{RecordingActions, measure};
@@ -125,15 +168,32 @@ mod tests {
     }
 
     #[gpui::test]
-    fn the_card_has_a_fixed_width(cx: &mut TestAppContext) {
-        let bounds = measure(cx, |_, _| panel(Some("step_failed")));
-        assert_eq!(f32::from(bounds.size.width), WIDTH);
+    fn the_card_has_a_fixed_width_and_a_known_code_adds_a_reason_badge(cx: &mut TestAppContext) {
+        let coded = measure(cx, |_, _| panel(Some("layout_newer")));
+        let uncoded = measure(cx, |_, _| panel(None));
+        assert_eq!(f32::from(coded.size.width), WIDTH);
+        assert!(coded.size.height > uncoded.size.height + px(10.0));
+    }
+
+    fn measured_box(
+        cx: &mut TestAppContext,
+        text: String,
+    ) -> f32 {
+        let boxed = move |_: &mut Window, cx: &mut App| {
+            div()
+                .w(px(400.0))
+                .child(detail_box("box", text.clone().into(), cx))
+        };
+        f32::from(measure(cx, boxed).size.height)
     }
 
     #[gpui::test]
-    fn a_known_code_adds_a_reason_badge(cx: &mut TestAppContext) {
-        let coded = measure(cx, |_, _| panel(Some("layout_newer")));
-        let uncoded = measure(cx, |_, _| panel(None));
-        assert!(coded.size.height > uncoded.size.height + px(10.0));
+    fn the_detail_box_hugs_a_short_message_and_stops_growing_at_its_maximum(
+        cx: &mut TestAppContext
+    ) {
+        let short = measured_box(cx, "step failed".to_owned());
+        let long = measured_box(cx, "line\n".repeat(80));
+        assert!(short < DETAIL_MAX_HEIGHT, "{short}");
+        assert_eq!(long, DETAIL_MAX_HEIGHT);
     }
 }

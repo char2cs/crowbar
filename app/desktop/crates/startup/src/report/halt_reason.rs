@@ -1,7 +1,5 @@
-/// Why the daemon refused to start, from its machine-readable halt code.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum HaltReason {
+pub(crate) enum HaltReason {
     /// The data was written by a newer Crowbar.
     LayoutNewer,
     /// The data layout cannot be read.
@@ -25,8 +23,7 @@ pub enum HaltReason {
 }
 
 impl HaltReason {
-    /// Maps the daemon's halt code.
-    pub fn from_code(code: Option<&str>) -> Self {
+    pub(crate) fn from_code(code: Option<&str>) -> Self {
         match code {
             Some("layout_newer") => Self::LayoutNewer,
             Some("layout_unreadable") => Self::LayoutUnreadable,
@@ -41,8 +38,7 @@ impl HaltReason {
         }
     }
 
-    /// The machine-readable code, when the daemon gave one.
-    pub fn code(&self) -> Option<&str> {
+    pub(crate) fn code(&self) -> Option<&str> {
         match self {
             Self::LayoutNewer => Some("layout_newer"),
             Self::LayoutUnreadable => Some("layout_unreadable"),
@@ -57,8 +53,7 @@ impl HaltReason {
         }
     }
 
-    /// What happened and what to do about it, in a sentence or two.
-    pub fn explanation(&self) -> &'static str {
+    pub(crate) fn explanation(&self) -> &'static str {
         match self {
             Self::LayoutNewer => {
                 "Your data was written by a newer version of Crowbar. Install the latest version to open it."
@@ -94,38 +89,26 @@ impl HaltReason {
 mod tests {
     use super::*;
 
-    const CODES: &[&str] = &[
-        "layout_newer",
-        "layout_unreadable",
-        "ledger_corrupt",
-        "io_failed",
-        "plan_failed",
-        "preflight_failed",
-        "step_failed",
-        "verify_failed",
-        "no_implementation",
-    ];
-
     #[test]
-    fn every_known_code_round_trips_and_explains() {
-        for &code in CODES {
-            let reason = HaltReason::from_code(Some(code));
-            assert!(!matches!(reason, HaltReason::Other(_)), "{code}");
-            assert_eq!(reason.code(), Some(code));
-            assert!(reason.explanation().len() > 20, "{code}");
+    fn known_codes_round_trip_and_explain_and_others_are_kept_for_display() {
+        const CASES: &[(Option<&str>, bool)] = &[
+            (Some("layout_newer"), true),
+            (Some("layout_unreadable"), true),
+            (Some("ledger_corrupt"), true),
+            (Some("io_failed"), true),
+            (Some("plan_failed"), true),
+            (Some("preflight_failed"), true),
+            (Some("step_failed"), true),
+            (Some("verify_failed"), true),
+            (Some("no_implementation"), true),
+            (Some("brand_new"), false),
+            (None, false),
+        ];
+        let generic = HaltReason::Other(None).explanation();
+        for &(code, known) in CASES {
+            let reason = HaltReason::from_code(code);
+            assert_eq!(reason.code(), code);
+            assert_eq!(reason.explanation() != generic, known, "{code:?}");
         }
-    }
-
-    #[test]
-    fn an_unknown_or_missing_code_is_kept_for_display() {
-        assert_eq!(
-            HaltReason::from_code(Some("brand_new")).code(),
-            Some("brand_new")
-        );
-        assert_eq!(HaltReason::from_code(None).code(), None);
-        assert!(matches!(
-            HaltReason::from_code(None),
-            HaltReason::Other(None)
-        ));
     }
 }
