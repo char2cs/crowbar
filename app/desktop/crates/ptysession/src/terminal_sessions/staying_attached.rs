@@ -88,43 +88,20 @@ impl TerminalSessions {
 
 #[cfg(test)]
 mod tests {
-    use async_channel::{Receiver, unbounded};
-    use protocol::PaneId;
-
-    use crate::connection::Connection;
-    use crate::ends::Ends;
     use crate::report::Report;
     use crate::rest::Binding;
-    use crate::rest::SessionPaths;
-    use crate::terminal_sessions::tests::sessions;
     use crate::test_support::{
-        CREATED, NONE_LISTED, daemon_answering, memory_dial, serve_then_drop,
+        CREATED, NONE_LISTED, View, all_reports, daemon_answering, memory_dial, serve_then_drop,
+        sessions,
     };
-
-    async fn every_report(heard: &Receiver<Report>) -> Vec<Report> {
-        let mut told = Vec::new();
-        while let Ok(report) = heard.recv().await {
-            told.push(report);
-        }
-        told
-    }
 
     #[tokio::test]
     async fn a_session_the_daemon_stops_listing_while_its_stream_is_down_is_gone() {
         let (dial, accepted) = memory_dial();
         let daemon = daemon_answering(CREATED, NONE_LISTED);
         let server = tokio::spawn(serve_then_drop(accepted));
-        let (frames, view_frames) = unbounded();
-        let (_view_messages, messages) = unbounded();
-        let (reports, heard) = unbounded();
-        let connection = Connection {
-            pane: PaneId::new("t1").unwrap(),
-            ends: Ends { frames, messages },
-            reports,
-        };
-        let base = SessionPaths::chat("c1").unwrap();
-        sessions(&daemon, dial).open(base, Binding::Create, connection);
-        let told = every_report(&heard).await;
+        let view = View::open(&sessions(&daemon, dial), Binding::Create);
+        let told = all_reports(&view.reports).await;
         server.abort();
         assert_eq!(told, [Report::Bound("s1".into()), Report::Gone]);
         let seen = daemon.seen.lock().unwrap().clone();
@@ -133,6 +110,5 @@ mod tests {
             ["POST /v0/chats/c1/terminals", "GET /v0/chats/c1/terminals"],
             "not killed"
         );
-        drop(view_frames);
     }
 }

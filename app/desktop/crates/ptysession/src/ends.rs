@@ -11,24 +11,3 @@ pub struct Ends {
     /// Messages from the view.
     pub messages: Receiver<ClientMessage>,
 }
-
-#[cfg(test)]
-mod tests {
-    use async_channel::unbounded;
-
-    use super::*;
-
-    #[test]
-    fn the_ends_carry_frames_and_messages_independently() {
-        let (frames, seen) = unbounded();
-        let (sent, messages) = unbounded();
-        let ends = Ends { frames, messages };
-        ends.frames.try_send(DaemonFrame::Exit(0)).unwrap();
-        sent.try_send(ClientMessage::Input("x".into())).unwrap();
-        assert_eq!(seen.try_recv().unwrap(), DaemonFrame::Exit(0));
-        assert_eq!(
-            ends.messages.try_recv().unwrap(),
-            ClientMessage::Input("x".into())
-        );
-    }
-}

@@ -69,9 +69,10 @@ mod tests {
             ),
         ];
         for (event, name, level, message) in cases {
-            assert_eq!(event.name(), name);
-            assert_eq!(event.level(), level);
-            assert_eq!(event.to_string(), message);
+            assert_eq!(
+                (event.name(), event.level(), event.to_string().as_str()),
+                (name, level, message)
+            );
         }
     }
 }
