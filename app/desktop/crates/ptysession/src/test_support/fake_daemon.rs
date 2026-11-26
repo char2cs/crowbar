@@ -5,7 +5,6 @@ use std::sync::{Arc, Mutex};
 use protocol::{
     DaemonRequest, DaemonResponse, DaemonTransport, RelayEndpoint, RelayScope, Responder,
 };
-use tokio::sync::Notify;
 
 /// The status of a created session.
 pub(crate) const CREATED: u16 = 201;
@@ -26,8 +25,7 @@ const REFUSED: &str = r#"{"success":false,"error":"injected"}"#;
 /// Creates session `s1` with `create_status`, lists `listed`, and notes each call.
 pub(crate) struct FakeDaemon {
     pub(crate) seen: Mutex<Vec<String>>,
-    pub(crate) deleted: Notify,
-    create_status: u16,
+    create: (u16, &'static str),
     listed: &'static str,
     kill: (u16, &'static str),
 }
@@ -53,14 +51,24 @@ pub(crate) fn daemon_answering(
     Arc::new(fake(create_status, listed))
 }
 
+/// A daemon answering creation with `status` and `body`.
+pub(crate) fn daemon_creating(
+    status: u16,
+    body: &'static str,
+) -> Arc<FakeDaemon> {
+    Arc::new(FakeDaemon {
+        create: (status, body),
+        ..fake(CREATED, LISTED)
+    })
+}
+
 fn fake(
     create_status: u16,
     listed: &'static str,
 ) -> FakeDaemon {
     FakeDaemon {
         seen: Mutex::default(),
-        deleted: Notify::new(),
-        create_status,
+        create: (create_status, MADE),
         listed,
         kill: (OK, EMPTY),
     }
@@ -77,13 +85,10 @@ impl DaemonTransport for FakeDaemon {
         self.seen.lock().unwrap().push(line);
         let (status, body) = match method.as_str() {
             "GET" => (OK, self.listed),
-            "POST" => (self.create_status, MADE),
+            "POST" => self.create,
             "DELETE" => self.kill,
             _ => (OK, EMPTY),
         };
-        if method == "DELETE" {
-            self.deleted.notify_one();
-        }
         respond(Ok(DaemonResponse::new(status, Vec::new(), body.into())));
     }
 

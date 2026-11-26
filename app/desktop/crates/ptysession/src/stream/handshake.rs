@@ -42,14 +42,6 @@ mod tests {
         ("line\nbreak", false),
     ];
 
-    fn succeeded() -> std::future::Ready<std::result::Result<u8, std::fmt::Error>> {
-        std::future::ready(Ok(7))
-    }
-
-    fn refused() -> std::future::Ready<std::result::Result<u8, std::fmt::Error>> {
-        std::future::ready(Err(std::fmt::Error))
-    }
-
     #[test]
     fn header_values_reject_control_characters() {
         for (value, valid) in HEADER_CASES {
@@ -59,9 +51,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_finished_attempt_returns_its_value_or_a_stream_error() {
-        let done = within(succeeded()).await;
+        let done = within(std::future::ready(Ok::<u8, std::fmt::Error>(7))).await;
         assert_eq!(done.unwrap(), 7);
-        let failed = within(refused()).await;
+        let failed = within(std::future::ready(Err::<u8, _>(std::fmt::Error))).await;
         assert!(matches!(failed, Err(Error::Stream(_))));
     }
 }

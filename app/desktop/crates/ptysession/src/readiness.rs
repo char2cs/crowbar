@@ -27,9 +27,7 @@ impl Readiness {
         Self(Arc::new(wait))
     }
 
-    /// A daemon whose readiness is not this shell's to know: sessions bind at once.
-    #[must_use]
-    pub fn immediate() -> Self {
+    pub(crate) fn immediate() -> Self {
         Self::new(|| Box::pin(async {}))
     }
 
@@ -40,20 +38,12 @@ impl Readiness {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use async_channel::unbounded;
-    use protocol::{DaemonTransport, HostId, PaneId};
-    use tokio::runtime::Handle;
     use tokio::sync::watch;
 
     use super::*;
-    use crate::connection::Connection;
-    use crate::ends::Ends;
     use crate::report::Report;
-    use crate::rest::{Binding, Rest, SessionPaths};
-    use crate::terminal_sessions::TerminalSessions;
-    use crate::test_support::{FakeDaemon, daemon, refusing_dial};
+    use crate::rest::Binding;
+    use crate::test_support::{View, daemon, refusing_dial, sessions};
 
     const SETTLE_TURNS: usize = 16;
 
@@ -63,59 +53,35 @@ mod tests {
         Serving,
     }
 
-    fn gated(phase: &watch::Sender<Phase>) -> Readiness {
-        let phase = phase.subscribe();
-        Readiness::new(move || Box::pin(serving(phase.clone())))
-    }
-
-    async fn serving(mut phase: watch::Receiver<Phase>) {
-        phase.wait_for(|now| *now == Phase::Serving).await.unwrap();
-    }
-
     async fn settle() {
         for _ in 0..SETTLE_TURNS {
             tokio::task::yield_now().await;
         }
     }
 
-    fn open_terminal(
-        daemon: &Arc<FakeDaemon>,
-        ready: Readiness,
-    ) -> (
-        async_channel::Receiver<Report>,
-        async_channel::Sender<terminal::ClientMessage>,
-    ) {
-        let transport: Arc<dyn DaemonTransport> = Arc::<FakeDaemon>::clone(daemon);
-        let rest = Rest {
-            transport,
-            host: HostId::new("local").unwrap(),
-        };
-        let sessions =
-            TerminalSessions::dialing(rest, Handle::current(), "crowbar://local", refusing_dial());
-        let (frames, _view_frames) = unbounded();
-        let (view_messages, messages) = unbounded();
-        let (reports, heard) = unbounded();
-        let connection = Connection {
-            pane: PaneId::new("t1").unwrap(),
-            ends: Ends { frames, messages },
-            reports,
-        };
-        let base = SessionPaths::chat("c1").unwrap();
-        sessions.once(ready).open(base, Binding::Create, connection);
-        (heard, view_messages)
+    async fn serving(mut phase: watch::Receiver<Phase>) {
+        phase.wait_for(|now| *now == Phase::Serving).await.unwrap();
     }
 
     #[tokio::test]
     async fn a_session_asks_nothing_of_a_starting_daemon_and_binds_once_it_serves() {
         let daemon = daemon();
-        let (phase, _) = watch::channel(Phase::Starting);
-        let (heard, _view) = open_terminal(&daemon, gated(&phase));
+        let (phase_now, _) = watch::channel(Phase::Starting);
+        let phase = phase_now.subscribe();
+        let ready = Readiness::new(move || Box::pin(serving(phase.clone())));
+        let view = View::open(
+            &sessions(&daemon, refusing_dial()).once(ready),
+            Binding::Create,
+        );
         settle().await;
         assert!(
             daemon.seen.lock().unwrap().is_empty(),
             "asked a starting daemon"
         );
-        phase.send_replace(Phase::Serving);
-        assert_eq!(heard.recv().await.ok(), Some(Report::Bound("s1".into())));
+        phase_now.send_replace(Phase::Serving);
+        assert_eq!(
+            view.reports.recv().await.ok(),
+            Some(Report::Bound("s1".into()))
+        );
     }
 }
