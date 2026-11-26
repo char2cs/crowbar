@@ -11,8 +11,10 @@ mod placed;
 #[cfg(target_os = "linux")]
 mod remembered_place;
 #[cfg(target_os = "linux")]
+mod view_cutout;
 mod view_ops;
 
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -20,7 +22,7 @@ use std::sync::Arc;
 use gtk::glib::prelude::ObjectExt as _;
 use gtk::glib::{self, Cast as _, Propagation};
 use gtk::prelude::{GtkWindowExt as _, WidgetExt as _};
-use platform::{FocusChange, InputFocus, XlibParent};
+use platform::{FocusChange, InputFocus, PageShape, XlibParent};
 use protocol::ExtensionId;
 use wry::{WebContext, WebView, WebViewBuilder, WebViewBuilderExtUnix, WebViewExtUnix};
 
@@ -101,13 +103,18 @@ pub(crate) struct GtkState {
     browser_context: WebContext,
     extension_contexts: HashMap<ExtensionId, WebContext>,
     keyboard: InputFocus,
+    shape: PageShape,
     pub(crate) views: HashMap<Id, LiveView>,
 }
 
 impl GtkState {
+    pub(crate) fn page_shape(&self) -> &PageShape {
+        &self.shape
+    }
+
     pub(crate) fn new(
         config: HostConfig,
-        keyboard: InputFocus,
+        (keyboard, shape): (InputFocus, PageShape),
     ) -> Self {
         let core_dir = config.data_dir.as_ref().map(|dir| dir.join("core"));
         let browser_dir = config.data_dir.as_ref().map(|dir| dir.join(BROWSER_DIR));
@@ -119,6 +126,7 @@ impl GtkState {
             data_dir: config.data_dir,
             extension_contexts: HashMap::new(),
             keyboard,
+            shape,
             views: HashMap::new(),
         }
     }
@@ -159,6 +167,8 @@ impl GtkState {
             place: RememberedPlace::new(wanted),
             page_window,
             parent: window,
+            shown: Cell::new(config.visibility),
+            hole: Cell::new(None),
         };
         page_focus::give_keys([&live], page_focus::NOBODY);
         self.views.insert(id, live);
@@ -314,7 +324,11 @@ mod tests {
             protocol,
             data_dir: None,
         };
-        GtkState::new(config, InputFocus::connect().unwrap())
+        let x = (
+            InputFocus::connect().unwrap(),
+            PageShape::connect().unwrap(),
+        );
+        GtkState::new(config, x)
     }
 
     fn config_at(

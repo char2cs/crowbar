@@ -5,4 +5,7 @@ pub enum Visibility {
     Shown,
     /// Not drawn, still loaded.
     Hidden,
+    /// Not seen: the shell draws over it, and it returns without the blank frame a hidden view
+    /// shows when it is drawn again.
+    Covered,
 }

@@ -73,6 +73,16 @@ pub enum Error {
     #[cfg(target_os = "linux")]
     #[error("cannot place a float window: {0}")]
     Float(#[from] x11rb::errors::ReplyError),
+    /// The X server would not cut a hole out of a web view's window.
+    #[cfg(target_os = "linux")]
+    #[error("cannot shape the web view window {window:#x}: {source}")]
+    Cutout {
+        /// The window to shape.
+        window: u32,
+        /// The failure.
+        #[source]
+        source: x11rb::errors::ReplyError,
+    },
     /// A float window or its owner is not an X window.
     #[cfg(target_os = "linux")]
     #[error("the window is not an X window")]

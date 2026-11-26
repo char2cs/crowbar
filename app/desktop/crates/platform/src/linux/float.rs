@@ -1,9 +1,8 @@
-//! The windows that float above a shell window: placing, shaping and focusing them.
+//! The pop-up window that floats above a shell window: placing and shaping it.
 
-mod atoms;
 mod card;
 mod float_placer;
-mod region;
+pub(crate) mod region;
 
 pub use card::Card;
 pub use float_placer::FloatPlacer;

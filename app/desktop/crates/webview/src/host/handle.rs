@@ -58,20 +58,28 @@ impl Handle {
         self.platform.set_bounds(self.id, bounds)
     }
 
-    /// Draws the view.
+    /// Cuts `hole`, in logical pixels from the view's top-left corner, out of the view so the
+    /// window under it shows there and takes the pointer; `None` makes the view whole again.
     ///
     /// # Errors
     /// An [`Error`](crate::Error) when the backend has stopped.
-    pub fn show(&self) -> Result<()> {
-        self.platform.set_visibility(self.id, Visibility::Shown)
+    pub fn set_cutout(
+        &self,
+        hole: Option<Bounds>,
+    ) -> Result<()> {
+        self.platform.set_cutout(self.id, hole)
     }
 
-    /// Stops drawing the view; the page stays loaded and is not told.
+    /// Draws the view, stops drawing it while the page stays loaded and is not told, or covers
+    /// it while the shell draws over it.
     ///
     /// # Errors
     /// An [`Error`](crate::Error) when the backend has stopped.
-    pub fn hide(&self) -> Result<()> {
-        self.platform.set_visibility(self.id, Visibility::Hidden)
+    pub fn set_visibility(
+        &self,
+        visibility: Visibility,
+    ) -> Result<()> {
+        self.platform.set_visibility(self.id, visibility)
     }
 
     /// Changes the colour shown where the page has not painted.
@@ -149,11 +157,24 @@ mod tests {
     }
 
     #[test]
-    fn show_and_hide_only_change_visibility() {
+    fn showing_hiding_and_covering_only_change_visibility() {
         type Change = fn(&Handle);
-        let cases: [(&str, Change, Visibility); 2] = [
-            ("hide", |view| view.hide().unwrap(), Visibility::Hidden),
-            ("show", |view| view.show().unwrap(), Visibility::Shown),
+        let cases: [(&str, Change, Visibility); 3] = [
+            (
+                "hide",
+                |view| view.set_visibility(Visibility::Hidden).unwrap(),
+                Visibility::Hidden,
+            ),
+            (
+                "show",
+                |view| view.set_visibility(Visibility::Shown).unwrap(),
+                Visibility::Shown,
+            ),
+            (
+                "cover",
+                |view| view.set_visibility(Visibility::Covered).unwrap(),
+                Visibility::Covered,
+            ),
         ];
         for (name, change, expected) in cases {
             assert_change_is_visibility_only(name, change, expected);

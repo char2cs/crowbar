@@ -7,13 +7,13 @@ use objc2_foundation::MainThreadMarker;
 use platform::AppkitParent;
 use wry::{WebView, WebViewBuilder, WebViewBuilderExtDarwin};
 
-use crate::backend::desktop::alert_asking::AlertAsking;
 use crate::backend::host_config::HostConfig;
 use crate::backend::native::macos::data_store::{BROWSER_STORE, store_identifier};
 use crate::backend::native::wry_builder::{common_attributes, register_scheme, to_rect};
 use crate::backend::platform::Platform;
 use crate::backend::view::page_control::PageControl;
 use crate::backend::view::view_capture::ViewCapture;
+use crate::backend::view::view_cutout::ViewCutout;
 use crate::backend::view::view_focus::ViewFocus;
 use crate::backend::view::view_layout::ViewLayout;
 use crate::backend::view::view_lifecycle::ViewLifecycle;
@@ -168,8 +168,8 @@ impl Platform for AppkitPlatform {}
 
 impl ViewCapture for AppkitPlatform {}
 
-// PLATFORM: macos the shell keeps its drawn dialogs until NSAlert is wired.
-impl AlertAsking for AppkitPlatform {}
+// PLATFORM: macos a hole needs the web view's layer masked and its hit test answered by the shell's view; not cut yet.
+impl ViewCutout for AppkitPlatform {}
 
 impl ViewFocus for AppkitPlatform {
     fn focus(

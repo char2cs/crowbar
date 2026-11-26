@@ -42,6 +42,13 @@ pub enum Call {
         /// The new visibility.
         visibility: Visibility,
     },
+    /// A hole was cut out of a view, or the view was made whole.
+    SetCutout {
+        /// The view.
+        id: Id,
+        /// The hole, in logical pixels from the view's top-left corner.
+        hole: Option<Bounds>,
+    },
     /// A view got another colour to show before its page paints.
     SetBackground {
         /// The view.

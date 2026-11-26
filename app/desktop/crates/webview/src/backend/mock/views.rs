@@ -4,6 +4,7 @@ use crate::backend::desktop::desktop_settings::DesktopSettings;
 use crate::backend::mock::call::Call;
 use crate::backend::mock::mock_platform::MockPlatform;
 use crate::backend::view::browsing_data::BrowsingData;
+use crate::backend::view::view_cutout::ViewCutout;
 use crate::backend::view::view_focus::ViewFocus;
 use crate::backend::view::view_layout::ViewLayout;
 use crate::backend::view::view_lifecycle::ViewLifecycle;
@@ -84,6 +85,18 @@ impl ViewLayout for MockPlatform {
     ) -> Result<()> {
         self.require_live(id)?;
         self.record(Call::SetBackground { id, color });
+        Ok(())
+    }
+}
+
+impl ViewCutout for MockPlatform {
+    fn set_cutout(
+        &self,
+        id: Id,
+        hole: Option<Bounds>,
+    ) -> Result<()> {
+        self.require_live(id)?;
+        self.record(Call::SetCutout { id, hole });
         Ok(())
     }
 }

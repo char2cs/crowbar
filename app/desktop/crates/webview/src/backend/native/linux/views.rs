@@ -6,6 +6,7 @@ use crate::backend::native::linux::create_reply::CreateReply;
 use crate::backend::native::linux::gtk_platform::{GtkPlatform, log_failure};
 use crate::backend::native::linux::gtk_state::GtkState;
 use crate::backend::view::browsing_data::BrowsingData;
+use crate::backend::view::view_cutout::ViewCutout;
 use crate::backend::view::view_focus::ViewFocus;
 use crate::backend::view::view_layout::ViewLayout;
 use crate::backend::view::view_lifecycle::ViewLifecycle;
@@ -92,6 +93,16 @@ impl ViewLayout for GtkPlatform {
         self.post_logged("set_background", move |state| {
             state.set_background(id, color)
         })
+    }
+}
+
+impl ViewCutout for GtkPlatform {
+    fn set_cutout(
+        &self,
+        id: Id,
+        hole: Option<Bounds>,
+    ) -> Result<()> {
+        self.post_logged("set_cutout", move |state| state.set_cutout(id, hole))
     }
 }
 
