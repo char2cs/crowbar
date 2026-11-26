@@ -73,6 +73,17 @@ jobs:
           name: nightly-daemon-${{ matrix.os }}
           path: dist/
 
+  desktop:
+    needs: derive-version
+    uses: ./.github/workflows/desktop-build.yml
+    secrets: inherit
+    with:
+      ref: develop
+      version: ${{ needs.derive-version.outputs.version }}-nightly
+      channel: nightly
+      timestamp: ${{ needs.derive-version.outputs.timestamp }}
+      artifact-prefix: nightly
+
   ios:
     needs: derive-version
     uses: ./.github/workflows/ios-build.yml
@@ -84,7 +95,7 @@ jobs:
       timestamp: ${{ needs.derive-version.outputs.timestamp }}
 
   publish:
-    needs: [derive-version, daemon, ios]
+    needs: [derive-version, daemon, desktop, ios]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

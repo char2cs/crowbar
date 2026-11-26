@@ -81,6 +81,17 @@ jobs:
           name: daemon-binaries-${{ matrix.os }}
           path: dist/
 
+  desktop:
+    needs: derive-tag
+    uses: ./.github/workflows/desktop-build.yml
+    secrets: inherit
+    with:
+      version: ${{ needs.derive-tag.outputs.version }}
+      channel: beta
+      build-version: ${{ needs.derive-tag.outputs.tag }}
+      timestamp: ${{ needs.derive-tag.outputs.timestamp }}
+      artifact-prefix: desktop
+
   ios:
     needs: derive-tag
     uses: ./.github/workflows/ios-build.yml
@@ -92,7 +103,7 @@ jobs:
       timestamp: ${{ needs.derive-tag.outputs.timestamp }}
 
   release:
-    needs: [derive-tag, daemon, ios]
+    needs: [derive-tag, daemon, desktop, ios]
     # All jobs must succeed — no partial pre-releases
     runs-on: ubuntu-latest
     steps:

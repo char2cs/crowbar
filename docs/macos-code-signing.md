@@ -1,20 +1,14 @@
 # macOS Code Signing & Notarization
 
-> **Status (2026-11-17).** Tauri is mobile-only, so `nightly.yml`, `prerelease.yml` and
-> `stable-release.yml` no longer build a macOS DMG or a Linux AppImage/deb. The GPUI desktop
-> shell (`crowbar`) has no release pipeline yet: the owner accepted that as out of
-> scope for now, so none exists and desktop users build it from source
-> (`cd app && cargo build --release -p crowbar`). Packaging, signing and notarizing it
-> is future work; the steps below describe the retired Tauri DMG flow and are kept as the
-> starting point for that work.
-
-Crowbar's macOS DMGs were built by the three release workflows, all of which called
-`app/mobile/scripts/build-macos-dmg.sh`.
+The three release workflows (`nightly.yml`, `prerelease.yml`, `stable-release.yml`) and the
+`package` job of `rust.yml` build the macOS DMG through `.github/workflows/desktop-build.yml`,
+which runs `app/desktop/packaging/package.sh`: it lipos the arm64 and x86_64 builds of the
+`crowbar` shell and the `crowbar-api` daemon into one universal bundle and packages it with
+cargo-packager.
 
 Signing + notarization is **opt-in via GitHub secrets**. Until the six secrets
-below exist, every build produces the same ad-hoc-signed (effectively unsigned)
-DMG it always has. The moment the secrets are present, builds are signed with a
-Developer ID identity, notarized by Apple, and stapled — giving downloaders the
+below exist, every build produces an ad-hoc-signed (effectively unsigned) DMG. The
+moment the secrets are present, builds are signed with a Developer ID identity, notarized by Apple, and stapled — giving downloaders the
 benign _"Crowbar is an app downloaded from the Internet. Are you sure you want to
 open it?"_ Gatekeeper prompt instead of the "unidentified developer" block.
 
@@ -79,33 +73,24 @@ Repo → Settings → Secrets and variables → Actions → **New repository sec
 That's it — the next build on any of the three workflows signs + notarizes
 automatically. No code changes needed.
 
-## First signed run: validate the sidecar
+## First signed run: validate the daemon
 
-Crowbar bundles a Go sidecar (`crowbar-api`) as an `externalBin`. Bundling a
-sidecar is the one part of Tauri macOS signing with a history of sharp edges
-(tauri-apps/tauri#11992 — "the signature of the binary is invalid" during
-notarization). Tauri v2's bundler signs nested binaries as part of bundle signing,
-so this *should* work out of the box, but **the first signed build is the moment to
-confirm it**. If notarization rejects the bundle:
+The bundle carries a second executable, the Go daemon, at `Contents/MacOS/crowbar-api`.
+cargo-packager signs every Mach-O file in the bundle inside out with the Hardened Runtime and
+a secure timestamp before it signs the bundle, so notarization *should* accept it, but **the
+first signed build is the moment to confirm it**. If notarization rejects the bundle:
 
-1. Read the notarization log — the CI output prints a URL / `xcrun notarytool log`
-   command with the exact rejected path.
-2. Confirm the sidecar got the Hardened Runtime + a secure timestamp:
-   `codesign -dvvv --entitlements - <path-to-Crowbar.app>/Contents/Resources/... `
-   and check the sidecar under `Contents/MacOS` / `Contents/Resources`.
-3. If the sidecar is the culprit, the usual fix is to pre-sign it before bundling
-   (`codesign --force --options runtime --timestamp -s "$APPLE_SIGNING_IDENTITY"
-   binaries/crowbar-api-universal-apple-darwin`) in the "Build Go sidecar" step, or
-   bump the pinned Tauri version.
+1. Read the notarization log: the CI output names the rejected path.
+2. Check the daemon's signature:
+   `codesign -dvvv --entitlements - <path-to-Crowbar.app>/Contents/MacOS/crowbar-api`.
 
-Recommended: do one **manual** local `cargo tauri build` with the env vars set
-before relying on CI — signing errors are far easier to read in a local terminal.
+Recommended: run `app/desktop/packaging/package.sh` once on a Mac with the env vars set
+before relying on CI; signing errors are far easier to read in a local terminal.
 
 ## Files involved
 
-- `app/mobile/scripts/build-macos-dmg.sh` — assembles the signing `--config` overlay
-  and runs the build; no-op signing when `APPLE_SIGNING_IDENTITY` is empty.
-- `app/mobile/src-tauri/Entitlements.plist` — Hardened Runtime entitlements (WebView
-  JIT). Required for a notarized Tauri app to launch without crashing.
-- `.github/workflows/{nightly,prerelease,stable-release}.yml` — passed the six
-  secrets into the build step's environment before the desktop jobs were removed.
+- `app/desktop/packaging/package.sh` builds and packages; it turns signing on only when
+  `APPLE_SIGNING_IDENTITY` is set, and otherwise ad-hoc signs the bundle with `adhoc-sign.sh`.
+- `app/desktop/packaging/packager.json`: the cargo-packager configuration.
+- `app/desktop/packaging/Entitlements.plist`: Hardened Runtime entitlements (WebView JIT).
+- `.github/workflows/desktop-build.yml`: passes the six secrets into the packaging step.
