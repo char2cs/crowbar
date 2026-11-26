@@ -8,18 +8,8 @@ license-file.workspace = true
 repository.workspace = true
 publish.workspace = true
 
-[features]
-# DemoShell of the sidebar crate, for the gallery.
-fixtures = ["sidebar/fixtures"]
-
-[[bin]]
-name = "sidebargallery"
-path = "src/bin/gallery/main.rs"
-required-features = ["fixtures"]
-
 [dependencies]
 gpui.workspace = true
-gpui_platform.workspace = true
 sidebar.workspace = true
 tracing.workspace = true
 ui.workspace = true

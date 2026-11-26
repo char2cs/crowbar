@@ -10,7 +10,6 @@ publish.workspace = true
 
 [dependencies]
 gpui.workspace = true
-gpui_platform.workspace = true
 ideshell.workspace = true
 layout.workspace = true
 protocol.workspace = true

@@ -4503,7 +4503,6 @@ name = "layoutview"
 version = "0.1.0"
 dependencies = [
  "gpui-pre",
- "gpui-pre-platform",
  "ideshell",
  "layout",
  "protocol",
@@ -7616,7 +7615,6 @@ version = "0.1.0"
 dependencies = [
  "chord",
  "gpui-pre",
- "gpui-pre-platform",
  "settings",
  "thiserror 2.0.21",
  "ui",
@@ -7712,7 +7710,6 @@ name = "sidebarview"
 version = "0.1.0"
 dependencies = [
  "gpui-pre",
- "gpui-pre-platform",
  "sidebar",
  "tracing",
  "ui",
@@ -7941,7 +7938,6 @@ name = "startup"
 version = "0.1.0"
 dependencies = [
  "gpui-pre",
- "gpui-pre-platform",
  "thiserror 2.0.21",
  "ui",
 ]
@@ -8318,14 +8314,10 @@ dependencies = [
 name = "terminalview"
 version = "0.1.0"
 dependencies = [
- "alacritty_terminal",
  "async-channel",
  "gpui-pre",
- "gpui-pre-platform",
- "rustix",
  "terminal",
  "tracing",
- "tracing-subscriber",
  "ui",
 ]
 
@@ -9229,7 +9221,6 @@ name = "viewtabs"
 version = "0.1.0"
 dependencies = [
  "gpui-pre",
- "gpui-pre-platform",
  "layout",
  "protocol",
  "ui",
