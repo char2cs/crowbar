@@ -1,6 +1,5 @@
 //! Pointer gestures on the row: strip drags, drag sessions, presses, settling, tab drops, incoming drops and new tabs.
 
-pub(crate) mod band;
 mod drag_session;
 mod held_gap;
 mod incoming_drop;

@@ -80,7 +80,7 @@ impl TabBar {
             return;
         };
         let line = self.line_x(drop);
-        let (now, motion) = (self.clock.now(), Motion::of(cx));
+        let (now, motion) = ((self.clock)(), Motion::of(cx));
         match &mut self.incoming {
             Some(incoming) => incoming.move_to(drop, line, (now, motion)),
             None => self.incoming = Some(IncomingDrop::new(drop, line)),
@@ -220,10 +220,7 @@ mod tests {
         assert_eq!(events.borrow().as_slice(), &[Event::Apply(expected)]);
         let settle = bar.read_with(cx, |bar, cx| {
             let settle = bar.settle.as_ref()?;
-            Some((
-                settle.tab,
-                settle.offset(bar.clock.now(), ui::Motion::of(cx)),
-            ))
+            Some((settle.tab, settle.offset((bar.clock)(), ui::Motion::of(cx))))
         });
         let (tab, from) = settle.expect("the new tab settles");
         assert_eq!(tab, TabId(50), "the new tab");

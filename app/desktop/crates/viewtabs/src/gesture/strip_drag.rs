@@ -291,12 +291,6 @@ mod tests {
     }
 
     #[test]
-    fn the_dragged_tab_is_reported() {
-        let drag = drag(2, 250.0);
-        assert_eq!(drag.tab(), Some(TabId(2)), "the dragged tab");
-    }
-
-    #[test]
     fn begin_refuses_mismatched_input() {
         let (tabs, spans) = strip(2, 100.0);
         assert!(

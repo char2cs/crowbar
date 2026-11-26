@@ -17,4 +17,4 @@ mod test_support;
 pub use event::Event;
 pub use gesture::TabDrop;
 pub use pill::{MemberGlyph, MemberKind, MemberView, TabView};
-pub use tab_bar::{Clock, SidebarState, TabBar};
+pub use tab_bar::{SidebarState, TabBar};

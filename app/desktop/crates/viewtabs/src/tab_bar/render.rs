@@ -21,7 +21,7 @@ use crate::tab_bar::TabBar;
 use crate::tab_bar::pointer::follow_pointer;
 use crate::tab_bar::sidebar_glyph::SidebarGlyph;
 use crate::tab_bar::sidebar_state::SidebarState;
-use crate::tab_bar::window_grip::{row_height, window_grip};
+use crate::tab_bar::{row_height, window_grip};
 
 const DROP_LINE_INSET: f32 = 4.0;
 
@@ -31,7 +31,7 @@ impl Render for TabBar {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
-        let (now, motion) = (self.clock.now(), Motion::of(cx));
+        let (now, motion) = ((self.clock)(), Motion::of(cx));
         if self.is_animating(now, motion) {
             window.request_animation_frame();
         }
@@ -350,7 +350,7 @@ mod tests {
             bar.hover_at((over_tab_two, Some(&subject)), cx);
         });
         let shifts = bar.read_with(cx, |bar, cx| {
-            let at = (bar.clock.now(), ui::Motion::of(cx));
+            let at = ((bar.clock)(), ui::Motion::of(cx));
             [bar.shift(0, TabId(1), at), bar.shift(1, TabId(2), at)]
         });
         assert_eq!(shifts, [0.0, 200.0], "tab two makes room for a third");
@@ -359,7 +359,7 @@ mod tests {
             bar.hover_at((off_the_strip, Some(&subject)), cx);
         });
         let shifts = bar.read_with(cx, |bar, cx| {
-            let at = (bar.clock.now(), ui::Motion::of(cx));
+            let at = ((bar.clock)(), ui::Motion::of(cx));
             [bar.shift(0, TabId(1), at), bar.shift(1, TabId(2), at)]
         });
         assert_eq!(shifts, [0.0, 0.0], "the gap closes off the strip");
