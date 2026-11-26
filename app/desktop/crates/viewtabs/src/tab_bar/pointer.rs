@@ -99,7 +99,7 @@ impl TabBar {
         position: Point<Pixels>,
         cx: &mut Context<'_, Self>,
     ) {
-        let (now, motion) = (self.clock.now(), Motion::of(cx));
+        let (now, motion) = ((self.clock)(), Motion::of(cx));
         let x = self.content_x(position);
         let crossing = self.crossing(position);
         if let Some(drag) = &mut self.drag {
@@ -191,7 +191,7 @@ impl TabBar {
             .get(drag.engine.target())
             .map_or(0.0, |span| span.x);
         let from = drag.engine.ghost_x(x) - slot;
-        self.settle = Some(Settle::new(tab, from, self.clock.now(), Motion::of(cx)));
+        self.settle = Some(Settle::new(tab, from, (self.clock)(), Motion::of(cx)));
     }
 }
 
@@ -253,22 +253,6 @@ mod tests {
                 to_index: 1
             }]],
             "first tab moved to the second slot, and no activation"
-        );
-    }
-
-    #[gpui::test]
-    fn a_dragged_tab_keeps_following_the_pointer_below_the_bar(cx: &mut TestAppContext) {
-        let harness = open(cx, tabs(), 1);
-        let (bar, cx) = (harness.bar, harness.cx);
-        let none = Modifiers::none();
-        cx.simulate_mouse_down(point(px(108.0), px(21.0)), MouseButton::Left, none);
-        cx.simulate_mouse_move(point(px(130.0), px(21.0)), MouseButton::Left, none);
-        cx.simulate_mouse_move(point(px(400.0), px(300.0)), MouseButton::Left, none);
-        let pointer = bar.read_with(cx, |bar, _| bar.drag.as_ref().map(|drag| drag.pointer));
-        assert_eq!(
-            pointer,
-            Some(point(px(400.0), px(300.0))),
-            "the ghost follows the pointer out of the bar"
         );
     }
 

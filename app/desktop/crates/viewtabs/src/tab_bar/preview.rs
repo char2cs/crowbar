@@ -1,13 +1,19 @@
+//! The lifted tab: the ghost of a dragged tab and the preview of a pane joining the strip.
+
 use gpui::{
-    AnyElement, InteractiveElement as _, IntoElement as _, ParentElement as _, Styled as _, div, px,
+    AnyElement, App, InteractiveElement as _, IntoElement as _, ParentElement as _, Styled as _,
+    Window, div, px,
 };
 use protocol::PaneId;
+use ui::{Portal, layer};
 
 use crate::pill::{MemberView, ShellLook, TabShell};
-use crate::strip_metrics::{SHELL_MARGIN, slot_width};
+use crate::strip_metrics::{ROW_HEIGHT, SHELL_MARGIN, TAB_HEIGHT, slot_width};
 use crate::tab_bar::TabBar;
 
 const PREVIEW: &str = "tab-preview";
+const GHOST: &str = "tab-ghost";
+const BAND_MARGIN: f32 = 32.0;
 
 impl TabBar {
     /// A pane's chat as the view tab it would become, lifted, at the width it takes on joining
@@ -45,20 +51,87 @@ impl TabBar {
             .flat_map(|tab| &tab.members)
             .find(|member| &member.pane == pane)
     }
+
+    pub(crate) fn ghost(&self) -> Option<AnyElement> {
+        let drag = self.drag.as_ref()?;
+        let tab = self
+            .tabs
+            .iter()
+            .find(|tab| Some(tab.id) == drag.engine.tab())?;
+        let row_top = (ROW_HEIGHT - TAB_HEIGHT) / 2.0;
+        let pointer_y = f32::from(drag.pointer.y - self.row.origin.y);
+        let grab_y = drag.grab_y + row_top;
+        let top = ghost_y(pointer_y, row_top, grab_y);
+        let pull = pull(pointer_y, row_top, grab_y);
+        let x = drag.engine.eased_x(self.content_x(drag.pointer), pull);
+        let left = x
+            + f32::from(self.scroll.offset().x)
+            + f32::from(self.strip_left() - self.row.origin.x);
+        let width = self.slot_spans().first().map_or(0.0, |span| span.width) - 2.0 * SHELL_MARGIN;
+        let members = tab.members.clone();
+        let place = (left + SHELL_MARGIN, top);
+        let build = move |_: &mut Window, _: &mut App| {
+            ui::Shaped::seen(lifted(members.clone(), width, place), ui::radius::LG)
+        };
+        let ghost = Portal::here(GHOST, build)
+            .priority(layer::TOOLTIP)
+            .float(ui::Float::Drag);
+        Some(div().absolute().inset_0().child(ghost).into_any_element())
+    }
+}
+
+fn lifted(
+    members: Vec<MemberView>,
+    width: f32,
+    (left, top): (f32, f32),
+) -> gpui::Div {
+    let shell = TabShell {
+        id: GHOST.into(),
+        members,
+        look: ShellLook::Lifted,
+        width,
+        on_close: None,
+    };
+    div()
+        .debug_selector(|| GHOST.into())
+        .absolute()
+        .left(px(left))
+        .top(px(top))
+        .child(shell)
+}
+
+#[must_use]
+fn pull(
+    pointer_y: f32,
+    row_top: f32,
+    grab_y: f32,
+) -> f32 {
+    let delta = pointer_y - grab_y - row_top;
+    (delta.abs() / BAND_MARGIN).clamp(0.0, 1.0)
+}
+
+#[must_use]
+fn ghost_y(
+    pointer_y: f32,
+    row_top: f32,
+    grab_y: f32,
+) -> f32 {
+    let delta = pointer_y - grab_y - row_top;
+    row_top + delta * pull(pointer_y, row_top, grab_y)
 }
 
 #[cfg(test)]
 mod tests {
     use gpui::{
-        Context, Entity, IntoElement, ParentElement as _, Render, Styled as _, TestAppContext,
-        Window, div, px, size,
+        Context, Entity, IntoElement, Modifiers, MouseButton, ParentElement as _, Render,
+        Styled as _, TestAppContext, Window, div, point, px, size,
     };
     use protocol::PaneId;
 
     use crate::tab_bar::TabBar;
 
     use crate::strip_metrics::{SHELL_MARGIN, SLOT_MAX, TAB_HEIGHT};
-    use crate::test_support::{open, view};
+    use crate::test_support::{open, open_floating, view};
 
     struct Lifted(Entity<TabBar>);
 
@@ -116,9 +189,9 @@ mod tests {
 
     #[gpui::test]
     fn a_member_held_over_the_strip_is_pinned_to_the_tab_row(cx: &mut TestAppContext) {
-        let low_in_the_row = gpui::point(px(8.0 + 250.0), px(35.0));
+        let low_in_the_row = point(px(8.0 + 250.0), px(35.0));
         let origin = held_preview_origin(low_in_the_row, cx);
-        assert_eq!(origin, gpui::point(px(0.0), px(5.0 - 19.0)), "raised");
+        assert_eq!(origin, point(px(0.0), px(5.0 - 19.0)), "raised");
     }
 
     #[gpui::test]
@@ -129,5 +202,34 @@ mod tests {
             .bar
             .read_with(harness.cx, |bar, _| bar.preview(&unlisted).is_none());
         assert!(preview, "nothing to preview");
+    }
+
+    #[gpui::test]
+    fn a_tab_dragged_out_of_the_strip_is_drawn_in_the_window_and_hides_the_web_views(
+        cx: &mut TestAppContext
+    ) {
+        let tabs = vec![view(1, &["a"]), view(2, &["b"])];
+        let mut floating = open_floating(cx, tabs, 1);
+        let window = &mut floating.window;
+        let none = Modifiers::none();
+        window.simulate_mouse_down(point(px(108.0), px(21.0)), MouseButton::Left, none);
+        window.simulate_mouse_move(point(px(130.0), px(21.0)), MouseButton::Left, none);
+        window.simulate_mouse_move(point(px(400.0), px(300.0)), MouseButton::Left, none);
+        window.run_until_parked();
+        assert!(window.debug_bounds("tab-ghost").is_some(), "in the window");
+        assert!(ui::testing::covered(window).0, "every web view is hidden");
+    }
+
+    const BAND_CASES: &[(f32, f32, &str)] = &[
+        (26.0, 5.0, "level with the row"),
+        (42.0, 13.0, "halfway eased"),
+        (226.0, 205.0, "free beyond the margin"),
+    ];
+
+    #[test]
+    fn the_ghost_is_pinned_to_the_row_near_it_and_free_far_from_it() {
+        for (pointer_y, expected, name) in BAND_CASES {
+            assert_eq!(super::ghost_y(*pointer_y, 5.0, 21.0), *expected, "{name}");
+        }
     }
 }

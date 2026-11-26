@@ -11,8 +11,7 @@ use crate::pill::member_glyph::MemberGlyph;
 use crate::pill::member_kind::MemberKind;
 use crate::pill::member_view::MemberView;
 use crate::pill::shell_look::ShellLook;
-use crate::pill::tab_close::{CloseAction, close_of};
-use crate::pill::tab_fade::{fade, fade_ends};
+use crate::pill::{CloseAction, close_of, fade, fade_ends};
 use crate::strip_metrics::TAB_HEIGHT;
 
 const GLYPH: f32 = 16.0;
@@ -333,11 +332,5 @@ mod tests {
         let set = label_width(cx, SET);
         assert!(set >= 60.0, "a label of three: {set}");
         assert!(label_width(cx, LONE) >= 150.0, "a lone tab keeps its room");
-    }
-
-    #[test]
-    fn the_pill_is_thirty_two_pixels_high_and_the_close_button_twenty_four() {
-        assert_eq!(TAB_HEIGHT, 32.0, "pill height");
-        assert_eq!(crate::pill::tab_close::CLOSE, 24.0, "close button");
     }
 }

@@ -17,7 +17,7 @@ impl TabBar {
         if spans.is_empty() {
             return;
         }
-        let (now, motion) = (self.clock.now(), Motion::of(cx));
+        let (now, motion) = ((self.clock)(), Motion::of(cx));
         let (x, visible) = (self.content_x(position), self.visible_span());
         let (inside, count) = (self.row.contains(&position), spans.len());
         let pitch = slot_width(count + 1, self.strip_width());
@@ -63,7 +63,7 @@ impl TabBar {
         let joined = slots(self.tabs.len() + 1, self.strip_width());
         let slot = joined.get(to).map_or(0.0, |span| span.x);
         let from = left - slot - SHELL_MARGIN;
-        self.settle = Some(Settle::new(tab, from, self.clock.now(), Motion::of(cx)));
+        self.settle = Some(Settle::new(tab, from, (self.clock)(), Motion::of(cx)));
     }
 
     fn visible_span(&self) -> Span {
