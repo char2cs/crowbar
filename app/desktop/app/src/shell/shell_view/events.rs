@@ -10,3 +10,4 @@ mod outcomes;
 mod pane_toasts;
 mod pump;
 mod review_viewed;
+mod window_keyboard;

@@ -1,5 +1,3 @@
-// A chat pane is its own web view in the native shell: it may mount before its workspace's host
-// resolves, and must still load the list its composer pickers need.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 
