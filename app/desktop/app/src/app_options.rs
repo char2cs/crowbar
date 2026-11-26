@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use crate::error::{Error, Result};
 
 const DEFAULT_PANES_DIR: &str = "panes";
+const PACKAGED_PANES_DIRS: [&str; 2] = ["lib/crowbar/panes", "Resources/panes"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AppOptions {
@@ -33,22 +34,34 @@ impl AppOptions {
         exe: Option<&Path>,
         is_file: impl Fn(&Path) -> bool,
     ) -> Result<PathBuf> {
-        let dir = match (&self.panes_dir, exe.and_then(Path::parent)) {
+        let candidates = match (&self.panes_dir, exe.and_then(Path::parent)) {
             (Some(dir), _) => {
-                std::path::absolute(dir).map_err(|source| Error::Read(dir.clone(), source))?
+                vec![std::path::absolute(dir).map_err(|source| Error::Read(dir.clone(), source))?]
             },
-            (None, Some(beside_exe)) => beside_exe.join(DEFAULT_PANES_DIR),
-            (None, None) => PathBuf::from(DEFAULT_PANES_DIR),
+            (None, Some(exe_dir)) => installed_panes_dirs(exe_dir),
+            (None, None) => vec![PathBuf::from(DEFAULT_PANES_DIR)],
         };
-        let entry = dir.join(&self.chat_entry);
-        is_file(&entry)
-            .then_some(dir)
-            .ok_or(Error::PanesMissing(entry))
+        let entry_of = |dir: &PathBuf| dir.join(&self.chat_entry);
+        let first_entry = candidates.first().map(entry_of).unwrap_or_default();
+        candidates
+            .into_iter()
+            .find(|dir| is_file(&entry_of(dir)))
+            .ok_or(Error::PanesMissing(first_entry))
     }
 
     pub(crate) fn state_dir(&self) -> PathBuf {
         self.home.join("shell")
     }
+}
+
+fn installed_panes_dirs(exe_dir: &Path) -> Vec<PathBuf> {
+    let packaged = exe_dir
+        .parent()
+        .into_iter()
+        .flat_map(|prefix| PACKAGED_PANES_DIRS.map(|dir| prefix.join(dir)));
+    std::iter::once(exe_dir.join(DEFAULT_PANES_DIR))
+        .chain(packaged)
+        .collect()
 }
 
 #[cfg(test)]
@@ -151,6 +164,20 @@ mod tests {
             Some("crowbar"),
             Some("panes"),
             Some("panes"),
+        ),
+        (
+            "a deb or AppImage keeps the panes under lib beside bin",
+            None,
+            Some("usr/bin/crowbar"),
+            Some("usr/lib/crowbar/panes"),
+            Some("usr/lib/crowbar/panes"),
+        ),
+        (
+            "a macOS bundle keeps the panes in its resources",
+            None,
+            Some("Crowbar.app/Contents/MacOS/crowbar"),
+            Some("Crowbar.app/Contents/Resources/panes"),
+            Some("Crowbar.app/Contents/Resources/panes"),
         ),
         (
             "an explicit directory wins",
