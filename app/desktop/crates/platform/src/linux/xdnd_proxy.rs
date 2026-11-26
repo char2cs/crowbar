@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::thread;
 
 use x11rb::connection::Connection as _;
-use x11rb::errors::{ConnectionError, ReplyOrIdError};
+use x11rb::errors::{ConnectionError, ReplyError, ReplyOrIdError};
 use x11rb::protocol::Event;
 use x11rb::protocol::xproto::{
     AtomEnum, ClientMessageEvent, ConnectionExt as _, CreateWindowAux, EventMask, PropMode,
@@ -75,10 +75,12 @@ impl XdndProxy {
 impl Drop for XdndProxy {
     fn drop(&mut self) {
         let connection = &self.connection;
+        // A round trip, not a flush: once dropped, no client may still see the proxy named.
         let removed = connection
             .delete_property(self.window, self.atoms.XdndProxy)
             .and_then(|_| connection.destroy_window(self.proxy))
-            .and_then(|_| connection.flush());
+            .map_err(ReplyError::from)
+            .and_then(|_| connection.sync());
         if let Err(error) = removed {
             tracing::debug!(%error, "the drag proxy outlived its connection");
         }

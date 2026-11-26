@@ -81,7 +81,7 @@ mod tests {
 
     use crate::chrome::find_widget::FindWidget;
     use crate::editor_view::reveal::Reveal;
-    use crate::editor_view::test_support::{find_of, on_find, opened};
+    use crate::editor_view::test_support::{find_of, on_find, opened, press};
     use crate::{Access, EditorView};
 
     const TEXT: &str = "ab x ab";
@@ -104,11 +104,11 @@ mod tests {
     }
 
     #[gpui::test]
-    fn alt_p_preserves_each_match_s_case_in_replace_all(cx: &mut TestAppContext) {
+    fn the_preserve_case_chord_keeps_each_match_s_case_in_replace_all(cx: &mut TestAppContext) {
         let (view, window) = opened(("Ab x AB x ab", Some(1)), Access::Editable, cx);
         let find = find_of(&view, window);
         fill(&find, ("ab", "cd"), window);
-        window.simulate_keystrokes("alt-p");
+        press("@editorview::TogglePreserveCase", window);
         on_find(&find, window, FindWidget::replace_all);
         let text = view.read_with(window, EditorView::text);
         assert_eq!(text, "Cd x CD x cd");

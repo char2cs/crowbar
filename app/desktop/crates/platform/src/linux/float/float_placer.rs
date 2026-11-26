@@ -10,6 +10,7 @@ use x11rb::protocol::xproto::{
     InputFocus as RevertTo, StackMode,
 };
 use x11rb::rust_connection::RustConnection;
+use x11rb::wrapper::ConnectionExt as _;
 
 use crate::error::Error;
 use crate::linux::float::atoms::Atoms;
@@ -88,7 +89,7 @@ impl FloatPlacer {
         self.connection
             .send_event(false, self.root, reach, message)
             .map_err(ReplyError::from)?;
-        self.flush()
+        self.sync()
     }
 
     /// Moves and sizes `float` over the content area of `owner` and raises it.
@@ -116,7 +117,7 @@ impl FloatPlacer {
         self.connection
             .configure_window(float, &place)
             .map_err(ReplyError::from)?;
-        self.flush()
+        self.sync()
     }
 
     /// Shows only `seen` of `float` when no compositor runs, all of it otherwise, and lets
@@ -134,7 +135,7 @@ impl FloatPlacer {
         let window = xid(float)?;
         self.set_bounding(window, seen)?;
         self.set_region(window, SK::INPUT, hit)?;
-        self.flush()
+        self.sync()
     }
 
     fn set_bounding(
@@ -189,8 +190,9 @@ impl FloatPlacer {
         Ok(())
     }
 
-    fn flush(&self) -> Result<(), Error> {
-        self.connection.flush().map_err(ReplyError::from)?;
+    // A round trip, not a flush: other connections, GPUI's among them, see the change on return.
+    fn sync(&self) -> Result<(), Error> {
+        self.connection.sync()?;
         Ok(())
     }
 }
