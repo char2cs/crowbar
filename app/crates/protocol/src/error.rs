@@ -48,7 +48,7 @@ pub enum Error {
         /// What is wrong with it.
         reason: &'static str,
     },
-    /// Pane state is larger than [`MAX_STATE_BYTES`](crate::MAX_STATE_BYTES).
+    /// Pane state is larger than 64 KiB.
     #[error("pane state is {size} bytes, the limit is {limit}")]
     StateTooLarge {
         /// Serialized size in bytes.

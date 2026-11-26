@@ -1,8 +1,7 @@
 use crate::error::{Error, Result};
 use crate::string_id::string_id;
 
-/// Longest request target accepted, in bytes.
-pub const MAX_TARGET_BYTES: usize = 8 * 1024;
+const MAX_TARGET_BYTES: usize = 8 * 1024;
 
 fn invalid(reason: &'static str) -> Error {
     Error::invalid_request(reason)

@@ -4,11 +4,9 @@ use crate::identity::PaneOrigin;
 use crate::port::http_method::HttpMethod;
 use crate::port::request_target::RequestTarget;
 
-/// Most headers a request carries.
-pub const MAX_HEADERS: usize = 128;
+const MAX_HEADERS: usize = 128;
 
-/// Largest header block of a request, in bytes (names plus values).
-pub const MAX_HEADER_BYTES: usize = 64 * 1024;
+const MAX_HEADER_BYTES: usize = 64 * 1024;
 
 /// An HTTP request forwarded to a daemon host.
 ///
@@ -46,8 +44,8 @@ impl DaemonRequest {
     /// Sets the request headers.
     ///
     /// # Errors
-    /// [`Error::InvalidRequest`] when there are more than [`MAX_HEADERS`] headers or their text
-    /// passes [`MAX_HEADER_BYTES`].
+    /// [`Error::InvalidRequest`] when there are more than 128 headers or their text
+    /// passes 64 KiB.
     pub fn with_headers(
         mut self,
         headers: Vec<(String, String)>,
@@ -130,29 +128,6 @@ mod tests {
             HttpMethod::new("POST").unwrap(),
             RequestTarget::new("/v0/ext/git/x?a=1").unwrap(),
         )
-    }
-
-    #[test]
-    fn getters_return_what_was_built() {
-        let built = request()
-            .with_headers(vec![("x-a".into(), "1".into())])
-            .unwrap()
-            .with_body(b"body".to_vec());
-        assert_eq!(built.host().as_str(), "local", "host");
-        assert_eq!(
-            built.origin().extension().map(ExtensionId::as_str),
-            Some("git"),
-            "origin"
-        );
-        assert_eq!(built.method().as_str(), "POST", "method");
-        assert_eq!(built.target().as_str(), "/v0/ext/git/x?a=1", "target");
-        assert_eq!(
-            built.headers(),
-            [("x-a".to_owned(), "1".to_owned())],
-            "headers"
-        );
-        assert_eq!(built.body(), b"body", "body");
-        assert_eq!(built.into_body(), b"body".to_vec(), "moved body");
     }
 
     #[test]

@@ -9,7 +9,7 @@ mod relay_endpoint;
 mod relay_scope;
 mod request_target;
 
-pub use daemon_request::{DaemonRequest, MAX_HEADER_BYTES, MAX_HEADERS};
+pub use daemon_request::DaemonRequest;
 pub use daemon_response::DaemonResponse;
 pub use daemon_transport::{DaemonTransport, Responder};
 pub use http_method::HttpMethod;
@@ -19,4 +19,4 @@ pub use proxy_marker::{
 };
 pub use relay_endpoint::RelayEndpoint;
 pub use relay_scope::RelayScope;
-pub use request_target::{MAX_TARGET_BYTES, RequestTarget};
+pub use request_target::RequestTarget;

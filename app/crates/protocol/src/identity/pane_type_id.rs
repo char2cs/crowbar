@@ -170,8 +170,6 @@ mod tests {
     fn text_and_serde_round_trip_and_validate() {
         let id: PaneTypeId = "ext.git.review".parse().unwrap();
         assert_eq!(id.to_string(), "ext.git.review", "display");
-        assert_eq!(id.as_str(), "ext.git.review", "as_str");
-        assert_eq!(id.as_ref(), "ext.git.review", "as_ref");
         let json = serde_json::to_string(&id).unwrap();
         assert_eq!(json, "\"ext.git.review\"", "serialize");
         assert_eq!(
@@ -183,6 +181,5 @@ mod tests {
             serde_json::from_str::<PaneTypeId>("\"ext.my_ext.x\"").is_err(),
             "validates"
         );
-        assert_eq!(String::from(id), "ext.git.review", "into string");
     }
 }

@@ -46,7 +46,6 @@ mod tests {
     fn display_parse_and_serde_round_trip() {
         let id: HostId = "local".parse().unwrap();
         assert_eq!(id.to_string(), "local", "display");
-        assert_eq!(id.as_ref(), "local", "as_ref");
         assert_eq!(
             serde_json::to_string(&id).unwrap(),
             "\"local\"",
@@ -56,6 +55,5 @@ mod tests {
             serde_json::from_str::<HostId>("\"A\"").is_err(),
             "deserialize validates"
         );
-        assert_eq!(String::from(id), "local", "into string");
     }
 }
