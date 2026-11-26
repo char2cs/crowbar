@@ -190,8 +190,8 @@ impl FloatPlacer {
         Ok(())
     }
 
-    // A round trip, not a flush: other connections, GPUI's among them, see the change on return.
     fn sync(&self) -> Result<(), Error> {
+        // PLATFORM: linux X11 flush only sends; the round trip makes GPUI's connection see the change.
         self.connection.sync()?;
         Ok(())
     }

@@ -75,7 +75,7 @@ impl XdndProxy {
 impl Drop for XdndProxy {
     fn drop(&mut self) {
         let connection = &self.connection;
-        // A round trip, not a flush: once dropped, no client may still see the proxy named.
+        // PLATFORM: linux X11 flush only sends; the round trip makes every client see the removal.
         let removed = connection
             .delete_property(self.window, self.atoms.XdndProxy)
             .and_then(|_| connection.destroy_window(self.proxy))
