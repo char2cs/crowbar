@@ -27,8 +27,8 @@ pub use catalog::{
 };
 pub use error::{Error, Result};
 pub use pane_host::{
-    BrowseAction, Keyboard, LayoutSnapshot, PaneDisplay, PaneHost, PaneKinds, SyncReport,
-    VisiblePane,
+    BrowseAction, Covered, Keyboard, LayoutSnapshot, Overlays, PaneDisplay, PaneHost, PaneKinds,
+    SyncReport, VisiblePane,
 };
 pub use protocol::PaneOrigin;
 pub use scheme::{Assignment, MenuAsk, OriginTable, PaneMenus, PaneProtocol, PaneTables};

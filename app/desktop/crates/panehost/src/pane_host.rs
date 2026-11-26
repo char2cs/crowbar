@@ -6,7 +6,9 @@ mod reconcile;
 mod refusals;
 
 pub use browser::BrowseAction;
-pub use reconcile::{Keyboard, LayoutSnapshot, PaneDisplay, PaneKinds, SyncReport, VisiblePane};
+pub use reconcile::{
+    Covered, Keyboard, LayoutSnapshot, Overlays, PaneDisplay, PaneKinds, SyncReport, VisiblePane,
+};
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -188,10 +190,15 @@ impl PaneHost {
         }
         self.hide_unlisted(snapshot, &mut events, &mut failures);
         for visible in &snapshot.visible {
-            failures.note(self.show(snapshot.parent, visible, snapshot.layout));
+            let seen = (snapshot.layout, &snapshot.overlays);
+            failures.note(self.show(snapshot.parent, visible, seen));
         }
         self.focused.clone_from(&snapshot.focused);
-        let held_by = std::mem::replace(&mut self.keyboard, snapshot.keyboard);
+        let keyboard = match snapshot.overlays.covered {
+            Covered::Nothing => snapshot.keyboard,
+            Covered::Everything | Covered::Areas(_) => Keyboard::Shell,
+        };
+        let held_by = std::mem::replace(&mut self.keyboard, keyboard);
         failures.note(self.route_activation(snapshot.layout));
         failures.note(self.send_groups(snapshot.layout));
         failures.note(self.settle_keyboard(held_by));

@@ -15,6 +15,7 @@ use crate::catalog::PaneLifecycle;
 use crate::catalog::PaneType;
 use crate::pane_host::Keyboard;
 use crate::pane_host::LayoutSnapshot;
+use crate::pane_host::Overlays;
 use crate::pane_host::PaneHost;
 use crate::pane_host::PaneKinds;
 use crate::pane_host::VisiblePane;
@@ -53,8 +54,29 @@ impl Fixture {
             visible: visible.iter().map(|id| visible_pane(id)).collect(),
             focused: focused.map(|id| PaneId::new(id).unwrap()),
             keyboard,
+            overlays: Overlays::default(),
             kinds: &(),
         };
+        synced(&mut self.host, &snapshot)
+    }
+
+    /// Syncs `visible`, the first of them focused, under the shell's `overlays`.
+    pub(crate) fn sync_under(
+        &mut self,
+        panes: &[PaneInstance],
+        visible: &[&str],
+        overlays: Overlays,
+    ) -> Vec<HostEvent> {
+        self.layout = layout_of(panes, visible.first().copied());
+        let visible = visible.iter().map(|id| visible_pane(id)).collect();
+        let focus = self
+            .layout
+            .showing("")
+            .and_then(|tab| tab.focused().cloned());
+        let snapshot = LayoutSnapshot::from_layout(&self.layout, WINDOW, visible)
+            .with_focus(focus)
+            .with_keyboard(Keyboard::Pane)
+            .with_overlays(overlays);
         synced(&mut self.host, &snapshot)
     }
 

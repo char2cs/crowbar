@@ -1,5 +1,6 @@
 use layout::Layout;
 use protocol::{Lifecycle, PaneId, PaneTypeId};
+use webview::Visibility;
 
 use crate::catalog::PaneKind;
 use crate::catalog::PaneLifecycle;
@@ -128,7 +129,7 @@ impl PaneHost {
         };
         runtime.stage = Stage::Hidden;
         match runtime.slot.and_then(|id| self.pool.get(id)) {
-            Some(slot) => Ok(slot.handle.hide()?),
+            Some(slot) => Ok(slot.handle.set_visibility(Visibility::Hidden)?),
             None => Ok(()),
         }
     }
@@ -174,20 +175,23 @@ impl PaneHost {
             return Ok(());
         };
         let failed = matches!(runtime.phase, PanePhase::Failed(_));
-        let shown = runtime.is_visible() && !failed;
-        if shown {
-            return Ok(slot.handle.show()?);
-        }
-        Ok(slot.handle.hide()?)
+        let seen = runtime.is_visible() && !failed;
+        let visibility = match (seen, runtime.covered) {
+            (false, _) => Visibility::Hidden,
+            (true, true) => Visibility::Covered,
+            (true, false) => Visibility::Shown,
+        };
+        Ok(slot.handle.set_visibility(visibility)?)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use webview::Call;
+    use webview::{Bounds, Call, Visibility};
 
     use super::*;
-    use crate::pane_host::reconcile::{PaneDisplay, PaneKinds};
+    use crate::pane_host::reconcile::{Covered, Overlays, PaneDisplay, PaneKinds};
+    use crate::test_support::fixture::Fixture;
     use crate::test_support::*;
 
     #[test]
@@ -213,6 +217,84 @@ mod tests {
             PaneDisplay::Empty,
             "nothing drawn for it"
         );
+    }
+
+    fn view_calls(
+        f: &Fixture,
+        from: usize,
+    ) -> Vec<&'static str> {
+        f.mock.calls()[from..]
+            .iter()
+            .filter_map(|call| match call {
+                Call::SetVisibility { visibility, .. } => Some(match visibility {
+                    Visibility::Hidden => "hide",
+                    Visibility::Covered => "cover",
+                    Visibility::Shown => "show",
+                }),
+                Call::Focus { .. } => Some("focus"),
+                Call::FocusParent { .. } => Some("focus_parent"),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_covered_pane_s_web_view_is_covered_in_place_and_the_shell_keeps_the_keys_until_it_is_shown()
+     {
+        let mut f = fixture();
+        let panes = [instance("c", "core.chat")];
+        f.sync(&panes, &["c"], Some("c"));
+        register(&mut f, "c", "core.chat");
+        let shown = f.mock.calls().len();
+        let everything = Overlays {
+            covered: Covered::Everything,
+            cutout: None,
+        };
+        f.sync_under(&panes, &["c"], everything);
+        assert_eq!(view_calls(&f, shown), ["cover", "focus_parent"], "covered");
+        let covered = f.mock.calls().len();
+        f.sync(&panes, &["c"], Some("c"));
+        assert_eq!(view_calls(&f, covered), ["show", "focus"], "uncovered");
+        assert_eq!(
+            lifecycle_events(&f.mock),
+            [Lifecycle::Mount, Lifecycle::Activate],
+            "never parked nor deactivated"
+        );
+    }
+
+    #[test]
+    fn the_handle_s_hole_is_cut_from_the_view_under_it_and_filled_when_it_goes() {
+        let mut f = fixture();
+        let panes = [instance("c", "core.chat")];
+        let handle = Bounds {
+            x: 125.5,
+            y: 10.0,
+            width: 69.0,
+            height: 21.0,
+        };
+        let hole = Bounds {
+            x: 115.5,
+            y: 0.0,
+            width: 69.0,
+            height: 11.0,
+        };
+        let cut = |cutout| Overlays {
+            cutout,
+            ..Overlays::default()
+        };
+        f.sync_under(&panes, &["c"], cut(Some(handle)));
+        f.sync_under(&panes, &["c"], cut(Some(handle)));
+        f.sync_under(&panes, &["c"], cut(None));
+        let cuts: Vec<Option<Bounds>> = f
+            .mock
+            .calls()
+            .iter()
+            .filter_map(|call| match call {
+                Call::SetCutout { hole, .. } => Some(*hole),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(cuts, [Some(hole), Some(hole), None], "cut, then filled");
     }
 
     #[test]
