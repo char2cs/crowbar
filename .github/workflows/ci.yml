@@ -23,9 +23,13 @@ jobs:
       website: ${{ steps.filter.outputs.website }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: dorny/paths-filter@v4
         id: filter
         with:
+          # git diff, not the pull-request API: the API lists at most 3000 files.
+          token: ''
           filters: |
             go:
               - 'api/**'
