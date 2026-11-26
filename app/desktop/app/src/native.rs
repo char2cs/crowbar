@@ -1,11 +1,10 @@
 //! The shell's hooks into the desktop: its own message dialogs (GTK on the web views' platform
-//! thread, `NSAlert` on macOS) in place of drawn ones, and on Linux GTK's menus and file choosers
-//! and the pop-up window's placer.
+//! thread, `NSAlert` on macOS) in place of drawn ones, the pop-up window's placer, and on Linux
+//! GTK's menus and file choosers.
 
 mod alert;
 #[cfg(target_os = "linux")]
 mod file_chooser;
-#[cfg(target_os = "linux")]
 pub(crate) mod float;
 #[cfg(target_os = "linux")]
 mod menu;

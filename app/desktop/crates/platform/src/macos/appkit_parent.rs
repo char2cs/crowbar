@@ -40,6 +40,25 @@ impl AppkitParent {
     }
 }
 
+pub(crate) fn superview_of(page: &NSView) -> Option<Retained<NSView>> {
+    let content = page.window()?.contentView()?;
+    first_in_tree(
+        content,
+        &|view: &Retained<NSView>| holds(view, page),
+        &|view: &Retained<NSView>| view.subviews().to_vec(),
+    )
+}
+
+fn holds(
+    view: &NSView,
+    page: &NSView,
+) -> bool {
+    view.subviews()
+        .to_vec()
+        .iter()
+        .any(|child| std::ptr::eq(Retained::as_ptr(child), page))
+}
+
 fn view_at(
     view: Retained<NSView>,
     address: usize,

@@ -30,7 +30,7 @@ webkit2gtk.workspace = true
 block2 = "0.6"
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "block2", "NSAlert", "NSApplication", "NSButton", "NSControl", "NSResponder", "NSView", "NSWindow"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSThread"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry", "NSString", "NSThread", "objc2-core-foundation"] }
 
 [dev-dependencies]
 webview = { path = ".", features = ["mock"] }

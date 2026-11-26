@@ -72,7 +72,6 @@ fn start(
     cx.bind_keys(settingsview::bindings());
     window_vibrancy::install(window_vibrancy::of_platform(), cx);
     native::install(parts.state.host(), cx);
-    #[cfg(target_os = "linux")]
     native::float::install(cx);
     #[cfg(target_os = "linux")]
     adapters::key_places::install(cx);

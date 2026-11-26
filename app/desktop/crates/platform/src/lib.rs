@@ -7,9 +7,9 @@
 //!
 //! The OS layer sits in `linux/` and `macos/`: the native parent windows web views are embedded
 //! into (`XlibParent`, `AppkitParent`), the X keyboard focus (`InputFocus`), the pop-up window
-//! above a shell window (`FloatPlacer`), the holes cut out of web views (`PageShape`), the drag
-//! proxy (`XdndProxy`), the X keyboard mapping (`KeyMap`) and the X11 session switch
-//! (`force_x11`). Every `unsafe` block of the desktop app lives there, behind a safe type or
+//! above a shell window (`FloatPlacer`), the holes cut out of web views (`PageShape`,
+//! `PageHole`), the drag proxy (`XdndProxy`), the X keyboard mapping (`KeyMap`) and the X11
+//! session switch (`force_x11`). Every `unsafe` block of the desktop app lives there, behind a safe type or
 //! function (see the README).
 
 mod desktop;
@@ -29,5 +29,5 @@ pub use linux::{
     XlibParent, force_x11,
 };
 #[cfg(target_os = "macos")]
-pub use macos::AppkitParent;
+pub use macos::{AppkitParent, FloatPlacer, PageHole};
 pub use platform::{follow_link, open_external, open_path, reveal_in_file_manager};

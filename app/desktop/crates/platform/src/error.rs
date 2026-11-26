@@ -87,6 +87,14 @@ pub enum Error {
     #[cfg(target_os = "linux")]
     #[error("the window is not an X window")]
     ForeignWindow,
+    /// An `AppKit` window was asked for off the main thread.
+    #[cfg(target_os = "macos")]
+    #[error("AppKit windows are only reachable from the main thread")]
+    OffMainThread,
+    /// A handle names no open `AppKit` window of the app.
+    #[cfg(target_os = "macos")]
+    #[error("no open AppKit window shows that view")]
+    UnknownWindow,
     /// The connection that places float windows broke.
     #[cfg(target_os = "linux")]
     #[error("lost the X server that places float windows: {0}")]

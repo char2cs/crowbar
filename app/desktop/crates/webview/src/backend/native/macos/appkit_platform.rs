@@ -4,7 +4,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use objc2_foundation::MainThreadMarker;
-use platform::AppkitParent;
+use platform::{AppkitParent, PageHole};
 use wry::{WebView, WebViewBuilder, WebViewBuilderExtDarwin};
 
 use crate::backend::host_config::HostConfig;
@@ -13,7 +13,6 @@ use crate::backend::native::wry_builder::{common_attributes, register_scheme, to
 use crate::backend::platform::Platform;
 use crate::backend::view::page_control::PageControl;
 use crate::backend::view::view_capture::ViewCapture;
-use crate::backend::view::view_cutout::ViewCutout;
 use crate::backend::view::view_focus::ViewFocus;
 use crate::backend::view::view_layout::ViewLayout;
 use crate::backend::view::view_lifecycle::ViewLifecycle;
@@ -32,6 +31,7 @@ pub(crate) struct AppkitPlatform {
     protocol: Arc<dyn ProtocolHandler>,
     pub(crate) views: RefCell<HashMap<Id, Rc<WebView>>>,
     pub(crate) kinds: RefCell<HashMap<Id, Kind>>,
+    pub(crate) holes: RefCell<HashMap<Id, PageHole>>,
     pub(crate) last_parent: Cell<Option<usize>>,
     pub(crate) main_thread: MainThreadMarker,
 }
@@ -44,6 +44,7 @@ impl AppkitPlatform {
             protocol: config.protocol,
             views: RefCell::new(HashMap::new()),
             kinds: RefCell::new(HashMap::new()),
+            holes: RefCell::new(HashMap::new()),
             last_parent: Cell::new(None),
             main_thread,
         })
@@ -112,6 +113,7 @@ impl ViewLifecycle for AppkitPlatform {
         id: Id,
     ) -> Result<()> {
         self.kinds.borrow_mut().remove(&id);
+        self.holes.borrow_mut().remove(&id);
         self.views
             .borrow_mut()
             .remove(&id)
@@ -126,7 +128,11 @@ impl ViewLayout for AppkitPlatform {
         id: Id,
         bounds: Bounds,
     ) -> Result<()> {
-        self.with_view(id, |view| view.set_bounds(to_rect(bounds)))
+        self.with_view(id, |view| view.set_bounds(to_rect(bounds)))?;
+        if let Some(hole) = self.holes.borrow().get(&id) {
+            hole.follow();
+        }
+        Ok(())
     }
 
     fn set_visibility(
@@ -167,9 +173,6 @@ impl PageControl for AppkitPlatform {
 impl Platform for AppkitPlatform {}
 
 impl ViewCapture for AppkitPlatform {}
-
-// PLATFORM: macos a hole needs the web view's layer masked and its hit test answered by the shell's view; not cut yet.
-impl ViewCutout for AppkitPlatform {}
 
 impl ViewFocus for AppkitPlatform {
     fn focus(

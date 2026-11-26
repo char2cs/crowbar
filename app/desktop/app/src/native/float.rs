@@ -1,5 +1,5 @@
-//! Places the shell's pop-up window (tooltips, toasts) above its web views with the platform's X
-//! connection.
+//! Places the shell's pop-up window (tooltips, toasts) above its web views: over the platform's
+//! own X connection on Linux, as a child window of its owner that lets clicks through on macOS.
 
 use raw_window_handle::RawWindowHandle;
 
@@ -12,6 +12,7 @@ pub(crate) fn install(cx: &mut gpui::App) {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl ui::FloatHost for Float {
     fn cover(
         &self,
@@ -39,10 +40,38 @@ impl ui::FloatHost for Float {
     }
 }
 
+// PLATFORM: macos AppKit draws the pop-up window whatever it shows and it lets every click through, so it needs no waking and no shape.
+#[cfg(target_os = "macos")]
+impl ui::FloatHost for Float {
+    fn cover(
+        &self,
+        float: RawWindowHandle,
+        owner: RawWindowHandle,
+    ) {
+        logged(self.0.cover(float, owner));
+    }
+
+    fn wake(
+        &self,
+        _: RawWindowHandle,
+    ) {
+    }
+
+    fn shape(
+        &self,
+        _: RawWindowHandle,
+        _: &[ui::FloatRegion],
+        _: &[ui::FloatRegion],
+    ) {
+    }
+}
+
+#[cfg(target_os = "linux")]
 fn cards(regions: &[ui::FloatRegion]) -> Vec<platform::Card> {
     regions.iter().map(card).collect()
 }
 
+#[cfg(target_os = "linux")]
 fn card(region: &ui::FloatRegion) -> platform::Card {
     let bounds = region.bounds;
     platform::Card {
@@ -54,11 +83,13 @@ fn card(region: &ui::FloatRegion) -> platform::Card {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn offset(value: i32) -> i16 {
     let limit = i32::from(i16::MAX);
     i16::try_from(value.clamp(-limit, limit)).unwrap_or_default()
 }
 
+#[cfg(target_os = "linux")]
 fn extent(value: i32) -> u16 {
     u16::try_from(value.clamp(0, i32::from(u16::MAX))).unwrap_or_default()
 }
@@ -71,6 +102,8 @@ fn logged(done: Result<(), platform::Error>) {
 
 #[cfg(test)]
 mod tests {
+    #![cfg(target_os = "linux")]
+
     use gpui::{Bounds, DevicePixels, point, size};
 
     use super::*;
