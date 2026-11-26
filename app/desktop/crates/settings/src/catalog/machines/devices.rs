@@ -38,12 +38,17 @@ fn allowed() -> Condition {
     Condition::equals(ALLOW, Value::Bool(true))
 }
 
+fn refused() -> Condition {
+    Condition::equals(ALLOW, Value::Bool(false))
+}
+
 fn connections() -> Section {
-    let address = Control::text("0.0.0.0:3737", ControlWidth::Default);
+    let address = Control::text("0.0.0.0:3737", ControlWidth::TextWide);
     Section::new("Device connections")
         .row(
             Row::new(ALLOW, "Allow device connections", Control::switch())
                 .describe("Devices with a code can connect while this is on.")
+                .describe_while((refused(), "Off. Nothing listens until you turn this on."))
                 .default_value(Value::Bool(false))
                 .without_reset(),
         )
@@ -51,7 +56,8 @@ fn connections() -> Section {
         .row(
             Row::new(ADDRESS, "Listen address", address)
                 .describe("Address and port. 0.0.0.0 listens on every network this computer is on.")
-                .when(Condition::equals(ALLOW, Value::Bool(false)))
+                .describe_while((allowed(), "Turn connections off to change it."))
+                .frozen_while(allowed())
                 .without_reset(),
         )
 }
@@ -84,6 +90,34 @@ mod tests {
             })
             .collect();
         assert_eq!(kinds, ["heading", "section", "list", "section"]);
+    }
+
+    #[test]
+    fn the_connection_rows_say_what_the_switch_means_and_freeze_the_address_while_on() {
+        let cases = [
+            (
+                ALLOW,
+                (refused(), "Off. Nothing listens until you turn this on."),
+                None,
+            ),
+            (
+                ADDRESS,
+                (allowed(), "Turn connections off to change it."),
+                Some(allowed()),
+            ),
+        ];
+        let section = connections();
+        for (key, (rule, text), frozen) in cases {
+            let row = section.rows().iter().find(|row| row.key().as_str() == key);
+            let row = row.expect("the row is on the page");
+            let words = row
+                .worded
+                .as_ref()
+                .map(|(rule, text)| (rule, text.as_str()));
+            assert_eq!(words, Some((&rule, text)), "{key}");
+            assert_eq!(row.frozen, frozen, "{key}");
+            assert_eq!(row.when, None, "{key}: shown either way");
+        }
     }
 
     #[test]

@@ -2,6 +2,7 @@
 
 mod label_style;
 mod reset_offer;
+mod wording;
 
 pub use label_style::LabelStyle;
 pub(crate) use reset_offer::ResetOffer;
@@ -18,6 +19,8 @@ pub struct Row {
     pub(crate) label: String,
     pub(crate) description: Option<String>,
     pub(crate) invalid_description: Option<String>,
+    pub(crate) worded: Option<(Condition, String)>,
+    pub(crate) frozen: Option<Condition>,
     pub(crate) control: Control,
     pub(crate) default: Option<Value>,
     pub(crate) when: Option<Condition>,
@@ -43,6 +46,8 @@ impl Row {
             label: label.into(),
             description: None,
             invalid_description: None,
+            worded: None,
+            frozen: None,
             control,
             default: None,
             when: None,
@@ -51,23 +56,13 @@ impl Row {
         }
     }
 
-    /// The text under the label.
+    /// Shows the control disabled, refusing changes, while `condition` holds.
     #[must_use]
-    pub fn describe(
+    pub fn frozen_while(
         mut self,
-        text: impl Into<String>,
+        condition: Condition,
     ) -> Self {
-        self.description = Some(text.into());
-        self
-    }
-
-    /// The text under the label while the field holds an invalid value.
-    #[must_use]
-    pub fn describe_invalid(
-        mut self,
-        text: impl Into<String>,
-    ) -> Self {
-        self.invalid_description = Some(text.into());
+        self.frozen = Some(condition);
         self
     }
 
@@ -131,12 +126,19 @@ mod tests {
             .describe("Spaces per tab")
             .describe_invalid("Bad")
             .default_value(2.0)
-            .when(Condition::capability("editor"));
+            .when(Condition::capability("editor"))
+            .describe_while((Condition::capability("tabs"), "Fixed"))
+            .frozen_while(Condition::capability("tabs"));
         assert_eq!((row.key().as_str(), row.label()), ("tabSize", "Tab Size"));
         assert_eq!(row.description.as_deref(), Some("Spaces per tab"));
         assert_eq!(row.invalid_description.as_deref(), Some("Bad"));
         assert_eq!(row.default, Some(Value::Number(2.0)));
         assert!(row.when.is_some());
+        assert_eq!(
+            row.worded.as_ref().map(|(_, text)| text.as_str()),
+            Some("Fixed")
+        );
+        assert_eq!(row.frozen, Some(Condition::capability("tabs")));
         assert_eq!(row.label_style(), LabelStyle::Label);
         assert_eq!(row.captioned().label_style(), LabelStyle::Caption);
     }

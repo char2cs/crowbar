@@ -1,4 +1,4 @@
-//! A row drag ends without a drop when the pointer comes back with no button held (released
+//! A row drag, of chats or of Files rows, ends without a drop when the pointer comes back with no button held (released
 //! outside the window) or the window loses focus, as develop's `use-sidebar-drag.ts` does.
 
 use gpui::{Context, MouseMoveEvent, Window};
@@ -23,7 +23,8 @@ impl Sidebar {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        if event.pressed_button.is_none() && self.drag.press.is_some() {
+        let pressed = self.drag.press.is_some() || self.file_drag.is_live();
+        if event.pressed_button.is_none() && pressed {
             self.cancel_drag(window, cx);
         }
     }
@@ -36,6 +37,7 @@ impl Sidebar {
     ) {
         cx.stop_active_drag(window);
         self.end_drag(cx);
+        self.end_file_drag(cx);
     }
 }
 

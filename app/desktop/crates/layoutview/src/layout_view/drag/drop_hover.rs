@@ -39,12 +39,12 @@ impl DropHover {
             .is_some_and(|tween| tween.is_running(now, motion))
     }
 
-    pub(crate) fn chat_event(
+    pub(crate) fn row_event(
         &self,
         tab: &Tab,
     ) -> Option<LayoutEvent> {
         let subject = self.subject.as_ref()?;
-        matches!(subject, DragSubject::Chat(_))
+        matches!(subject, DragSubject::Chat(_) | DragSubject::File(_))
             .then(|| self.event(subject, tab))
             .flatten()
     }
@@ -77,6 +77,10 @@ impl DropHover {
                 chat: chat.clone(),
                 tab: tab.id(),
                 placement: target.placement(),
+            }),
+            DragSubject::File(path) => Some(LayoutEvent::OpenFile {
+                path: path.clone(),
+                onto: target.pane.clone(),
             }),
             DragSubject::Tab(dragged) => Some(LayoutEvent::DropTab {
                 tab: *dragged,
@@ -230,14 +234,14 @@ mod tests {
         let slots = tab.layout(CONTENT);
         let subject = DragSubject::Chat("t1".into());
         let mut hover = DropHover::default();
-        assert_eq!(hover.chat_event(tab), None, "nothing hovered yet");
+        assert_eq!(hover.row_event(tab), None, "nothing hovered yet");
         let hit = hit_at(&subject, (410.0, 200.0), &slots);
         cx.update(|cx| hover.over(hit, cx));
-        assert!(hover.chat_event(tab).is_some(), "a chat over a pane");
+        assert!(hover.row_event(tab).is_some(), "a chat over a pane");
         let pane = DragSubject::Pane(pane_id("a"));
         let hit = hit_at(&pane, (410.0, 200.0), &slots);
         cx.update(|cx| hover.over(hit, cx));
-        assert_eq!(hover.chat_event(tab), None, "a pane drag has its own drop");
+        assert_eq!(hover.row_event(tab), None, "a pane drag has its own drop");
     }
 
     #[test]

@@ -136,6 +136,7 @@ impl ShellView {
                 tab,
                 placement,
             } => self.drop_chat(chat, (*tab, placement), cx),
+            LayoutEvent::OpenFile { path, onto } => self.open_workspace_file_onto((path, onto)),
             LayoutEvent::StageChat { chat } => {
                 self.open_chat(core_panes::chat_params(chat), cx);
             },

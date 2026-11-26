@@ -1,13 +1,15 @@
 //! A text or list field.
 
 use gpui::prelude::FluentBuilder as _;
-use gpui::{IntoElement, ParentElement, Styled, div, px};
+use gpui::{InteractiveElement, IntoElement, ParentElement, Styled, div, px};
 use settings::{Control, Row};
 
 use crate::frame::Frame;
 use crate::frame::RowLayout;
 
 const INLINE_TEXTAREA_DESCENT: f32 = 5.0;
+// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/components/ui/input.tsx
+const DISABLED_OPACITY: f32 = 0.64;
 
 pub(crate) fn field_control(
     frame: &Frame<'_>,
@@ -18,8 +20,10 @@ pub(crate) fn field_control(
         _ => 0.0,
     };
     let list = matches!(row.control(), Control::TextList { .. });
+    let frozen = !frame.state.row_enabled(row);
     div()
         .w(px(width))
+        .when(frozen, |field| field.opacity(DISABLED_OPACITY).occlude())
         .when(list, |field| field.pb(px(INLINE_TEXTAREA_DESCENT)))
         .when(frame.rows == RowLayout::Stacked, Styled::w_full)
         .max_w_full()

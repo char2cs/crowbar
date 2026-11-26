@@ -6,7 +6,8 @@
 pub enum Report {
     /// The daemon made this session for the view; the host keeps the id to attach to it again.
     Bound(String),
-    /// The saved session ended while nothing watched it; nothing replaces it.
+    /// The session ended while nothing watched it, or while its stream was down; nothing
+    /// replaces it.
     Gone,
     /// The session could not be created or attached, for this reason.
     Failed(String),

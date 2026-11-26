@@ -28,14 +28,14 @@ pub(crate) fn muted(palette: &Palette) -> Div {
 pub(crate) fn labelled(
     label: &'static str,
     palette: &Palette,
-    input: &Entity<TextInput>,
+    field: impl IntoElement,
 ) -> Div {
     div()
         .flex()
         .flex_col()
         .gap(LABEL_GAP)
         .child(muted(palette).child(label))
-        .child(input.clone())
+        .child(field)
 }
 
 pub(crate) fn hinted(

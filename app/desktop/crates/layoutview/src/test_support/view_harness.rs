@@ -40,6 +40,25 @@ fn record_events(
 
 struct RowSource {
     view: Entity<LayoutView>,
+    payload: DraggedRow,
+}
+
+/// The payload of the sidebar's row for chat `t1`.
+pub(crate) fn chat_row() -> DraggedRow {
+    DraggedRow {
+        row: "t1".into(),
+        chat: Some("t1".into()),
+        file: None,
+    }
+}
+
+/// The payload of the Files panel's row for the file at `path`.
+pub(crate) fn file_row(path: &str) -> DraggedRow {
+    DraggedRow {
+        row: path.into(),
+        chat: None,
+        file: Some(path.into()),
+    }
 }
 
 const SOURCE_SIZE: f32 = 8.0;
@@ -50,10 +69,7 @@ impl Render for RowSource {
         _: &mut Window,
         _: &mut Context<'_, Self>,
     ) -> impl IntoElement {
-        let payload = DraggedRow {
-            row: "t1".into(),
-            chat: Some("t1".into()),
-        };
+        let payload = self.payload.clone();
         let source = div()
             .id("row-source")
             .absolute()
@@ -108,6 +124,7 @@ pub(crate) fn open_with<'a>(
 pub(crate) fn open_under_row_source<'a>(
     cx: &'a mut TestAppContext,
     layout: &Layout,
+    payload: DraggedRow,
 ) -> Harness<'a> {
     cx.update(|cx| {
         ui::init(cx).expect("ui init");
@@ -119,7 +136,7 @@ pub(crate) fn open_under_row_source<'a>(
     let (host, cx) = cx.add_window_view(move |_, cx| {
         let source = Rc::new(FakeSource::starting_at_first_tab());
         let view = cx.new(|_| LayoutView::with_clock(source, Rc::new(move || reading.get())));
-        RowSource { view }
+        RowSource { view, payload }
     });
     let view = host.read_with(cx, |host, _| host.view.clone());
     let commands = Rc::new(RefCell::new(Vec::new()));

@@ -169,6 +169,13 @@ pub enum Command {
         /// The path after the rename.
         new_path: String,
     },
+    /// Move a file or directory dragged in the Files panel to `new_path`, in another directory.
+    MoveFile {
+        /// The current path.
+        path: String,
+        /// The path in the directory it was dropped on.
+        new_path: String,
+    },
     /// Delete a file or directory, after the sidebar's confirmation.
     DeleteFile {
         /// The path to delete.

@@ -6,6 +6,7 @@ use crate::panes::editor::editor_panes::EditorTarget;
 use crate::panes::kinds::pane_opener::focus_commands;
 use crate::panes::kinds::pane_spec::PaneSpec;
 use crate::shell::shell_state::ShellState;
+use crate::shell::shell_state::placing::preview::keeping;
 
 impl ShellState {
     pub(crate) fn spec_commands(
@@ -17,6 +18,26 @@ impl ShellState {
             return Ok(focus_commands(layout, &holder));
         }
         spec.open_commands((layout, &self.space.active()), &self.serials)
+    }
+
+    pub(crate) fn open_spec_onto(
+        &mut self,
+        (spec, onto): (PaneSpec, &PaneId),
+    ) {
+        let layout = self.history.layout();
+        if let Some(holder) = self.document_holder(&spec) {
+            let focus = keeping(layout, focus_commands(layout, &holder));
+            return self.apply(focus);
+        }
+        let Some(pane) = self.fresh_pane() else {
+            return;
+        };
+        let opened = Command::OpenPaneInGroup {
+            instance: spec.instance(pane),
+            onto: onto.clone(),
+            index: None,
+        };
+        self.apply(vec![opened]);
     }
 
     pub(crate) fn document_pane(
@@ -116,5 +137,40 @@ mod tests {
             let expected = 3 - usize::from(focused);
             assert_eq!(rig.shell.layout().pane_count(), expected, "{name}: panes");
         }
+    }
+
+    fn group_holding(
+        rig: &crate::test_support::ShellRig,
+        pane: &PaneId,
+    ) -> Vec<PaneId> {
+        let tab = &rig.shell.layout().tabs()[0];
+        tab.group_of(pane)
+            .map_or_else(Vec::new, |group| group.tabs().to_vec())
+    }
+
+    #[test]
+    fn a_dropped_file_joins_the_group_it_lands_on_unless_the_view_already_shows_it() {
+        let mut rig = shell_rig();
+        rig.space.know_workspace(("c1", "w1"));
+        rig.shell
+            .open_spec(PaneSpec::terminal("t1", Some("c1"), None).unwrap());
+        let terminal = rig.shell.layout().tabs()[0].pane_ids()[0].clone();
+        let dropped = || PaneSpec::editor("c1", "src/a.ts").unwrap();
+        rig.shell.open_spec_onto((dropped(), &terminal));
+        let joined = group_holding(&rig, &terminal);
+        assert_eq!(joined.len(), 2, "the file is a tab of the terminal's group");
+        let file = joined
+            .iter()
+            .find(|pane| **pane != terminal)
+            .cloned()
+            .unwrap();
+        rig.shell.open_spec_onto((dropped(), &terminal));
+        assert_eq!(
+            rig.shell.layout().pane_count(),
+            2,
+            "dropped again, it is not opened twice"
+        );
+        let shown = rig.shell.showing().and_then(layout::Tab::focused).cloned();
+        assert_eq!(shown, Some(file), "the pane holding it is focused");
     }
 }

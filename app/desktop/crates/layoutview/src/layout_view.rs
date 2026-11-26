@@ -197,7 +197,9 @@ mod tests {
     use gpui::{Modifiers, MouseButton, TestAppContext, point, px};
     use layout::{Command, DragSubject, Edge};
 
-    use crate::test_support::{layout_of, open, open_under_row_source, pane_id};
+    use crate::test_support::{
+        chat_row, file_row, layout_of, open, open_under_row_source, pane_id,
+    };
 
     fn side_by_side() -> layout::Layout {
         layout_of("a", &[("b", "a", Edge::Right)])
@@ -309,7 +311,7 @@ mod tests {
         cx: &mut TestAppContext
     ) {
         let layout = layout_of("a", &[]);
-        let harness = open_under_row_source(cx, &layout);
+        let harness = open_under_row_source(cx, &layout, chat_row());
         let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
         let size = view.read_with(cx, |view, _| view.bounds.size);
         let (width, height) = (f32::from(size.width), f32::from(size.height));
@@ -341,6 +343,30 @@ mod tests {
             .map(|(_, edge)| ("t1".to_owned(), pane_id("a"), *edge))
             .collect();
         assert_eq!(edges, expected, "centre, bottom, top and left");
+    }
+
+    #[gpui::test]
+    fn a_file_row_dropped_on_a_pane_asks_to_open_it_in_that_pane_wherever_it_lands(
+        cx: &mut TestAppContext
+    ) {
+        let layout = layout_of("a", &[("b", "a", Edge::Right)]);
+        let harness = open_under_row_source(cx, &layout, file_row("src/a.rs"));
+        let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
+        let size = view.read_with(cx, |view, _| view.bounds.size);
+        let (width, height) = (f32::from(size.width), f32::from(size.height));
+        let spots = [(width * 0.75, height / 2.0), (width - 10.0, height - 10.0)];
+        for (x, y) in spots {
+            let none = Modifiers::none();
+            cx.simulate_mouse_down(point(px(4.0), px(4.0)), MouseButton::Left, none);
+            cx.simulate_mouse_move(point(px(40.0), px(40.0)), MouseButton::Left, none);
+            cx.simulate_mouse_move(point(px(x), px(y)), MouseButton::Left, none);
+            cx.simulate_mouse_up(point(px(x), px(y)), MouseButton::Left, none);
+        }
+        let expected = LayoutEvent::OpenFile {
+            path: "src/a.rs".into(),
+            onto: pane_id("b"),
+        };
+        assert_eq!(*opened.borrow(), [expected.clone(), expected]);
     }
 
     #[gpui::test]

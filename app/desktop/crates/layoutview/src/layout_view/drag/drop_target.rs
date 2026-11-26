@@ -18,7 +18,8 @@ pub struct DropTarget {
 
 impl DropTarget {
     /// The target under `point` among the pane `slots` of the active tab, or `None` when no
-    /// pane is hit or the drop would do nothing, such as a pane dropped on itself.
+    /// pane is hit or the drop would do nothing, such as a pane dropped on itself. A file takes
+    /// the whole pane: it opens there whatever edge it is nearest.
     #[must_use]
     pub fn resolve(
         subject: &DragSubject,
@@ -30,7 +31,10 @@ impl DropTarget {
         if own_pane(subject, &slot.pane) {
             return None;
         }
-        let zone = PaneZone::at(point, slot.rect);
+        let zone = match subject {
+            DragSubject::File(_) => PaneZone::Center,
+            _ => PaneZone::at(point, slot.rect),
+        };
         Some(Self {
             pane: slot.pane.clone(),
             zone,
@@ -131,7 +135,7 @@ impl DropTarget {
                 instance: instance.clone(),
                 placement: Some(placement),
             }),
-            DragSubject::Chat(_) | DragSubject::Tab(_) => None,
+            DragSubject::Chat(_) | DragSubject::Tab(_) | DragSubject::File(_) => None,
         }
     }
 
@@ -255,6 +259,20 @@ mod tests {
             },
             "the centre of b adds beside it, to the right"
         );
+    }
+
+    #[test]
+    fn a_file_targets_the_whole_pane_under_it_even_at_its_edge() {
+        let layout = two_panes();
+        let slots = layout.showing("").expect("tab").layout(CONTENT);
+        let subject = DragSubject::File("src/a.rs".into());
+        let target = DropTarget::resolve(&subject, (410.0, 200.0), &slots, &[]);
+        let expected = DropTarget {
+            pane: pane_id("b"),
+            zone: PaneZone::Center,
+            joins: false,
+        };
+        assert_eq!(target, Some(expected), "b's left edge still opens in b");
     }
 
     #[test]

@@ -6,6 +6,7 @@
 //! [`OfferView`] shows the one-time code another device pairs with this computer.
 
 mod action;
+mod code_slots;
 mod event;
 mod look;
 mod offer_view;

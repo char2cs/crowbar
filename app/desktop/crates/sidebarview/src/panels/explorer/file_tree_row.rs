@@ -14,11 +14,12 @@ use gpui::{
     App, ClickEvent, Div, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement,
     RenderOnce, SharedString, Stateful, StatefulInteractiveElement, Styled, Window, div, px,
 };
-use sidebar::{Command, CopyNote, Expansion, FileKind, GitStatus, Intent, MenuScope};
+use sidebar::{Command, CopyNote, Expansion, FileDrop, FileKind, GitStatus, Intent, MenuScope};
 use ui::{ContextMenu, Icon, IconName, IconWeight, Palette, Surface, Theme, radius};
 
 use crate::panels::chats::RowInput;
 use crate::panels::chats::{ringed, row_focus};
+use crate::panels::explorer::file_drag::file_draggable;
 use crate::panels::explorer::file_drop;
 use crate::panels::explorer::file_menu::file_menu;
 use crate::panels::explorer::file_tree_entry::FileTreeEntry;
@@ -48,6 +49,7 @@ pub(crate) struct FileTreeRow {
     pub(crate) selected: bool,
     pub(crate) cut: bool,
     pub(crate) note: Option<CopyNote>,
+    pub(crate) target: Option<FileDrop>,
     pub(crate) look: TreeLook,
     pub(crate) scope: std::rc::Rc<MenuScope>,
     pub(crate) handler: RowHandler,
@@ -64,8 +66,14 @@ impl FileTreeRow {
             row.bg(palette.sidebar_element_idle())
                 .debug_selector(|| "file-selected".to_owned())
         });
-        row.when(matched.is_some() && !self.selected, |row| {
+        let row = row.when(matched.is_some() && !self.selected, |row| {
             row.bg(palette.accent().opacity(MATCH_TINT))
+        });
+        row.when(self.target.is_some(), |row| {
+            row.bg(palette.sidebar_drop_nest())
+                .border_color(palette.sidebar_drop_nest_edge())
+                .text_color(palette.foreground())
+                .debug_selector(|| "file-drop-target".to_owned())
         })
     }
 }
@@ -109,6 +117,7 @@ impl RenderOnce for FileTreeRow {
         if self.input.is_some() {
             return row.into_any_element();
         }
+        let row = file_draggable(row, &entry, &self.handler);
         let menu = file_menu(&entry, &self.scope, &self.handler);
         ContextMenu::new(menu_id(&entry), row, menu).into_any_element()
     }
@@ -257,6 +266,7 @@ mod tests {
             selected: false,
             cut: false,
             note: None,
+            target: None,
             look: TreeLook::default(),
             scope: std::rc::Rc::default(),
             handler: std::rc::Rc::new(|_, _, _| {}),
@@ -278,6 +288,7 @@ mod tests {
             selected: false,
             cut: false,
             note: None,
+            target: None,
             look: TreeLook::default(),
             scope: std::rc::Rc::default(),
             handler: std::rc::Rc::new(|_, _, _| {}),

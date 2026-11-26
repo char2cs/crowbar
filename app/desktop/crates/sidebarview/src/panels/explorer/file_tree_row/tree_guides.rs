@@ -75,6 +75,7 @@ mod tests {
             selected: false,
             cut: false,
             note: None,
+            target: None,
             look: look.clone(),
             scope: std::rc::Rc::default(),
             handler: std::rc::Rc::new(|_, _, _| {}),

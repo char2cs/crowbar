@@ -11,6 +11,7 @@ pub(crate) use foot_menu::foot_menu;
 pub use parts::{ChatGlyph, GlyphTone};
 pub(crate) use parts::{RowBounds, RowInput, Trailing, input_view, ringed, row_focus};
 pub(crate) use reorder::DragState;
+pub(crate) use reorder::{GhostBuild, RowGhost};
 pub(crate) use row_menu::row_menu;
 
 use std::rc::Rc;

@@ -2,6 +2,7 @@
 
 mod copy_flash;
 mod file_dialog_view;
+mod file_drag;
 mod file_drop;
 mod file_menu;
 mod file_paste;
@@ -12,6 +13,7 @@ mod menu_lines;
 mod search;
 mod sticky_ancestors;
 
+pub(crate) use file_drag::FileDragState;
 pub(crate) use file_tree_entry::FileTreeEntry;
 pub use file_tree_row::FileGlyph;
 pub(crate) use file_tree_row::badges;
@@ -105,7 +107,7 @@ impl Sidebar {
 
     pub(crate) fn files_panel(
         &mut self,
-        window: &Window,
+        window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> AnyElement {
         let phase = self.data.folder_phase();
@@ -130,6 +132,8 @@ impl Sidebar {
             .child(strip);
         let scroll = ScrollArea::new("files-scroll", &self.scrolls.files, list);
         let body = div().relative().size_full().child(scroll).children(stack);
+        let body = self.file_drop_area(body, cx);
+        self.scroll_files_edge(window);
         self.panel_frame(body.into_any_element(), cx)
     }
 
@@ -146,6 +150,7 @@ impl Sidebar {
             selected: self.highlighted(window, cx),
             cut: self.cut_paths(),
             copied: self.copied.clone(),
+            target: self.file_drag.target(),
             look: TreeLook::of(
                 &self.data.file_tree_view(),
                 self.search.as_ref().map(|search| search.query.as_str()),

@@ -24,10 +24,9 @@ impl LayoutView {
         _: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        let Some(chat) = event.drag(cx).chat.as_deref() else {
+        let Some(subject) = row_subject(event.drag(cx)) else {
             return;
         };
-        let subject = DragSubject::Chat(chat.to_owned());
         self.hover(&subject, event.event.position, cx);
     }
 
@@ -148,7 +147,7 @@ impl LayoutView {
         let opened = self
             .tab
             .as_ref()
-            .map_or_else(|| self.drop.stage_event(), |tab| self.drop.chat_event(tab));
+            .map_or_else(|| self.drop.stage_event(), |tab| self.drop.row_event(tab));
         self.released(event, window, cx);
         if let Some(opened) = opened {
             cx.emit(opened);
@@ -167,6 +166,18 @@ impl LayoutView {
             cx.notify();
         }
     }
+}
+
+fn row_subject(row: &DraggedRow) -> Option<DragSubject> {
+    let chat = row
+        .chat
+        .as_deref()
+        .map(|chat| DragSubject::Chat(chat.to_owned()));
+    chat.or_else(|| {
+        row.file
+            .as_deref()
+            .map(|path| DragSubject::File(path.to_owned()))
+    })
 }
 
 #[cfg(test)]
@@ -291,7 +302,11 @@ mod tests {
     #[gpui::test]
     fn a_chat_row_released_on_the_empty_stage_asks_to_open_it_there(cx: &mut TestAppContext) {
         let layout = layout::Layout::default();
-        let harness = crate::test_support::open_under_row_source(cx, &layout);
+        let harness = crate::test_support::open_under_row_source(
+            cx,
+            &layout,
+            crate::test_support::chat_row(),
+        );
         let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
         let centre = view.read_with(cx, |view, _| view.bounds.center());
         let none = gpui::Modifiers::none();
@@ -306,5 +321,19 @@ mod tests {
             vec![expected],
             "open t1 on the stage"
         );
+    }
+
+    #[gpui::test]
+    fn a_file_row_released_on_the_empty_stage_opens_nothing(cx: &mut TestAppContext) {
+        let layout = layout::Layout::default();
+        let row = crate::test_support::file_row("src/a.rs");
+        let harness = crate::test_support::open_under_row_source(cx, &layout, row);
+        let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
+        let centre = view.read_with(cx, |view, _| view.bounds.center());
+        let (none, left) = (gpui::Modifiers::none(), gpui::MouseButton::Left);
+        cx.simulate_mouse_down(point(px(4.0), px(4.0)), left, none);
+        cx.simulate_mouse_move(centre, left, none);
+        cx.simulate_mouse_up(centre, left, none);
+        assert!(opened.borrow().is_empty(), "a file needs a pane to open in");
     }
 }

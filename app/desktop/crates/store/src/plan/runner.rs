@@ -192,6 +192,10 @@ fn fail(
         return outcome(Outcome::Failed(reason));
     };
     let reason = plan.explained.clone().unwrap_or(reason);
+    if let Some(lead) = &plan.alerting {
+        let message = format!("{lead}: {reason}");
+        return outcome(Outcome::Alert { title, message });
+    }
     outcome(Outcome::Refused { title, reason });
 }
 

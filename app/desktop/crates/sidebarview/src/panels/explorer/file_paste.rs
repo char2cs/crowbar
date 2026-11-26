@@ -6,6 +6,8 @@ use sidebar::{ClipMode, FileClipboard, FileKey};
 use crate::panels::explorer::search::opens_search;
 use crate::sidebar::Sidebar;
 
+const ESCAPE: &str = "escape";
+
 impl Sidebar {
     pub(crate) fn stage_file(
         &mut self,
@@ -46,6 +48,11 @@ impl Sidebar {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
+        let cancels_drag = self.file_drag.is_live() && event.keystroke.key == ESCAPE;
+        if cancels_drag {
+            cx.stop_propagation();
+            return self.cancel_drag(window, cx);
+        }
         if self.inline.is_some() || self.search.is_some() {
             return;
         }

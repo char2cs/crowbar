@@ -14,7 +14,7 @@ mod surfaces;
 
 pub(crate) use clock::Clock;
 pub use event::Event;
-pub(crate) use row_action::{DragPoint, DragPress, RowAction, RowHandler};
+pub(crate) use row_action::{DragPoint, DragPress, FileGesture, RowAction, RowHandler};
 pub(crate) use scale::{
     FOOT_HEIGHT, HEADER_HEIGHT, ICON_LARGE, ICON_MEDIUM, ICON_SMALL, ICON_TINY, INDENT_STEP,
     PEEK_INSET, ROW_HEIGHT, ROW_MARGIN_X, ROW_MARGIN_Y, SPACE_LG, SPACE_MD, SPACE_SM, SPACE_XL,
@@ -33,6 +33,7 @@ use crate::overlays::OpenMenu;
 use crate::overlays::Peek;
 use crate::panels::DragState;
 use crate::panels::Field;
+use crate::panels::FileDragState;
 use crate::panels::FileSearch;
 use crate::panels::MergeDraft;
 use crate::panels::RowBounds;
@@ -71,6 +72,7 @@ pub struct Sidebar {
     pub(crate) search: Option<FileSearch>,
     pub(crate) toasts: Entity<ToastQueue>,
     pub(crate) drag: DragState,
+    pub(crate) file_drag: FileDragState,
     pub(crate) row_bounds: RowBounds,
     pub(crate) open_chats: OpenChats,
     pub(crate) active_file: Option<String>,
@@ -117,6 +119,7 @@ impl Sidebar {
             search: None,
             toasts: cx.new(|_| ToastQueue::new(placement)),
             drag: DragState::default(),
+            file_drag: FileDragState::default(),
             row_bounds: RowBounds::default(),
             open_chats: OpenChats::default(),
             active_file: None,

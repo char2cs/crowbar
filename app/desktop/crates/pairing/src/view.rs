@@ -3,21 +3,18 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use gpui::{
-    Context, Div, Entity, EventEmitter, IntoElement, ParentElement, Render, Styled, Subscription,
-    Window, div,
-};
-use store::{PairingPending, PairingSession, PairingStage, PairingState};
-use ui::{Dialog, DialogSize, Palette, Surface, TextInput, TextInputEvent, Theme};
+use gpui::{Context, Entity, EventEmitter, Subscription, Window};
+use store::{PairingPending, PairingSession, PairingStage};
+use ui::{TextInput, TextInputEvent};
 
 use crate::action::Action;
+use crate::code_slots::overrun;
 use crate::event::Event;
-use crate::look::{
-    ADDRESS_HINT, ADDRESS_PLACEHOLDER, CODE_HINT, CODE_PLACEHOLDER, GAP, NAME_PLACEHOLDER, TITLE,
-};
+use crate::look::{ADDRESS_PLACEHOLDER, NAME_PLACEHOLDER};
 use crate::source::Source;
-use crate::stage_copy;
 use crate::stage_widgets;
+
+mod stage_render;
 
 const FIELDS: usize = 3;
 
@@ -62,9 +59,13 @@ impl View {
     ) -> Self {
         let name = stage_widgets::field(NAME_PLACEHOLDER, cx);
         let address = stage_widgets::field(ADDRESS_PLACEHOLDER, cx);
-        let code = stage_widgets::field(CODE_PLACEHOLDER, cx);
+        let code = stage_widgets::field("", cx);
         name.update(cx, |field, cx| field.focus(window, cx));
-        let inputs = [&name, &address, &code].map(|input| cx.subscribe(input, Self::on_input));
+        let inputs = [
+            cx.subscribe(&name, Self::on_input),
+            cx.subscribe(&address, Self::on_input),
+            cx.subscribe(&code, Self::on_code),
+        ];
         let seen = source.state().stage;
         Self {
             source,
@@ -102,6 +103,20 @@ impl View {
             TextInputEvent::Cancelled => self.dismiss(cx),
             _ => {},
         }
+    }
+
+    fn on_code(
+        &mut self,
+        input: Entity<TextInput>,
+        event: &TextInputEvent,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if let TextInputEvent::Changed(typed) = event
+            && let Some(kept) = overrun(typed)
+        {
+            input.update(cx, |field, cx| field.set_text(&kept, cx));
+        }
+        self.on_input(input, event, cx);
     }
 
     fn idle(&self) -> bool {
@@ -162,67 +177,6 @@ impl View {
             PairingStage::Fingerprint | PairingStage::Code => self.source.act(Action::Back),
         }
     }
-
-    fn stage_body(
-        &self,
-        state: &PairingState,
-        (palette, mono): (&Palette, &'static str),
-    ) -> Div {
-        let body = div().flex().flex_col().gap(GAP);
-        match state.stage {
-            PairingStage::Address => body
-                .child(stage_widgets::labelled("Name", palette, &self.name))
-                .child(stage_widgets::hinted(
-                    stage_widgets::labelled("Address", palette, &self.address),
-                    ADDRESS_HINT,
-                    palette,
-                )),
-            PairingStage::Fingerprint => body.child(stage_widgets::fingerprint_box(
-                palette,
-                &state.fingerprint,
-                mono,
-            )),
-            PairingStage::Code => body.child(stage_widgets::hinted(
-                stage_widgets::labelled("Pairing code", palette, &self.code),
-                CODE_HINT,
-                palette,
-            )),
-            PairingStage::Paired => body,
-        }
-    }
-}
-
-impl Render for View {
-    fn render(
-        &mut self,
-        _window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) -> impl IntoElement {
-        let state = self.source.state();
-        let palette = *Theme::of(cx).palette(Surface::Window);
-        let me = cx.entity();
-        let lead =
-            stage_copy::lead(state.stage).map(|lead| stage_widgets::muted(&palette).child(lead));
-        let body = div()
-            .flex()
-            .flex_col()
-            .gap(GAP)
-            .children(lead)
-            .child(self.stage_body(&state, (&palette, Theme::of(cx).mono_family())))
-            .children(stage_widgets::messages(&state, &palette));
-        Dialog::new("pairing")
-            .title(TITLE)
-            .size(DialogSize::Sm)
-            .body(body)
-            .footer(stage_widgets::footer(
-                &state,
-                (
-                    cx.listener(|this, _, window, cx| this.press_primary(window, cx)),
-                    cx.listener(|this, _, _, cx| this.step_back(cx)),
-                ),
-            ))
-            .on_close(move |_, cx| me.update(cx, Self::dismiss))
-    }
 }
 
 #[cfg(test)]
@@ -230,8 +184,10 @@ mod tests {
     use std::cell::RefCell;
 
     use gpui::{
-        AppContext as _, Focusable as _, InteractiveElement as _, TestAppContext, VisualTestContext,
+        AppContext as _, Div, Focusable as _, InteractiveElement as _, IntoElement, ParentElement,
+        Render, Styled, TestAppContext, VisualTestContext, div,
     };
+    use store::PairingState;
 
     use super::*;
 
@@ -378,11 +334,23 @@ mod tests {
         assert!(on_code, "the code field does not hold the keyboard");
     }
 
-    const CASES: [fn(&mut TestAppContext); 4] = [
+    fn a_seventh_character_of_the_code_is_refused(cx: &mut TestAppContext) {
+        let (fake, events) = (Rc::new(Fake::default()), Events::default());
+        let (view, cx) = open(cx, &fake, &events);
+        at(&fake, PairingStage::Fingerprint, PairingPending::Idle);
+        view.update_in(cx, View::press_primary);
+        at(&fake, PairingStage::Code, PairingPending::Idle);
+        cx.simulate_input("1234567");
+        let code = view.read_with(cx, |this, cx| this.code.read(cx).text().to_owned());
+        assert_eq!(code, "123456");
+    }
+
+    const CASES: [fn(&mut TestAppContext); 5] = [
         each_stage_sends_its_step_to_the_session,
         nothing_dismisses_the_dialog_while_the_host_answers,
         a_finished_pairing_is_announced_once_and_done_closes,
         confirming_the_fingerprint_puts_the_keyboard_in_the_code_field,
+        a_seventh_character_of_the_code_is_refused,
     ];
 
     struct Layers {

@@ -2,18 +2,22 @@
 
 use std::rc::Rc;
 
-use gpui::{AnyElement, App, Context, IntoElement, Render, Window};
+use gpui::{AnyElement, App, Context, IntoElement, Pixels, Render, Window};
 use ui::{Portal, layer};
 
 pub(crate) type GhostBuild = Rc<dyn Fn(&mut App) -> AnyElement>;
 
 pub(crate) struct RowGhost {
     build: GhostBuild,
+    radius: Pixels,
 }
 
 impl RowGhost {
-    pub(crate) fn new(build: GhostBuild) -> Self {
-        Self { build }
+    pub(crate) fn new(
+        build: GhostBuild,
+        radius: Pixels,
+    ) -> Self {
+        Self { build, radius }
     }
 }
 
@@ -23,9 +27,9 @@ impl Render for RowGhost {
         _window: &mut Window,
         _cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
-        let build = Rc::clone(&self.build);
+        let (build, radius) = (Rc::clone(&self.build), self.radius);
         Portal::lifted("row-ghost", move |_, cx| {
-            ui::Shaped::seen(build(cx), ui::radius::LG)
+            ui::Shaped::seen(build(cx), radius)
         })
         .priority(layer::TOOLTIP)
     }
@@ -46,7 +50,7 @@ mod tests {
         let held = Rc::new(std::cell::OnceCell::new());
         let bounds = measure(cx, move |_, cx| {
             let build = Rc::clone(&build);
-            held.get_or_init(|| cx.new(|_| RowGhost::new(build)))
+            held.get_or_init(|| cx.new(|_| RowGhost::new(build, ui::radius::LG)))
                 .clone()
         });
         assert_eq!(f32::from(bounds.size.height), 7.0);
@@ -69,11 +73,11 @@ mod tests {
 
     fn lift(
         _: &Lifted,
-        _: gpui::Point<gpui::Pixels>,
+        _: gpui::Point<Pixels>,
         _: &mut Window,
         cx: &mut App,
     ) -> gpui::Entity<RowGhost> {
-        cx.new(|_| RowGhost::new(Rc::new(ghost)))
+        cx.new(|_| RowGhost::new(Rc::new(ghost), ui::radius::LG))
     }
 
     fn ghost(_: &mut App) -> AnyElement {

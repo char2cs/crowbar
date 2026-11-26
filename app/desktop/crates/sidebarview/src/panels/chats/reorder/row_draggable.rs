@@ -29,7 +29,7 @@ pub(crate) fn draggable(
             report_press(&pressed, event, window, cx);
         })
         .on_drag(payload, move |_, _, _, cx| {
-            cx.new(|_| RowGhost::new(Rc::clone(&ghost)))
+            cx.new(|_| RowGhost::new(Rc::clone(&ghost), ui::radius::LG))
         })
         .on_drag_move(move |event: &DragMoveEvent<DraggedRow>, window, cx| {
             report_over(&over, event, window, cx);
@@ -102,6 +102,7 @@ mod tests {
         DraggedRow {
             row: Arc::from("r"),
             chat: None,
+            file: None,
         }
     }
 

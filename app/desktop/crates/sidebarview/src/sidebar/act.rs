@@ -37,6 +37,7 @@ impl Sidebar {
             RowAction::Press(press) => self.press_row(press),
             RowAction::DragOver(point) => self.drag_over(&point, cx),
             RowAction::Dropped(subject, target) => self.drop_on((subject, target), cx),
+            RowAction::File(gesture) => self.file_gesture(gesture, cx),
         }
     }
 
