@@ -1,6 +1,3 @@
-mod clock;
-mod geometry;
-mod ghost;
 mod held;
 mod incoming;
 mod pointer;
@@ -8,25 +5,27 @@ mod preview;
 mod render;
 mod sidebar_glyph;
 mod sidebar_state;
-mod window_grip;
 
-pub use clock::Clock;
 pub use sidebar_state::SidebarState;
 
 use std::rc::Rc;
 use std::time::Instant;
 
-use gpui::{Bounds, Context, EventEmitter, Pixels, ScrollHandle};
+use gpui::{
+    Bounds, Context, EventEmitter, InteractiveElement, IntoElement, MouseButton, Pixels,
+    ScrollHandle, Styled, div, px,
+};
 use layout::TabId;
 
 use crate::event::Event;
-use crate::gesture::DragSession;
-use crate::gesture::HeldGap;
-use crate::gesture::IncomingDrop;
-use crate::gesture::NewTab;
-use crate::gesture::Press;
-use crate::gesture::Settle;
+use crate::gesture::{DragSession, HeldGap, IncomingDrop, NewTab, Press, Settle};
 use crate::pill::TabView;
+use crate::span::Span;
+use crate::strip_metrics::{
+    ROW_GAP, ROW_HEIGHT, ROW_PADDING, TOGGLE_SIZE, TRAFFIC_LIGHT_INSET, slots,
+};
+
+const NO_ROW: f32 = 0.0;
 
 /// The strip of view tabs: one pill per model tab, drag to reorder, drop a chat on one to merge
 /// it, close with the x. It owns no tab state: it renders the [`TabView`]s it was last given and
@@ -43,7 +42,7 @@ pub struct TabBar {
     pub(crate) incoming: Option<IncomingDrop>,
     pub(crate) gap: Option<HeldGap>,
     pub(crate) settle: Option<Settle>,
-    pub(crate) clock: Rc<dyn Clock>,
+    pub(crate) clock: Rc<dyn Fn() -> Instant>,
 }
 
 impl std::fmt::Debug for TabBar {
@@ -71,14 +70,6 @@ impl TabBar {
     /// An empty strip; `first_free_tab` is the first tab id the strip may hand out for tabs a
     /// drop creates, and it counts up from there.
     pub fn new(first_free_tab: TabId) -> Self {
-        Self::with_clock(first_free_tab, Rc::new(Instant::now))
-    }
-
-    /// Like [`TabBar::new`], but animations read the time from `clock`.
-    pub fn with_clock(
-        first_free_tab: TabId,
-        clock: Rc<dyn Clock>,
-    ) -> Self {
         Self {
             tabs: Vec::new(),
             active: None,
@@ -91,7 +82,7 @@ impl TabBar {
             incoming: None,
             gap: None,
             settle: None,
-            clock,
+            clock: Rc::new(Instant::now),
         }
     }
 
@@ -132,6 +123,27 @@ impl TabBar {
         self.next_tab += 1;
         NewTab { id, title }
     }
+
+    pub(crate) fn strip_left(&self) -> Pixels {
+        let toggle = match self.sidebar {
+            SidebarState::ClosedLeft => TOGGLE_SIZE + ROW_GAP + TRAFFIC_LIGHT_INSET,
+            SidebarState::Open | SidebarState::ClosedRight => 0.0,
+        };
+        self.row.origin.x + px(ROW_PADDING + toggle)
+    }
+
+    pub(crate) fn strip_width(&self) -> f32 {
+        let toggle = match self.sidebar {
+            SidebarState::Open => 0.0,
+            SidebarState::ClosedRight => TOGGLE_SIZE + ROW_GAP,
+            SidebarState::ClosedLeft => TOGGLE_SIZE + ROW_GAP + TRAFFIC_LIGHT_INSET,
+        };
+        (f32::from(self.row.size.width) - 2.0 * ROW_PADDING - toggle).max(0.0)
+    }
+
+    pub(crate) fn slot_spans(&self) -> Vec<Span> {
+        slots(self.tabs.len(), self.strip_width())
+    }
 }
 
 pub(crate) fn position(
@@ -139,6 +151,23 @@ pub(crate) fn position(
     id: TabId,
 ) -> Option<usize> {
     tabs.iter().position(|tab| tab.id == id)
+}
+
+// PLATFORM: linux hands the move to the window manager through _NET_WM_MOVERESIZE; macos is unverified.
+pub(crate) fn window_grip() -> impl IntoElement {
+    div()
+        .id("tab-strip-grip")
+        .flex_1()
+        .min_w_0()
+        .h_full()
+        .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move())
+}
+
+pub(crate) fn row_height(tabs: &[TabView]) -> f32 {
+    if tabs.is_empty() {
+        return NO_ROW;
+    }
+    ROW_HEIGHT
 }
 
 #[cfg(test)]
@@ -149,16 +178,13 @@ mod tests {
     use gpui::TestAppContext;
     use layout::TabId;
 
+    use super::*;
     use crate::test_support::{open, view};
 
-    #[gpui::test]
-    fn set_tabs_shows_the_tabs_and_the_active_one(cx: &mut TestAppContext) {
-        let harness = open(cx, vec![view(1, &["a"]), view(2, &["b"])], 2);
-        let (bar, cx) = (harness.bar, harness.cx);
-        bar.read_with(cx, |bar, _| {
-            assert_eq!(bar.tabs.len(), 2, "two tabs");
-            assert_eq!(bar.active, Some(TabId(2)), "second is active");
-        });
+    #[test]
+    fn the_strip_takes_no_room_until_a_view_exists() {
+        assert_eq!(row_height(&[]), NO_ROW, "no view");
+        assert_eq!(row_height(&[view(1, &["a"])]), ROW_HEIGHT, "one view");
     }
 
     #[gpui::test]
@@ -190,12 +216,29 @@ mod tests {
         assert_eq!(notified.get(), 1, "a changed member");
     }
 
-    #[test]
-    fn position_finds_a_tab_by_id() {
-        let tabs = vec![view(4, &["a"]), view(9, &["b"])];
-        assert_eq!(position(&tabs, TabId(9)), Some(1), "second slot");
-        assert_eq!(position(&tabs, TabId(1)), None, "unknown tab");
+    #[gpui::test]
+    fn the_strip_starts_after_the_padding_and_the_collapsed_toggle(cx: &mut TestAppContext) {
+        let harness = open(cx, vec![view(1, &["a"])], 1);
+        let (bar, cx) = (harness.bar, harness.cx);
+        bar.read_with(cx, |bar, _| {
+            let (left, width) = (f32::from(bar.row.origin.x), f32::from(bar.row.size.width));
+            assert_eq!(f32::from(bar.strip_left()), left + 8.0, "8px padding");
+            assert_eq!(bar.strip_width(), width - 16.0, "padding on both sides");
+        });
+        bar.update(cx, |bar, cx| bar.set_sidebar(SidebarState::ClosedLeft, cx));
+        cx.run_until_parked();
+        bar.read_with(cx, |bar, _| {
+            let (left, width) = (f32::from(bar.row.origin.x), f32::from(bar.row.size.width));
+            assert_eq!(
+                f32::from(bar.strip_left()),
+                left + 8.0 + 34.0 + TRAFFIC_LIGHT_INSET,
+                "after the traffic lights, the 28px toggle and 6px gap"
+            );
+            assert_eq!(
+                bar.strip_width(),
+                width - 16.0 - 34.0 - TRAFFIC_LIGHT_INSET,
+                "inset, toggle and gap come off the width"
+            );
+        });
     }
-
-    use super::position;
 }

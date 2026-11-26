@@ -7,10 +7,10 @@ the sidebar toggle (`mod+b`), driven by the layout model's commands.
 
 ## Public interface
 
-- `TabBar`: `new`, `with_clock`, `set_tabs`, `set_sidebar`; it emits `Event` (`Apply`,
-  `ToggleSidebar`).
-- `TabView`, `MemberView`, `MemberKind`: what one pill shows.
-- `SidebarState`, `Clock`.
+- `TabBar`: `new`, `set_tabs`, `set_sidebar`, `has_tabs`, `preview`, `pane_drop`; it emits `Event`
+  (`Apply`, `ToggleSidebar`, `DragOut`, `DropOut`, `DragCancel`, `DropChat`).
+- `TabView`, `MemberView`, `MemberKind`, `MemberGlyph`: what one pill shows.
+- `SidebarState`, `TabDrop`.
 
 ## Depends on
 
