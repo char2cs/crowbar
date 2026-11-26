@@ -64,32 +64,20 @@ impl ContextualCommand {
 
 #[cfg(test)]
 mod tests {
-    use chord::Modifier;
-
     use super::*;
-
-    fn stroke(
-        modifiers: &[Modifier],
-        key: &str,
-    ) -> Keystroke {
-        Keystroke {
-            modifiers: modifiers.iter().copied().collect(),
-            key: key.to_owned(),
-            physical: None,
-        }
-    }
+    use crate::test_support::stroke;
 
     #[test]
     fn each_command_answers_its_fixed_chord_and_is_forwarded_page_first() {
         let cases = [
-            (ContextualCommand::DismissDrawer, stroke(&[], "escape")),
-            (
-                ContextualCommand::SearchFiles,
-                stroke(&[Modifier::Primary], "f"),
-            ),
+            (ContextualCommand::DismissDrawer, "escape"),
+            (ContextualCommand::SearchFiles, "mod+f"),
         ];
         for (command, pressed) in cases {
-            assert_eq!(ContextualCommand::of_stroke(&pressed), Some(command));
+            assert_eq!(
+                ContextualCommand::of_stroke(&stroke(pressed)),
+                Some(command)
+            );
             let binding = command.binding().unwrap();
             assert_eq!(binding.precedence(), Precedence::Page, "{command:?}");
             assert_eq!(
@@ -98,10 +86,6 @@ mod tests {
                 "{command:?}"
             );
         }
-        assert_eq!(
-            ContextualCommand::of_stroke(&stroke(&[Modifier::Shift], "f")),
-            None,
-            "another chord"
-        );
+        assert_eq!(ContextualCommand::of_stroke(&stroke("shift+f")), None);
     }
 }

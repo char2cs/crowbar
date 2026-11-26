@@ -15,6 +15,8 @@ mod contextual_command;
 mod keymap;
 mod project_slot;
 mod shell_command;
+#[cfg(test)]
+mod test_support;
 
 pub use contextual_command::ContextualCommand;
 pub use keymap::Keymap;

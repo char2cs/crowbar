@@ -50,80 +50,46 @@ pub(crate) fn project_bindings() -> Vec<KeyBinding> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::stroke;
     use chord::PhysicalKey;
 
-    fn stroke(
-        modifiers: &str,
-        key: &str,
-    ) -> Keystroke {
-        let held = [
-            ('m', Modifier::Primary),
-            ('s', Modifier::Shift),
-            ('a', Modifier::Alt),
-        ];
-        Keystroke {
-            modifiers: held
-                .into_iter()
-                .filter(|(letter, _)| modifiers.contains(*letter))
-                .map(|(_, modifier)| modifier)
-                .collect(),
-            key: key.to_owned(),
-            physical: None,
-        }
-    }
-
+    /// `typed`, at the key position and with the modifiers of `physical`.
     fn at(
-        typed: Keystroke,
-        (modifiers, code): (&str, &str),
+        typed: &str,
+        physical: &str,
     ) -> Keystroke {
+        let place = stroke(physical);
         let physical = PhysicalKey {
-            code: code.to_owned(),
-            modifiers: stroke(modifiers, code).modifiers,
+            code: place.key,
+            modifiers: place.modifiers,
         };
         Keystroke {
             physical: Some(physical),
-            ..typed
+            ..stroke(typed)
         }
     }
 
     #[test]
-    fn the_digit_key_selects_its_slot_whatever_shift_and_the_layout_make_it_type() {
+    fn primary_shift_and_the_digit_key_select_its_slot_whatever_the_layout_types() {
         let cases = [
-            (
-                "us shift+2 types @",
-                at(stroke("m", "@"), ("ms", "2")),
-                Some(2),
-            ),
+            ("us shift+2 types @", at("mod+@", "mod+shift+2"), Some(2)),
             (
                 "azerty shift+2 types 2",
-                at(stroke("m", "2"), ("ms", "2")),
+                at("mod+2", "mod+shift+2"),
                 Some(2),
             ),
-            (
-                "azerty 2 alone types é",
-                at(stroke("m", "é"), ("m", "2")),
-                None,
-            ),
-            ("us shift+a", at(stroke("ms", "a"), ("ms", "a")), None),
+            ("azerty 2 alone types é", at("mod+é", "mod+2"), None),
+            ("us shift+a", at("mod+shift+a", "mod+shift+a"), None),
+            ("first", stroke("mod+shift+1"), Some(1)),
+            ("last", stroke("mod+shift+9"), Some(9)),
+            ("zero", stroke("mod+shift+0"), None),
+            ("no shift", stroke("mod+1"), None),
+            ("alt too", stroke("mod+shift+alt+1"), None),
+            ("no primary", stroke("shift+1"), None),
+            ("a letter", stroke("mod+shift+a"), None),
         ];
         for (name, press, expected) in cases {
             assert_eq!(project_slot_of_stroke(&press), expected, "{name}");
-        }
-    }
-
-    #[test]
-    fn only_primary_shift_and_a_nonzero_digit_select_a_slot() {
-        let cases = [
-            (stroke("ms", "1"), Some(1)),
-            (stroke("ms", "9"), Some(9)),
-            (stroke("ms", "0"), None),
-            (stroke("m", "1"), None),
-            (stroke("msa", "1"), None),
-            (stroke("s", "1"), None),
-            (stroke("ms", "a"), None),
-        ];
-        for (press, expected) in cases {
-            assert_eq!(project_slot_of_stroke(&press), expected, "{press:?}");
         }
     }
 
