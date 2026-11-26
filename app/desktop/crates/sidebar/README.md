@@ -35,7 +35,7 @@ types only, so the path arithmetic and the drag rules are methods of `PathText`,
   `ResizeKey`, `Resizing`, `KeyStep`, `Preferences`, and the row drag rules `DragArm` (the drag
   threshold) and `EdgeScroll` (edge-scroll speed). `PeekZone` takes the header height and the card
   inset from the view, which owns those metrics.
-- Feature `fixtures`: `DemoShell`, an in-memory workspace for tests and the `sidebarview` gallery.
+- Feature `fixtures`: `DemoShell`, an in-memory workspace for tests.
 
 ## Depends on
 

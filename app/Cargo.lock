@@ -7616,7 +7616,6 @@ dependencies = [
  "chord",
  "gpui-pre",
  "settings",
- "thiserror 2.0.21",
  "ui",
 ]
 
@@ -7938,7 +7937,6 @@ name = "startup"
 version = "0.1.0"
 dependencies = [
  "gpui-pre",
- "thiserror 2.0.21",
  "ui",
 ]
 

@@ -23,7 +23,7 @@ of the dialog (search, selection, drafts, validation, optimistic writes, prompts
   `ChordSource`, `Shortcut`, `ShortcutGroup`.
 - Records: `RecordBackend`, `Records`, `Record`, `Line`, `Tone`, `FlagLook`, `RecordFlag`,
   `RecordAction`, `RecordCommand`.
-- Feature `fake`: `FakeBackend`, an in-memory backend for tests and the `settingsview` gallery.
+- Feature `fake`: `FakeBackend`, an in-memory backend for tests.
 
 ## Depends on
 

@@ -16,8 +16,6 @@ read stay here even when they are gpui-free (pixel scale, menu model, drag state
   `end_peek`, `preview_drag`, and `Sidebar::toast_side(DockSide)`: the toast edge for a dock edge
   (the shell's floating notices use it).
 - `Event`: what the entity tells the shell.
-- `sidebargallery` binary (`src/bin/gallery/`, feature `fixtures`): the sidebar over demo data, for
-  parity screenshots.
 
 ## Depends on
 
