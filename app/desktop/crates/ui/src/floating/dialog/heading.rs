@@ -66,3 +66,19 @@ impl Dialog {
         self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_builders_choose_style_and_size() {
+        let dialog = Dialog::new("d")
+            .title("Title")
+            .icon(IconName::Plus)
+            .style(DialogStyle::Plain)
+            .size(DialogSize::Lg);
+        assert_eq!(dialog.style, DialogStyle::Plain);
+        assert_eq!(dialog.size, DialogSize::Lg);
+    }
+}

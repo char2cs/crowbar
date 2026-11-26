@@ -45,3 +45,39 @@ impl std::fmt::Debug for Config {
             .finish_non_exhaustive()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rect(
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    ) -> Bounds {
+        Bounds {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    #[test]
+    fn debug_shows_the_page_and_hides_the_script_and_handler() {
+        let config = Config {
+            url: "crowbar://local/x".into(),
+            bounds: rect(0.0, 0.0, 1.0, 1.0),
+            kind: Kind::Core,
+            visibility: Visibility::Hidden,
+            background: None,
+            initialization_script: Some("secret-script".into()),
+            on_ipc: Arc::new(|_| {}),
+            on_page: None,
+        };
+        let text = format!("{config:?}");
+        assert!(text.contains("crowbar://local/x"), "url shown: {text}");
+        assert!(!text.contains("secret-script"), "script hidden: {text}");
+    }
+}

@@ -27,3 +27,43 @@ impl std::fmt::Debug for Config {
             .finish()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+
+    fn config(page_handler: Option<PageHandler>) -> Config {
+        Config {
+            scheme: "crowbar".into(),
+            host: HostId::new("local").unwrap(),
+            max_idle_slots: 2,
+            page_handler,
+        }
+    }
+
+    #[test]
+    fn debug_reports_whether_a_page_handler_is_set() {
+        let handler: PageHandler = Arc::new(|_| true);
+        assert!(
+            format!("{:?}", config(Some(handler))).contains("page_handler: true"),
+            "set"
+        );
+        assert!(
+            format!("{:?}", config(None)).contains("page_handler: false"),
+            "unset"
+        );
+    }
+
+    #[test]
+    fn clones_keep_the_page_handler() {
+        let handler: PageHandler = Arc::new(|_| true);
+        let copy = config(Some(Arc::clone(&handler))).clone();
+        assert!(
+            copy.page_handler
+                .is_some_and(|kept| Arc::ptr_eq(&kept, &handler)),
+            "same handler"
+        );
+    }
+}

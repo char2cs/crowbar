@@ -31,3 +31,22 @@ impl SearchEntry {
         self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builders_fill_the_entry() {
+        let entry = SearchEntry::new("Typography", "Font Size", "In pixels").keywords(&["font"]);
+        assert_eq!(
+            (
+                entry.section.as_str(),
+                entry.label.as_str(),
+                entry.description.as_str()
+            ),
+            ("Typography", "Font Size", "In pixels")
+        );
+        assert_eq!(entry.keywords, ["font"]);
+    }
+}

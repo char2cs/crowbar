@@ -63,3 +63,18 @@ impl RecordFlag {
         self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keeps_its_fields() {
+        let flag = RecordFlag::new("enabled", "Enable Claude Code").on();
+        assert_eq!(
+            (flag.id.as_str(), flag.label.as_str(), flag.on, flag.look),
+            ("enabled", "Enable Claude Code", true, FlagLook::Switch)
+        );
+        assert_eq!(flag.as_dot().look, FlagLook::Dot);
+    }
+}
