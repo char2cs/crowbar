@@ -1,6 +1,6 @@
 use http::{HeaderValue, Response, StatusCode, header};
 
-pub use protocol::{
+pub(crate) use protocol::{
     DAEMON_UNAVAILABLE, HOST_IDENTITY_CHANGED, HOST_UNREACHABLE, NO_CREDENTIAL, PROXY_HEADER,
     UNKNOWN_HOST,
 };

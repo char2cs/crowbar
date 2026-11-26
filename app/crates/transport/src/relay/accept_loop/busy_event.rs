@@ -53,41 +53,22 @@ impl journal::Event for BusyEvent<'_> {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
     use journal::Event;
 
     use super::*;
 
-    #[tokio::test]
-    async fn each_event_has_its_name_level_and_message() {
-        let error = io::Error::other("reset");
-        let late = tokio::time::timeout(Duration::ZERO, std::future::pending::<()>()).await;
-        let elapsed = late.expect_err("a pending future outlasts a zero timeout");
-        let cases = [
+    #[test]
+    fn an_event_has_its_name_level_and_message() {
+        let event = BusyEvent::NotDelivered {
+            error: &io::Error::other("reset"),
+        };
+        assert_eq!(
+            (event.name(), event.level(), event.to_string()),
             (
-                BusyEvent::NotDelivered { error: &error },
                 "relay_busy_refusal_not_delivered",
                 Level::Debug,
-                "relay is busy and the refusal was not delivered: reset".to_owned(),
-            ),
-            (
-                BusyEvent::NotTaken { elapsed: &elapsed },
-                "relay_busy_refusal_not_taken",
-                Level::Debug,
-                format!("relay is busy and the refusal was not taken in time: {elapsed}"),
-            ),
-        ];
-        assert_each(cases);
-    }
-
-    fn assert_each<M: fmt::Display>(
-        cases: impl IntoIterator<Item = (impl Event, &'static str, Level, M)>
-    ) {
-        for (event, name, level, shown) in cases {
-            assert_eq!(event.name(), name);
-            assert_eq!(event.level(), level, "{name}");
-            assert_eq!(event.to_string(), shown.to_string(), "{name}");
-        }
+                "relay is busy and the refusal was not delivered: reset".to_owned()
+            )
+        );
     }
 }

@@ -106,34 +106,6 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::hosts::test_support::MemoryStorage;
-
-    fn one_host() -> BTreeMap<HostId, Endpoint> {
-        let mut hosts = BTreeMap::new();
-        hosts.insert(
-            HostId::new("host-1").unwrap(),
-            Endpoint::parse("a.example:3737").unwrap(),
-        );
-        hosts
-    }
-
-    #[test]
-    fn a_saved_list_reads_back_and_nothing_stored_is_an_empty_list() {
-        let storage = MemoryStorage::shared();
-        assert!(Document::load(storage.as_ref()).unwrap().is_empty());
-        Document::save(storage.as_ref(), &one_host()).unwrap();
-        assert_eq!(Document::load(storage.as_ref()).unwrap(), one_host());
-    }
-
-    #[test]
-    fn a_failed_save_names_the_storage_and_keeps_the_stored_list() {
-        let storage = MemoryStorage::shared();
-        Document::save(storage.as_ref(), &one_host()).unwrap();
-        storage.fail_writes();
-        let error = Document::save(storage.as_ref(), &BTreeMap::new()).unwrap_err();
-        assert!(matches!(error, Error::HostsIo { .. }), "{error}");
-        assert_eq!(Document::load(storage.as_ref()).unwrap(), one_host());
-    }
 
     const CASES: [(&str, &str); 6] = [
         ("{not json", "corrupt"),

@@ -46,18 +46,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn each_event_has_its_name_level_and_message() {
-        let error = io::Error::other("reset");
-        let cases = [(
-            ProbeEvent::UncleanClose { error: &error },
-            "probe_unclean_close",
-            Level::Debug,
-            "probe connection did not close cleanly: reset",
-        )];
-        for (event, name, level, message) in cases {
-            assert_eq!(event.name(), name);
-            assert_eq!(event.level(), level);
-            assert_eq!(event.to_string(), message);
-        }
+    fn an_event_has_its_name_level_and_message() {
+        let event = ProbeEvent::UncleanClose {
+            error: &io::Error::other("reset"),
+        };
+        assert_eq!(
+            (event.name(), event.level(), event.to_string()),
+            (
+                "probe_unclean_close",
+                Level::Debug,
+                "probe connection did not close cleanly: reset".to_owned()
+            )
+        );
     }
 }

@@ -155,34 +155,6 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn finishing_a_revoked_stream_tells_both_sides_why() {
-        let (mut client, mut upstream): (Vec<Message>, Vec<Message>) = (Vec::new(), Vec::new());
-        finish(Outcome::Revoked, &mut client, &mut upstream, limits()).await;
-        assert_eq!(client, vec![close_message(CloseCode::Policy, "revoked")]);
-        assert_eq!(
-            upstream,
-            vec![close_message(CloseCode::Away, "client revoked")]
-        );
-    }
-
-    #[tokio::test]
-    async fn an_upstream_that_vanished_is_reported_to_the_client_as_an_error() {
-        let (mut client, mut upstream): (Vec<Message>, Vec<Message>) = (Vec::new(), Vec::new());
-        finish(
-            Outcome::Download(Ending::Gone),
-            &mut client,
-            &mut upstream,
-            limits(),
-        )
-        .await;
-        assert_eq!(
-            client,
-            vec![close_message(CloseCode::Error, "upstream closed")]
-        );
-        assert_eq!(upstream.len(), 0);
-    }
-
     fn code(message: Option<Message>) -> Option<CloseCode> {
         match message {
             Some(Message::Close(Some(frame))) => Some(frame.code),
@@ -200,55 +172,59 @@ mod tests {
         }
     }
 
-    #[test]
-    fn a_client_that_ends_the_stream_is_named_by_close_code_on_both_sides() {
-        let cases = vec![
-            (
-                Outcome::Upload(Ending::TooLarge),
-                Some(CloseCode::Size),
-                Some(CloseCode::Away),
-            ),
-            (
-                Outcome::Upload(Ending::Protocol),
-                Some(CloseCode::Protocol),
-                Some(CloseCode::Away),
-            ),
-            (
-                Outcome::Upload(Ending::Idle),
-                Some(CloseCode::Policy),
-                Some(CloseCode::Away),
-            ),
-            (Outcome::Upload(Ending::Gone), None, Some(CloseCode::Away)),
-            (
-                Outcome::Upload(Ending::Stalled),
-                Some(CloseCode::Error),
-                None,
-            ),
-        ];
-        assert_farewells(&cases);
-    }
+    const CASES: [Case; 11] = [
+        (
+            Outcome::Revoked,
+            Some(CloseCode::Policy),
+            Some(CloseCode::Away),
+        ),
+        (
+            Outcome::Upload(Ending::TooLarge),
+            Some(CloseCode::Size),
+            Some(CloseCode::Away),
+        ),
+        (
+            Outcome::Upload(Ending::Protocol),
+            Some(CloseCode::Protocol),
+            Some(CloseCode::Away),
+        ),
+        (
+            Outcome::Upload(Ending::Idle),
+            Some(CloseCode::Policy),
+            Some(CloseCode::Away),
+        ),
+        (Outcome::Upload(Ending::Gone), None, Some(CloseCode::Away)),
+        (
+            Outcome::Upload(Ending::Stalled),
+            Some(CloseCode::Error),
+            None,
+        ),
+        (
+            Outcome::Download(Ending::Gone),
+            Some(CloseCode::Error),
+            None,
+        ),
+        (
+            Outcome::Download(Ending::Protocol),
+            Some(CloseCode::Error),
+            None,
+        ),
+        (
+            Outcome::Download(Ending::Idle),
+            Some(CloseCode::Error),
+            None,
+        ),
+        (
+            Outcome::Download(Ending::Stalled),
+            None,
+            Some(CloseCode::Away),
+        ),
+        (Outcome::Download(Ending::Closed), None, None),
+    ];
 
     #[test]
-    fn an_upstream_that_ends_the_stream_is_named_by_close_code_on_both_sides() {
-        let cases = vec![
-            (
-                Outcome::Download(Ending::Protocol),
-                Some(CloseCode::Error),
-                None,
-            ),
-            (
-                Outcome::Download(Ending::Idle),
-                Some(CloseCode::Error),
-                None,
-            ),
-            (
-                Outcome::Download(Ending::Stalled),
-                None,
-                Some(CloseCode::Away),
-            ),
-            (Outcome::Download(Ending::Closed), None, None),
-        ];
-        assert_farewells(&cases);
+    fn whoever_ends_the_stream_is_named_by_close_code_on_both_sides() {
+        assert_farewells(&CASES);
     }
 
     #[tokio::test(start_paused = true)]

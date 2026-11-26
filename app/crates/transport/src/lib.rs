@@ -23,13 +23,10 @@ pub use relay::{
     Acceptor, ExactOrigins, IDLE_SUBPROTOCOL_PREFIX, OriginPolicy, RELAY_SUBPROTOCOL, Relay,
     RelayConfig, TOKEN_SUBPROTOCOL_PREFIX,
 };
-pub use response::{
-    DAEMON_UNAVAILABLE, HOST_IDENTITY_CHANGED, HOST_UNREACHABLE, NO_CREDENTIAL, PROXY_HEADER,
-    UNKNOWN_HOST, marker_of,
-};
+pub use response::marker_of;
 pub use transport::{
     CachedTokenStore, EXTENSION_HEADER, Keychain, MemoryTokenStore, ReadError, ShellTransport,
-    SocketLocator, StreamAccess, TextStream, TokenStore, Transport, fingerprint_of, local_get,
+    SocketLocator, StreamAccess, TextStream, TokenStore, Transport, fingerprint_of,
 };
 
 #[cfg(feature = "os-keychain")]

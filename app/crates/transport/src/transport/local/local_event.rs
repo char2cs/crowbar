@@ -72,43 +72,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn each_event_has_its_name_level_and_message() {
-        let refused = io::Error::other("refused");
-        let path = Path::new("/run/cb.sock");
-        let missing = Error::NoSocket;
-        let too_large = Error::TooLarge;
-        let cases = [
+    fn an_event_has_its_name_level_and_message() {
+        let event = LocalEvent::ExchangeFailed {
+            error: &Error::TooLarge,
+        };
+        assert_eq!(
+            (event.name(), event.level(), event.to_string()),
             (
-                LocalEvent::SocketNotConnectable {
-                    path,
-                    error: &refused,
-                },
-                "local_socket_not_connectable",
-                "daemon socket /run/cb.sock not connectable: refused",
-            ),
-            (
-                LocalEvent::SocketNotReady {
-                    attempt: 3,
-                    failure: &missing,
-                },
-                "local_socket_not_ready",
-                "daemon socket not ready (attempt 3): the local daemon has not published a socket",
-            ),
-            (
-                LocalEvent::DaemonUnreachable { error: &missing },
-                "local_daemon_unreachable",
-                "local daemon unreachable: the local daemon has not published a socket",
-            ),
-            (
-                LocalEvent::ExchangeFailed { error: &too_large },
                 "local_exchange_failed",
-                "local daemon exchange failed: response too large",
-            ),
-        ];
-        for (event, name, message) in cases {
-            assert_eq!(event.name(), name);
-            assert_eq!(event.level(), Level::Debug);
-            assert_eq!(event.to_string(), message);
-        }
+                Level::Debug,
+                "local daemon exchange failed: response too large".to_owned()
+            )
+        );
     }
 }

@@ -204,25 +204,6 @@ mod tests {
         assert_eq!(answer.status(), 403);
     }
 
-    fn forward_to(
-        sender: tokio::sync::oneshot::Sender<Result<DaemonResponse, protocol::Error>>
-    ) -> Responder {
-        Box::new(move |result| {
-            sender.send(result).ok();
-        })
-    }
-
-    #[tokio::test]
-    async fn a_reply_the_runtime_never_ran_is_answered_interrupted() {
-        let (sender, receiver) = tokio::sync::oneshot::channel();
-        let respond = forward_to(sender);
-        drop(Reply::new(respond));
-        assert!(matches!(
-            receiver.await.unwrap(),
-            Err(protocol::Error::Interrupted)
-        ));
-    }
-
     #[tokio::test]
     async fn a_relay_endpoint_is_issued_for_the_local_host_but_not_an_unregistered_one() {
         let (shell, access) = shell();

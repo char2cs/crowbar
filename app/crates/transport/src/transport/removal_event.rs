@@ -44,17 +44,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn each_event_has_its_name_level_and_message() {
-        let cases = [(
-            RemovalEvent::Unfollowed,
-            "host_removal_unfollowed",
-            Level::Debug,
-            "no relay is following host removals",
-        )];
-        for (event, name, level, message) in cases {
-            assert_eq!(event.name(), name);
-            assert_eq!(event.level(), level);
-            assert_eq!(event.to_string(), message);
-        }
+    fn an_event_has_its_name_level_and_message() {
+        let event = RemovalEvent::Unfollowed;
+        assert_eq!(
+            (event.name(), event.level(), event.to_string()),
+            (
+                "host_removal_unfollowed",
+                Level::Debug,
+                "no relay is following host removals".to_owned()
+            )
+        );
     }
 }

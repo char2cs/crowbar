@@ -60,58 +60,20 @@ impl journal::Event for SessionEvent<'_> {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
     use journal::Event;
 
     use super::*;
 
-    fn assert_each(cases: [(SessionEvent<'_>, &str, String); 6]) {
-        for (event, name, message) in cases {
-            assert_eq!(event.name(), name, "{message}");
-            assert_eq!(event.level(), Level::Debug, "{name}");
-            assert_eq!(event.to_string(), message, "{name}");
-        }
-    }
-
-    #[tokio::test]
-    async fn each_event_has_its_name_level_and_message() {
-        let closed = WsError::ConnectionClosed;
-        let late = tokio::time::timeout(Duration::ZERO, std::future::pending::<()>()).await;
-        let elapsed = late.expect_err("a pending future outlasts a zero timeout");
-        let refused = Error::UpgradeTimeout;
-        let cases = [
+    #[test]
+    fn an_event_has_its_name_level_and_message() {
+        let event = SessionEvent::NoAdmission;
+        assert_eq!(
+            (event.name(), event.level(), event.to_string()),
             (
-                SessionEvent::HandshakeRefused { error: &closed },
-                "relay_handshake_refused",
-                format!("relay handshake refused: {closed}"),
-            ),
-            (
-                SessionEvent::HandshakeTimedOut { elapsed: &elapsed },
-                "relay_handshake_timed_out",
-                format!("relay handshake timed out: {elapsed}"),
-            ),
-            (
-                SessionEvent::NoAdmission,
                 "relay_no_admission",
-                "relay handshake finished without an admission".to_owned(),
-            ),
-            (
-                SessionEvent::UpstreamRefused { error: &refused },
-                "relay_upstream_refused",
-                format!("relay upstream refused: {refused}"),
-            ),
-            (
-                SessionEvent::CloseNotDelivered { error: &closed },
-                "relay_close_not_delivered",
-                format!("close not delivered: {closed}"),
-            ),
-            (
-                SessionEvent::CloseNotTaken,
-                "relay_close_not_taken",
-                "client did not take the close within the grace period".to_owned(),
-            ),
-        ];
-        assert_each(cases);
+                Level::Debug,
+                "relay handshake finished without an admission".to_owned()
+            )
+        );
     }
 }

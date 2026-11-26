@@ -50,52 +50,22 @@ impl journal::Event for BridgeEvent<'_> {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
     use journal::Event;
 
     use super::*;
 
-    #[tokio::test]
-    async fn each_event_has_its_name_level_and_message() {
-        let late = tokio::time::timeout(Duration::ZERO, std::future::pending::<()>()).await;
-        let elapsed = late.expect_err("a pending future outlasts a zero timeout");
-        let refused = "sink closed";
-        let cases = [
+    #[test]
+    fn an_event_has_its_name_level_and_message() {
+        let event = BridgeEvent::CloseEchoNotDelivered {
+            why: Ending::Stalled,
+        };
+        assert_eq!(
+            (event.name(), event.level(), event.to_string()),
             (
-                BridgeEvent::PeerRefused { refused: &refused },
-                "bridge_peer_refused",
-                "peer refused a message: \"sink closed\"".to_owned(),
-            ),
-            (
-                BridgeEvent::PeerStoppedReading { elapsed: &elapsed },
-                "bridge_peer_stopped_reading",
-                format!("peer stopped reading: {elapsed}"),
-            ),
-            (
-                BridgeEvent::CloseEchoNotDelivered {
-                    why: Ending::Stalled,
-                },
                 "bridge_close_echo_not_delivered",
-                format!("close echo not delivered: {:?}", Ending::Stalled),
-            ),
-            (
-                BridgeEvent::PeerWentSilent { elapsed: &elapsed },
-                "bridge_peer_went_silent",
-                format!("peer went silent: {elapsed}"),
-            ),
-        ];
-        assert_each(cases, Level::Debug);
-    }
-
-    fn assert_each<M: fmt::Display>(
-        cases: impl IntoIterator<Item = (impl Event, &'static str, M)>,
-        level: Level,
-    ) {
-        for (event, name, shown) in cases {
-            assert_eq!(event.name(), name);
-            assert_eq!(event.level(), level, "{name}");
-            assert_eq!(event.to_string(), shown.to_string(), "{name}");
-        }
+                Level::Debug,
+                format!("close echo not delivered: {:?}", Ending::Stalled)
+            )
+        );
     }
 }

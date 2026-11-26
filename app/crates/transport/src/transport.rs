@@ -9,7 +9,7 @@ mod websocket;
 
 pub use access_scope::EXTENSION_HEADER;
 pub(crate) use http_conn::{Channel, open_channel, send};
-pub use local::{SocketLocator, local_get};
+pub use local::SocketLocator;
 pub use port::{ShellTransport, StreamAccess};
 #[cfg(feature = "os-keychain")]
 pub use remote::OsKeychain;

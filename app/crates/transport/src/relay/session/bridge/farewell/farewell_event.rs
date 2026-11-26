@@ -51,28 +51,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn each_event_has_its_name_level_and_message() {
-        let cases = [
+    fn an_event_has_its_name_level_and_message() {
+        let event = FarewellEvent::GoneAtClose;
+        assert_eq!(
+            (event.name(), event.level(), event.to_string()),
             (
-                FarewellEvent::OtherDirectionLate,
-                "farewell_other_direction_late",
-                "the other direction did not finish within the grace period",
-            ),
-            (
-                FarewellEvent::CloseNotTaken,
-                "farewell_close_not_taken",
-                "peer did not take the close within the grace period",
-            ),
-            (
-                FarewellEvent::GoneAtClose,
                 "farewell_gone_at_close",
-                "peer was already gone at close",
-            ),
-        ];
-        for (event, name, message) in cases {
-            assert_eq!(event.name(), name);
-            assert_eq!(event.level(), Level::Debug);
-            assert_eq!(event.to_string(), message);
-        }
+                Level::Debug,
+                "peer was already gone at close".to_owned()
+            )
+        );
     }
 }

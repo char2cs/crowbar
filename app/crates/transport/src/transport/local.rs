@@ -1,10 +1,8 @@
 mod adapters;
-mod get;
 mod local_event;
 pub(crate) mod socket_locator;
 mod socket_trust;
 
-pub use get::local_get;
 pub use socket_locator::SocketLocator;
 
 use std::future::Future;

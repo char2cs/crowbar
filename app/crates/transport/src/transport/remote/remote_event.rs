@@ -46,18 +46,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn each_event_has_its_name_level_and_message() {
-        let too_large = Error::TooLarge;
-        let cases = [(
-            RemoteEvent::ExchangeFailed { error: &too_large },
-            "remote_exchange_failed",
-            Level::Debug,
-            "remote exchange failed: response too large",
-        )];
-        for (event, name, level, message) in cases {
-            assert_eq!(event.name(), name);
-            assert_eq!(event.level(), level);
-            assert_eq!(event.to_string(), message);
-        }
+    fn an_event_has_its_name_level_and_message() {
+        let event = RemoteEvent::ExchangeFailed {
+            error: &Error::TooLarge,
+        };
+        assert_eq!(
+            (event.name(), event.level(), event.to_string()),
+            (
+                "remote_exchange_failed",
+                Level::Debug,
+                "remote exchange failed: response too large".to_owned()
+            )
+        );
     }
 }
