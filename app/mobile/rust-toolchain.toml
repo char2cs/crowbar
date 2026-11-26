@@ -1,0 +1,7 @@
+# The mobile workspace's own toolchain: app/rust-toolchain.toml would apply here otherwise,
+# without the iOS targets. Same channel as the shell.
+[toolchain]
+channel = "1.100.0"
+components = ["clippy", "rustfmt"]
+targets = ["aarch64-apple-ios", "aarch64-apple-ios-sim"]
+profile = "minimal"
