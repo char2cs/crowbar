@@ -63,11 +63,6 @@ impl Terminal {
         self.selected_text()
     }
 
-    /// Drops the selection.
-    pub fn clear_selection(&mut self) {
-        self.term.selection = None;
-    }
-
     /// The selected text, when anything is selected.
     pub fn selected_text(&self) -> Option<String> {
         self.term
