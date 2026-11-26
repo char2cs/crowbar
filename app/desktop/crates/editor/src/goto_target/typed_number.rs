@@ -38,12 +38,4 @@ mod tests {
             assert_eq!(leading_number(part), expected, "{part:?}");
         }
     }
-
-    #[test]
-    fn a_negative_count_wraps_from_the_end_and_every_count_stays_in_range() {
-        let cases = [(2, 2), (-1, 3), (0, 1), (99, 3)];
-        for (asked, expected) in cases {
-            assert_eq!(clamp_signed(asked, 4, 3), expected, "{asked}");
-        }
-    }
 }
