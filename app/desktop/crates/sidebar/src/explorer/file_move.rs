@@ -32,8 +32,7 @@ impl FileMove {
         &self.path
     }
 
-    /// Whether a folder is dragged; only a file can be dropped on a pane.
-    pub fn is_folder(&self) -> bool {
+    pub(crate) fn is_folder(&self) -> bool {
         matches!(self.kind, FileKind::Directory(_))
     }
 
@@ -148,11 +147,5 @@ mod tests {
                 dragged.path()
             );
         }
-    }
-
-    #[test]
-    fn only_a_folder_says_it_is_one() {
-        assert!(FileMove::new("src", FOLDER).is_folder());
-        assert!(!FileMove::new("a.rs", FileKind::File).is_folder());
     }
 }

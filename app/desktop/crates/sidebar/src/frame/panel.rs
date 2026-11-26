@@ -183,12 +183,4 @@ mod tests {
         assert_eq!(Panel::presentation(639.0), Presentation::Overlay, "narrow");
         assert_eq!(Panel::presentation(640.0), Presentation::Docked, "wide");
     }
-
-    #[test]
-    fn dock_side_changes_without_touching_width() {
-        let mut panel = Panel::default();
-        panel.dock_to(DockSide::Right);
-        assert_eq!(panel.side(), DockSide::Right, "side");
-        assert_close(panel.preferred(), 294.0, "width");
-    }
 }

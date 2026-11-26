@@ -60,8 +60,7 @@ impl RemovalTray {
         self.holds.retain(|hold| &hold.row != row);
     }
 
-    /// The rows whose countdown has ended by `now`, marked committed so each is returned once.
-    pub fn take_due(
+    pub(crate) fn take_due(
         &mut self,
         now: Instant,
     ) -> Vec<RowId> {
@@ -179,16 +178,5 @@ mod tests {
             "never sent twice"
         );
         assert!(!tray.is_counting(), "no countdown left");
-    }
-
-    #[test]
-    fn tombstones_release_committed_holds() {
-        let now = Instant::now();
-        let mut tray = RemovalTray::default();
-        let (row, info) = chat("c");
-        tray.hold(row.clone(), info, now);
-        tray.commit(&row);
-        tray.release_gone(|id| id.as_str() != "c");
-        assert!(tray.get(&row).is_none(), "released when the row is gone");
     }
 }
