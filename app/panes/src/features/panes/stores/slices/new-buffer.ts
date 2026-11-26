@@ -1,6 +1,5 @@
 import type {
   BranchReviewContent,
-  BrowserContent,
   EditorContent,
   HtmlPreviewContent,
   MarkdownPreviewContent,
@@ -9,7 +8,6 @@ import type {
   PaneContent,
   TerminalContent,
 } from '@/features/panes/types/pane-content'
-import { browserTabName } from '@/features/browser/lib/browser-tab-name'
 
 const base = (id: string, workspaceId: string) => ({
   id,
@@ -58,14 +56,6 @@ export function newBuffer(
         workingDirectory: spec.workingDirectory,
       } satisfies TerminalContent
     }
-    case 'browser':
-      return {
-        ...base(id, workspaceId),
-        type: 'browser',
-        url: spec.url ?? '',
-        name: browserTabName(undefined, spec.url ?? ''),
-        path: `browser://${id}`,
-      } satisfies BrowserContent
     case 'newTabPage':
       return {
         ...base(id, workspaceId),

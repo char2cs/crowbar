@@ -193,7 +193,7 @@ export type NativeTabs = {
   tabs: {
     id: string
     title: string
-    kind: 'file' | 'preview' | 'terminal' | 'review' | 'diff' | 'browser' | 'newTab'
+    kind: 'file' | 'preview' | 'terminal' | 'review' | 'diff' | 'newTab'
     path: string | null
     active: boolean
     dirty: boolean

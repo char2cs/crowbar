@@ -1,4 +1,4 @@
-// Links in terminal output: URLs offer the link menu, path-like tokens (as printed
+// Links in terminal output: URLs open in the OS browser, path-like tokens (as printed
 // by compilers, test runners, git, ...) open in Crowbar's editor. One tokenizer
 // reads the logical line, so a soft-wrapped link is one link on every row.
 import type { IBuffer, IBufferCell, IBufferLine, IDisposable, ILink, Terminal } from '@xterm/xterm'
@@ -6,11 +6,11 @@ import { revealInEditor } from '@/features/editor/lib/reveal'
 import { LOCAL_HOST } from '@/features/hosts/types'
 import { workspaceRef, type DocumentTarget } from '@/lib/api/documents'
 import { resolvedHostOf } from '@/lib/host-resolve'
+import { openWorkspaceLink } from '@/lib/workspace-link'
 import { workspaceRootPath } from '@/lib/workspace/resolve-root-path'
 import { toast } from '@/features/window/stores/toast-store'
 import { IS_MAC } from '@/utils/platform'
 import { useTerminalStore } from '../stores/terminal-store'
-import { showTerminalUrlMenu, type TerminalView } from './terminal-url-menu'
 
 /** `start`/`end` index the logical line's text; `end` is exclusive. */
 type LinkToken =
@@ -173,8 +173,8 @@ export interface TerminalLinksOptions {
   getRoot: () => string | undefined
   /** Opens the resolved absolute path in Crowbar's editor. */
   openFile: (absolutePath: string, line?: number) => void
-  /** Called when a URL link is activated, with the pointer position. */
-  onUrl: (url: string, position: { x: number; y: number }) => void
+  /** Called when a URL link is activated. */
+  onUrl: (url: string) => void
   /** Called when a clicked candidate cannot be resolved to an absolute path. */
   onUnresolved?: (candidateText: string) => void
 }
@@ -187,7 +187,7 @@ function isPrimaryModifier(event: { metaKey: boolean; ctrlKey: boolean }): boole
 function activate(token: LinkToken, event: MouseEvent, options: TerminalLinksOptions): void {
   if (!isPrimaryModifier(event)) return
   if (token.kind === 'url') {
-    options.onUrl(token.text, { x: event.clientX, y: event.clientY })
+    options.onUrl(token.text)
     return
   }
   const resolved = resolveFileLinkPath(token.path, options.getRoot())
@@ -236,7 +236,7 @@ export function registerTerminalLinks(
   // Without a handler xterm activates OSC 8 links on a plain click.
   terminal.options.linkHandler = {
     activate: (event, url) => {
-      if (isPrimaryModifier(event)) options.onUrl(url, { x: event.clientX, y: event.clientY })
+      if (isPrimaryModifier(event)) options.onUrl(url)
     },
   }
   const provider = terminal.registerLinkProvider({
@@ -288,6 +288,11 @@ function documentFor(absolutePath: string, workspaceId: string | undefined): Doc
   return resolvedHostOf({ wsId: workspaceId }) === LOCAL_HOST.id ? { absolutePath } : null
 }
 
+/** The workspace a terminal belongs to: its links resolve and open against it. */
+export interface TerminalView {
+  workspaceId: string
+}
+
 /** Links open in the terminal's own view, never the active one. Relative paths resolve against the
  *  session cwd, else the workspace root; a terminal of no workspace opens absolute paths only. */
 export function terminalLinksFor(
@@ -310,9 +315,12 @@ export function terminalLinksFor(
       const position = line ? { line: line - 1, character: 0 } : undefined
       void revealInEditor({ doc, position })
     },
-    onUrl: (url, position) => {
-      const { workspaceId, paneId } = getView()
-      if (workspaceId) void showTerminalUrlMenu(url, position, { workspaceId, paneId })
+    onUrl: (url) => {
+      const { workspaceId } = getView()
+      if (!workspaceId) return
+      openWorkspaceLink(url, workspaceId).catch((error: unknown) => {
+        console.error('Failed to open link:', error)
+      })
     },
     onUnresolved: (candidateText) => {
       toast.error('Cannot open file', `Could not resolve ${candidateText} to a path.`)

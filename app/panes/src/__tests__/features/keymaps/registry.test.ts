@@ -13,7 +13,6 @@ import {
   AGENT_ZOOM_OUT,
   AGENT_ZOOM_RESET,
   CATEGORY_ORDER,
-  BROWSER_TOGGLE_PICK,
 } from '@/features/keymaps/registry'
 
 describe('keymap registry — New Tab commands', () => {
@@ -117,13 +116,5 @@ describe('keymap registry — chat zoom commands', () => {
     expect(getCommand(AGENT_ZOOM_IN)?.liveEditable).toBe(true)
     expect(getCommand(AGENT_ZOOM_OUT)?.liveEditable).toBe(true)
     expect(getCommand(AGENT_ZOOM_RESET)?.liveEditable).toBe(true)
-  })
-})
-
-describe('keymap registry — browser pick', () => {
-  it('registers the pick toggle as a live-editable Tabs command on its own chord', () => {
-    const command = getCommand(BROWSER_TOGGLE_PICK)
-    expect(command).toMatchObject({ category: 'Tabs', liveEditable: true })
-    expect(COMMANDS.filter((c) => c.defaultChord === command?.defaultChord)).toHaveLength(1)
   })
 })

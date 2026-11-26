@@ -24,7 +24,7 @@ function webUrl(link: string): string {
 
 // True (after telling the user why) when a link in `wsId`'s content (null: no workspace's) must
 // not open here: a loopback address from a workspace on another, or unknown, host is that host's.
-export function refuseRemoteLoopback(link: string, wsId: string | null): boolean {
+function refuseRemoteLoopback(link: string, wsId: string | null): boolean {
   if (wsId === null || !isLoopbackUrl(webUrl(link))) return false
   const hostId = resolvedHostOf({ wsId })
   if (hostId === LOCAL_HOST.id) return false

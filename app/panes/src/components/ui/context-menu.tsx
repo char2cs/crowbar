@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CaretRightIcon } from '@phosphor-icons/react'
 
 import { cn } from '@/lib/utils'
-import { isDesktopApp, showNativeContextMenu } from '@/lib/crowbar-bridge'
 import { canAskShellMenu, popShellMenu } from '@/sdk/shell-menu'
 import type { ShellMenuEntry } from '@/sdk/shell-menu-entry'
 
@@ -197,17 +196,11 @@ export function useContextMenu<T = unknown>() {
   return { ...state, open, openAt, close }
 }
 
-// The shell's pages ask the shell for the desktop's menu; Tauri pops its own.
-function hasNativeMenu(): boolean {
-  return canAskShellMenu() || isDesktopApp()
-}
-
 async function showNativeMenu(
   items: ContextMenuItem[],
   position: { x: number; y: number },
   isCancelled: () => boolean,
 ): Promise<void> {
-  if (!canAskShellMenu()) return showNativeContextMenu(items, position, isCancelled)
   // StrictMode's discarded first effect is cleaned up before this resumes, so only one menu pops.
   await Promise.resolve()
   if (isCancelled()) return
@@ -233,8 +226,8 @@ function itemAt(items: ContextMenuItem[], path: number[] | null): ContextMenuIte
   return item.items ? itemAt(item.items, rest) : undefined
 }
 
-// Native-first: in the desktop app it pops the OS menu and renders nothing; elsewhere (browser
-// dev, phone) it falls back to the rendered ImperativeContextMenu.
+// Native-first: a shell page asks the shell for the OS menu and renders nothing; elsewhere
+// (phone, browser) it falls back to the rendered ImperativeContextMenu.
 function ContextMenuHost({
   isOpen,
   position,
@@ -248,13 +241,12 @@ function ContextMenuHost({
     onCloseRef.current = onClose
   }, [onClose])
 
-  // Set when showNativeContextMenu() itself throws (Menu.new() or
-  // popup_native_context_menu rejecting) so the render below falls back to
-  // the rendered popup instead of leaving the user with no menu at all.
+  // Set when the shell's menu request throws, so the render below falls back to the rendered
+  // popup instead of leaving the user with no menu at all.
   const [nativeFailed, setNativeFailed] = useState(false)
 
   useEffect(() => {
-    if (!hasNativeMenu() || !isOpen) return
+    if (!canAskShellMenu() || !isOpen) return
     let cancelled = false
     setNativeFailed(false)
     void (async () => {
@@ -276,7 +268,7 @@ function ContextMenuHost({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- items/position are read once when the menu opens
   }, [isOpen])
 
-  if (hasNativeMenu() && !nativeFailed) return null
+  if (canAskShellMenu() && !nativeFailed) return null
 
   return (
     <ImperativeContextMenu

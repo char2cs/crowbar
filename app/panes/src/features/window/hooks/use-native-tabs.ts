@@ -18,8 +18,6 @@ function kindOf(buffer: PaneContent): Pick<NativeTab, 'kind' | 'path'> {
       return { kind: 'terminal', path: null }
     case 'branchReview':
       return { kind: 'review', path: null }
-    case 'browser':
-      return { kind: 'browser', path: null }
     case 'newTabPage':
       return { kind: 'newTab', path: null }
     case 'markdownPreview':

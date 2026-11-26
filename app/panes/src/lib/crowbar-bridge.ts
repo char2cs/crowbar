@@ -1,7 +1,6 @@
 // Crowbar system operations backed by the Go daemon's /v0 API.
 
 import { convertFileSrc as tauriConvertFileSrc } from '@tauri-apps/api/core'
-import type * as TauriMenu from '@tauri-apps/api/menu'
 
 import { apiFetch } from '@/lib/api/fetch'
 import { problemOf } from '@/lib/errors/problem'
@@ -11,9 +10,6 @@ import { TauriWebSocket } from '@/lib/ws/tauri-transport'
 import { inShell } from '@/lib/ws/in-shell'
 import { ShellWebSocket } from '@/lib/ws/shell-web-socket'
 import { postShellFrame } from '@/sdk/post-shell-frame'
-import type { ContextMenuItem } from '@/components/ui/context-menu'
-import { UserFacingError } from '@/lib/errors/user-facing-error'
-import { IS_MOBILE } from '@/utils/platform'
 
 // ── Terminal PTY ──────────────────────────────────────────────────────────────
 
@@ -234,141 +230,16 @@ export async function terminalListLive(base: string): Promise<string[]> {
 
 // ── File Manager ──────────────────────────────────────────────────────────────
 
-// The `reveal_in_finder` invoke should settle well under a second. The timeout is defence in
-// depth: if it ever hangs, callers (which all `.catch` to a toast) get a rejection, not silence.
-const REVEAL_IN_FINDER_TIMEOUT_MS = 3_000
-
-/** Reveal a file or directory in the OS file manager (Finder on macOS) with the
- *  item selected. `path` must be absolute. No-op outside Tauri (browser dev). */
-export async function revealItemInFinder(path: string): Promise<void> {
-  if (postShellFrame({ kind: 'shell.reveal', path })) return
-  if (!isDesktopApp()) return
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error('reveal_in_finder timed out')),
-      REVEAL_IN_FINDER_TIMEOUT_MS,
-    )
-  })
-  try {
-    await Promise.race([tauriInvoke('reveal_in_finder', { path }), timeout])
-  } finally {
-    clearTimeout(timer)
-  }
-}
-
-// ── Window Management ─────────────────────────────────────────────────────────
-
-export async function setMacOSWindowAppearance(themeType: string): Promise<void> {
-  // Pins the vibrancy blur view's appearance to the app theme (a LIGHT frost in light
-  // mode), not NSApp.appearance, which Tauri's setTheme flips inconsistently.
-  if (!isDesktopApp()) return
-  await tauriInvoke('set_vibrancy_appearance', { dark: themeType === 'dark' })
-}
-
-// ── Native Context Menu ───────────────────────────────────────────────────────
-
-type NativeMenuEntry = TauriMenu.MenuItem | TauriMenu.Submenu | TauriMenu.PredefinedMenuItem
-
-// Every native resource of the open menu, in creation order: Tauri drops an item's click channel
-// when its Rust wrapper drops, and an item passed inline to `Menu.new` drops once the menu is
-// built — so each is created through its own constructor and kept alive here.
-let openNativeMenu: Array<{ close(): Promise<void> }> = []
-
-// Tauri keys an item's click channel by item id and removes it when ANY item
-// with that id drops, so ids must be unique across menus alive at once.
-let nativeMenuSeq = 0
-
-// Loaded with the first native menu, not statically: nothing before a right-click needs it.
-let menuApi: Promise<typeof TauriMenu> | null = null
-const loadMenuApi = () => (menuApi ??= import('@tauri-apps/api/menu'))
-
-async function toNativeMenuEntries(
-  api: typeof TauriMenu,
-  items: ContextMenuItem[],
-  menuId: number,
-  owned: Array<{ close(): Promise<void> }>,
-  onChosen: () => void,
-): Promise<NativeMenuEntry[]> {
-  const entries: NativeMenuEntry[] = []
-  for (const item of items) {
-    let entry: NativeMenuEntry
-    if (item.separator) {
-      entry = await api.PredefinedMenuItem.new({ item: 'Separator' })
-    } else if (item.items && item.items.length > 0) {
-      entry = await api.Submenu.new({
-        text: item.label,
-        enabled: !item.disabled,
-        items: await toNativeMenuEntries(api, item.items, menuId, owned, onChosen),
-      })
-    } else {
-      entry = await api.MenuItem.new({
-        id: `${menuId}:${item.id}`,
-        text: item.label,
-        enabled: !item.disabled,
-        accelerator: item.shortcut,
-        action: () => {
-          item.onClick()
-          onChosen()
-        },
-      })
-    }
-    owned.push(entry)
-    entries.push(entry)
-  }
-  return entries
-}
-
-// Tauri delivers a click to the item's `action` through the event loop, after
-// the blocking popup call returns, and closing an item drops its click channel.
-// So the menu is closed once its action ran, or when the next menu replaces it.
-async function closeNativeMenu(owned: Array<{ close(): Promise<void> }>): Promise<void> {
-  if (openNativeMenu === owned) openNativeMenu = []
-  await Promise.all(owned.map((resource) => resource.close()))
-}
-
-// Pops up the OS context menu via `popup_native_context_menu`, never `menu.popup()`: Tauri's
-// plugin command holds the webview's resources lock while the menu is open, wedging every other
-// resource-backed command (terminal PTYs too). `isCancelled` absorbs StrictMode's double effect.
-export async function showNativeContextMenu(
-  items: ContextMenuItem[],
-  position: { x: number; y: number },
-  isCancelled?: () => boolean,
-): Promise<void> {
-  await closeNativeMenu(openNativeMenu)
-  const api = await loadMenuApi()
-  const owned: Array<{ close(): Promise<void> }> = []
-  const entries = await toNativeMenuEntries(
-    api,
-    items,
-    nativeMenuSeq++,
-    owned,
-    () => void closeNativeMenu(owned),
-  )
-  const menu = await api.Menu.new({ items: entries })
-  owned.push(menu)
-  if (isCancelled?.()) {
-    await closeNativeMenu(owned)
-    return
-  }
-  openNativeMenu = owned
-  try {
-    await tauriInvoke('popup_native_context_menu', { rid: menu.rid, x: position.x, y: position.y })
-  } catch (error) {
-    await closeNativeMenu(owned)
-    throw error
-  }
+/** Reveal a file or directory in the OS file manager with the item selected: the shell's to do.
+ *  `path` must be absolute. A no-op without the shell (phone, browser). */
+export function revealItemInFinder(path: string): void {
+  postShellFrame({ kind: 'shell.reveal', path })
 }
 
 // ── Tauri Helpers ─────────────────────────────────────────────────────────────
 
 export function isTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
-}
-
-/** Tauri with a desktop window: the phone app is Tauri too, without window, menu or webview commands. */
-export function isDesktopApp(): boolean {
-  return isTauri() && !IS_MOBILE
 }
 
 /** A Tauri-picked filesystem path -> a URL its own webview can load
@@ -385,13 +256,6 @@ async function tauriInvoke<T = void>(cmd: string, args?: Record<string, unknown>
     }
   }
   return (await tauri.__TAURI_INTERNALS__.invoke(cmd, args)) as T
-}
-
-// Runs the desktop `diagnostics_export` command: daemon and app logs, fresh goroutine/heap dumps
-// and version metadata, zipped into ~/Downloads. Resolves to the bundle's absolute path.
-export async function exportDiagnostics(): Promise<string> {
-  if (!isDesktopApp()) throw new UserFacingError('Diagnostics export requires the desktop app')
-  return tauriInvoke<string>('diagnostics_export')
 }
 
 // ── Remote Hosts ──────────────────────────────────────────────────────────────

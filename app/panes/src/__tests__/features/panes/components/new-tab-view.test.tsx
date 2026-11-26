@@ -59,19 +59,10 @@ describe('NewTabView', () => {
     expect(svgs[0]).toHaveAttribute('aria-hidden', 'true')
   })
 
-  it('with a workspace offers New Terminal, New Browser and New File', () => {
+  it('with a workspace offers New Terminal and New File', () => {
     render(<NewTabView paneId={ROOT_PANE_ID} wsId="w1" />)
     expect(screen.getByRole('button', { name: /new terminal/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /new browser/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /new file/i })).toBeInTheDocument()
-  })
-
-  it('opens a browser tab through the pane-chat guard', async () => {
-    render(<NewTabView paneId={ROOT_PANE_ID} wsId="w1" />)
-    await userEvent.click(screen.getByRole('button', { name: /new browser/i }))
-    expect(openContent).toHaveBeenCalledWith(expect.objectContaining({ type: 'browser' }), {
-      paneId: 'pane-x',
-    })
   })
 
   it('opens a terminal through the pane-chat guard', async () => {
@@ -94,7 +85,7 @@ describe('NewTabView', () => {
   it('offers Review Branch last for a non-thread chat, opening the review in this pane', async () => {
     render(<NewTabView paneId={ROOT_PANE_ID} wsId="w1" />)
     const names = screen.getAllByRole('button').map((b) => b.textContent)
-    expect(names).toEqual(['New Terminal', 'New Browser', 'New File', 'Review Branch'])
+    expect(names).toEqual(['New Terminal', 'New File', 'Review Branch'])
     await userEvent.click(screen.getByRole('button', { name: /review branch/i }))
     expect(openBranchReviewForWorkspace).toHaveBeenCalledWith('w1', ROOT_PANE_ID, undefined)
   })
@@ -107,11 +98,6 @@ describe('NewTabView', () => {
       { type: 'terminal', workspaceId: 'w1' },
       { paneId: 'pane-x', replaceTabId: 'page-1' },
     )
-    await userEvent.click(screen.getByRole('button', { name: /new browser/i }))
-    expect(openContent).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'browser' }), {
-      paneId: 'pane-x',
-      replaceTabId: 'page-1',
-    })
     await userEvent.click(screen.getByRole('button', { name: /new file/i }))
     expect(openUntitled).toHaveBeenLastCalledWith('w1', 'pane-x', 'page-1')
     await userEvent.click(screen.getByRole('button', { name: /review branch/i }))
@@ -136,7 +122,7 @@ describe('NewTabView', () => {
     expect(screen.getByRole('button', { name: /new file/i })).toBeInTheDocument()
   })
 
-  // The browser pane is desktop-only and files come later: the phone offers what it can open.
+  // Files come later: the phone offers what it can open.
   it('offers only New Terminal and Review Branch on the phone', () => {
     platform.mobile = true
     render(<NewTabView paneId={ROOT_PANE_ID} wsId="w1" />)

@@ -81,17 +81,17 @@ describe('TabBarItem on a locked workspace', () => {
 describe('TabBarItem title', () => {
   it('exposes the full title of a long tab to assistive tech and the hover tooltip', async () => {
     const title = 'Crowbar - Bring your own agent. Keep your own context. Always.'
-    const browserBuffer = {
-      id: 'b-1',
-      type: 'browser',
-      url: 'https://crowbar.test',
+    const terminalBuffer = {
+      id: 't-1',
+      type: 'terminal',
+      sessionId: 'pty-1',
       name: title,
-      path: 'browser://b-1',
+      path: 'terminal://pty-1',
       isPinned: false,
       isPreview: false,
       workspaceId: 'w1',
     } as const
-    render(<TabBarItem buffer={browserBuffer} isActive {...shared} displayName={title} />)
+    render(<TabBarItem buffer={terminalBuffer} isActive {...shared} displayName={title} />)
 
     const tab = screen.getByRole('tab', { name: title })
     expect(tab.textContent).toBe(title)

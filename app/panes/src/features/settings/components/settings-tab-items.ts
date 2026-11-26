@@ -2,7 +2,6 @@ import {
   Bug,
   DeviceMobile,
   CodeBlock,
-  Globe,
   GitBranch,
   HardDrives,
   Keyboard,
@@ -36,7 +35,6 @@ const SHARED_TAB_ITEMS: SettingsTabItem[] = [
   { id: 'file-explorer', label: 'Files', icon: TreeStructure },
   { id: 'git', label: 'Git', icon: GitBranch },
   { id: 'terminal', label: 'Terminal', icon: TerminalWindow },
-  { id: 'browser', label: 'Browser', icon: Globe },
   // USER-FACING RENAME ONLY (spec §11). The tab is called Agents; its id stays
   // `providers` because it is a persisted key and a route into the dialog.
   { id: 'providers', label: 'Agents', icon: Robot },

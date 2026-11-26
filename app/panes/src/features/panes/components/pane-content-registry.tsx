@@ -1,10 +1,5 @@
 import { lazy, type ReactNode } from 'react'
-import type {
-  BrowserContent,
-  EditorContent,
-  PaneContent,
-  TerminalContent,
-} from '../types/pane-content'
+import type { EditorContent, PaneContent, TerminalContent } from '../types/pane-content'
 import { NewTabView } from './new-tab-view'
 import { windowPaneStore } from '../stores/window-pane-store'
 
@@ -26,12 +21,9 @@ const HtmlPreview = lazy(() =>
   })),
 )
 
-/** A tab a pane renders on demand. Editors (portaled), terminals (PTY) and browsers (webview)
- *  are kept mounted by the pane itself and never reach this registry. */
-export type RegisteredContent = Exclude<
-  PaneContent,
-  EditorContent | TerminalContent | BrowserContent
->
+/** A tab a pane renders on demand. Editors (portaled) and terminals (PTY) are kept mounted by
+ *  the pane itself and never reach this registry. */
+export type RegisteredContent = Exclude<PaneContent, EditorContent | TerminalContent>
 
 interface SurfaceContext {
   isActivePane: boolean

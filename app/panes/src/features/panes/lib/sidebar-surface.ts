@@ -8,7 +8,6 @@ const SURFACE_BY_TYPE: Record<PaneContent['type'], SidebarTab> = {
   htmlPreview: 'files',
   branchReview: 'git',
   terminal: 'chats',
-  browser: 'chats',
   newTabPage: 'chats',
 }
 

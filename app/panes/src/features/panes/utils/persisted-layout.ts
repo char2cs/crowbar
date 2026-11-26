@@ -9,25 +9,16 @@ import { documentRefOf, documentUri } from '@/features/editor/documents/document
 import type { EditorDraft } from '@/features/editor/documents/draft-store'
 import type { WorkspaceLayout } from '@/lib/persistence/schemas'
 
-/** A native webview id; Rust names the webview `browser-<id>`. */
-const WEBVIEW_ID = /^[A-Za-z0-9_-]+$/
-
 function isRestorable(buffer: PaneContent): boolean {
-  if (!PANE_CONTENT_TYPES.has(buffer.type)) return false
-  return buffer.type !== 'browser' || (WEBVIEW_ID.test(buffer.id) && typeof buffer.url === 'string')
+  return PANE_CONTENT_TYPES.has(buffer.type)
 }
 
-/** Strips what belongs to this session alone: a live webview's in-flight load, and a failed
- *  read's reason (the boot restore reads the file again). */
+/** Strips what belongs to this session alone: a failed read's reason (the boot restore reads
+ *  the file again). */
 function withoutTransient(buffer: PaneContent): PaneContent {
-  if (buffer.type === 'editor' && buffer.unavailable) {
-    const { unavailable: _reason, ...kept } = buffer
-    return kept
-  }
-  if (buffer.type !== 'browser' || !('loading' in buffer)) return buffer
-  const rest = { ...buffer }
-  delete rest.loading
-  return rest
+  if (buffer.type !== 'editor' || !buffer.unavailable) return buffer
+  const { unavailable: _reason, ...kept } = buffer
+  return kept
 }
 
 /** The buffers as they are written to the saved layout. */

@@ -17,7 +17,6 @@ export const AGENT_CYCLE_PROVIDER = 'agent.cycleProvider'
 export const AGENT_TOGGLE_VIEW_MODE = 'agent.toggleViewMode'
 export const TAB_REOPEN_CLOSED = 'tabs.reopenClosed'
 export const TAB_CLOSE = 'tabs.closeActive'
-export const BROWSER_TOGGLE_PICK = 'browser.togglePick'
 
 export const AGENT_ZOOM_IN = 'agent.zoomIn'
 export const AGENT_ZOOM_OUT = 'agent.zoomOut'
@@ -181,13 +180,6 @@ export const COMMANDS: Command[] = [
     category: 'Editor',
     defaultChord: 'mod+shift+s',
     liveEditable: false,
-  },
-  {
-    id: BROWSER_TOGGLE_PICK,
-    label: 'Pick element in browser tab',
-    category: 'Tabs',
-    defaultChord: 'mod+shift+e',
-    liveEditable: true,
   },
   // --- Navigation (live-editable) ---
   // The digit IS the mode's position in the sidebar mode bar (Chats, Files,

@@ -91,9 +91,7 @@ export function revealInFolder(wsId: string, path: string): void {
   const root = path.startsWith('/') ? '' : workspaceRootPath(wsId)
   if (root === undefined) return
   const absolute = root ? joinPath(root, path) : path
-  revealItemInFinder(absolute).catch((error: unknown) => {
-    report(error, { action: 'Reveal in Finder failed' })
-  })
+  revealItemInFinder(absolute)
 }
 
 /** The file explorer's mutations for one workspace. None refetch (except Refresh): the daemon's

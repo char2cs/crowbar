@@ -36,8 +36,6 @@ interface XtermTerminalProps {
   /** The chat owning this PTY when known directly (an agent pane's CLI session). Unset for a
    *  shell tab, owned by the chat that owns the workspace's worktree. */
   chatId?: string
-  /** The pane this terminal is shown in; a link opened from it lands there. */
-  paneId?: string
   isActive: boolean
   isVisible?: boolean
   /** Focus handle for an owner that moves the keyboard here (the agent pane). */
@@ -61,7 +59,6 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   sessionId,
   workspaceId,
   chatId,
-  paneId,
   isActive,
   isVisible = true,
   ref,
@@ -133,7 +130,6 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   const { terminal, addons } = useXtermInstance({
     sessionId,
     workspaceId,
-    paneId,
     container,
     enabled: activated,
     write: writeFromTerminal,

@@ -1,12 +1,15 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "entry": [
-    "index.html",
-    "src/entries/*.tsx!",
+    "index.html!",
+    "src/entries/{chat,editor,review,console}.tsx!",
     "scripts/*.mjs",
     "doctor.config.ts",
     "src/__tests__/**/*.{ts,tsx}",
     "src/lib/stubs/*.ts"
   ],
-  "project": ["src/**/*.{ts,tsx,css}!", "scripts/**/*.mjs"]
+  "project": [
+    "src/**/*.{ts,tsx,css}!",
+    "scripts/**/*.mjs"
+  ]
 }

@@ -6,15 +6,13 @@ import type { TerminalAddons } from './use-terminal-addons'
 import { useTerminalTheme } from './use-terminal-theme'
 import { fitToContainer } from './use-pty-size-sync'
 import { mountXterm, type MountedXterm } from '../lib/mount-xterm'
-import { terminalLinksFor } from '../lib/terminal-links'
-import type { TerminalView } from '../lib/terminal-url-menu'
+import { terminalLinksFor, type TerminalView } from '../lib/terminal-links'
 import { resolveTerminalFont } from '../utils/resolve-font'
 
 interface UseXtermInstanceOptions {
   sessionId: string
-  /** The workspace this terminal belongs to and the pane it is shown in; links open there. */
+  /** The workspace this terminal belongs to; links open there. */
   workspaceId: string
-  paneId?: string
   container: HTMLDivElement | null
   /** False until the view has been shown once: a never-seen tab builds nothing. */
   enabled: boolean
@@ -32,7 +30,6 @@ export interface XtermInstance {
 export function useXtermInstance({
   sessionId,
   workspaceId,
-  paneId,
   container,
   enabled,
   write,
@@ -40,12 +37,12 @@ export function useXtermInstance({
   const [instance, setInstance] = useState<XtermInstance>({ terminal: null, addons: null })
   const writeRef = useRef(write)
   const sessionIdRef = useRef(sessionId)
-  const viewRef = useRef<TerminalView>({ workspaceId, paneId })
+  const viewRef = useRef<TerminalView>({ workspaceId })
   useEffect(() => {
     writeRef.current = write
     sessionIdRef.current = sessionId
-    viewRef.current = { workspaceId, paneId }
-  }, [write, sessionId, workspaceId, paneId])
+    viewRef.current = { workspaceId }
+  }, [write, sessionId, workspaceId])
 
   const fontFamily = useSettingsStore((state) => state.settings.terminalFontFamily)
   const baseFontSize = useSettingsStore((state) => state.settings.terminalFontSize)

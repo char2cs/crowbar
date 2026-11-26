@@ -16,8 +16,6 @@ import { getEditorHost } from '@/features/editor/host/editor-host'
 // rich/source preference synchronously.
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
 import { report } from '@/lib/errors/report'
-import { browserApi } from '@/lib/browser-bridge'
-import { unregisterWebview } from '@/features/browser/lib/webview-registry'
 
 /** The slice of window-pane state buffer ownership reads and writes. */
 export interface BufferOwnershipState {
@@ -77,13 +75,6 @@ export function disposeBuffers(released: readonly PaneContent[]): void {
       )
     }
     releaseDocumentOf(buf)
-    // A tab that was never shown has no webview to close.
-    const webview = buf.type === 'browser' ? unregisterWebview(buf.id) : undefined
-    if (webview) {
-      void webview
-        .then(() => browserApi.close(buf.id))
-        .catch((err: unknown) => report(err, { action: 'Close the browser tab' }))
-    }
     if (isEditorContent(buf) && buf.path) {
       clearDraft(documentUri(documentRefOf(buf)))
       const { path: filePath, workspaceId } = buf

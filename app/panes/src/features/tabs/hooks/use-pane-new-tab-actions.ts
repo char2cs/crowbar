@@ -6,8 +6,6 @@ import {
 } from '@/features/panes/utils/pane-command-actions'
 import { openUntitledDocument } from '@/features/editor/documents/open-document'
 import { useBufferActions } from '@/features/workspace/stores/hooks/use-buffer-store'
-import { browserHomepage } from '@/features/browser/lib/homepage'
-import { useSettingsStore } from '@/features/settings/store'
 
 /** The one set of actions a New Tab page and an empty editor area offer, so they can't differ.
  *  All but the review need the pane's workspace (`ensurePaneChatThenOpen`); with `replaceTabId`
@@ -33,19 +31,6 @@ export function usePaneNewTabActions(
         if (!wsId) return
         ensurePaneChatThenOpen(wsId, paneId, (target, tabWsId) => {
           openContent({ type: 'terminal', workspaceId: tabWsId }, into(target))
-        })
-      },
-      onNewBrowser: () => {
-        if (!wsId) return
-        ensurePaneChatThenOpen(wsId, paneId, (target, tabWsId) => {
-          openContent(
-            {
-              type: 'browser',
-              url: browserHomepage(useSettingsStore.getState().settings),
-              workspaceId: tabWsId,
-            },
-            into(target),
-          )
         })
       },
       // The header's Branch Review shortcut opens it the same way.

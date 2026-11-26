@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 import { ArrowClockwise } from '@phosphor-icons/react'
 import { getBuildInfo } from '@/lib/build-info'
 import Section, { SettingRow } from '../settings-section'
@@ -7,8 +7,6 @@ import { Button } from '@/components/ui/button'
 import { useSettingsStore, getDefaultSetting } from '@/features/settings/store'
 import type { Settings } from '@/features/settings/types/settings'
 import { downloadSettingsFile } from '@/features/settings/lib/settings-download'
-import { exportDiagnostics } from '@/lib/crowbar-bridge'
-import { isDesktopApp } from '@/lib/crowbar-bridge'
 import { primitiveConfirm } from '@/components/ui/primitive-dialog-service'
 import { toast } from '@/features/window/stores/toast-store'
 import {
@@ -19,7 +17,6 @@ import {
   SelectItem,
 } from '@/components/ui/select'
 import { ChatSplitViewSetting } from './chat-split-view-setting'
-import { report } from '@/lib/errors/report'
 
 function handleExport() {
   downloadSettingsFile(useSettingsStore.getState().settings)
@@ -128,47 +125,11 @@ function BuildBadgeSection() {
 export function DeveloperSettings() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const [exportingDiagnostics, setExportingDiagnostics] = useState(false)
-
-  async function handleExportDiagnostics() {
-    setExportingDiagnostics(true)
-    try {
-      const path = await exportDiagnostics()
-      toast.success('Diagnostics exported', path)
-    } catch (e) {
-      report(e, { action: 'Diagnostics export failed' })
-    } finally {
-      setExportingDiagnostics(false)
-    }
-  }
-
   return (
     <div className="space-y-4">
       <BuildBadgeSection />
 
       <ChatSplitViewSetting />
-
-      {isDesktopApp() && (
-        <Section
-          title="Diagnostics"
-          description="For bug reports: collect the backend and app logs plus a live backend snapshot into a single zip."
-        >
-          <SettingRow
-            label="Export diagnostics"
-            description="Bundles the daemon log (crashes, watchdog dumps), the app log, fresh goroutine/heap dumps, and version info into your Downloads folder."
-          >
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={exportingDiagnostics}
-              onClick={handleExportDiagnostics}
-            >
-              {exportingDiagnostics ? 'Exporting…' : 'Export diagnostics'}
-            </Button>
-          </SettingRow>
-        </Section>
-      )}
 
       <Section
         title="Backup & Restore"

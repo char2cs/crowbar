@@ -72,7 +72,6 @@ export function TerminalTab({
         ref={terminal}
         sessionId={sessionId}
         workspaceId={workspaceId}
-        paneId={paneId}
         isActive={isActive}
         isVisible={isVisible}
         onTerminalExit={handleTerminalExit}

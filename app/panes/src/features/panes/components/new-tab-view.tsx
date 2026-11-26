@@ -1,4 +1,4 @@
-import { FilePlusIcon, GitPullRequest, GlobeIcon, TerminalWindowIcon } from '@phosphor-icons/react'
+import { FilePlusIcon, GitPullRequest, TerminalWindowIcon } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { CrowbarWordmark } from '@/components/ui/crowbar-wordmark'
 import { usePaneCanReviewBranch } from '@/features/panes/hooks/use-pane-can-review-branch'
@@ -33,7 +33,7 @@ export function NewTabView({
   wsId: string | null
   replaceTabId?: string
 }) {
-  const { onNewTerminal, onNewBrowser, onNewFile, onReviewBranch } = usePaneNewTabActions(
+  const { onNewTerminal, onNewFile, onReviewBranch } = usePaneNewTabActions(
     wsId,
     paneId,
     replaceTabId,
@@ -55,18 +55,12 @@ export function NewTabView({
             <TerminalWindowIcon />
             New Terminal
           </Button>
-          {/* The phone has no browser pane and no file editor yet. */}
+          {/* The phone has no file editor yet. */}
           {!IS_MOBILE && (
-            <>
-              <Button variant="ghost" size={v.size} className={v.action} onClick={onNewBrowser}>
-                <GlobeIcon />
-                New Browser
-              </Button>
-              <Button variant="ghost" size={v.size} className={v.action} onClick={onNewFile}>
-                <FilePlusIcon />
-                New File
-              </Button>
-            </>
+            <Button variant="ghost" size={v.size} className={v.action} onClick={onNewFile}>
+              <FilePlusIcon />
+              New File
+            </Button>
           )}
           {canReview && (
             <Button variant="ghost" size={v.size} className={v.action} onClick={onReviewBranch}>

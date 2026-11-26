@@ -4,12 +4,12 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 import { Terminal, type ILink, type ILinkProvider } from '@xterm/xterm'
 
-const { revealInEditor, showTerminalUrlMenu } = vi.hoisted(() => ({
+const { revealInEditor, openWorkspaceLink } = vi.hoisted(() => ({
   revealInEditor: vi.fn(),
-  showTerminalUrlMenu: vi.fn().mockResolvedValue(undefined),
+  openWorkspaceLink: vi.fn().mockResolvedValue(undefined),
 }))
 vi.mock('@/features/editor/lib/reveal', () => ({ revealInEditor }))
-vi.mock('@/features/terminal/lib/terminal-url-menu', () => ({ showTerminalUrlMenu }))
+vi.mock('@/lib/workspace-link', () => ({ openWorkspaceLink }))
 
 import {
   registerTerminalLinks,
@@ -271,9 +271,9 @@ describe('links over the logical line', () => {
     expect(link?.range).toEqual({ start: { x: 5, y: 1 }, end: { x: 4, y: 2 } })
   })
 
-  it('hands a URL to onUrl once, with the pointer position', async () => {
+  it('hands a URL to onUrl once', async () => {
     const { onUrl, openFile } = await click('see ' + WRAP_URL, { row: 2, cols: 40 })
-    expect(onUrl).toHaveBeenCalledExactlyOnceWith(WRAP_URL, { x: 40, y: 50 })
+    expect(onUrl).toHaveBeenCalledExactlyOnceWith(WRAP_URL)
     expect(openFile).not.toHaveBeenCalled()
   })
 
@@ -321,7 +321,7 @@ describe('link activation', () => {
     const osc8 = (e: MouseEvent) => terminal.options.linkHandler?.activate(e, 'https://a.b', range)
     osc8(new MouseEvent('mouseup'))
     osc8(primaryClick())
-    expect(options.onUrl).toHaveBeenCalledExactlyOnceWith('https://a.b', { x: 40, y: 50 })
+    expect(options.onUrl).toHaveBeenCalledExactlyOnceWith('https://a.b')
     registrations.splice(0).forEach((r) => r.dispose())
     expect(terminal.options.linkHandler).toBeFalsy()
   })
@@ -436,7 +436,7 @@ describe('xterm wrap idioms the daemon emitter relies on', () => {
 describe('terminalLinksFor', () => {
   beforeEach(() => {
     revealInEditor.mockReset()
-    showTerminalUrlMenu.mockClear()
+    openWorkspaceLink.mockClear()
     setActiveWorkspaceId('ws-a')
     const ws = (id: string, localPath: string) => ({ id, branch: id, localPath })
     seedRepos([
@@ -453,7 +453,7 @@ describe('terminalLinksFor', () => {
   async function clickIn(text: string, workspaceId: string | undefined) {
     const options = terminalLinksFor(
       () => 'tab-1',
-      () => ({ workspaceId, paneId: workspaceId && 'pane-1' }),
+      () => ({ workspaceId }),
     )
     const [link] = (await linksAt(register(await terminalWith(text), options), 1)) ?? []
     link?.activate(primaryClick(), link.text)
@@ -478,13 +478,9 @@ describe('terminalLinksFor', () => {
     expect(revealInEditor.mock.calls).toEqual([[{ doc: { absolutePath: '/etc/hosts' } }]])
   })
 
-  it("offers a URL's menu in the terminal's own view", async () => {
+  it("opens a URL against the terminal's own workspace", async () => {
     await clickIn('docs at https://x.dev/guide', 'ws-b')
-    expect(showTerminalUrlMenu).toHaveBeenCalledExactlyOnceWith(
-      'https://x.dev/guide',
-      { x: 40, y: 50 },
-      { workspaceId: 'ws-b', paneId: 'pane-1' },
-    )
+    expect(openWorkspaceLink).toHaveBeenCalledExactlyOnceWith('https://x.dev/guide', 'ws-b')
     expect(revealInEditor).not.toHaveBeenCalled()
   })
 

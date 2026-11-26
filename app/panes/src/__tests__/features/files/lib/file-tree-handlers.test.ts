@@ -18,12 +18,9 @@ import { proxyMarkerError } from '@/lib/api/errors'
 import { destroyHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
 import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
-/** What report() shows for a client bug. */
-const UNEXPLAINED = 'Something went wrong — details are in the log'
-
 const { copyFileNode, revealItemInFinder, workspaceRootPath } = vi.hoisted(() => ({
   copyFileNode: vi.fn(),
-  revealItemInFinder: vi.fn().mockResolvedValue(undefined),
+  revealItemInFinder: vi.fn(),
   workspaceRootPath: vi.fn((): string | undefined => '/disk/worktree'),
 }))
 
@@ -69,20 +66,6 @@ describe('revealInFolder', () => {
     workspaceRootPath.mockReturnValueOnce(undefined)
     revealInFolder('ws-a', 'api/main.go')
     expect(revealItemInFinder).not.toHaveBeenCalled()
-  })
-
-  it('surfaces a failure as an error toast', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {})
-    revealItemInFinder.mockRejectedValueOnce(new Error('finder exploded'))
-    revealInFolder('ws-a', '/abs/file.ts')
-    await vi.waitFor(() =>
-      expect(toastAdd).toHaveBeenCalledWith(
-        expect.objectContaining({
-          title: 'Reveal in Finder failed',
-          description: UNEXPLAINED,
-        }),
-      ),
-    )
   })
 })
 

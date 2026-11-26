@@ -10,7 +10,6 @@ export type EditorTabContentType =
   | 'markdownPreview'
   | 'htmlPreview'
   | 'branchReview'
-  | 'browser'
   | 'newTabPage'
 
 /** Every content type this build can render. A saved layout outlives the code that wrote it, so
@@ -21,7 +20,6 @@ export const PANE_CONTENT_TYPES: ReadonlySet<EditorTabContentType> = new Set<Edi
   'markdownPreview',
   'htmlPreview',
   'branchReview',
-  'browser',
   'newTabPage',
 ])
 
@@ -94,16 +92,6 @@ export interface BranchReviewContent extends EditorTabBase {
   view?: BranchReviewView
 }
 
-/** A native webview tab. The buffer id is the Rust webview id; `url` is ''
- *  until the first navigation, and the webview is not created before then. */
-export interface BrowserContent extends EditorTabBase {
-  type: 'browser'
-  url: string
-  title?: string
-  /** A page load is in flight, as the webview reports it. */
-  loading?: boolean
-}
-
 /** A browser-style New Tab: the empty editor area's actions as a tab of its
  *  own, which the content chosen on it replaces. At most one per pane. */
 export interface NewTabPageContent extends EditorTabBase {
@@ -118,7 +106,6 @@ export type PaneContent =
   | MarkdownPreviewContent
   | HtmlPreviewContent
   | BranchReviewContent
-  | BrowserContent
   | NewTabPageContent
 
 // ── Type guards ─────────────────────────────────────────────────────
@@ -143,7 +130,6 @@ export function hasUnsavedEdits(c: PaneContent): boolean {
 const VIRTUAL_TYPES: ReadonlySet<EditorTabContentType> = new Set([
   'terminal',
   'branchReview',
-  'browser',
   'newTabPage',
 ])
 
@@ -176,12 +162,6 @@ export type OpenEditorTabSpec =
     }
   | { type: 'markdownPreview' | 'htmlPreview'; source: DocumentRef; name: string; content: string }
   | { type: 'branchReview'; wsId: string; name: string }
-  | {
-      type: 'browser'
-      /** Opens on this page; omitted for the blank address bar. */
-      url?: string
-      workspaceId: string
-    }
   | { type: 'newTabPage'; workspaceId: string }
 
 // ── Buffer history / dialog state (used by workspace store) ─────────

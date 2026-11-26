@@ -11,7 +11,6 @@ describe('resolveShellSettings', () => {
     ['a string', { iconTheme: 'vscode' }, 'iconTheme', 'vscode'],
     ['a list', { hiddenFilePatterns: ['*.log'] }, 'hiddenFilePatterns', ['*.log']],
     ['a value the pane normalises', { editorLineHeight: 9 }, 'editorLineHeight', 2],
-    ['a custom search engine', { browserSearchEngine: 'custom' }, 'browserSearchEngine', 'custom'],
     ['a value of the wrong type', { wordWrap: 'yes' }, 'wordWrap', false],
     ['a list of the wrong type', { hiddenFilePatterns: 'x' }, 'hiddenFilePatterns', []],
     ['a key the pane does not know', { nope: 1 }, 'tabSize', 2],

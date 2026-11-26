@@ -18,7 +18,6 @@ import { documentRefOf } from '@/features/editor/documents/document-ref'
 import type { DocumentRef } from '@/lib/api/documents'
 import { nanoid } from 'nanoid'
 import { report } from '@/lib/errors/report'
-import { browserTabName } from '@/features/browser/lib/browser-tab-name'
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -43,7 +42,6 @@ export interface BufferActions {
   /** An untitled buffer saved as `doc` becomes that document's tab. */
   rebindEditorBuffer(id: string, doc: DocumentRef, name: string): void
   setBranchReviewView(id: string, view: BranchReviewView): void
-  setBrowserLocation(id: string, patch: { url?: string; title?: string; loading?: boolean }): void
   setPinned(id: string, pinned: boolean): void
   setPreview(id: string, preview: boolean): void
   promotePreview(id: string): void
@@ -214,22 +212,6 @@ export const createBufferSlice: StateCreator<
         set((state) => {
           const buf = state.buffers.find((b) => b.id === id)
           if (buf?.type === 'branchReview') buf.view = view
-        })
-      },
-
-      // The webview is the source of truth for where it is; this stores what it
-      // reports so the tab strip and a re-mounted pane agree with it.
-      setBrowserLocation(id, patch) {
-        set((state) => {
-          const buf = state.buffers.find((b) => b.id === id)
-          if (!buf || buf.type !== 'browser') return
-          if (patch.url !== undefined && patch.url !== buf.url) {
-            buf.url = patch.url
-            buf.title = undefined
-          }
-          if (patch.title !== undefined) buf.title = patch.title
-          if (patch.loading !== undefined) buf.loading = patch.loading
-          buf.name = browserTabName(buf.title, buf.url)
         })
       },
 

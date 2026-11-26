@@ -2,7 +2,6 @@ import {
   cacheFontsForBootstrap,
   cacheThemeForBootstrap,
 } from '@/features/settings/lib/appearance-bootstrap'
-import { setMacOSWindowAppearance } from '@/lib/crowbar-bridge'
 import type { Settings, Theme } from '@/features/settings/types/settings'
 
 const ALL_THEME_CLASSES = [
@@ -92,7 +91,6 @@ async function applyTheme(theme: Theme) {
       const appliedTheme = themeRegistry.getActiveTheme()
       if (appliedTheme) {
         cacheThemeForBootstrap(appliedTheme)
-        syncMacOSWindowAppearance(appliedTheme.isDark ? 'dark' : 'light')
         return
       }
 
@@ -100,7 +98,6 @@ async function applyTheme(theme: Theme) {
       // Derive dark/light from the theme name so Tailwind dark: variants apply.
       const isDark = !theme.includes('light')
       document.documentElement.classList.toggle('dark', isDark)
-      syncMacOSWindowAppearance(isDark ? 'dark' : 'light')
     }
 
     if (!themeRegistry.isRegistryReady()) {
@@ -113,12 +110,6 @@ async function applyTheme(theme: Theme) {
     console.error('Failed to apply theme via registry:', error)
     applyFallbackTheme(theme)
   }
-}
-
-function syncMacOSWindowAppearance(themeType: 'light' | 'dark') {
-  void setMacOSWindowAppearance(themeType).catch((error) => {
-    console.warn('Failed to sync macOS window appearance', error)
-  })
 }
 
 export function applyTypographySettings(

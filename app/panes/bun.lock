@@ -37,7 +37,6 @@
         "@tanstack/react-virtual": "^3.14.9",
         "@tauri-apps/api": "^2.11.1",
         "@tauri-apps/plugin-dialog": "^2.7.2",
-        "@tauri-apps/plugin-shell": "^2.3.5",
         "@xterm/addon-fit": "^0.11.0",
         "@xterm/addon-search": "^0.16.0",
         "@xterm/addon-serialize": "^0.14.0",
@@ -671,8 +670,6 @@
     "@tauri-apps/api": ["@tauri-apps/api@2.11.1", "", {}, "sha512-M2FPuYND2m+wh5hfW9ZpSdxMPdEJovPBWwoHJmwUpysTYNHaOkVFN419m/K0LIgjb/7KU2vBgsUepJWugQCvAA=="],
 
     "@tauri-apps/plugin-dialog": ["@tauri-apps/plugin-dialog@2.7.3", "", { "dependencies": { "@tauri-apps/api": "^2.11.0" } }, "sha512-CRgE+7TP4tvq9MjBU6f04NLTFIqVMLKHk3hAqlhil00ngK9ACTrXPH3oHpKMProxILodd3YjBoKbMwSI4IEcfA=="],
-
-    "@tauri-apps/plugin-shell": ["@tauri-apps/plugin-shell@2.3.6", "", { "dependencies": { "@tauri-apps/api": "^2.11.0" } }, "sha512-C2AG+QmBJPK0E3gccLXfRdjTfGBC9DgwzGi/PfYa61ieAZbYvhvOss4OdSGfn/D28N3THGhJZEhf3lozOh/Uqw=="],
 
     "@testing-library/dom": ["@testing-library/dom@10.4.2", "", { "dependencies": { "@babel/code-frame": "^7.10.4", "@babel/runtime": "^7.12.5", "@types/aria-query": "^5.0.1", "aria-query": "5.3.0", "dom-accessibility-api": "^0.5.9", "lz-string": "^1.5.0", "picocolors": "1.1.1", "pretty-format": "^27.0.2" } }, "sha512-yzr2S9HyAIdhz2/6qHgbs665Q7PKVcDF05vsOlHPxG1mo36gKVesdYVeDLnXgfjJ03CrKRk08knc6+E/9m8v2Q=="],
 

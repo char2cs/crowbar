@@ -53,62 +53,17 @@ describe('validateLoadedBuffers', () => {
     expect(out.panes.root.activeEditorTabId).toBeNull()
   })
 
-  describe('browser tabs', () => {
-    const browser = (id: string, extra: object = {}) => ({
-      id,
-      type: 'browser',
-      path: `browser://${id}`,
-      name: 'Example',
-      url: 'https://a.com',
-      title: 'Example Domain',
-      workspaceId: 'w1',
-      ...extra,
-    })
-    const layoutOf = (...ids: string[]) =>
-      ({
-        buffers: [...ids.map((id) => browser(id)), { id: 'e-1', type: 'editor', path: '/a.ts' }],
-        panes: {
-          root: { id: 'root', editorTabIds: [...ids, 'e-1'], activeEditorTabId: ids[0] },
-        },
-      }) as unknown as Snapshot
-
-    it('round-trips url and title, and never carries a page load across a restart', () => {
-      const live = {
-        ...layoutOf('b-1'),
-        buffers: [browser('b-1', { loading: true }), { id: 'e-1', type: 'editor', path: '/a.ts' }],
-      } as unknown as Snapshot
-
-      const saved = toPersistedBuffers(live.buffers)
-      expect(saved[0]).not.toHaveProperty('loading')
-
-      const out = validateLoadedBuffers({ ...live, buffers: saved }, ROOT)
-      expect(out.buffers[0]).toMatchObject({
-        id: 'b-1',
-        url: 'https://a.com',
-        title: 'Example Domain',
-      })
-      expect(out.panes.root.editorTabIds).toEqual(['b-1', 'e-1'])
-    })
-
-    it('restores as not loading even from a record that stored loading: true', () => {
-      const stored = {
-        ...layoutOf('b-1'),
-        buffers: [browser('b-1', { loading: true })],
-      } as unknown as Snapshot
-      expect(validateLoadedBuffers(stored, ROOT).buffers[0]).not.toHaveProperty('loading')
-    })
-
-    it('drops a tab whose id could not name a native webview, repairing its pane', () => {
-      const out = validateLoadedBuffers(layoutOf('good_id-1', 'bad id!', 'a.b'), ROOT)
-      expect(out.buffers.map((b) => b.id)).toEqual(['good_id-1', 'e-1'])
-      expect(out.panes.root.editorTabIds).toEqual(['good_id-1', 'e-1'])
-    })
-
-    it('drops a tab with no usable url field', () => {
-      const broken = { ...layoutOf('b-1'), buffers: [browser('b-1', { url: undefined })] }
-      const out = validateLoadedBuffers(broken as unknown as Snapshot, ROOT)
-      expect(out.buffers).toEqual([])
-    })
+  it('drops a browser tab an older build saved, keeping the pane valid', () => {
+    const saved = {
+      buffers: [
+        { id: 'b-1', type: 'browser', path: 'browser://b-1', name: 'Example', url: 'https://a.com' },
+        { id: 'e-1', type: 'editor', path: '/a.ts', name: 'a.ts' },
+      ],
+      panes: { root: { id: 'root', editorTabIds: ['b-1', 'e-1'], activeEditorTabId: 'b-1' } },
+    } as unknown as Snapshot
+    const out = validateLoadedBuffers(saved, ROOT)
+    expect(out.buffers.map((b) => b.id)).toEqual(['e-1'])
+    expect(out.panes.root).toMatchObject({ editorTabIds: ['e-1'], activeEditorTabId: 'e-1' })
   })
 
   it('heals a pre-existing stranded id even when nothing was dropped (Finding 1)', () => {
