@@ -35,16 +35,6 @@ impl TabItem {
         }
     }
 
-    /// Adds an icon next to the label.
-    #[must_use]
-    pub fn with_icon(
-        mut self,
-        icon: IconName,
-    ) -> Self {
-        self.icon = Some(icon);
-        self
-    }
-
     /// Adds a text label next to the icon; the selected weight is kept.
     #[must_use]
     pub fn with_label(
