@@ -255,4 +255,23 @@ mod tests {
         let missing = first_read(&chosen(vec!["/picked/none.yaml"]), &files);
         assert!(missing.unwrap().is_err(), "unreadable");
     }
+
+    #[gpui::test]
+    fn escape_closes_the_settings_after_a_rail_click(cx: &mut gpui::TestAppContext) {
+        let mut opened = crate::shell::shell_view::tests::open_started_shell(cx);
+        opened
+            .shell
+            .update_in(&mut opened.window, ShellView::show_settings);
+        opened.window.run_until_parked();
+        let editor = opened.window.debug_bounds("rail-editor");
+        let editor = editor.unwrap_or_else(|| panic!("the settings rail is drawn"));
+        let none = gpui::Modifiers::none();
+        opened.window.simulate_click(editor.center(), none);
+        opened.window.simulate_keystrokes("escape");
+        opened.window.run_until_parked();
+        let open = opened
+            .shell
+            .read_with(&opened.window, |shell, _| shell.settings.is_some());
+        assert!(!open, "Escape closed the settings");
+    }
 }
