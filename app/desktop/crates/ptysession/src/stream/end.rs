@@ -5,4 +5,5 @@ pub(crate) enum End {
     ViewGone,
     Exited,
     Lost,
+    Gone,
 }

@@ -1,5 +1,6 @@
 //! One terminal session from creation to the end of its stream.
 
+mod staying_attached;
 mod terminal_session_event;
 
 use std::sync::Arc;
@@ -8,8 +9,6 @@ use async_channel::Sender;
 use protocol::{DaemonTransport, HostId, PaneOrigin, RelayScope};
 use tokio::runtime::Handle;
 use tokio::time::timeout;
-use tokio_tungstenite::client_async;
-use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 use crate::connection::Connection;
 use crate::error::{Error, Result};
@@ -20,16 +19,10 @@ use crate::rest::Binding;
 use crate::rest::Rest;
 use crate::rest::SessionPaths;
 use crate::stream::Attachment;
+use crate::stream::CONNECT_TIMEOUT;
 use crate::stream::End;
-use crate::stream::Reconnect;
-use crate::stream::pump;
-use crate::stream::recover;
-use crate::stream::{CONNECT_TIMEOUT, header, stream_error, within};
 use crate::stream::{Dial, tcp_dial};
 use crate::terminal_sessions::terminal_session_event::TerminalSessionEvent;
-
-const RELAY_SUBPROTOCOL: &str = "crowbar.relay.v1";
-const TOKEN_PREFIX: &str = "crowbar.token.";
 
 /// Starts terminal sessions on one daemon host.
 #[derive(Clone)]
@@ -162,66 +155,15 @@ impl TerminalSessions {
             report(reports, Report::Bound(session.clone())).await;
         }
         let end = self.keep_attached((base, &session), attachment).await;
+        if end == End::Gone {
+            report(reports, Report::Gone).await;
+            return Ok(());
+        }
         let released = self.rest.kill(base, &session).await;
         if let (End::ViewGone, Err(error)) = (end, released) {
             report(reports, Report::StopFailed(error.words())).await;
         }
         Ok(())
-    }
-
-    async fn keep_attached(
-        &self,
-        target: (&SessionPaths, &str),
-        attachment: &Attachment,
-    ) -> End {
-        let mut reconnect = Reconnect::default();
-        let mut ended = None;
-        while ended.is_none() {
-            ended = self.round(target, attachment, &mut reconnect).await;
-        }
-        ended.unwrap_or(End::Lost)
-    }
-
-    async fn round(
-        &self,
-        target: (&SessionPaths, &str),
-        attachment: &Attachment,
-        reconnect: &mut Reconnect,
-    ) -> Option<End> {
-        let outcome = self.stream(target, attachment).await;
-        let reason = match outcome {
-            Ok(End::Lost) => {
-                reconnect.connected();
-                "the connection dropped".to_owned()
-            },
-            Ok(end) => return Some(end),
-            Err(error) => error.to_string(),
-        };
-        emit(&TerminalSessionEvent::StreamLost { reason: &reason });
-        let recovered = recover(&attachment.ends, reconnect, &reason).await;
-        (!recovered).then_some(End::Lost)
-    }
-
-    async fn stream(
-        &self,
-        (base, session): (&SessionPaths, &str),
-        attachment: &Attachment,
-    ) -> Result<End> {
-        let endpoint = self
-            .rest
-            .transport
-            .relay_endpoint(&attachment.scope)
-            .map_err(stream_error)?;
-        let address = endpoint.url().trim_start_matches("ws://").to_owned();
-        let tcp = within((self.dial)(address)).await?;
-        let url = format!("{}{}", endpoint.url(), base.stream_path(session));
-        let mut request = url.into_client_request().map_err(stream_error)?;
-        let protocols = format!("{RELAY_SUBPROTOCOL}, {TOKEN_PREFIX}{}", endpoint.token());
-        let headers = request.headers_mut();
-        headers.insert("sec-websocket-protocol", header(&protocols)?);
-        headers.insert("origin", header(&self.origin)?);
-        let (socket, _) = within(client_async(request, tcp)).await?;
-        Ok(pump(socket, attachment.ends.clone()).await)
     }
 }
 
@@ -249,7 +191,7 @@ mod tests {
         serve_then_drop,
     };
 
-    fn sessions(
+    pub(super) fn sessions(
         daemon: &Arc<FakeDaemon>,
         dial: Dial,
     ) -> TerminalSessions {
@@ -313,6 +255,12 @@ mod tests {
         "DELETE /v0/chats/c1/terminals/s1",
     ];
 
+    const REATTACHED: &[&str] = &[
+        "POST /v0/chats/c1/terminals",
+        "GET /v0/chats/c1/terminals",
+        "DELETE /v0/chats/c1/terminals/s1",
+    ];
+
     const RESUME: &[&str] = &[
         "GET /v0/chats/c1/terminals",
         "DELETE /v0/chats/c1/terminals/s1",
@@ -327,10 +275,10 @@ mod tests {
             first_report: Some(Report::Bound(String::new())),
         },
         Case {
-            name: "a dropped stream reattaches to the same session without killing it",
+            name: "a dropped stream reattaches to the same session, still listed, without killing it",
             relay: Relay::DropsOnce,
             bind: Bind::Create,
-            rest_calls: CREATE,
+            rest_calls: REATTACHED,
             first_report: Some(Report::Bound(String::new())),
         },
         Case {
