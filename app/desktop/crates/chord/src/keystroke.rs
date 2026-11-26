@@ -1,4 +1,3 @@
-mod dom_key;
 mod modifier;
 mod modifiers;
 mod physical_key;
@@ -6,8 +5,6 @@ mod physical_key;
 pub use modifier::Modifier;
 pub use modifiers::Modifiers;
 pub use physical_key::PhysicalKey;
-
-use crate::keystroke::dom_key::dom_key;
 
 /// One key press as the shell's windowing layer reports it, free of any toolkit type.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,6 +36,31 @@ impl Keystroke {
         let parts: Vec<&str> = held.chain(std::iter::once(key.as_str())).collect();
         Some(parts.join("+"))
     }
+}
+
+const MODIFIER_KEYS: &[&str] = &[
+    "shift", "control", "ctrl", "alt", "option", "meta", "command", "cmd", "platform", "function",
+    "fn", "super",
+];
+
+const RENAMED: &[(&str, &str)] = &[
+    ("left", "arrowleft"),
+    ("right", "arrowright"),
+    ("up", "arrowup"),
+    ("down", "arrowdown"),
+    ("space", " "),
+];
+
+fn dom_key(key: &str) -> Option<String> {
+    let lowered = key.to_lowercase();
+    if lowered.is_empty() || MODIFIER_KEYS.contains(&lowered.as_str()) {
+        return None;
+    }
+    let renamed = RENAMED
+        .iter()
+        .find(|(from, _)| *from == lowered)
+        .map_or(lowered.as_str(), |(_, to)| *to);
+    Some(renamed.to_owned())
 }
 
 #[cfg(test)]
@@ -76,7 +98,11 @@ mod tests {
             ),
             (stroke("alt", "n"), Some("alt+n")),
             (stroke("", "escape"), Some("escape")),
+            (stroke("", "space"), Some(" ")),
+            (stroke("", "`"), Some("`")),
             (stroke("mod", "shift"), None),
+            (stroke("", "control"), None),
+            (stroke("", ""), None),
         ];
         for (input, expected) in cases {
             assert_eq!(input.chord().as_deref(), expected, "{input:?}");
