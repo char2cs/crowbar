@@ -5,7 +5,7 @@ use tempfile::TempDir;
 use tokio::net::UnixListener;
 use tokio::sync::broadcast::Receiver;
 
-use crate::support::{config, next_matching};
+use crate::support::{EVENT_BUDGET, config, next_matching};
 
 const STARTUP_POLLS: u32 = 3;
 
@@ -30,14 +30,30 @@ pub(crate) async fn launch_until_startup_is_spent(
     let spent = UnixListener::bind(home.path().join("d.sock.spent"))?;
     let supervisor = Supervisor::start(cfg);
     let events = supervisor.events();
-    for _ in 0..STARTUP_POLLS {
-        spent.accept().await?;
+    let mut events_heard = supervisor.events();
+    for polled in 0..STARTUP_POLLS {
+        let dialled = tokio::time::timeout(EVENT_BUDGET, spent.accept()).await;
+        if dialled.is_err() {
+            let heard = drain(&mut events_heard);
+            let log = std::fs::read_to_string(home.path().join("logs").join("daemon.log"));
+            return Err(format!(
+                "the daemon announced {polled} of {STARTUP_POLLS} refused polls in {EVENT_BUDGET:?}; \
+                 socket {}; events {heard:?}; log {log:?}",
+                home.path().display()
+            )
+            .into());
+        }
+        dialled??;
     }
     Ok(Launch {
         supervisor,
         events,
         home,
     })
+}
+
+fn drain(events: &mut Receiver<DaemonEvent>) -> Vec<DaemonEvent> {
+    std::iter::from_fn(|| events.try_recv().ok()).collect()
 }
 
 impl Launch {

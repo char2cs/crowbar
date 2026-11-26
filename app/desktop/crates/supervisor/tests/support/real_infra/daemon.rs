@@ -8,7 +8,7 @@ use tokio::sync::broadcast::error::RecvError;
 
 use crate::script::write_script;
 
-const EVENT_BUDGET: Duration = Duration::from_secs(30);
+pub(crate) const EVENT_BUDGET: Duration = Duration::from_secs(30);
 
 pub(crate) fn fast_timings() -> Timings {
     Timings {
@@ -60,4 +60,11 @@ pub(crate) async fn next_matching(
     wanted: impl Fn(&DaemonEvent) -> bool,
 ) -> Result<DaemonEvent, Box<dyn std::error::Error>> {
     Ok(tokio::time::timeout(EVENT_BUDGET, first_matching(events, wanted)).await??)
+}
+
+/// Stops the supervisor within `EVENT_BUDGET`, so a daemon that will not go fails the test.
+pub(crate) async fn stop_within_budget(supervisor: supervisor::Supervisor) -> io::Result<()> {
+    tokio::time::timeout(EVENT_BUDGET, supervisor.stop())
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "supervisor.stop() did not return"))
 }
