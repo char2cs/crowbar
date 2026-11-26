@@ -76,24 +76,6 @@ impl ShellView {
         self.show_keyed(&key, notice, cx);
     }
 
-    pub(crate) fn show_alert(
-        &mut self,
-        (title, message): (String, String),
-        window: &Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        let Some(native) = ui::NativeAlert::installed(cx) else {
-            return self.show_refusal(title, message, cx);
-        };
-        tracing::warn!(%title, %message, "a command failed");
-        let request = ui::AlertRequest {
-            title: Some(title.into()),
-            message: message.into(),
-            buttons: vec![ui::AlertButton::new(ALERT_OK, ui::AlertRole::Accept)],
-        };
-        native.ask(request, window, cx).detach();
-    }
-
     pub(crate) fn show_keyed(
         &self,
         key: &str,
@@ -128,6 +110,21 @@ impl ShellView {
         let queue = self.notices.read(cx);
         !queue.is_empty() && matches!(queue.placement(), ToastPlacement::Floating(_))
     }
+}
+
+/// Tells of a failed command in the desktop's message dialog, with a lone OK.
+pub(crate) fn show_alert(
+    (title, message): (String, String),
+    window: &Window,
+    cx: &mut App,
+) {
+    tracing::warn!(%title, %message, "a command failed");
+    let request = ui::AlertRequest {
+        title: Some(title.into()),
+        message: message.into(),
+        buttons: vec![ui::AlertButton::new(ALERT_OK, ui::AlertRole::Accept)],
+    };
+    ui::NativeAlert::ask(request, window, cx).detach();
 }
 
 #[cfg(test)]
@@ -182,10 +179,8 @@ mod tests {
             "Failed to move a.rs: locked".to_owned(),
         );
         opened
-            .shell
-            .update_in(&mut opened.window, |shell, window, cx| {
-                shell.show_alert(words, window, cx);
-            });
+            .window
+            .update(|window, cx| super::show_alert(words, window, cx));
         let request = ui::AlertRequest {
             title: Some("Move Failed".into()),
             message: "Failed to move a.rs: locked".into(),

@@ -11,6 +11,7 @@ use crate::shell::inbox::data_signal;
 use crate::shell::inbox::logged::{closed_view, logged};
 use crate::shell::ports::byte_source::ByteSource;
 use crate::shell::shell_view::ShellView;
+use crate::shell::shell_view::events::notices::show_alert;
 use crate::shell::shell_view::settings::settings_modal::{open_settings, settings_config};
 use crate::shell::window::notice_key::NoticeKey;
 
@@ -110,7 +111,7 @@ impl ShellView {
                 self.show_notice(NoticeKey::Command, (ToastKind::Error, reason), cx);
             },
             DataOutcome::Refused { title, reason } => self.show_refusal(title, reason, cx),
-            DataOutcome::Alert { title, message } => self.show_alert((title, message), window, cx),
+            DataOutcome::Alert { title, message } => show_alert((title, message), window, cx),
             DataOutcome::ReviewViewed { workspace, viewed } => {
                 self.push_review_viewed(&workspace, &viewed);
             },
