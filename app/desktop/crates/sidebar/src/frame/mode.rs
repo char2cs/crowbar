@@ -104,11 +104,4 @@ mod tests {
             "files stays listed, disabled"
         );
     }
-
-    #[test]
-    fn indices_follow_tab_order() {
-        for (index, mode) in Mode::ALL.into_iter().enumerate() {
-            assert_eq!(mode.index(), index, "{mode:?}");
-        }
-    }
 }

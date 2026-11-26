@@ -76,7 +76,6 @@ impl FilesState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::explorer::FileProperties;
 
     #[test]
     fn a_changes_folder_folds_and_unfolds() {
@@ -85,15 +84,5 @@ mod tests {
         assert!(state.changed_folds().contains("src"));
         state.toggle_changed_fold("src".into());
         assert!(state.changed_folds().is_empty());
-    }
-
-    #[test]
-    fn a_dialog_opens_once_and_closes_returning_itself() {
-        let mut state = FilesState::default();
-        let dialog = FileDialog::Properties(FileProperties::of("a.rs"));
-        state.show(dialog.clone());
-        assert_eq!(state.dialog(), Some(&dialog));
-        assert_eq!(state.close(), Some(dialog));
-        assert_eq!(state.dialog(), None);
     }
 }

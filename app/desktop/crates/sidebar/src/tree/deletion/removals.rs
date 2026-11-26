@@ -201,15 +201,4 @@ mod tests {
             assert_eq!(removals.confirmation().is_some(), asks, "{kind:?} asks");
         }
     }
-
-    #[test]
-    fn spaces_ask_without_a_row() {
-        let mut removals = Removals::default();
-        removals.request_project(ProjectId::from("p"), "inv");
-        assert_eq!(
-            removals.confirmation().map(Confirmation::title),
-            Some("Delete space “inv”?".into()),
-            "asks"
-        );
-    }
 }

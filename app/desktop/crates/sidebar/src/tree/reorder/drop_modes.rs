@@ -16,8 +16,7 @@ pub struct DropModes(u8);
 impl DropModes {
     /// Nothing is allowed; no indicator shows.
     pub const NONE: Self = Self(0);
-    /// Before and after, no nesting.
-    pub const REORDER: Self = Self(BEFORE | AFTER);
+    pub(crate) const REORDER: Self = Self(BEFORE | AFTER);
     /// Only nesting.
     pub const INTO: Self = Self(INTO);
     /// Everything.

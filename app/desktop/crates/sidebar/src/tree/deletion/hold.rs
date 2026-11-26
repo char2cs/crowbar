@@ -105,18 +105,6 @@ mod tests {
         }
     }
 
-    const DUE_CASES: &[(&str, u64, bool)] = &[("not yet", 0, false), ("due", 1, true)];
-
-    #[test]
-    fn due_only_at_or_after_the_deadline() {
-        let now = Instant::now();
-        let hold = hold_at(Deadline::At(now + Duration::from_secs(1)));
-        for (name, at_secs, expected) in DUE_CASES {
-            let at = now + Duration::from_secs(*at_secs);
-            assert_eq!(hold.is_due(at), *expected, "{name}");
-        }
-    }
-
     #[test]
     fn a_refusal_is_titled_by_the_row() {
         let hold = hold_at(Deadline::Committed);

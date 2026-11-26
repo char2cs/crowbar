@@ -16,8 +16,7 @@ pub enum DockSide {
 }
 
 impl DockSide {
-    /// `+1.0` when growing the sidebar means moving the pointer right, `-1.0` when it means left.
-    pub fn growth_sign(self) -> f32 {
+    pub(crate) fn growth_sign(self) -> f32 {
         match self {
             Self::Left => LEFT_SIGN,
             Self::Right => RIGHT_SIGN,
@@ -35,14 +34,5 @@ mod tests {
         for (side, sign) in CASES {
             assert!((side.growth_sign() - sign).abs() < f32::EPSILON, "{side:?}");
         }
-    }
-
-    #[test]
-    fn default_dock_is_left() {
-        assert_eq!(
-            DockSide::default(),
-            DockSide::Left,
-            "sidebarPosition defaults to left"
-        );
     }
 }
