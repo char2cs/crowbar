@@ -9,24 +9,49 @@ impl ShellView {
     pub(crate) fn pop_pane_menu(
         &mut self,
         ask: MenuAsk,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
         let at = self.window_point(&ask.pane, ask.at, cx);
-        let (Some(at), Some((parent, _))) = (at, self.pane_area.placement) else {
+        let (Some(at), Some(menu)) = (at, ui::NativeMenu::installed(cx)) else {
             return ask.answer(None);
         };
-        let request = webview::MenuRequest {
-            entries: ask.entries.clone(),
-            x: f64::from(f32::from(at.x)),
-            y: f64::from(f32::from(at.y)),
-            edge: webview::MenuEdge::Start,
+        let request = ui::NativeRequest {
+            entries: shell_entries(&ask.entries),
+            at,
+            edge: ui::MenuEdge::Start,
         };
-        let menu = self.state.host().desktop();
-        let popped = menu.popup(parent, request, Box::new(move |path| ask.answer(path)));
-        if let Err(error) = popped {
-            tracing::warn!(%error, "a pane's context menu could not open");
-        }
+        let chosen = menu.popup(request, window, cx);
+        cx.spawn(async move |_, _| ask.answer(chosen.await))
+            .detach();
+    }
+}
+
+fn shell_entries(entries: &[webview::MenuEntry]) -> Vec<ui::NativeEntry> {
+    entries.iter().map(shell_entry).collect()
+}
+
+fn shell_entry(entry: &webview::MenuEntry) -> ui::NativeEntry {
+    match entry {
+        webview::MenuEntry::Item {
+            label,
+            enabled,
+            checked,
+        } => ui::NativeEntry::Item {
+            label: label.clone().into(),
+            enabled: *enabled,
+            checked: *checked,
+        },
+        webview::MenuEntry::Submenu {
+            label,
+            enabled,
+            entries,
+        } => ui::NativeEntry::Submenu {
+            label: label.clone().into(),
+            enabled: *enabled,
+            entries: shell_entries(entries),
+        },
+        webview::MenuEntry::Separator => ui::NativeEntry::Separator,
     }
 }
 
@@ -36,19 +61,47 @@ mod tests {
 
     use super::*;
     use crate::shell::shell_view::tests::{PLACED, open_shell};
+    use crate::test_support::answer_menus_with;
+
+    fn page_entries() -> Vec<webview::MenuEntry> {
+        let editor = webview::MenuEntry::Item {
+            label: "Editor".into(),
+            enabled: true,
+            checked: true,
+        };
+        let open_with = webview::MenuEntry::Submenu {
+            label: "Open with".into(),
+            enabled: false,
+            entries: vec![editor],
+        };
+        vec![open_with, webview::MenuEntry::Separator]
+    }
+
+    fn shell_entries() -> Vec<ui::NativeEntry> {
+        let editor = ui::NativeEntry::Item {
+            label: "Editor".into(),
+            enabled: true,
+            checked: true,
+        };
+        let open_with = ui::NativeEntry::Submenu {
+            label: "Open with".into(),
+            enabled: false,
+            entries: vec![editor],
+        };
+        vec![open_with, ui::NativeEntry::Separator]
+    }
 
     #[gpui::test]
     fn a_page_s_menu_pops_over_the_page_and_the_page_hears_the_choice(
         cx: &mut gpui::TestAppContext
     ) {
         let mut opened = open_shell(cx);
-        opened.mock.pick_entry(vec![1]);
+        let popped = answer_menus_with(cx, Some(vec![1]));
         let heard = Arc::new(Mutex::new(None));
         let sink = Arc::clone(&heard);
-        let entries = vec![webview::MenuEntry::Separator];
         let ask = MenuAsk::new(
             opened.pane.clone(),
-            (entries.clone(), (12.0, 34.0)),
+            (page_entries(), (12.0, 34.0)),
             Box::new(move |path| *sink.lock().unwrap() = Some(path)),
         );
         opened
@@ -57,14 +110,12 @@ mod tests {
                 shell.pane_area.placement = Some((webview::ParentWindow::X11(9), PLACED));
                 shell.pop_pane_menu(ask, window, cx);
             });
-        let popped = opened.mock.calls().into_iter().find_map(|call| match call {
-            webview::Call::PopupMenu { request, .. } => Some(request),
-            _ => None,
-        });
-        let request = popped.expect("the menu popped");
-        assert_eq!(request.entries, entries);
+        opened.window.run_until_parked();
+        let request = popped.borrow().first().cloned().expect("the menu popped");
+        assert_eq!(request.entries, shell_entries());
+        let (x, y) = (f32::from(request.at.x), f32::from(request.at.y));
         assert!(
-            request.x > 312.0 && request.y > 74.0,
+            x > 312.0 && y > 74.0,
             "page point plus the page's origin: {request:?}"
         );
         assert_eq!(*heard.lock().unwrap(), Some(Some(vec![1])));

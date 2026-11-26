@@ -1,6 +1,6 @@
 //! The shell's hooks into the desktop: its own message dialogs (GTK on the web views' platform
-//! thread, `NSAlert` on macOS) in place of drawn ones, the pop-up window's placer, and on Linux
-//! GTK's menus and file choosers.
+//! thread, `NSAlert` on macOS) and menus (GTK, `NSMenu` on macOS) in place of drawn ones, the
+//! pop-up window's placer, and on Linux GTK's file choosers.
 
 mod alert;
 #[cfg(target_os = "linux")]
@@ -8,6 +8,8 @@ mod file_chooser;
 pub(crate) mod float;
 #[cfg(target_os = "linux")]
 mod menu;
+#[cfg(target_os = "macos")]
+mod ns_menu;
 
 use gpui::App;
 
@@ -16,12 +18,14 @@ pub(crate) fn install(
     cx: &mut App,
 ) {
     let desktop = host.desktop();
-    // PLATFORM: macos gpui's own NSOpenPanel chooses files and the shell draws its menus there.
+    // PLATFORM: macos gpui's own NSOpenPanel chooses files.
     #[cfg(target_os = "linux")]
     {
         file_chooser::install(desktop.clone(), cx);
         menu::install(desktop.clone(), cx);
     }
+    #[cfg(target_os = "macos")]
+    ns_menu::install(cx);
     alert::install(desktop, cx);
 }
 
@@ -47,6 +51,6 @@ mod tests {
             )
         });
         let linux = cfg!(target_os = "linux");
-        assert_eq!(installed, (linux, linux, true));
+        assert_eq!(installed, (linux, true, true));
     }
 }

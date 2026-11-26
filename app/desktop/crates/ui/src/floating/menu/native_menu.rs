@@ -94,15 +94,14 @@ pub(crate) fn trigger_probe() -> (Rc<Cell<Bounds<Pixels>>>, impl IntoElement) {
     (laid_out, probe.absolute().top_0().left_0().size_full())
 }
 
-/// Calls `open` with the pointer when `element` is right-clicked: on release when a native menu
-/// is installed, on press otherwise, where a drawn menu opens.
+/// Calls `open` with the pointer when `element` is right-clicked: on release when GTK's native
+/// menu is installed, on press otherwise, as a drawn menu or `NSMenu` opens.
 pub fn on_context_click<E: InteractiveElement>(
     element: E,
     open: impl Fn(Point<Pixels>, &mut Window, &mut App) + 'static,
 ) -> E {
     let on_press: Rc<Open> = Rc::new(open);
     let on_release = Rc::clone(&on_press);
-    // PLATFORM: linux the press holds an implicit X grab on the shell window, so GTK can only take the pointer for its menu once the button is up.
     element
         .on_mouse_down(MouseButton::Right, move |event, window, cx| {
             pressed(&on_press, event.position, (window, cx));
@@ -114,12 +113,15 @@ pub fn on_context_click<E: InteractiveElement>(
 
 type Open = dyn Fn(Point<Pixels>, &mut Window, &mut App);
 
+// PLATFORM: linux the press holds an implicit X grab on the shell window, so GTK can only take the pointer for its menu once the button is up.
+const NATIVE_OPENS_ON_RELEASE: bool = cfg!(target_os = "linux");
+
 fn pressed(
     open: &Rc<Open>,
     at: Point<Pixels>,
     (window, cx): (&mut Window, &mut App),
 ) {
-    if NativeMenu::installed(cx).is_none() {
+    if !(NATIVE_OPENS_ON_RELEASE && NativeMenu::installed(cx).is_some()) {
         open(at, window, cx);
     }
 }
@@ -129,7 +131,7 @@ fn released(
     at: Point<Pixels>,
     (window, cx): (&mut Window, &mut App),
 ) {
-    if NativeMenu::installed(cx).is_some() {
+    if NATIVE_OPENS_ON_RELEASE && NativeMenu::installed(cx).is_some() {
         open(at, window, cx);
     }
 }
@@ -320,9 +322,12 @@ mod tests {
     }
 
     #[gpui::test]
-    fn with_a_native_menu_a_context_click_opens_on_the_release(cx: &mut TestAppContext) {
+    fn with_a_native_menu_a_context_click_opens_on_the_release_under_x_and_the_press_on_macos(
+        cx: &mut TestAppContext
+    ) {
         answering(cx, None);
-        assert_eq!(press_then_release(cx), (0, 1));
+        let on_press = u32::from(!cfg!(target_os = "linux"));
+        assert_eq!(press_then_release(cx), (on_press, 1));
     }
 
     #[test]
