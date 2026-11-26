@@ -1,0 +1,30 @@
+name: macOS probe
+on:
+  push:
+    branches: ['shell/macos2']
+    paths: ['.github/workflows/macos-probe.yml']
+jobs:
+  rust-test:
+    runs-on: macos-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v7
+      - run: cd app && rustup toolchain install && rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app
+          key: test-macos-arm64
+          cache-on-failure: true
+      - name: Build the tests
+        run: cd app && cargo test --locked --workspace --all-features --no-run
+      - name: Run the stuck test and sample it
+        run: |
+          cd app
+          (cargo test --locked --workspace --all-features -p sidebarview file_ghost > "$RUNNER_TEMP/t.log" 2>&1 &)
+          sleep 90
+          pgrep -fl sidebarview- || true
+          pid=$(pgrep -f 'deps/sidebarview-|sidebarview-' | head -1)
+          sample "$pid" 5 -file "$RUNNER_TEMP/sample.txt" || true
+          cat "$RUNNER_TEMP/sample.txt" | head -250
+          cat "$RUNNER_TEMP/t.log" | tail -20
+          pkill -f sidebarview- || true
