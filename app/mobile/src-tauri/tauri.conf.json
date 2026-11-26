@@ -6,34 +6,23 @@
   "build": {
     "frontendDist": "../../panes/dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "cd ../panes && npm run dev -- --port 5173 --strictPort",
-    "beforeBuildCommand": "bash \"$(git rev-parse --show-toplevel)/app/mobile/icons-compiler/compile-icon.sh\""
+    "beforeDevCommand": "cd ../panes && npm run dev -- --port 5173 --strictPort"
   },
   "app": {
-    "macOSPrivateApi": true,
     "withGlobalTauri": true,
     "security": {
       "csp": null,
       "dangerousDisableAssetCspModification": true,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$HOME/**"]
+        "scope": [
+          "$HOME/**"
+        ]
       }
     },
     "windows": [
       {
-        "title": "Crowbar",
-        "width": 1200,
-        "height": 800,
-        "resizable": true,
-        "transparent": true,
-        "titleBarStyle": "Overlay",
-        "hiddenTitle": true,
-        "trafficLightPosition": {
-          "x": 12,
-          "y": 23
-        },
-        "backgroundThrottling": "disabled"
+        "title": "Crowbar"
       }
     ]
   },
@@ -43,15 +32,7 @@
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
-    ],
-    "macOS": {
-      "signingIdentity": "-",
-      "files": {
-        "Resources/Assets.car": "icons/Assets.car"
-      }
-    }
+      "icons/128x128@2x.png"
+    ]
   }
 }

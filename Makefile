@@ -2,41 +2,23 @@ export PATH := $(HOME)/.bun/bin:$(HOME)/.cargo/bin:$(HOME)/.rustup/toolchains/st
 export RUSTUP_HOME := $(HOME)/.rustup
 export CARGO_HOME := $(HOME)/.cargo
 
-.PHONY: e2e meter dev dev-api dev-web dev-desktop dev-bundle seed seed-chat web-install build test test-coverage lint pr-checks ci docker-up docker-down ios-device ios-sim ios-doctor
+.PHONY: e2e meter dev dev-api dev-web dev-desktop seed seed-chat web-install build test test-coverage lint pr-checks ci docker-up docker-down ios-device ios-sim ios-doctor
 
 # Dev isolation: every dev target roots Crowbar state (projects, store, socket,
 # logs) at <this workspace>/.crowbar instead of ~/.crowbar, so a dev instance
 # never collides with the production app. Scoped to dev targets only — tests
 # pin the ~/.crowbar default and must run without the override.
-dev dev-api dev-web dev-desktop dev-bundle seed seed-chat: export CROWBAR_HOME ?= $(CURDIR)/.crowbar
+dev dev-api dev-web dev-desktop seed seed-chat: export CROWBAR_HOME ?= $(CURDIR)/.crowbar
 
-# Which worktree launched this dev instance. Debug builds put it in the window
-# title (see apply_window_title in app/mobile/src-tauri/src/dev_identity.rs) so that the
-# several dev apps running on one machine — one per worktree, all of them a
-# `target/debug/crowbar-desktop` window called "Crowbar" — can be told apart.
-#
-# Asked of THIS Makefile's directory, not the caller's: git answers a question
-# about a directory outside a worktree with whichever repository ENCLOSES it, so
-# a `make -f .../Makefile` run from elsewhere would confidently label the window
-# with a stranger's branch. Empty output (no git, not a repo) is fine — the
-# window keeps its plain "Crowbar" title rather than a half-filled one.
+# Which ORIGIN `make dev-web` serves this worktree from. CROWBAR_HOME above
+# isolates the daemon; this isolates the browser storage (IndexedDB,
+# localStorage, service workers), which is keyed by origin. Hashed from this
+# Makefile's directory, so it is stable across restarts; override to pin one.
 crowbar_root := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
-dev dev-api dev-web dev-desktop dev-bundle: export CROWBAR_DEV_LABEL ?= $(shell git -C $(crowbar_root) rev-parse --abbrev-ref HEAD 2>/dev/null)
+dev-web: export CROWBAR_DEV_PORT ?= $(shell printf '%s' '$(crowbar_root)' | cksum | awk '{print 5300 + ($$1 % 600)}')
 
-# Which ORIGIN this worktree's dev app is served from. CROWBAR_HOME above
-# isolates the daemon; this isolates the webview, whose IndexedDB, localStorage
-# and service workers are keyed by origin and were shared by every worktree back
-# when the dev URL was a hardcoded localhost:5173. See app/mobile/Makefile for the
-# full rationale and the corruption it caused. Derived from the same worktree
-# root as app/mobile/Makefile so both entry points agree; override to pin one.
-dev dev-web dev-desktop: export CROWBAR_DEV_PORT ?= $(shell printf '%s' '$(crowbar_root)' | cksum | awk '{print 5300 + ($$1 % 600)}')
-
-# Parallel dev. dev-web is deliberately NOT started here: dev-desktop's
-# beforeDevCommand already runs Vite on CROWBAR_DEV_PORT, and a second one on
-# the same port now fails outright under --strictPort. It used to "work" only
-# because the old beforeDevCommand opened with `pkill -f vite`, silently killing
-# the dev-web this target had just launched (and every other worktree's too).
-# `make dev-web` remains available on its own for a browser-only session.
+# Parallel dev: the daemon and the shell. `make dev-web` runs the panes in a
+# browser on their own.
 dev:
 	@$(MAKE) dev-api & $(MAKE) dev-desktop & wait
 
@@ -88,13 +70,6 @@ ios-device ios-sim ios-doctor: ios-%:
 
 web-install:
 	$(MAKE) -C app/panes install
-
-# Debug bundle with macOS 26 Tahoe adaptive icon — no hot reload.
-dev-bundle:
-	@echo "Building web..."
-	@$(MAKE) -C app/panes build
-	@echo "Building debug bundle..."
-	@$(MAKE) -C app/mobile dev-bundle
 
 build:
 	@echo "Building web..."

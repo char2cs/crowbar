@@ -86,7 +86,6 @@ export class Instance {
       ...process.env,
       PATH: TOOL_PATH,
       CROWBAR_HOME: this.home,
-      CROWBAR_DEV_LABEL: 'e2e',
       CROWBAR_DEV_PORT: String(this.devPort),
       ...extra,
     }
