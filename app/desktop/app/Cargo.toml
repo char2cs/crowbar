@@ -30,6 +30,8 @@ folderimport.workspace = true
 folderpicker.workspace = true
 supervisor.workspace = true
 gpui.workspace = true
+# Only macOS pops menus through it, but GPUI's macros name it wherever it is a dependency.
+gpui-kit.workspace = true
 gpui_platform.workspace = true
 image = { workspace = true, features = ["png"] }
 base64 = "0.22"
@@ -61,9 +63,6 @@ transport = { workspace = true, features = ["os-keychain"] }
 ui.workspace = true
 webview.workspace = true
 windowstate.workspace = true
-
-[target.'cfg(target_os = "macos")'.dependencies]
-gpui-kit.workspace = true
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
