@@ -4,6 +4,11 @@
 
 const POLL_MS = 50
 
+/** An error no wait retries: the condition can never become true. */
+export class Fatal extends Error {
+  name = 'Fatal'
+}
+
 export async function until(describe, condition, { timeout = 15_000 } = {}) {
   const deadline = Date.now() + timeout
   let last
@@ -12,7 +17,7 @@ export async function until(describe, condition, { timeout = 15_000 } = {}) {
       last = await condition()
       if (last) return last
     } catch (err) {
-      if (err?.name === 'Fatal') throw err
+      if (err instanceof Fatal) throw err
       last = err
     }
     if (Date.now() > deadline) {

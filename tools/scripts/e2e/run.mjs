@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
-// Entry point: `bun tools/scripts/e2e/run.mjs [--target=browser|tauri] [--only=a,b] [--keep]`
+// Entry point: `bun tools/scripts/e2e/run.mjs [--only=a,b] [--keep]`
 // (see README.md; `make e2e` wraps it).
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { createGitFixture, importFixture, waitStubProviderEnabled } from './lib/fixture.mjs'
 import { Instance, REPO_ROOT } from './lib/instance.mjs'
-import { closeAllViews, reload } from './lib/ui.mjs'
+import { closeAllViews } from './lib/ui.mjs'
 import console_ from './scenarios/console.mjs'
 import recents from './scenarios/recents.mjs'
 import closeView from './scenarios/close-view.mjs'
@@ -38,8 +38,6 @@ const flags = Object.fromEntries(
     return [key, value]
   }),
 )
-const target = flags.target ?? 'browser'
-if (!['tauri', 'browser'].includes(target)) throw new Error(`unknown --target=${target}`)
 const only = flags.only ? flags.only.split(',') : null
 const selected = SCENARIOS.filter((s) => !only || only.includes(s.name))
 if (only && selected.length !== only.length) {
@@ -51,32 +49,26 @@ const artifacts = join(
   'tools/scripts/e2e/artifacts',
   new Date().toISOString().replace(/[:.]/g, '-'),
 )
-const inst = new Instance(target)
+const inst = new Instance()
 const results = []
 let exitCode = 0
 
 try {
-  console.log(`e2e: target=${target} home=${inst.home} origin=http://localhost:${inst.devPort}`)
+  console.log(`e2e: home=${inst.home} origin=http://localhost:${inst.devPort}`)
   await inst.start()
-  // The desktop app owns its daemon, so it must start first. The browser
-  // target's daemon is already up. Either way the project is seeded BEFORE the
-  // shell is shown: a window with no project lands on onboarding.
-  if (target === 'tauri') await inst.launchApp({ shell: false })
+  // The project is seeded BEFORE the shell is shown: a window with no project lands on onboarding.
   await inst.daemon.waitHealthy()
   const fx = await importFixture(inst.daemon, createGitFixture(inst.runDir), inst.home)
   await waitStubProviderEnabled(inst.daemon, fx)
-  if (target === 'tauri') await reload(inst.driver, { home: true })
-  else await inst.launchApp()
+  await inst.launchApp()
   const ctx = {
     inst,
     fx,
-    target,
     daemon: inst.daemon,
     // A stable handle: the underlying driver is replaced when the app relaunches.
     d: {
       eval: (...args) => inst.driver.eval(...args),
       until: (...args) => inst.driver.until(...args),
-      emit: (...args) => inst.driver.emit(...args),
     },
   }
   for (const scenario of selected) {

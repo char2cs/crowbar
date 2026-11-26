@@ -4,6 +4,7 @@ name: Desktop build
 # stable-release. Packages the Rust shell with app/desktop/packaging/package.sh: a universal
 # DMG, and an AppImage plus a deb for each Linux architecture. With the APPLE_* secrets the
 # DMG is signed and notarized (docs/macos-code-signing.md); without them it is ad-hoc signed.
+# No caches: a release build must not restore what another branch could have written.
 on:
   workflow_call:
     inputs:
@@ -79,14 +80,10 @@ jobs:
       - name: Install Rust toolchain (app/rust-toolchain.toml)
         working-directory: app
         run: rustup toolchain install && rustup show active-toolchain
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: app
-          key: package-macos
       - uses: actions/setup-go@v7
         with:
           go-version: '1.26.2'
-          cache-dependency-path: api/go.sum
+          cache: false
       - uses: oven-sh/setup-bun@v2
       - uses: taiki-e/install-action@v2
         with:
@@ -157,14 +154,10 @@ jobs:
       - name: Install Rust toolchain (app/rust-toolchain.toml)
         working-directory: app
         run: rustup toolchain install && rustup show active-toolchain
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: app
-          key: package-linux-${{ matrix.goarch }}
       - uses: actions/setup-go@v7
         with:
           go-version: '1.26.2'
-          cache-dependency-path: api/go.sum
+          cache: false
       - uses: oven-sh/setup-bun@v2
       - uses: taiki-e/install-action@v2
         with:

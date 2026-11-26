@@ -46,6 +46,7 @@ import { destroyHostRuntime } from '@/features/hosts/stores/host-runtime-registr
 import { proxyMarkerError } from '@/lib/api/errors'
 import { useSettingsStore } from '@/features/settings/store'
 import { resetOperations } from '@/__tests__/__fixtures__/operations'
+import { resetChatStore } from '@/__tests__/__fixtures__/agent-chat'
 import { operationsState } from '@/core/entities/operations'
 import { operationRows } from '@/__tests__/__fixtures__/tree-rows'
 import { ApiError } from '@/lib/errors/api-error'
@@ -68,6 +69,9 @@ const HOME_OF: Record<string, string> = {
 }
 
 afterEach(() => {
+  // A sent draft's first prompt waits in the outbox for its chat to go live, which can
+  // happen after the file ends: unsent, it would fail and log into the worker's teardown.
+  resetChatStore()
   // A GLOBAL store — a leaked 'terminal' default would silently arm every
   // later create in this file with a surface its own assertions never named.
   useSettingsStore.setState((state) => ({
