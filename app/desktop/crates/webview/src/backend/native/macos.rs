@@ -8,6 +8,10 @@ mod browsing_data;
 mod caret_settings;
 #[cfg(target_os = "macos")]
 mod data_store;
+#[cfg(target_os = "macos")]
+mod file_choosing;
+#[cfg(target_os = "macos")]
+mod menu_popping;
 
 #[cfg(target_os = "macos")]
 pub(crate) use appkit_platform::AppkitPlatform;

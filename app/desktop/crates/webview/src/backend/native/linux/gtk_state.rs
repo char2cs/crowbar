@@ -1,7 +1,11 @@
 #[cfg(target_os = "linux")]
 mod adapters;
 #[cfg(target_os = "linux")]
+mod file_chooser;
+#[cfg(target_os = "linux")]
 mod live_view;
+#[cfg(target_os = "linux")]
+mod page_focus;
 #[cfg(target_os = "linux")]
 mod placed;
 #[cfg(target_os = "linux")]
@@ -13,7 +17,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use gtk::gdk;
 use gtk::glib::prelude::ObjectExt as _;
 use gtk::glib::{self, Cast as _, Propagation};
 use gtk::prelude::{GtkWindowExt as _, WidgetExt as _};
@@ -34,9 +37,10 @@ use crate::view::Kind;
 use crate::view::ParentWindow;
 use crate::view::{PageEvent, PageHandler};
 
+#[cfg(target_os = "linux")]
+pub(crate) use file_chooser::{chooser, keep_over};
+
 const BROWSER_DIR: &str = "browser";
-const FOCUS_IN: &str = "focus-in-event";
-const FOCUS_OUT: &str = "focus-out-event";
 const NO_PAGE_WINDOW: &str = "the web view got no X11 window of its own";
 
 fn page_window_of(view: &WebView) -> Result<u32> {
@@ -89,18 +93,6 @@ fn report_pointer(
     });
 }
 
-// PLATFORM: linux the page's GtkWindow wraps a foreign X window, so GDK never hears its focus change; without an active window WebKit draws no focus, caret or active selection.
-fn show_focus(
-    live: &LiveView,
-    signal: &str,
-) {
-    let Some(toplevel) = live.view.webview().toplevel() else {
-        return;
-    };
-    let event = gdk::Event::new(gdk::EventType::FocusChange);
-    toplevel.emit_by_name::<bool>(signal, &[&event]);
-}
-
 pub(crate) struct GtkState {
     scheme: String,
     protocol: Arc<dyn ProtocolHandler>,
@@ -145,6 +137,11 @@ impl GtkState {
         let id_text = id.to_string();
         let view = common_attributes(builder, &id_text, config)
             .build_as_child(&XlibParent::new(window))?;
+        if let Some(color) = config.background {
+            view_ops::paint_background(&view, color);
+        }
+        view_ops::write_console_when_asked(&view);
+        file_chooser::choose_over(&view.webview(), window);
         let wanted = to_rect(config.bounds);
         let window_of_page = view
             .webview()
@@ -163,7 +160,7 @@ impl GtkState {
             page_window,
             parent: window,
         };
-        view_ops::deactivate(&live);
+        page_focus::give_keys([&live], page_focus::NOBODY);
         self.views.insert(id, live);
         Ok(())
     }
@@ -191,14 +188,11 @@ impl GtkState {
 
     pub(crate) fn follow_focus(&self) {
         for change in self.keyboard.changes() {
-            let (window, signal) = match change {
-                FocusChange::Gained(window) => (window, FOCUS_IN),
-                FocusChange::Lost(window) => (window, FOCUS_OUT),
-            };
+            let (FocusChange::Gained(window) | FocusChange::Lost(window)) = change;
             self.views
                 .values()
                 .filter(|live| live.page_window == window)
-                .for_each(|live| show_focus(live, signal));
+                .for_each(|live| page_focus::follow(live, change));
         }
     }
 
@@ -262,7 +256,9 @@ mod tests {
     use crate::scheme::ProtocolRequest;
     use crate::scheme::ProtocolResponse;
     use crate::scheme::{ProtocolHandler, ProtocolResponder};
+    use crate::test_support::x11_windows::{transient_for, xid};
     use crate::view::Bounds;
+    use crate::view::Color;
     use crate::view::Visibility;
 
     const SAVE_PAGE: &str =
@@ -412,12 +408,77 @@ mod tests {
         }
     }
 
+    const DARK: Color = Color {
+        red: 18,
+        green: 18,
+        blue: 16,
+        alpha: 255,
+    };
+    const LIGHT: Color = Color {
+        red: 253,
+        green: 253,
+        blue: 252,
+        alpha: 255,
+    };
+
+    fn x11_parent() -> (gtk::Window, u32) {
+        let window = gtk::Window::new(gtk::WindowType::Toplevel);
+        window.show_all();
+        let xid = window
+            .window()
+            .and_then(|window| window.downcast::<gdkx11::X11Window>().ok())
+            .and_then(|window| u32::try_from(window.xid()).ok())
+            .unwrap();
+        (window, xid)
+    }
+
+    fn shows(
+        state: &GtkState,
+        color: Color,
+    ) -> bool {
+        use webkit2gtk::WebViewExt as _;
+        let shown = state.live(Id(1)).unwrap().view.webview().background_color();
+        let channels = [shown.red(), shown.green(), shown.blue(), shown.alpha()];
+        let wanted = [color.red, color.green, color.blue, color.alpha];
+        channels
+            .iter()
+            .zip(wanted)
+            .all(|(shown, wanted)| (shown - f64::from(wanted) / 255.0).abs() < 1e-6)
+    }
+
+    fn a_view_shows_the_background_it_is_given() {
+        let mut state = state_serving(Arc::new(Silent));
+        let (_window, parent) = x11_parent();
+        let config = Config {
+            background: Some(DARK),
+            ..config_at("about:blank", rect(0.0, 0.0, 10.0, 10.0))
+        };
+        state
+            .create(Id(1), ParentWindow::X11(parent), &config)
+            .unwrap();
+        assert!(shows(&state, DARK), "the background it was created with");
+        state.set_background(Id(1), LIGHT).unwrap();
+        assert!(shows(&state, LIGHT), "the background it was given later");
+    }
+
     #[test]
     #[ignore = "needs display"]
     fn live_gtk_web_views() {
         gtk::init().unwrap();
         a_parent_that_is_not_an_x11_window_is_refused();
+        a_view_shows_the_background_it_is_given();
         a_page_request_body_reaches_the_protocol_handler();
         only_focus_inside_the_view_lays_it_out();
+        the_chooser_is_transient_for_the_shell_window();
+    }
+
+    fn the_chooser_is_transient_for_the_shell_window() {
+        let shell = gtk::Window::new(gtk::WindowType::Toplevel);
+        shell.show_all();
+        let top = xid(&shell.window().unwrap());
+        let dialog = chooser(top, gtk::FileChooserAction::Open);
+        gtk::gdk::Display::default().unwrap().sync();
+        let over = transient_for(xid(&dialog.window().unwrap()));
+        assert_eq!(over, Some(top), "transient for the shell window");
     }
 }

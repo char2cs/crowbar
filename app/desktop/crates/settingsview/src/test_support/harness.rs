@@ -66,18 +66,19 @@ impl Render for Layers {
         let modal = self.modal.clone();
         div()
             .size_full()
-            .child(ui::Portal::cover("layers", move |_, _| modal.clone()))
+            .child(ui::Portal::cover("layers", move |_, _| modal.clone()).float(ui::Float::Modal))
     }
 }
 
-/// Opens the modal in a window with its top layer, as the app shows it; returns the window, then
-/// the top layer the dialog paints in.
+/// Opens the modal in a window, as the app shows it; returns the window, then the float window
+/// the dialog paints in.
 pub(crate) fn open_floating(
     cx: &mut TestAppContext,
     page: &str,
 ) -> (Harness, VisualTestContext, VisualTestContext) {
     cx.update(|cx| {
         ui::init(cx).unwrap();
+        ui::testing::open_float_windows(cx);
         cx.bind_keys(crate::bindings());
     });
     let backend = backend();
@@ -90,18 +91,15 @@ pub(crate) fn open_floating(
         .update(cx, |layers, _, _| layers.modal.clone())
         .unwrap();
     let owner: AnyWindowHandle = window.into();
-    let top = cx.update(|cx| ui::TopLayer::open(owner, cx)).unwrap();
     cx.run_until_parked();
     let harness = Harness {
         modal,
         backend,
         closed,
     };
-    (
-        harness,
-        VisualTestContext::from_window(owner, cx),
-        VisualTestContext::from_window(top, cx),
-    )
+    let mut window = VisualTestContext::from_window(owner, cx);
+    let top = ui::testing::newest_window(&mut window);
+    (harness, window, top)
 }
 
 pub(crate) fn open<'a>(

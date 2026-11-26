@@ -10,6 +10,7 @@
 mod blocking;
 mod error;
 mod hosts;
+mod journal_sink;
 mod pairing;
 mod relay;
 mod response;

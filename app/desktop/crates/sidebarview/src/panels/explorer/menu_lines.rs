@@ -1,10 +1,8 @@
 //! The ordered entries and separators of a file row's menu.
 
-use ui::IconName;
+use sidebar::{Command, CopyNote, FileAction, Intent, ShellAnswers};
 
-use sidebar::{Command, FileAction, Intent, ShellAnswers};
-
-pub(crate) type FileEntry = (&'static str, IconName, FileAction);
+pub(crate) type FileEntry = (&'static str, FileAction);
 
 #[derive(Debug, Default)]
 pub(crate) struct MenuLines(pub(crate) Vec<Option<FileEntry>>);
@@ -12,26 +10,26 @@ pub(crate) struct MenuLines(pub(crate) Vec<Option<FileEntry>>);
 impl MenuLines {
     pub(crate) fn send(
         &mut self,
-        (label, icon): (&'static str, IconName),
+        label: &'static str,
         command: Command,
     ) {
-        self.run((label, icon), Intent::Send(command));
+        self.run(label, Intent::Send(command));
     }
 
     pub(crate) fn run(
         &mut self,
-        (label, icon): (&'static str, IconName),
+        label: &'static str,
         intent: Intent,
     ) {
-        self.0.push(Some((label, icon, FileAction::Do(intent))));
+        self.0.push(Some((label, FileAction::Do(intent))));
     }
 
     pub(crate) fn copy(
         &mut self,
-        (label, icon): (&'static str, IconName),
-        text: String,
+        label: &'static str,
+        (text, note): (String, CopyNote),
     ) {
-        self.0.push(Some((label, icon, FileAction::CopyText(text))));
+        self.0.push(Some((label, FileAction::CopyText(text, note))));
     }
 
     pub(crate) fn rule(&mut self) {
@@ -58,7 +56,7 @@ fn is_served(
     line: Option<&FileEntry>,
     answers: &ShellAnswers,
 ) -> bool {
-    let Some((_, _, action)) = line else {
+    let Some((_, action)) = line else {
         return true;
     };
     action
@@ -73,13 +71,13 @@ mod tests {
     #[test]
     fn lines_keep_their_order_and_separators() {
         let mut lines = MenuLines::default();
-        lines.send(("A", IconName::Copy), Command::AddFolderToWorkspace);
+        lines.send("A", Command::UploadFile { path: "a".into() });
         lines.rule();
-        lines.copy(("B", IconName::Copy), "text".into());
+        lines.copy("B", ("text".into(), CopyNote::Path));
         let labels: Vec<&str> = lines
             .0
             .iter()
-            .map(|line| line.as_ref().map_or("-", |(label, _, _)| *label))
+            .map(|line| line.as_ref().map_or("-", |(label, _)| *label))
             .collect();
         assert_eq!(labels, ["A", "-", "B"]);
     }

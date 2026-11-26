@@ -7,15 +7,16 @@ use objc2_foundation::MainThreadMarker;
 use platform::AppkitParent;
 use wry::{WebView, WebViewBuilder, WebViewBuilderExtDarwin};
 
+use crate::backend::desktop::alert_asking::AlertAsking;
 use crate::backend::host_config::HostConfig;
 use crate::backend::native::macos::data_store::{BROWSER_STORE, store_identifier};
 use crate::backend::native::wry_builder::{common_attributes, register_scheme, to_rect};
-use crate::backend::page_control::PageControl;
 use crate::backend::platform::Platform;
-use crate::backend::view_capture::ViewCapture;
-use crate::backend::view_focus::ViewFocus;
-use crate::backend::view_layout::ViewLayout;
-use crate::backend::view_lifecycle::ViewLifecycle;
+use crate::backend::view::page_control::PageControl;
+use crate::backend::view::view_capture::ViewCapture;
+use crate::backend::view::view_focus::ViewFocus;
+use crate::backend::view::view_layout::ViewLayout;
+use crate::backend::view::view_lifecycle::ViewLifecycle;
 use crate::error::{Error, Result};
 use crate::scheme::ProtocolHandler;
 use crate::view::Bounds;
@@ -95,6 +96,10 @@ impl ViewLifecycle for AppkitPlatform {
             .ok_or(Error::UnsupportedParent("no open window shows that NSView"))?;
         let builder = self.builder_for(&config.kind);
         let id_text = id.to_string();
+        let builder = match config.background {
+            Some(color) => builder.with_background_color(color.rgba()),
+            None => builder,
+        };
         let web_view = common_attributes(builder, &id_text, &config).build_as_child(&view)?;
         self.views.borrow_mut().insert(id, Rc::new(web_view));
         self.kinds.borrow_mut().insert(id, config.kind);
@@ -162,6 +167,9 @@ impl PageControl for AppkitPlatform {
 impl Platform for AppkitPlatform {}
 
 impl ViewCapture for AppkitPlatform {}
+
+// PLATFORM: macos the shell keeps its drawn dialogs until NSAlert is wired.
+impl AlertAsking for AppkitPlatform {}
 
 impl ViewFocus for AppkitPlatform {
     fn focus(

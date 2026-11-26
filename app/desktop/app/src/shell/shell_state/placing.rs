@@ -1,0 +1,12 @@
+//! Opening, previewing and moving panes in the layout.
+
+mod adopting;
+mod document_routing;
+mod file_panes;
+pub(crate) mod navigation_target;
+mod open_requested;
+mod opening;
+mod preview;
+mod review_reveal;
+mod tab_drop;
+mod withdrawing;

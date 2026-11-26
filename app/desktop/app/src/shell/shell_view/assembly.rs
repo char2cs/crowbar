@@ -1,0 +1,12 @@
+//! Building the shell's children and wiring them.
+
+pub(crate) mod built;
+pub(crate) mod children;
+mod pane_wiring;
+mod panes;
+pub(crate) mod shell_parts;
+mod sidebar_wiring;
+pub(crate) mod tab_strip;
+pub(crate) mod watches;
+pub(crate) mod workspace;
+pub(crate) mod workspace_event;

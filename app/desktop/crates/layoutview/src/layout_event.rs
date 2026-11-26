@@ -19,6 +19,12 @@ pub enum LayoutEvent {
         /// The pane and side the chat lands next to.
         placement: Placement,
     },
+    /// A chat row of the sidebar was dropped on the empty stage: open the chat as its own tab,
+    /// or show it where it is already open.
+    StageChat {
+        /// The id of the chat.
+        chat: String,
+    },
     /// A view tab dragged out of its strip was dropped on a pane of the shown tab: move the
     /// chats of `tab` into `onto` at `placement`.
     DropTab {
@@ -48,6 +54,11 @@ pub enum LayoutEvent {
         pane: PaneId,
         /// The tab's present name.
         current: String,
+    },
+    /// A tab menu row asked to read the file of `pane` from disk again.
+    ReloadTab {
+        /// The tab's pane.
+        pane: PaneId,
     },
     /// Something the user should be told, such as why a key did nothing.
     Announce(String),

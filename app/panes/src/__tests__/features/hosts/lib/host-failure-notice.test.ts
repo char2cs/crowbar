@@ -25,6 +25,10 @@ import {
 } from '@/__tests__/__fixtures__/remote-host'
 import { markProjectsSynced } from '@/__tests__/__fixtures__/sidebar-entities'
 import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
+import { attachFeed } from '@/features/agent/stores/chat-feed'
+import { chatStore } from '@/features/agent/stores/chat-store'
+import { wsManager } from '@/core/stream/ws-manager'
+import { streamDaemonFor } from '@/__tests__/__fixtures__/stream-daemon'
 
 const unreachable = (hostId = 'h1') => proxyMarkerError('host-unreachable', hostId)!
 const changed = (hostId = 'h1') => proxyMarkerError('host-identity-changed', hostId)!
@@ -205,5 +209,39 @@ describe('inline and toasted host failures read the same', () => {
         description: 'Couldn’t reach Studio Mac',
       }),
     )
+  })
+})
+
+describe('a chat on a host whose stream will not open', () => {
+  const feed = () => chatStore.getState().feeds['chat-1']
+  let detach = () => {}
+  afterEach(() => {
+    detach()
+    vi.restoreAllMocks()
+    chatStore.setState({ feeds: {} })
+  })
+
+  it.each([
+    {
+      refusal: 'the open names another identity',
+      status: 'up' as const,
+      cause: 'host-identity-changed: the pinned certificate does not match',
+      error: 'Studio Mac is presenting a different identity — confirm it before pairing again',
+    },
+    {
+      refusal: 'its status records the refusal',
+      status: 'needs-repair' as const,
+      cause: 'ws upgrade: HTTP error: 401 Unauthorized',
+      error: 'Studio Mac needs to be paired again',
+    },
+  ])('says why in the feed when $refusal', async ({ status, cause, error }) => {
+    getOrCreateHostRuntime('h1').getState().setStatus(status)
+    streamDaemonFor('h1').answer = () => []
+    vi.spyOn(wsManager, 'opened').mockRejectedValue(
+      new Error('h1~/v0/stream: closed before it opened', { cause }),
+    )
+    detach = attachFeed('h1', 'chat-1')
+    await vi.waitFor(() => expect(feed()?.status).toBe('error'))
+    expect(feed()?.error).toBe(error)
   })
 })

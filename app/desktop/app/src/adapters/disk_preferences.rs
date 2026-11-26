@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use sidebar::Preferences;
 
-use crate::preferences_store::PreferencesStore;
+use crate::shell::ports::preferences_store::PreferencesStore;
 
 #[derive(Debug)]
 pub(crate) struct DiskPreferences {

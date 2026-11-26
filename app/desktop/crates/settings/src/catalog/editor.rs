@@ -1,6 +1,6 @@
 //! The Editor page.
 
-use super::number_setting::NumberSetting;
+use super::rows::number_setting::NumberSetting;
 use super::rows::row;
 use crate::schema::Control;
 use crate::schema::ControlWidth;
@@ -10,10 +10,10 @@ use crate::schema::Section;
 use crate::values::Value;
 
 const FONT_SIZE: NumberSetting = NumberSetting::new((8.0, 32.0, 1.0), 14.0);
-const LINE_HEIGHT: NumberSetting = NumberSetting::new((1.0, 2.0, 0.1), 1.4);
+const LINE_HEIGHT: NumberSetting = NumberSetting::normalized((1.0, 2.0, 0.1), 1.4);
 const TAB_SIZE: NumberSetting = NumberSetting::new((1.0, 8.0, 1.0), 2.0);
 const MAX_OPEN_TABS: NumberSetting = NumberSetting::new((1.0, 100.0, 1.0), 100.0);
-const MARKDOWN_FONT_SIZE: NumberSetting = NumberSetting::new((12.0, 24.0, 1.0), 16.0);
+const MARKDOWN_FONT_SIZE: NumberSetting = NumberSetting::normalized((12.0, 24.0, 1.0), 16.0);
 
 pub(super) fn page() -> Page {
     Page::new("editor", "Editor", "code-block")
@@ -112,12 +112,6 @@ fn saving(section: Section) -> Section {
             Value::Bool(false),
         ))
         .row(row(
-            ("showMinimap", "Show Minimap"),
-            "Show a minimap overview on the right side of the editor",
-            Control::switch(),
-            Value::Bool(false),
-        ))
-        .row(row(
             ("maxOpenTabs", "Max Open Tabs"),
             "Maximum number of tabs before oldest closes",
             MAX_OPEN_TABS.plain(compact),
@@ -175,7 +169,11 @@ mod tests {
     #[test]
     fn every_editor_setting_of_the_spec_has_a_row_with_a_default() {
         let page = page();
-        assert_eq!(page.rows().count(), 18);
+        assert_eq!(
+            page.rows().count(),
+            17,
+            "develop's rows without the minimap (plan D4)"
+        );
         assert!(
             page.rows().all(|row| row.default.is_some()),
             "every row is resettable"

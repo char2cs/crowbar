@@ -64,7 +64,15 @@ fn enter_sequence(modifiers: Modifiers) -> Vec<u8> {
     CARRIAGE_RETURN.to_vec()
 }
 
+// SPEC: https://github.com/xtermjs/xterm.js/blob/master/src/common/input/Keyboard.ts Ctrl+Shift sends only ^@ and ^_
+const SHIFTED_CONTROL_KEYS: [&str; 3] = ["@", "_", "2"];
+
 fn control_sequence(input: &KeyInput) -> Option<Vec<u8>> {
+    let modifiers = input.modifiers;
+    let shifted = modifiers.contains(Modifiers::SHIFT) && !modifiers.contains(Modifiers::ALT);
+    if shifted && !SHIFTED_CONTROL_KEYS.contains(&input.key.as_str()) {
+        return None;
+    }
     let byte = control_byte(&input.key)?;
     if input.modifiers.contains(Modifiers::ALT) {
         return Some(vec![ESC, byte]);
@@ -143,6 +151,23 @@ mod tests {
             (press("é", Some("é"), none), Some("é".as_bytes().to_vec())),
             (press("]", Some("]"), Modifiers::CONTROL), Some(vec![0x1d])),
             (press("up", None, none), Some(b"\x1b[A".to_vec())),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(
+                encode_key(&input, CursorKeys::Normal),
+                expected,
+                "{input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn ctrl_shift_leaves_letters_to_the_shell_as_xterm_does() {
+        let held = Modifiers::CONTROL.with(Modifiers::SHIFT);
+        let cases = [
+            (press("n", Some("N"), held), None),
+            (press("2", Some("@"), held), Some(vec![0])),
+            (press("_", Some("_"), held), Some(vec![0x1f])),
         ];
         for (input, expected) in cases {
             assert_eq!(

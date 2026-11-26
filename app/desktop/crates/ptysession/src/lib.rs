@@ -4,6 +4,7 @@
 mod connection;
 mod ends;
 mod error;
+mod journal_sink;
 mod readiness;
 mod report;
 mod rest;

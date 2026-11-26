@@ -2,6 +2,8 @@ import type { DBSchema } from 'idb'
 import type { PaneGroup, LayoutNode, ViewRecord } from '@/features/panes/types/pane'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import type { ChatDTO, ProjectDTO, RepoDTO, WorkspaceDTO, FolderDTO } from '@/lib/types'
+import type { CachedFeed } from '@/features/agent/stores/lib/cached-feed'
+import type { PlacementRecord } from '@/lib/persistence/placement-record'
 import type { EditorDraft } from '@/features/editor/documents/draft-store'
 
 interface BranchReviewPersistedState {
@@ -86,4 +88,13 @@ export interface CrowbarDB extends DBSchema {
   // Sidebar chat rows (v9): its own version bump too; a store whose upgrade never ran is not a
   // runtime error but an empty list forever.
   crowbar_chats: { key: string; value: ChatDTO }
+  // Folded chat feeds (v15), by [hostId, chatId]: a cold open shows them before the daemon answers.
+  'chat-feeds': {
+    key: [string, string]
+    value: CachedFeed
+    indexes: { savedAt: number; chatId: string }
+  }
+  // Which host last held a workspace or chat (v16): a cold start places a restored pane before any
+  // daemon lists.
+  'host-placements': { key: string; value: PlacementRecord; indexes: { hostId: string } }
 }

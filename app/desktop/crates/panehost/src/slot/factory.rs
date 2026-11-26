@@ -50,6 +50,14 @@ impl Factory {
         self.webviews.clear_browsing_data()
     }
 
+    pub(crate) fn desktop(&self) -> webview::Desktop {
+        self.webviews.desktop()
+    }
+
+    pub(crate) fn settle(&self) -> webview::Result<()> {
+        self.webviews.settle()
+    }
+
     pub(crate) fn create(
         &self,
         request: Request,
@@ -119,10 +127,11 @@ impl Factory {
             initialization_script: Some(bootstrap_script(&self.config.scheme, &self.config.host)),
             on_ipc: self.ipc_for(owner),
             on_page: Some(press_handler(
-                self.config
-                    .page_handler
-                    .clone()
-                    .or_else(|| Some(drop_handler(owner.clone(), self.gate.sink()))),
+                Some(drop_handler(
+                    self.config.page_handler.clone(),
+                    owner.clone(),
+                    self.gate.sink(),
+                )),
                 owner.clone(),
                 self.gate.sink(),
             )),

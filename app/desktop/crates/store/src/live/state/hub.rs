@@ -51,6 +51,13 @@ impl Hub {
         result
     }
 
+    pub(crate) fn quietly<R>(
+        &self,
+        change: impl FnOnce(&mut State) -> R,
+    ) -> R {
+        change(&mut self.state.lock().unwrap_or_else(PoisonError::into_inner))
+    }
+
     pub(crate) async fn until<R>(
         &self,
         mut ready: impl FnMut(&State) -> Option<R>,

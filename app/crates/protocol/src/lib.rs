@@ -32,16 +32,18 @@ pub use control::{
     Breakpoint, DisplayText, DocumentPath, ErrorCode, EventName, ExtensionStatus, ExternalUrl,
     FsPath, KeyBinding, KeyChord, Lifecycle, MAX_DISPLAY_TEXT_BYTES, MAX_PARAMS,
     MAX_SETTING_VALUES, MAX_STATE_BYTES, MAX_THEME_TOKENS, MAX_TITLE_BYTES, MethodName, OpenMode,
-    PANE_SETTING_KEYS, PaneFrame, PaneOpen, PaneState, PaneTitle, PaneToast, Params, Precedence,
-    RequestId, RpcError, RpcOutcome, RpcResponse, SDK_VERSION, SETTINGS_FRAME_VERSION, SdkVersion,
-    SettingKey, SettingValues, ShellFrame, StatusKind, ThemeTokens, ToastTone, ViewedFile,
+    PANE_SETTING_KEYS, PairedHost, PaneFrame, PaneOpen, PaneState, PaneTitle, PaneToast, Params,
+    Precedence, RequestId, RpcError, RpcOutcome, RpcResponse, SDK_VERSION, SETTINGS_FRAME_VERSION,
+    SdkVersion, SettingKey, SettingValues, ShellFrame, StatusKind, ThemeTokens, ToastTone,
+    ViewedFile,
 };
 pub use error::{Error, Result};
 pub use identity::{
     CommandId, ExtensionId, HostId, PaneId, PaneKind, PaneOrigin, PaneTypeId, SpaceId,
 };
 pub use port::{
-    DaemonRequest, DaemonResponse, DaemonTransport, HttpMethod, MAX_HEADER_BYTES, MAX_HEADERS,
-    MAX_TARGET_BYTES, RelayEndpoint, RelayScope, RequestTarget, Responder,
+    DAEMON_UNAVAILABLE, DaemonRequest, DaemonResponse, DaemonTransport, HOST_IDENTITY_CHANGED,
+    HOST_UNREACHABLE, HttpMethod, MAX_HEADER_BYTES, MAX_HEADERS, MAX_TARGET_BYTES, NO_CREDENTIAL,
+    PROXY_HEADER, RelayEndpoint, RelayScope, RequestTarget, Responder, UNKNOWN_HOST,
 };
 pub use protocol::{MAX_FRAME_BYTES, decode_pane_frame, decode_shell_frame, encode};

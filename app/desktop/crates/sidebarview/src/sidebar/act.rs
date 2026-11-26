@@ -1,9 +1,11 @@
 //! Turning row interactions into view-state changes and commands.
 
+mod refusal;
+
 use gpui::TaskExt as _;
 use gpui::{Context, Pixels, Point, Window};
 use sidebar::{
-    Command, FileDialog, FileProperties, Intent, MenuContext, ProjectId, Row, RowId,
+    Command, Deadline, FileDialog, FileProperties, Intent, MenuContext, ProjectId, Row, RowId,
     TerminalThreads,
 };
 use ui::ToastLifetime;
@@ -11,7 +13,7 @@ use ui::ToastLifetime;
 use crate::panels::foot_menu;
 use crate::panels::row_menu;
 use crate::sidebar::Sidebar;
-use crate::sidebar::refusal::refusal_toast;
+use crate::sidebar::act::refusal::refusal_toast;
 use crate::sidebar::row_action::RowAction;
 
 impl Sidebar {
@@ -28,9 +30,10 @@ impl Sidebar {
                 self.open_row_menu((&row, at), window, cx);
             },
             RowAction::FootMenu { project, at } => {
-                self.open_menu((foot_menu(&project), at), window, cx);
+                self.pop_menu((foot_menu(&project), at), window, cx);
             },
             RowAction::Intent(intent) => self.apply(intent, window, cx),
+            RowAction::Copied(path, note) => self.flash_copied((path, note), cx),
             RowAction::Edge(pull) => self.pull_edge(pull, cx),
             RowAction::Press(press) => self.press_row(press),
             RowAction::DragOver(point) => self.drag_over(&point, cx),
@@ -48,7 +51,7 @@ impl Sidebar {
             return;
         };
         let entries = row_menu(&row, &self.menu_context(id));
-        self.open_menu((entries, at), window, cx);
+        self.pop_menu((entries, at), window, cx);
     }
 
     pub(crate) fn apply(
@@ -61,8 +64,10 @@ impl Sidebar {
             Intent::StartRename(id) => self.start_rename(&id, window, cx),
             Intent::StartBranching(id) => self.start_branching(&id, window, cx),
             Intent::StartDraft(id) => self.start_draft(&id, window, cx),
-            Intent::RequestRemoval(id) => self.request_removal(&id, cx),
-            Intent::RequestProjectRemoval(project) => self.request_project_removal(project),
+            Intent::RequestRemoval(id) => self.request_removal(&id, window, cx),
+            Intent::RequestProjectRemoval(project) => {
+                self.request_project_removal(project, window, cx);
+            },
             Intent::Keep(id) => self.tree.keep(&id),
             Intent::ToggleFold(id) => {
                 self.tree.toggle_fold(&id);
@@ -74,8 +79,7 @@ impl Sidebar {
                 self.start_file_create((dir, entry), window, cx);
             },
             Intent::RequestFileDelete { path, is_dir } => {
-                self.tree
-                    .show_file_dialog(FileDialog::Delete { path, is_dir });
+                self.ask_file_delete(FileDialog::Delete { path, is_dir }, window, cx);
             },
             Intent::ShowProperties(path) => {
                 let properties = FileProperties::of(&path);
@@ -89,7 +93,7 @@ impl Sidebar {
                 self.tree.select_file(Some(path));
             },
             Intent::ToggleChangedFold(path) => self.tree.toggle_changed_fold(path),
-            Intent::Ask(question) => self.question = Some(question),
+            Intent::Ask(question) => self.ask(question, window, cx),
             Intent::Send(command) => self.send_intent(command, cx),
         }
         cx.notify();
@@ -160,6 +164,8 @@ impl Sidebar {
     fn request_project_removal(
         &mut self,
         project: ProjectId,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
     ) {
         let name = self
             .data
@@ -170,35 +176,33 @@ impl Sidebar {
         if let Some(name) = name {
             self.tree.request_project_removal(project, &name);
         }
+        self.ask_confirmation(window, cx);
     }
 
     fn request_removal(
         &mut self,
         id: &RowId,
+        window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
         let Some(project) = self.data.active_project() else {
             return;
         };
-        let rows = self.data.tree(&project).rows;
-        let from = rows.iter().position(|row| &row.id == id);
-        let Some(below) = from.and_then(|at| rows.get(at..)) else {
+        let tree = self.data.tree(&project);
+        let Some(row) = tree.rows.iter().find(|row| &row.id == id) else {
             return;
         };
-        let Some(row) = below.first() else {
-            return;
-        };
-        let beneath = below
-            .iter()
-            .skip(1)
-            .take_while(|lower| lower.depth > row.depth);
-        let held = std::iter::once(row)
-            .chain(beneath)
-            .map(|held| held.id.clone())
-            .collect();
+        let held = tree.subtree(id);
         self.tree.request_removal(row, self.clock.now());
+        self.ask_confirmation(window, cx);
         self.schedule_removals(cx);
-        if self.tree.removals().tray().get(id).is_some() {
+        let counting = self
+            .tree
+            .removals()
+            .tray()
+            .get(id)
+            .is_some_and(|hold| matches!(hold.deadline, Deadline::At(_)));
+        if counting {
             cx.emit(crate::Event::Held(held));
         }
     }
@@ -289,6 +293,26 @@ mod tests {
             RowId::from("child"),
         ])];
         assert_eq!(*held.borrow(), expected);
+    }
+
+    #[gpui::test]
+    fn a_repository_asking_to_be_deleted_closes_nothing(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
+        let events = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let seen = std::rc::Rc::clone(&events);
+        let record =
+            move |_, event: &crate::Event, _: &mut gpui::App| seen.borrow_mut().push(event.clone());
+        let _subscription = cx.update(|_, cx| cx.subscribe(&sidebar, record));
+        sidebar.update_in(cx, |this, window, cx| {
+            this.apply(Intent::RequestRemoval(RowId::from("demo")), window, cx);
+        });
+        let asking = sidebar.read_with(cx, |this, _| this.tree.removals().confirmation().is_some());
+        assert!(asking, "the dialog asks");
+        assert_eq!(
+            *events.borrow(),
+            Vec::new(),
+            "no view closes before the answer"
+        );
     }
 
     #[gpui::test]

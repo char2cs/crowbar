@@ -221,7 +221,10 @@ shot() { # shot <app> <file>
 activate() {
   local w
   w=$(winid "$1") || die "$1 has no window"
-  xdotool windowactivate --sync "$w" 2>/dev/null || xdotool windowfocus --sync "$w"
+  # Leave an active window alone: activating it again moves X focus off an embedded page and ends an input method composition.
+  if [[ $(xdotool getactivewindow 2>/dev/null) != "$w" ]]; then
+    xdotool windowactivate --sync "$w" 2>/dev/null || xdotool windowfocus --sync "$w"
+  fi
   echo "$w"
 }
 
@@ -501,17 +504,12 @@ daemon_path() {
   if [[ -e $RIG_DIR/daemon.nogit ]]; then tr : '\n' <<<"$PATH" | grep -vx /opt/rig/git-bin | paste -sd:; else echo "$PATH"; fi
 }
 
-# chooser <app>: the open file-chooser window — Tauri's own GTK dialog, or the portal's (GTK) dialog
-# that the Rust shell asks xdg-desktop-portal for — the largest visible window of that process
-# other than the app's own.
+# chooser <app>: the open file-chooser window, the GTK dialog the app opens itself — the largest
+# visible window of the app's process other than its own window.
 chooser() {
-  local pid main="" w g best="" area=0
-  if [[ $1 == tauri ]]; then
-    pid=$(pid_of tauri) || return 1
-    main=$(winid tauri)
-  else
-    pid=$(pgrep -f /usr/libexec/xdg-desktop-portal-gtk | head -1) || return 1
-  fi
+  local pid main w g best="" area=0
+  pid=$(pid_of "$1") || return 1
+  main=$(winid "$1")
   for w in $(xdotool search --onlyvisible --pid "$pid" 2>/dev/null); do
     [[ $w == "$main" ]] && continue
     g=$(xdotool getwindowgeometry "$w" 2>/dev/null | awk '/Geometry/ {print $2}')

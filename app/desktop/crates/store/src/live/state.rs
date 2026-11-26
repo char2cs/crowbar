@@ -2,20 +2,19 @@
 
 mod change_signal;
 pub(crate) mod chat_project;
-mod chat_terminal;
 mod hub;
 mod local_rows;
 pub(crate) mod workspace_root;
 
 pub use change_signal::ChangeSignal;
-pub use chat_terminal::{ChatPhase, ChatSurface, ChatTerminal};
 pub(crate) use hub::Hub;
 
 use daemonapi::{Frame, Switch};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::live::held::HostSlot;
 use crate::live::held::IconCache;
+use crate::live::held::LeftBehind;
 use crate::live::held::LinkState;
 use crate::live::held::PanelState;
 use crate::live::held::PendingRow;
@@ -33,6 +32,10 @@ pub(crate) struct State {
     pub(crate) icons: IconCache,
     pub(crate) settings: SettingsSlot,
     pub(crate) viewed: ViewedFiles,
+    pub(crate) watched_chats: BTreeSet<String>,
+    pub(crate) marking: BTreeSet<sidebar::IconTarget>,
+    pub(crate) left: LeftBehind,
+    pub(crate) adding: BTreeSet<String>,
 }
 
 impl State {
@@ -47,6 +50,10 @@ impl State {
             icons: IconCache::default(),
             settings: SettingsSlot::default(),
             viewed: ViewedFiles::default(),
+            watched_chats: BTreeSet::new(),
+            marking: BTreeSet::new(),
+            left: LeftBehind::default(),
+            adding: BTreeSet::new(),
         }
     }
 
@@ -70,6 +77,11 @@ impl State {
                     .find(|slot| slot.store.projects.get(project).is_some())
             })
             .is_some_and(|slot| slot.spec.id == id);
+        if let Some(slot) = self.host_mut(id) {
+            let (chats, projects) = slot.store.depart_all();
+            self.left.chats.extend(chats);
+            self.left.projects.extend(projects);
+        }
         self.hosts.retain(|slot| slot.spec.id != id);
         self.unrevoked.remove(id);
         if self.selected_host.as_deref() == Some(id) {

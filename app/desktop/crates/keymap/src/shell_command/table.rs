@@ -78,6 +78,7 @@ const TABLE: &[CommandEntry] = &[
     entry(ShellCommand::ZoomChatIn, "agent.zoomIn", "mod+="),
     entry(ShellCommand::ZoomChatOut, "agent.zoomOut", "mod+-"),
     entry(ShellCommand::ZoomChatReset, "agent.zoomReset", "mod+0"),
+    entry(ShellCommand::SaveAll, "editor.saveAll", "mod+shift+s"),
 ];
 
 impl ShellCommand {
@@ -160,6 +161,7 @@ mod tests {
             (ShellCommand::ZoomChatIn, "mod+="),
             (ShellCommand::ZoomChatOut, "mod+-"),
             (ShellCommand::ZoomChatReset, "mod+0"),
+            (ShellCommand::SaveAll, "mod+shift+s"),
         ];
         const NOT_SHELL: &[&str] = &["editor.save", "ext.git.openReview", ""];
         for id in NOT_SHELL {

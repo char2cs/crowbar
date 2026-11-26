@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, onTestFinished, vi } from 'vitest'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 
 // Mock the IDB-backed persistence so tests don't need a real IndexedDB write
@@ -168,5 +168,18 @@ describe('windowPaneStore — persistence subscription', () => {
     const saved = mockSave.mock.lastCall![0] as { buffers: { id: string }[] }
     expect(saved.buffers.find((b) => b.id === id)).not.toHaveProperty('unavailable')
     expect(windowPaneStore.getState().buffers[0]).toMatchObject({ unavailable })
+  })
+
+  // A window with no IndexedDB, or a refused write, loses the layout; the rejection must not escape.
+  it('reports a layout save that fails instead of leaving it unhandled', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    onTestFinished(() => error.mockRestore())
+    mockSave.mockRejectedValueOnce(new Error('IndexedDB is unavailable'))
+
+    windowPaneStore.getState().paneActions.openChat('chat-1')
+    vi.advanceTimersByTime(300)
+    await flushMicrotasks()
+
+    expect(error).toHaveBeenCalledWith('Saving the window layout failed:', expect.any(Error))
   })
 })

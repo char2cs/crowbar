@@ -6,6 +6,7 @@ mod served_now;
 mod spawn;
 mod supervise;
 pub(crate) mod supervision;
+mod supervisor_event;
 
 pub use daemon_event::DaemonEvent;
 
@@ -20,6 +21,7 @@ use crate::supervisor::supervise::supervise;
 use crate::supervisor::supervision::Bus;
 use crate::supervisor::supervision::Command;
 use crate::supervisor::supervision::Supervision;
+use crate::supervisor::supervisor_event::SupervisorEvent;
 
 const COMMAND_QUEUE: usize = 8;
 
@@ -93,12 +95,20 @@ impl Supervisor {
     /// Stops the daemon gracefully (SIGTERM, then SIGKILL after the grace period) and ends
     /// supervision.
     pub async fn stop(mut self) {
+        self.ask_to_stop().await;
+        self.join_task().await;
+    }
+
+    async fn ask_to_stop(&self) {
         let (done, finished) = oneshot::channel();
         if self.commands.send(Command::Stop(done)).await.is_ok() && finished.await.is_err() {
-            tracing::debug!("the supervision task ended without confirming the stop");
+            crate::journal_sink::emit(&SupervisorEvent::StopUnconfirmed);
         }
-        if let Some(Err(e)) = self.finished().await {
-            tracing::warn!("the supervision task failed: {e}");
+    }
+
+    async fn join_task(&mut self) {
+        if let Some(Err(error)) = self.finished().await {
+            crate::journal_sink::emit(&SupervisorEvent::TaskFailed { error: &error });
         }
     }
 

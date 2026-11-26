@@ -5,6 +5,7 @@ mod ended;
 mod file_change;
 mod files_hold;
 mod files_wire;
+mod host_stream_event;
 mod icon_ask;
 mod icon_fetch;
 mod step;
@@ -16,9 +17,12 @@ use daemonapi::{Connection, Dial, Frame};
 use serde_json::json;
 use tokio::sync::mpsc;
 
+use crate::journal_sink::emit;
+use crate::live::OutcomeSink;
 use crate::live::fleet::host_stream::backoff::Backoff;
 use crate::live::fleet::host_stream::ended::Ended;
 use crate::live::fleet::host_stream::files_hold::FilesHold;
+use crate::live::fleet::host_stream::host_stream_event::HostStreamEvent;
 use crate::live::fleet::host_stream::step::{Step, next_step};
 use crate::live::fleet::host_stream::terminal_offer::read_terminal_support;
 use crate::live::fleet::stream_control::StreamControl;
@@ -34,6 +38,7 @@ pub(crate) struct HostStream {
     pub(crate) host: String,
     pub(crate) dial: Arc<dyn Dial>,
     pub(crate) client: daemonapi::Client,
+    pub(crate) outcome: OutcomeSink,
 }
 
 impl HostStream {
@@ -42,6 +47,7 @@ impl HostStream {
         mut controls: mpsc::UnboundedReceiver<StreamControl>,
     ) {
         let mut backoff = Backoff::default();
+        self.set_link(LinkState::Connecting);
         while !matches!(
             self.cycle(&mut controls, &mut backoff).await,
             Ended::Stopped
@@ -53,7 +59,6 @@ impl HostStream {
         controls: &mut mpsc::UnboundedReceiver<StreamControl>,
         backoff: &mut Backoff,
     ) -> Ended {
-        self.set_link(LinkState::Connecting);
         let ended = self.connect_once(controls, backoff).await;
         if matches!(ended, Ended::Stopped) {
             return ended;
@@ -71,13 +76,15 @@ impl HostStream {
         controls: &mut mpsc::UnboundedReceiver<StreamControl>,
         backoff: &mut Backoff,
     ) -> Ended {
-        match self.dial.open().await {
-            Ok(connection) => self.session(connection, controls, backoff).await,
-            Err(error) => {
-                tracing::warn!(host = %self.host, %error, "the stream could not be opened");
-                Ended::Dropped
-            },
-        }
+        let error = match self.dial.open().await {
+            Ok(connection) => return self.session(connection, controls, backoff).await,
+            Err(error) => error,
+        };
+        emit(&HostStreamEvent::Unopened {
+            host: &self.host,
+            error: &error,
+        });
+        Ended::Dropped
     }
 
     fn set_link(
@@ -142,12 +149,10 @@ impl HostStream {
         frame: Frame,
         (outgoing, files): Wire<'_>,
     ) {
-        if files
-            .as_ref()
-            .is_some_and(|held| held.hear(&frame, outgoing))
-        {
+        if files.iter().any(|held| held.hear(&frame, outgoing)) {
             return;
         }
+        let host = self.host.as_str();
         match &frame {
             Frame::Ready { .. } => self.on_ready(frame, (outgoing, files)),
             Frame::Closed { scope, reason, .. } if scope == PROJECTS_SCOPE && reason == RESYNC => {
@@ -157,12 +162,13 @@ impl HostStream {
                 scope,
                 reason,
                 problem,
-            } => {
-                tracing::warn!(host = %self.host, scope, reason, ?problem, "the daemon ended a stream scope");
-            },
-            Frame::Error { problem } => {
-                tracing::warn!(host = %self.host, ?problem, "the daemon refused a stream request");
-            },
+            } => emit(&HostStreamEvent::Closed {
+                host,
+                scope,
+                reason,
+                problem: problem.as_ref(),
+            }),
+            Frame::Error { problem } => emit(&HostStreamEvent::Refused { host, problem }),
             _ => {
                 self.apply(frame);
                 FilesHold::sync_held(files, outgoing);
@@ -178,7 +184,11 @@ impl HostStream {
         self.set_link(LinkState::Live);
         self.apply(frame);
         self.subscribe(outgoing);
-        let held = files.insert(FilesHold::new(&self.hub, &self.host));
+        let held = files.insert(FilesHold::new(
+            &self.hub,
+            &self.host,
+            Arc::clone(&self.outcome),
+        ));
         held.sync(outgoing);
         self.learn_providers();
     }
@@ -201,7 +211,8 @@ impl HostStream {
         if operation {
             changes_reload::follow(&self.hub);
         }
-        followed_ask::ask(&self.hub, &tokio::runtime::Handle::current());
+        let handle = tokio::runtime::Handle::current();
+        followed_ask::ask(&self.hub, (&handle, &self.outcome));
         icon_fetch::follow(&self.hub, &self.host, &self.client);
     }
 
@@ -282,6 +293,13 @@ mod tests {
         connections: Vec<Connection>,
         daemon: Arc<FakeDaemon>,
     ) -> Rig {
+        start_dialling(Arc::new(Script(Mutex::new(connections.into()))), daemon)
+    }
+
+    fn start_dialling(
+        dial: Arc<dyn Dial>,
+        daemon: Arc<FakeDaemon>,
+    ) -> Rig {
         let changed = Arc::new(Notify::new());
         let wake = Arc::clone(&changed);
         let client = daemonapi::Client::new(daemon, local());
@@ -298,8 +316,9 @@ mod tests {
         let stream = HostStream {
             hub: Arc::clone(&hub),
             host: "local".into(),
-            dial: Arc::new(Script(Mutex::new(connections.into()))),
+            dial,
             client,
+            outcome: Arc::new(|_| {}),
         };
         tokio::spawn(stream.run(inbox));
         Rig {
@@ -433,5 +452,45 @@ mod tests {
     async fn a_stream_that_cannot_dial_is_down_and_one_without_controls_stops() {
         let cases = [Ending::NoConnection, Ending::ControlsDropped];
         each_holds(cases).await;
+    }
+
+    /// Refuses every dial, noting the host's link as each one starts.
+    #[derive(Default)]
+    struct Unreachable {
+        hub: std::sync::OnceLock<Arc<Hub>>,
+        seen: Mutex<Vec<LinkState>>,
+        dialled: Notify,
+    }
+
+    impl Dial for Unreachable {
+        fn open(&self) -> Opening<'_> {
+            let link = self
+                .hub
+                .get()
+                .map(|hub| hub.read(|state| state.hosts[0].link));
+            self.seen.lock().unwrap().extend(link);
+            self.dialled.notify_one();
+            Box::pin(std::future::ready(refused_when_empty(None)))
+        }
+    }
+
+    async fn links_at(
+        dial: &Unreachable,
+        dials: usize,
+    ) -> Vec<LinkState> {
+        while dial.seen.lock().unwrap().len() < dials {
+            dial.dialled.notified().await;
+        }
+        dial.seen.lock().unwrap().clone()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_host_stays_down_while_it_is_dialled_again() {
+        let dial = Arc::new(Unreachable::default());
+        let rig = start_dialling(Arc::clone(&dial) as Arc<dyn Dial>, FakeDaemon::shared());
+        dial.hub.set(Arc::clone(&rig.hub)).ok();
+        let seen = links_at(&dial, 3).await;
+        let down = LinkState::Down;
+        assert_eq!(seen, [LinkState::Connecting, down, down]);
     }
 }

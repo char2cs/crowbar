@@ -1,5 +1,7 @@
+mod desktop;
 mod handle;
 
+pub use desktop::Desktop;
 pub use handle::Handle;
 
 use std::cell::Cell;
@@ -64,6 +66,20 @@ impl Host {
         report: crate::backend::CaretReport,
     ) -> Result<()> {
         self.platform.follow_caret(report)
+    }
+
+    /// The desktop's own chooser, menu and dialog, shown on this host's platform thread.
+    #[must_use]
+    pub fn desktop(&self) -> Desktop {
+        Desktop::new(Rc::clone(&self.platform))
+    }
+
+    /// Returns once every view destroyed before it is gone from the platform.
+    ///
+    /// # Errors
+    /// An [`Error`](crate::Error) when the backend has stopped or does not answer in time.
+    pub fn settle(&self) -> Result<()> {
+        self.platform.settle()
     }
 
     /// Creates a web view inside `window` and returns its handle.

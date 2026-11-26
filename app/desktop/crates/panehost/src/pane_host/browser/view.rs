@@ -4,7 +4,7 @@ use webview::{Bounds, ParentWindow, Snapshot};
 
 use crate::error::{Error, Result};
 use crate::pane_host::PaneHost;
-use crate::pane_host::reconcile::VisiblePane;
+use crate::pane_host::reconcile::{LayoutSnapshot, VisiblePane};
 use crate::slot::is_browser;
 
 const PARKED_WIDTH: f64 = 1280.0;
@@ -37,7 +37,10 @@ impl PaneHost {
         pane: &PaneId,
         layout: &Layout,
     ) -> Result<()> {
-        self.track(layout, pane);
+        self.track(
+            &LayoutSnapshot::from_layout(layout, parent, Vec::new()),
+            pane,
+        );
         let runtime = self
             .panes
             .get(pane)

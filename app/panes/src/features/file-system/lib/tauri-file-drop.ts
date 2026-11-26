@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import type { RefObject } from 'react'
 import { isTauri } from '@/lib/crowbar-bridge'
+import { shellChannel } from '@/sdk/shell-channel'
 
 interface TauriDropPosition {
   x: number
@@ -95,6 +96,14 @@ function ensureSharedSubscription(): void {
   })()
 }
 
+/** Hands a drop the shell gave this page (its web view takes OS file drops, as Tauri's does) to
+ *  the one registered consumer at `position`; false when none takes it. */
+export function deliverShellFileDrop(position: TauriDropPosition, paths: string[]): boolean {
+  const consumer = resolveConsumer(position)
+  consumer?.onDrop(paths)
+  return consumer !== undefined
+}
+
 function releaseSharedSubscriptionIfIdle(): void {
   if (consumers.size > 0) return
   generation += 1
@@ -105,18 +114,19 @@ function releaseSharedSubscriptionIfIdle(): void {
   }
 }
 
-/** Real OS file paths dropped on `containerRef`'s element. Tauri desktop only: its webview takes
- *  native file drags before any DOM `drop`. The event is window-wide, so the shared subscription
- *  calls only the one registered consumer `resolveConsumer` picks. */
+/** Real OS file paths dropped on `containerRef`'s element, in Tauri or in a pane of the shell:
+ *  either web view takes native file drags before any DOM `drop`. The event is window-wide, so it
+ *  reaches only the one registered consumer `resolveConsumer` picks. */
 export function useTauriFileDrop(
   containerRef: RefObject<HTMLElement | null>,
   onDrop: (paths: string[]) => void,
 ): void {
   useEffect(() => {
-    if (!isTauri()) return
+    const tauri = isTauri()
+    if (!tauri && !shellChannel()) return
     const self: RegisteredConsumer = { containerRef, onDrop }
     consumers.add(self)
-    ensureSharedSubscription()
+    if (tauri) ensureSharedSubscription()
 
     return () => {
       consumers.delete(self)

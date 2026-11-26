@@ -1,0 +1,674 @@
+use std::path::PathBuf;
+use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+
+use gpui::{
+    App, Context, Div, Entity, FocusHandle, InteractiveElement, IntoElement, ParentElement, Render,
+    Styled, Subscription, Window, div,
+};
+use keymap::Keymap;
+use layoutview::{ChromeContext, LayoutView};
+use settingsview::SettingsModal;
+use sidebarview::Sidebar;
+use store::SettingsAdapter;
+use ui::{Portal, Surface, Theme, ToastQueue, layer};
+use viewtabs::{SidebarState, TabBar};
+
+pub(crate) mod assembly;
+mod browser;
+mod commands;
+mod editing;
+mod events;
+mod native_alert;
+mod settings;
+mod sidebar;
+mod spaces;
+mod terminals;
+#[cfg(test)]
+mod test_support;
+
+use crate::shell::shell_view::assembly::watches::Watches;
+
+use crate::daemon::daemon_link::DaemonLink;
+use crate::panes::content::holes::visible_panes;
+use crate::panes::content::shell_pane_source::ShellPaneSource;
+use crate::panes::tracking::focused_chat::focused_chat;
+use crate::shell::inbox::shell_request::ShellRequest;
+use crate::shell::ports::Ports;
+use crate::shell::shell_state::ShellState;
+use crate::shell::shell_view::assembly::shell_parts::ShellParts;
+
+use crate::panes::terminals::link_menu;
+use crate::panes::tracking::active_file;
+use crate::panes::tracking::open_chats;
+use crate::shell::dialogs::file_prompt;
+use crate::shell::dialogs::name_prompt;
+use crate::shell::dialogs::unsaved::pending_close;
+use crate::shell::shell_view::assembly::children::build_children;
+use crate::shell::window::chrome;
+use crate::shell::window::readout::readout_state;
+
+pub(crate) struct ShellView {
+    state: ShellState,
+    link: Rc<DaemonLink>,
+    preferences_path: PathBuf,
+    sidebar: Entity<Sidebar>,
+    tabs: Entity<TabBar>,
+    layout: Entity<LayoutView>,
+    startup: Entity<startup::View>,
+    settings: Option<Entity<SettingsModal>>,
+    branch_import: Option<Entity<branchimport::View>>,
+    remote_folders: Option<Entity<folderpicker::View>>,
+    folder_import: Option<Entity<folderimport::View>>,
+    file_prompt: Option<Entity<file_prompt::FilePrompt>>,
+    name_prompt: Option<(protocol::PaneId, Entity<name_prompt::NamePrompt>)>,
+    pairing: Option<Entity<pairing::View>>,
+    first_run: Option<(events::first_run::landing::Landing, Entity<oobe::View>)>,
+    question: Option<gpui::AnyView>,
+    pending_close: Option<pending_close::PendingClose>,
+    source: Rc<ShellPaneSource>,
+    focus: FocusHandle,
+    keymap: Keymap,
+    watches: Watches,
+    family_names: settings::family_names::FamilyNames,
+    system_fonts: store::SystemFonts,
+    requests: async_channel::Sender<ShellRequest>,
+    data: Rc<store::Store>,
+    data_queued: Arc<AtomicBool>,
+    settings_backend: Option<SettingsAdapter>,
+    placement: Option<(webview::ParentWindow, webview::Bounds)>,
+    focus_surface: Option<::sidebar::Mode>,
+    ports: Ports,
+    readout: readout_state::ReadoutState,
+    notices: Entity<ToastQueue>,
+    backend: crate::daemon::backend::BackendWatch,
+    link_menu: Option<link_menu::LinkMenu>,
+    subscriptions: Vec<Subscription>,
+}
+
+impl ShellView {
+    pub(crate) fn new(
+        parts: ShellParts,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> Self {
+        let (requests, queue) = (parts.requests.clone(), parts.queue.clone());
+        let mut built = build_children(&parts, &requests, cx);
+        built.subscriptions = Self::subscribe_children(&built, window, cx);
+        let mut view = Self::assemble(parts, built, requests, cx.focus_handle());
+        view.begin(queue, window, cx);
+        view
+    }
+
+    fn assemble(
+        parts: ShellParts,
+        built: assembly::built::Built,
+        requests: async_channel::Sender<ShellRequest>,
+        focus: FocusHandle,
+    ) -> Self {
+        Self {
+            state: parts.state,
+            link: parts.link,
+            preferences_path: parts.preferences_path,
+            sidebar: built.sidebar,
+            tabs: built.tabs,
+            layout: built.layout,
+            source: built.source,
+            startup: built.startup,
+            settings: None,
+            branch_import: None,
+            remote_folders: None,
+            folder_import: None,
+            file_prompt: None,
+            name_prompt: None,
+            pairing: None,
+            first_run: None,
+            question: None,
+            pending_close: None,
+            focus,
+            keymap: Keymap::defaults(),
+            watches: Watches::default(),
+            family_names: settings::family_names::FamilyNames::default(),
+            system_fonts: store::SystemFonts::default(),
+            requests,
+            data: built.data,
+            data_queued: built.data_queued,
+            settings_backend: None,
+            placement: None,
+            focus_surface: None,
+            readout: readout_state::ReadoutState::new(Arc::clone(&parts.ports.clock)),
+            ports: parts.ports,
+            notices: built.notices,
+            backend: events::backend::watching(built.workspace),
+            link_menu: None,
+            subscriptions: built.subscriptions,
+        }
+    }
+
+    fn begin(
+        &mut self,
+        queue: async_channel::Receiver<ShellRequest>,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        window.focus(&self.focus, cx);
+        self.system_fonts = settings::installed_fonts::installed(cx);
+        self.announce_start(cx);
+        self.feed_known_phases(window, cx);
+        self.spawn_tasks(queue, window, cx);
+        self.attach_agent_peer();
+        self.refresh(cx);
+        self.watch_keymap();
+        self.forward_bindings(window, cx);
+        self.watch_appearance(cx);
+        self.follow_system_appearance(window.appearance(), cx);
+        self.watch_pane_settings();
+        self.flush_settings_on_quit(cx);
+    }
+
+    fn modal_open(
+        &self,
+        cx: &App,
+    ) -> bool {
+        self.startup.read(cx).covers()
+            || self.settings.is_some()
+            || self.branch_import.is_some()
+            || self.remote_folders.is_some()
+            || self.folder_import.is_some()
+            || self.file_prompt.is_some()
+            || self.name_prompt.is_some()
+            || self.pairing.is_some()
+            || self.first_run.is_some()
+            || self.question.is_some()
+    }
+
+    fn floating(
+        &self,
+        cx: &mut Context<'_, Self>,
+    ) -> Option<Portal> {
+        let modal = self.modal_open(cx);
+        let shown = modal
+            || self.readout.view.is_some()
+            || self.floats_toasts(cx)
+            || self.backend.crash.is_some();
+        if !shown {
+            return None;
+        }
+        let shell = cx.entity();
+        let portal = Portal::cover("shell-layers", move |_, cx| shell.read(cx).layers(cx));
+        let portal = portal.priority(layer::MODAL);
+        if !modal {
+            return Some(portal);
+        }
+        Some(portal.float(ui::Float::Modal))
+    }
+
+    fn layers(
+        &self,
+        cx: &App,
+    ) -> Div {
+        div()
+            .relative()
+            .size_full()
+            .children(layer(self.settings.as_ref()))
+            .children(layer(self.branch_import.as_ref()))
+            .children(layer(self.remote_folders.as_ref()))
+            .children(self.prompt_layer())
+            .children(layer(self.name_prompt.as_ref().map(|(_, prompt)| prompt)))
+            .children(layer(self.first_run.as_ref().map(|(_, oobe)| oobe)).map(solid))
+            .children(layer(self.folder_import.as_ref()))
+            .children(layer(self.pairing.as_ref()))
+            .children(
+                self.question
+                    .clone()
+                    .map(|view| div().absolute().inset_0().child(view)),
+            )
+            .children(layer(Some(&self.startup).filter(|gate| gate.read(cx).covers())).map(solid))
+            .children(self.readout.view.clone().map(solid))
+            .children(
+                self.backend
+                    .crash
+                    .as_ref()
+                    .map(|(panel, _)| solid(panel.clone())),
+            )
+            .children(self.floats_toasts(cx).then(|| self.notices.clone()))
+    }
+
+    fn chrome(
+        &self,
+        cx: &Context<'_, Self>,
+    ) -> (ChromeContext, SidebarState) {
+        let preferences = self.sidebar.read(cx).preferences();
+        let (mut chrome, state) = chrome::of(&preferences);
+        chrome.tab_strip = self.tabs.read(cx).has_tabs();
+        (chrome, state)
+    }
+
+    fn refresh(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let titles = self.state.titles();
+        let layout = self.state.layout();
+        let space = self.state.space();
+        self.source.native().follow((layout, &space), &titles);
+        let tab = layout.showing(&space).cloned();
+        self.data
+            .focus_chat(focused_chat(layout, &space).as_deref());
+        self.data.watch_chats(open_chats::tab_chats(layout));
+        let open = open_chats::open_chats(layout)
+            .into_iter()
+            .map(::sidebar::RowId::from);
+        let active = active_file::active_file(layout, &space);
+        self.sidebar.update(cx, |sidebar, cx| {
+            sidebar.set_open_chats(open, cx);
+            sidebar.set_active_file(active, cx);
+        });
+        self.follow_focus(cx);
+        self.push_tabs(cx);
+        let (chrome, sidebar_state) = self.chrome(cx);
+        self.tabs
+            .update(cx, |bar, cx| bar.set_sidebar(sidebar_state, cx));
+        self.layout.update(cx, |view, cx| {
+            view.set_chrome(chrome, cx);
+            view.set_tab(tab, cx);
+        });
+        self.announce_evictions(cx);
+        self.drop_toasts_of_closed_panes(cx);
+        self.sync(cx);
+        self.state.publish_tabs();
+        cx.notify();
+    }
+
+    fn sync(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let Some((parent, area)) = self.placement else {
+            return;
+        };
+        let (chrome, _) = self.chrome(cx);
+        let visible = visible_panes(self.state.showing(), area, (chrome, self.source.as_ref()));
+        self.state.set_theme(*Theme::of(cx));
+        let outcome = self.state.sync(parent, (visible, self.source.native()));
+        self.apply_outcome(outcome, cx);
+    }
+}
+
+fn solid(content: impl IntoElement) -> ui::Shaped {
+    ui::Shaped::solid(content, gpui::px(0.0))
+}
+
+fn layer<V: Render>(view: Option<&Entity<V>>) -> Option<Div> {
+    view.map(|view| div().absolute().inset_0().child(view.clone()))
+}
+
+impl Render for ShellView {
+    fn render(
+        &mut self,
+        _: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> impl IntoElement {
+        let palette = Theme::of(cx).palette(Surface::Window);
+        self.readout.paint();
+        div()
+            .size_full()
+            .track_focus(&self.focus)
+            .capture_key_down(cx.listener(Self::on_key_alongside))
+            .on_key_down(cx.listener(Self::on_key_down))
+            .capture_any_mouse_down(cx.listener(Self::on_shell_pressed))
+            .relative()
+            .bg(palette.background())
+            .child(ui::hear())
+            .child(self.sidebar.clone())
+            .children(self.link_layers(cx))
+            .children(self.floating(cx))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::shell::ports::preferences_store::PreferencesStore as _;
+    use gpui::{AppContext as _, TestAppContext};
+
+    use super::*;
+
+    struct Probe;
+
+    impl Render for Probe {
+        fn render(
+            &mut self,
+            _: &mut Window,
+            _: &mut Context<'_, Self>,
+        ) -> impl IntoElement {
+            div()
+        }
+    }
+
+    #[gpui::test]
+    fn an_open_overlay_gets_a_full_window_layer_and_a_closed_one_none(cx: &mut TestAppContext) {
+        let open = cx.new(|_| Probe);
+        assert!(layer(Some(&open)).is_some(), "open");
+        assert!(layer::<Probe>(None).is_none(), "closed");
+    }
+
+    #[gpui::test]
+    fn a_layer_is_pinned_to_every_window_edge_because_a_percent_size_collapses_in_the_live_window(
+        cx: &mut TestAppContext
+    ) {
+        let open = cx.new(|_| Probe);
+        let mut shown = layer(Some(&open)).expect("an open overlay has a layer");
+        let inset = &shown.style().inset;
+        let pinned = [inset.top, inset.left, inset.right, inset.bottom]
+            .iter()
+            .all(|edge| *edge == Some(gpui::px(0.0).into()));
+        assert!(pinned, "{inset:?}");
+    }
+
+    pub(super) struct Opened {
+        pub(super) shell: Entity<ShellView>,
+        pub(super) window: gpui::VisualTestContext,
+        pub(super) mock: Rc<webview::MockPlatform>,
+        pub(super) pane: protocol::PaneId,
+        preferences: Arc<crate::test_support::MemoryPreferences>,
+        pub(super) space: Rc<crate::test_support::FakeSpace>,
+    }
+
+    impl Opened {
+        fn top(
+            &mut self,
+            float: ui::Float,
+        ) -> gpui::VisualTestContext {
+            ui::testing::float_window(&mut self.window, float)
+        }
+    }
+
+    pub(super) fn open_shell(cx: &mut TestAppContext) -> Opened {
+        let opened = open_shell_unsettled(cx);
+        opened
+            .window
+            .executor()
+            .advance_clock(events::backend::SHOW_DELAY);
+        opened.window.run_until_parked();
+        opened
+    }
+
+    struct Rig {
+        parts: ShellParts,
+        mock: Rc<webview::MockPlatform>,
+        pane: protocol::PaneId,
+        preferences: Arc<crate::test_support::MemoryPreferences>,
+        space: Rc<crate::test_support::FakeSpace>,
+    }
+
+    pub(super) const SPACE: &str = "p1";
+
+    fn shell_rig(cx: &mut TestAppContext) -> Rig {
+        cx.executor().allow_parking();
+        cx.update(|cx| {
+            ui::init(cx).expect("ui installs");
+            ui::testing::open_float_windows(cx);
+        });
+        cx.update(editorview::init);
+        let mut rig = crate::test_support::shell_rig();
+        rig.space.select(SPACE);
+        let pane = crate::test_support::synced_chat(&mut rig);
+        let preferences = Arc::new(crate::test_support::MemoryPreferences::default());
+        let ports = Ports {
+            clock: Arc::new(crate::test_support::FixedClock::at(0)),
+            bytes: Arc::new(crate::test_support::MemoryFiles::default()),
+            preferences: Arc::<crate::test_support::MemoryPreferences>::clone(&preferences),
+        };
+        let link = Rc::new(crate::test_support::link_without_daemon());
+        let (requests, queue) = async_channel::unbounded();
+        let (data, data_queued) = crate::shell::inbox::data_signal::start_data(&link, &requests);
+        let parts = ShellParts {
+            state: rig.shell,
+            link,
+            preferences_path: PathBuf::from("/state/sidebar.json"),
+            ports,
+            data,
+            data_queued,
+            requests,
+            queue,
+        };
+        Rig {
+            parts,
+            mock: rig.mock,
+            pane,
+            preferences,
+            space: rig.space,
+        }
+    }
+
+    pub(super) fn open_shell_unsettled(cx: &mut TestAppContext) -> Opened {
+        let Rig {
+            parts,
+            mock,
+            pane,
+            preferences,
+            space,
+        } = shell_rig(cx);
+        let window = cx.add_window(move |window, cx| ShellView::new(parts, window, cx));
+        let shell = window.entity(cx).expect("the shell view");
+        let owner: gpui::AnyWindowHandle = window.into();
+        let window = gpui::VisualTestContext::from_window(owner, cx);
+        window.run_until_parked();
+        Opened {
+            shell,
+            window,
+            mock,
+            pane,
+            preferences,
+            space,
+        }
+    }
+
+    #[gpui::test]
+    fn a_halt_known_before_the_window_opens_covers_its_first_frame(cx: &mut TestAppContext) {
+        let parts = shell_rig(cx).parts;
+        let window = cx.add_window(move |window, cx| ShellView::new(parts, window, cx));
+        let covers = window.update(cx, |shell, _, cx| shell.startup.read(cx).covers());
+        assert_eq!(
+            covers.ok(),
+            Some(true),
+            "the launch failed before the window"
+        );
+    }
+
+    #[gpui::test]
+    fn hiding_the_sidebar_is_kept_by_the_shells_own_preferences_store(cx: &mut TestAppContext) {
+        let mut opened = open_shell(cx);
+        opened
+            .shell
+            .update_in(&mut opened.window, |shell, window, cx| {
+                shell
+                    .sidebar
+                    .update(cx, |sidebar, cx| sidebar.toggle(window, cx));
+            });
+        opened.window.run_until_parked();
+        let kept = opened.preferences.load().unwrap().panel().visibility();
+        assert_eq!(kept, ::sidebar::Visibility::Closed);
+    }
+
+    fn hidden_views(mock: &webview::MockPlatform) -> usize {
+        mock.calls().iter().filter(|call| hides(call)).count()
+    }
+
+    fn hides(call: &webview::Call) -> bool {
+        let webview::Call::SetVisibility { visibility, .. } = call else {
+            return false;
+        };
+        *visibility == webview::Visibility::Hidden
+    }
+
+    #[gpui::test]
+    fn a_prompt_floats_above_the_panes_and_leaves_them_shown(cx: &mut TestAppContext) {
+        let mut opened = open_shell(cx);
+        let before = hidden_views(&opened.mock);
+        let pane = opened.pane.clone();
+        opened
+            .shell
+            .update_in(&mut opened.window, |shell, window, cx| {
+                shell.ask_rename((&pane, "Chat"), window, cx);
+            });
+        opened.window.run_until_parked();
+        assert_eq!(
+            opened.window.debug_bounds("ui-dialog"),
+            None,
+            "nothing in the window"
+        );
+        assert!(
+            opened
+                .top(ui::Float::Modal)
+                .debug_bounds("ui-dialog")
+                .is_some()
+        );
+        assert_eq!(hidden_views(&opened.mock), before, "no web view was hidden");
+    }
+
+    fn page_focuses(mock: &webview::MockPlatform) -> usize {
+        let focuses = |call: &&webview::Call| matches!(call, webview::Call::Focus { .. });
+        mock.calls().iter().filter(focuses).count()
+    }
+
+    pub(super) const PLACED: webview::Bounds = webview::Bounds {
+        x: 300.0,
+        y: 40.0,
+        width: 900.0,
+        height: 700.0,
+    };
+
+    #[gpui::test]
+    fn a_pointer_move_over_a_page_moves_the_window_pointer_over_the_same_spot(
+        cx: &mut TestAppContext
+    ) {
+        let mut opened = open_shell(cx);
+        opened.window.run_until_parked();
+        let pane = opened.pane.clone();
+        let text = r#"{"sdk":1,"kind":"shell.pointer","x":3.5,"y":120.0}"#.to_owned();
+        let message = panehost::IpcMessage { pane, text };
+        let shell = opened.shell.clone();
+        opened
+            .window
+            .update(|window, cx| tell_placed(&shell, message, window, cx));
+        let position = opened.window.update(|window, _| window.mouse_position());
+        assert!(
+            position.x > gpui::px(303.5) && position.y > gpui::px(160.0),
+            "page point plus the page's origin: {position:?}"
+        );
+    }
+
+    fn tell_placed(
+        shell: &Entity<ShellView>,
+        message: panehost::IpcMessage,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        shell.update(cx, |shell, cx| {
+            shell.placement = Some((webview::ParentWindow::X11(9), PLACED));
+            shell.on_ipc(message, window, cx);
+        });
+    }
+
+    fn register_chat(opened: &mut Opened) {
+        let register = protocol::PaneFrame::Register {
+            type_id: crate::panes::kinds::core_panes::chat_type()
+                .unwrap_or_else(|error| panic!("{error}")),
+            sdk: protocol::SDK_VERSION,
+        };
+        let text = protocol::encode(&register).unwrap_or_else(|error| panic!("{error}"));
+        let pane = opened.pane.clone();
+        let message = panehost::IpcMessage { pane, text };
+        opened.shell.update(&mut opened.window, |shell, _| {
+            shell.state.handle_ipc(message)
+        });
+    }
+
+    /// A shell past its startup dialog, which holds the activation while it is open.
+    pub(super) fn open_started_shell(cx: &mut TestAppContext) -> Opened {
+        let mut opened = open_shell(cx);
+        opened.shell.update(&mut opened.window, |shell, cx| {
+            let restarted = startup::Input::Restarted;
+            shell
+                .startup
+                .update(cx, |gate, cx| gate.apply(restarted, cx));
+        });
+        opened.window.run_until_parked();
+        opened
+    }
+
+    fn open_drawn_menu(cx: &mut TestAppContext) -> Opened {
+        let mut opened = open_started_shell(cx);
+        register_chat(&mut opened);
+        let pane = opened.pane.clone();
+        let link = terminalview::Event::OpenUrl {
+            url: "https://example.com".into(),
+            position: gpui::point(gpui::px(400.0), gpui::px(200.0)),
+        };
+        opened
+            .shell
+            .update_in(&mut opened.window, |shell, window, cx| {
+                shell.on_terminal((&pane, link), window, cx);
+            });
+        opened.window.run_until_parked();
+        opened
+    }
+
+    #[gpui::test]
+    fn activating_the_window_leaves_the_keyboard_with_an_open_menu(cx: &mut TestAppContext) {
+        let mut opened = open_drawn_menu(cx);
+        let before = page_focuses(&opened.mock);
+        opened.window.deactivate_window();
+        opened.window.update(|window, _| window.activate_window());
+        opened.window.run_until_parked();
+        assert_eq!(
+            page_focuses(&opened.mock),
+            before,
+            "no page took the keyboard"
+        );
+    }
+
+    fn own_keyboard_by_page(opened: &mut Opened) {
+        opened.shell.update(&mut opened.window, |shell, cx| {
+            shell.state.apply(Vec::new());
+            shell.sync(cx);
+        });
+        opened.window.update(|window, _| window.activate_window());
+        opened.window.run_until_parked();
+    }
+
+    #[gpui::test]
+    fn a_press_in_the_top_layer_leaves_the_keyboard_with_the_page(cx: &mut TestAppContext) {
+        let mut opened = open_drawn_menu(cx);
+        own_keyboard_by_page(&mut opened);
+        let before = page_focuses(&opened.mock);
+        let away = gpui::point(gpui::px(600.0), gpui::px(400.0));
+        let none = gpui::Modifiers::none();
+        opened
+            .top(ui::Float::Popover)
+            .simulate_mouse_down(away, gpui::MouseButton::Left, none);
+        opened
+            .top(ui::Float::Popover)
+            .simulate_mouse_up(away, gpui::MouseButton::Left, none);
+        opened.window.run_until_parked();
+        assert!(
+            page_focuses(&opened.mock) > before,
+            "the shell did not claim the keyboard"
+        );
+    }
+
+    #[gpui::test]
+    fn a_menu_closed_with_escape_gives_the_keyboard_back_to_the_page(cx: &mut TestAppContext) {
+        let mut opened = open_drawn_menu(cx);
+        own_keyboard_by_page(&mut opened);
+        let before = page_focuses(&opened.mock);
+        opened.top(ui::Float::Popover).simulate_keystrokes("escape");
+        opened.window.run_until_parked();
+        assert!(
+            page_focuses(&opened.mock) > before,
+            "the page that owns the keyboard has it again"
+        );
+    }
+}

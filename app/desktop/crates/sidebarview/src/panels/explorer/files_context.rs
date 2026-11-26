@@ -1,12 +1,13 @@
 //! What the Files panel needs besides the rows to draw them: the menu scope and the open input.
 
-use sidebar::{Editing, Expansion, FileKind, FileRow, GitStatus, MenuScope, NewEntry};
+use sidebar::{CopyNote, Editing, Expansion, FileKind, FileRow, GitStatus, MenuScope, NewEntry};
 use std::rc::Rc;
 
 use crate::panels::chats::RowInput;
 use crate::panels::explorer::file_tree_entry::FileTreeEntry;
 use crate::panels::explorer::file_tree_row::FileTreeRow;
 use crate::panels::explorer::file_tree_row::TreeLook;
+use crate::panels::explorer::sticky_ancestors::sticky_ancestors;
 use crate::sidebar::RowHandler;
 
 pub(crate) struct FilesContext {
@@ -15,6 +16,8 @@ pub(crate) struct FilesContext {
     pub(crate) editing: Editing,
     pub(crate) input: Option<RowInput>,
     pub(crate) selected: Option<String>,
+    pub(crate) cut: Vec<String>,
+    pub(crate) copied: Option<(String, CopyNote)>,
     pub(crate) look: TreeLook,
 }
 
@@ -46,6 +49,8 @@ impl FilesContext {
     ) -> FileTreeRow {
         FileTreeRow {
             selected: self.selected.as_deref() == Some(entry.path.as_str()),
+            cut: self.cut.contains(&entry.path),
+            note: self.note_of(&entry.path),
             entry,
             neighbours: (0, 0),
             input,
@@ -53,6 +58,14 @@ impl FilesContext {
             scope: Rc::clone(&self.scope),
             handler: Rc::clone(&self.handler),
         }
+    }
+
+    fn note_of(
+        &self,
+        path: &str,
+    ) -> Option<CopyNote> {
+        let (copied, note) = self.copied.as_ref()?;
+        (copied == path).then_some(*note)
     }
 
     fn rename_input(
@@ -92,6 +105,21 @@ impl FilesContext {
             counts: None,
         };
         Some(self.row(draft, self.input.clone()))
+    }
+
+    pub(crate) fn stuck(
+        &self,
+        rows: &[FileTreeRow],
+        top: usize,
+    ) -> Vec<FileTreeRow> {
+        let depths: Vec<u8> = rows.iter().map(|row| row.entry.depth).collect();
+        let pinned = sticky_ancestors(&depths, top).into_iter();
+        let entries = pinned.filter_map(|at| rows.get(at).map(|row| row.entry.clone()));
+        let row = |entry| FileTreeRow {
+            selected: false,
+            ..self.row(entry, None)
+        };
+        entries.map(row).collect()
     }
 
     pub(crate) fn rows(
@@ -138,8 +166,40 @@ mod tests {
             editing,
             input: None,
             selected: None,
+            cut: Vec::new(),
+            copied: None,
             look: TreeLook::default(),
         }
+    }
+
+    #[test]
+    fn the_folder_of_the_top_row_is_pinned_above_it_without_its_selection() {
+        let selecting = FilesContext {
+            selected: Some("src".into()),
+            ..context(Editing::default())
+        };
+        let rows = selecting.rows(files());
+        let pinned = selecting.stuck(&rows, 1);
+        let drawn: Vec<(&str, bool)> = pinned
+            .iter()
+            .map(|row| (row.entry.path.as_str(), row.selected))
+            .collect();
+        assert_eq!(drawn, [("src", false)]);
+        assert!(selecting.stuck(&rows, 0).is_empty());
+    }
+
+    #[test]
+    fn a_file_staged_by_cut_is_drawn_cut_and_its_neighbours_are_not() {
+        let staged = FilesContext {
+            cut: vec!["src/a.rs".into()],
+            ..context(Editing::default())
+        };
+        let rows = staged.rows(files());
+        let cut: Vec<(&str, bool)> = rows
+            .iter()
+            .map(|row| (row.entry.path.as_str(), row.cut))
+            .collect();
+        assert_eq!(cut, [("src", false), ("src/a.rs", true)]);
     }
 
     fn files() -> Vec<FileRow> {

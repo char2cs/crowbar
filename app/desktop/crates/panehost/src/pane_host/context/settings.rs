@@ -127,10 +127,10 @@ mod tests {
     fn a_pane_write_reaches_the_shell_only_for_a_shared_key_of_a_known_version() {
         let pane = PaneId::new("p1").unwrap();
         let cases = [
-            (write(SETTINGS_FRAME_VERSION, "showMinimap"), 1),
+            (write(SETTINGS_FRAME_VERSION, "wordWrap"), 1),
             (write(SETTINGS_FRAME_VERSION, "theme"), 0),
             (write(SETTINGS_FRAME_VERSION, "sidebarPosition"), 0),
-            (write(SETTINGS_FRAME_VERSION + 1, "showMinimap"), 0),
+            (write(SETTINGS_FRAME_VERSION + 1, "wordWrap"), 0),
         ];
         for (frame, events) in cases {
             let name = format!("{frame:?}");
@@ -142,7 +142,7 @@ mod tests {
     fn a_settings_set_frame_from_a_page_becomes_a_host_event() {
         let mut f = mounted();
         let pane = PaneId::new("p1").unwrap();
-        let text = protocol::encode(&write(SETTINGS_FRAME_VERSION, "showMinimap")).unwrap();
+        let text = protocol::encode(&write(SETTINGS_FRAME_VERSION, "wordWrap")).unwrap();
         let events = f.ipc(IpcMessage {
             pane: pane.clone(),
             text,
@@ -151,7 +151,7 @@ mod tests {
             events,
             vec![HostEvent::SettingRequested {
                 pane,
-                key: SettingKey::new("showMinimap").unwrap(),
+                key: SettingKey::new("wordWrap").unwrap(),
                 value: json!(true),
             }]
         );

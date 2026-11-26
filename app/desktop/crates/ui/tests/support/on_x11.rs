@@ -1,5 +1,5 @@
-//! The patches in `app/desktop/vendor/patches/gpui` that only a real X11 window shows (CI's
-//! Xvfb), pinned so that a gpui upgrade which drops one fails here by name.
+//! What the shell needs of GPUI that only a real X11 window shows (CI's Xvfb), pinned so that a
+//! gpui upgrade which breaks one fails here by name.
 
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -59,8 +59,8 @@ struct Seen {
 /// One real window under X11 (CI's Xvfb):
 /// - `0001-x11-window-handle`: the window hands out its XCB handle, which web views parent to;
 /// - `0004-svg-inherit-color`: an icon with no colour paints in the text colour around it;
-/// - `0002-variable-weight`: the variable UI face shapes wider at a heavier weight, and an
-///   italic asked of it gets a face of its own (synthesized, the family has no italic).
+/// - font weights: the UI family shapes wider at a heavier weight, and an italic asked of it
+///   gets its oblique face.
 #[test]
 #[ignore = "needs display"]
 fn a_real_window_parents_paints_inherited_icon_colour_and_each_weight() {
@@ -120,7 +120,7 @@ fn open_window(
 }
 
 fn capture(
-    sender: Report,
+    report: Report,
     deadline: Instant,
     window: &mut Window,
     cx: &mut App,
@@ -129,7 +129,7 @@ fn capture(
     let red_pixels = xcb_window.map_or(0, red_pixels);
     if red_pixels < MIN_RED_PIXELS && Instant::now() < deadline {
         window.refresh();
-        window.on_next_frame(move |window, cx| capture(sender, deadline, window, cx));
+        window.on_next_frame(move |window, cx| capture(report, deadline, window, cx));
         return;
     }
     let ui_font = font(ui::font::UI_FAMILY);
@@ -141,7 +141,7 @@ fn capture(
         upright: cx.text_system().resolve_font(&ui_font),
         italic: cx.text_system().resolve_font(&ui_font.italic()),
     };
-    sender.send(Ok(seen)).unwrap_or_default();
+    report.send(Ok(seen)).unwrap_or_default();
     cx.quit();
 }
 
@@ -184,8 +184,15 @@ fn sample_width(
     window: &Window,
     font: gpui::Font,
 ) -> f32 {
+    text_width(window, (font, SAMPLE, SAMPLE_SIZE))
+}
+
+fn text_width(
+    window: &Window,
+    (font, text, text_size): (gpui::Font, &str, f32),
+) -> f32 {
     let run = TextRun {
-        len: SAMPLE.len(),
+        len: text.len(),
         font,
         color: Hsla::default(),
         background_color: None,
@@ -194,6 +201,6 @@ fn sample_width(
     };
     let layout = window
         .text_system()
-        .layout_line(SAMPLE, px(SAMPLE_SIZE), &[run], None);
+        .layout_line(text, px(text_size), &[run], None);
     f32::from(layout.width)
 }

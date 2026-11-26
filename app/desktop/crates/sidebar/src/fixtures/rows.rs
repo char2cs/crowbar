@@ -1,5 +1,6 @@
 //! The rows of the demo data: the reference capture and a richer tree.
 
+use crate::fixtures::DemoShell;
 use crate::shell::Activity;
 use crate::shell::AvatarTint;
 use crate::shell::Lock;
@@ -95,6 +96,30 @@ pub(crate) fn rich_rows() -> Vec<Row> {
     );
     rows.extend([working, folder, child]);
     rows
+}
+
+impl DemoShell {
+    /// A profile with no space yet: no projects, one host and an empty tree.
+    pub fn empty() -> Self {
+        Self::with_rows(Vec::new(), (0, 1))
+    }
+
+    /// The rich data with the down `devbox` shown, which has listed no space and never synced.
+    pub fn showing_down_host() -> Self {
+        Self {
+            spaces: 0,
+            sync: crate::shell::ScopeSync::Pending,
+            ..Self::on_down_host()
+        }
+    }
+
+    /// The rich data with its spaces on the down `devbox`.
+    pub fn on_down_host() -> Self {
+        Self {
+            shown: crate::shell::HostId::from("devbox"),
+            ..Self::rich()
+        }
+    }
 }
 
 #[cfg(test)]

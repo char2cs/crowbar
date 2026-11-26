@@ -12,6 +12,7 @@ struct Route {
     method: &'static str,
     path: String,
     status: u16,
+    headers: Vec<(String, String)>,
     body: String,
 }
 
@@ -48,14 +49,38 @@ impl FakeDaemon {
         status: u16,
         body: &str,
     ) {
-        let route = Route {
+        self.route(Route {
             method,
             path: path.to_owned(),
             status,
+            headers: Vec::new(),
             body: body.to_owned(),
-        };
+        });
+    }
+
+    /// Answers `method` `path` as the shell's transport does in the daemon's place: `status`, a
+    /// plain-text body and the `x-crowbar-proxy` `marker`.
+    pub fn proxied(
+        &self,
+        (method, path): (&'static str, &str),
+        status: u16,
+        marker: &str,
+    ) {
+        self.route(Route {
+            method,
+            path: path.to_owned(),
+            status,
+            headers: vec![(protocol::PROXY_HEADER.to_owned(), marker.to_owned())],
+            body: format!("the transport answered for the host: {marker}"),
+        });
+    }
+
+    fn route(
+        &self,
+        route: Route,
+    ) {
         if let Ok(mut routes) = self.routes.lock() {
-            routes.retain(|held| !(held.method == method && held.path == path));
+            routes.retain(|held| !(held.method == route.method && held.path == route.path));
             routes.push(route);
         }
     }
@@ -83,7 +108,7 @@ impl FakeDaemon {
         &self,
         method: &str,
         path: &str,
-    ) -> (u16, String) {
+    ) -> DaemonResponse {
         let routes = self.routes.lock();
         let hit = routes
             .iter()
@@ -91,12 +116,13 @@ impl FakeDaemon {
             .find(|route| route.method == method && route.path == path);
         hit.map_or_else(
             || {
-                (
-                    404,
-                    r#"{"success":false,"error":"no such route"}"#.to_owned(),
-                )
+                let missing = r#"{"success":false,"error":"no such route"}"#;
+                DaemonResponse::new(404, Vec::new(), missing.as_bytes().to_vec())
             },
-            |route| (route.status, route.body.clone()),
+            |route| {
+                let body = route.body.clone().into_bytes();
+                DaemonResponse::new(route.status, route.headers.clone(), body)
+            },
         )
     }
 }
@@ -117,12 +143,7 @@ impl DaemonTransport for FakeDaemon {
         if let Ok(mut seen) = self.seen.lock() {
             seen.push(entry);
         }
-        let (status, body) = self.find(method, path);
-        respond(Ok(DaemonResponse::new(
-            status,
-            Vec::new(),
-            body.into_bytes(),
-        )));
+        respond(Ok(self.find(method, path)));
     }
 
     fn relay_endpoint(

@@ -6,7 +6,7 @@ Layer L0 (logic, OS layer). See `docs/plans/2026-11-18-rust-tree.md` section 3.
 
 Where a link may go (stay in the app, the system browser, or refused); launching the system browser
 and the file manager; the native parent windows that web views are embedded into; the X keyboard
-focus of web views; and the switch that makes the shell an X11 client. It is the one crate of the
+focus of web views; the placing and shaping of the shell's float windows; and the switch that makes the shell an X11 client. It is the one crate of the
 desktop app that holds `unsafe` code, one minimal layer per OS: `src/linux/` and `src/macos/`.
 
 ## Public interface
@@ -20,7 +20,14 @@ desktop app that holds `unsafe` code, one minimal layer per OS: `src/linux/` and
 - `XlibParent` (Linux): an X11 window id presented as an Xlib window handle.
 - `force_x11()` (Linux): drops `WAYLAND_DISPLAY` and sets `GDK_BACKEND=x11`; `main` calls it first.
 - `InputFocus` (Linux): a connection of its own to the X server that gives the keyboard to a window
-  (`give_to`), so a web view takes keys wherever the pointer is.
+  (`give_to`), so a web view takes keys wherever the pointer is; `next_change` waits for a followed
+  window to gain or lose it.
+- `FloatPlacer` (Linux): a connection of its own to the X server that keeps a float window over its
+  owner (`cover`), off the taskbar (`pin`), clipped to its cards (`shape`: the input shape always,
+  the bounding shape only without a compositor) and focused (`focus`). `Card` is one rounded
+  rectangle of a shape, in the float window's pixels.
+- `XdndProxy` (Linux): the `XdndProxy` of a window, on a thread of its own, which hands drags from
+  other applications to the web view under the pointer and its answers back to the source.
 - `AppkitParent` (macOS): an `NSView` of an open window, held by a strong reference, presented as
   an `AppKit` window handle. `AppkitParent::find(address, main_thread)` looks the view up among the
   app's windows, so an address no window shows never becomes a parent.
@@ -28,7 +35,7 @@ desktop app that holds `unsafe` code, one minimal layer per OS: `src/linux/` and
 ## Depends on
 
 No workspace crate. External: `url` (link parsing), `raw-window-handle` (the handle types web views
-are built with), `thiserror`, `tracing`; on Linux `x11rb` (the X keyboard focus, safe Rust); on macOS `objc2`, `objc2-app-kit` and `objc2-foundation`
+are built with), `thiserror`, `tracing`; on Linux `x11rb` with its `shape` extension (the X keyboard focus and the float windows, safe Rust); on macOS `objc2`, `objc2-app-kit` and `objc2-foundation`
 (the retained `NSView` and the window lookup).
 
 ## Unsafe

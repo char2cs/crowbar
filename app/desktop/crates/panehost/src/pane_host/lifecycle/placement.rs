@@ -69,7 +69,7 @@ impl PaneHost {
         let Some(pane_type) = self.registry.get(&runtime.type_id).cloned() else {
             return self.release_slot(&visible.pane);
         };
-        if pane_type.kind == PaneKind::Native {
+        if runtime.kind == PaneKind::Native {
             return self.release_slot(&visible.pane);
         }
         if runtime.slot.is_none() && self.page_url(&pane_type, (visible, layout)) == BLANK_URL {

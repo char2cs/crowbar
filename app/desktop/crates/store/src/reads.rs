@@ -91,7 +91,7 @@ pub(crate) fn tree(
     let mut pending = pending_rows::of(&slot.store);
     pending.extend(state.local_rows.iter().cloned());
     ProjectTree {
-        rows: project_rows::of(&slot.store, project.as_str(), &pending),
+        rows: project_rows::of(&slot.store, project.as_str(), &pending, &state.icons),
         notice: notice(slot, project.as_str()),
         reach: reach_of(slot),
     }
@@ -157,7 +157,7 @@ pub(crate) fn move_targets(
 }
 
 pub(crate) fn files(state: &State) -> Vec<FileRow> {
-    file_rows::of(&state.panels)
+    file_rows::of(&state.panels, files::followed_workspace_id(state))
 }
 
 pub(crate) fn changes(state: &State) -> Changes {

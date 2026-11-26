@@ -1,7 +1,7 @@
 //! Whether a chat has a branch to review, as develop's tab row decides it.
 
 use crate::live::State;
-use crate::target::{Kind, resolve};
+use crate::rows::target::{Kind, resolve};
 
 pub(crate) fn of(
     state: &State,

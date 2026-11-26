@@ -3,7 +3,6 @@ import { Fragment, useCallback, useMemo, useRef, useState } from 'react'
 import { useStore } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { useCommandShortcut } from '@/features/keymaps/hooks/use-command-shortcut'
 import { setSyntaxHighlightingFilePath } from '@/features/editor/extensions/builtin/syntax-highlighting'
 import { isMarkdownPath } from '@/features/editor/markdown/plate/is-markdown-path'
 import { MarkdownViewToggle } from '@/features/editor/markdown/plate/markdown-view-toggle'
@@ -70,7 +69,6 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
   )
   const settings = useSettingsStore((s) => s.settings)
   const updateSetting = useSettingsStore((s) => s.updateSetting)
-  const minimapShortcut = useCommandShortcut('workbench.toggleMinimap')
   const [isViewMenuOpen, setIsViewMenuOpen] = useState(false)
   const [isLanguageOpen, setIsLanguageOpen] = useState(false)
   const [languageSearch, setLanguageSearch] = useState('')
@@ -153,13 +151,6 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
           ...settings.coreFeatures,
           breadcrumbs: !settings.coreFeatures.breadcrumbs,
         }),
-    },
-    {
-      id: 'minimap',
-      label: 'Minimap',
-      checked: settings.showMinimap,
-      shortcut: minimapShortcut,
-      onToggle: () => updateSetting('showMinimap', !settings.showMinimap),
     },
     {
       id: 'line-numbers',

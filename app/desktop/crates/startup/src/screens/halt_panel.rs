@@ -7,7 +7,7 @@ use ui::{Badge, BadgeVariant, Icon, IconName, IconWeight, ScaledText, Surface, T
 
 use crate::actions::Actions;
 use crate::command::Command;
-use crate::machine::HaltReason;
+use crate::report::HaltReason;
 use crate::screens::command_button::CommandButton;
 use crate::screens::detail_box::DetailBox;
 use crate::screens::spacing::{CARD_PADDING, GAP_MD, GAP_SM, TITLE_ICON};

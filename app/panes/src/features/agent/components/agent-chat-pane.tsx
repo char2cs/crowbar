@@ -5,6 +5,7 @@ import {
   type StagedSelection,
 } from '@/features/agent/lib/staged-selection'
 import { useStore } from 'zustand'
+import { isChatRecalled } from '@/features/hosts/lib/host-resolve-cached'
 import { TrashIcon } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { ComposerSignpost } from '@/features/agent/composer/composer-signpost'
@@ -94,8 +95,10 @@ export function AgentChatPaneBody({
 
   // A landed list turns `!known` from "not yet" into "not in it".
   const listSeeded = useChatListReady()
-  // The pane's recorded workspace vouches for the chat until the list lands.
-  const placed = useStore(windowPaneStore, (s) => s.panes[paneId]?.workspaceId != null)
+  // The pane's recorded workspace, or the last run's placement, vouches for the chat until the
+  // list lands.
+  const recorded = useStore(windowPaneStore, (s) => s.panes[paneId]?.workspaceId != null)
+  const placed = recorded || isChatRecalled(chatId)
   const activeProviderId = useChatField(shownChatId, (c) => c?.activeProviderId ?? '')
   // On 'terminal' the daemon has no api connection and refuses a Crowbar compaction.
   const onTerminalSurface = useChatField(shownChatId, (c) => c?.surface === 'terminal')
@@ -421,6 +424,10 @@ export function AgentChatPaneBody({
             terminalRef={terminalApiRef}
             onStartSession={startSession}
             offline={offline}
+            // Under the floating header unless it is a stacked split's lower half.
+            headerClearancePx={
+              belowOverlayHeader && !(splitting && splitStacked) ? HEADER_ROW_HEIGHT_PX : 0
+            }
           />
         </div>
 

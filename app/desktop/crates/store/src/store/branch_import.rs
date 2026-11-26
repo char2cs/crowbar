@@ -29,12 +29,12 @@ use crate::live::Hub;
 use crate::live::OutcomeSink;
 use crate::live::State;
 use crate::plan::Plan;
+use crate::rows::target::resolve;
 use crate::store::branch_import::entry::Entry;
 use crate::store::branch_import::held::Held;
 use crate::store::branch_import::import_scope::ImportScope;
 use crate::store::branch_import::pr_link::PrLink;
 use crate::store::settings_core::Loadable;
-use crate::target::resolve;
 use crate::{plan::runner, store::branch_import::rows as branch_rows};
 
 /// The branches of one repository's remote, loaded once and shown by the import dialog.

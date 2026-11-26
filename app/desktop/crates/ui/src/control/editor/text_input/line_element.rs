@@ -1,22 +1,29 @@
 //! Paints the text, selection and caret of a text field and registers its input handler.
 
+pub(super) mod caret_scroll;
+pub(super) mod layout;
+pub(super) mod line_surface;
+mod scroll;
+
 use std::ops::Range;
 
 use gpui::{
     App, Bounds, Element, ElementId, ElementInputHandler, Entity, GlobalElementId, Hsla,
-    InspectorElementId, IntoElement, LayoutId, Pixels, ShapedLine, SharedString, Style, TextAlign,
+    InspectorElementId, LayoutId, Pixels, Point, ShapedLine, SharedString, Style, TextAlign,
     TextRun, Window, fill, point, px, relative, size,
 };
 
 use crate::control::editor::field::Frame;
 use crate::control::editor::field::capture_pointer;
+use crate::control::editor::field::native_selection;
 use crate::control::editor::field::{band_frame, blinks, caret_frame, runs_for, tend};
-use crate::control::editor::text_input::line_surface::LineSurface;
+use crate::control::editor::text_input::line_element::caret_scroll::CARET_WIDTH;
+use crate::control::editor::text_input::line_element::line_surface::LineSurface;
 use crate::foundation::Palette;
 use crate::foundation::Pose;
+use crate::foundation::WindowActivity;
 
 pub(crate) const PLACEHOLDER_OPACITY: f32 = 0.72;
-pub(crate) const CARET_WIDTH: f32 = 1.0;
 
 pub(crate) struct LineElement<S: LineSurface> {
     input: Entity<S>,
@@ -74,7 +81,7 @@ impl<S: LineSurface> LineElement<S> {
             return caret_frame(line, fill(caret, self.palette.foreground()));
         }
         let band = Bounds::new(origin, size(to - from, bounds.size.height));
-        band_frame(line, fill(band, self.palette.editor_selection()))
+        band_frame(line, fill(band, native_selection()))
     }
 
     fn shape(
@@ -102,14 +109,6 @@ impl<S: LineSurface> LineElement<S> {
             &runs,
             None,
         )
-    }
-}
-
-impl<S: LineSurface> IntoElement for LineElement<S> {
-    type Element = Self;
-
-    fn into_element(self) -> Self::Element {
-        self
     }
 }
 
@@ -148,7 +147,8 @@ impl<S: LineSurface> Element for LineElement<S> {
         cx: &mut App,
     ) -> Self::PrepaintState {
         let line = self.shape(window, cx);
-        let bounds = self.aligned(bounds, &line, cx);
+        let visible = self.aligned(bounds, &line, cx);
+        let (bounds, _) = scroll::place(self.input.read(cx), (visible, &line));
         let selection = self.input.read(cx).selected_range();
         self.frame((line, bounds), &selection)
     }
@@ -163,7 +163,8 @@ impl<S: LineSurface> Element for LineElement<S> {
         window: &mut Window,
         cx: &mut App,
     ) {
-        let bounds = self.aligned(bounds, &prepaint.line, cx);
+        let visible = self.aligned(bounds, &prepaint.line, cx);
+        let (bounds, scroll) = scroll::place(self.input.read(cx), (visible, &prepaint.line));
         capture_pointer(&self.input, window, cx);
         let focus = self.input.read(cx).input_focus();
         window.handle_input(
@@ -171,11 +172,30 @@ impl<S: LineSurface> Element for LineElement<S> {
             ElementInputHandler::new(bounds, self.input.clone()),
             cx,
         );
+        let blinks = window.with_content_mask(Some(scroll::clip(visible)), |window| {
+            self.draw((prepaint, bounds.origin), window, cx)
+        });
+        let line = prepaint.line.clone();
+        self.input.update(cx, |input, cx| {
+            input.record_layout(line, (bounds, scroll));
+            tend(input, blinks, cx);
+        });
+    }
+}
+
+impl<S: LineSurface> LineElement<S> {
+    fn draw(
+        &self,
+        (prepaint, origin): (&mut Frame, Point<Pixels>),
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Pose {
+        let focus = self.input.read(cx).input_focus();
         if let Some(selection) = prepaint.selection.take() {
             window.paint_quad(selection);
         }
         let painted = prepaint.line.paint(
-            bounds.origin,
+            origin,
             window.line_height(),
             TextAlign::Left,
             None,
@@ -183,18 +203,14 @@ impl<S: LineSurface> Element for LineElement<S> {
             cx,
         );
         debug_assert!(painted.is_ok(), "shaped line failed to paint");
-        let lit = focus.is_focused(window) && window.is_window_active();
+        let lit = focus.is_focused(window) && WindowActivity::of(window, cx);
         let caret = prepaint.caret.take().filter(|_| lit);
         let blinks = blinks(Pose::from(caret.is_some()), cx);
         let shown = self.input.read(cx).blink().is_shown() || blinks == Pose::Off;
         if let Some(caret) = caret.filter(|_| shown) {
             window.paint_quad(caret);
         }
-        let line = prepaint.line.clone();
-        self.input.update(cx, |input, cx| {
-            input.record_layout(line, bounds);
-            tend(input, blinks, cx);
-        });
+        blinks
     }
 }
 
@@ -250,6 +266,24 @@ mod tests {
         let back = draws.get();
         cx.executor().advance_clock(GTK_DEFAULT_PHASE);
         assert_eq!(draws.get(), back + 1, "and blinks again");
+    }
+
+    #[gpui::test]
+    fn the_caret_blinks_while_a_child_window_holds_the_keyboard(cx: &mut TestAppContext) {
+        let (_, draws, cx) = drawn_field(cx);
+        cx.deactivate_window();
+        cx.update(|window, cx| {
+            let id = window.window_handle().window_id();
+            crate::WindowActivity::gained(id, cx);
+        });
+        cx.run_until_parked();
+        let settled = draws.get();
+        cx.executor().advance_clock(GTK_DEFAULT_PHASE);
+        assert_eq!(
+            draws.get(),
+            settled + 1,
+            "the window still holds the keyboard"
+        );
     }
 
     #[gpui::test]

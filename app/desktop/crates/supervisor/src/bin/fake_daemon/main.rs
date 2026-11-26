@@ -6,6 +6,8 @@
 //! `deaf` (serves, and ignores SIGTERM) or `late` (answers health with 503 until `<socket>.serve`
 //! exists, dialling `<socket>.spent` after each such answer so a test hears it).
 
+mod answer_event;
+mod journal_sink;
 mod late;
 
 use std::io::Write;
@@ -14,6 +16,8 @@ use std::process::ExitCode;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::signal::unix::{Signal, SignalKind, signal};
+
+use crate::answer_event::AnswerEvent;
 
 const OK: &str = r#"{"success":true,"data":{"status":"ok","pid":PID}}"#;
 const MIGRATING: &str = r#"{"success":true,"data":{"status":"migrating"}}"#;
@@ -84,7 +88,7 @@ async fn answer(
     let late = unserved.is_some();
     let reply = unserved.unwrap_or_else(|| reply_body(&head, mode, served));
     if let Err(error) = stream.write_all(reply.as_bytes()).await {
-        tracing::debug!("the client left before its answer: {error}");
+        journal_sink::emit(&AnswerEvent::ClientLeft { error: &error });
     }
     if late {
         late::tell_spent(socket.as_deref());

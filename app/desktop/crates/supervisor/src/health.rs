@@ -1,6 +1,7 @@
 mod announced;
 mod attempt;
 pub(crate) mod client;
+mod health_event;
 mod migration_progress;
 mod probe;
 
@@ -18,6 +19,7 @@ use crate::error::Error;
 use crate::health::announced::Announced;
 use crate::health::attempt::Attempt;
 use crate::health::client::Dial;
+use crate::health::health_event::HealthEvent;
 
 const HEALTH_BODY_LIMIT: usize = 1024 * 1024;
 const HEALTH_TARGET: &str = "/v0/health";
@@ -123,14 +125,12 @@ async fn attempt<D: Dial>(
             Attempt::Waiting
         },
         Ok(Err(error)) => {
-            tracing::debug!("daemon health: {error}");
+            crate::journal_sink::emit(&HealthEvent::Unreadable { error: &error });
             Attempt::Failed
         },
         Err(elapsed) => {
-            tracing::debug!(
-                "daemon health: no answer in {:?} ({elapsed})",
-                timings.health_probe_timeout
-            );
+            let after = timings.health_probe_timeout;
+            crate::journal_sink::emit(&HealthEvent::Unanswered { after, elapsed });
             Attempt::Failed
         },
     }

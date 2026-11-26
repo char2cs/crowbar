@@ -12,6 +12,7 @@ use crate::control::lifecycle::Lifecycle;
 use crate::control::payload::Breakpoint;
 use crate::control::payload::DisplayText;
 use crate::control::payload::ExtensionStatus;
+use crate::control::payload::PairedHost;
 use crate::control::payload::PaneState;
 use crate::control::payload::Params;
 use crate::identity::ExtensionId;
@@ -105,6 +106,12 @@ pub enum ShellFrame {
         /// The values.
         values: SettingValues,
     },
+    /// `hosts`: the hosts the shell paired, which a page reaches as `crowbar://<id>`; sent on
+    /// mount and whenever one is paired or removed. It is the whole list each time.
+    Hosts {
+        /// In the order they were paired.
+        hosts: Vec<PairedHost>,
+    },
     /// `review.viewed`: a workspace's viewed marks, path to signature; sent to its review panes
     /// on mount and whenever a mark changes. It is the whole map each time.
     #[serde(rename = "review.viewed")]
@@ -120,6 +127,25 @@ pub enum ShellFrame {
         /// Path relative to the repository.
         path: String,
     },
+    /// `document.text`: the text of the document a file pane's page shows, which the shell owns;
+    /// sent on mount and whenever it changes from outside the page.
+    #[serde(rename = "document.text")]
+    DocumentText {
+        /// The whole text.
+        text: String,
+    },
+    /// `files.dropped`: files from the operating system were dropped on the pane's page, which
+    /// gets no drop event of its own; it gives them to the element at the point, as develop's
+    /// pages do with Tauri's drop event.
+    #[serde(rename = "files.dropped")]
+    FilesDropped {
+        /// The dropped files, absolute.
+        paths: Vec<String>,
+        /// Distance from the page's left edge, in CSS pixels.
+        x: f64,
+        /// Distance from the page's top edge, in CSS pixels.
+        y: f64,
+    },
 }
 
 #[cfg(test)]
@@ -133,6 +159,9 @@ mod tests {
             r#"{"kind":"review.reveal","path":"src/a.ts"}"#,
             r#"{"kind":"breakpoints","cleared":["sm","md"]}"#,
             r#"{"kind":"chat.zoom","percent":120}"#,
+            r#"{"kind":"hosts","hosts":[{"id":"h1","name":"rigremote","endpoint":"127.0.0.1:4747"}]}"#,
+            r#"{"kind":"document.text","text":"Title\n"}"#,
+            r#"{"kind":"files.dropped","paths":["/tmp/a b.rs"],"x":12.5,"y":40.0}"#,
         ];
         for text in cases {
             let frame: ShellFrame = serde_json::from_str(text).unwrap();

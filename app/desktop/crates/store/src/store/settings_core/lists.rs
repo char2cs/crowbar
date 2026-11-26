@@ -3,6 +3,8 @@
 use std::sync::Arc;
 
 use daemonapi::Call;
+
+use crate::live::{Outcome, OutcomeSink};
 use settings::{Error, RecordCommand, Records};
 
 use crate::store::settings_core::agents::{descriptor_records, records as agent_records};
@@ -14,11 +16,17 @@ use crate::store::settings_core::{
 
 async fn end_session(
     client: daemonapi::Client,
-    path: String,
+    (path, title): (String, String),
+    outcome: OutcomeSink,
 ) {
-    if let Err(error) = client.send(Call::post(path)).await {
-        tracing::warn!(%error, "a session could not be ended");
-    }
+    let Err(error) = client.send(Call::post(path)).await else {
+        return;
+    };
+    tracing::warn!(%error, "a session could not be ended");
+    outcome(Outcome::Refused {
+        title: format!("Couldn't kill the agent on {title}"),
+        reason: crate::Error::Daemon(error).reason(),
+    });
 }
 
 impl SettingsCore {
@@ -70,8 +78,13 @@ impl SettingsCore {
             .hub
             .read(|state| state.client_of_chat(chat))
             .ok_or_else(|| Error::Unavailable("this session is not on a known host".to_owned()))?;
+        let title = self
+            .hub
+            .read(|state| live_records::session_title(state, chat));
         let path = format!("/v0/chats/{chat}/kill");
-        self.handle.spawn(end_session(client, path));
+        let outcome = Arc::clone(&self.outcome);
+        self.handle
+            .spawn(end_session(client, (path, title), outcome));
         Ok(())
     }
 }
@@ -79,6 +92,7 @@ impl SettingsCore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::live::Outcome;
     use crate::test_support::{KILL, KILL_PATH, SettingsRig};
 
     fn kill() -> RecordCommand {
@@ -87,11 +101,33 @@ mod tests {
         }
     }
 
+    async fn until_told(rig: &SettingsRig) {
+        while rig.told.lock().unwrap().is_empty() {
+            tokio::task::yield_now().await;
+        }
+    }
+
+    async fn first_told(rig: &SettingsRig) -> Option<Outcome> {
+        let deadline = std::time::Duration::from_secs(5);
+        tokio::time::timeout(deadline, until_told(rig)).await.ok()?;
+        rig.told.lock().unwrap().first().cloned()
+    }
+
     #[tokio::test]
-    async fn a_session_is_killed_on_its_host() {
+    async fn a_session_is_killed_on_its_host_and_a_refusal_is_a_toast_under_develop_s_title() {
         let rig = SettingsRig::open(&[KILL]);
         rig.core.apply("sessions", "bo", kill()).unwrap();
         rig.called(KILL_PATH).await;
+        let refused = SettingsRig::open(&[]);
+        refused
+            .daemon
+            .answer(("POST", KILL_PATH), 500, r#"{"error":"rig fault"}"#);
+        refused.core.apply("sessions", "bo", kill()).unwrap();
+        let told = first_told(&refused).await;
+        assert!(
+            matches!(&told, Some(Outcome::Refused { title, .. }) if title == "Couldn't kill the agent on Idea"),
+            "{told:?}"
+        );
     }
 
     #[tokio::test]

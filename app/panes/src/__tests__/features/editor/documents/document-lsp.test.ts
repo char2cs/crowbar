@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { editor as monacoEditor, languages, Uri } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import { MONACO_LOAD_MS, openTestDocument } from '@/__tests__/__fixtures__/documents'
 import { attachDocumentLsp } from '@/features/editor/documents/document-lsp'
@@ -89,6 +89,20 @@ function show(host: EditorHost, paneId: string, doc: DocumentRef) {
 }
 
 let host: EditorHost
+beforeAll(async () => {
+  const warm = await loadEditorHost()
+  const doc = workspaceRef('w0', 'warm.ts')
+  vi.useFakeTimers()
+  await openTestDocument(doc, 'let warm = 0')
+  warm.manager.mountPane('warm', document.body.appendChild(document.createElement('div')))
+  applyActiveBuffer({ manager: warm.manager, registry: activeEditors }, 'warm', { doc })
+  await vi.runOnlyPendingTimersAsync()
+  warm.manager.unmountPane('warm')
+  warm.documents.release(documentUri(doc))
+  document.body.replaceChildren()
+  vi.useRealTimers()
+}, MONACO_LOAD_MS)
+
 beforeEach(async () => {
   host = await loadEditorHost()
   resetWindowPaneStoreForTests()

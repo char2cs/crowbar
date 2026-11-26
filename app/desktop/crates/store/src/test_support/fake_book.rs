@@ -91,6 +91,10 @@ pub(crate) fn fleet_and_desk(
     hub: &std::sync::Arc<crate::live::Hub>
 ) -> (std::sync::Arc<crate::live::Fleet>, crate::live::HostDesk) {
     let transport: std::sync::Arc<dyn protocol::DaemonTransport> = super::FakeDaemon::shared();
-    let fleet = crate::live::Fleet::new(&tokio::runtime::Handle::current(), hub, &transport);
+    let fleet = crate::live::Fleet::new(
+        &tokio::runtime::Handle::current(),
+        hub,
+        (&transport, std::sync::Arc::new(|_| {})),
+    );
     (fleet, desk())
 }

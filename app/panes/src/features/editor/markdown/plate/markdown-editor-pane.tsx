@@ -1,15 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-// `Value` resolves from `platejs` (re-exported from `@platejs/slate`), not
-// from `platejs/react` — the react entrypoint's barrel does not re-export it
-// (see markdown-serialization.ts for the same note).
-import type { Value } from 'platejs'
-import { Plate, PlateContent, usePlateEditor } from 'platejs/react'
 import type { DocumentRef } from '@/lib/api/documents'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { useBufferById } from '@/features/workspace/stores/hooks/use-buffer-store'
-import { usePreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
 import { useWorkspaceReadOnly } from '@/features/editor/hooks/use-workspace-read-only'
-import { MarkdownAssetContext, type MarkdownAssetInfo } from './markdown-asset'
 import { isEditorContent } from '@/features/panes/types/pane-content'
 import { documentRefOf, documentUri, refFromUri } from '@/features/editor/documents/document-ref'
 import {
@@ -19,77 +12,62 @@ import {
   replaceDocumentText,
 } from '@/features/editor/documents/document-text'
 import { useDocumentText } from '@/features/editor/documents/use-document-text'
-import { LinkWorkspaceContext } from '@/lib/markdown-link'
 import { toast } from '@/features/window/stores/toast-store'
 import { useMarkdownViewStore } from './markdown-view-store'
+import { MarkdownViewToggle } from './markdown-view-toggle'
+// `Value` resolves from `platejs` (re-exported from `@platejs/slate`), not
+// from `platejs/react` — the react entrypoint's barrel does not re-export it
+// (see markdown-serialization.ts for the same note).
+import type { Value } from 'platejs'
+import { Plate, PlateContent, usePlateEditor } from 'platejs/react'
+import { usePreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
+import { LinkWorkspaceContext } from '@/lib/markdown-link'
+import { MarkdownAssetContext, type MarkdownAssetInfo } from './markdown-asset'
 import { joinFrontmatter, splitFrontmatter } from './markdown-frontmatter'
 import { markdownPlugins } from './markdown-plugins'
 import type { MarkdownSource } from './markdown-source'
 import { parseMarkdown, plateValueToMarkdown } from './markdown-serialization'
-import { MarkdownViewToggle } from './markdown-view-toggle'
 // Reading typography for the Plate/Slate DOM, scoped under `.crowbar-markdown-editor`. Not
 // `../styles.css`: that one targets the HTML preview's DOM.
 import './markdown-editor.css'
-
 // Serializing the whole document per keystroke would stall typing.
 const SINK_DELAY_MS = 150
 
-interface MarkdownEditorPaneProps {
-  paneId: string
-  bufferId: string
-}
-
-export function MarkdownEditorPane({ paneId, bufferId }: MarkdownEditorPaneProps) {
-  // `paneId` isn't consumed yet — it's the Task-6 integration point (pane-scoped
-  // rich/source toggle affordance keyed off the owning pane rather than just the
-  // buffer). Accepted now so the call site doesn't need to change later.
-  void paneId
-
-  // `null` (not `''`) when the document is not open: the child reads it as "nothing to sync"
-  // rather than adopting an empty document, so a vanishing buffer never blanks the screen.
-  const buffer = useBufferById(bufferId)
-  const uri =
-    buffer && isEditorContent(buffer) && buffer.path ? documentUri(documentRefOf(buffer)) : null
-  const doc = useMemo(() => (uri ? refFromUri(uri) : null), [uri])
-  const content = useDocumentText(doc)
-
-  const fallbackToSource = useCallback(() => {
-    useMarkdownViewStore.getState().setView(bufferId, 'source')
-    toast.error('Rich markdown editor failed', 'Switched to source view for this file.')
-  }, [bufferId])
-
-  return (
-    // The toggle lives OUTSIDE the ErrorBoundary, in this outer component, so
-    // it stays reachable (and lets the user bail to source view) even if the
-    // inner rich editor is mid-crash — it must not depend on the child's state.
-    <div className="relative h-full">
-      {/* In the reading column's right gutter; z-[60] keeps it above the floating selection
-          toolbar (z-40), which comes later in the tree. */}
-      <div className="absolute right-2 top-2 z-[60] rounded-md bg-background/80 backdrop-blur-sm">
-        <MarkdownViewToggle bufferId={bufferId} />
-      </div>
-      {/* Parsing runs in the child, since a boundary never catches its own render. Keyed by
-          buffer so a `.md` switch cannot write A's text into B, and a crash in one file's
-          tab does not poison the next. */}
-      <ErrorBoundary key={bufferId} fallback={<FallbackToSource onMount={fallbackToSource} />}>
-        <MarkdownRichEditor bufferId={bufferId} doc={doc} content={content} />
-      </ErrorBoundary>
-    </div>
-  )
-}
-
-function MarkdownRichEditor({
-  bufferId,
-  doc,
-  content,
-}: {
-  bufferId: string
-  doc: DocumentRef | null
+/** Where a rich Markdown editor reads and writes its document's text. */
+export interface RichMarkdownDocument {
+  /** The key its reading position is kept under. */
+  scrollKey: string
+  /** The document's text; null while it is not known. */
   content: string | null
-}) {
+  /** Writes the editor's text into the document; null when there is no document to write. */
+  write: ((text: string) => void) | null
+  /** Registers the editor's pending write, so a reader of the text runs it first; returns the stop. */
+  holdPending: (flush: () => void) => () => void
+  /** Hears text replaced under the editor from outside, at once; returns the stop. */
+  followExternal?: (adopt: (text: string) => void) => () => void
+  /** The document local images resolve beside; null for one not on disk. */
+  asset: MarkdownAssetInfo | null
+  /** The workspace its links open in; null for a host document. */
+  linkWorkspace: string | null
+  /** The workspace is locked: the text shows but takes no edits. */
+  readOnly: boolean
+}
+
+/** Plate's WYSIWYG view of a Markdown document: serializes edits back after a pause, adopts text
+ *  replaced under it while pristine, and flushes its pending write whenever a reader asks. */
+export function RichMarkdownEditor({
+  scrollKey,
+  content,
+  write,
+  holdPending,
+  followExternal,
+  asset: assetInfo,
+  linkWorkspace,
+  readOnly,
+}: RichMarkdownDocument) {
   // Leading YAML frontmatter never reaches Plate (a `---` block parses as a thematic break and
   // setext heading); it is carried verbatim and re-attached in `flush()`. Deserialized once, so a
-  // re-parse never fights the cursor: replaced text goes through adopt, a new bufferId remounts.
+  // re-parse never fights the cursor: replaced text goes through adopt, a new document remounts.
   const initial = useMemo<{ frontmatter: string; initialValue: Value; source: MarkdownSource }>(
     () => {
       const { frontmatter, body } = splitFrontmatter(content ?? '')
@@ -110,27 +88,6 @@ function MarkdownRichEditor({
   const sourceRef = useRef(initial.source)
 
   const editor = usePlateEditor({ plugins: markdownPlugins, value: initial.initialValue })
-
-  // The document this buffer holds, so the `html` node can resolve local
-  // `<img>` srcs (README logos etc.) beside it. `null` for an unsaved buffer —
-  // the node then leaves images at their raw src instead of guessing.
-  const assetBuffer = useBufferById(bufferId)
-  const readOnly = useWorkspaceReadOnly(
-    assetBuffer && isEditorContent(assetBuffer) ? assetBuffer.workspaceId : null,
-  )
-  const assetUri =
-    assetBuffer && isEditorContent(assetBuffer) && !assetBuffer.isVirtual
-      ? documentUri(documentRefOf(assetBuffer))
-      : null
-  const assetInfo = useMemo<MarkdownAssetInfo | null>(() => {
-    const doc = assetUri ? refFromUri(assetUri) : null
-    return doc ? { doc } : null
-  }, [assetUri])
-  // A host document's links belong to no workspace; an unsaved buffer's to its own.
-  const linkWorkspace =
-    assetBuffer && !(isEditorContent(assetBuffer) && assetBuffer.authority === 'host')
-      ? assetBuffer.workspaceId
-      : null
 
   // Baseline: what a no-edit flush would write, so a pristine flush (or a selection-only onChange)
   // is a no-op. Not `initialValue`: Plate's init rewrites children (an empty doc gains a U+200B
@@ -158,7 +115,7 @@ function MarkdownRichEditor({
       clearTimeout(timerRef.current)
       timerRef.current = null
     }
-    if (!doc) return // the buffer is gone: nothing to write into
+    if (!write) return // the document is gone: nothing to write into
     const md = joinFrontmatter(
       frontmatterRef.current,
       plateValueToMarkdown(editor.children as Value, sourceRef.current),
@@ -168,15 +125,13 @@ function MarkdownRichEditor({
       // rewrite) a file the user never touched.
       return
     }
-    // Pin the write to THIS pane's document rather than the active buffer —
-    // this pane may not be active when a flush lands (tab-switch race).
-    replaceDocumentText(doc, md)
+    write(md)
     baselineRef.current = md
     // The document is about to hand this exact text back as `content`; record
     // it so the resync recognises the echo instead of re-parsing it (which
     // would reset the caret mid-typing).
     syncedContentRef.current = md
-  }, [doc, editor])
+  }, [write, editor])
 
   const onChange = useCallback(() => {
     // A selection-only change (click, arrow key) cannot change the serialization, so it arms no
@@ -216,13 +171,7 @@ function MarkdownRichEditor({
 
   // External text lands at once, before a keystroke can dirty the editor; a
   // second pane's edits arrive through `content`, at most every 150 ms.
-  useEffect(() => {
-    if (!doc) return
-    return onExternalText(doc, () => {
-      const text = documentText(doc)
-      if (text !== null) adopt(text)
-    })
-  }, [doc, adopt])
+  useEffect(() => followExternal?.(adopt), [followExternal, adopt])
 
   useEffect(() => {
     if (content !== null) adopt(content)
@@ -232,18 +181,18 @@ function MarkdownRichEditor({
   // preview (Monaco's retained widget restores its own). Ready once `content !== null`: only a
   // deserialized document is tall enough to scroll, and restoring into a short box clamps to 0.
   const scrollRef = useRef<HTMLDivElement>(null)
-  usePreservedScroll(scrollRef, bufferId, content !== null)
+  usePreservedScroll(scrollRef, scrollKey, content !== null)
 
   // Every reader of the document's text (a save, a view toggle) runs the
   // pending write first, and unmount flushes, so a Cmd+S or a tab switch never
   // races a stale in-memory value.
   useEffect(() => {
-    const stop = doc ? registerPendingWriter(doc, flush) : null
+    const stop = holdPending(flush)
     return () => {
-      stop?.()
+      stop()
       flush()
     }
-  }, [doc, flush])
+  }, [holdPending, flush])
 
   return (
     <MarkdownAssetContext.Provider value={assetInfo}>
@@ -290,9 +239,117 @@ function MarkdownFrontmatterBanner({ frontmatter }: { frontmatter: string }) {
   )
 }
 
-// Rendered by the ErrorBoundary when Plate throws: switches this buffer to the
-// Monaco source view and surfaces a toast (spec: fall back to Monaco).
-function FallbackToSource({ onMount }: { onMount: () => void }) {
+interface MarkdownEditorPaneProps {
+  paneId: string
+  bufferId: string
+}
+
+export function MarkdownEditorPane({ paneId, bufferId }: MarkdownEditorPaneProps) {
+  // `paneId` isn't consumed yet — it's the Task-6 integration point (pane-scoped
+  // rich/source toggle affordance keyed off the owning pane rather than just the
+  // buffer). Accepted now so the call site doesn't need to change later.
+  void paneId
+
+  // `null` (not `''`) when the document is not open: the child reads it as "nothing to sync"
+  // rather than adopting an empty document, so a vanishing buffer never blanks the screen.
+  const buffer = useBufferById(bufferId)
+  const uri =
+    buffer && isEditorContent(buffer) && buffer.path ? documentUri(documentRefOf(buffer)) : null
+  const doc = useMemo(() => (uri ? refFromUri(uri) : null), [uri])
+  const content = useDocumentText(doc)
+
+  const fallbackToSource = useCallback(() => {
+    useMarkdownViewStore.getState().setView(bufferId, 'source')
+    toast.error('Rich markdown editor failed', 'Switched to source view for this file.')
+  }, [bufferId])
+
+  return (
+    // The toggle lives OUTSIDE the ErrorBoundary, in this outer component, so
+    // it stays reachable (and lets the user bail to source view) even if the
+    // inner rich editor is mid-crash — it must not depend on the child's state.
+    <div className="relative h-full">
+      {/* In the reading column's right gutter; z-[60] keeps it above the floating selection
+          toolbar (z-40), which comes later in the tree. */}
+      <div className="absolute right-2 top-2 z-[60] rounded-md bg-background/80 backdrop-blur-sm">
+        <MarkdownViewToggle bufferId={bufferId} />
+      </div>
+      {/* Parsing runs in the child, since a boundary never catches its own render. Keyed by
+          buffer so a `.md` switch cannot write A's text into B, and a crash in one file's
+          tab does not poison the next. */}
+      <ErrorBoundary key={bufferId} fallback={<FallbackToSource onMount={fallbackToSource} />}>
+        <MarkdownRichEditor bufferId={bufferId} doc={doc} content={content} />
+      </ErrorBoundary>
+    </div>
+  )
+}
+
+/** The rich editor over `doc`, the document `bufferId` holds in this page's editor. */
+function MarkdownRichEditor({
+  bufferId,
+  doc,
+  content,
+}: {
+  bufferId: string
+  doc: DocumentRef | null
+  content: string | null
+}) {
+  // The document this buffer holds, so the `html` node can resolve local
+  // `<img>` srcs (README logos etc.) beside it. `null` for an unsaved buffer —
+  // the node then leaves images at their raw src instead of guessing.
+  const assetBuffer = useBufferById(bufferId)
+  const readOnly = useWorkspaceReadOnly(
+    assetBuffer && isEditorContent(assetBuffer) ? assetBuffer.workspaceId : null,
+  )
+  const assetUri =
+    assetBuffer && isEditorContent(assetBuffer) && !assetBuffer.isVirtual
+      ? documentUri(documentRefOf(assetBuffer))
+      : null
+  const asset = useMemo<MarkdownAssetInfo | null>(() => {
+    const ref = assetUri ? refFromUri(assetUri) : null
+    return ref ? { doc: ref } : null
+  }, [assetUri])
+  // A host document's links belong to no workspace; an unsaved buffer's to its own.
+  const linkWorkspace =
+    assetBuffer && !(isEditorContent(assetBuffer) && assetBuffer.authority === 'host')
+      ? assetBuffer.workspaceId
+      : null
+  // Pinned to THIS pane's document rather than the active buffer: this pane may not be active
+  // when a flush lands (tab-switch race).
+  const write = useMemo(
+    () => (doc ? (text: string) => replaceDocumentText(doc, text) : null),
+    [doc],
+  )
+  const holdPending = useCallback(
+    (flush: () => void) => (doc ? registerPendingWriter(doc, flush) : () => {}),
+    [doc],
+  )
+  const followExternal = useCallback(
+    (adopt: (text: string) => void) => {
+      if (!doc) return () => {}
+      return onExternalText(doc, () => {
+        const text = documentText(doc)
+        if (text !== null) adopt(text)
+      })
+    },
+    [doc],
+  )
+  return (
+    <RichMarkdownEditor
+      scrollKey={bufferId}
+      content={content}
+      write={write}
+      holdPending={holdPending}
+      followExternal={followExternal}
+      asset={asset}
+      linkWorkspace={linkWorkspace}
+      readOnly={readOnly}
+    />
+  )
+}
+
+/** Rendered by the ErrorBoundary when Plate throws: `onMount` switches the document to its source
+ *  view and says so. */
+export function FallbackToSource({ onMount }: { onMount: () => void }) {
   useEffect(() => {
     onMount()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount

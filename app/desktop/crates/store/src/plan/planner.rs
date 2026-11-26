@@ -11,7 +11,7 @@ use crate::plan::Plan;
 use crate::plan::removal::Removal;
 use crate::plan::{
     agent as plan_agent, create as plan_create,
-    create::{folder as plan_folder, landing},
+    create::{draft as plan_draft, folder as plan_folder, landing, new_chat as plan_new_chat},
     edit as plan_edit, icon as plan_icon, merge as plan_merge, relocate as plan_move,
 };
 use crate::reads::active_project;
@@ -24,6 +24,7 @@ pub(crate) fn plan(
     let failure = crate::plan::failure_title(state, command);
     let plan = match command {
         Command::NewThread(_)
+        | Command::NewChat(_)
         | Command::NewTerminalThread(_)
         | Command::Thread(_)
         | Command::TerminalThread(_)
@@ -38,22 +39,54 @@ pub(crate) fn plan(
     plan.map(|plan| plan.failing_as(failure))
 }
 
+fn drafts(
+    state: &State,
+    command: &Command,
+) -> bool {
+    landing::of(state, command) == Surface::Default
+}
+
+fn not_data(command: &Command) -> PlanError {
+    PlanError::NotADataCommand(format!("{command:?}"))
+}
+
+fn thread(
+    (state, command): (&State, &Command),
+    id: &str,
+) -> Result<Plan, PlanError> {
+    match command {
+        Command::NewThread(project) if drafts(state, command) => {
+            plan_draft::home(state, project, id)
+        },
+        Command::NewThread(project) => {
+            plan_create::home_thread(state, project, id, Surface::Default)
+        },
+        Command::NewChat(project) => plan_new_chat::plan(state, project, id),
+        Command::NewTerminalThread(project) => {
+            plan_create::home_thread(state, project, id, Surface::Terminal)
+        },
+        Command::Thread(row) if drafts(state, command) => {
+            plan_draft::or_thread(state, row.as_str(), id)
+        },
+        Command::Thread(row) => plan_create::thread(state, row.as_str(), id, Surface::Default),
+        Command::TerminalThread(row) => {
+            plan_create::thread(state, row.as_str(), id, Surface::Terminal)
+        },
+        other => Err(not_data(other)),
+    }
+}
+
 fn creation(
     (state, files): (&State, &dyn Files),
     command: &Command,
     id: &str,
 ) -> Result<Plan, PlanError> {
     match command {
-        Command::NewThread(project) => {
-            plan_create::home_thread(state, project, id, Surface::Default)
-        },
-        Command::NewTerminalThread(project) => {
-            plan_create::home_thread(state, project, id, Surface::Terminal)
-        },
-        Command::Thread(row) => plan_create::thread(state, row.as_str(), id, Surface::Default),
-        Command::TerminalThread(row) => {
-            plan_create::thread(state, row.as_str(), id, Surface::Terminal)
-        },
+        Command::NewThread(_)
+        | Command::NewChat(_)
+        | Command::NewTerminalThread(_)
+        | Command::Thread(_)
+        | Command::TerminalThread(_) => thread((state, command), id),
         Command::Fork { parent, name } => plan_create::fork(state, (parent.as_str(), name), id),
         Command::MakeBranch { row, name } => plan_create::make_branch(state, (row.as_str(), name)),
         Command::CreateFolder(row) => {
@@ -74,23 +107,12 @@ fn creation(
             icon,
         } => {
             let mut plan = plan_create::space((name, folder), host, id);
-            plan.calls.extend(plan_icon::calls(files, id, icon)?);
+            plan.calls
+                .extend(plan_icon::calls(files, &plan_icon::space_route(id), icon)?);
             Ok(plan)
         },
-        other => Err(PlanError::NotADataCommand(format!("{other:?}"))),
+        other => Err(not_data(other)),
     }
-}
-
-fn space_icon(
-    (state, files): (&State, &dyn Files),
-    project: &sidebar::ProjectId,
-    icon: &sidebar::SpaceIcon,
-) -> Result<Plan, PlanError> {
-    let slot = crate::reads::host_of(state, project.as_str()).ok_or(PlanError::SpaceNotLoaded)?;
-    Ok(Plan::of(
-        &slot.spec.id,
-        plan_icon::calls(files, project.as_str(), icon)?,
-    ))
 }
 
 fn edit(
@@ -114,7 +136,9 @@ fn edit(
         ),
         Command::Detach(row) => plan_edit::verb(state, row.as_str(), ("detach-holder", None)),
         Command::Retry(row) => plan_edit::verb(state, row.as_str(), ("retry-provision", None)),
-        Command::SetSpaceIcon { project, icon } => space_icon((state, files), project, icon),
+        Command::SetSpaceIcon { project, icon } => plan_icon::space((state, files), project, icon),
+        Command::SetRepoIcon { row, icon } => plan_icon::repo((state, files), (row.as_str(), icon)),
+        Command::UseGithubAvatar(row) => plan_icon::github(state, row.as_str()),
         Command::SetMergeStrategy(strategy) => plan_merge::set_strategy(state, *strategy),
         Command::Merge { after } => plan_merge::merge(state, *after),
         Command::StopAndMerge => plan_merge::stop_and_merge(state),
@@ -130,7 +154,7 @@ fn edit(
         Command::Drop { row, target, mode } => {
             plan_move::drop_row(state, (row.as_str(), target.as_str()), *mode)
         },
-        other => Err(PlanError::NotADataCommand(format!("{other:?}"))),
+        other => Err(not_data(other)),
     }
 }
 
@@ -154,19 +178,57 @@ mod tests {
     }
 
     #[test]
-    fn a_new_thread_posts_to_the_home_and_opens_when_it_lands() {
-        let plan = plan_of(&Command::NewThread(ProjectId::from("p"))).unwrap();
+    fn a_plain_new_thread_opens_a_draft_and_sends_nothing() {
+        for command in [
+            Command::NewThread(ProjectId::from("p")),
+            Command::Thread(RowId::from("bo")),
+        ] {
+            let plan = plan_of(&command).unwrap();
+            assert!(plan.calls.is_empty(), "{command:?}: {:?}", plan.calls);
+            assert!(
+                matches!(plan.after, After::OpenDraft(_)),
+                "{command:?}: {:?}",
+                plan.after
+            );
+        }
+    }
+
+    #[test]
+    fn the_new_chat_chord_makes_its_chat_in_the_focused_chats_workspace() {
+        let (mut state, _) = state();
+        state.panels.follow(Some("bo".into()));
+        let plan = plan(
+            (&state, &FakeFiles::default()),
+            &Command::NewChat(ProjectId::from("p")),
+        )
+        .unwrap();
+        let call = &plan.calls[0];
+        assert_eq!(
+            (call.method, call.path.as_str()),
+            ("POST", "/v0/projects/p/repos/r/chats")
+        );
+        assert_eq!(call.body.as_ref().unwrap()["workspaceId"], "b");
+        assert!(plan.needs_provider);
+    }
+
+    #[test]
+    fn a_new_thread_on_the_terminal_by_default_is_created_at_once() {
+        let (state, _) = state();
+        state.settings.install(|key| {
+            (key.as_str() == "chatIsDefaultPresentation").then_some(settings::Value::Bool(false))
+        });
+        let plan = plan(
+            (&state, &FakeFiles::default()),
+            &Command::NewThread(ProjectId::from("p")),
+        )
+        .unwrap();
         let call = &plan.calls[0];
         assert_eq!(
             (call.method, call.path.as_str()),
             ("POST", "/v0/projects/p/home/chats")
         );
-        let body = call.body.as_ref().unwrap();
-        assert_eq!(body["workspaceId"], "hw");
-        assert!(plan.needs_provider);
-        let id = body["id"].as_str().unwrap();
+        let id = call.body.as_ref().unwrap()["id"].as_str().unwrap();
         assert_eq!(plan.after, After::OpenChat(id.to_owned()));
-        assert_eq!(plan.pending.as_ref().map(|row| row.id.as_str()), Some(id));
     }
 
     fn command(

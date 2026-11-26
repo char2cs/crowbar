@@ -31,6 +31,7 @@ pub(crate) fn layout_of(
         .apply(Command::AddTab {
             id: tab,
             title: "Tab".into(),
+            space: layout::SpaceId::default(),
         })
         .expect("add tab");
     layout
@@ -119,6 +120,7 @@ pub(crate) fn strip_layout(shown: &str) -> Layout {
         .apply(Command::AddTab {
             id: TabId(1),
             title: "Tab".into(),
+            space: layout::SpaceId::default(),
         })
         .expect("add tab");
     let first = Command::OpenPane {

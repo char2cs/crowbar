@@ -11,7 +11,6 @@ pub(crate) mod planner;
 mod relocate;
 pub(crate) mod removal;
 pub(crate) mod runner;
-mod settle;
 
 pub(crate) use agent::running;
 pub(crate) use failure_title::failure_title;
@@ -33,8 +32,11 @@ pub(crate) struct Plan {
     pub(crate) needs_provider: bool,
     pub(crate) landing: Surface,
     pub(crate) committing: bool,
+    pub(crate) marking: Option<sidebar::IconTarget>,
+    pub(crate) adding: Option<String>,
     pub(crate) removal: Option<Removal>,
     pub(crate) failure: Option<String>,
+    pub(crate) explained: Option<String>,
     pub(crate) settling: Option<String>,
 }
 
@@ -52,8 +54,11 @@ impl Plan {
             needs_provider: false,
             landing: Surface::Default,
             committing: false,
+            marking: None,
+            adding: None,
             removal: None,
             failure: None,
+            explained: None,
             settling: None,
         }
     }
@@ -110,11 +115,38 @@ impl Plan {
     }
 
     #[must_use]
+    pub(crate) fn marking(
+        mut self,
+        target: sidebar::IconTarget,
+    ) -> Self {
+        self.marking = Some(target);
+        self
+    }
+
+    #[must_use]
+    pub(crate) fn adding(
+        mut self,
+        folder: &str,
+    ) -> Self {
+        self.adding = Some(folder.to_owned());
+        self
+    }
+
+    #[must_use]
     pub(crate) fn landing_on(
         mut self,
         landing: Surface,
     ) -> Self {
         self.landing = landing;
+        self
+    }
+
+    #[must_use]
+    pub(crate) fn explaining(
+        mut self,
+        reason: &str,
+    ) -> Self {
+        self.explained = Some(reason.to_owned());
         self
     }
 

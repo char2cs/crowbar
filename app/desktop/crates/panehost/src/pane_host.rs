@@ -1,11 +1,12 @@
 mod browser;
 mod context;
+mod desktop;
 mod lifecycle;
 mod reconcile;
 mod refusals;
 
 pub use browser::BrowseAction;
-pub use reconcile::{Keyboard, LayoutSnapshot, PaneDisplay, SyncReport, VisiblePane};
+pub use reconcile::{Keyboard, LayoutSnapshot, PaneDisplay, PaneKinds, SyncReport, VisiblePane};
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -16,12 +17,14 @@ use protocol::{
     encode,
 };
 
-use crate::catalog::PaneRegistry;
+use crate::catalog::{PaneKind, PaneRegistry};
 use crate::error::{Error, Result};
 use crate::pane_host::lifecycle::pane_phase::PanePhase;
 use crate::pane_host::lifecycle::pane_runtime::PaneRuntime;
 use crate::pane_host::reconcile::failures::Failures;
 use crate::scheme::OriginTable;
+use crate::scheme::PaneMenus;
+use crate::scheme::PaneTables;
 use crate::slot::Config;
 use crate::slot::Factory;
 use crate::slot::Gate;
@@ -30,7 +33,7 @@ use crate::slot::IpcMessage;
 use crate::slot::IpcNotice;
 use crate::slot::Pool;
 use crate::slot::browser_event;
-use crate::slot::drop_report;
+use crate::slot::drop_frame;
 use crate::slot::focus_report;
 use crate::slot::parse_hover;
 use crate::slot::pointer_report;
@@ -45,6 +48,7 @@ pub struct PaneHost {
     pub(crate) factory: Factory,
     pub(crate) pool: Pool,
     pub(crate) origins: OriginTable,
+    pub(crate) menus: PaneMenus,
     pub(crate) transport: Arc<dyn DaemonTransport>,
     pub(crate) panes: BTreeMap<PaneId, PaneRuntime>,
     pub(crate) keybindings: Vec<KeyBinding>,
@@ -52,6 +56,7 @@ pub struct PaneHost {
     pub(crate) breakpoints: Option<Vec<protocol::Breakpoint>>,
     pub(crate) chat_zoom: Option<u16>,
     pub(crate) settings: Option<SettingValues>,
+    pub(crate) paired_hosts: Option<Vec<protocol::PairedHost>>,
     pub(crate) focused: Option<PaneId>,
     pub(crate) keyboard: Keyboard,
     pub(crate) inbox: async_channel::Receiver<IpcMessage>,
@@ -78,15 +83,16 @@ fn hover_report(message: &IpcMessage) -> Option<HostEvent> {
 }
 
 impl PaneHost {
-    /// Builds a host. `origins` must be the table the [`PaneProtocol`](crate::PaneProtocol)
-    /// of `webviews` reads.
+    /// Builds a host. `tables` must be the ones the [`PaneProtocol`](crate::PaneProtocol) of
+    /// `webviews` shares.
     #[must_use]
     pub fn new(
         config: Config,
         webviews: webview::Host,
-        origins: OriginTable,
+        tables: PaneTables,
         transport: Arc<dyn DaemonTransport>,
     ) -> Self {
+        let PaneTables { origins, menus } = tables;
         let (sink, inbox) = async_channel::unbounded();
         let gate = Arc::new(Gate::new(sink));
         Self {
@@ -94,6 +100,7 @@ impl PaneHost {
             pool: Pool::new(config.max_idle_slots),
             factory: Factory::new(webviews, config.clone(), Arc::clone(&gate)),
             origins,
+            menus,
             transport,
             panes: BTreeMap::new(),
             keybindings: Vec::new(),
@@ -101,6 +108,7 @@ impl PaneHost {
             breakpoints: None,
             chat_zoom: None,
             settings: None,
+            paired_hosts: None,
             focused: None,
             keyboard: Keyboard::default(),
             inbox,
@@ -155,7 +163,7 @@ impl PaneHost {
             _ if self.registry.get(type_id).is_none() => PaneDisplay::Placeholder {
                 type_id: type_id.clone(),
             },
-            _ if self.is_native(type_id) => PaneDisplay::Native,
+            _ if runtime.kind == PaneKind::Native => PaneDisplay::Native,
             PanePhase::Failed(message) => PaneDisplay::Error {
                 message: message.clone(),
             },
@@ -176,7 +184,7 @@ impl PaneHost {
         let mut failures = Failures::default();
         self.retire_removed(snapshot, &mut failures);
         for id in snapshot.pane_ids() {
-            self.track(snapshot.layout, &id);
+            self.track(snapshot, &id);
         }
         self.hide_unlisted(snapshot, &mut events, &mut failures);
         for visible in &snapshot.visible {
@@ -223,9 +231,11 @@ impl PaneHost {
         if let Some(events) = type_id.and_then(|type_id| browser_event(&message, type_id)) {
             return Ok(events);
         }
-        let report = hover_report(&message)
-            .or_else(|| pointer_report(&message))
-            .or_else(|| drop_report(&message));
+        if let Some(frame) = drop_frame(&message) {
+            self.send(&message.pane, &frame)?;
+            return Ok(Vec::new());
+        }
+        let report = hover_report(&message).or_else(|| pointer_report(&message));
         if let Some(event) = report {
             return Ok(vec![event]);
         }

@@ -43,11 +43,15 @@ impl EntityInputHandler for TextInput {
             .map(|range| self.buffer.range_to_utf16(&range))
     }
 
+    // PLATFORM: linux a press unmarks, and GTK's input method drops the preedit; macOS commits it.
     fn unmark_text(
         &mut self,
-        _: &mut Window,
-        _: &mut Context<'_, Self>,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
     ) {
+        if cfg!(target_os = "linux") && self.buffer.marked().is_some() {
+            self.replace_text_in_range(None, "", window, cx);
+        }
         self.buffer.unmark();
     }
 
@@ -138,5 +142,17 @@ mod tests {
             input.text_for_range(1..3, &mut None, window, cx)
         });
         assert_eq!(slice.as_deref(), Some("😀"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[gpui::test]
+    fn a_press_drops_the_composition_and_keeps_the_typed_text(cx: &mut TestAppContext) {
+        let (input, cx) = field(cx);
+        cx.simulate_input("ab");
+        input.update_in(cx, |input, window, cx| {
+            input.replace_and_mark_text_in_range(None, "ni", None, window, cx);
+            input.unmark_text(window, cx);
+        });
+        assert_eq!(text_of(&input, cx), "ab");
     }
 }

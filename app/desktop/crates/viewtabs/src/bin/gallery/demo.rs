@@ -29,7 +29,7 @@ fn views(history: &LayoutHistory) -> (Vec<TabView>, Option<layout::TabId>) {
         .iter()
         .map(|tab| TabView::from_tab(tab, scenario::member))
         .collect();
-    (tabs, layout.active_tab().map(layout::Tab::id))
+    (tabs, layout.showing("").map(layout::Tab::id))
 }
 
 fn sidebar_state(scenario: &str) -> SidebarState {

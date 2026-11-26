@@ -1,6 +1,0 @@
-# Vendored crates: <directory> <crates.io name> <version> <sha256 of the .crate>
-calloop calloop 0.14.5 43b32313e937c8721c9d17ee9bf60699a6402b4b7c2cb6ac1bee0ffcaa4b4e5e
-gpui-pre gpui-pre 0.3.12 29db89613527079737f53752eab27fb65c9a7dd94979256c65a0e590c9fd34d8
-gpui-pre-linux gpui-pre-linux 0.3.12 54bab418d0b7c027af9495f278619b46887362b3bd6446e246c87c5b0fa167df
-gpui-pre-macos gpui-pre-macos 0.3.12 2de7d3f4ad51ac387e822495db363fcc1188d349793365731d054444c4cb06ee
-gpui-pre-wgpu gpui-pre-wgpu 0.3.12 dc76608d385f6d0dcbad44504b1bf669dac3b7d7ffa2885acdb7c1c358caf852

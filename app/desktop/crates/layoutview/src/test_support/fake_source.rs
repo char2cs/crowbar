@@ -1,13 +1,16 @@
 use std::cell::Cell;
 
-use gpui::{AnyElement, App, IntoElement, SharedString, Window, div};
+use gpui::{
+    AnyElement, App, InteractiveElement as _, IntoElement, SharedString, Styled as _, Window, div,
+    px,
+};
 use layout::{PaneInstance, TabId};
 use protocol::PaneId;
 
-use crate::branch_review::BranchReview;
-use crate::pane_chrome::PaneChrome;
-use crate::pane_content::PaneContent;
-use crate::pane_detach::PaneDetach;
+use crate::host::branch_review::BranchReview;
+use crate::host::pane_chrome::PaneChrome;
+use crate::host::pane_content::PaneContent;
+use crate::host::pane_detach::PaneDetach;
 use ideshell::{TabLook, TabLooks};
 
 pub(crate) struct FakeSource {
@@ -16,9 +19,13 @@ pub(crate) struct FakeSource {
     chrome: Vec<(PaneId, f32)>,
     looks: Vec<(PaneId, TabLook)>,
     reviewing: Vec<PaneId>,
+    previews: Vec<PaneId>,
 }
 
 const FIRST_TAB: u64 = 100;
+pub(crate) const PREVIEW: &str = "fake-preview";
+pub(crate) const PREVIEW_WIDTH: f32 = 200.0;
+pub(crate) const PREVIEW_HEIGHT: f32 = 32.0;
 
 impl FakeSource {
     pub(crate) fn starting_at_first_tab() -> Self {
@@ -28,6 +35,7 @@ impl FakeSource {
             chrome: Vec::new(),
             looks: Vec::new(),
             reviewing: Vec::new(),
+            previews: Vec::new(),
         }
     }
 
@@ -54,6 +62,14 @@ impl FakeSource {
         height: f32,
     ) -> Self {
         self.chrome.push((pane, height));
+        self
+    }
+
+    pub(crate) fn previewing(
+        mut self,
+        pane: PaneId,
+    ) -> Self {
+        self.previews.push(pane);
         self
     }
 
@@ -127,6 +143,20 @@ impl PaneDetach for FakeSource {
         pane: &PaneId,
     ) -> SharedString {
         pane.as_str().to_owned().into()
+    }
+
+    fn preview(
+        &self,
+        pane: &PaneId,
+        _cx: &App,
+    ) -> Option<AnyElement> {
+        let face = div()
+            .debug_selector(|| PREVIEW.into())
+            .w(px(PREVIEW_WIDTH))
+            .h(px(PREVIEW_HEIGHT));
+        self.previews
+            .contains(pane)
+            .then(|| face.into_any_element())
     }
 
     fn fresh_tab(

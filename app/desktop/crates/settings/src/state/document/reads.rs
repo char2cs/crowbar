@@ -26,9 +26,12 @@ impl Document {
         &self,
         row: &Row,
     ) -> bool {
-        row.default
-            .as_ref()
-            .is_none_or(|default| self.value(&row.key) == Some(default))
+        row.default.as_ref().is_none_or(|default| {
+            self.value(&row.key)
+                .map(|value| row.control.loaded(value))
+                .as_ref()
+                == Some(default)
+        })
     }
 
     pub(crate) fn text(

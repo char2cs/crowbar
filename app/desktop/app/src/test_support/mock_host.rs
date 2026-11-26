@@ -1,12 +1,12 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use panehost::{OriginTable, PaneHost};
+use panehost::PaneHost;
 use protocol::HostId;
 use webview::MockPlatform;
 
 use super::NoDaemon;
-use crate::core_panes::register_core_panes;
+use crate::panes::kinds::core_panes::register_core_panes;
 
 pub(crate) fn mock_host(mock: &Rc<MockPlatform>) -> PaneHost {
     let config = panehost::Config {
@@ -19,7 +19,7 @@ pub(crate) fn mock_host(mock: &Rc<MockPlatform>) -> PaneHost {
     let mut host = PaneHost::new(
         config,
         webviews,
-        OriginTable::default(),
+        panehost::PaneTables::default(),
         Arc::new(NoDaemon::timing_out()),
     );
     register_core_panes(host.registry_mut(), "chat/index.html").unwrap();

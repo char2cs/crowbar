@@ -51,13 +51,9 @@ impl Breakpoint {
     }
 }
 
-/// The width of the app window: a top-layer window answers with its owner's width, so a
-/// dialog or popup follows the window it covers rather than its own surface.
+/// The width of the app window, which dialogs and popups painted in it follow.
 pub fn app_window_width(window: &Window) -> f32 {
-    let size = window
-        .owner_bounds()
-        .map_or_else(|| window.viewport_size(), |bounds| bounds.size);
-    f32::from(size.width.max(px(0.0)))
+    f32::from(window.viewport_size().width.max(px(0.0)))
 }
 
 #[cfg(test)]

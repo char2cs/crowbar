@@ -1,5 +1,6 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use crate::backend::mock::call::Call;
 use crate::backend::platform::Platform;
@@ -14,6 +15,9 @@ pub struct MockPlatform {
     pub(crate) calls: RefCell<Vec<Call>>,
     pub(crate) live: RefCell<HashMap<Id, IpcHandler>>,
     pub(crate) fail_next_create: Cell<bool>,
+    pub(crate) chosen: RefCell<Vec<PathBuf>>,
+    pub(crate) picked: RefCell<Option<Vec<usize>>>,
+    pub(crate) pressed: Cell<Option<usize>>,
 }
 
 impl std::fmt::Debug for MockPlatform {
@@ -45,6 +49,33 @@ impl MockPlatform {
     /// Makes the next `create` fail with [`Error::HostStopped`].
     pub fn fail_next_create(&self) {
         self.fail_next_create.set(true);
+    }
+
+    /// Makes every later file chooser answer `paths`, as if the user chose them; until then
+    /// each one is cancelled.
+    pub fn choose_paths(
+        &self,
+        paths: Vec<PathBuf>,
+    ) {
+        self.chosen.replace(paths);
+    }
+
+    /// Makes every later context menu answer `path`, as if the user chose that entry; until
+    /// then each one is dismissed.
+    pub fn pick_entry(
+        &self,
+        path: Vec<usize>,
+    ) {
+        self.picked.replace(Some(path));
+    }
+
+    /// Makes every later message dialog answer `button`, as if the user pressed it; until then
+    /// each one is dismissed.
+    pub fn press_button(
+        &self,
+        button: usize,
+    ) {
+        self.pressed.set(Some(button));
     }
 
     /// Delivers `text` as if the page of `id` had posted it through ipc.
@@ -91,9 +122,9 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
-    use crate::backend::page_control::PageControl;
-    use crate::backend::view_layout::ViewLayout;
-    use crate::backend::view_lifecycle::ViewLifecycle;
+    use crate::backend::view::page_control::PageControl;
+    use crate::backend::view::view_layout::ViewLayout;
+    use crate::backend::view::view_lifecycle::ViewLifecycle;
     use crate::view::Bounds;
     use crate::view::Config;
     use crate::view::Kind;

@@ -1,5 +1,10 @@
 //! The hover-revealed buttons at the end of a tree row.
 
+pub(super) mod cluster_spec;
+pub(super) mod menu_anchor;
+pub(super) mod row_report;
+mod row_verb;
+
 use gpui::{
     Div, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement, SharedString,
     Stateful, StatefulInteractiveElement, StyleRefinement, Styled, div, px,
@@ -7,9 +12,10 @@ use gpui::{
 use sidebar::{Expansion, Intent, Nesting, RowId};
 use ui::{Icon, IconName, IconWeight, radius};
 
-use crate::panels::chats::parts::cluster_spec::ClusterSpec;
-use crate::panels::chats::parts::row_report::report;
-use crate::panels::chats::parts::row_verb::RowVerb;
+use crate::panels::chats::parts::row_cluster::cluster_spec::ClusterSpec;
+use crate::panels::chats::parts::row_cluster::menu_anchor::MenuAnchor;
+use crate::panels::chats::parts::row_cluster::row_report::report;
+use crate::panels::chats::parts::row_cluster::row_verb::RowVerb;
 use crate::sidebar::RowAction;
 
 const BUTTON_PADDING: f32 = 6.0;
@@ -71,8 +77,19 @@ fn verb_button(
     let frame = button_frame(id, spec).child(Icon::new(name).weight(weight).size(size));
     match verb.intent(spec.row) {
         Some(intent) => frame.on_click(report(&spec.handler, RowAction::Intent(intent))),
-        None => frame.on_click(repo_menu(spec)),
+        None => with_repo_menu(frame, spec),
     }
+}
+
+fn with_repo_menu(
+    frame: Stateful<Div>,
+    spec: &ClusterSpec<'_>,
+) -> Stateful<Div> {
+    let anchor = MenuAnchor::default();
+    frame
+        .relative()
+        .child(anchor.probe())
+        .on_click(repo_menu(spec, anchor))
 }
 
 fn repo_menu_action(
@@ -86,12 +103,13 @@ fn repo_menu_action(
 }
 
 fn repo_menu(
-    spec: &ClusterSpec<'_>
+    spec: &ClusterSpec<'_>,
+    anchor: MenuAnchor,
 ) -> impl Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static {
     let (handler, row) = (std::rc::Rc::clone(&spec.handler), spec.row.id.clone());
-    move |event, window, cx| {
+    move |_, window, cx| {
         cx.stop_propagation();
-        handler(repo_menu_action(&row, event.position()), window, cx);
+        handler(repo_menu_action(&row, anchor.below()), window, cx);
     }
 }
 

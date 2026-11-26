@@ -1,6 +1,6 @@
 //! The Appearance page.
 
-use super::number_setting::NumberSetting;
+use super::rows::number_setting::NumberSetting;
 use super::rows::row;
 use crate::schema::Control;
 use crate::schema::ControlWidth;
@@ -8,7 +8,7 @@ use crate::schema::Page;
 use crate::schema::Section;
 use crate::values::Value;
 
-const UI_FONT_SIZE: NumberSetting = NumberSetting::new((10.0, 24.0, 0.5), 15.0);
+const UI_FONT_SIZE: NumberSetting = NumberSetting::normalized((10.0, 24.0, 0.5), 15.0);
 
 pub(super) fn page() -> Page {
     Page::new("appearance", "Appearance", "paint-brush")

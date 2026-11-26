@@ -1,26 +1,22 @@
-use std::rc::Rc;
-
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, CursorStyle, ElementId, FontWeight, Hsla, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, RenderOnce, SharedString, StatefulInteractiveElement, Styled,
-    Window, div, px,
+    ParentElement, RenderOnce, SharedString, Styled, Window, div, px,
 };
 use ui::{
     FlickerSpinner, Icon, IconName, IconWeight, Palette, Surface, Theme, radius, shadow, text_size,
 };
 
+use crate::pill::member_glyph::MemberGlyph;
 use crate::pill::member_kind::MemberKind;
 use crate::pill::member_view::MemberView;
 use crate::pill::shell_look::ShellLook;
+use crate::pill::tab_close::{CloseAction, close_of};
 use crate::pill::tab_fade::{fade, fade_ends};
 use crate::strip_metrics::TAB_HEIGHT;
 
 const GLYPH: f32 = 16.0;
 const SPINNER: f32 = 14.0;
-const CLOSE: f32 = 24.0;
-const CLOSE_GLYPH: f32 = 12.0;
-const CLOSE_INSET: f32 = 6.0;
 const ROW_PADDING: f32 = 4.0;
 const ROW_GAP: f32 = 6.0;
 const DIVIDER_HEIGHT: f32 = 16.0;
@@ -28,8 +24,6 @@ const DIVIDER_ALPHA: f32 = 0.15;
 const IDLE_SHADOW: f32 = 0.10;
 const LIFTED_SHADOW: f32 = 0.15;
 const OUTLINE: f32 = 1.0;
-
-pub(crate) type CloseAction = Rc<dyn Fn(&mut Window, &mut App)>;
 
 #[derive(IntoElement)]
 pub(crate) struct TabShell {
@@ -61,12 +55,16 @@ impl RenderOnce for TabShell {
             })
             .collect();
         shell(self.id.clone(), self.width, look, &palette)
-            .group(group.clone())
+            .when(look != ShellLook::Lifted, |shell| {
+                shell.group(group.clone())
+            })
             .font_family(Theme::of(cx).ui_family())
             .children(members)
-            .when_some(self.on_close, |shell, close| {
-                shell.child(close_button(&self.id, look, &palette, close))
-            })
+            .children(close_of(
+                &self.id,
+                (look, close_ink(look, &palette)),
+                self.on_close,
+            ))
     }
 }
 
@@ -86,15 +84,15 @@ fn shell(
         .h(px(TAB_HEIGHT))
         .rounded(radius::FULL)
         .border_1()
-        .border_color(gpui::transparent_black())
-        .cursor(CursorStyle::PointingHand);
+        .border_color(gpui::transparent_black());
     match look {
-        ShellLook::Idle => base.hover(|style| {
+        ShellLook::Idle => base.cursor(CursorStyle::PointingHand).hover(|style| {
             style
                 .bg(palette.sidebar_element_hover())
                 .shadow(shadow::xs(IDLE_SHADOW))
         }),
         ShellLook::Active => base
+            .cursor(CursorStyle::PointingHand)
             .m(px(-OUTLINE))
             .w(px(width + 2.0 * OUTLINE))
             .h(px(TAB_HEIGHT + 2.0 * OUTLINE))
@@ -108,6 +106,7 @@ fn shell(
             .border_color(palette.border())
             .shadow(shadow::md(LIFTED_SHADOW)),
         ShellLook::MergeTarget => base
+            .cursor(CursorStyle::PointingHand)
             .bg(palette.sidebar_drop_nest())
             .border_color(palette.sidebar_drop_nest_edge()),
     }
@@ -137,6 +136,14 @@ fn ink(
     }
 }
 
+fn close_ink(
+    look: ShellLook,
+    palette: &Palette,
+) -> (Hsla, Hsla, Hsla) {
+    let (strong, muted) = ink(look, palette);
+    (strong, muted, palette.sidebar_element_hover())
+}
+
 fn member_ink(
     look: ShellLook,
     strong: Hsla,
@@ -156,19 +163,28 @@ fn spinner_glyph(spinner_id: ElementId) -> AnyElement {
 }
 
 fn resting_glyph(
-    kind: MemberKind,
-    color: Hsla,
+    member: &MemberView,
+    text: Hsla,
 ) -> AnyElement {
+    let glyph = member.glyph.unwrap_or_else(|| kind_glyph(member.kind));
+    Icon::new(glyph.icon)
+        .weight(glyph.weight)
+        .size(px(GLYPH))
+        .color(glyph.color.unwrap_or(text))
+        .into_any_element()
+}
+
+fn kind_glyph(kind: MemberKind) -> MemberGlyph {
     let icon = match kind {
         MemberKind::Chat => IconName::ChatsCircle,
         MemberKind::Terminal => IconName::Terminal,
         MemberKind::NewTab => IconName::Plus,
     };
-    Icon::new(icon)
-        .weight(IconWeight::Regular)
-        .size(px(GLYPH))
-        .color(color)
-        .into_any_element()
+    MemberGlyph {
+        icon,
+        weight: IconWeight::Regular,
+        color: None,
+    }
 }
 
 fn member_row(
@@ -184,7 +200,7 @@ fn member_row(
     let spinner = member
         .working
         .then(|| ElementId::from((id.clone(), format!("spin{index}"))));
-    let resting = (count == 1).then(|| resting_glyph(member.kind, text));
+    let resting = (count == 1).then(|| resting_glyph(&member, text));
     let glyph = spinner.map(spinner_glyph).or(resting);
     div()
         .relative()
@@ -230,32 +246,6 @@ fn divider(color: Hsla) -> impl IntoElement {
         .bg(color.opacity(DIVIDER_ALPHA))
 }
 
-fn close_button(
-    id: &ElementId,
-    look: ShellLook,
-    palette: &Palette,
-    close: CloseAction,
-) -> impl IntoElement {
-    let (strong, muted) = ink(look, palette);
-    let hover_fill = palette.sidebar_element_hover();
-    div()
-        .id(ElementId::from((id.clone(), "close")))
-        .absolute()
-        .right(px(CLOSE_INSET))
-        .top(px((TAB_HEIGHT - CLOSE) / 2.0 - 1.0))
-        .size(px(CLOSE))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(radius::FULL)
-        .cursor(CursorStyle::PointingHand)
-        .text_color(muted)
-        .hover(move |style| style.bg(hover_fill).text_color(strong))
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .on_click(move |_, window, cx| close(window, cx))
-        .child(Icon::new(IconName::X).size(px(CLOSE_GLYPH)))
-}
-
 #[cfg(test)]
 mod tests {
     use gpui::{Context, Render, TestAppContext};
@@ -285,6 +275,7 @@ mod tests {
                     provisional: false,
                     working: false,
                     kind: MemberKind::Chat,
+                    glyph: None,
                 });
             div().flex().child(TabShell {
                 id: ElementId::from("pill"),
@@ -347,6 +338,6 @@ mod tests {
     #[test]
     fn the_pill_is_thirty_two_pixels_high_and_the_close_button_twenty_four() {
         assert_eq!(TAB_HEIGHT, 32.0, "pill height");
-        assert_eq!(CLOSE, 24.0, "close button");
+        assert_eq!(crate::pill::tab_close::CLOSE, 24.0, "close button");
     }
 }

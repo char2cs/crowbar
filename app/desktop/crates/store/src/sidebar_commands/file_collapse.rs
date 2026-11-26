@@ -1,5 +1,6 @@
 //! Folding directories of the Files panel.
 
+use crate::reads::files::followed_workspace_id;
 use crate::sidebar_commands::SidebarCommands;
 
 fn within(
@@ -19,9 +20,11 @@ impl SidebarCommands {
         directory: &str,
     ) {
         self.hub.edit(|state| {
+            let workspace = followed_workspace_id(state).to_owned();
             state
                 .panels
-                .expanded
+                .expansions
+                .of_mut(&workspace)
                 .retain(|open| !within(open, directory));
         });
     }
@@ -40,14 +43,16 @@ mod tests {
 
     fn opened(directories: &[&str]) -> SidebarCommands {
         let (mut state, daemon) = state();
+        state.panels.follow(Some("hc".into()));
         state
             .panels
-            .expanded
+            .expansions
+            .of_mut("hw")
             .extend(directories.iter().map(|open| (*open).to_owned()));
         let transport: Arc<dyn protocol::DaemonTransport> = Arc::<FakeDaemon>::clone(&daemon);
         let hub = Hub::new(state, Arc::new(|| {}));
         SidebarCommands {
-            fleet: Fleet::new(&Handle::current(), &hub, &transport),
+            fleet: Fleet::new(&Handle::current(), &hub, (&transport, Arc::new(|_| {}))),
             hub,
             handle: Handle::current(),
             outcome: Arc::new(|_| {}),
@@ -69,7 +74,7 @@ mod tests {
         commands.collapse_directory(directory);
         let mut now: Vec<String> = commands
             .hub
-            .read(|state| state.panels.expanded.iter().cloned().collect());
+            .read(|state| state.panels.expansions.paths("hw"));
         now.sort();
         now
     }

@@ -3,9 +3,9 @@ use std::rc::Rc;
 use platform::AppkitParent;
 use wry::{WebView, WebViewBuilder, WebViewBuilderExtDarwin};
 
-use crate::backend::browsing_data::BrowsingData;
 use crate::backend::native::macos::appkit_platform::AppkitPlatform;
 use crate::backend::native::macos::data_store::BROWSER_STORE;
+use crate::backend::view::browsing_data::BrowsingData;
 use crate::error::{Error, Result};
 use crate::view::Kind;
 

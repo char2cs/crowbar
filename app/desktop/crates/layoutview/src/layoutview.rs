@@ -1,10 +1,10 @@
 use layout::{DEFAULT_CHAT_SHARE, PaneGroup, Presentation, Rect, Tab};
 use protocol::PaneId;
 
-use crate::chrome_context::ChromeContext;
-use crate::pane_frame::PaneFrame;
-use crate::pane_hole::PaneHole;
-use crate::pane_source::PaneSource;
+use crate::geometry::chrome_context::ChromeContext;
+use crate::geometry::pane_frame::PaneFrame;
+use crate::host::pane_hole::PaneHole;
+use crate::host::pane_source::PaneSource;
 
 /// The content hole of every pane of `tab` when the layout fills `content`. The shell gives
 /// these rectangles to the pane host in place of the model's raw slots, so web views sit inside
@@ -79,7 +79,7 @@ mod tests {
     use layout::{Edge, Rect};
 
     use super::*;
-    use crate::sidebar_edge::SidebarEdge;
+    use crate::geometry::sidebar_edge::SidebarEdge;
     use crate::test_support::{FakeSource, layout_of, pane_id};
 
     const CONTENT: Rect = Rect {
@@ -97,7 +97,7 @@ mod tests {
     #[test]
     fn every_pane_gets_a_hole_inside_its_slot() {
         let layout = layout_of("a", &[("b", "a", Edge::Right)]);
-        let tab = layout.active_tab().expect("tab");
+        let tab = layout.showing("").expect("tab");
         let holes = pane_holes(tab, CONTENT, CHROME);
         let slots = tab.layout(CONTENT);
         assert_eq!(holes.len(), 2, "two panes");
@@ -117,7 +117,7 @@ mod tests {
     #[test]
     fn a_lone_pane_hole_is_inside_the_left_and_top_border() {
         let layout = layout_of("a", &[]);
-        let tab = layout.active_tab().expect("tab");
+        let tab = layout.showing("").expect("tab");
         let holes = pane_holes(tab, CONTENT, CHROME);
         let expected = Rect {
             x: 297.0,
@@ -188,7 +188,7 @@ mod tests {
     #[test]
     fn the_source_decides_which_panes_get_a_hole_and_where_it_starts() {
         let layout = layout_of("a", &[("b", "a", Edge::Right)]);
-        let tab = layout.active_tab().expect("tab");
+        let tab = layout.showing("").expect("tab");
         let plain = pane_holes(tab, CONTENT, CHROME);
         for case in CASES {
             let holes = pane_holes_with(tab, CONTENT, CHROME, &source_of(case));
@@ -213,10 +213,10 @@ mod tests {
         for name in ["t1", "t2"] {
             crate::test_support::open_tab(&mut layout, name);
         }
-        let tab = layout.active_tab().expect("tab");
+        let tab = layout.showing("").expect("tab");
         let holes = pane_holes(tab, CONTENT, CHROME);
         let lone = pane_holes(
-            layout_of("a", &[]).active_tab().expect("tab"),
+            layout_of("a", &[]).showing("").expect("tab"),
             CONTENT,
             CHROME,
         );
@@ -240,7 +240,7 @@ mod tests {
     fn a_closed_sidebar_docked_on_the_right_keeps_the_chat_on_the_right() {
         let mut layout = layout_of("a", &[]);
         crate::test_support::open_tab(&mut layout, "t1");
-        let tab = layout.active_tab().expect("tab");
+        let tab = layout.showing("").expect("tab");
         let chrome = ChromeContext {
             sidebar: SidebarEdge::Closed,
             side: layout::SidebarSide::Right,

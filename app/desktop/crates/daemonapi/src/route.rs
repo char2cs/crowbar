@@ -1,4 +1,5 @@
 mod document;
+mod lsp;
 mod query;
 
 use std::fmt;
@@ -66,6 +67,11 @@ impl Route {
         path: &str,
     ) -> Self {
         Self::at(document::content(workspace, path))
+    }
+
+    /// The route of the content of the host's file at the absolute `path`, percent-encoded.
+    pub fn host_document_content(path: &str) -> Self {
+        Self::at(document::host_content(path))
     }
 
     /// The route listing the folder `path` of the daemon's machine, percent-encoded.

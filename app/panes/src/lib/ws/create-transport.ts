@@ -19,10 +19,7 @@ export function createTransport(
 ): WsLike {
   const { hostId, path } = splitHostPath(endpoint)
   const local = isLocalHost(hostId)
-  if (inShell()) {
-    if (!local) throw new Error(`host "${hostId}" has no relay for this pane`)
-    return new ShellWebSocket(path)
-  }
+  if (inShell()) return new ShellWebSocket(path, hostId)
   if (isTauri()) {
     if (local) return new TauriWebSocket(path)
     return new TauriWebSocket(path, { hostId, idleTimeoutMs: REMOTE_READ_IDLE_TIMEOUT_MS })

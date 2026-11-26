@@ -39,6 +39,11 @@ export function pollUntilResizeSettles(deps: ResizeSettlePollDeps): () => void {
   }
 }
 
+/** The query that matches only while the screen keeps the pixel ratio `dpr`. */
+function resolutionQuery(dpr: number): string {
+  return `(resolution: ${dpr}dppx)`
+}
+
 /** There is no DPR event: a resolution media query fires once per flip, so it is re-armed at the
  *  new ratio. */
 export function watchDevicePixelRatio(onChange: () => void): () => void {
@@ -49,7 +54,8 @@ export function watchDevicePixelRatio(onChange: () => void): () => void {
   }
   const arm = () => {
     mql?.removeEventListener('change', onFlip)
-    mql = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`)
+    const query = resolutionQuery(window.devicePixelRatio)
+    mql = window.matchMedia(query)
     mql.addEventListener('change', onFlip)
   }
   arm()

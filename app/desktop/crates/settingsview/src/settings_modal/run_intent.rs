@@ -17,8 +17,12 @@ impl Runner for SettingsModal {
         cx: &mut Context<'_, Self>,
     ) {
         self.notice = None;
+        let asking = self.state.prompt().is_some();
         let effect = self.apply(intent, window, cx);
         self.perform(effect);
+        if !asking {
+            self.ask_natively(window, cx);
+        }
         self.fields.sync(&self.state, cx);
         cx.notify();
     }
@@ -109,7 +113,9 @@ impl SettingsModal {
             Intent::Lift(lift) => self.hold(lift),
             record => {
                 self.lift = None;
-                Self::record_effect(record)
+                let confirm = Self::record_confirm(&record);
+                let effect = Self::record_effect(record)?;
+                self.state.confirm_or_run(confirm.as_ref(), effect)
             },
         }
     }
@@ -195,6 +201,13 @@ impl SettingsModal {
         None
     }
 
+    fn record_confirm(intent: &Intent) -> Option<settings::Confirm> {
+        let Intent::RunRecord { action, .. } = intent else {
+            return None;
+        };
+        action.confirmation().cloned()
+    }
+
     fn record_effect(intent: Intent) -> Option<Effect> {
         let (source, record, command) = match intent {
             Intent::Flag {
@@ -234,6 +247,29 @@ mod tests {
     use crate::intent::Intent;
     use crate::test_support::{inspect, open, row, run};
     use ui::TextInputEvent;
+
+    fn revoke(confirm: settings::Confirm) -> Intent {
+        Intent::RunRecord {
+            source: settings::HOST_RECORDS.to_owned(),
+            record: "box".to_owned(),
+            action: settings::RecordAction::new("revoke", "x", "Revoke").confirm(confirm),
+        }
+    }
+
+    #[gpui::test]
+    fn a_record_action_that_asks_first_runs_only_once_answered(cx: &mut TestAppContext) {
+        let (harness, cx) = open(cx, "hosts");
+        let confirm = settings::Confirm::new("Revoke box?", "It forgets this computer.", "Revoke");
+        run(&harness, revoke(confirm), cx);
+        let asked = inspect(&harness, cx, |modal| modal.state.prompt().is_some());
+        assert_eq!(
+            (asked, harness.backend.commands().len()),
+            (true, 0),
+            "asked, not run"
+        );
+        run(&harness, Intent::Accept, cx);
+        assert_eq!(harness.backend.commands().len(), 1, "run once answered");
+    }
 
     #[gpui::test]
     fn escape_in_a_typed_search_closes_the_dialog_at_once(cx: &mut TestAppContext) {

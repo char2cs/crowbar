@@ -1,7 +1,7 @@
 import type { RefObject } from 'react'
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
-import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
+import { deliverShellFileDrop, useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
 
 function rect(left: number, top: number, right: number, bottom: number): DOMRect {
   return {
@@ -382,5 +382,36 @@ describe('useTauriFileDrop — cross-consumer arbitration', () => {
 
     expect(paneDrop).not.toHaveBeenCalled()
     expect(otherDrop).not.toHaveBeenCalled()
+  })
+})
+
+describe('deliverShellFileDrop', () => {
+  interface ShellWindow {
+    crowbar?: { post: (text: string) => void; onmessage: null }
+  }
+
+  beforeEach(() => {
+    onDragDropEvent.mockReset()
+    isTauriMock.mockReset()
+    isTauriMock.mockReturnValue(false)
+    ;(window as ShellWindow).crowbar = { post: () => {}, onmessage: null }
+  })
+
+  afterEach(() => {
+    delete (window as ShellWindow).crowbar
+  })
+
+  it('hands a drop the shell gave the page to the consumer under it, without Tauri', () => {
+    const onDrop = vi.fn()
+    renderHook(() => useTauriFileDrop(containerRefWithRect(rect(0, 0, 100, 100)), onDrop))
+    const taken = [
+      deliverShellFileDrop({ x: 50, y: 50 }, ['/a/b.png']),
+      deliverShellFileDrop({ x: 500, y: 500 }, ['/far']),
+    ]
+    expect([taken, onDrop.mock.calls, onDragDropEvent.mock.calls]).toEqual([
+      [true, false],
+      [[['/a/b.png']]],
+      [],
+    ])
   })
 })

@@ -5,7 +5,10 @@ vi.mock('@/lib/crowbar-bridge', () => ({ isTauri: () => state.tauri }))
 vi.mock('@/lib/ws/in-shell', () => ({ inShell: () => state.shell }))
 vi.mock('@/lib/ws/shell-web-socket', () => ({
   ShellWebSocket: class {
-    constructor(public shell: string) {}
+    constructor(
+      public shell: string,
+      public host: string,
+    ) {}
   },
 }))
 
@@ -37,12 +40,18 @@ describe('createTransport', () => {
 
   it('opens the shell relay for a local endpoint in the shell', () => {
     state.shell = true
-    expect(createTransport('/v0/ws/x', isLocal)).toMatchObject({ shell: '/v0/ws/x' })
+    expect(createTransport('/v0/ws/x', isLocal)).toMatchObject({
+      shell: '/v0/ws/x',
+      host: 'local',
+    })
   })
 
-  it('has no relay for a remote host in the shell', () => {
+  it("opens the named host's relay for a remote endpoint in the shell", () => {
     state.shell = true
-    expect(() => createTransport('crowbar://box/v0/ws/x', isLocal)).toThrow(/no relay/)
+    expect(createTransport('crowbar://box/v0/ws/x', isLocal)).toMatchObject({
+      shell: '/v0/ws/x',
+      host: 'box',
+    })
   })
 
   it.each([['/v0/ws/x'], ['crowbar://box/v0/ws/x']])(

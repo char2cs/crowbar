@@ -3,7 +3,7 @@ use std::os::fd::{AsRawFd, RawFd};
 use x11rb::CURRENT_TIME;
 use x11rb::connection::Connection as _;
 use x11rb::cookie::VoidCookie;
-use x11rb::errors::ReplyError;
+use x11rb::errors::{ConnectionError, ReplyError};
 use x11rb::protocol::xproto::{
     ChangeWindowAttributesAux, ConnectionExt as _, EventMask, InputFocus as RevertTo,
 };
@@ -79,6 +79,18 @@ impl InputFocus {
         })
         .filter_map(|event| FocusChange::of(&event))
         .collect()
+    }
+
+    /// Waits for the next focus change of a followed window, the way a thread of its own
+    /// follows the keyboard.
+    ///
+    /// # Errors
+    /// [`Error::FocusWait`] when the connection broke.
+    pub fn next_change(&self) -> Result<FocusChange, Error> {
+        std::iter::repeat_with(|| self.connection.wait_for_event())
+            .find_map(|event| event.map(|event| FocusChange::of(&event)).transpose())
+            .unwrap_or(Err(ConnectionError::UnknownError))
+            .map_err(Error::FocusWait)
     }
 }
 
@@ -176,6 +188,8 @@ mod tests {
             [gained, lost, gained],
             "taken by another client and given back"
         );
+        focus.give_to(parent).unwrap();
+        assert_eq!(focus.next_change().unwrap(), lost, "waited for");
     }
 
     #[test]

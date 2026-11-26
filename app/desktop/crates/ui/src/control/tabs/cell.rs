@@ -15,6 +15,7 @@ use crate::foundation::Palette;
 use crate::foundation::Pose;
 use crate::foundation::Theme;
 use crate::foundation::ToggleState;
+use crate::foundation::focus::modality::kept_focus::kept_focus;
 use crate::foundation::focus_ring;
 use crate::foundation::motion::hover;
 use crate::foundation::opaque_debug;
@@ -75,6 +76,7 @@ impl Cell {
     fn frame(
         &self,
         color: Hsla,
+        rung: Pose,
     ) -> Stateful<Div> {
         let (style, palette) = self.look;
         let frame = div()
@@ -93,7 +95,7 @@ impl Cell {
             .font_weight(FontWeight::MEDIUM)
             .whitespace_nowrap();
         frame
-            .focus(move |s| s.shadow(focus_ring(palette)))
+            .when(rung == Pose::On, |d| d.shadow(focus_ring(palette)))
             .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
     }
 
@@ -148,11 +150,13 @@ impl RenderOnce for Cell {
         let color = self.label_color(&hover_state, window, cx);
         let (index, disabled) = (self.index, self.item.disabled);
         let handler = self.on_select.clone().filter(|_| !selected && !disabled);
-        self.frame(color)
+        let focus = kept_focus(&self.id, window, cx);
+        let rung = Pose::from(crate::Modality::rings(&focus, window, cx));
+        self.frame(color, rung)
             .font_family(Theme::of(cx).ui_family())
             .when(!disabled, |d| {
                 d.cursor_pointer()
-                    .tab_stop(true)
+                    .track_focus(&focus)
                     .on_hover(hover::listener(&hover_state))
             })
             .when(disabled, |d| d.opacity(DISABLED_OPACITY))

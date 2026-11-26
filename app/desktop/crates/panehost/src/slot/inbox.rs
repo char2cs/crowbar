@@ -13,7 +13,7 @@ mod ipc_notice;
 mod pointer_message;
 
 pub(crate) use browser_page::{browser_event, first_url, is_browser, page_handler, pick_handler};
-pub(crate) use drop_message::{drop_handler, drop_report};
+pub(crate) use drop_message::{drop_frame, drop_handler};
 pub(crate) use focus_message::{focus_report, press_handler};
 pub(crate) use gate::{Gate, MAX_MESSAGE_BYTES};
 pub use host_event::HostEvent;

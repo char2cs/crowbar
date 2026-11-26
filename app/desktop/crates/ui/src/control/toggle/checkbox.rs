@@ -15,6 +15,7 @@ use crate::foundation::Palette;
 use crate::foundation::Pose;
 use crate::foundation::Surface;
 use crate::foundation::Theme;
+use crate::foundation::focus::modality::kept_focus::kept_focus;
 use crate::foundation::focus_ring;
 use crate::foundation::opaque_debug;
 use crate::foundation::tokens::opacity;
@@ -124,9 +125,11 @@ fn dash(palette: &Palette) -> Icon {
 impl RenderOnce for Checkbox {
     fn render(
         self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut App,
     ) -> impl IntoElement {
+        let focus = kept_focus(&self.id, window, cx);
+        let rung = crate::Modality::rings(&focus, window, cx);
         let theme = *Theme::of(cx);
         let palette = theme.palette(self.surface);
         let (checked, enabled) = (self.checked, !self.disabled);
@@ -145,9 +148,9 @@ impl RenderOnce for Checkbox {
             .when(!checked && enabled, |d| {
                 d.shadow(shadow::xs(opacity::PERCENT_5))
             })
-            .when(enabled, |d| d.cursor_pointer().tab_stop(true))
+            .when(enabled, |d| d.cursor_pointer().track_focus(&focus))
             .when(!enabled, |d| d.opacity(DISABLED_OPACITY))
-            .focus(move |s| s.shadow(focus_ring(palette)))
+            .when(rung, |d| d.shadow(focus_ring(palette)))
             .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
             .when(checked, |d| d.child(mark(palette)))
             .when(self.mixed == Pose::On, |d| d.child(dash(palette)))

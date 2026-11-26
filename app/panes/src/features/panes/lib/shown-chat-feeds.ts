@@ -2,7 +2,8 @@ import type { attachFeed } from '@/features/agent/stores/chat-feed'
 import { showingLayout } from '@/features/panes/lib/view-state'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
-import { chatHostOf, subscribeHostResolution } from '@/lib/host-resolve'
+import { subscribeHostResolution } from '@/lib/host-resolve'
+import { feedHostOf } from '@/features/hosts/lib/host-resolve-cached'
 
 const held = new Map<string, () => void>()
 let started: Promise<void> | null = null
@@ -13,7 +14,7 @@ function holdShown(attach: typeof attachFeed) {
   const shown = new Map<string, [hostId: string, chatId: string]>()
   for (const paneId of getAllLeafIds(showingLayout(state))) {
     const chatId = state.panes[paneId]?.chatId
-    const hostId = chatId ? chatHostOf(chatId) : null
+    const hostId = chatId ? feedHostOf(chatId) : null
     if (chatId && hostId) shown.set(`${hostId}\n${chatId}`, [hostId, chatId])
   }
   for (const [key, release] of held) {

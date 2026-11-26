@@ -1,14 +1,14 @@
 use std::sync::mpsc;
 use std::time::Duration;
 
-use crate::backend::browsing_data::BrowsingData;
 use crate::backend::native::linux::bounded_wait::wait_for;
 use crate::backend::native::linux::create_reply::CreateReply;
 use crate::backend::native::linux::gtk_platform::{GtkPlatform, log_failure};
 use crate::backend::native::linux::gtk_state::GtkState;
-use crate::backend::view_focus::ViewFocus;
-use crate::backend::view_layout::ViewLayout;
-use crate::backend::view_lifecycle::ViewLifecycle;
+use crate::backend::view::browsing_data::BrowsingData;
+use crate::backend::view::view_focus::ViewFocus;
+use crate::backend::view::view_layout::ViewLayout;
+use crate::backend::view::view_lifecycle::ViewLifecycle;
 use crate::error::Result;
 use crate::view::Bounds;
 use crate::view::Color;
@@ -18,6 +18,12 @@ use crate::view::ParentWindow;
 use crate::view::Visibility;
 
 const CREATE_PATIENCE: Duration = Duration::from_secs(5);
+
+fn answer_settled(reply: &mpsc::Sender<Result<()>>) {
+    if reply.send(Ok(())).is_err() {
+        tracing::debug!("nobody waits for the web views to settle");
+    }
+}
 
 fn settle_create(
     state: &mut GtkState,
@@ -50,6 +56,12 @@ impl ViewLifecycle for GtkPlatform {
         id: Id,
     ) -> Result<()> {
         self.post_logged("destroy", move |state| state.destroy(id))
+    }
+
+    fn settle(&self) -> Result<()> {
+        let (reply, answer) = mpsc::channel();
+        self.post(move |_| answer_settled(&reply))?;
+        wait_for(&answer, CREATE_PATIENCE)
     }
 }
 

@@ -22,6 +22,7 @@ use tokio::runtime::Handle;
 use tokio::sync::mpsc;
 
 use crate::error::{Error, Result};
+use crate::live::OutcomeSink;
 use crate::live::fleet::host_stream::HostStream;
 use crate::live::fleet::member::Member;
 use crate::live::held::HostSpec;
@@ -32,6 +33,7 @@ pub(crate) struct Fleet {
     hub: Arc<Hub>,
     transport: Arc<dyn DaemonTransport>,
     members: Mutex<BTreeMap<String, Member>>,
+    outcome: OutcomeSink,
 }
 
 impl std::fmt::Debug for Fleet {
@@ -50,13 +52,14 @@ impl Fleet {
     pub(crate) fn new(
         handle: &Handle,
         hub: &Arc<Hub>,
-        transport: &Arc<dyn DaemonTransport>,
+        (transport, outcome): (&Arc<dyn DaemonTransport>, OutcomeSink),
     ) -> Arc<Self> {
         Arc::new(Self {
             handle: handle.clone(),
             hub: Arc::clone(hub),
             transport: Arc::clone(transport),
             members: Mutex::default(),
+            outcome,
         })
     }
 
@@ -87,6 +90,7 @@ impl Fleet {
             host: host.clone(),
             dial,
             client,
+            outcome: Arc::clone(&self.outcome),
         };
         let task = self.handle.spawn(stream.run(inbox));
         if let Some(replaced) = self.held().insert(host, Member { control, task }) {
@@ -156,7 +160,10 @@ mod tests {
         let (state, daemon) = state();
         let transport: Arc<dyn DaemonTransport> = daemon;
         let hub = Hub::new(state, Arc::new(|| {}));
-        (Fleet::new(&Handle::current(), &hub, &transport), hub)
+        (
+            Fleet::new(&Handle::current(), &hub, (&transport, Arc::new(|_| {}))),
+            hub,
+        )
     }
 
     fn spec(id: &str) -> HostSpec {

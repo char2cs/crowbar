@@ -1,5 +1,6 @@
 //! What the shell knows of its hosts right now, and what keeps it current: held data, state, the fleet of streams and the panel loaders.
 
+mod draft_thread;
 mod files;
 pub(crate) mod fleet;
 mod held;
@@ -8,6 +9,7 @@ pub(crate) mod panel_loader;
 mod plan_error;
 mod state;
 
+pub use draft_thread::DraftThread;
 pub(crate) use files::{DiskFiles, Files, read_text};
 pub use fleet::{BookError, BookFuture, HostBook, HostDesk, HostNotes, Note, PairingRequest};
 pub(crate) use fleet::{
@@ -22,5 +24,5 @@ pub(crate) use held::{
 pub use outcome::{Outcome, OutcomeSink};
 pub(crate) use panel_loader::{DocumentBody, FileTarget, ReloadTarget, load_directory, tree_path};
 pub(crate) use plan_error::PlanError;
-pub use state::{ChangeSignal, ChatPhase, ChatSurface, ChatTerminal};
+pub use state::ChangeSignal;
 pub(crate) use state::{Hub, State, chat_project, workspace_root};

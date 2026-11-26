@@ -27,7 +27,6 @@ export interface Settings {
   renderIndentGuides: boolean
   semanticHighlighting: boolean
   highlightOccurrences: boolean
-  showMinimap: boolean
   // Terminal
   terminalFontFamily: string
   terminalFontSize: number

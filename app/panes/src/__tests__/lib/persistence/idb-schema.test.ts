@@ -142,7 +142,7 @@ describe('idb schema v14', () => {
     await v13.put('projects-data', { key: 'k', data: 2, fetchedAt: 1 })
     v13.close()
     const db = await getDB()
-    expect(db.version).toBe(14)
+    expect(db.version).toBe(16)
     expect(Array.from(db.objectStoreNames)).not.toContain('editor-state')
     await db.put('editor-drafts', { uri: 'u', text: 't', savedText: 's', updatedAt: 1 })
     expect((await db.get('projects-data', 'k'))?.data).toBe(2)

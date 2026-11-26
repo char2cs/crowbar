@@ -1,5 +1,5 @@
-import { DocumentRegistry } from '@/features/editor/documents/document-registry'
-import { EditorManager } from '@/features/editor/lib/editor-manager'
+import type { DocumentRegistry } from '@/features/editor/documents/document-registry'
+import type { EditorManager } from '@/features/editor/lib/editor-manager'
 
 /** The window's one Monaco environment: every pane, whatever workspace its
  *  buffer belongs to, mounts on this manager, and every open document's model
@@ -7,6 +7,8 @@ import { EditorManager } from '@/features/editor/lib/editor-manager'
 export interface EditorHost {
   readonly manager: EditorManager
   readonly documents: DocumentRegistry
+  /** The Monaco language of a document's model. */
+  readonly languageOf: (uri: string) => string
 }
 
 let host: EditorHost | null = null
@@ -51,33 +53,26 @@ function released(uri: string): void {
   for (const dispose of held) dispose()
 }
 
-/** Loads Monaco and builds the host on first need, so cold launch never pays for it. Callers
- *  share one load; a failed chunk load is forgotten so the next caller retries. */
+/** Builds the host: loads Monaco and opens its registry. `released` is told each document it lets go. */
+export type EditorHostBuild = (released: (uri: string) => void) => Promise<EditorHost>
+
+let build: EditorHostBuild | null = null
+
+/** Makes `next` the way this page builds its editor host. Only the app installs one: a shell pane
+ *  has no Monaco editor, so its bundle never carries Monaco. */
+export function installEditorHostBuild(next: EditorHostBuild): void {
+  build = next
+}
+
+/** Builds the host on first need, so cold launch never pays for it. Callers share one load; a
+ *  failed chunk load is forgotten so the next caller retries. */
 export function loadEditorHost(): Promise<EditorHost> {
-  // buffer-save loads here too: through the pane store it imports this module.
-  loading ??= Promise.all([
-    import('@/features/editor/lib/monaco-adapters'),
-    import('@/features/editor/lib/buffer-save'),
-    import('@/features/editor/documents/document-lsp'),
-    import('monaco-editor/esm/vs/editor/editor.api.js'),
-  ]).then(
-    ([adapters, save, lsp, monaco]) => {
-      const documents = new DocumentRegistry(adapters.realModelApi(), {
-        dirtyChanged: save.setDocumentDirty,
-        contentChanged: save.noteDocumentEdited,
-        opened: (uri, ref) => {
-          const model = monaco.editor.getModel(monaco.Uri.parse(uri))
-          if (model) lsp.attachDocumentLsp(ref, model)
-        },
-        released: (uri) => {
-          save.cancelPendingWrites(uri)
-          released(uri)
-        },
-      })
-      const editors = adapters.realEditorApi(adapters.EDITOR_CREATE_OPTIONS)
-      host = { manager: new EditorManager(editors, documents), documents }
+  if (!build) return Promise.reject(new Error('This page has no code editor'))
+  loading ??= build(released).then(
+    (built) => {
+      host = built
       for (const listener of [...listeners]) listener()
-      return host
+      return built
     },
     (err: unknown) => {
       loading = null

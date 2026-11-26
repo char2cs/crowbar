@@ -1,6 +1,5 @@
-//! What the shell takes from the patches in `app/desktop/vendor/patches/gpui`, pinned so that a
-//! gpui upgrade which drops one fails here by name. Each test names the patch it pins; the ones
-//! that need a real window are in `support/on_x11.rs`.
+//! What the shell needs of GPUI, pinned so that a gpui upgrade which breaks one fails here by
+//! name. The ones that need a real window are in `support/on_x11.rs`.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -22,7 +21,6 @@ const ELLIPSIS: char = '…';
 const ROW_WIDTH: f32 = 120.0;
 const PROBE_SIDE: f32 = 40.0;
 const INSIDE: f32 = 10.0;
-
 /// `0003-svg-image-bgra`: SVG artwork is decoded in the renderer's BGRA order like every image.
 #[gpui::test]
 fn a_red_svg_image_decodes_to_red_in_bgra_order(cx: &mut TestAppContext) {

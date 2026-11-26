@@ -149,8 +149,8 @@ Crate `crates/sidebar` (~230 files), data in `crates/shell_data`. Every `sidebar
 
 | Item | Status | Evidence | Gap |
 |---|---|---|---|
-| Daemon halt / crash / outage view, Quit | done | `crates/startup_view/src/{halt_panel,outage_panel}.rs`, `app/src/{daemon_notice,phase_input}.rs` | web gate text not diffed |
-| Startup / migration full-screen view, determinate `i / n`, step line, hand-over | done | `startup_view/src/{waiting_panel,migration_step,handover,startup_machine}.rs`; `startup_input.rs` | polling is explicit; no screenshot of it in the scratchpad set (`e2e` has none) |
+| Daemon halt gate (replaces the app), crash panel, Quit | done | `crates/startup/src/view.rs` (halt only; only Restarted lifts it), `app/src/backend/daemon_notice.rs`, `app/src/shell_view/pump.rs` | web gate text not diffed |
+| Startup / migration / restart / unresponsive / stopped | done | develop has no full-window cover for these: Starting shows nothing, Migrating shows the "Crowbar is upgrading its data" toast (`app/src/backend/connection_notice.rs`), outages show "Backend unavailable" after 500 ms; all through `track_daemon` | the earlier Rust full-screen Starting/Migrating view was not in develop and is removed (CHAT-387) |
 | OOBE (`#/oobe`): tagline, System check (git ok, gh/glab optional), Add first space | missing | grep oobe / system check / glab in `app` and `crates`: none. First launch with no project shows the sidebar create-space panel only | inventory KEEP list (route wired and LIVE). Not cut by any decision doc |
 | `/add-host` route (brand frame) | partial | host adding exists in Settings > Hosts and create-space picker (`pairing_view`) | the standalone route is not ported |
 | Native app menu | partial | `app/src/app_menu.rs`: Crowbar (Services, Quit) and Edit (Cut/Copy/Paste) only | no File/View/Window items; on macOS there are no Close Window, Zoom, Minimise entries. The web app had Tauri default menus; not diffed |

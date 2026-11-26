@@ -19,7 +19,7 @@ scan_root() {
     base=$(basename "$rel")
     stem=${base%.rs}
     crate=$(echo "/$rel" | sed -E 's#^(.*)/(src|tests)/.*#\1#; t; s#/[^/]*$##')
-    case "/$rel" in */target/*|*/vendor/*) continue ;; esac
+    case "/$rel" in */target/*) continue ;; esac
     scan_names "$rel" "$root"
     if [[ $base == test_support.rs ]] && declared_for_tests "$path"; then check_file "$rel" "$path" test "$stem" 0 1; continue; fi
     case "/$rel" in
@@ -31,7 +31,7 @@ scan_root() {
       continue
     fi
     scan_source "$rel" "$path" "$base" "$stem" "$root"
-  done < <(cd "$root" && find . -name '*.rs' -not -path '*/target/*' -not -path '*/vendor/*' | LC_ALL=C sort)
+  done < <(cd "$root" && find . -name '*.rs' -not -path '*/target/*' | LC_ALL=C sort)
 }
 
 # A lone src/.../test_support.rs is test code like a test_support/ folder when it compiles only under
@@ -124,7 +124,7 @@ scan_cargo() {
         echo "$rel:$n: [cargo-layer] shared crates never depend on gpui/tauri/wry/gtk or desktop/"
       done | grep . && status=1
     fi
-  done < <(find "$root" -name Cargo.toml -not -path '*/target/*' -not -path '*/vendor/*' -not -path '*/node_modules/*' -not -path "$root/Cargo.toml" | LC_ALL=C sort)
+  done < <(find "$root" -name Cargo.toml -not -path '*/target/*' -not -path '*/node_modules/*' -not -path "$root/Cargo.toml" | LC_ALL=C sort)
 }
 
 scan_layers() {
@@ -136,12 +136,28 @@ scan_layers() {
 
 scan_cycles() {
   local root=$1 srcs
-  mapfile -t srcs < <(find "$root" -type d -name src -not -path '*/target/*' -not -path '*/vendor/*' -not -path '*/test_support/*' | LC_ALL=C sort)
+  mapfile -t srcs < <(find "$root" -type d -name src -not -path '*/target/*' -not -path '*/test_support/*' | LC_ALL=C sort)
   ((${#srcs[@]})) || return 0
   python3 -I "$here/check-cycles.py" rust "${srcs[@]}" | sed "s#^$root/##" ; [[ ${PIPESTATUS[0]} -eq 0 ]] || status=1
 }
 
-run_dir() { local r=${1%/}; scan_root "$r"; scan_cargo "$r"; scan_layers "$r"; scan_cycles "$r"; }
+scan_module_count() { # a folder holds at most 12 modules; foo.rs + foo/ count once (rust-tree plan 2.1)
+  local root=$1
+  python3 -I - "$root" <<'PY'
+import os, sys
+root = sys.argv[1]
+for d, subs, files in os.walk(root):
+    subs[:] = sorted(s for s in subs if s not in ("target", "node_modules"))
+    rel = os.path.relpath(d, root)
+    if "src" not in rel.split(os.sep): continue
+    mods = {f[:-3] for f in files if f.endswith(".rs")}
+    mods |= {s for s in subs if any(n.endswith(".rs") for _, _, ns in os.walk(os.path.join(d, s)) for n in ns)}
+    if len(mods) > 12:
+        print(f"{rel}:1: [module-count] {len(mods)} modules in one folder; at most 12, cut by responsibility")
+PY
+}
+
+run_dir() { local r=${1%/}; scan_root "$r"; [[ $r == */mobile/src-tauri ]] || scan_module_count "$r"; scan_cargo "$r"; scan_layers "$r"; scan_cycles "$r"; }
 
 self_test() {
   local td="$here/testdata/rust-rules" rc=0 out case_dir tag tmp

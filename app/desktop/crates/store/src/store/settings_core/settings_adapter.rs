@@ -6,7 +6,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use settings::{
-    Change, Error, Follow, Key, Listener, Read, RecordBackend, RecordCommand, Records, Snapshot,
+    Error, Follow, Key, Listener, Read, RecordBackend, RecordCommand, Records, Snapshot,
     Subscription, Value, Write,
 };
 
@@ -51,21 +51,21 @@ impl SettingsAdapter {
         self.core.upload_descriptor(text);
     }
 
+    /// Blocks until every setting changed so far is on disk; the shell calls it as it quits.
+    pub fn flush(&self) {
+        self.core.flush();
+    }
+
     /// Tells the modal's listeners about every change made since the last call.
     pub fn deliver_pending(&self) {
         let listeners: Vec<Listener> = self.listeners.borrow().values().cloned().collect();
-        for change in self.core.take_changes() {
-            notify(&listeners, &change);
+        let changes = self.core.take_changes();
+        let calls = changes
+            .iter()
+            .flat_map(|change| listeners.iter().map(move |listener| (listener, change)));
+        for (listener, change) in calls {
+            listener(change);
         }
-    }
-}
-
-fn notify(
-    listeners: &[Listener],
-    change: &Change,
-) {
-    for listener in listeners {
-        listener(change);
     }
 }
 
@@ -88,7 +88,8 @@ impl Write for SettingsAdapter {
         key: &Key,
         value: Value,
     ) -> Result<(), Error> {
-        self.core.set(key, value)
+        self.core.set(key, value);
+        Ok(())
     }
 
     fn invoke(

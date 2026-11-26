@@ -1,8 +1,11 @@
 //! A yes-or-no question the sidebar asks before sending a command.
 
 use crate::shell::chats::RowId;
-use crate::shell::command::Command;
+use crate::shell::command::{Command, Stakes};
 
+// SPEC: docs/triage/2026-11-18-side-by-side-audit/16-dlg.md DLG-009: develop's message with no client attached.
+const KILL_BODY: &str =
+    "It stops now, even mid-turn. The conversation is kept and resumes when reopened.";
 const DETACH_BODY: &str = "will move to a detached HEAD, releasing the branch so Crowbar can manage it in its own worktree. Your files are safe — only the working directory's current branch changes; uncommitted changes and commits are preserved.";
 
 /// A confirmation dialog whose accept button sends one command.
@@ -12,8 +15,12 @@ pub struct Question {
     pub title: String,
     /// The explanation under the title.
     pub body: String,
+    /// The label of the cancel button.
+    pub cancel: &'static str,
     /// The label of the accept button.
     pub confirm: &'static str,
+    /// What accepting costs, which colours the accept button.
+    pub stakes: Stakes,
     /// The command sent when the question is accepted.
     pub command: Command,
 }
@@ -33,7 +40,9 @@ impl Question {
         Self {
             title: format!("Detach to manage {branch}"),
             body: format!("{checkout} {DETACH_BODY}"),
+            cancel: "Cancel",
             confirm: "Detach",
+            stakes: Stakes::Disruptive,
             command: Command::Detach(row),
         }
     }
@@ -46,8 +55,10 @@ impl Question {
     ) -> Self {
         Self {
             title: format!("Kill the agent on “{title}”?"),
-            body: "The agent stops immediately and its running turn is lost.".to_owned(),
+            body: KILL_BODY.to_owned(),
+            cancel: "Keep running",
             confirm: "Kill agent",
+            stakes: Stakes::Destructive,
             command: Command::KillAgent(row),
         }
     }
@@ -79,7 +90,7 @@ mod tests {
             (
                 &kill,
                 "Kill the agent on “Refactor”?",
-                "The agent stops",
+                "It stops now, even mid-turn.",
                 Command::KillAgent(row),
             ),
         ];
@@ -88,5 +99,11 @@ mod tests {
             assert!(question.body.starts_with(body), "{}", question.body);
             assert_eq!(question.command, command);
         }
+        let answers = |q: &Question| (q.cancel, q.confirm, q.stakes);
+        assert_eq!(answers(&detach), ("Cancel", "Detach", Stakes::Disruptive));
+        assert_eq!(
+            answers(&kill),
+            ("Keep running", "Kill agent", Stakes::Destructive)
+        );
     }
 }

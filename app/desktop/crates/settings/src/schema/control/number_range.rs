@@ -1,6 +1,7 @@
 //! Bounds, step and text form of a number field.
 
 use crate::schema::control::nudge::Nudge;
+use crate::schema::control::on_load::OnLoad;
 
 /// The allowed numbers of a field: `min..=max` in increments of `step`.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -9,6 +10,7 @@ pub struct NumberRange {
     pub(crate) max: f64,
     pub(crate) step: f64,
     snaps: bool,
+    on_load: OnLoad,
 }
 
 impl NumberRange {
@@ -35,6 +37,7 @@ impl NumberRange {
             max,
             step,
             snaps: false,
+            on_load: OnLoad::Kept,
         }
     }
 
@@ -42,6 +45,16 @@ impl NumberRange {
     #[must_use]
     pub fn snapping(mut self) -> Self {
         self.snaps = true;
+        self
+    }
+
+    /// A stored value reads as `on_load` says when settings load.
+    #[must_use]
+    pub fn loaded_as(
+        mut self,
+        on_load: OnLoad,
+    ) -> Self {
+        self.on_load = on_load;
         self
     }
 
@@ -75,6 +88,18 @@ impl NumberRange {
         let snapped = self.snap(value);
         let scale = 10_f64.powi(i32::try_from(self.precision()).unwrap_or(0));
         ((snapped * scale).round() / scale).clamp(self.min, self.max)
+    }
+
+    /// A stored `value` as develop's settings store loads it.
+    pub fn loaded(
+        &self,
+        value: f64,
+    ) -> f64 {
+        match self.on_load {
+            OnLoad::Kept => value,
+            OnLoad::Normalized => self.normalize(value),
+            OnLoad::Replaced(legacy) => legacy.loaded(value),
+        }
     }
 
     /// The number typed in `text`, if it is one.

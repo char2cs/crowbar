@@ -3,11 +3,13 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, DismissEvent, ElementId, Entity, InteractiveElement, IntoElement, MouseButton,
-    ParentElement, Pixels, Point, RenderOnce, Styled, Window, div,
+    AnyElement, App, DismissEvent, Div, ElementId, Entity, InteractiveElement, IntoElement,
+    MouseButton, ParentElement, Pixels, Point, Refineable as _, RenderOnce, Stateful,
+    StyleRefinement, Styled, Window, div, px,
 };
 
 use crate::floating::menu::menu_item::MenuItem;
+use crate::floating::menu::native_menu::{self, MenuEdge, NativeMenu};
 use crate::floating::menu::trigger::context_state::ContextState;
 use crate::floating::menu::trigger::spec::Spec;
 use crate::floating::placement::Placement;
@@ -16,7 +18,9 @@ use crate::foundation::opaque_debug;
 
 const OFFSET: f32 = 4.0;
 
-/// Wraps `child`; a right click on it opens `items` at the pointer, a press outside or `Escape` closes them.
+/// Wraps `child`; a right click on it opens `items` at the pointer, as the installed
+/// [`NativeMenu`](crate::NativeMenu) when there is one, else drawn in the window, where a press
+/// outside or `Escape` closes them.
 ///
 /// Rows may open nested menus with `MenuAction::submenu`, and the arrow keys walk them.
 #[derive(IntoElement)]
@@ -25,6 +29,7 @@ pub struct ContextMenu {
     child: AnyElement,
     spec: Spec,
     placement: Option<Placement>,
+    style: StyleRefinement,
 }
 
 impl ContextMenu {
@@ -39,10 +44,12 @@ impl ContextMenu {
             child: child.into_any_element(),
             spec: Spec::new(items.into()),
             placement: None,
+            style: StyleRefinement::default(),
         }
     }
 
-    /// Opens the menu at `placement` of the wrapped element instead of at the pointer.
+    /// Opens the menu at `placement` of the wrapped element instead of at the pointer; a native
+    /// menu starts there, as develop pops its tab menu under the tab's centre.
     #[must_use]
     pub fn placement(
         mut self,
@@ -63,34 +70,73 @@ impl ContextMenu {
     }
 }
 
+/// Styles the area that takes the right click, so it can grow to fill free space.
+impl Styled for ContextMenu {
+    fn style(&mut self) -> &mut StyleRefinement {
+        &mut self.style
+    }
+}
+
 impl RenderOnce for ContextMenu {
     fn render(
         self,
         window: &mut Window,
         cx: &mut App,
     ) -> impl IntoElement {
-        let state = window.use_keyed_state((self.id.clone(), "context"), cx, |_, _| {
-            ContextState::default()
-        });
+        match NativeMenu::installed(cx) {
+            Some(native) => self.native(native),
+            None => self.drawn(window, cx),
+        }
+    }
+}
+
+impl ContextMenu {
+    fn area(&mut self) -> Stateful<Div> {
+        let child = std::mem::replace(&mut self.child, div().into_any_element());
+        let mut area = div().id(self.id.clone()).relative();
+        area.style().refine(&self.style);
+        area.child(child)
+    }
+
+    fn native(
+        mut self,
+        native: NativeMenu,
+    ) -> AnyElement {
+        let (items, placement) = (Rc::clone(&self.spec.items), self.placement);
+        let (laid_out, probe) = native_menu::trigger_probe();
+        // PLATFORM: linux the press holds an implicit X grab on the shell window, so GTK can only take the pointer for its menu once the button is up.
+        self.area()
+            .child(probe)
+            .on_mouse_up(MouseButton::Right, move |event, window, cx| {
+                let pointer = (event.position, MenuEdge::Start);
+                let at = placement.map_or(pointer, |side| side.beside(laid_out.get(), px(OFFSET)));
+                native.open(&items, at, (window, cx));
+            })
+            .into_any_element()
+    }
+
+    fn drawn(
+        mut self,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> AnyElement {
+        let area = self.area();
+        let id = self.id;
+        let state =
+            window.use_keyed_state((id.clone(), "context"), cx, |_, _| ContextState::default());
         let (open, at) = {
             let current = state.read(cx);
             (current.open.clone(), current.at)
         };
         let (opener, spec) = (state.clone(), self.spec);
-        let placement = self.placement;
-        let id = self.id.clone();
-        let wrapper = div()
-            .id(self.id)
-            .relative()
-            .child(self.child)
-            .on_mouse_down(MouseButton::Right, move |event, window, cx| {
-                spec.open_at(&opener, event.position, (window, cx));
-            });
+        let wrapper = area.on_mouse_down(MouseButton::Right, move |event, window, cx| {
+            spec.open_at(&opener, event.position, (window, cx));
+        });
         let Some(menu) = open else {
             return wrapper.into_any_element();
         };
         let content: popup::Content = Rc::new(move |_, _| menu.clone().into_any_element());
-        let panel = match placement {
+        let panel = match self.placement {
             Some(placement) => {
                 popup::placed((id.clone(), "menu").into(), placement, OFFSET, content)
             },
@@ -147,6 +193,7 @@ mod tests {
     use super::*;
     use crate::floating::menu::menu_item::MenuAction;
     use crate::test_support::probe::{open, open_floating, settle};
+    use crate::testing::newest_window;
 
     fn nested(chosen: &Rc<Cell<u32>>) -> Vec<MenuItem> {
         let chosen = Rc::clone(chosen);
@@ -213,6 +260,27 @@ mod tests {
     }
 
     #[gpui::test]
+    fn a_menu_styled_to_grow_takes_a_right_click_anywhere_in_the_space_it_fills(
+        cx: &mut TestAppContext
+    ) {
+        let cx = open(cx, |_, _| {
+            let rows = vec![MenuItem::Action(MenuAction::new("Row", |_, _| {}))];
+            let foot = ContextMenu::new("foot", div(), rows).flex_1();
+            div()
+                .flex()
+                .flex_col()
+                .w(px(200.0))
+                .h(px(300.0))
+                .child(div().h(px(20.0)))
+                .child(foot)
+        });
+        let low = point(px(10.0), px(280.0));
+        cx.simulate_mouse_down(low, MouseButton::Right, gpui::Modifiers::none());
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("ui-menu").is_some());
+    }
+
+    #[gpui::test]
     fn the_right_arrow_enters_a_submenu_and_left_leaves_it(cx: &mut TestAppContext) {
         let chosen = Rc::new(Cell::new(0));
         let cx = open(cx, build(&chosen));
@@ -245,7 +313,7 @@ mod tests {
     #[gpui::test]
     fn a_context_menu_floats_in_the_top_layer_at_the_pointer(cx: &mut TestAppContext) {
         let chosen = Rc::new(Cell::new(0));
-        let (mut owner, mut top) = open_floating(cx, build(&chosen));
+        let mut owner = open_floating(cx, build(&chosen));
         let at = point(px(40.0), px(30.0));
         owner.simulate_event(gpui::MouseDownEvent {
             button: MouseButton::Right,
@@ -256,13 +324,14 @@ mod tests {
         });
         owner.run_until_parked();
         assert_eq!(owner.debug_bounds("ui-menu"), None, "nothing in the window");
+        let mut top = newest_window(&mut owner);
         let menu = top.debug_bounds("ui-menu").unwrap_or_default();
         assert_eq!(menu.origin, at);
         let away = point(px(700.0), px(500.0));
         top.simulate_click(away, gpui::Modifiers::none());
-        settle(&mut top);
+        settle(&mut owner);
         assert_eq!(
-            top.debug_bounds("ui-menu"),
+            newest_window(&mut owner).debug_bounds("ui-menu"),
             None,
             "a press outside closes it"
         );

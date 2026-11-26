@@ -5,6 +5,9 @@ use ui::{CubicBezier, Glide, Motion, timing};
 
 use crate::gesture::strip_drag::StripDrag;
 
+const SOURCE_IN_STRIP: f32 = 0.0;
+const SOURCE_OFF_STRIP: f32 = 0.4;
+
 #[derive(Debug)]
 pub(crate) struct DragSession {
     pub(crate) engine: StripDrag,
@@ -52,6 +55,24 @@ impl DragSession {
         self.slides
             .get(index)
             .map_or(0.0, |slide| slide.value(now, motion))
+    }
+
+    pub(crate) fn aim(
+        &mut self,
+        x: f32,
+    ) {
+        if self.out {
+            self.engine.home();
+            return;
+        }
+        self.engine.moved(x);
+    }
+
+    pub(crate) fn source_opacity(&self) -> f32 {
+        if self.out {
+            return SOURCE_OFF_STRIP;
+        }
+        SOURCE_IN_STRIP
     }
 
     pub(crate) fn is_sliding(

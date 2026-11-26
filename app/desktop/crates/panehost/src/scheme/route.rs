@@ -11,6 +11,8 @@ pub(crate) enum Route {
     },
     /// The daemon of `host`.
     Relay { host: HostId },
+    /// A native menu the page asks the shell to pop up.
+    Menu,
     Daemon {
         host: HostId,
         path_and_query: String,
@@ -20,6 +22,7 @@ pub(crate) enum Route {
 const PANES_PREFIX: &str = "/panes/";
 const FONTS_PREFIX: &str = "/fonts/";
 const RELAY_PATH: &str = "/__crowbar/relay";
+const MENU_PATH: &str = "/__crowbar/menu";
 
 fn core_bundle(path: &str) -> Route {
     Route::CoreBundle {
@@ -39,6 +42,9 @@ pub(crate) fn parse(
     let host = HostId::new(authority).ok()?;
     if path_and_query == RELAY_PATH {
         return Some(Route::Relay { host });
+    }
+    if path_and_query == MENU_PATH {
+        return Some(Route::Menu);
     }
     if path_and_query.starts_with(FONTS_PREFIX) {
         return Some(core_bundle(path_and_query.trim_start_matches('/')));

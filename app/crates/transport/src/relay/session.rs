@@ -1,6 +1,7 @@
 mod admission;
 mod bridge;
 mod gate;
+mod session_event;
 
 use std::sync::Arc;
 
@@ -13,11 +14,13 @@ use tokio_util::sync::CancellationToken;
 
 use crate::error::Error;
 use crate::hosts::Target;
+use crate::journal_sink::emit;
 use crate::relay::session::admission::Admission;
 use crate::relay::session::bridge::bridge;
 use crate::relay::session::bridge::close_message::close_message;
 use crate::relay::session::bridge::limits::Limits;
 use crate::relay::session::gate::Gate;
+use crate::relay::session::session_event::SessionEvent;
 use crate::relay::state::State;
 use crate::transport::UpstreamRequest;
 use crate::transport::{UpstreamSocket, ws_config};
@@ -35,12 +38,12 @@ pub(crate) async fn run<S>(
     let handshake = accept_hdr_async_with_config(stream, gate, Some(config));
     let client = match tokio::time::timeout(state.config.handshake_timeout, handshake).await {
         Ok(Ok(client)) => client,
-        Ok(Err(e)) => return tracing::debug!("relay handshake refused: {e}"),
-        Err(elapsed) => return tracing::debug!("relay handshake timed out: {elapsed}"),
+        Ok(Err(error)) => return emit(&SessionEvent::HandshakeRefused { error: &error }),
+        Err(elapsed) => return emit(&SessionEvent::HandshakeTimedOut { elapsed: &elapsed }),
     };
     drop(handshake_slot);
     let Ok(admission) = admission.await else {
-        return tracing::debug!("relay handshake finished without an admission");
+        return emit(&SessionEvent::NoAdmission);
     };
     serve(&state, client, admission).await;
 }
@@ -63,7 +66,7 @@ async fn refuse_upstream<S>(
 ) where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    tracing::debug!("relay upstream refused: {error}");
+    emit(&SessionEvent::UpstreamRefused { error });
     let reason = error.marker().unwrap_or("daemon-unavailable");
     say_close(client, CloseCode::Error, reason, state).await;
 }
@@ -108,8 +111,8 @@ async fn farewell<S>(
     if client.send(close_message(code, reason)).await.is_err() {
         return;
     }
-    if let Err(e) = client.close(None).await {
-        tracing::debug!("close not delivered: {e}");
+    if let Err(error) = client.close(None).await {
+        emit(&SessionEvent::CloseNotDelivered { error: &error });
     }
 }
 
@@ -126,7 +129,7 @@ async fn say_close<S>(
         .await
         .is_err()
     {
-        tracing::debug!("client did not take the close within the grace period");
+        emit(&SessionEvent::CloseNotTaken);
     }
 }
 

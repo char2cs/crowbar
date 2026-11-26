@@ -26,6 +26,7 @@ thiserror.workspace = true
 ui.workspace = true
 
 [dev-dependencies]
+ui = { workspace = true, features = ["test-support"] }
 gpui = { workspace = true, features = ["test-support"] }
 settings = { workspace = true, features = ["fake"] }
 

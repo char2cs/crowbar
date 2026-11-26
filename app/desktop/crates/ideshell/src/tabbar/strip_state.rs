@@ -1,11 +1,15 @@
+pub(crate) mod input_mode;
+
 use gpui::{App, Context, Entity, FocusHandle, Pixels, Point, ScrollHandle, Window, px};
 use protocol::PaneId;
 
-use crate::tabbar::input_mode::InputMode;
-use crate::tabbar::strip_drag::StripDrag;
+use crate::tabbar::drag::strip_drag::StripDrag;
+use crate::tabbar::strip_state::input_mode::InputMode;
 use crate::tabbar::tab_actions::TabAction;
 
 const OVERFLOW_SLACK: f32 = 1.0;
+const ADD_BUTTON_AFTER_TABS: usize = 1;
+
 pub(crate) struct StripState {
     pub(crate) scroll: ScrollHandle,
     pub(crate) focus: FocusHandle,
@@ -67,13 +71,30 @@ impl StripState {
         tab: (PaneId, usize),
         tabs: usize,
     ) {
-        let children = self.scroll.children_count();
-        let lead = children.saturating_sub(tabs);
-        let centres = (lead..children)
+        let lead = self.first_tab(tabs);
+        let slots = (lead..lead + tabs)
             .filter_map(|child| self.scroll.bounds_for_item(child))
-            .map(|bounds| bounds.center().x)
             .collect();
-        self.drag = Some(StripDrag::new(tab, self.pressed, centres));
+        self.drag = Some(StripDrag::new(tab, self.pressed, slots));
+    }
+
+    pub(crate) fn tab_width(
+        &self,
+        (index, tabs): (usize, usize),
+    ) -> Option<Pixels> {
+        let child = self.first_tab(tabs) + index;
+        self.scroll
+            .bounds_for_item(child)
+            .map(|bounds| bounds.size.width)
+    }
+
+    fn first_tab(
+        &self,
+        tabs: usize,
+    ) -> usize {
+        self.scroll
+            .children_count()
+            .saturating_sub(tabs + ADD_BUTTON_AFTER_TABS)
     }
 
     pub(crate) fn dragged(

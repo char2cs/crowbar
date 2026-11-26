@@ -181,6 +181,7 @@ impl Toast {
             .bg(palette.popover())
             .text_color(palette.foreground())
             .text_size(text_size::SM)
+            .line_height(text_size::LINE_HEIGHT)
             .font_family(theme.ui_family())
             .shadow(shadow::lg(opacity::PERCENT_5))
     }
@@ -189,7 +190,7 @@ impl Toast {
 impl RenderOnce for Toast {
     fn render(
         self,
-        _window: &mut Window,
+        _: &mut Window,
         cx: &mut App,
     ) -> impl IntoElement {
         let theme = *Theme::of(cx);
@@ -214,15 +215,19 @@ impl RenderOnce for Toast {
             Animation::new(motion.duration(timing::TOAST_ERROR.max(timing::TOAST_SUCCESS))),
             move |card, delta| settle(card, kind, updates, delta),
         );
-        div()
-            .debug_selector(|| "ui-toast".into())
+        let faded = div()
             .when(self.fill, Styled::w_full)
-            .child(replayed)
+            .child(crate::Shaped::solid(replayed, radius::LG))
             .with_animation(
                 (self.id, format!("fade-{phase:?}")),
                 motion.animation(timing::SLOW, CubicBezier::DEFAULT),
                 move |wrapper, delta| wrapper.opacity(fade(phase, delta)),
-            )
+            );
+        div()
+            .debug_selector(|| "ui-toast".into())
+            .relative()
+            .when(self.fill, Styled::w_full)
+            .child(faded)
     }
 }
 
@@ -318,6 +323,12 @@ mod tests {
         assert!(
             titled.size.height > plain.size.height,
             "the title takes a line of its own"
+        );
+        let lines = 2.0 * 20.0 + TITLE_GAP;
+        assert_eq!(
+            f32::from(titled.size.height),
+            2.0 * 12.0 + 2.0 + lines,
+            "py-3, a 1px border and two text-sm lines of 20px, as develop's card"
         );
     }
 

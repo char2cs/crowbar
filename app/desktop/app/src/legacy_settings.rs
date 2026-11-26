@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use store::LegacyImport;
 
 use crate::app_options::AppOptions;
+use crate::legacy_drafts::ImportEvent;
+use crate::shell::inbox::logged::emit;
 
 pub(crate) fn import_old_settings(
     user_home: Option<PathBuf>,
@@ -14,8 +16,8 @@ pub(crate) fn import_old_settings(
     let settings = options.state_dir().join("settings.json");
     match LegacyImport::discover(&user_home, settings).run() {
         Ok(0) => {},
-        Ok(taken) => tracing::info!(taken, "settings of the previous app were imported"),
-        Err(error) => tracing::warn!(%error, "settings of the previous app were not imported"),
+        Ok(taken) => emit(&ImportEvent::SettingsImported { taken }),
+        Err(error) => emit(&ImportEvent::SettingsNotImported { error: &error }),
     }
 }
 

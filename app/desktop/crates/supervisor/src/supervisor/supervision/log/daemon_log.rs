@@ -1,3 +1,5 @@
+mod daemon_log_event;
+
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -5,6 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::error::Error;
+use crate::supervisor::supervision::log::daemon_log::daemon_log_event::DaemonLogEvent;
 use crate::supervisor::supervision::log::message::Message;
 use crate::supervisor::supervision::log::sink::Sink;
 use crate::supervisor::supervision::reply::reply;
@@ -100,7 +103,7 @@ fn write_next(
     let written = note_drops(writer, dropped.swap(0, Ordering::Relaxed))
         .and_then(|()| write_message(writer, message));
     if let Err(e) = written {
-        tracing::warn!("daemon log {}: {e}", path.display());
+        crate::journal_sink::emit(&DaemonLogEvent::Unwritable { path, error: &e });
     }
 }
 
@@ -147,7 +150,7 @@ impl DaemonLog {
     pub(crate) async fn flush(&self) {
         let (done, written) = oneshot::channel();
         if self.queue.send(Message::Flush(done)).await.is_ok() && written.await.is_err() {
-            tracing::debug!("the daemon log writer ended before a flush finished");
+            crate::journal_sink::emit(&DaemonLogEvent::FlushUnfinished);
         }
     }
 }

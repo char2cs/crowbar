@@ -5,16 +5,16 @@ use gpui::{
 use protocol::PaneId;
 use ui::{IconName, MenuAction, MenuItem, Palette, Placement, Surface, Theme};
 
-use crate::tabbar::carried_tab::CarriedTab;
-use crate::tabbar::chat_tab::ChatTab;
-use crate::tabbar::input_mode::InputMode;
+use crate::tabbar::drag::carried_tab::CarriedTab;
+use crate::tabbar::drag::strip_pointer;
 use crate::tabbar::overflow_entry::OverflowEntry;
 use crate::tabbar::review_button::review_button;
-use crate::tabbar::strip_pointer;
 use crate::tabbar::strip_state::StripState;
-use crate::tabbar::strip_tab::StripTab;
+use crate::tabbar::strip_state::input_mode::InputMode;
+use crate::tabbar::tab::chat_tab::ChatTab;
+use crate::tabbar::tab::strip_tab::StripTab;
+use crate::tabbar::tab::tab_state::TabState;
 use crate::tabbar::tab_actions::{StripKeys, TabAction, TabMove};
-use crate::tabbar::tab_state::TabState;
 use crate::toprow::row_button::RowButton;
 use crate::toprow::row_ink::RowInk;
 use crate::toprow::split_toggle::SplitToggle;
@@ -245,10 +245,10 @@ mod tests {
     use ui::{Motion, Theme};
 
     use super::*;
+    use crate::tabbar::look::tab_look::TabLook;
+    use crate::tabbar::tab::tab_end::TabEnd;
+    use crate::tabbar::tab::tab_frame::HEIGHT as TAB_HEIGHT;
     use crate::tabbar::tab_actions::{TabActions, TabMove};
-    use crate::tabbar::tab_end::TabEnd;
-    use crate::tabbar::tab_frame::HEIGHT as TAB_HEIGHT;
-    use crate::tabbar::tab_look::TabLook;
 
     #[test]
     fn the_strip_row_holds_a_tab_with_its_padding() {
@@ -454,6 +454,75 @@ mod tests {
         for (name, steps, expected) in cases {
             assert_eq!(dragging(cx, steps), expected, "{name}");
         }
+    }
+
+    fn left_of(
+        cx: &mut gpui::VisualTestContext,
+        frame: &'static str,
+    ) -> f32 {
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+        f32::from(cx.debug_bounds(frame).unwrap_or_default().left())
+    }
+
+    #[gpui::test]
+    fn a_passed_neighbour_slides_into_the_freed_slot_over_a_quarter_second(
+        cx: &mut TestAppContext
+    ) {
+        let cx = opened_with(cx, (3, 0, 1200.0), Moves::default());
+        let (first, second) = (
+            left_of(cx, "strip-tab-frame-t0"),
+            left_of(cx, "strip-tab-frame-t1"),
+        );
+        let lifted = cx.debug_bounds("strip-tab-frame-t0").unwrap_or_default();
+        let left = gpui::MouseButton::Left;
+        let at = |x: f32| gpui::point(lifted.center().x + px(x), lifted.center().y);
+        cx.simulate_mouse_down(at(0.0), left, Modifiers::none());
+        cx.simulate_mouse_move(at(10.0), Some(left), Modifiers::none());
+        cx.simulate_mouse_move(at(second - first + 2.0), Some(left), Modifiers::none());
+        let mut seen = vec![left_of(cx, "strip-tab-frame-t1")];
+        for step in [125, 125] {
+            cx.executor()
+                .advance_clock(std::time::Duration::from_millis(step));
+            seen.push(left_of(cx, "strip-tab-frame-t1"));
+        }
+        cx.simulate_mouse_up(at(second - first + 2.0), left, Modifiers::none());
+        let (start, mid, end) = (seen[0], seen[1], seen[2]);
+        assert!(
+            (start - second).abs() < 1.0,
+            "starts where it was: {seen:?}"
+        );
+        assert!(
+            first < mid && mid < second,
+            "on its way at 125 ms: {seen:?}"
+        );
+        assert!(
+            (end - first).abs() < 1.0,
+            "in the freed slot at 250 ms: {seen:?}"
+        );
+    }
+
+    #[gpui::test]
+    fn a_lifted_tab_s_preview_takes_the_tab_s_width(cx: &mut TestAppContext) {
+        let cx = opened_with(cx, (1, 0, 1200.0), Moves::default());
+        let tab = cx.debug_bounds("strip-tab-frame-t0").unwrap_or_default();
+        let left = gpui::MouseButton::Left;
+        cx.simulate_mouse_down(tab.center(), left, Modifiers::none());
+        let held = gpui::point(tab.center().x + px(40.0), tab.center().y + px(80.0));
+        let nudge = gpui::point(tab.center().x + px(10.0), tab.center().y);
+        cx.simulate_mouse_move(nudge, Some(left), Modifiers::none());
+        cx.simulate_mouse_move(held, Some(left), Modifiers::none());
+        cx.run_until_parked();
+        let ghost = cx.debug_bounds("drag-ghost").unwrap_or_default();
+        cx.simulate_mouse_up(held, left, Modifiers::none());
+        assert_eq!(
+            ghost.size.width, tab.size.width,
+            "develop's overlay copies its source's width"
+        );
+        assert!(
+            ghost.size.height < tab.size.height,
+            "and keeps the preview's own height"
+        );
     }
 
     #[gpui::test]

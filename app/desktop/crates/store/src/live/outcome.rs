@@ -10,6 +10,8 @@ use sidebar::{RowId, WorkAtRisk};
 pub enum Outcome {
     /// A chat was created and should open in a pane.
     OpenChat(String),
+    /// A new thread opens as a draft pane: no chat exists until its first prompt is sent.
+    OpenDraft(crate::live::DraftThread),
     /// The user asked to install an agent descriptor: the shell picks the YAML file and hands it back.
     PickDescriptor,
     /// The user asked to add a host: the shell opens the pairing dialog.
@@ -57,6 +59,20 @@ pub enum Outcome {
         /// Path to the signature each file had when it was marked.
         viewed: BTreeMap<String, String>,
     },
+    /// A file of the followed workspace was written or created on disk: an editor showing it
+    /// reads it again, as develop's `syncBufferWithDisk` does.
+    FileChanged {
+        /// The workspace the file is in.
+        workspace: String,
+        /// The file, relative to the workspace.
+        path: String,
+    },
+    /// The followed workspace's file watch was armed again: changes may have been missed, so
+    /// every editor showing one of its files reads it again.
+    FilesSynced {
+        /// The workspace.
+        workspace: String,
+    },
     /// The delete of `row` was refused or failed: the row shows again and `reason`, fit to show,
     /// says why.
     RemovalRefused {
@@ -64,6 +80,13 @@ pub enum Outcome {
         row: RowId,
         /// Why it was not removed.
         reason: String,
+    },
+    /// The daemon added `folder` as a space or a repository: the form that asked closes.
+    Added(String),
+    /// A chat delete's git cascade also took chats the user never selected, named by `titles`.
+    AlsoRemoved {
+        /// The title of each chat taken, in the daemon's order.
+        titles: Vec<String>,
     },
 }
 

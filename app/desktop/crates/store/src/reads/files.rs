@@ -22,6 +22,10 @@ pub(crate) fn followed_workspace(state: &State) -> Option<&WorkspaceRecord> {
     slot.store.workspaces.get(&chat.workspace_id)
 }
 
+pub(crate) fn followed_workspace_id(state: &State) -> &str {
+    followed_workspace(state).map_or("", |workspace| workspace.id.as_str())
+}
+
 pub(crate) fn workspace_of_chat(
     state: &State,
     chat: &str,
@@ -79,7 +83,7 @@ mod tests {
         let remove = Command::RemoveFolderFromWorkspace { path: "a".into() };
         let upload = Command::UploadFile { path: "a".into() };
         assert_eq!((shown(&image), shown(&remove)), (false, false));
-        assert!(shown(&upload) && shown(&Command::AddFolderToWorkspace));
+        assert!(shown(&upload));
     }
 
     #[test]

@@ -15,16 +15,19 @@ path = "src/bin/gallery/main.rs"
 [dependencies]
 gpui.workspace = true
 gpui_platform.workspace = true
-image.workspace = true
+raw-window-handle.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 unicode-segmentation.workspace = true
 
+[features]
+test-support = ["gpui/test-support"]
+
 [dev-dependencies]
-gpui = { workspace = true, features = ["test-support"] }
+gpui = { workspace = true, features = ["bench-support", "test-support"] }
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
-raw-window-handle.workspace = true
+gpui_wgpu.workspace = true
 x11rb.workspace = true
 
 [lints]

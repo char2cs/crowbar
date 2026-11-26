@@ -1,6 +1,8 @@
 //! What the workspace decides about the Files menu.
 
-use crate::explorer::shell_answers::ShellAnswers;
+pub(super) mod shell_answers;
+
+use crate::explorer::menu_scope::shell_answers::ShellAnswers;
 use crate::shell::Lock;
 
 /// The workspace facts a Files menu is built from.

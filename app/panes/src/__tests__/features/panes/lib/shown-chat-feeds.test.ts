@@ -1,7 +1,15 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { vi, beforeEach, describe, expect, it } from 'vitest'
 import { holdShownChatFeeds } from '@/features/panes/lib/shown-chat-feeds'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { createLeaf } from '@/features/panes/utils/pane-layout'
+import { IDBFactory } from 'fake-indexeddb'
+import { getDB } from '@/lib/persistence/idb'
+import {
+  hydrateHostPlacements,
+  startHostPlacementCache,
+} from '@/features/hosts/lib/host-placements'
+import { chatEntity, putEntities, resetEntities } from '@/__tests__/__fixtures__/sidebar-entities'
+import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 import { seedChats } from '@/__tests__/__fixtures__/agent-chat'
 import { heldScopes, streamDaemon } from '@/__tests__/__fixtures__/stream-daemon'
 
@@ -40,8 +48,27 @@ describe('holdShownChatFeeds', () => {
     seedChats([{ id: 'chat-a' }, { id: 'chat-b' }])
     showViews('view-a')
     await holdShownChatFeeds()
-    expect(heldScopes('chat:')).toEqual(['chat:chat-a'])
+    await vi.waitFor(() => expect(heldScopes('chat:')).toEqual(['chat:chat-a']))
     showViews('view-b')
-    expect(heldScopes('chat:')).toEqual(['chat:chat-b'])
+    await vi.waitFor(() => expect(heldScopes('chat:')).toEqual(['chat:chat-b']))
+  })
+
+  it('subscribes a chat the last run placed on a paired host before that host has listed', async () => {
+    globalThis.indexedDB = new IDBFactory()
+    resetEntities()
+    await hydrateHostPlacements()
+    const stop = startHostPlacementCache()
+    pairRemoteHost('host-1')
+    putEntities('chat', [chatEntity({ id: 'chat-a' })], 'host-1')
+    await vi.waitFor(async () => expect(await (await getDB()).count('host-placements')).toBe(1))
+    stop()
+    resetEntities()
+    await hydrateHostPlacements()
+    showViews('view-a')
+
+    await holdShownChatFeeds()
+
+    await vi.waitFor(() => expect(heldScopes('chat:', 'host-1')).toEqual(['chat:chat-a']))
+    resetHostWorld()
   })
 })

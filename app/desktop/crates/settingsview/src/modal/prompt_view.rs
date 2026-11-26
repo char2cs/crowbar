@@ -2,11 +2,21 @@
 
 use gpui::{IntoElement, ParentElement, Styled, div};
 use settings::Prompt;
-use ui::{Button, ButtonSize, ButtonVariant, Dialog};
+use ui::{AlertButton, AlertRequest, AlertRole, Button, ButtonSize, ButtonVariant, Dialog};
 
 use crate::frame::spacing;
 use crate::intent::Intent;
 use crate::intent::Sink;
+
+pub(crate) fn prompt_request(prompt: &Prompt) -> AlertRequest {
+    let go = AlertButton::new(prompt.confirm().action().to_owned(), AlertRole::Destructive);
+    AlertRequest::confirm(
+        prompt.title().to_owned(),
+        prompt.message().to_owned(),
+        "Cancel",
+        go,
+    )
+}
 
 pub(crate) fn prompt_view(
     sink: &Sink,

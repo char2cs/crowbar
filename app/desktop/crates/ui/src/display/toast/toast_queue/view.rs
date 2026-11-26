@@ -1,5 +1,7 @@
 //! Paints a [`ToastQueue`] as a column of toasts at its placement.
 
+mod selection;
+
 use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder as _;
@@ -16,9 +18,9 @@ use crate::foundation::Pose;
 use crate::display::toast::Toast;
 use crate::display::toast::toast_queue::ToastQueue;
 use crate::display::toast::toast_queue::entry::Entry;
-use crate::display::toast::toast_queue::selection::visible;
 use crate::display::toast::toast_queue::toast_placement::ToastPlacement;
-use crate::display::toast::toast_queue::toast_side::ToastSide;
+use crate::display::toast::toast_queue::toast_placement::toast_side::ToastSide;
+use crate::display::toast::toast_queue::view::selection::visible;
 use crate::foundation::tokens::spacing;
 
 const FLOATING_WIDTH: f32 = 288.0;

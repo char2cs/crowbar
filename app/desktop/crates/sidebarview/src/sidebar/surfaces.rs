@@ -6,7 +6,7 @@ use sidebar::{Mode, Visibility};
 use ui::Motion;
 
 use crate::sidebar::Sidebar;
-use crate::sidebar::geometry::Geometry;
+use crate::sidebar::layout::geometry::Geometry;
 
 impl Sidebar {
     /// Whether the open sidebar lies over the content as a drawer, which Escape dismisses.

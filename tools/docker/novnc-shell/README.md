@@ -165,6 +165,10 @@ app's point with XTest and reports whether the drag ended.
 (`NAME=value` or `-u NAME` lines). The session bus is started at boot (`rig _session`); its address
 is in `~/.rig/bus.env` and, as `DBUS_SESSION_BUS_ADDRESS`, in `app.env`.
 
+A line `CROWBAR_PAGE_CONSOLE=1` in `app.env` makes the Rust shell's web views (panes, browser) write
+their pages' console messages to the app's stdout, `~/.rig/rust/app.log`, from the next start: the
+pane pages have no inspector.
+
 - **Reduced motion.** WebKitGTK maps `gtk-enable-animations=false` to `prefers-reduced-motion:
   reduce`, so it reaches Tauri and the panes webview inside the Rust shell. GPUI has no OS motion
   input on Linux: the shell's own animations (`app/desktop/crates/ui/src/motion.rs`) ignore it.

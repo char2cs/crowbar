@@ -1,5 +1,7 @@
 //! What a session tells the terminal when its stream is lost, and how it waits to reattach.
 
+mod recovery_event;
+
 use std::pin::pin;
 
 use async_channel::Receiver;
@@ -10,6 +12,7 @@ use tokio::time::sleep;
 
 use crate::ends::Ends;
 use crate::stream::reconnect::Reconnect;
+use crate::stream::recovery::recovery_event::RecoveryEvent;
 
 const WARNING_COLOR: &str = "\x1b[33m";
 const RESET: &str = "\x1b[0m";
@@ -34,7 +37,7 @@ pub(crate) async fn recover(
         reconnect.connected();
         return pressed;
     };
-    tracing::debug!(%reason, ?delay, "reattaching the terminal");
+    crate::journal_sink::emit(&RecoveryEvent::Reattaching { reason, delay });
     sleep(delay).await;
     true
 }

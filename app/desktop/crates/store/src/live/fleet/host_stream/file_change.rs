@@ -4,6 +4,7 @@
 use serde::Deserialize;
 
 const STRUCTURAL: [&str; 3] = ["created", "deleted", "renamed"];
+const TEXTUAL: [&str; 2] = ["modified", "created"];
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -17,6 +18,10 @@ pub(crate) struct FileChange {
 }
 
 impl FileChange {
+    pub(crate) fn changes_text(&self) -> bool {
+        !self.path.is_empty() && TEXTUAL.contains(&self.change.as_str())
+    }
+
     pub(crate) fn folders(&self) -> Vec<String> {
         if self.path.is_empty() || !STRUCTURAL.contains(&self.change.as_str()) {
             return Vec::new();

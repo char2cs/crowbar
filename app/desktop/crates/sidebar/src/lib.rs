@@ -12,7 +12,8 @@ mod tree;
 
 pub use error::Error;
 pub use explorer::{
-    FileAction, FileClipboard, FileDialog, FileKey, FileProperties, MenuScope, ShellAnswers,
+    CopyNote, FileAction, FileClipboard, FileDialog, FileKey, FileProperties, MenuScope,
+    ShellAnswers,
 };
 #[cfg(feature = "fixtures")]
 pub use fixtures::DemoShell;
@@ -26,12 +27,12 @@ pub use shell::{
 };
 pub use shell::{
     DropMode, Expansion, FileAccess, FileDensity, FileKind, FileRow, FileTreeFlag, FileTreeView,
-    FilesSource, Focus, FolderPhase, FolderSource, GitStatus, Host, HostId, HostKind, HostState,
-    HostTone, IconTheme, IndentGuides, Intent, Lock, Mark, MergeBox, MergeFacts, MergeStrategy,
-    MergeWork, MoveTarget, Nesting, NewEntry, Notice, Operation, OperationPhase, PaneFocus,
-    PathText, Presence, Project, ProjectId, ProjectTree, Question, Reach, Row, RowActions, RowId,
-    RowKind, RunningAgent, ScopeSync, Source, SpaceFacts, SpaceIcon, SpaceList, Titling, Workspace,
-    WorkspaceStatus, Worktree,
+    FilesSource, Focus, FolderPhase, FolderSource, GitStatus, Host, HostChoice, HostId, HostKind,
+    HostState, HostTone, IconTarget, IconTheme, IndentGuides, Intent, Lock, Mark, MergeBox,
+    MergeFacts, MergeStrategy, MergeWork, MoveTarget, Nesting, NewEntry, Notice, Operation,
+    OperationPhase, PaneFocus, PathText, Presence, Project, ProjectId, ProjectTree, Question,
+    Reach, Requests, Row, RowActions, RowId, RowKind, RunningAgent, ScopeSync, Source, SpaceFacts,
+    SpaceIcon, SpaceList, Stakes, Titling, Workspace, WorkspaceStatus, Worktree,
 };
 pub use tree::{Confirmation, Deadline};
 pub use tree::{

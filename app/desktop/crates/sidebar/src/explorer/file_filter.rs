@@ -1,6 +1,8 @@
 //! The rows the Files panel keeps once the file-tree settings have spoken.
 
-use crate::explorer::hidden_pattern::matches;
+mod hidden_pattern;
+
+use crate::explorer::file_filter::hidden_pattern::matches;
 use crate::shell::FileKind;
 use crate::shell::FileRow;
 use crate::shell::FileTreeFlag;

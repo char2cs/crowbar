@@ -57,6 +57,14 @@ impl PaneDetach for DemoSource {
         format!("Chat {}", pane.as_str()).into()
     }
 
+    fn preview(
+        &self,
+        _pane: &PaneId,
+        _cx: &App,
+    ) -> Option<AnyElement> {
+        None
+    }
+
     fn fresh_tab(
         &self,
         _pane: &PaneId,

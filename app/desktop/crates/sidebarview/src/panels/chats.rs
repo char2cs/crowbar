@@ -8,7 +8,7 @@ mod row_menu;
 mod tree_rows;
 
 pub(crate) use foot_menu::foot_menu;
-pub use parts::ChatGlyph;
+pub use parts::{ChatGlyph, GlyphTone};
 pub(crate) use parts::{RowBounds, RowInput, Trailing, input_view, ringed, row_focus};
 pub(crate) use reorder::DragState;
 pub(crate) use row_menu::row_menu;
@@ -19,7 +19,7 @@ use gpui::{
     AnyElement, Context, DragMoveEvent, InteractiveElement, IntoElement, ParentElement,
     SharedString, Styled, Window, div, px,
 };
-use sidebar::{EdgeScroll, Notice, Project, ProjectTree, Row, ScopeSync};
+use sidebar::{EdgeScroll, HostTone, Notice, Project, ProjectTree, Row, ScopeSync};
 use ui::{DraggedRow, Motion, ScrollArea};
 
 use crate::panels::chats::kinds::notice_row::NoticeRow;
@@ -62,7 +62,7 @@ impl Sidebar {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> AnyElement {
-        if self.data.sync() == ScopeSync::Pending {
+        if self.waits_for_spaces() {
             return skeleton_rows(width - SKELETON_MARGIN).into_any_element();
         }
         let projects = self.data.projects();
@@ -90,6 +90,16 @@ impl Sidebar {
             .overflow_hidden()
             .child(strip)
             .into_any_element()
+    }
+
+    fn waits_for_spaces(&self) -> bool {
+        if self.data.sync() == ScopeSync::Ready {
+            return false;
+        }
+        let shown = self.data.shown_host();
+        let hosts = self.data.hosts();
+        let host = hosts.iter().find(|host| Some(&host.id) == shown.as_ref());
+        !host.is_some_and(|host| host.state.tone() == HostTone::Offline)
     }
 
     fn carousel_offset(
@@ -126,7 +136,8 @@ impl Sidebar {
             project: project.id.clone(),
             handler: Rc::clone(&handler),
         };
-        let rows = self.tree_rows(&tree, (&handler, width));
+        let me = cx.weak_entity();
+        let rows = self.tree_rows(&tree, (&handler, width, &me));
         let list = div()
             .flex()
             .flex_col()
@@ -166,6 +177,7 @@ fn wheel_lock() -> AnyElement {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::blank::Blank;
     use crate::test_support::prelude::*;
 
     #[gpui::test]
@@ -266,6 +278,54 @@ mod tests {
             -f32::from(this.scrolls.of_space(&project).offset().y)
         });
         assert!(scrolled >= PULL * 2.0, "scrolled {scrolled}");
+    }
+
+    fn panes_renders(
+        sidebar: &gpui::Entity<Sidebar>,
+        cx: &mut gpui::VisualTestContext,
+    ) -> usize {
+        sidebar.read_with(cx, |this, cx| {
+            let blank = this.content.clone().downcast::<Blank>().ok();
+            blank.map_or(0, |blank| blank.read(cx).renders)
+        })
+    }
+
+    #[gpui::test]
+    fn an_edge_scroll_frame_leaves_the_panes_area_as_it_was(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoShell::rich());
+        cx.simulate_resize(gpui::size(px(1200.0), px(320.0)));
+        sidebar.update(cx, lift_a_row);
+        sidebar.update_in(cx, |this, window, cx| {
+            this.act(RowAction::Edge(PULL), window, cx);
+        });
+        cx.run_until_parked();
+        let before = panes_renders(&sidebar, cx);
+        assert!(before > 0, "the panes area was drawn");
+        for _ in 0..FRAMES {
+            cx.update(Window::simulate_next_frame);
+            cx.run_until_parked();
+        }
+        assert_eq!(panes_renders(&sidebar, cx), before);
+    }
+
+    fn shows_skeleton(
+        cx: &mut TestAppContext,
+        data: DemoShell,
+    ) -> bool {
+        let (_, _, cx) = open(cx, data);
+        cx.run_until_parked();
+        cx.debug_bounds(kinds::skeleton_rows::SELECTOR).is_some()
+    }
+
+    #[gpui::test]
+    fn a_shown_host_that_is_down_holds_no_skeleton(cx: &mut TestAppContext) {
+        let waiting = shows_skeleton(cx, DemoShell::loading());
+        let down = shows_skeleton(cx, DemoShell::showing_down_host());
+        assert_eq!(
+            (waiting, down),
+            (true, false),
+            "(waiting for a host, its host down)"
+        );
     }
 
     #[gpui::test]

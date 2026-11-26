@@ -110,6 +110,11 @@ icon_names! {
     Crosshair => "crosshair",
     ArrowRight => "arrow-right",
     ArrowLeft => "arrow-left",
+    ArrowUp => "arrow-up",
+    ArrowDown => "arrow-down",
+    TextAlignJustify => "text-align-justify",
+    Swap => "swap",
+    Checks => "checks",
 }
 
 #[cfg(test)]

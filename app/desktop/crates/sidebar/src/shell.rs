@@ -13,8 +13,8 @@ pub use chats::{
     OperationPhase, Presence, ProjectTree, Reach, Row, RowId, RowKind, Titling, Workspace,
     WorkspaceStatus, Worktree,
 };
-pub use command::{ClipMode, Command, Intent, NewEntry, Question, RowActions, Sink};
-pub use daemons::{Host, HostId, HostKind, HostState, HostTone};
+pub use command::{ClipMode, Command, Intent, NewEntry, Question, RowActions, Sink, Stakes};
+pub use daemons::{Host, HostChoice, HostId, HostKind, HostState, HostTone};
 pub use git::{
     AfterMerge, ChangedFile, ChangedRow, Changes, ChangesSource, MergeBox, MergeFacts,
     MergeStrategy, MergeWork,
@@ -25,6 +25,6 @@ pub use listing::{
 };
 pub use source::Source;
 pub use switcher::{
-    ActiveSpace, Focus, PaneFocus, Project, ProjectId, RunningAgent, ScopeSync, SpaceFacts,
-    SpaceIcon, SpaceList,
+    ActiveSpace, Focus, IconTarget, PaneFocus, Project, ProjectId, Requests, RunningAgent,
+    ScopeSync, SpaceFacts, SpaceIcon, SpaceList,
 };

@@ -9,6 +9,7 @@ use gpui::{
 
 use crate::control::button::click_handler::ClickHandler;
 use crate::control::button::colors::Colors;
+use crate::control::button::fill::Fill;
 use crate::display::Spinner;
 use crate::foundation::ControlScale;
 use crate::foundation::Icon;
@@ -16,6 +17,7 @@ use crate::foundation::IconName;
 use crate::foundation::Pose;
 use crate::foundation::Surface;
 use crate::foundation::Theme;
+use crate::foundation::focus::modality::kept_focus::or_kept;
 use crate::foundation::focus_ring;
 use crate::foundation::motion::hover;
 use crate::foundation::opaque_debug;
@@ -35,6 +37,7 @@ pub struct Button {
     surface: Surface,
     disabled: bool,
     loading: bool,
+    fill: Fill,
     focus: Option<FocusHandle>,
     on_click: Option<ClickHandler>,
 }
@@ -44,6 +47,7 @@ mod button_size;
 mod button_variant;
 mod click_handler;
 mod colors;
+mod fill;
 
 pub use button_size::ButtonSize;
 pub use button_variant::ButtonVariant;
@@ -80,6 +84,7 @@ impl Button {
             surface: Surface::default(),
             disabled: false,
             loading: false,
+            fill: Fill::Content,
             focus: None,
             on_click: None,
         }
@@ -148,6 +153,7 @@ impl Button {
         let frame = frame.when(self.variant == ButtonVariant::Row, |row| {
             row.justify_start()
         });
+        let frame = self.fill.apply(frame);
         match &self.label {
             None => frame.w(height),
             Some(_) => frame.px(size.padding_x()),
@@ -180,6 +186,9 @@ impl RenderOnce for Button {
         let colors = Colors::resolve(self.variant, palette, theme.appearance());
         let (ring, enabled) = (focus_ring(palette), self.enabled());
         let hover = hover::track(&self.id, Pose::Off, window, cx);
+        let focus = or_kept(self.focus.clone(), &self.id, window, cx);
+        let rung = crate::Modality::rings(&focus, window, cx);
+        let colors = colors.inked(&hover, (window, &*cx));
         let background = colors.fill(&hover, (window, cx));
         let content = self.content_color(&colors);
         let (height, text, icon_size) = self.size.sized(ControlScale::of(window));
@@ -195,15 +204,14 @@ impl RenderOnce for Button {
             .on_hover(hover::listener(&hover))
             .when(enabled, |d| {
                 d.cursor_pointer()
-                    .focusable()
                     .tab_stop(true)
                     .active(colors.pressed())
-                    .when_some(self.focus, |d, focus| d.track_focus(&focus))
+                    .track_focus(&focus)
             })
             .when(!enabled, |d| {
                 d.opacity(DISABLED_OPACITY).bg(colors.background)
             })
-            .focus(move |s| s.shadow(ring))
+            .when(rung, |d| d.shadow(ring))
             .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
             .children(icon)
             .children(self.label)
@@ -238,7 +246,7 @@ mod tests {
     use std::cell::Cell;
     use std::rc::Rc;
 
-    use gpui::{Modifiers, TestAppContext, point, px};
+    use gpui::{Modifiers, TestAppContext, VisualTestContext, point, px};
 
     use super::*;
     use crate::test_support::probe::{measure, open};
@@ -308,5 +316,30 @@ mod tests {
         let plain = measure(cx, |_, _| Button::new("go", "Go"));
         let loading = measure(cx, |_, _| Button::new("go", "Go").loading());
         assert_eq!(plain.size, loading.size);
+    }
+
+    fn rings_drawn(cx: &mut VisualTestContext) -> usize {
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            let ring = Theme::of(cx).palette(Surface::default()).ring();
+            let shadows = &window.rendered_scene().shadows;
+            shadows.iter().filter(|s| s.color == ring).count()
+        })
+    }
+
+    #[gpui::test]
+    fn the_focus_ring_shows_only_after_a_key_as_develop_s_focus_visible_does(
+        cx: &mut TestAppContext
+    ) {
+        let focus = cx.update(|cx| cx.focus_handle());
+        let held = focus.clone();
+        let cx = open(cx, move |_, _| {
+            Button::new("go", "Go").focus_handle(held.clone())
+        });
+        cx.simulate_click(point(px(20.0), px(16.0)), Modifiers::none());
+        cx.update(|window, cx| window.focus(&focus, cx));
+        assert_eq!(rings_drawn(cx), 0, "focused from a pointer click");
+        cx.simulate_keystrokes("shift");
+        assert_eq!(rings_drawn(cx), 1, "focused after a key");
     }
 }

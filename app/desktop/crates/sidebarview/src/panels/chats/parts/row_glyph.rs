@@ -1,16 +1,18 @@
 //! Which glyph leads a tree row.
 
+pub(super) mod chat_glyph;
+
 use ui::{IconName, IconWeight};
 
 use sidebar::{Activity, Expansion, Row, RowKind};
 
-use crate::panels::chats::parts::chat_glyph::ChatGlyph;
+use crate::panels::chats::parts::row_glyph::chat_glyph::{ChatGlyph, GlyphTone};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RowGlyph {
     Spinner,
     Mark,
-    Icon(IconName, IconWeight),
+    Icon(IconName, IconWeight, GlyphTone),
 }
 
 impl RowGlyph {
@@ -28,7 +30,7 @@ impl RowGlyph {
             return Self::folder(expansion);
         }
         let glyph = ChatGlyph::of(row);
-        Self::Icon(glyph.icon, glyph.weight)
+        Self::Icon(glyph.icon, glyph.weight, glyph.tone)
     }
 
     fn folder(expansion: Expansion) -> Self {
@@ -36,7 +38,7 @@ impl RowGlyph {
             Expansion::Expanded => IconName::FolderOpen,
             Expansion::Collapsed => IconName::Folder,
         };
-        Self::Icon(name, IconWeight::Duotone)
+        Self::Icon(name, IconWeight::Duotone, GlyphTone::Plain)
     }
 }
 
@@ -96,37 +98,37 @@ mod tests {
             "closed folder",
             folder,
             Expansion::Collapsed,
-            RowGlyph::Icon(IconName::Folder, IconWeight::Duotone),
+            RowGlyph::Icon(IconName::Folder, IconWeight::Duotone, GlyphTone::Plain),
         ),
         (
             "open folder",
             folder,
             Expansion::Expanded,
-            RowGlyph::Icon(IconName::FolderOpen, IconWeight::Duotone),
+            RowGlyph::Icon(IconName::FolderOpen, IconWeight::Duotone, GlyphTone::Plain),
         ),
         (
             "locked without workspace",
             locked_branch,
             Expansion::Expanded,
-            RowGlyph::Icon(IconName::Lock, IconWeight::Fill),
+            RowGlyph::Icon(IconName::Lock, IconWeight::Fill, GlyphTone::Plain),
         ),
         (
             "owns a worktree",
             worktree_branch,
             Expansion::Expanded,
-            RowGlyph::Icon(IconName::GitBranch, IconWeight::Fill),
+            RowGlyph::Icon(IconName::GitBranch, IconWeight::Fill, GlyphTone::Plain),
         ),
         (
             "the workspace status wins",
             merged_branch,
             Expansion::Expanded,
-            RowGlyph::Icon(IconName::GitMerge, IconWeight::Fill),
+            RowGlyph::Icon(IconName::GitMerge, IconWeight::Fill, GlyphTone::Merged),
         ),
         (
             "a plain chat shows the bubbles",
             chat,
             Expansion::Expanded,
-            RowGlyph::Icon(IconName::ChatsCircle, IconWeight::Regular),
+            RowGlyph::Icon(IconName::ChatsCircle, IconWeight::Regular, GlyphTone::Plain),
         ),
     ];
 

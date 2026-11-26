@@ -40,15 +40,16 @@ Status: `verified` = implemented, unit tested and rendered in the gallery (crowb
 | Metrics | `radius::{SM,MD,LG,XL,XXL,FULL}`, `text_size::{XS..XL, ScaledText}`, `shadow::{xs,sm,md,lg,xs_tinted,dropdown,handle}`, `layer::*` (z order), `timing::*` (durations) | unverified |
 | Fonts | `font::{register, UI_FAMILY, HEADING_FAMILY, MONO_FAMILY}` (Cal Sans UI, Instrument Serif, Geist Mono) | verified |
 | Icons | `Icon`, `IconName`, `IconWeight`, `assets()` (Phosphor: 56 icons, 92 weight files) | verified |
-| Motion | `CubicBezier`, `Motion` (reduced motion, animation factory) | verified |
+| Motion | `CubicBezier`, `Motion` (reduced motion, animation factory), `Modality` (key or pointer, app-wide) | verified |
 | Controls | `Button` (with `loading()`), `ButtonVariant`, `ButtonSize`, `Switch`, `Checkbox`, `TextInput`, `Select`, `Tabs`, `TabItem`, `TabsStyle` | verified |
 | Text area | `TextArea`, `TextAreaSize`, `TextAreaCondition` | unverified (no React golden at component level) |
-| Overlays | `TopLayer`, `Portal`, `DragGhost`, `click_away`, `popup_at`, `Menu`, `MenuItem`, `MenuAction`, `DropdownMenu`, `ContextMenu` (right click, `MenuAction::submenu`, arrow/left/right keys), `Popover`, `Dialog`, `DialogSize`, `Tooltip`, `TooltipSide` | unverified |
-| Display | `Badge`, `Kbd`, `Toast`, `ToastKind`, `ToastQueue`, `ToastContent`, `ToastId`, `ToastLifetime`, `ToastPlacement`, `ToastSide`, `ToastQueueEvent`, `Separator`, `Skeleton`, `Spinner`, `ProgressBar`, `EmptyState`, `ScrollArea`, `Sash`, `SashDrag`, `DragHandle`, `Axis` | verified |
+| Overlays | `Portal`, `Float`, `Shaped`, `FloatHost`, `FloatRegion`, `install_float_host`, `DragGhost`, `click_away`, `popup_at`, `Menu`, `MenuItem`, `MenuAction`, `DropdownMenu`, `ContextMenu` (right click, `MenuAction::submenu`, arrow/left/right keys), `Popover`, `Dialog`, `DialogSize`, `Tooltip`, `TooltipSide` | unverified |
+| Display | `Badge`, `Kbd`, `Toast`, `ToastKind`, `ToastQueue`, `ToastContent`, `ToastId`, `ToastLifetime`, `ToastPlacement`, `ToastSide`, `ToastQueueEvent`, `Separator`, `Skeleton`, `Spinner`, `EmptyState`, `ScrollArea`, `Sash`, `SashDrag`, `DragHandle`, `Axis` | verified |
 
 ## Depends on
 
-No workspace crate. External: `gpui` (rendering, layout, text, windows), `thiserror` (`Error`),
+No workspace crate. External: `gpui` (rendering, layout, text, windows), `raw-window-handle` (the float windows'
+handles a `FloatHost` places), `thiserror` (`Error`),
 `tracing` (the toast timer), `unicode-segmentation` (the text buffer's grapheme steps).
 
 ## Conventions for consumers
@@ -56,11 +57,16 @@ No workspace crate. External: `gpui` (rendering, layout, text, windows), `thiser
 - Every component takes `.on(Surface::Chrome)` when it sits in the sidebar or the view-tabs row (crowbar keeps
   them dark in light mode). Popups, dialogs and tooltips always use `Surface::Window`.
 - Colours: `Theme::of(cx).palette(Surface::Window).border()` and friends. Never hard-code a hex value.
-- Hover and focus: components fade colours over 150ms and draw the focus ring only for keyboard focus.
-- Floating elements reach the window's `TopLayer`, a transparent overlay window above the native web views,
-  through a `Portal`: `Portal::here` paints where the portal sits, `Portal::window` over the whole window and
-  `Portal::cover` for a modal layer that holds portals of its own. Web views are never hidden or snapshotted.
-  A window without a top layer (tests, the gallery) paints the portal itself, above the rest of the window.
+- Hover and focus: components fade colours over 150ms and draw the focus ring only for keyboard focus;
+  the ring follows `Modality`; every window root paints `hear()`, which also unhovers everything when the
+  pointer leaves the window.
+- Floating elements open stock GPUI windows above the native web views, one per `Float` kind (a modal is a
+  dialog window, a popover a floating one, passive cards and drag ghosts pop-ups), through a `Portal`:
+  `Portal::here` paints where the portal sits, `Portal::window` over the whole window and `Portal::cover`
+  for a layer that holds portals of its own. Each card wraps itself in `Shaped` so the window shows and
+  takes the pointer only there. The app installs a `FloatHost` that places the windows; without one (the
+  gallery) and inside a float window the portal paints itself. Tests open them with the `test-support`
+  feature's `testing::open_float_windows`.
 - Reduced motion: install `Motion::reduced()` as a global when the OS asks for it; every animation collapses
   to 10 microseconds, spinners keep turning.
 

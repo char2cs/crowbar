@@ -6,6 +6,7 @@ mod new_entry;
 mod question;
 mod row_actions;
 mod sink;
+mod stakes;
 
 pub use clip_mode::ClipMode;
 pub use intent::Intent;
@@ -13,6 +14,7 @@ pub use new_entry::NewEntry;
 pub use question::Question;
 pub use row_actions::RowActions;
 pub use sink::Sink;
+pub use stakes::Stakes;
 
 use crate::shell::chats::DropMode;
 use crate::shell::chats::RowId;
@@ -66,8 +68,10 @@ pub enum Command {
     /// Send the delete of a held row again, destroying the work at risk the user was shown and
     /// agreed to lose.
     RemoveDiscardingWork(RowId),
-    /// Start a chat in the space's home workspace.
+    /// Open a draft thread in the space's home workspace; its chat is created on the first send.
     NewThread(ProjectId),
+    /// Create a chat in the space's home workspace at once, as the new-chat chord does.
+    NewChat(ProjectId),
     /// Start a chat in the space that opens on its terminal.
     NewTerminalThread(ProjectId),
     /// Start a thread under the row.
@@ -227,8 +231,6 @@ pub enum Command {
         /// The directory the image is saved in.
         path: String,
     },
-    /// Pick a folder to add to the workspace.
-    AddFolderToWorkspace,
     /// Create a space like [`Command::CreateSpace`], then set `icon` on it; a failure to set the icon
     /// does not undo the space.
     CreateSpaceWithIcon {
@@ -248,6 +250,15 @@ pub enum Command {
         /// The new icon.
         icon: SpaceIcon,
     },
+    /// Set the icon of the repository whose header is `row`; [`SpaceIcon::Default`] resets it.
+    SetRepoIcon {
+        /// The repository's header row.
+        row: RowId,
+        /// The new icon.
+        icon: SpaceIcon,
+    },
+    /// Set the icon of the repository whose header is `row` to the avatar of its GitHub owner.
+    UseGithubAvatar(RowId),
     /// Remember the strategy the focused workspace merges with.
     SetMergeStrategy(MergeStrategy),
     /// Merge the focused workspace into its parent with the chosen strategy.

@@ -170,7 +170,7 @@ export class TerminalConnection {
 function openSocket(qualified: string): TerminalSocket {
   const { hostId, path } = splitHostPath(qualified)
   if (inShell()) {
-    const shellSocket = new ShellWebSocket(path)
+    const shellSocket = new ShellWebSocket(path, hostId)
     shellSocket.binaryType = 'arraybuffer'
     return shellSocket
   }

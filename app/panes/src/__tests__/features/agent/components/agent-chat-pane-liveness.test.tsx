@@ -224,6 +224,19 @@ describe('AgentChatPane liveness and lifecycle', () => {
       expect(section.style.getPropertyValue('--agent-transcript-header-clearance')).toBe('98px')
     })
 
+    it.each([
+      ['an overlay header above', true, '42px'],
+      ['no overlay header', false, '0px'],
+    ])('starts the terminal surface below the header row with %s', async (_, overlay, inset) => {
+      landOnTerminal()
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      if (overlay) await renderBelowOverlayHeader(store, 'c1', 'r1')
+      else await renderPane(store, openChatPane(store, 'c1', 'r1'))
+
+      const surface = await screen.findByTestId('agent-terminal-surface')
+      expect(surface.style.paddingTop).toBe(inset)
+    })
+
     it('gives the transcript no extra clearance with no overlay header above', async () => {
       chatStore.setState({ feeds: {} })
 

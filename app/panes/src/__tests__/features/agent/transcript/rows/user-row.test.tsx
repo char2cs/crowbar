@@ -123,6 +123,17 @@ describe('UserRow', () => {
     expect(actions.retry).toHaveBeenCalledWith('r1')
   })
 
+  it('a prompt Stop ended is not said to be one the provider never took', () => {
+    const l = ledger('c1')
+    seedFeed('c1', [l.prompt('r1', 'try me'), l.settle('r1', false, 'stopped')])
+    draw()
+
+    expect(screen.getByText(/stopped before it was answered/i)).toBeInTheDocument()
+    expect(screen.queryByText(/never took this prompt/i)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('Retry prompt'))
+    expect(actions.retry).toHaveBeenCalledWith('r1')
+  })
+
   it('a command the CLI ran itself says it ran in the terminal, with no Retry', () => {
     const l = ledger('c1')
     seedFeed('c1', [l.prompt('r1', '/context'), l.settle('r1', true, 'provider_builtin')])

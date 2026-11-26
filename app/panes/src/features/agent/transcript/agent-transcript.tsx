@@ -402,7 +402,9 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   const empty = rows.length === 0
   useEffect(() => {
     if (empty) return
-    const frame = requestAnimationFrame(() => markEnd('chat:first-row'))
+    const frame = requestAnimationFrame(() => {
+      markEnd('chat:first-row')
+    })
     return () => cancelAnimationFrame(frame)
   }, [empty])
 

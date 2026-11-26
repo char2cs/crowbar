@@ -43,20 +43,27 @@
 //! # Ok::<(), webview::Error>(())
 //! ```
 
+mod alert;
 mod backend;
+mod chooser;
 mod error;
 mod host;
+mod menu;
 mod scheme;
 #[cfg(test)]
 mod test_support;
 mod view;
 
+pub use alert::{AlertButton, AlertRequest, AlertRole};
 pub use backend::{
-    BrowsingData, CaretBlink, CaretReport, DesktopSettings, HostConfig, PageControl, Platform,
-    ViewCapture, ViewFocus, ViewLayout, ViewLifecycle,
+    AlertAsking, BrowsingData, CaretBlink, CaretReport, ChosenButton, ChosenEntry, ChosenFiles,
+    DesktopSettings, FileChoosing, HostConfig, MenuPopping, PageControl, Platform, ViewCapture,
+    ViewFocus, ViewLayout, ViewLifecycle,
 };
+pub use chooser::{ChoiceKind, FileChoice, FileFilter};
 pub use error::{Error, Result};
-pub use host::{Handle, Host};
+pub use host::{Desktop, Handle, Host};
+pub use menu::{MenuEdge, MenuEntry, MenuRequest};
 pub use scheme::{ProtocolHandler, ProtocolRequest, ProtocolResponder, ProtocolResponse};
 pub use view::{
     Bounds, Color, Config, Id, IpcHandler, Kind, PageEvent, PageHandler, ParentWindow, Snapshot,

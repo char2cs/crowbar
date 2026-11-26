@@ -1,14 +1,18 @@
 //! Removing a paired host: its pairing is revoked on the host first, because forgetting this
 //! computer's key first would drop the only credential that can.
 
+mod roster_event;
+
 use std::sync::Arc;
 
 use daemonapi::Call;
 use tokio::runtime::Handle;
 
 use crate::error::Error;
+use crate::journal_sink::emit;
 use crate::live::fleet::Fleet;
 use crate::live::fleet::host_desk::HostDesk;
+use crate::live::fleet::host_desk::roster::roster_event::RosterEvent;
 use crate::live::outcome::{Outcome, OutcomeSink};
 use crate::live::state::ChangeSignal;
 
@@ -105,12 +109,12 @@ impl Roster {
         host: &str,
     ) {
         self.fleet.forget(host);
-        if let Err(error) = self.desk.book.unpair(host).await {
-            tracing::warn!(%error, host, "the key of a removed host could not be forgotten");
+        if let Err(error) = &self.desk.book.unpair(host).await {
+            emit(&RosterEvent::KeyKept { error, host });
             (self.outcome)(Outcome::Failed(error.to_string()));
         }
-        if let Err(error) = self.desk.notes.remove(host) {
-            tracing::warn!(%error, host, "the note of a removed host could not be dropped");
+        if let Err(error) = &self.desk.notes.remove(host) {
+            emit(&RosterEvent::NoteKept { error, host });
         }
         (self.signal)();
     }
@@ -154,7 +158,7 @@ mod tests {
         let (state, daemon) = state();
         let transport: Arc<dyn protocol::DaemonTransport> = Arc::<FakeDaemon>::clone(&daemon);
         let hub = Hub::new(state, Arc::new(|| {}));
-        let fleet = Fleet::new(&Handle::current(), &hub, &transport);
+        let fleet = Fleet::new(&Handle::current(), &hub, (&transport, Arc::new(|_| {})));
         let desk = desk_in(&book);
         let spec = HostSpec {
             id: "lab".into(),

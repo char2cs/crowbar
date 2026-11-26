@@ -1,15 +1,14 @@
 use std::sync::mpsc;
 
 use gtk::gdk;
-use gtk::gdk::EventMask;
 use gtk::glib::Cast as _;
 use gtk::prelude::{GtkWindowExt as _, WidgetExt as _};
-use webkit2gtk::{SnapshotOptions, SnapshotRegion, WebViewExt as _};
+use webkit2gtk::{SettingsExt as _, SnapshotOptions, SnapshotRegion, WebViewExt as _};
 use wry::WebViewExtUnix;
 
 use crate::backend::native::linux::capture::snapshot_of;
 use crate::backend::native::linux::gtk_state::GtkState;
-use crate::backend::native::linux::gtk_state::live_view::LiveView;
+use crate::backend::native::linux::gtk_state::page_focus;
 use crate::backend::native::wry_builder::to_rect;
 use crate::error::Result;
 use crate::view::Bounds;
@@ -18,16 +17,30 @@ use crate::view::Id;
 use crate::view::Snapshot;
 use crate::view::Visibility;
 
-const KEYS: EventMask = EventMask::KEY_PRESS_MASK.union(EventMask::KEY_RELEASE_MASK);
+const PAGE_CONSOLE: &str = "CROWBAR_PAGE_CONSOLE";
 
-// PLATFORM: linux X hands a key to the deepest window under the pointer that selects keys while the pointer lies inside the focus window, so only the page holding the keyboard selects them.
-fn select_keys(
-    live: &LiveView,
-    keys: impl FnOnce(EventMask) -> EventMask,
-) {
-    if let Some(window) = live.view.webview().window() {
-        window.set_events(keys(window.events()));
+// PLATFORM: linux a WebKitGTK page here has no inspector; dev tooling (rig README) sends its console to stdout.
+pub(super) fn write_console_when_asked(view: &wry::WebView) {
+    if std::env::var_os(PAGE_CONSOLE).is_none() {
+        return;
     }
+    if let Some(settings) = webkit2gtk::WebViewExt::settings(&view.webview()) {
+        settings.set_enable_write_console_messages_to_stdout(true);
+    }
+}
+
+// PLATFORM: linux wry 0.53 hands WebKitGTK 8-bit channels as 0..1 doubles, so every colour but black reads as white; the view is coloured here instead.
+pub(super) fn paint_background(
+    view: &wry::WebView,
+    color: Color,
+) {
+    let channel = |value: u8| f64::from(value) / f64::from(u8::MAX);
+    view.webview().set_background_color(&gdk::RGBA::new(
+        channel(color.red),
+        channel(color.green),
+        channel(color.blue),
+        channel(color.alpha),
+    ));
 }
 
 // PLATFORM: linux WebKit's script dialog holds the GTK focus inside the view, and grabbing the view would take its typing away.
@@ -42,10 +55,6 @@ fn grab_unless_within(view: &gtk::Widget) {
         return;
     }
     view.grab_focus();
-}
-
-pub(crate) fn deactivate(live: &LiveView) {
-    select_keys(live, |events| events - KEYS);
 }
 
 fn answer(
@@ -84,7 +93,8 @@ impl GtkState {
         id: Id,
         color: Color,
     ) -> Result<()> {
-        Ok(self.live(id)?.view.set_background_color(color.rgba())?)
+        paint_background(&self.live(id)?.view, color);
+        Ok(())
     }
 
     pub(crate) fn eval(
@@ -108,11 +118,7 @@ impl GtkState {
         id: Id,
     ) -> Result<()> {
         let live = self.live(id)?;
-        self.views
-            .iter()
-            .filter(|(other, _)| **other != id)
-            .for_each(|(_, other)| deactivate(other));
-        select_keys(live, |events| events | KEYS);
+        page_focus::give_keys(self.views.values(), live.page_window);
         grab_unless_within(live.view.webview().upcast_ref());
         // PLATFORM: linux X serves each client connection on its own, so GDK's queued map of the page window must reach the server before the focus request on ours.
         gdk::Display::default().iter().for_each(gdk::Display::sync);
@@ -126,7 +132,7 @@ impl GtkState {
         id: Id,
     ) -> Result<()> {
         let parent = self.live(id)?.parent;
-        self.views.values().for_each(deactivate);
+        page_focus::give_keys(self.views.values(), parent);
         self.keyboard.give_to(parent)?;
         self.follow_focus();
         Ok(())

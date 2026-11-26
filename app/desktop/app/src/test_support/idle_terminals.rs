@@ -3,19 +3,24 @@ use std::sync::{Arc, OnceLock};
 
 use protocol::HostId;
 use ptysession::TerminalSessions;
-use tokio::runtime::Runtime;
+use tokio::runtime::{Builder, Runtime};
 
 use super::NoDaemon;
-use crate::chat_terminals::ChatTerminals;
-use crate::shell_request::ShellRequest;
-use crate::terminal_ids::TerminalIds;
-use crate::terminal_panes::TerminalPanes;
+use crate::panes::terminals::chat_hosts::ChatHosts;
+use crate::panes::terminals::terminal_ids::TerminalIds;
+use crate::panes::terminals::terminal_panes::TerminalPanes;
+use crate::shell::inbox::shell_request::ShellRequest;
 
-static RUNTIME: OnceLock<Runtime> = OnceLock::new();
+static UNDRIVEN: OnceLock<Runtime> = OnceLock::new();
 
-/// Terminal panes whose sessions can never connect.
+/// Terminal panes whose sessions never start: no thread drives their runtime, so nothing
+/// wakes or drops a gpui task off the test's thread.
 pub(crate) fn idle_terminals(ids: TerminalIds) -> TerminalPanes {
-    idle_terminals_for(ids, no_chats())
+    TerminalPanes::new(
+        ids,
+        (idle_sessions(), no_chats()),
+        async_channel::unbounded().0,
+    )
 }
 
 /// Idle terminal panes that tell the shell through `requests`.
@@ -26,20 +31,39 @@ pub(crate) fn idle_terminals_into(
     TerminalPanes::new(ids, (idle_sessions(), no_chats()), requests)
 }
 
-pub(crate) fn idle_terminals_for(
+/// Terminal panes telling `heard` each request their sessions make of the daemon. Their
+/// sessions run only while the test blocks on the returned runtime, on the test's own thread.
+pub(crate) fn heard_terminals(
     ids: TerminalIds,
-    chats: ChatTerminals,
-) -> TerminalPanes {
-    TerminalPanes::new(ids, (idle_sessions(), chats), async_channel::unbounded().0)
+    heard: async_channel::Sender<String>,
+) -> (TerminalPanes, Runtime) {
+    let runtime = current_thread();
+    let sessions = sessions_on(NoDaemon::telling(heard), &runtime);
+    let panes = TerminalPanes::new(ids, (sessions, no_chats()), async_channel::unbounded().0);
+    (panes, runtime)
 }
 
-fn no_chats() -> ChatTerminals {
-    ChatTerminals::new(Rc::new(|_| None), (Rc::new(|_| {}), Rc::new(|_| None)))
+fn no_chats() -> ChatHosts {
+    ChatHosts::new((Rc::new(|_| None), Rc::new(|_| None)))
 }
 
 fn idle_sessions() -> TerminalSessions {
-    let runtime = RUNTIME.get_or_init(|| Runtime::new().unwrap());
+    sessions_on(NoDaemon::timing_out(), UNDRIVEN.get_or_init(current_thread))
+}
+
+fn current_thread() -> Runtime {
+    Builder::new_current_thread().enable_all().build().unwrap()
+}
+
+fn sessions_on(
+    daemon: NoDaemon,
+    runtime: &Runtime,
+) -> TerminalSessions {
     let host = HostId::new("local").unwrap();
-    let transport = Arc::new(NoDaemon::timing_out());
-    TerminalSessions::new(transport, host, runtime.handle().clone(), "crowbar://local")
+    TerminalSessions::new(
+        Arc::new(daemon),
+        host,
+        runtime.handle().clone(),
+        "crowbar://local",
+    )
 }

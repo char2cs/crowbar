@@ -110,7 +110,7 @@ fn panel(
     let palette = theme.palette(Surface::Window);
     let focus = state.read(cx).focus.clone();
     let closer = state.clone();
-    div()
+    let card = div()
         .id("ui-popover")
         .key_context(CONTEXT)
         .track_focus(&focus)
@@ -124,8 +124,8 @@ fn panel(
         .text_color(palette.foreground())
         .font_family(theme.ui_family())
         .shadow(shadow::lg(SHADOW_ALPHA))
-        .child(content(window, cx))
-        .into_any_element()
+        .child(content(window, cx));
+    crate::Shaped::solid(card, radius::LG).into_any_element()
 }
 
 fn open(
@@ -163,6 +163,7 @@ mod tests {
     use super::*;
     use crate::control::Button;
     use crate::test_support::probe::{open, open_floating, settle};
+    use crate::testing::newest_window;
 
     fn build(
         _: &mut Window,
@@ -215,14 +216,19 @@ mod tests {
 
     #[gpui::test]
     fn an_open_popover_floats_in_the_top_layer_and_takes_the_keyboard(cx: &mut TestAppContext) {
-        let (mut owner, mut top) = open_floating(cx, build);
+        let mut owner = open_floating(cx, build);
         owner.simulate_click(point(px(10.0), px(10.0)), gpui::Modifiers::none());
-        owner.run_until_parked();
+        let mut top = newest_window(&mut owner);
+        top.run_until_parked();
         assert!(owner.debug_bounds("popover-body").is_none());
         assert!(top.debug_bounds("popover-body").is_some());
-        assert!(top.update(|window, _| window.takes_keys()));
+        assert!(top.update(|window, cx| window.focused(cx).is_some()));
         top.simulate_keystrokes("escape");
-        settle(&mut top);
-        assert!(top.debug_bounds("popover-body").is_none());
+        settle(&mut owner);
+        assert!(
+            newest_window(&mut owner)
+                .debug_bounds("popover-body")
+                .is_none()
+        );
     }
 }

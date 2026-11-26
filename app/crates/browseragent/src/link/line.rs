@@ -1,3 +1,5 @@
+mod line_event;
+
 use std::ops::ControlFlow;
 
 use browser::AgentAnswer;
@@ -5,6 +7,7 @@ use tokio::sync::watch;
 use tokio::task::{JoinError, JoinSet};
 
 use crate::error::Error;
+use crate::journal_sink::emit;
 use crate::link::agent_request::AgentRequest;
 use crate::link::connection_event::ConnectionEvent;
 use crate::link::ending::Ending;
@@ -15,6 +18,7 @@ use crate::link::peer_stream::PeerStream;
 use crate::shell::AgentCommand;
 use crate::shell::AgentOp;
 use crate::shell::TabSummary;
+use line_event::LineEvent;
 
 type Finished = (String, AgentAnswer);
 
@@ -55,7 +59,7 @@ impl<'a> Line<'a> {
             Err(error) => Err(error),
         };
         if let Err(error) = &reported {
-            tracing::debug!(%error, "the daemon connection ended");
+            emit(&LineEvent::ConnectionEnded { error });
         }
         reported.map_or(ControlFlow::Break(Ending::Lost), ControlFlow::Continue)
     }
@@ -70,7 +74,7 @@ impl<'a> Line<'a> {
                 self.requests
                     .spawn(answer_request(request, self.session.clone()));
             },
-            None => tracing::debug!("the daemon sent a frame the browser peer does not know"),
+            None => emit(&LineEvent::UnknownFrame),
         }
     }
 
@@ -104,7 +108,7 @@ fn done_event(done: Result<Finished, JoinError>) -> ConnectionEvent {
     match done {
         Ok((id, answer)) => ConnectionEvent::Done(id, answer),
         Err(error) => {
-            tracing::warn!(%error, "a browser request ended without an answer");
+            emit(&LineEvent::RequestUnanswered { error: &error });
             ConnectionEvent::Idle
         },
     }

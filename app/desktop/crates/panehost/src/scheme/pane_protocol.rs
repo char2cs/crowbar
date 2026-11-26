@@ -9,10 +9,15 @@ use webview::{ProtocolHandler, ProtocolRequest, ProtocolResponder, ProtocolRespo
 use crate::scheme::status;
 
 use crate::catalog::PaneBundles;
-use crate::scheme::assignment::Assignment;
-use crate::scheme::authorized::Authorized;
+use crate::scheme::access::authorized::Authorized;
+use crate::scheme::access::cross_host;
+use crate::scheme::access::page_caller::PageCaller;
+use crate::scheme::access::policy::allows;
+use crate::scheme::menu::menu_route;
+use crate::scheme::menu::pane_menus::PaneMenus;
 use crate::scheme::origin_table::OriginTable;
-use crate::scheme::policy::allows;
+use crate::scheme::origin_table::assignment::Assignment;
+use crate::scheme::pane_tables::PaneTables;
 use crate::scheme::route::{Route, parse};
 
 const CONTENT_TYPE: &str = "content-type";
@@ -25,6 +30,7 @@ pub struct PaneProtocol {
     transport: Arc<dyn DaemonTransport>,
     bundles: PaneBundles,
     origins: OriginTable,
+    menus: PaneMenus,
 }
 
 impl std::fmt::Debug for PaneProtocol {
@@ -39,19 +45,20 @@ impl std::fmt::Debug for PaneProtocol {
 }
 
 impl PaneProtocol {
-    /// A router for `scheme` (without `://`).
+    /// A router for `scheme` (without `://`) over the `tables` it shares with its pane host.
     #[must_use]
     pub fn new(
         scheme: impl Into<String>,
         transport: Arc<dyn DaemonTransport>,
         bundles: PaneBundles,
-        origins: OriginTable,
+        tables: PaneTables,
     ) -> Self {
         Self {
             scheme: scheme.into(),
             transport,
             bundles,
-            origins,
+            origins: tables.origins,
+            menus: tables.menus,
         }
     }
 
@@ -77,6 +84,7 @@ impl PaneProtocol {
                 respond(bundle_response(asset));
             },
             Route::Relay { host } => self.relay(RelayScope::new(host, pane, origin), respond),
+            Route::Menu => menu_route::ask(&self.menus, (pane, request), respond),
             Route::Daemon {
                 host,
                 path_and_query,
@@ -126,17 +134,26 @@ impl ProtocolHandler for PaneProtocol {
         request: ProtocolRequest,
         respond: ProtocolResponder,
     ) {
+        let caller = cross_host::caller_of(&request);
+        if caller == PageCaller::Stranger {
+            return respond(error_response(status::FORBIDDEN, "origin not allowed"));
+        }
+        let respond: ProtocolResponder =
+            Box::new(move |answer| respond(cross_host::readable_by(caller, answer)));
         let Some(Assignment { pane, origin }) = self.origins.get(request.web_view) else {
             return respond(error_response(status::FORBIDDEN, "unknown web view"));
         };
         let Some(route) = parse(&self.scheme, &request.uri) else {
             return respond(error_response(status::BAD_REQUEST, "malformed crowbar url"));
         };
-        if !allows(&origin, &route) {
+        if !allows(&origin, &route) || !menu_route::may_ask(&request, &route) {
             return respond(error_response(
                 status::FORBIDDEN,
                 "not allowed for this pane",
             ));
+        }
+        if let Some(answer) = cross_host::preflight(&request) {
+            return respond(answer);
         }
         self.serve(
             Authorized {
@@ -312,7 +329,10 @@ mod tests {
                 core: Arc::new(Files),
                 extensions: ExtensionBundles::default(),
             },
-            origins,
+            PaneTables {
+                origins,
+                menus: PaneMenus::default(),
+            },
         );
         Fixture {
             protocol,
@@ -340,6 +360,95 @@ mod tests {
             Box::new(move |response| sender.send(response).unwrap()),
         );
         receiver.recv().unwrap()
+    }
+
+    fn ask_from(
+        f: &Fixture,
+        (method, uri): (&str, &str),
+        headers: &[(&str, &str)],
+    ) -> ProtocolResponse {
+        let (sender, receiver) = mpsc::channel();
+        let request = ProtocolRequest {
+            web_view: f.core,
+            uri: uri.into(),
+            method: method.into(),
+            headers: headers
+                .iter()
+                .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+                .collect(),
+            body: Vec::new(),
+        };
+        f.protocol.handle(
+            request,
+            Box::new(move |response| sender.send(response).unwrap()),
+        );
+        receiver.recv().unwrap()
+    }
+
+    fn header_of<'a>(
+        response: &'a ProtocolResponse,
+        name: &str,
+    ) -> Option<&'a str> {
+        response
+            .headers
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.as_str())
+    }
+
+    #[test]
+    fn a_document_of_any_other_origin_is_refused_before_the_daemon() {
+        let f = fixture();
+        let strangers = ["null", "crowbar://host-1", "https://evil.example"];
+        let asks = strangers
+            .into_iter()
+            .flat_map(|from| [("POST", from), ("OPTIONS", from)]);
+        for (method, stranger) in asks {
+            let asked = [
+                ("Origin", stranger),
+                ("Access-Control-Request-Method", "POST"),
+            ];
+            let answer = ask_from(&f, (method, "crowbar://local/v0/projects"), &asked);
+            assert_eq!(answer.status, 403, "{method} from {stranger}");
+            assert_eq!(
+                header_of(&answer, "access-control-allow-origin"),
+                None,
+                "{method} from {stranger} is granted nothing"
+            );
+        }
+        assert!(
+            f.transport.seen.lock().unwrap().is_empty(),
+            "nothing reached the daemon"
+        );
+    }
+
+    #[test]
+    fn the_shells_page_is_granted_its_own_origin_and_the_headers_panes_send() {
+        let f = fixture();
+        *f.transport.answer.lock().unwrap() =
+            Some(Ok(DaemonResponse::new(200, Vec::new(), b"ok".to_vec())));
+        let answer = ask_from(
+            &f,
+            ("GET", "crowbar://host-1/v0/health"),
+            &[("Origin", "crowbar://local")],
+        );
+        assert_eq!(answer.status, 200);
+        assert_eq!(
+            header_of(&answer, "access-control-allow-origin"),
+            Some("crowbar://local")
+        );
+        let asked = [
+            ("Origin", "crowbar://local"),
+            ("Access-Control-Request-Method", "POST"),
+            ("Access-Control-Request-Headers", "content-type, x-evil"),
+        ];
+        let preflight = ask_from(&f, ("OPTIONS", "crowbar://host-1/v0/projects"), &asked);
+        assert_eq!(preflight.status, 204);
+        assert_eq!(
+            header_of(&preflight, "access-control-allow-headers"),
+            Some("content-type, idempotency-key, crowbar-discard-work"),
+            "a fixed list, never the request's echo"
+        );
     }
 
     #[test]

@@ -36,6 +36,7 @@ pub struct Menu {
 }
 
 mod menu_item;
+mod native_menu;
 mod navigation;
 mod nested;
 mod option_row;
@@ -45,6 +46,9 @@ mod row_style;
 mod trigger;
 
 pub use menu_item::{MenuAction, MenuItem};
+pub use native_menu::{
+    MenuEdge, MenuPath, NativeEntry, NativeMenu, NativeRequest, PopupMenu, on_context_click,
+};
 pub(crate) use navigation::bindings;
 pub(crate) use option_row::{
     CHECK as OPTION_CHECK, GAP as OPTION_GAP, HEIGHT as OPTION_HEIGHT, START as OPTION_START,
@@ -178,7 +182,7 @@ impl Render for Menu {
             .iter()
             .enumerate()
             .map(|entry| self.entry(entry, palette, &handlers));
-        div()
+        let card = div()
             .id("ui-menu")
             .debug_selector(|| "ui-menu".into())
             .key_context(CONTEXT)
@@ -206,7 +210,8 @@ impl Render for Menu {
             .text_color(palette.foreground())
             .font_family(Theme::of(cx).ui_family())
             .shadow(shadow::md(opacity::PERCENT_10))
-            .children(rows)
+            .children(rows);
+        crate::Shaped::solid(card, radius::LG)
     }
 }
 

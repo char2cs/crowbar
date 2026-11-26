@@ -12,6 +12,8 @@ use crate::foundation::ControlScale;
 use crate::foundation::Icon;
 use crate::foundation::IconName;
 use crate::foundation::Theme;
+use crate::foundation::tokens::opacity;
+use crate::foundation::tokens::shadow;
 use crate::foundation::tokens::text_size;
 
 const ICON_SIZE: f32 = 14.0;
@@ -69,7 +71,7 @@ impl TextInput {
     ) -> gpui::Stateful<gpui::Div> {
         div()
             .id("ui-text-input")
-            .key_context(crate::control::editor::text_input::actions::CONTEXT)
+            .key_context(crate::control::editor::text_input::binding::actions::CONTEXT)
             .track_focus(&self.focus_handle)
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
@@ -98,6 +100,13 @@ impl TextInput {
         if self.style.bare() {
             let clear = gpui::hsla(0.0, 0.0, 0.0, 0.0);
             return (clear, clear, Vec::new());
+        }
+        if self.style == TextInputStyle::Outlined {
+            return (
+                frame.fill,
+                palette.foreground(),
+                shadow::xs(opacity::PERCENT_5),
+            );
         }
         if self.style != TextInputStyle::Stepper {
             return (frame.fill, frame.border, frame.shadows);

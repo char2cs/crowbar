@@ -1,8 +1,11 @@
+mod ps_event;
+
 use std::time::Duration;
 
 use tokio::process::Command;
 
 use crate::supervisor::monitoring::watchdog::adapters::proc_stat;
+use crate::supervisor::monitoring::watchdog::process_cpu::ps_event::PsEvent;
 use crate::supervisor::monitoring::watchdog::wedge::{
     parse_proc_stat_cpu, parse_ps_cpu_time, proc_state_is_stopped,
 };
@@ -19,17 +22,18 @@ async fn ps(
         .arg(pid.to_string())
         .kill_on_drop(true)
         .output();
-    let finished = match tokio::time::timeout(PS_TIMEOUT, run).await {
-        Ok(Ok(finished)) => finished,
-        Ok(Err(e)) => {
-            tracing::debug!("{PS}: {e}");
-            return None;
-        },
-        Err(elapsed) => {
-            tracing::warn!("{PS} did not answer within {PS_TIMEOUT:?}: {elapsed}");
-            return None;
-        },
+    let ran = match tokio::time::timeout(PS_TIMEOUT, run).await {
+        Ok(Ok(finished)) => Ok(finished),
+        Ok(Err(error)) => Err(PsEvent::Failed { command: PS, error }),
+        Err(elapsed) => Err(PsEvent::TimedOut {
+            command: PS,
+            timeout: PS_TIMEOUT,
+            elapsed,
+        }),
     };
+    let finished = ran
+        .inspect_err(|event| crate::journal_sink::emit(event))
+        .ok()?;
     finished
         .status
         .success()

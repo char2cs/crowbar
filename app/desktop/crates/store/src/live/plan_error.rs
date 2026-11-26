@@ -50,6 +50,8 @@ pub(crate) enum PlanError {
     ForkNotCheckedOut,
     #[error("{0}")]
     Operation(String),
+    #[error("{}", .0.message)]
+    HostUnanswered(daemonapi::HostNotice),
     #[error("{}", .0.reason())]
     Daemon(#[source] Error),
 }

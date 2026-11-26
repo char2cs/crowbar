@@ -16,12 +16,14 @@ import { ShellViewedOwner } from '@/features/git/lib/shell-viewed-owner'
 import { installViewedOwner } from '@/features/git/lib/viewed-owner'
 import type { BootedPane } from './booted-pane'
 import { followChatZoom } from './follow-chat-zoom'
+import { followFileDrops } from './follow-file-drops'
 import { followShellAppearance } from './follow-shell-appearance'
+import { followShellHosts } from './follow-shell-hosts'
 import { followShellSettings } from './follow-shell-settings'
 import { forwardToastsToShell } from './forward-toasts-to-shell'
 import { paintPaneSurface } from './paint-pane-surface'
 
-/** Starts the runtime every pane page shares (appearance, reporting, workspace scopes, the daemon stream and events, the shell's settings, toasts shown in the shell) and connects it to the shell as the `typeId` pane. The caller mounts its UI on `container` and then calls `client.register()`. */
+/** Starts the runtime every pane page shares (appearance, reporting, workspace scopes, the daemon stream and events, the shell's settings and paired hosts, toasts shown in the shell) and connects it to the shell as the `typeId` pane. The caller mounts its UI on `container` and then calls `client.register()`. */
 export function bootPane(typeId: string): BootedPane {
   const channel = shellChannel()
   const container = document.getElementById('root')
@@ -43,7 +45,9 @@ export function bootPane(typeId: string): BootedPane {
   followChatZoom(client)
   followShellAppearance(client)
   followShellSettings(client)
+  followShellHosts(client)
   forwardToastsToShell(client)
+  followFileDrops(client)
   installPreviewOpener(async (doc) =>
     client.open('core.editor', {}, { file: doc.path, mode: 'preview' }),
   )

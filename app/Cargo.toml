@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "desktop/crates/*", "desktop/app"]
-exclude = ["mobile", "desktop/vendor"]
+exclude = ["mobile"]
 
 [workspace.package]
 version = "0.1.0"
@@ -13,6 +13,7 @@ publish = false
 
 [workspace.dependencies]
 atomicfile = { path = "crates/atomicfile" }
+journal = { path = "crates/journal" }
 browser = { path = "crates/browser" }
 browseragent = { path = "crates/browseragent" }
 chord = { path = "desktop/crates/chord" }
@@ -38,6 +39,7 @@ browserbar = { path = "desktop/crates/browserbar" }
 branchimport = { path = "desktop/crates/branchimport" }
 pairing = { path = "desktop/crates/pairing" }
 oobe = { path = "desktop/crates/oobe" }
+folderimport = { path = "desktop/crates/folderimport" }
 folderpicker = { path = "desktop/crates/folderpicker" }
 windowstate = { path = "desktop/crates/windowstate" }
 platform = { path = "desktop/crates/platform" }
@@ -45,19 +47,39 @@ diagnostics = { path = "desktop/crates/diagnostics" }
 terminal = { path = "desktop/crates/terminal" }
 terminalview = { path = "desktop/crates/terminalview" }
 ptysession = { path = "desktop/crates/ptysession" }
+editor = { path = "desktop/crates/editor" }
+editorview = { path = "desktop/crates/editorview" }
 
 async-channel = "2"
 gdkx11 = "0.18"
-gpui = { package = "gpui-pre", version = "=0.3.12" }
-gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", default-features = false, features = ["font-kit", "wayland", "x11"] }
+gpui = { package = "gpui-pre", version = "=0.3.14" }
+gpui-kit = { version = "=0.11.0", default-features = false, features = [
+    "component",
+    "tree-sitter-bash",
+    "tree-sitter-css",
+    "tree-sitter-diff",
+    "tree-sitter-go",
+    "tree-sitter-html",
+    "tree-sitter-javascript",
+    "tree-sitter-markdown",
+    "tree-sitter-python",
+    "tree-sitter-rust",
+    "tree-sitter-toml",
+    "tree-sitter-typescript",
+    "tree-sitter-yaml",
+] }
+gpui_wgpu = { package = "gpui-pre-wgpu", version = "=0.3.14" }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.14", default-features = false, features = ["font-kit", "wayland", "x11"] }
 gtk = "0.18"
 image = { version = "0.25", default-features = false }
+lsp-types = "0.97"
 webkit2gtk = "2.0.1"
 raw-window-handle = "0.6"
 wry = { version = "0.53", features = ["linux-body"] }
 x11rb = "0.13"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+regex = "1.13"
 thiserror = "2"
 tracing = "0.1"
 unicode-segmentation = "1"
@@ -116,12 +138,6 @@ large_futures = "deny"
 await_holding_lock = "deny"
 await_holding_refcell_ref = "deny"
 
-[patch.crates-io]
-calloop = { path = "desktop/vendor/calloop" }
-gpui-pre = { path = "desktop/vendor/gpui-pre" }
-gpui-pre-linux = { path = "desktop/vendor/gpui-pre-linux" }
-gpui-pre-macos = { path = "desktop/vendor/gpui-pre-macos" }
-gpui-pre-wgpu = { path = "desktop/vendor/gpui-pre-wgpu" }
 
 [profile.dev.package."*"]
 opt-level = 3

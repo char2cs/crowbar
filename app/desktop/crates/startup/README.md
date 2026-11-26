@@ -2,17 +2,16 @@
 
 ## Owns
 
-What the user sees until the daemon serves: the full-screen startup and migration view, and its
-gpui-free state machine (phases, timing, migration steps, outages and halts).
+The halt gate: once the daemon halts, what replaces the window's content until the daemon is
+started again (develop's `daemon-halt-gate.tsx`). Every other daemon state is the shell's
+toasts and crash panel.
 
 ## Public interface
 
-- `View`: the view, which emits `Event` and asks the shell through `Actions`
-  (`Command`); it reads time through the `Clock` port (`MonotonicClock` in
-  production).
-- `Input`, `Timing`, `AppPhase`, `MigrationStep`, `Outage`, `HaltReason`: what the
-  shell feeds it.
-- `startupgallery` binary (`src/bin/gallery/`): every phase of the view, or a demo run.
+- `View`: the gate, which asks the shell through `Actions` (`Command`) and says whether it
+  `covers()` the window.
+- `Input`, `MigrationStep`, `Outage`, `HaltReason`: what the shell feeds it.
+- `startupgallery` binary (`src/bin/gallery/`): the gate showing a halt.
 
 ## Depends on
 

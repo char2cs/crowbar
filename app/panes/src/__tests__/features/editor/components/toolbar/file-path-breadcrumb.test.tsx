@@ -19,7 +19,6 @@ import { workspaceRef } from '@/lib/api/documents'
 describe('FilePathBreadcrumb', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    installPreviewOpener(null)
     setActiveWorkspaceId('ws-in-view')
     fetchFileTree.mockResolvedValue([{ name: 'a.ts', path: 'web/a.ts', isDir: false }])
   })

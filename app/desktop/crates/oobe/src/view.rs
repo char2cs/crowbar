@@ -1,7 +1,10 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use gpui::{Context, EventEmitter, IntoElement, ParentElement, Render, Styled, Window, div};
+use gpui::{
+    Context, Div, EventEmitter, InteractiveElement as _, IntoElement, MouseButton, MouseDownEvent,
+    ParentElement, Render, Styled, Window, div, px,
+};
 use store::SystemCheck;
 use ui::Theme;
 
@@ -15,6 +18,8 @@ mod parts;
 mod screens;
 
 use self::parts::stage;
+
+const DRAG_STRIP_HEIGHT: f32 = 32.0;
 
 /// The first-run screens over the brand gradient.
 pub struct View {
@@ -83,6 +88,19 @@ impl View {
         cx.emit(Event::ChooseFolder);
     }
 
+    fn drag_strip(cx: &mut Context<'_, Self>) -> Div {
+        div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .right_0()
+            .h(px(DRAG_STRIP_HEIGHT))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|_, _: &MouseDownEvent, _, cx| cx.emit(Event::MoveWindow)),
+            )
+    }
+
     fn recheck(
         &mut self,
         cx: &mut Context<'_, Self>,
@@ -112,6 +130,7 @@ impl Render for View {
             .font_family(Theme::of(cx).ui_family())
             .child(backdrop(self.screen))
             .child(stage(content))
+            .child(Self::drag_strip(cx))
     }
 }
 
@@ -157,6 +176,18 @@ mod tests {
         let sink = Rc::clone(&seen);
         cx.update(|_, cx| cx.subscribe(view, collect(sink)).detach());
         seen
+    }
+
+    #[gpui::test]
+    fn a_press_on_the_top_strip_moves_the_window(cx: &mut TestAppContext) {
+        let check = Rc::new(FakeCheck::default());
+        let (view, cx) = open(cx, Screen::Welcome, &check);
+        let seen = events(&view, cx);
+        let strip = gpui::point(px(400.0), px(DRAG_STRIP_HEIGHT / 2.0));
+        cx.simulate_click(strip, gpui::Modifiers::none());
+        let below = gpui::point(px(5.0), px(DRAG_STRIP_HEIGHT + 4.0));
+        cx.simulate_click(below, gpui::Modifiers::none());
+        assert_eq!(seen.borrow().as_slice(), [Event::MoveWindow]);
     }
 
     #[gpui::test]

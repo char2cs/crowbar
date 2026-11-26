@@ -21,6 +21,7 @@ const WIDE_COLUMNS: usize = 2;
 pub(crate) struct Builder<'a> {
     colors: ColorSource<'a>,
     selected: Range<usize>,
+    selected_style: Option<(StyleFlags, Underline)>,
     row: Row,
     current: Option<Segment>,
 }
@@ -35,6 +36,7 @@ impl<'a> Builder<'a> {
         let mut builder = Self {
             colors,
             selected,
+            selected_style: None,
             row: Row::default(),
             current: None,
         };
@@ -110,11 +112,12 @@ impl<'a> Builder<'a> {
             self.flush();
         }
         let text = glyph_text(cell);
+        let (flags, underline) = self.style_at(column, cell.flags);
         let span = StyleSpan {
             len: text.len(),
             foreground,
-            flags: style_flags(cell.flags),
-            underline: underline_of(cell.flags),
+            flags,
+            underline,
         };
         let segment = self.current.get_or_insert_with(|| Segment {
             column,
@@ -129,6 +132,19 @@ impl<'a> Builder<'a> {
         if width > 1 {
             self.flush();
         }
+    }
+
+    fn style_at(
+        &mut self,
+        column: usize,
+        flags: Flags,
+    ) -> (StyleFlags, Underline) {
+        let own = (style_flags(flags), underline_of(flags));
+        if !self.selected.contains(&column) {
+            return own;
+        }
+        // SPEC: https://github.com/xtermjs/xterm.js/blob/6.0.0/src/browser/renderer/dom/DomRendererRowFactory.ts
+        *self.selected_style.get_or_insert(own)
     }
 
     fn flush(&mut self) {

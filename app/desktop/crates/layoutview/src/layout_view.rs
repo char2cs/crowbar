@@ -1,18 +1,30 @@
+pub(crate) mod clock;
+pub(crate) mod drag;
+mod hover_source;
+mod layout_drag;
+mod layout_input;
+mod layout_render;
+mod leaf_cell;
+mod pane;
+mod strip;
+
 use std::rc::Rc;
 use std::time::Instant;
 
 use gpui::{App, Bounds, Context, EventEmitter, Pixels};
-use layout::{Rect, Tab};
+use layout::{Rect, Tab, TabId};
 use protocol::PaneId;
 use ui::Motion;
 
-use crate::chrome_context::ChromeContext;
-use crate::clock::Clock;
-use crate::drop_hover::DropHover;
+use crate::geometry::chrome_context::ChromeContext;
+use crate::host::pane_source::PaneSource;
 use crate::layout_event::LayoutEvent;
-use crate::pane_fades::PaneFades;
-use crate::pane_source::PaneSource;
-use crate::sash_grab::SashGrab;
+use crate::layout_view::clock::Clock;
+use crate::layout_view::drag::drop_hover::DropHover;
+use crate::layout_view::drag::sash_grab::SashGrab;
+use crate::layout_view::hover_source::HoverSource;
+use crate::layout_view::pane::pane_fades::PaneFades;
+use crate::layout_view::pane::pane_hover::PaneHover;
 
 /// The active tab's panes: their frames, the sashes between them, the accent ring, the pane
 /// handle and the drop preview. It owns no layout state: it renders the [`Tab`] it was last
@@ -22,7 +34,7 @@ pub struct LayoutView {
     pub(crate) chrome: ChromeContext,
     pub(crate) source: Rc<dyn PaneSource>,
     pub(crate) bounds: Bounds<Pixels>,
-    pub(crate) hovered: Option<PaneId>,
+    pub(crate) hover: PaneHover,
     pub(crate) sash: Option<SashGrab>,
     pub(crate) drop: DropHover,
     pub(crate) rings: PaneFades,
@@ -38,7 +50,7 @@ impl std::fmt::Debug for LayoutView {
         formatter
             .debug_struct("LayoutView")
             .field("tab", &self.tab.as_ref().map(Tab::id))
-            .field("hovered", &self.hovered)
+            .field("hovered", &self.hover.pane())
             .finish_non_exhaustive()
     }
 }
@@ -61,7 +73,7 @@ impl LayoutView {
             chrome: ChromeContext::default(),
             source,
             bounds: Bounds::default(),
-            hovered: None,
+            hover: PaneHover::default(),
             sash: None,
             drop: DropHover::default(),
             rings: PaneFades::default(),
@@ -70,7 +82,7 @@ impl LayoutView {
         }
     }
 
-    /// Shows `tab`, the model's active tab, or nothing when no tab is open.
+    /// Shows `tab`, the tab the active space shows, or the stage when it is `None`.
     pub fn set_tab(
         &mut self,
         tab: Option<Tab>,
@@ -84,6 +96,12 @@ impl LayoutView {
         cx.notify();
     }
 
+    /// The id of the tab it shows, or `None` while it shows the stage.
+    #[must_use]
+    pub fn shown_tab(&self) -> Option<TabId> {
+        self.tab.as_ref().map(Tab::id)
+    }
+
     /// Tells the view what surrounds it so the outer panes get the right borders.
     pub fn set_chrome(
         &mut self,
@@ -94,16 +112,22 @@ impl LayoutView {
         cx.notify();
     }
 
-    /// The pane the pointer is over, when the shell learns it from a web view instead of from
-    /// this view's own hover tracking.
-    pub fn set_hovered_pane(
+    /// The pointer entered `pane`'s web view, which the shell learns from the page.
+    pub fn page_entered(
         &mut self,
-        pane: Option<PaneId>,
+        pane: &PaneId,
         cx: &mut Context<'_, Self>,
     ) {
-        self.hovered = pane;
-        self.sync_fades(cx);
-        cx.notify();
+        self.pointer_entered((HoverSource::Page, pane), cx);
+    }
+
+    /// The pointer left `pane`'s web view.
+    pub fn page_left(
+        &mut self,
+        pane: &PaneId,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.pointer_left((HoverSource::Page, pane), cx);
     }
 
     pub(crate) fn local(&self) -> Rect {
@@ -138,7 +162,7 @@ impl LayoutView {
             self.rings.show(pane, now, motion);
         }
         self.rings.hide_all_but(ring.as_ref(), now, motion);
-        let handle = self.hovered.clone().filter(|_| multiple);
+        let handle = self.hover.pane().cloned().filter(|_| multiple);
         if let Some(pane) = &handle {
             self.handles.show(pane, now, motion);
         }
@@ -162,8 +186,9 @@ mod tests {
     #[gpui::test]
     fn the_drop_preview_floats_above_the_panes_until_the_drag_leaves(cx: &mut TestAppContext) {
         let mut floating = crate::test_support::open_floating(cx, &side_by_side());
-        let (view, window) = (floating.view.clone(), &mut floating.window);
+        let view = floating.view.clone();
         let over = DragSubject::Chat("t1".into());
+        let window = &mut floating.window;
         view.update(window, |view, cx| {
             view.hover(&over, point(px(10.0), px(100.0)), cx);
         });
@@ -173,14 +198,15 @@ mod tests {
             None,
             "nothing in the window"
         );
-        assert!(floating.top.debug_bounds("drop-preview").is_some());
+        assert!(floating.top().debug_bounds("drop-preview").is_some());
+        let window = &mut floating.window;
         view.update(window, |view, cx| {
             view.hover(&over, point(px(-5.0), px(-5.0)), cx);
         });
         window.update(|_, _| {});
         window.run_until_parked();
         assert_eq!(
-            floating.top.debug_bounds("drop-preview"),
+            floating.top().debug_bounds("drop-preview"),
             None,
             "gone outside"
         );
@@ -329,7 +355,7 @@ mod tests {
         let layout = side_by_side();
         let harness = open(cx, &layout);
         let (view, cx, clock) = (harness.view, harness.cx, harness.clock);
-        view.update(cx, |view, cx| view.set_hovered_pane(Some(pane_id("a")), cx));
+        view.update(cx, |view, cx| view.page_entered(&pane_id("a"), cx));
         clock.set(clock.get() + std::time::Duration::from_millis(200));
         cx.run_until_parked();
         view.read_with(cx, |view, _| {
@@ -358,7 +384,7 @@ mod tests {
         let layout = layout_of("a", &[]);
         let harness = open(cx, &layout);
         let (view, cx) = (harness.view, harness.cx);
-        view.update(cx, |view, cx| view.set_hovered_pane(Some(pane_id("a")), cx));
+        view.update(cx, |view, cx| view.page_entered(&pane_id("a"), cx));
         view.read_with(cx, |view, _| {
             let now = view.clock.now() + std::time::Duration::from_millis(200);
             let motion = ui::Motion::default();

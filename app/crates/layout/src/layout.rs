@@ -1,24 +1,36 @@
+mod arrangement;
+pub(crate) mod command;
+pub(crate) mod layout_history;
+mod layout_tabs;
+pub(crate) mod stored;
+pub(crate) mod tab;
+mod undo_step;
+
+use std::collections::BTreeMap;
+
 use protocol::{PaneId, PaneTypeId, Params};
 
-use crate::command::Command;
 use crate::error::Result;
-use crate::pane_instance::PaneInstance;
-use crate::tab::Tab;
+use crate::layout::command::Command;
+use crate::layout::tab::Tab;
+use crate::layout::tab::pane_instance::PaneInstance;
+use crate::space_id::SpaceId;
 use crate::tab_id::TabId;
 
 /// Most tabs a layout may hold.
 pub const MAX_TABS: usize = 256;
 
-/// All tabs of a window and which one is active.
+/// All tabs of a window, each in the space it was made in, and which tab each space shows.
 ///
 /// The layout is a state machine: [`Layout::apply`] is the only way to change it, and a
 /// command that fails leaves it exactly as it was. Invariants: tab ids are unique, a pane id
-/// appears in at most one tab, no two panes share a type and non-empty parameters, the active
-/// tab exists, and every tab satisfies the [`Tab`] invariants.
+/// appears in at most one tab, no two panes share a type and non-empty parameters, a space
+/// shows only one of its own tabs, and every tab satisfies the [`Tab`] invariants. A space
+/// with no shown tab shows its stage, as develop's `activeViewByProject` without an entry.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Layout {
     pub(crate) tabs: Vec<Tab>,
-    pub(crate) active: Option<TabId>,
+    pub(crate) shown: BTreeMap<SpaceId, TabId>,
 }
 
 impl Layout {
@@ -37,10 +49,15 @@ impl Layout {
         self.tabs.iter().find(|tab| tab.id() == id)
     }
 
-    /// The active tab.
+    /// The tab a space shows: the one it remembers, else its first tab in strip order, as
+    /// develop's `nextViewFor` falls back; `None` only when the space has no tabs.
     #[must_use]
-    pub fn active_tab(&self) -> Option<&Tab> {
-        self.active.and_then(|id| self.tab(id))
+    pub fn showing(
+        &self,
+        space: &str,
+    ) -> Option<&Tab> {
+        let remembered = self.shown.get(space).and_then(|id| self.tab(*id));
+        remembered.or_else(|| self.tabs.iter().find(|tab| tab.space() == space))
     }
 
     /// The tab holding a pane.

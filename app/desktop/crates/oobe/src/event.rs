@@ -6,4 +6,6 @@ pub enum Event {
     ChooseFolder,
     /// Open the Add Host dialog.
     AddHost,
+    /// Move the window with the pointer, from a press on the top strip.
+    MoveWindow,
 }

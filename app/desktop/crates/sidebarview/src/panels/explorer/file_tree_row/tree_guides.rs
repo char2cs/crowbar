@@ -73,6 +73,8 @@ mod tests {
             neighbours: (2, 1),
             input: None,
             selected: false,
+            cut: false,
+            note: None,
             look: look.clone(),
             scope: std::rc::Rc::default(),
             handler: std::rc::Rc::new(|_, _, _| {}),

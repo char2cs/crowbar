@@ -84,6 +84,7 @@ impl PaneHost {
                     .collect());
             },
             PaneFrame::SetTitle { title } => HostEvent::TitleChanged { pane, title },
+            PaneFrame::SetParams { params } => HostEvent::ParamsChanged { pane, params },
             PaneFrame::SetState { state } => HostEvent::StateChanged { pane, state },
             PaneFrame::SetDirty { dirty } => HostEvent::DirtyChanged { pane, dirty },
             PaneFrame::Open(open) => HostEvent::OpenRequested { from: pane, open },
@@ -103,6 +104,9 @@ impl PaneHost {
                 files,
                 viewed,
             },
+            PaneFrame::DocumentEdit { text } => HostEvent::DocumentEdited { pane, text },
+            PaneFrame::DocumentShowSource => HostEvent::SourceRequested { pane },
+            PaneFrame::DocumentSave => HostEvent::DocumentSaveRequested { pane },
             frame @ (PaneFrame::Toast(_)
             | PaneFrame::ToastClose { .. }
             | PaneFrame::OpenRefused { .. }) => return Ok(toast_events(pane, frame)),
@@ -151,6 +155,7 @@ impl PaneHost {
             self.breakpoints_context(),
             self.chat_zoom_context(),
             self.settings_context(),
+            self.paired_hosts_context(),
         ]
         .into_iter()
         .flatten()
@@ -278,6 +283,7 @@ mod tests {
         let pane = PaneId::new("p1").unwrap();
         let title = PaneTitle::new("Hi").unwrap();
         let state = PaneState::new(json!({"k": 1})).unwrap();
+        let params = protocol::Params::default().with("threadId", "c1").unwrap();
         let cases: Vec<Case> = vec![
             (
                 "a title frame",
@@ -294,7 +300,17 @@ mod tests {
                 PaneFrame::SetState {
                     state: state.clone(),
                 },
-                HostEvent::StateChanged { pane, state },
+                HostEvent::StateChanged {
+                    pane: pane.clone(),
+                    state,
+                },
+            ),
+            (
+                "a params frame",
+                PaneFrame::SetParams {
+                    params: params.clone(),
+                },
+                HostEvent::ParamsChanged { pane, params },
             ),
         ];
         assert_events(cases);
@@ -334,6 +350,34 @@ mod tests {
                     files: vec![viewed_file()],
                     viewed: true,
                 },
+            ),
+        ];
+        assert_events(cases);
+    }
+
+    #[test]
+    fn a_file_page_s_document_frames_become_their_events() {
+        let pane = PaneId::new("p1").unwrap();
+        let cases: Vec<Case> = vec![
+            (
+                "a rich view's edit",
+                PaneFrame::DocumentEdit {
+                    text: "Title\n".into(),
+                },
+                HostEvent::DocumentEdited {
+                    pane: pane.clone(),
+                    text: "Title\n".into(),
+                },
+            ),
+            (
+                "a rich view's ask for the source",
+                PaneFrame::DocumentShowSource,
+                HostEvent::SourceRequested { pane: pane.clone() },
+            ),
+            (
+                "a rich view's save",
+                PaneFrame::DocumentSave,
+                HostEvent::DocumentSaveRequested { pane },
             ),
         ];
         assert_events(cases);

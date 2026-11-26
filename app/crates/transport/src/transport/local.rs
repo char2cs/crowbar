@@ -1,5 +1,6 @@
 mod adapters;
 mod get;
+mod local_event;
 pub(crate) mod socket_locator;
 mod socket_trust;
 
@@ -13,10 +14,12 @@ use http::{Method, Request, StatusCode};
 use tokio::net::UnixStream;
 
 use crate::error::Error;
+use crate::journal_sink::emit;
 use crate::response::{
     DAEMON_UNAVAILABLE, Forwarded, error_response, marked_response, proxy_answer,
 };
 use crate::transport::http_conn::exchange;
+use crate::transport::local::local_event::LocalEvent;
 use crate::transport::local::socket_trust::verify;
 
 pub(crate) const CONNECT_ATTEMPTS: u32 = CONNECT_FAST_STEPS + 7;
@@ -42,10 +45,12 @@ fn is_idempotent_read(method: &Method) -> bool {
 
 pub(crate) async fn connect_once(locator: &dyn SocketLocator) -> Result<UnixStream, Error> {
     let path = locator.socket_path().ok_or(Error::NoSocket)?;
-    let stream = UnixStream::connect(&path).await.map_err(|e| {
-        tracing::debug!("daemon socket {} not connectable: {e}", path.display());
-        Error::LocalSocket(e)
-    })?;
+    let connected = UnixStream::connect(&path).await;
+    if let Err(error) = &connected {
+        let path = path.as_path();
+        emit(&LocalEvent::SocketNotConnectable { path, error });
+    }
+    let stream = connected.map_err(Error::LocalSocket)?;
     verify(&path, &stream)?;
     Ok(stream)
 }
@@ -63,18 +68,11 @@ where
         match connect_once(locator).await {
             Ok(stream) => return Ok(stream),
             Err(failure) if attempt >= CONNECT_ATTEMPTS => return Err(failure),
-            Err(failure) => log_retry(attempt, &failure),
+            Err(ref failure) => emit(&LocalEvent::SocketNotReady { attempt, failure }),
         }
         wait(attempt).await;
         attempt += 1;
     }
-}
-
-fn log_retry(
-    attempt: u32,
-    failure: &Error,
-) {
-    tracing::debug!("daemon socket not ready (attempt {attempt}): {failure}");
 }
 
 async fn connect_for<W, F>(
@@ -116,8 +114,8 @@ where
 {
     let stream = match connect_for(request.method(), locator, wait).await {
         Ok(stream) => stream,
-        Err(e) => {
-            tracing::debug!("local daemon unreachable: {e}");
+        Err(error) => {
+            emit(&LocalEvent::DaemonUnreachable { error: &error });
             return proxy_answer(marked_response(
                 StatusCode::SERVICE_UNAVAILABLE,
                 DAEMON_UNAVAILABLE,
@@ -131,8 +129,8 @@ where
             StatusCode::BAD_GATEWAY,
             "local response too large",
         )),
-        Err(e) => {
-            tracing::debug!("local daemon exchange failed: {e}");
+        Err(error) => {
+            emit(&LocalEvent::ExchangeFailed { error: &error });
             proxy_answer(error_response(
                 StatusCode::BAD_GATEWAY,
                 "crowbar proxy error",

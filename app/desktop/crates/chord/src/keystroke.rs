@@ -1,9 +1,11 @@
 mod dom_key;
 mod modifier;
 mod modifiers;
+mod physical_key;
 
 pub use modifier::Modifier;
 pub use modifiers::Modifiers;
+pub use physical_key::PhysicalKey;
 
 use crate::keystroke::dom_key::dom_key;
 
@@ -14,6 +16,8 @@ pub struct Keystroke {
     pub modifiers: Modifiers,
     /// The key as the toolkit names it, for example `t`, `left` or `enter`.
     pub key: String,
+    /// Where the key sits on the keyboard, when the windowing layer reports it.
+    pub physical: Option<PhysicalKey>,
 }
 
 const CHORD_NAMES: [(Modifier, &str); 3] = [
@@ -57,6 +61,7 @@ mod tests {
                 .map(|(_, modifier)| modifier)
                 .collect(),
             key: key.to_owned(),
+            physical: None,
         }
     }
 

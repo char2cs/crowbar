@@ -98,7 +98,7 @@ export function createWindowPaneStore(snapshot?: WindowPaneSnapshot): WindowPane
         mostRecentActivePaneIds: current.mostRecentActivePaneIds,
         buffers: toPersistedBuffers(current.buffers),
         updatedAt: Date.now(),
-      })
+      }).catch((err: unknown) => console.error('Saving the window layout failed:', err))
     }, 300)
   })
 

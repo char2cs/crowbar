@@ -1,12 +1,15 @@
+pub(super) mod toast_hold;
+
 use std::time::{Duration, Instant};
 
 use gpui::{Context, Task, Window};
 
 use crate::display::toast::toast_queue::ToastQueue;
 use crate::display::toast::toast_queue::entry::Entry;
-use crate::display::toast::toast_queue::toast_hold::ToastHold;
+use crate::display::toast::toast_queue::timer::toast_hold::ToastHold;
 use crate::display::toast::toast_queue::toast_id::ToastId;
 use crate::foundation::Pose;
+use crate::foundation::WindowActivity;
 
 pub(crate) type Expiry = (Option<Task<()>>, Option<Instant>, Option<Duration>);
 
@@ -62,14 +65,14 @@ impl ToastQueue {
         }
     }
 
-    /// Holds the expiry while `window` is not the active window, as develop's toasts wait for
+    /// Holds the expiry while `window` does not hold the keyboard, as develop's toasts wait for
     /// someone to look.
     pub fn follow_window(
         &mut self,
         window: &Window,
         cx: &mut Context<'_, Self>,
     ) {
-        if window.is_window_active() {
+        if WindowActivity::of(window, cx) {
             return self.release(ToastHold::Window, cx);
         }
         self.hold(ToastHold::Window, cx);
@@ -145,7 +148,7 @@ mod tests {
     use gpui::TestAppContext;
 
     use crate::display::toast::test_support::{advance, push, queue};
-    use crate::display::toast::toast_queue::toast_hold::ToastHold;
+    use crate::display::toast::toast_queue::timer::toast_hold::ToastHold;
     use crate::display::toast::toast_queue::toast_id::ToastId;
     use crate::display::toast::toast_queue::toast_lifetime::ToastLifetime;
     use crate::foundation::tokens::timing;
@@ -203,5 +206,20 @@ mod tests {
             0,
             "the second had all 5 s"
         );
+    }
+
+    #[gpui::test]
+    fn toasts_keep_expiring_while_a_child_window_holds_the_keyboard(cx: &mut TestAppContext) {
+        let queue = queue(cx);
+        let window = cx.add_empty_window();
+        window.deactivate_window();
+        window.update(|window, cx| {
+            let id = window.window_handle().window_id();
+            crate::WindowActivity::gained(id, cx);
+            queue.update(cx, |queue, cx| queue.follow_window(window, cx));
+        });
+        push(&queue, ToastLifetime::Auto, cx);
+        advance(cx, timing::TOAST_TIMEOUT + timing::SLOW);
+        assert_eq!(queue.read_with(cx, |queue, _| queue.len()), 0);
     }
 }

@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 browser.workspace = true
+journal.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

@@ -71,8 +71,9 @@ impl Tree {
         self.folded.retain(exists);
     }
 
-    /// The rows to draw, in order. Children of folded or held rows are hidden, committed
-    /// rows are dropped, and a held row keeps its slot as a countdown.
+    /// The rows to draw, in order. Children of folded or held rows are hidden, committed rows
+    /// and a repository or space waiting on its confirmation are dropped whole, and any other
+    /// held row keeps its slot as a countdown.
     pub fn visible(
         &self,
         rows: &[Row],
@@ -81,7 +82,7 @@ impl Tree {
         rows.iter()
             .enumerate()
             .filter(|(_, row)| !self.is_hidden(row, &mut hidden_below))
-            .filter(|(_, row)| !self.is_committed(row))
+            .filter(|(_, row)| !self.is_dropped(row))
             .map(|(index, row)| self.entry(index, row))
             .collect()
     }
@@ -100,12 +101,14 @@ impl Tree {
         false
     }
 
-    fn is_committed(
+    fn is_dropped(
         &self,
         row: &Row,
     ) -> bool {
         let hold = self.removals.tray().get(&row.id);
-        hold.is_some_and(|hold| hold.deadline == Deadline::Committed)
+        hold.is_some_and(|hold| {
+            hold.deadline == Deadline::Committed || hold.kind.needs_confirmation()
+        })
     }
 
     fn expansion_of(
@@ -265,6 +268,11 @@ mod tests {
             state.removals.confirmation().map(Confirmation::title),
             Some("Delete repository “demo”?".into()),
             "asks"
+        );
+        assert_eq!(
+            indices(&state, &rows),
+            Vec::<usize>::new(),
+            "an asking repository hides whole, as develop's does"
         );
         state.removals.cancel();
         assert!(

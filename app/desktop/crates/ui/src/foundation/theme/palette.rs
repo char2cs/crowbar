@@ -81,6 +81,21 @@ palette! {
     git_modified_staged => "--git-modified-staged",
     git_untracked => "--git-untracked",
     git_renamed => "--git-renamed",
+    syntax_comment => "--syntax-comment",
+    syntax_punctuation => "--syntax-punctuation",
+    syntax_operator => "--syntax-operator",
+    syntax_keyword => "--syntax-keyword",
+    syntax_string => "--syntax-string",
+    syntax_number => "--syntax-number",
+    syntax_constant => "--syntax-constant",
+    syntax_function => "--syntax-function",
+    syntax_type => "--syntax-type",
+    syntax_property => "--syntax-property",
+    syntax_tag => "--syntax-tag",
+    syntax_attribute => "--syntax-attribute",
+    syntax_boolean => "--syntax-boolean",
+    syntax_regex => "--syntax-regex",
+    syntax_variable => "--syntax-variable",
 }
 
 impl Palette {

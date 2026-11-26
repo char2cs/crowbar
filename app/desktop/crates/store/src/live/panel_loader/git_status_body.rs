@@ -1,12 +1,14 @@
 //! The daemon's `GET chats/:id/git/status` answer.
 
 mod file_body;
+pub(super) mod git_diff_body;
+pub(super) mod line_counts;
 
 use serde::Deserialize;
 use sidebar::{ChangedFile, Changes};
 
 use crate::live::panel_loader::git_status_body::file_body::FileBody;
-use crate::live::panel_loader::line_counts::LineCounts;
+use crate::live::panel_loader::git_status_body::line_counts::LineCounts;
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]

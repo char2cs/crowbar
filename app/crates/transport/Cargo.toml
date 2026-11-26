@@ -15,6 +15,7 @@ os-keychain = ["dep:keyring", "dep:security-framework"]
 
 [dependencies]
 protocol.workspace = true
+journal.workspace = true
 atomicfile.workspace = true
 base64 = "0.22"
 bytes = "1"

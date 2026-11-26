@@ -1,6 +1,8 @@
 //! The dialog a file row's menu can open.
 
-use crate::explorer::file_properties::FileProperties;
+pub(super) mod file_properties;
+
+use crate::explorer::file_dialog::file_properties::FileProperties;
 use crate::shell::PathText;
 
 /// A dialog opened from a file row's menu.

@@ -3,14 +3,14 @@ use std::time::Instant;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, Context, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
-    ParentElement, Render, StatefulInteractiveElement, Styled, Window, canvas, deferred, div, px,
+    AnyElement, App, Context, InteractiveElement, IntoElement, MouseButton, ParentElement, Render,
+    StatefulInteractiveElement, Styled, Window, canvas, div, px,
 };
 use layout::{Command, DragSubject, TabId};
-use ui::{Motion, Surface, Theme, layer};
+use ui::{DraggedRow, Motion, Surface, Theme};
 
 use crate::event::Event;
-use crate::gesture::{StripDrag, TabDrop};
+use crate::gesture::{DragSession, TabDrop};
 use crate::pill::ShellLook;
 use crate::pill::{CloseAction, TabShell};
 use crate::strip_metrics::{
@@ -55,11 +55,12 @@ impl Render for TabBar {
             .child(self.row(now, motion, cx))
             .children(self.ghost())
             .children(self.drop_line(now, motion, cx))
-            .children(self.menu_layers(cx))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::released))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::released))
             .on_drag_move::<DragSubject>(cx.listener(Self::drag_over))
             .on_drop::<DragSubject>(cx.listener(Self::dropped))
+            .on_drag_move::<DraggedRow>(cx.listener(Self::row_over))
+            .on_drop::<DraggedRow>(cx.listener(Self::row_dropped))
     }
 }
 
@@ -102,6 +103,10 @@ impl TabBar {
                 .incoming
                 .as_ref()
                 .is_some_and(|incoming| incoming.is_moving(now, motion))
+            || self
+                .gap
+                .as_ref()
+                .is_some_and(|gap| gap.is_sliding(now, motion))
     }
 
     fn scroller(
@@ -144,6 +149,9 @@ impl TabBar {
         if let Some(drag) = &self.drag {
             return drag.slide(index, now, motion);
         }
+        if let Some(gap) = &self.gap {
+            return gap.slide(index, now, motion);
+        }
         self.settle
             .as_ref()
             .filter(|settle| settle.tab == tab)
@@ -160,10 +168,11 @@ impl TabBar {
             return div().into_any_element();
         };
         let look = self.look_of(index);
-        let hidden = self
+        let source = self
             .drag
             .as_ref()
-            .is_some_and(|drag| drag.engine.tab() == Some(tab.id));
+            .filter(|drag| drag.engine.tab() == Some(tab.id))
+            .map(DragSession::source_opacity);
         div()
             .id(("slot", index))
             .relative()
@@ -171,16 +180,10 @@ impl TabBar {
             .flex_none()
             .w(px(width))
             .px(px(SHELL_MARGIN))
-            .when(hidden, Styled::invisible)
+            .when_some(source, Styled::opacity)
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, event, _, cx| this.pressed(index, event, cx)),
-            )
-            .on_mouse_down(
-                MouseButton::Right,
-                cx.listener(move |this, event: &MouseDownEvent, window, cx| {
-                    this.open_menu((index, event.position), window, cx);
-                }),
             )
             .child(TabShell {
                 id: ("tab", index).into(),
@@ -243,43 +246,6 @@ impl TabBar {
         ui::Tooltip::new("sidebar-toggle-tip", "Show Sidebar", button)
     }
 
-    fn ghost(&self) -> Option<AnyElement> {
-        let drag = self.drag.as_ref()?;
-        let tab = self
-            .tabs
-            .iter()
-            .find(|tab| Some(tab.id) == drag.engine.tab())?;
-        let x = drag.engine.ghost_x(self.content_x(drag.pointer));
-        let left = x
-            + f32::from(self.scroll.offset().x)
-            + f32::from(self.strip_left() - self.row.origin.x);
-        let row_top = (ROW_HEIGHT - TAB_HEIGHT) / 2.0;
-        let top = StripDrag::ghost_y(
-            f32::from(drag.pointer.y - self.row.origin.y),
-            row_top,
-            drag.grab_y + row_top,
-        );
-        let width = self.slot_spans().first().map_or(0.0, |span| span.width) - 2.0 * SHELL_MARGIN;
-        let shell = TabShell {
-            id: "tab-ghost".into(),
-            members: tab.members.clone(),
-            look: ShellLook::Lifted,
-            width,
-            on_close: None,
-        };
-        Some(
-            deferred(
-                div()
-                    .absolute()
-                    .left(px(left + SHELL_MARGIN))
-                    .top(px(top))
-                    .child(shell),
-            )
-            .with_priority(layer::OVERLAY)
-            .into_any_element(),
-        )
-    }
-
     fn drop_line(
         &self,
         now: Instant,
@@ -334,6 +300,23 @@ mod tests {
     use crate::test_support::{open, view};
 
     #[gpui::test]
+    fn right_clicking_a_view_tab_opens_no_menu(cx: &mut TestAppContext) {
+        let harness = open(cx, vec![view(1, &["a"]), view(2, &["b"])], 1);
+        let cx = harness.cx;
+        cx.simulate_mouse_down(
+            gpui::point(gpui::px(100.0), gpui::px(21.0)),
+            gpui::MouseButton::Right,
+            gpui::Modifiers::none(),
+        );
+        cx.run_until_parked();
+        assert_eq!(
+            cx.debug_bounds("ui-menu"),
+            None,
+            "develop offers no tab menu"
+        );
+    }
+
+    #[gpui::test]
     fn the_active_tab_is_raised_and_a_merge_target_is_marked(cx: &mut TestAppContext) {
         let harness = open(cx, vec![view(1, &["a"]), view(2, &["b"])], 2);
         let (bar, cx) = (harness.bar, harness.cx);
@@ -350,5 +333,35 @@ mod tests {
         bar.read_with(cx, |bar, _| {
             assert_eq!(bar.look_of(0), ShellLook::MergeTarget, "merge target");
         });
+    }
+
+    #[gpui::test]
+    fn a_chat_of_a_view_held_over_the_strip_slides_the_tabs_after_its_gap_by_the_joined_width(
+        cx: &mut TestAppContext
+    ) {
+        let harness = open(cx, vec![view(1, &["a"]), view(2, &["b", "c"])], 1);
+        let (bar, cx) = (harness.bar, harness.cx);
+        cx.simulate_resize(gpui::size(gpui::px(616.0), gpui::px(400.0)));
+        cx.update(|_, cx| cx.set_global(ui::Motion::reduced()));
+        cx.run_until_parked();
+        let subject = layout::DragSubject::Pane(protocol::PaneId::new("c").expect("id"));
+        let over_tab_two = gpui::point(gpui::px(8.0 + 250.0), gpui::px(21.0));
+        bar.update(cx, |bar, cx| {
+            bar.hover_at((over_tab_two, Some(&subject)), cx);
+        });
+        let shifts = bar.read_with(cx, |bar, cx| {
+            let at = (bar.clock.now(), ui::Motion::of(cx));
+            [bar.shift(0, TabId(1), at), bar.shift(1, TabId(2), at)]
+        });
+        assert_eq!(shifts, [0.0, 200.0], "tab two makes room for a third");
+        let off_the_strip = gpui::point(gpui::px(300.0), gpui::px(200.0));
+        bar.update(cx, |bar, cx| {
+            bar.hover_at((off_the_strip, Some(&subject)), cx);
+        });
+        let shifts = bar.read_with(cx, |bar, cx| {
+            let at = (bar.clock.now(), ui::Motion::of(cx));
+            [bar.shift(0, TabId(1), at), bar.shift(1, TabId(2), at)]
+        });
+        assert_eq!(shifts, [0.0, 0.0], "the gap closes off the strip");
     }
 }

@@ -2,6 +2,9 @@
 
 Status: DONE. A0 and A1 landed; A2 landed as one commit with A3 folded in (see Outcome).
 
+Superseded on 2026-11-25 by `docs/plans/2026-11-25-drop-vendored-gpui.md`: the vendored,
+patched crates are gone and the shell builds on stock gpui-pre 0.3.14 and gpui-kit 0.11.
+
 ## Goal
 Move the shell from the vendored, patched gpui 0.2.2 to gpui-pre 0.3.12 (crates.io,
 publisher huacnlee), a snapshot of zed@d2a4fb6ded7c470be25d1541281da3882495b65b (the

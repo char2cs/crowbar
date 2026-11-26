@@ -1,6 +1,6 @@
 # Rust style manifest
 
-Applies to every Rust crate under `app/` (`app/crates`, `app/desktop`, `app/mobile/ios-plugin`, `app/mobile/src-tauri`). Vendored code (`app/desktop/vendor`) is exempt. It is the Rust translation of the owner's Rabbyte manifest: the language-independent rules carry over, the Go-only rules are replaced by the Rust mechanism that does the same job. Swift: `docs/swift-style.md`. Review: `docs/plans/2026-11-14-code-review-checklist.md`.
+Applies to every Rust crate under `app/` (`app/crates`, `app/desktop`, `app/mobile/ios-plugin`, `app/mobile/src-tauri`). It is the Rust translation of the owner's Rabbyte manifest: the language-independent rules carry over, the Go-only rules are replaced by the Rust mechanism that does the same job. Swift: `docs/swift-style.md`. Review: `docs/plans/2026-11-14-code-review-checklist.md`.
 
 Enforcement tags: **fmt** = `cargo fmt --check` (`app/rustfmt.toml`); **lint** = `cargo clippy --workspace --all-targets -- -D warnings` with the lint table below; **script** = `tools/scripts/check-rust-rules.sh`; **deny** = `cargo deny check` (`app/deny.toml`); **review** = reviewer agent with the checklist.
 
@@ -57,7 +57,7 @@ Numbers match the owner manifest (M#) so a finding can cite either.
 | # | Rule | Enforcement |
 |---|------|-------------|
 | M29 | Intent-revealing names; no abbreviations, no `tmp`/`data`/`info` (`foo`, `baz`, `tmp` rejected). | lint `disallowed_names`; review |
-| M30 | A function does one thing and is under 40 lines. | lint `too_many_lines` (threshold 40), `cognitive_complexity`; script `fn-length` |
+| M30 | A function does one thing and is under 40 lines. A function that logs from more than one branch emits typed `journal` events; a single log call may stay inline. | lint `too_many_lines` (threshold 40), `cognitive_complexity`; script `fn-length` |
 | M31 | Single responsibility per type and module (M8 makes it visible). | review |
 | M32 | No magic numbers or strings: named `const` or a config field with a doc. Numbers other than 0, 1, 2, 10, 100 outside `const`/`static` and tests are rejected; magic strings are found by sampled review. | script `magic-number`; review |
 | M33 | No `bool` flag parameters: use an enum or two functions (C-CUSTOM-TYPE). At most 2 bools per struct. | script `bool-param`; lint `fn_params_excessive_bools` (max 0), `struct_excessive_bools` (max 2) |
@@ -91,10 +91,10 @@ The map of `docs/plans/2026-11-18-rust-tree.md` section 1. `tools/scripts/rust-l
 | Layer | Kind | Crates |
 |---|---|---|
 | L4 binary | composes everything below | `crowbar` |
-| L3 gpui views | gpui | `sidebarview`, `settingsview`, `terminalview`, `layoutview`, `viewtabs`, `ideshell`, `browserbar`, `startup`, `oobe`, `pairing`, `branchimport`, `folderpicker` |
+| L3 gpui views | gpui | `sidebarview`, `settingsview`, `terminalview`, `layoutview`, `viewtabs`, `ideshell`, `browserbar`, `startup`, `oobe`, `pairing`, `branchimport`, `folderpicker`, `folderimport` |
 | L2 services | logic | `panehost`, `store`, `ptysession` |
-| L1 domain | logic | `layout`, `transport`, `browseragent`, `keymap`, `windowstate`, `daemonapi`, `webview`, `sidebar`, `settings` |
-| L0 foundation | logic, except `ui` (gpui) | `protocol`, `atomicfile`, `browser`, `terminal`, `supervisor`, `diagnostics`, `platform`, `chord`, `ui` |
+| L1 domain | logic | `layout`, `supervisor`, `transport`, `browseragent`, `keymap`, `windowstate`, `daemonapi`, `webview`, `sidebar`, `settings` |
+| L0 foundation | logic, except `ui` (gpui) | `protocol`, `atomicfile`, `journal`, `browser`, `terminal`, `diagnostics`, `platform`, `chord`, `ui` |
 
 `unsafe` lives only in `app/desktop/crates/platform/src/linux/` and `src/macos/`, each block behind a safe API and listed in the **Unsafe** section of `app/desktop/crates/platform/README.md`; the iOS plugin's C ABI file `app/mobile/ios-plugin/src/ffi.rs` is the one exception (script `unsafe-home`).
 

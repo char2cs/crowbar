@@ -6,7 +6,8 @@ import { PaneTopRow } from '@/features/tabs/components/pane-top-row'
 
 interface ChatPaneHeaderProps {
   chatId: string
-  wsId: string
+  /** Null until the chat names its workspace: only the title shows then. */
+  wsId: string | null
   /** Set while the chat fills its group: the header then offers to open the editor beside it. */
   onOpenEditor?: () => void
 }

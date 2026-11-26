@@ -54,4 +54,6 @@ pub enum ShellCommand {
     ZoomChatOut,
     /// Put the window's chat zoom back to 100%.
     ZoomChatReset,
+    /// Save every pane that holds unsaved work.
+    SaveAll,
 }

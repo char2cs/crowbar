@@ -66,6 +66,9 @@ pub enum Error {
         /// The limit.
         limit: usize,
     },
+    /// The tab already belongs to a space; only a tab stored before spaces is adopted.
+    #[error("tab {0:?} already belongs to a space")]
+    Owned(TabId),
     /// Stored layout data is not readable JSON of the expected shape.
     #[error("cannot read the stored layout: {0}")]
     Unreadable(String),

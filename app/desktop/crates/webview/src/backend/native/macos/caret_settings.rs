@@ -2,8 +2,8 @@
 
 use std::time::Duration;
 
-use crate::backend::caret_blink::{CaretBlink, CaretReport};
-use crate::backend::desktop_settings::DesktopSettings;
+use crate::backend::desktop::caret_blink::{CaretBlink, CaretReport};
+use crate::backend::desktop::desktop_settings::DesktopSettings;
 use crate::backend::native::macos::appkit_platform::AppkitPlatform;
 use crate::error::Result;
 

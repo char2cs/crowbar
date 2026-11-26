@@ -56,6 +56,12 @@ impl RecordAction {
         self
     }
 
+    /// What is asked before the action runs, if anything.
+    #[must_use]
+    pub fn confirmation(&self) -> Option<&Confirm> {
+        self.confirm.as_ref()
+    }
+
     /// Asks `confirm` before the action runs.
     #[must_use]
     pub fn confirm(

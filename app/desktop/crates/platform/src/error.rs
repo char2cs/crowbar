@@ -54,4 +54,31 @@ pub enum Error {
         #[source]
         source: x11rb::errors::ReplyError,
     },
+    /// The connection that waits for focus changes broke.
+    #[cfg(target_os = "linux")]
+    #[error("cannot wait for the X keyboard focus to move: {0}")]
+    FocusWait(#[source] x11rb::errors::ConnectionError),
+    /// The X server would not make or name the window that proxies a window's drags.
+    #[cfg(target_os = "linux")]
+    #[error("cannot proxy the drags of an X window: {0}")]
+    Proxy(#[source] x11rb::errors::ReplyOrIdError),
+    /// A thread of the platform layer could not start.
+    #[error("cannot start a platform thread: {0}")]
+    Thread(#[source] std::io::Error),
+    /// The X server would not tell its keyboard mapping.
+    #[cfg(target_os = "linux")]
+    #[error("cannot read the X keyboard mapping: {0}")]
+    KeyMap(#[source] x11rb::errors::ReplyError),
+    /// The X server would not place, shape or describe a float window.
+    #[cfg(target_os = "linux")]
+    #[error("cannot place a float window: {0}")]
+    Float(#[from] x11rb::errors::ReplyError),
+    /// A float window or its owner is not an X window.
+    #[cfg(target_os = "linux")]
+    #[error("the window is not an X window")]
+    ForeignWindow,
+    /// The connection that places float windows broke.
+    #[cfg(target_os = "linux")]
+    #[error("lost the X server that places float windows: {0}")]
+    FloatConnection(#[from] x11rb::errors::ConnectionError),
 }

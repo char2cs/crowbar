@@ -8,6 +8,7 @@ export type PaneFrame =
   | { kind: 'pane.register'; typeId: string; sdkVersion: string }
   | ({ kind: 'pane.open'; typeId: string; params: PaneParams } & Partial<OpenTarget>)
   | { kind: 'pane.setTitle'; title: string }
+  | { kind: 'pane.setParams'; params: PaneParams }
   | { kind: 'pane.setState'; state: unknown }
   | { kind: 'pane.setDirty'; dirty: boolean }
   | { kind: 'pane.openRefused'; title?: string; message: string }
@@ -19,5 +20,8 @@ export type PaneFrame =
   | { kind: 'shell.reveal'; path: string }
   | { kind: 'settings.set'; version: number; key: string; value: unknown }
   | { kind: 'review.setViewed'; files: ViewedFile[]; viewed: boolean }
+  | { kind: 'document.edit'; text: string }
+  | { kind: 'document.showSource' }
+  | { kind: 'document.save' }
   | ({ kind: 'shell.toast' } & PaneToast)
   | { kind: 'shell.toastClose'; key: string }

@@ -4,19 +4,21 @@ mod branch_import;
 mod chat_reads;
 mod dialogs;
 mod folder_browse;
+mod legacy_drafts;
 mod local_link;
-mod pairing_session;
+mod pairing;
 mod ports;
-mod projects_load;
+mod projects;
 pub(crate) mod settings_core;
 mod system_check;
 
 pub use branch_import::{Availability, BranchImport, BranchListing, ImportBranch, ImportPlan};
 pub use folder_browse::{BrowseEntry, FolderBrowse, FolderChoice, FolderListing, ROOT_PATH};
+pub use legacy_drafts::LegacyDrafts;
 pub use local_link::LocalLink;
-pub use pairing_session::{PairingPending, PairingSession, PairingStage, PairingState};
+pub use pairing::pairing_session::{PairingPending, PairingSession, PairingStage, PairingState};
 pub use ports::Ports;
-pub use projects_load::ProjectsLoad;
+pub use projects::projects_load::ProjectsLoad;
 pub use settings_core::{LegacyImport, SettingsAdapter, SystemFonts};
 pub use system_check::{SystemCheck, Tool, ToolReport};
 
@@ -103,7 +105,7 @@ impl Store {
         state.icons = IconCache::in_dir(desk.notes.directory().join("space-icons"));
         state.viewed = ViewedFiles::in_dir(&desk.notes.directory());
         let hub = Hub::new(state, signal);
-        let fleet = Fleet::new(handle, &hub, transport);
+        let fleet = Fleet::new(handle, &hub, (transport, Arc::clone(&outcome)));
         followed
             .into_iter()
             .zip(dials)
@@ -165,7 +167,6 @@ impl Store {
                 | Command::UploadFile { .. }
                 | Command::UploadPaths { .. }
                 | Command::GenerateImage { .. }
-                | Command::AddFolderToWorkspace
                 | Command::CreateEnvTemplate { .. }
                 | Command::SetFileTreeFlag { .. }
         )
@@ -181,7 +182,22 @@ impl Store {
             .edit(|state| state.panels.follow(chat.map(str::to_owned)));
         self.fleet
             .steer(None, crate::live::StreamControl::FollowFiles);
-        panel_loader::followed_ask::ask(&self.hub, &self.commands.handle);
+        panel_loader::followed_ask::ask(&self.hub, (&self.commands.handle, &self.commands.outcome));
+    }
+
+    /// Watches the files of every chat an open tab shows, as develop holds the `files:` scope of
+    /// each open workspace, so a file open in a chat that is not focused hears its changes on
+    /// disk. Watching the chats already watched does nothing.
+    pub fn watch_chats(
+        &self,
+        chats: std::collections::BTreeSet<String>,
+    ) {
+        if self.hub.read(|state| state.watched_chats == chats) {
+            return;
+        }
+        self.hub.edit(|state| state.watched_chats = chats);
+        self.fleet
+            .steer(None, crate::live::StreamControl::FollowFiles);
     }
 }
 
@@ -377,7 +393,7 @@ mod tests {
         rig.hear_the_space().await;
         let commands = rig.data.commands();
         commands
-            .dispatch(Command::NewThread(ProjectId::from("p")))
+            .dispatch(Command::NewChat(ProjectId::from("p")))
             .unwrap();
         until_opened(&rig.opened, &rig.changed).await;
         assert!(matches!(
@@ -439,7 +455,8 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn the_focused_workspaces_files_scope_is_held_and_its_changes_relist_the_tree() {
+    async fn the_focused_and_open_chats_files_scopes_are_held_and_focused_changes_relist_the_tree()
+    {
         let mut rig = start();
         rig.hear_the_space().await;
         rig.daemon.ok("GET", ROOT, ONE_FILE);
@@ -464,6 +481,13 @@ mod tests {
         rig.data.focus_chat(None);
         let released = Some(r#"{"op":"unsub","scope":"files:hw"}"#.to_owned());
         assert_eq!(rig.next_request().await, released);
+        rig.data.watch_chats(["bo".to_owned()].into());
+        let watched = Some(r#"{"op":"sub","scope":"files:b"}"#.to_owned());
+        assert_eq!(
+            rig.next_request().await,
+            watched,
+            "an open chat's workspace is held unfocused"
+        );
     }
 
     #[tokio::test]

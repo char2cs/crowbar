@@ -21,6 +21,9 @@ pub enum Error {
         #[source]
         source: std::io::Error,
     },
+    /// The thread that saves the settings file could not start.
+    #[error("shell data: settings writer: {0}")]
+    Writer(#[source] std::io::Error),
     /// The settings database of the previous desktop app could not be read.
     #[error("shell data: legacy settings {path}: {source}")]
     Legacy {

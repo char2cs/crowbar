@@ -4,6 +4,7 @@ mod call;
 mod decode;
 mod envelope;
 mod multipart;
+pub(crate) mod proxy_failure;
 mod read;
 
 pub use call::Call;
@@ -86,6 +87,9 @@ impl Client {
             path: path.clone(),
             source,
         })?;
+        if let Some(refusal) = proxy_failure::refusal(&path, &response) {
+            return Err(refusal);
+        }
         match response.status() {
             status if status >= envelope::FIRST_ERROR_STATUS => Err(refused_with(path, status)),
             _ => Ok(response.body().to_vec()),
@@ -194,7 +198,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_unknown_route_is_a_refusal_and_a_bad_path_is_a_request_error() {
+    async fn refusals_bad_paths_and_the_transports_answers_are_told_apart() {
         let client = Client::new(FakeDaemon::shared(), HostId::new("local").unwrap());
         let refused = client.send(Call::get("/v0/none")).await.unwrap_err();
         assert!(
@@ -205,5 +209,14 @@ mod tests {
         assert!(matches!(bad, Error::Request { .. }), "{bad}");
         let none = client.bytes(Call::get("/v0/none")).await.unwrap_err();
         assert!(matches!(none, Error::Refused { status: 404, .. }), "{none}");
+        let daemon = FakeDaemon::shared();
+        daemon.proxied(("GET", "/img"), 502, protocol::HOST_UNREACHABLE);
+        let proxied = Client::new(daemon, HostId::new("h1").unwrap());
+        let unreachable = proxied.bytes(Call::get("/img")).await.unwrap_err();
+        assert_eq!(
+            unreachable.to_string(),
+            "the remote host is unreachable",
+            "a raw read the transport answered"
+        );
     }
 }

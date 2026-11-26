@@ -31,19 +31,28 @@ pub(crate) fn open(
     (recorder, sidebar, cx)
 }
 
-/// The sidebar, its window and the window's top layer, where its menus and dialogs float.
+/// The sidebar and its window, whose menus and dialogs float in windows of their own.
 pub(crate) struct Floating {
     pub(crate) recorder: Rc<Recorder>,
     pub(crate) sidebar: Entity<Sidebar>,
     pub(crate) window: VisualTestContext,
-    pub(crate) top: VisualTestContext,
+}
+
+impl Floating {
+    /// The float window the owner opened last; the owner's own window while it has none.
+    pub(crate) fn top(&mut self) -> VisualTestContext {
+        ui::testing::newest_window(&mut self.window)
+    }
 }
 
 pub(crate) fn open_floating(
     cx: &mut TestAppContext,
     data: DemoShell,
 ) -> Floating {
-    cx.update(|cx| ui::init(cx).expect("ui installs"));
+    cx.update(|cx| {
+        ui::init(cx).expect("ui installs");
+        ui::testing::open_float_windows(cx);
+    });
     let recorder = Rc::new(Recorder::new(data));
     let shared = Rc::clone(&recorder);
     let handle = cx.add_window(move |_, cx| {
@@ -59,32 +68,40 @@ pub(crate) fn open_floating(
     let owner: AnyWindowHandle = handle.into();
     let window = VisualTestContext::from_window(owner, cx);
     window.simulate_resize(size(px(1200.0), px(800.0)));
-    let top = cx
-        .update(|cx| ui::TopLayer::open(owner, cx))
-        .expect("the top layer opens");
     cx.run_until_parked();
     Floating {
         recorder,
         sidebar,
         window,
-        top: VisualTestContext::from_window(top, cx),
     }
 }
 
 /// Presses and releases each space-separated key, as a keyboard does; buttons click on release.
+/// A key that closes the window, as escape closes a float window, ends the presses.
 pub(crate) fn press(
     cx: &mut VisualTestContext,
     keys: &'static str,
 ) {
-    for key in keys.split(' ') {
-        cx.simulate_keystrokes(key);
-        let keystroke = gpui::Keystroke::parse(key).expect("a valid keystroke");
-        cx.simulate_event(gpui::KeyUpEvent { keystroke });
-        cx.run_until_parked();
-    }
+    let window = cx.update(|window, _| window.window_handle());
+    keys.split(' ')
+        .map_while(|key| press_one(cx, window, key))
+        .for_each(drop);
 }
 
-/// Lets a closed floating element leave the top layer: the test platform draws inside an effect
+fn press_one(
+    cx: &mut VisualTestContext,
+    window: AnyWindowHandle,
+    key: &'static str,
+) -> Option<()> {
+    cx.simulate_keystrokes(key);
+    cx.windows().contains(&window).then_some(())?;
+    let keystroke = gpui::Keystroke::parse(key).expect("a valid keystroke");
+    cx.simulate_event(gpui::KeyUpEvent { keystroke });
+    cx.run_until_parked();
+    Some(())
+}
+
+/// Lets a closed floating element go: the test platform draws inside an effect
 /// flush, so the state of a portal that stopped rendering is released on the next one.
 pub(crate) fn settle(cx: &mut VisualTestContext) {
     cx.update(|_, _| {});

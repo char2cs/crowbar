@@ -29,7 +29,7 @@ skipped, moved, removable = [], [], {}
 sources = []
 for root in dirs:
     for base, subdirs, files in os.walk(root):
-        subdirs[:] = [d for d in subdirs if d not in ("target", "vendor", ".git", "node_modules")]
+        subdirs[:] = [d for d in subdirs if d not in ("target", ".git", "node_modules")]
         sources += [os.path.join(base, f) for f in files if f.endswith(".rs") and not f.endswith("_tests.rs")]
 
 uses = {}

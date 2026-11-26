@@ -9,7 +9,7 @@ pub(crate) use drag_press::DragPress;
 use std::rc::Rc;
 
 use gpui::{App, Pixels, Point, Window};
-use sidebar::{Intent, ProjectId, RowId};
+use sidebar::{CopyNote, Intent, ProjectId, RowId};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum RowAction {
@@ -28,6 +28,7 @@ pub(crate) enum RowAction {
         at: Point<Pixels>,
     },
     Intent(Intent),
+    Copied(String, CopyNote),
     Press(DragPress),
     DragOver(DragPoint),
     Dropped(RowId, RowId),

@@ -1,22 +1,20 @@
 //! A single-line text field with selection, clipboard and input-method support.
 
-pub(crate) mod actions;
-mod binding;
+pub(crate) mod binding;
 mod commands;
 mod fields;
 mod input_method;
-mod layout;
 mod line_element;
-mod line_surface;
 mod mouse;
 mod render;
 mod select_all;
 
-pub(crate) use actions::{
+pub(crate) use binding::actions::{
     Backspace, Cancel, Copy, Cut, Delete, End, Home, Left, Paste, Right, SelectAll, SelectLeft,
     SelectRight, Submit, bindings, word_bindings,
 };
-pub(crate) use line_element::{CARET_WIDTH, PLACEHOLDER_OPACITY};
+pub(crate) use line_element::PLACEHOLDER_OPACITY;
+pub(crate) use line_element::caret_scroll::CARET_WIDTH;
 
 use gpui::AppContext as _;
 use gpui::{
@@ -39,6 +37,7 @@ pub struct TextInput {
     pub(crate) focus_handle: FocusHandle,
     pub(crate) layout: Option<ShapedLine>,
     pub(crate) bounds: Option<Bounds<Pixels>>,
+    pub(crate) scroll: Pixels,
     pub(crate) selecting: bool,
     pub(crate) surface: Surface,
     pub(crate) style: TextInputStyle,
@@ -66,9 +65,10 @@ impl TextInput {
         Self {
             buffer: Buffer::default(),
             placeholder: placeholder.into(),
-            focus_handle: cx.focus_handle(),
+            focus_handle: cx.focus_handle().tab_stop(true),
             layout: None,
             bounds: None,
+            scroll: Pixels::ZERO,
             selecting: false,
             surface: Surface::default(),
             style: TextInputStyle::default(),
@@ -223,5 +223,17 @@ mod tests {
         let seen = record_changes(&input, cx);
         cx.simulate_input("ab");
         assert_eq!(seen.borrow().last().map(String::as_str), Some("ab"));
+    }
+
+    #[gpui::test]
+    fn tab_reaches_the_field_as_it_reaches_an_input_in_the_browser(cx: &mut TestAppContext) {
+        let (input, cx) = field(cx);
+        cx.update(gpui::Window::blur);
+        cx.run_until_parked();
+        let focused = cx.update(|window, cx| {
+            window.focus_next(cx);
+            input.read(cx).focus_handle.is_focused(window)
+        });
+        assert!(focused);
     }
 }

@@ -9,6 +9,10 @@ import { showingLayout } from '@/features/panes/lib/view-state'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { markStart } from '@/lib/perf/instrumentation'
+import {
+  hydrateHostPlacements,
+  startHostPlacementCache,
+} from '@/features/hosts/lib/host-placements'
 import { retireOrphanedStorage } from '@/lib/persistence/retired-storage'
 import { hostsRegistered } from '@/features/hosts/lib/host-registration'
 import { hasPairedRemote, useHostConfigStore } from '@/features/hosts/stores/host-config-store'
@@ -20,7 +24,8 @@ export async function hydrateCriticalStores(): Promise<void> {
   void retireOrphanedStorage()
   const remoteHosts = prepareRemoteHosts()
   try {
-    await hydrateWindowPaneLayout()
+    await Promise.all([hydrateWindowPaneLayout(), hydrateHostPlacements()])
+    startHostPlacementCache()
   } catch (err) {
     // main.tsx renders even after a failed boot: render must not overtake the registration.
     if (remoteHosts) await remoteHosts

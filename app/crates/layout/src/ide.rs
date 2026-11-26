@@ -2,21 +2,7 @@
 //! chat and the editor tabs beside it, with develop's tab-bar commands (pin, bulk close, keyboard
 //! steps, move between groups).
 
-pub(crate) mod close_panes;
-pub(crate) mod close_scope;
-pub(crate) mod editor_view;
-pub(crate) mod group_commands;
-mod group_edit;
+pub(crate) mod command;
 pub(crate) mod pane_group;
-pub(crate) mod pin_commands;
-mod pins;
 pub(crate) mod presentation;
-pub(crate) mod preview_commands;
-pub(crate) mod sidebar_side;
-pub(crate) mod strip_step;
-mod tab_chat;
-mod tab_group_move;
-mod tab_leaves;
-mod tab_seat;
-pub(crate) mod view_commands;
-pub(crate) mod view_mode;
+mod tab;

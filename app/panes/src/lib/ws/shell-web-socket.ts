@@ -1,4 +1,4 @@
-import { shellConfig } from '@/sdk/shell-config'
+import { hostApi, shellConfig, type ShellConfig } from '@/sdk/shell-config'
 
 const CONNECTING = 0
 const OPEN = 1
@@ -14,13 +14,15 @@ function isRelay(value: unknown): value is Relay {
   return typeof url === 'string' && typeof token === 'string'
 }
 
-async function freshRelay(api: string, cached: Relay | null | undefined) {
+async function freshRelay(config: ShellConfig, hostId: string) {
+  const own = hostId === config.host
+  const cached = own ? config.ws : null
   try {
-    const response = await fetch(`${api}/__crowbar/relay`)
+    const response = await fetch(`${hostApi(config, hostId)}/__crowbar/relay`)
     if (!response.ok) return null
     const relay: unknown = await response.json()
     if (!isRelay(relay)) return null
-    ;(window as unknown as { __CROWBAR__: { ws?: Relay } }).__CROWBAR__.ws = relay
+    if (own) (window as unknown as { __CROWBAR__: { ws?: Relay } }).__CROWBAR__.ws = relay
     return relay
   } catch (error) {
     console.warn('crowbar: relay refresh failed, using the cached endpoint', error)
@@ -28,9 +30,8 @@ async function freshRelay(api: string, cached: Relay | null | undefined) {
   }
 }
 
-/** A WebSocket to `path` (`/v0/...`) on the pane's own host, through the shell's relay. The token
- *  travels in a subprotocol, never in the URL. The relay holds one token per pane and host, so
- *  other hosts are not reachable from here. Like `TauriWebSocket` it connects asynchronously: the
+/** A WebSocket to `path` (`/v0/...`) on `hostId`, through the shell's relay for that host. The
+ *  token travels in a subprotocol, never in the URL. Like `TauriWebSocket` it connects asynchronously: the
  *  shell is asked for a new token on every connect so a long-open pane can reconnect, then the
  *  native socket is dialled and its events are forwarded. A missing relay surfaces as `onerror`
  *  then `onclose`. */
@@ -45,13 +46,13 @@ export class ShellWebSocket {
 
   private socket: WebSocket | null = null
 
-  constructor(path: string) {
-    void this.connect(path)
+  constructor(path: string, hostId: string) {
+    void this.connect(path, hostId)
   }
 
-  private async connect(path: string): Promise<void> {
+  private async connect(path: string, hostId: string): Promise<void> {
     const config = shellConfig()
-    const relay = config && (await freshRelay(config.api, config.ws))
+    const relay = config && (await freshRelay(config, hostId))
     if (this.readyState === CLOSED) return
     if (!relay) {
       this.readyState = CLOSED

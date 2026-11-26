@@ -3,6 +3,7 @@ mod running;
 mod stale_daemon;
 mod stop;
 pub(crate) mod watchdog;
+mod wedge_kill_event;
 
 use late_ready::answered;
 pub(crate) use running::Running;
@@ -19,6 +20,7 @@ use crate::health::SocketDial;
 use crate::health::get;
 use crate::supervisor::daemon_event::DaemonEvent;
 use crate::supervisor::monitoring::stop::{send, stop_with};
+use crate::supervisor::monitoring::wedge_kill_event::WedgeKillEvent;
 use crate::supervisor::readiness::describe_exit;
 use crate::supervisor::supervision::Command;
 use crate::supervisor::supervision::Phase;
@@ -174,16 +176,19 @@ async fn kill_wedged(
             "=== watchdog goroutine dump",
             &String::from_utf8_lossy(&body),
         ),
-        Ok(Err(e)) => tracing::debug!("no goroutine dump: {e}"),
-        Err(elapsed) => tracing::debug!("no goroutine dump within {:?}: {elapsed}", t.dump_timeout),
+        Ok(Err(error)) => crate::journal_sink::emit(&WedgeKillEvent::NoDump { error: &error }),
+        Err(elapsed) => crate::journal_sink::emit(&WedgeKillEvent::NoDumpInTime {
+            timeout: t.dump_timeout,
+            elapsed,
+        }),
     }
     send(child, Signal::QUIT);
     if tokio::time::timeout(t.sigquit_grace, child.wait())
         .await
         .is_err()
-        && let Err(e) = child.kill().await
+        && let Err(error) = child.kill().await
     {
-        tracing::warn!("cannot kill the wedged daemon: {e}");
+        crate::journal_sink::emit(&WedgeKillEvent::Unkillable { error: &error });
     }
 }
 

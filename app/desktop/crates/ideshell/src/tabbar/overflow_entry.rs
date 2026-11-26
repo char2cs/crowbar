@@ -1,7 +1,7 @@
 use gpui::SharedString;
 
+use crate::tabbar::tab::tab_state::TabState;
 use crate::tabbar::tab_actions::TabAction;
-use crate::tabbar::tab_state::TabState;
 
 /// One row of the tab bar's overflow menu.
 pub struct OverflowEntry {

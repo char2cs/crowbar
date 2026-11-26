@@ -3,11 +3,9 @@
 mod act;
 mod clock;
 mod event;
-mod geometry;
 mod layout;
 mod open_chats;
 mod open_row;
-mod refusal;
 mod removal;
 mod row_action;
 pub(crate) mod scale;
@@ -65,6 +63,7 @@ pub struct Sidebar {
     pub(crate) handle_focus: FocusHandle,
     pub(crate) files_focus: FocusHandle,
     pub(crate) confirm_focus: FocusHandle,
+    pub(crate) settings_focus: FocusHandle,
     pub(crate) space: Option<SpaceDraft>,
     pub(crate) icon_editor: Entity<IconEditor>,
     pub(crate) question: Option<Question>,
@@ -74,6 +73,8 @@ pub struct Sidebar {
     pub(crate) drag: DragState,
     pub(crate) row_bounds: RowBounds,
     pub(crate) open_chats: OpenChats,
+    pub(crate) active_file: Option<String>,
+    pub(crate) copied: Option<(String, sidebar::CopyNote)>,
 }
 
 impl EventEmitter<Event> for Sidebar {}
@@ -108,6 +109,7 @@ impl Sidebar {
             handle_focus: cx.focus_handle(),
             files_focus: cx.focus_handle(),
             confirm_focus: cx.focus_handle(),
+            settings_focus: cx.focus_handle(),
             space: None,
             icon_editor: Self::space_icon_editor(cx),
             question: None,
@@ -117,6 +119,8 @@ impl Sidebar {
             drag: DragState::default(),
             row_bounds: RowBounds::default(),
             open_chats: OpenChats::default(),
+            active_file: None,
+            copied: None,
         }
     }
 
@@ -140,11 +144,13 @@ impl Sidebar {
     /// Asks again before discarding `row`, naming the work a refused removal would lose.
     pub fn ask_to_discard(
         &mut self,
-        row: &RowId,
-        at_risk: Vec<WorkAtRisk>,
+        refused: (&RowId, Vec<WorkAtRisk>),
+        window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
+        let (row, at_risk) = refused;
         self.tree.ask_to_discard(row, at_risk);
+        self.ask_confirmation(window, cx);
         cx.notify();
     }
 
@@ -245,7 +251,7 @@ mod tests {
         };
         sidebar.update_in(cx, |this, window, cx| {
             this.apply(Intent::RequestRemoval(RowId::from("chat")), window, cx);
-            this.ask_to_discard(&RowId::from("chat"), vec![risk], cx);
+            this.ask_to_discard((&RowId::from("chat"), vec![risk]), window, cx);
         });
         let title = sidebar.read_with(cx, |this, _| {
             this.tree.removals().confirmation().map(Confirmation::title)

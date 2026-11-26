@@ -4,6 +4,7 @@ use protocol::DaemonResponse;
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::client::proxy_failure;
 use crate::error::{Error, Result};
 
 /// The `{success, data, error, code}` envelope a daemon route answers with.
@@ -38,6 +39,9 @@ impl Envelope {
         path: &str,
         response: &DaemonResponse,
     ) -> Result<Value> {
+        if let Some(refusal) = proxy_failure::refusal(path, response) {
+            return Err(refusal);
+        }
         let status = response.status();
         if response.body().is_empty() && status < FIRST_ERROR_STATUS {
             return Ok(Value::Null);
@@ -64,7 +68,7 @@ fn unparsed_refusal(
     Error::Refused {
         path: path.to_owned(),
         status,
-        code: None,
+        code: Some(proxy_failure::UNEXPLAINED_CODE.to_owned()),
         message: format!("the daemon answered {status}"),
         data: Box::default(),
     }
@@ -132,7 +136,11 @@ mod tests {
             r#"{"success":false,"error":"lose work","code":"work_at_risk","data":{"workAtRisk":[]}}"#,
             r#"refused 409 work_at_risk lose work {"workAtRisk":[]}"#,
         ),
-        (502, "<html>", "refused 502  the daemon answered 502 null"),
+        (
+            502,
+            "<html>",
+            "refused 502 unexplained the daemon answered 502 null",
+        ),
         (200, "nope", "body"),
     ];
 
@@ -145,5 +153,28 @@ mod tests {
                 "{status} {body}"
             );
         }
+    }
+
+    #[test]
+    fn a_proxy_answer_reads_as_its_marked_failure_and_an_unworded_one_as_unexplained() {
+        let marked = |marker: &str| {
+            let headers = vec![(protocol::PROXY_HEADER.to_owned(), marker.to_owned())];
+            DaemonResponse::new(503, headers, b"cannot reach 10.0.0.1:4747".to_vec())
+        };
+        assert_eq!(
+            shown(Envelope::unwrap("/p", &marked(protocol::HOST_UNREACHABLE))),
+            "refused 503 host_unreachable the remote host is unreachable null"
+        );
+        assert_eq!(
+            shown(Envelope::unwrap(
+                "/p",
+                &marked(protocol::HOST_IDENTITY_CHANGED)
+            )),
+            "refused 503 host_identity_changed this host's identity changed \u{2014} its certificate no longer matches what was pinned null"
+        );
+        assert_eq!(
+            shown(Envelope::unwrap("/p", &answer(502, "crowbar proxy error"))),
+            "refused 502 unexplained the daemon answered 502 null"
+        );
     }
 }

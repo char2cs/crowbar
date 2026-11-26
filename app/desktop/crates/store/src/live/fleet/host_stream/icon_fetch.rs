@@ -1,10 +1,15 @@
-//! Bringing the daemon's space images to disk when a project says it has one.
+//! Bringing the daemon's space and repository images to disk when a record says it has one.
+
+mod icon_fetch_event;
 
 use daemonapi::Call;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::journal_sink::emit;
+use crate::live::Entities;
 use crate::live::fleet::host_stream::icon_ask::IconAsk;
+use crate::live::fleet::host_stream::icon_fetch::icon_fetch_event::IconFetchEvent;
 use crate::live::state::Hub;
 use crate::live::state::State;
 
@@ -21,7 +26,7 @@ fn begin_all(
     state: &mut State,
     host: &str,
 ) -> Vec<IconAsk> {
-    projects_with_images(state, host)
+    with_images(state, host)
         .into_iter()
         .filter_map(|(project, url)| {
             let path = state.icons.begin(&project, &url)?;
@@ -30,7 +35,7 @@ fn begin_all(
         .collect()
 }
 
-fn projects_with_images(
+fn with_images(
     state: &State,
     host: &str,
 ) -> Vec<(String, String)> {
@@ -38,9 +43,17 @@ fn projects_with_images(
         .hosts
         .iter()
         .filter(|slot| slot.spec.id == host)
-        .flat_map(|slot| slot.store.projects.values())
-        .filter(|project| !project.avatar_url.is_empty())
-        .map(|project| (project.id.clone(), project.avatar_url.clone()))
+        .flat_map(|slot| images_of(&slot.store))
+        .collect()
+}
+
+fn images_of(store: &Entities) -> Vec<(String, String)> {
+    let projects = store.projects.values().map(|p| (&p.id, &p.avatar_url));
+    let repos = store.repos.values().map(|r| (&r.id, &r.avatar_url));
+    projects
+        .chain(repos)
+        .filter(|(_, url)| !url.is_empty())
+        .map(|(id, url)| (id.clone(), url.clone()))
         .collect()
 }
 
@@ -81,15 +94,15 @@ async fn save(
     let bytes = client
         .bytes(Call::get(url))
         .await
-        .inspect_err(|error| tracing::warn!(%error, url, "a space image could not be fetched"))
+        .inspect_err(|error| emit(&IconFetchEvent::Unfetched { error, url }))
         .ok()?;
     if bytes.len() > MAX_ICON_BYTES {
-        tracing::warn!(url, "a space image is larger than allowed");
+        emit(&IconFetchEvent::TooLarge { url });
         return None;
     }
     tokio::task::spawn_blocking(move || write_atomically(&path, &bytes))
         .await
-        .inspect_err(|error| tracing::warn!(%error, "keeping a space image failed"))
+        .inspect_err(|error| emit(&IconFetchEvent::Unkept { error }))
         .ok()?
 }
 
@@ -155,6 +168,23 @@ mod tests {
         );
         state.apply("local", Frame::decode(&frame).unwrap());
         wanted(&hub_of(state), "local").len()
+    }
+
+    #[test]
+    fn a_repo_with_an_image_is_asked_for_as_a_space_is() {
+        let (mut state, _daemon) = state();
+        state.icons = IconCache::in_dir(PathBuf::from("/crowbar-test-missing/icons"));
+        let url = "/v0/projects/p/repos/r/icon?v=3";
+        let frame = format!(
+            r#"{{"t":"entity","scope":"projects","kind":"repo","id":"r","v":9,"data":{{"id":"r","projectId":"p","name":"crowbar","avatarUrl":"{url}"}}}}"#
+        );
+        state.apply("local", Frame::decode(&frame).unwrap());
+        let asks = wanted(&hub_of(state), "local");
+        let asked: Vec<(&str, &str)> = asks
+            .iter()
+            .map(|ask| (ask.project.as_str(), ask.url.as_str()))
+            .collect();
+        assert_eq!(asked, [("r", url)]);
     }
 
     #[test]

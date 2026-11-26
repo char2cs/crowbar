@@ -1,5 +1,7 @@
 //! The mark of a space.
 
+mod icon_choice;
+
 /// What a space shows as its icon.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum SpaceIcon {

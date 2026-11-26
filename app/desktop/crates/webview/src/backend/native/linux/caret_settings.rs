@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use gtk::prelude::*;
 
-use crate::backend::caret_blink::{CaretBlink, CaretReport};
-use crate::backend::desktop_settings::DesktopSettings;
+use crate::backend::desktop::caret_blink::{CaretBlink, CaretReport};
+use crate::backend::desktop::desktop_settings::DesktopSettings;
 use crate::backend::native::linux::gtk_platform::GtkPlatform;
 use crate::error::Result;
 

@@ -31,6 +31,20 @@ pub enum FileError {
     TemplateOfItself(String),
 }
 
+impl FileError {
+    /// The daemon's HTTP status and problem code when it refused the action; `(0, None)` when
+    /// it could not be asked or the failure was not the daemon's.
+    #[must_use]
+    pub fn refusal(&self) -> (u16, Option<&str>) {
+        match self {
+            Self::Daemon(Error::Daemon(daemonapi::Error::Refused { status, code, .. })) => {
+                (*status, code.as_deref())
+            },
+            _ => (0, None),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -49,6 +63,8 @@ mod tests {
             source: std::io::ErrorKind::NotFound.into(),
         };
         assert_eq!(refused.to_string(), "name taken");
+        assert_eq!(refused.refusal(), (409, None), "refused by the daemon");
+        assert_eq!(missing.refusal(), (0, None), "not the daemon's");
         assert!(missing.to_string().starts_with("/a/b: "));
         assert_eq!(
             FileError::NoFileName("/".into()).to_string(),

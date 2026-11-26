@@ -24,7 +24,10 @@ impl Render for RowGhost {
         _cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
         let build = Rc::clone(&self.build);
-        Portal::lifted("row-ghost", move |_, cx| build(cx)).priority(layer::TOOLTIP)
+        Portal::lifted("row-ghost", move |_, cx| {
+            ui::Shaped::seen(build(cx), ui::radius::LG)
+        })
+        .priority(layer::TOOLTIP)
     }
 }
 
@@ -81,15 +84,12 @@ mod tests {
 
     #[gpui::test]
     fn the_ghost_follows_the_pointer_above_the_panes(cx: &mut TestAppContext) {
-        cx.update(|cx| ui::init(cx).expect("ui installs"));
+        cx.update(|cx| {
+            ui::init(cx).expect("ui installs");
+            ui::testing::open_float_windows(cx);
+        });
         let owner: gpui::AnyWindowHandle = cx.add_window(|_, _| Source).into();
-        let top = cx
-            .update(|cx| ui::TopLayer::open(owner, cx))
-            .expect("the top layer opens");
-        let (mut owner, mut top) = (
-            gpui::VisualTestContext::from_window(owner, cx),
-            gpui::VisualTestContext::from_window(top, cx),
-        );
+        let mut owner = gpui::VisualTestContext::from_window(owner, cx);
         let modifiers = gpui::Modifiers::none();
         owner.simulate_mouse_down(
             gpui::point(px(5.0), px(5.0)),
@@ -107,6 +107,7 @@ mod tests {
             None,
             "nothing in the window"
         );
+        let mut top = ui::testing::newest_window(&mut owner);
         assert!(top.debug_bounds("row-ghost").is_some());
     }
 }

@@ -6,6 +6,7 @@ use crate::shell::AvatarTint;
 use crate::shell::Command;
 use crate::shell::Focus;
 use crate::shell::Host;
+use crate::shell::HostChoice;
 use crate::shell::HostId;
 use crate::shell::HostKind;
 use crate::shell::HostState;
@@ -24,27 +25,6 @@ use crate::shell::SpaceList;
 impl SpaceList for DemoShell {
     fn sync(&self) -> ScopeSync {
         self.sync
-    }
-
-    fn hosts(&self) -> Vec<Host> {
-        let local = Host {
-            id: HostId::from("local"),
-            name: "This computer".into(),
-            kind: HostKind::Local,
-            state: HostState::Up,
-            endpoint: None,
-        };
-        if self.hosts < 2 {
-            return vec![local];
-        }
-        let remote = Host {
-            id: HostId::from("devbox"),
-            name: "devbox".into(),
-            kind: HostKind::Remote,
-            state: HostState::Down,
-            endpoint: Some("devbox.internal:7421".into()),
-        };
-        vec![local, remote]
     }
 
     fn projects(&self) -> Vec<Project> {
@@ -66,9 +46,36 @@ impl SpaceList for DemoShell {
                 id: ProjectId::from(name),
                 name: name.to_owned(),
                 mark,
-                host: HostId::from("local"),
+                host: self.shown.clone(),
             })
             .collect()
+    }
+}
+
+impl HostChoice for DemoShell {
+    fn hosts(&self) -> Vec<Host> {
+        let local = Host {
+            id: HostId::from("local"),
+            name: "This computer".into(),
+            kind: HostKind::Local,
+            state: HostState::Up,
+            endpoint: None,
+        };
+        if self.hosts < 2 {
+            return vec![local];
+        }
+        let remote = Host {
+            id: HostId::from("devbox"),
+            name: "devbox".into(),
+            kind: HostKind::Remote,
+            state: HostState::Down,
+            endpoint: Some("devbox.internal:7421".into()),
+        };
+        vec![local, remote]
+    }
+
+    fn shown_host(&self) -> Option<HostId> {
+        Some(self.shown.clone())
     }
 }
 

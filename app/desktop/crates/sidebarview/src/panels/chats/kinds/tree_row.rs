@@ -1,15 +1,17 @@
 //! A normal row of the chats tree.
 
+mod drag_payload;
+mod editable_mark;
+
 use std::rc::Rc;
-use std::sync::Arc;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, ClickEvent, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    RenderOnce, SharedString, Stateful, StatefulInteractiveElement, Styled, Window, div, px,
+    App, ClickEvent, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce,
+    SharedString, Stateful, StatefulInteractiveElement, Styled, WeakEntity, Window, div, px,
 };
-use sidebar::{Expansion, Presence, Row, RowId, RowKind};
-use ui::{DraggedRow, FlickerSpinner, Icon, Palette, Pose, Surface};
+use sidebar::{Expansion, Presence, Row, RowId};
+use ui::{FlickerSpinner, Icon, Palette, Pose, Surface};
 
 use crate::column::mark_view;
 use crate::panels::chats::parts::ClusterSpec;
@@ -25,7 +27,7 @@ use crate::panels::chats::parts::{ringed, row_focus};
 use crate::panels::chats::reorder::GhostBuild;
 use crate::panels::chats::reorder::draggable;
 use crate::panels::chats::reorder::{RowDrag, tracked};
-use crate::sidebar::{RowAction, RowHandler};
+use crate::sidebar::{RowAction, RowHandler, Sidebar};
 
 const GLYPH: f32 = 16.0;
 const HEADER_GLYPH: f32 = 20.0;
@@ -40,6 +42,7 @@ pub(crate) struct TreeRow {
     pub(crate) drag: RowDrag,
     pub(crate) bounds: RowBounds,
     pub(crate) width: f32,
+    pub(crate) icon_editing: Option<WeakEntity<Sidebar>>,
 }
 
 impl TreeRow {
@@ -75,11 +78,12 @@ impl RenderOnce for TreeRow {
         let live = self.input.is_none() && self.drag.ghost.is_none();
         let buttons = self.shows_buttons(*hover.read(cx)).then(|| cluster(&spec));
         let shell = row_shell(id, self.row.depth, palette);
-        let shell = ringed(hovered_by(shell, &hover), &focus, palette)
+        let rung = Pose::from(ui::Modality::rings(&focus, window, cx));
+        let shell = ringed(hovered_by(shell, &hover), &focus, palette, rung)
             .group(group)
             .hover(move |style| style.bg(idle))
             .when(self.row.presence == Presence::Open, move |d| d.bg(idle))
-            .child(glyph_box(&self.row, self.expansion, palette))
+            .child(self.glyph(palette))
             .child(label(
                 &self.row,
                 self.input.as_ref(),
@@ -88,7 +92,7 @@ impl RenderOnce for TreeRow {
             .children(buttons);
         let shell = self.drag.style(shell, palette);
         let shell = tracked(shell, &self.row.id, &self.bounds);
-        let payload = payload_of(&self.row);
+        let payload = drag_payload::of(&self.row);
         let ghost = ghost_of(self.row.clone(), self.expansion, self.width);
         let handler = Rc::clone(&self.handler);
         let shell = shell.when(live, move |d| draggable(d, payload, ghost, &handler));
@@ -98,16 +102,18 @@ impl RenderOnce for TreeRow {
     }
 }
 
-fn buttons_shown(input: Option<Trailing>) -> bool {
-    input.is_none_or(|trailing| trailing == Trailing::Kept)
+impl TreeRow {
+    fn glyph(
+        &self,
+        palette: &Palette,
+    ) -> gpui::AnyElement {
+        let editing = self.icon_editing.clone();
+        glyph_box((&self.row, self.expansion), editing, palette)
+    }
 }
 
-fn payload_of(row: &Row) -> DraggedRow {
-    let id: Arc<str> = Arc::from(row.id.as_str());
-    DraggedRow {
-        chat: (row.kind == RowKind::Chat).then(|| Arc::clone(&id)),
-        row: id,
-    }
+fn buttons_shown(input: Option<Trailing>) -> bool {
+    input.is_none_or(|trailing| trailing == Trailing::Kept)
 }
 
 fn ghost_of(
@@ -131,6 +137,7 @@ fn ghost_row(
         drag: RowDrag::lifted(width),
         bounds: RowBounds::default(),
         width,
+        icon_editing: None,
     }
 }
 
@@ -150,8 +157,8 @@ fn with_menu(
     handler: &RowHandler,
 ) -> Stateful<gpui::Div> {
     let (row, handler) = (row.clone(), Rc::clone(handler));
-    shell.on_mouse_down(MouseButton::Right, move |event, window, cx| {
-        handler(menu_action(&row, event.position), window, cx);
+    ui::on_context_click(shell, move |at, window, cx| {
+        handler(menu_action(&row, at), window, cx);
     })
 }
 
@@ -170,8 +177,8 @@ fn open_on_click(
 }
 
 fn glyph_box(
-    row: &Row,
-    expansion: Expansion,
+    (row, expansion): (&Row, Expansion),
+    icon_editing: Option<WeakEntity<Sidebar>>,
     palette: &Palette,
 ) -> gpui::AnyElement {
     let frame = div().flex().flex_none().items_center().justify_center();
@@ -185,17 +192,33 @@ fn glyph_box(
             .into_any_element(),
         RowGlyph::Mark => frame
             .size(px(HEADER_GLYPH))
-            .children(
-                row.mark
-                    .as_ref()
-                    .map(|mark| mark_view(mark, px(HEADER_GLYPH), palette)),
-            )
+            .children(header_mark(row, icon_editing, palette))
             .into_any_element(),
-        RowGlyph::Icon(name, weight) => frame
-            .size(px(GLYPH))
-            .child(Icon::new(name).weight(weight).size(px(GLYPH)))
-            .into_any_element(),
+        RowGlyph::Icon(name, weight, tone) => {
+            let icon = Icon::new(name).weight(weight).size(px(GLYPH));
+            let icon = match tone.color() {
+                Some(color) => icon.color(color),
+                None => icon,
+            };
+            frame.size(px(GLYPH)).child(icon).into_any_element()
+        },
     }
+}
+
+fn header_mark(
+    row: &Row,
+    icon_editing: Option<WeakEntity<Sidebar>>,
+    palette: &Palette,
+) -> Option<gpui::AnyElement> {
+    let mark = mark_view(row.mark.as_ref()?, px(HEADER_GLYPH), palette);
+    let Some(sidebar) = icon_editing else {
+        return Some(mark);
+    };
+    Some(editable_mark::editable_mark(
+        row,
+        (mark, px(HEADER_GLYPH)),
+        sidebar,
+    ))
 }
 
 #[cfg(test)]
@@ -203,6 +226,7 @@ mod tests {
     use gpui::{Modifiers, MouseButton, TestAppContext, point, px};
 
     use super::*;
+
     use crate::test_support::{chat, measure, mount, recording_handler};
 
     const BUTTONS: [(Option<Trailing>, bool); 3] = [
@@ -216,18 +240,6 @@ mod tests {
         for (input, shown) in BUTTONS {
             assert_eq!(buttons_shown(input), shown, "{input:?}");
         }
-    }
-
-    #[test]
-    fn only_a_chat_row_carries_a_chat_to_open() {
-        let chat_row = payload_of(&chat("Refactor"));
-        assert_eq!(
-            chat_row.chat.as_deref(),
-            Some(chat_row.row.as_ref()),
-            "chat"
-        );
-        let folder = Row::new("f", RowKind::Folder, 1, "src");
-        assert_eq!(payload_of(&folder).chat, None, "folder");
     }
 
     #[gpui::test]
@@ -248,6 +260,7 @@ mod tests {
             bounds: RowBounds::default(),
             width: 294.0,
             handler: Rc::clone(&handler),
+            icon_editing: None,
         });
         let none = Modifiers::none();
         let start = point(px(40.0), px(18.0));
@@ -269,6 +282,7 @@ mod tests {
             bounds: RowBounds::default(),
             width: 294.0,
             handler: Rc::clone(&handler),
+            icon_editing: None,
         });
         assert_eq!(f32::from(bounds.size.height), 38.0);
     }

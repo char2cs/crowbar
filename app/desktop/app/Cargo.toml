@@ -17,6 +17,8 @@ anyhow = "1"
 atomicfile.workspace = true
 chord.workspace = true
 daemonapi.workspace = true
+editor.workspace = true
+editorview.workspace = true
 async-channel.workspace = true
 browseragent.workspace = true
 browserbar.workspace = true
@@ -24,6 +26,7 @@ browser.workspace = true
 branchimport.workspace = true
 oobe.workspace = true
 pairing.workspace = true
+folderimport.workspace = true
 folderpicker.workspace = true
 supervisor.workspace = true
 gpui.workspace = true
@@ -31,6 +34,7 @@ gpui_platform.workspace = true
 image = { workspace = true, features = ["png"] }
 base64 = "0.22"
 ideshell.workspace = true
+journal.workspace = true
 layoutview.workspace = true
 layout.workspace = true
 panehost.workspace = true
@@ -51,6 +55,7 @@ terminal.workspace = true
 ptysession.workspace = true
 terminalview.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
+raw-window-handle.workspace = true
 tracing.workspace = true
 transport = { workspace = true, features = ["os-keychain"] }
 ui.workspace = true
@@ -59,7 +64,9 @@ windowstate.workspace = true
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
+store = { workspace = true, features = ["fake"] }
 transport = { workspace = true, features = ["loopback"] }
+ui = { workspace = true, features = ["test-support"] }
 webview = { workspace = true, features = ["mock"] }
 
 [lints]

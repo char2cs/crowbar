@@ -1,7 +1,7 @@
 use browser::PageUpdate;
 use protocol::{
     CommandId, DisplayText, ExternalUrl, FsPath, PaneId, PaneOpen, PaneState, PaneTitle, PaneToast,
-    SettingKey, ViewedFile,
+    Params, SettingKey, ViewedFile,
 };
 use serde_json::Value;
 
@@ -15,6 +15,13 @@ pub enum HostEvent {
         pane: PaneId,
         /// The new title.
         title: PaneTitle,
+    },
+    /// A pane re-keyed itself on new parameters.
+    ParamsChanged {
+        /// The pane.
+        pane: PaneId,
+        /// Its parameters from now on.
+        params: Params,
     },
     /// A pane replaced its persisted state.
     StateChanged {
@@ -73,6 +80,23 @@ pub enum HostEvent {
         /// Mark them viewed, or clear their marks.
         viewed: bool,
     },
+    /// A file pane's page now holds `text` for the document the shell owns.
+    DocumentEdited {
+        /// The pane.
+        pane: PaneId,
+        /// The whole text.
+        text: String,
+    },
+    /// A file pane's page asked to show its document in the source editor.
+    SourceRequested {
+        /// The pane.
+        pane: PaneId,
+    },
+    /// A file pane's page asked to save its document.
+    DocumentSaveRequested {
+        /// The pane.
+        pane: PaneId,
+    },
     /// A pane asked the shell to store a setting; the shell writes it and pushes the set back.
     SettingRequested {
         /// The pane.
@@ -102,13 +126,6 @@ pub enum HostEvent {
     PageFocused {
         /// The pane.
         pane: PaneId,
-    },
-    /// Files from the operating system were dropped on a pane's page.
-    FilesDropped {
-        /// The pane.
-        pane: PaneId,
-        /// The dropped files that are absolute paths.
-        paths: Vec<FsPath>,
     },
     /// A pane asked the shell to show a toast, or to rewrite the one it showed under the same key.
     ToastShown {

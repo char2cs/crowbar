@@ -1,8 +1,8 @@
 use std::io;
 use std::path::Path;
 
-use crate::byte_source::ByteSource;
-use crate::layout_files::LayoutFiles;
+use crate::shell::ports::byte_source::ByteSource;
+use crate::shell::shell_state::persistence::layout_files::LayoutFiles;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct DiskFiles(());

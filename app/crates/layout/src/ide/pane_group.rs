@@ -1,7 +1,12 @@
+pub(crate) mod close_scope;
+mod group_edit;
+mod pins;
+pub(crate) mod strip_step;
+
 use protocol::PaneId;
 use serde::{Deserialize, Serialize};
 
-use crate::pane_instance::PaneInstance;
+use crate::layout::tab::pane_instance::PaneInstance;
 
 /// One place of a tab's split tree, as develop's `PaneGroup`: at most one chat, and the editor
 /// tabs shown beside it or over it.

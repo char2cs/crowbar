@@ -20,8 +20,9 @@ const HOP_BY_HOP: [&str; 7] = [
     "upgrade",
 ];
 
-const PANE_CONTROLLED: [&str; 4] = [
+const PANE_CONTROLLED: [&str; 5] = [
     "host",
+    "origin",
     "content-length",
     "authorization",
     "proxy-authorization",
@@ -224,6 +225,7 @@ mod tests {
             .uri("crowbar://localhost/v0/x")
             .header("x-pane", "p1")
             .header("host", "evil.example")
+            .header("origin", "crowbar://pane-page")
             .header("authorization", "Bearer pane-guess")
             .header("connection", "upgrade")
             .header("upgrade", "websocket")
@@ -239,7 +241,15 @@ mod tests {
     }
 
     fn assert_nothing_leaked(head: &str) {
-        for banned in ["evil.example", "pane-guess", "upgrade", "chunked", "999"] {
+        let banned = [
+            "evil.example",
+            "pane-page",
+            "pane-guess",
+            "upgrade",
+            "chunked",
+            "999",
+        ];
+        for banned in banned {
             assert!(
                 !head.contains(banned),
                 "{banned} reached the daemon: {head}"

@@ -30,7 +30,7 @@ impl Sidebar {
         let line = anchored()
             .position_mode(AnchoredPositionMode::Local)
             .position(point(px(at.left), px(at.top)))
-            .child(drop_line(at, color));
+            .child(ui::Shaped::seen(drop_line(at, color), px(0.0)));
         Some(
             deferred(line)
                 .with_priority(layer::DROP_LINE)

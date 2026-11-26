@@ -5,6 +5,7 @@ mod guard;
 mod process_cpu;
 mod watch_context;
 mod watch_state;
+mod watchdog_event;
 mod wedge;
 
 pub(crate) use guard::Guard;
@@ -17,6 +18,7 @@ use crate::supervisor::daemon_event::DaemonEvent;
 use crate::supervisor::monitoring::watchdog::exoneration::Exoneration;
 use crate::supervisor::monitoring::watchdog::process_cpu::{cpu_time, is_suspended};
 use crate::supervisor::monitoring::watchdog::watch_state::WatchState;
+use crate::supervisor::monitoring::watchdog::watchdog_event::WatchdogEvent;
 use crate::supervisor::monitoring::watchdog::wedge::{
     cycle_was_suspended, made_progress, should_kill_wedged,
 };
@@ -60,29 +62,31 @@ async fn confirmed_wedge(
         Some(pid) => is_suspended(pid).await,
         None => false,
     };
-    let exonerated =
+    let answering =
         !suspended && probe_within(ctx, ctx.timings.grace_probe_timeout).await != Probe::Unserved;
     let (silent_at, before) = state
         .silent_since
         .take()
         .unwrap_or(((ctx.clock.instant)(), None));
-    let working = made_progress(before, daemon_cpu(ctx).await, silent_at.elapsed());
+    let busy = made_progress(before, daemon_cpu(ctx).await, silent_at.elapsed());
     let mut exonerations = Vec::new();
     if suspended {
         exonerations.push(Exoneration::Suspended);
     }
-    if exonerated {
+    if answering {
         exonerations.push(Exoneration::Answering);
     }
-    if working {
+    if busy {
         exonerations.push(Exoneration::Busy);
     }
     if should_kill_wedged(&exonerations) {
         return true;
     }
-    tracing::warn!(
-        "daemon failed its probes but is not wedged (suspended: {suspended}, answering: {exonerated}, busy: {working})"
-    );
+    crate::journal_sink::emit(&WatchdogEvent::NotWedged {
+        suspended,
+        answering,
+        busy,
+    });
     state.tracker.reset();
     false
 }
@@ -95,7 +99,7 @@ fn report_healthy(
         return;
     }
     if ctx.healthy.try_send(()).is_err() {
-        tracing::trace!("an earlier healthy probe is still to be read");
+        crate::journal_sink::emit(&WatchdogEvent::HealthyUnread);
     }
 }
 
@@ -123,7 +127,7 @@ async fn cycle(
     }
     let outcome = probe_within(ctx, ctx.timings.probe_timeout).await;
     if outcome == Probe::LocalDescriptorExhaustion {
-        tracing::error!("out of file descriptors, cannot dial the daemon; not restarting it");
+        crate::journal_sink::emit(&WatchdogEvent::OutOfDescriptors);
         state.forget();
         return false;
     }
@@ -162,7 +166,7 @@ async fn announce_wedge(ctx: &WatchContext) {
     }
     ctx.bus.emit(DaemonEvent::Unhealthy);
     if ctx.wedged.send(()).await.is_err() {
-        tracing::debug!("the supervisor stopped listening for wedge reports");
+        crate::journal_sink::emit(&WatchdogEvent::WedgeUnheard);
     }
 }
 

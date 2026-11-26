@@ -92,7 +92,7 @@ pub(crate) fn open_with<'a>(
     let opened = Rc::new(RefCell::new(Vec::new()));
     let sinks = (Rc::clone(&commands), Rc::clone(&opened));
     cx.update(|_, cx| record_events(&view, sinks, cx));
-    let tab = layout.active_tab().cloned();
+    let tab = layout.showing("").cloned();
     view.update(cx, |view, cx| view.set_tab(tab, cx));
     cx.run_until_parked();
     Harness {
@@ -125,7 +125,7 @@ pub(crate) fn open_under_row_source<'a>(
     let opened = Rc::new(RefCell::new(Vec::new()));
     let sinks = (Rc::clone(&commands), Rc::clone(&opened));
     cx.update(|_, cx| record_events(&view, sinks, cx));
-    let tab = layout.active_tab().cloned();
+    let tab = layout.showing("").cloned();
     view.update(cx, |view, cx| view.set_tab(tab, cx));
     cx.run_until_parked();
     Harness {
@@ -137,43 +137,54 @@ pub(crate) fn open_under_row_source<'a>(
     }
 }
 
-/// A layout view in a window with a top layer, which shows what floats above the panes.
+/// A layout view in a window whose floating elements open windows of their own.
 pub(crate) struct Floating {
     pub(crate) view: Entity<LayoutView>,
     pub(crate) window: VisualTestContext,
-    pub(crate) top: VisualTestContext,
     pub(crate) clock: Rc<Cell<Instant>>,
+}
+
+impl Floating {
+    /// The float window the owner opened last; the owner's own window while it has none.
+    pub(crate) fn top(&mut self) -> VisualTestContext {
+        ui::testing::newest_window(&mut self.window)
+    }
 }
 
 pub(crate) fn open_floating(
     cx: &mut TestAppContext,
     layout: &Layout,
 ) -> Floating {
+    open_floating_with(cx, layout, FakeSource::starting_at_first_tab())
+}
+
+pub(crate) fn open_floating_with(
+    cx: &mut TestAppContext,
+    layout: &Layout,
+    source: FakeSource,
+) -> Floating {
     cx.update(|cx| {
         ui::init(cx).expect("ui init");
         cx.set_global(Theme::default());
         cx.set_global(Motion::default());
+        ui::testing::open_float_windows(cx);
     });
     let clock = Rc::new(Cell::new(Instant::now()));
     let reading = Rc::clone(&clock);
     let window = cx.add_window(move |_, _| {
-        let source = Rc::new(FakeSource::starting_at_first_tab());
-        LayoutView::with_clock(source, Rc::new(move || reading.get()))
+        LayoutView::with_clock(Rc::new(source), Rc::new(move || reading.get()))
     });
     let view = window
         .entity(cx)
         .unwrap_or_else(|error| panic!("the view: {error}"));
     let owner: gpui::AnyWindowHandle = window.into();
-    let top = cx.update(|cx| ui::TopLayer::open(owner, cx));
-    let top = top.unwrap_or_else(|error| panic!("the top layer: {error}"));
     let mut window = VisualTestContext::from_window(owner, cx);
-    let tab = layout.active_tab().cloned();
+    let tab = layout.showing("").cloned();
     view.update(&mut window, |view, cx| view.set_tab(tab, cx));
     window.run_until_parked();
     Floating {
         view,
         window,
-        top: VisualTestContext::from_window(top, cx),
         clock,
     }
 }

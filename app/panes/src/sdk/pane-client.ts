@@ -11,6 +11,8 @@ import type { SettingValues } from './setting-values'
 import type { ShellFrame } from './shell-frame'
 import type { ThemeTokens } from './theme-tokens'
 import type { Breakpoint } from './breakpoint'
+import type { FileDrop } from './file-drop'
+import type { PairedHost } from './paired-host'
 import {
   MAX_STATE_BYTES,
   REQUEST_TIMEOUT_MS,
@@ -62,9 +64,12 @@ export class PaneClient {
   private readonly saves = new Set<() => void>()
   private readonly groups = new Set<Listener<boolean>>()
   private readonly shellSettings = new Set<Listener<SettingValues>>()
+  private readonly pairedHosts = new Set<Listener<PairedHost[]>>()
   private readonly events = new Map<string, EventSubscription>()
   private readonly reviewViewed = new Set<Listener<ReviewViewedFrame>>()
   private readonly reviewReveals = new Set<Listener<string>>()
+  private readonly documentTexts = new Set<Listener<string>>()
+  private readonly fileDrops = new Set<Listener<FileDrop>>()
 
   constructor(
     private readonly channel: PaneChannel,
@@ -108,6 +113,11 @@ export class PaneClient {
     return this.listen(this.shellSettings, listener)
   }
 
+  /** Hears the hosts the shell paired, on mount and whenever one is paired or removed; returns the stop. */
+  onHosts(listener: Listener<PairedHost[]>): () => void {
+    return this.listen(this.pairedHosts, listener)
+  }
+
   /** Hears the shell's request to save before it closes the pane; returns the stop. */
   onSave(listener: () => void): () => void {
     return this.listen(this.saves, listener)
@@ -128,6 +138,31 @@ export class PaneClient {
     this.send({ kind: 'review.setViewed', files: [...change.files], viewed: change.viewed })
   }
 
+  /** Hears the text of the file pane's document, which the shell owns, on mount and whenever it changes outside this page; returns the stop. */
+  onDocumentText(listener: Listener<string>): () => void {
+    return this.listen(this.documentTexts, listener)
+  }
+
+  /** Hears each drop of files from the operating system on this page, which gets no drop event of its own; returns the stop. */
+  onFilesDropped(listener: Listener<FileDrop>): () => void {
+    return this.listen(this.fileDrops, listener)
+  }
+
+  /** Hands the shell the whole text this page's view of the document holds now. */
+  editDocument(text: string): void {
+    this.send({ kind: 'document.edit', text })
+  }
+
+  /** Asks the shell to show the file pane's document in its source editor instead of this page. */
+  showSource(): void {
+    this.send({ kind: 'document.showSource' })
+  }
+
+  /** Asks the shell to save the file pane's document; send the pending edit first. */
+  saveDocument(): void {
+    this.send({ kind: 'document.save' })
+  }
+
   /** Tells the shell the pane holds work that closing would lose. */
   markDirty(): void {
     this.send({ kind: 'pane.setDirty', dirty: true })
@@ -141,6 +176,11 @@ export class PaneClient {
   /** Sets the pane's tab title, cutting it to the shell's limit. */
   setTitle(title: string): void {
     this.send({ kind: 'pane.setTitle', title: fitTitle(title) })
+  }
+
+  /** Re-keys the pane on new params, as a draft chat does once its chat exists; the pane keeps its place. */
+  setParams(params: PaneParams): void {
+    this.send({ kind: 'pane.setParams', params })
   }
 
   /** Replaces the persisted state; throws a RangeError when it is over the shell's state limit. */
@@ -271,6 +311,13 @@ export class PaneClient {
     }
     if (frame.kind === 'review.reveal')
       this.reviewReveals.forEach((listener) => listener(frame.path))
+    if (frame.kind === 'document.text')
+      this.documentTexts.forEach((listener) => listener(frame.text))
+    if (frame.kind === 'files.dropped') {
+      const { paths, x, y } = frame
+      this.fileDrops.forEach((listener) => listener({ paths, x, y }))
+    }
+    if (frame.kind === 'hosts') this.pairedHosts.forEach((listener) => listener(frame.hosts))
     if (frame.kind === 'settings' && frame.version === SETTINGS_FRAME_VERSION) {
       this.shellSettings.forEach((listener) => listener(frame.values))
     }

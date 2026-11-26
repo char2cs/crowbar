@@ -1,5 +1,7 @@
 //! One terminal session from creation to the end of its stream.
 
+mod terminal_session_event;
+
 use std::sync::Arc;
 
 use async_channel::Sender;
@@ -11,6 +13,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 use crate::connection::Connection;
 use crate::error::{Error, Result};
+use crate::journal_sink::emit;
 use crate::readiness::Readiness;
 use crate::report::Report;
 use crate::rest::Binding;
@@ -23,6 +26,7 @@ use crate::stream::pump;
 use crate::stream::recover;
 use crate::stream::{CONNECT_TIMEOUT, header, stream_error, within};
 use crate::stream::{Dial, tcp_dial};
+use crate::terminal_sessions::terminal_session_event::TerminalSessionEvent;
 
 const RELAY_SUBPROTOCOL: &str = "crowbar.relay.v1";
 const TOKEN_PREFIX: &str = "crowbar.token.";
@@ -133,7 +137,7 @@ impl TerminalSessions {
             return;
         }
         if let Err(error) = self.attach((base, binding), &attachment, &reports).await {
-            tracing::warn!(%error, "terminal session failed");
+            emit(&TerminalSessionEvent::Failed { error: &error });
             report(&reports, Report::Failed(error.to_string())).await;
         }
         self.rest.transport.revoke_pane(&attachment.scope);
@@ -158,7 +162,7 @@ impl TerminalSessions {
             report(reports, Report::Bound(session.clone())).await;
         }
         let end = self.keep_attached((base, &session), attachment).await;
-        let released = binding.release(&self.rest, base, &session).await;
+        let released = self.rest.kill(base, &session).await;
         if let (End::ViewGone, Err(error)) = (end, released) {
             report(reports, Report::StopFailed(error.words())).await;
         }
@@ -193,7 +197,7 @@ impl TerminalSessions {
             Ok(end) => return Some(end),
             Err(error) => error.to_string(),
         };
-        tracing::warn!(%reason, "terminal stream lost");
+        emit(&TerminalSessionEvent::StreamLost { reason: &reason });
         let recovered = recover(&attachment.ends, reconnect, &reason).await;
         (!recovered).then_some(End::Lost)
     }
@@ -285,7 +289,6 @@ mod tests {
     enum Bind {
         Create,
         Resume(&'static str),
-        Watch(&'static str),
     }
 
     impl Bind {
@@ -293,7 +296,6 @@ mod tests {
             match self {
                 Self::Create => Binding::Create,
                 Self::Resume(session) => Binding::Saved(session.into()),
-                Self::Watch(session) => Binding::Existing(session.into()),
             }
         }
     }
@@ -336,13 +338,6 @@ mod tests {
             relay: Relay::Output,
             bind: Bind::Resume("s1"),
             rest_calls: RESUME,
-            first_report: None,
-        },
-        Case {
-            name: "watching an existing session creates and kills nothing",
-            relay: Relay::Output,
-            bind: Bind::Watch("agent"),
-            rest_calls: &[],
             first_report: None,
         },
     ];

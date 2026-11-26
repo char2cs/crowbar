@@ -92,7 +92,7 @@ export interface RowBodies {
     requestId?: string
     text: string
     origin: 'crowbar' | 'provider' | 'harness' | 'note'
-    delivery?: 'restart' | 'steer' | 'api'
+    delivery?: 'restart' | 'steer' | 'api' | 'type'
     runnerId?: string
     /** The refused prompt this one sends again. */
     retryOf?: string

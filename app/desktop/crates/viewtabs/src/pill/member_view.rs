@@ -1,6 +1,7 @@
 use gpui::SharedString;
 use protocol::PaneId;
 
+use crate::pill::member_glyph::MemberGlyph;
 use crate::pill::member_kind::MemberKind;
 
 /// One chat of a tab as the strip shows it.
@@ -16,4 +17,6 @@ pub struct MemberView {
     pub working: bool,
     /// What the member is, which picks its glyph.
     pub kind: MemberKind,
+    /// The glyph drawn in place of the kind's, when the member's chat has one of its own.
+    pub glyph: Option<MemberGlyph>,
 }

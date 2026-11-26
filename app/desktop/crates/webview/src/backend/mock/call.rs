@@ -1,3 +1,6 @@
+use crate::alert::AlertRequest;
+use crate::chooser::FileChoice;
+use crate::menu::MenuRequest;
 use crate::view::Bounds;
 use crate::view::Color;
 use crate::view::Id;
@@ -75,10 +78,33 @@ pub enum Call {
         /// The view.
         id: Id,
     },
+    /// Every earlier request was waited for.
+    Settle,
     /// The browser views' storage was cleared.
     ClearBrowsingData,
     /// The desktop's caret blink was followed.
     FollowCaret,
+    /// The desktop's file chooser was opened.
+    ChooseFiles {
+        /// The window it was opened over.
+        parent: ParentWindow,
+        /// What it asked.
+        choice: FileChoice,
+    },
+    /// The desktop's context menu was popped up.
+    PopupMenu {
+        /// The window it was popped up over.
+        parent: ParentWindow,
+        /// What it showed and where.
+        request: MenuRequest,
+    },
+    /// The desktop's message dialog was asked.
+    AskAlert {
+        /// The window it was asked over.
+        parent: ParentWindow,
+        /// What it asked.
+        request: AlertRequest,
+    },
     /// A view was destroyed.
     Destroy {
         /// The view.

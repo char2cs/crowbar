@@ -1,15 +1,17 @@
 //! The frame: sidebar column, separator and content, plus the narrow overlay and the peek card.
 
+pub(super) mod geometry;
+
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, Div, Entity, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
-    ParentElement, Render, Stateful, Styled, Window, div, px,
+    ParentElement, Render, Stateful, StyleRefinement, Styled, Window, div, px,
 };
 use sidebar::{DockSide, Visibility};
-use ui::{Backdrop, HoverFill, Motion, Portal, Surface, Theme};
+use ui::{HoverFill, Motion, Portal, Surface, Theme};
 
 use crate::sidebar::Sidebar;
-use crate::sidebar::geometry::Geometry;
+use crate::sidebar::layout::geometry::Geometry;
 use crate::sidebar::scale::{HANDLE_HIT, PEEK_INSET};
 
 const FRAME_SHADOW: f32 = 0.2;
@@ -32,11 +34,11 @@ impl Render for Sidebar {
         let column = geometry
             .is_docked()
             .then(|| self.body(geometry.width, window, cx));
-        let content = div()
-            .flex_1()
-            .min_w_0()
-            .h_full()
-            .child(self.content.clone());
+        let content = div().flex_1().min_w_0().h_full().child(
+            self.content
+                .clone()
+                .cached(StyleRefinement::default().size_full()),
+        );
         let side_column = div().h_full().flex_none().children(column);
         let handle = self.handle(&geometry, window, cx);
         let row = div()
@@ -57,9 +59,10 @@ impl Render for Sidebar {
             window.request_animation_frame();
         }
         let sidebar = cx.entity();
+        let float = self.float_kind(&geometry);
         let layers = self
             .floats(&geometry, cx)
-            .then(|| floating_layers(sidebar, geometry));
+            .then(|| floating_layers(sidebar, geometry).float(float));
         row.child(Self::exit_listener(cx)).children(layers)
     }
 }
@@ -74,6 +77,22 @@ fn floating_layers(
 }
 
 impl Sidebar {
+    fn float_kind(
+        &self,
+        geometry: &Geometry,
+    ) -> ui::Float {
+        let asks = self.tree.removals().confirmation().is_some()
+            || self.tree.files().dialog().is_some()
+            || self.question.is_some();
+        if asks {
+            return ui::Float::Modal;
+        }
+        if geometry.is_drawer() || self.menu.is_some() {
+            return ui::Float::Popover;
+        }
+        ui::Float::Passive
+    }
+
     fn floats(
         &self,
         geometry: &Geometry,
@@ -81,7 +100,7 @@ impl Sidebar {
     ) -> bool {
         geometry.is_drawer()
             || self.peek.is_shown(Motion::of(cx))
-            || self.tree.removals().confirmation().is_some()
+            || self.drawn_confirmation(cx).is_some()
             || self.tree.files().dialog().is_some()
             || self.question.is_some()
             || self.line_target().is_some()
@@ -170,14 +189,11 @@ impl Sidebar {
         let layer = div().absolute().size_full();
         if geometry.is_drawer() {
             let drawer = self.drawer(geometry, window, cx);
-            let backdrop = Backdrop::of("sidebar-backdrop", window, cx);
-            let still = backdrop.update(cx, |backdrop, _| backdrop.plain(window));
             return Some(
                 layer
                     .occlude()
-                    .children(still)
-                    .child(Self::scrim(cx))
-                    .child(drawer)
+                    .child(ui::Shaped::catch(Self::scrim(cx)))
+                    .child(ui::Shaped::solid(drawer, px(0.0)))
                     .into_any_element(),
             );
         }
@@ -186,7 +202,10 @@ impl Sidebar {
             .preferred()
             .min(geometry.container - 2.0 * PEEK_INSET);
         let slide = self.peek.position(motion);
-        let card = self.card((geometry.side, width, slide), window, cx);
+        let card = ui::Shaped::solid(
+            self.card((geometry.side, width, slide), window, cx),
+            ui::radius::XL,
+        );
         let area = self.peek_area(card, window, cx);
         Some(layer.child(area).into_any_element())
     }
@@ -312,28 +331,6 @@ mod tests {
     }
 
     #[gpui::test]
-    fn without_a_compositor_the_content_beside_a_drawer_shows_under_its_scrim(
-        cx: &mut TestAppContext
-    ) {
-        let mut floating = crate::test_support::open_floating(cx, DemoShell::reference());
-        floating
-            .window
-            .simulate_resize(gpui::size(px(600.0), px(800.0)));
-        floating.window.run_until_parked();
-        let whole = floating
-            .top
-            .update(|window, _| window.owner_bounds())
-            .unwrap_or_default();
-        let content = floating
-            .top
-            .update(|window, _| window.content_region().to_vec());
-        assert!(
-            content.contains(&whole),
-            "the whole window shows: {content:?}"
-        );
-    }
-
-    #[gpui::test]
     fn a_narrow_window_lays_the_sidebar_over_its_whole_height_at_the_edge(cx: &mut TestAppContext) {
         let mut floating = crate::test_support::open_floating(cx, DemoShell::reference());
         floating
@@ -341,7 +338,7 @@ mod tests {
             .simulate_resize(gpui::size(px(600.0), px(800.0)));
         floating.window.run_until_parked();
         let drawer = floating
-            .top
+            .top()
             .debug_bounds("sidebar-drawer")
             .unwrap_or_default();
         let placed = (

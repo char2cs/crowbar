@@ -1,0 +1,19 @@
+[package]
+name = "folderimport"
+description = "The Add a space and Add repository dialogs of the Crowbar shell: a folder path with a browse button, a name, and the add button that waits for the daemon."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+gpui.workspace = true
+ui.workspace = true
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
+
+[lints]
+workspace = true

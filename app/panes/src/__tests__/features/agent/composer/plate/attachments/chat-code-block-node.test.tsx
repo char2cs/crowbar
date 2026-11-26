@@ -33,6 +33,11 @@ vi.mock(
   },
 )
 
+vi.mock('@excalidraw/excalidraw', () => ({
+  restore: (scene: unknown) => scene,
+  exportToSvg: async () => document.createElementNS('http://www.w3.org/2000/svg', 'svg'),
+}))
+
 /** The composer's own interactive editor: the transcript renders diagrams instead. */
 function ComposerDraft({ md }: { md: string }) {
   const editor = usePlateEditor({ plugins: chatComposerPlugins, value: chatMarkdownToValue(md) })

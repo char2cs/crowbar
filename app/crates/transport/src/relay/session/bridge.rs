@@ -1,3 +1,4 @@
+mod bridge_event;
 pub(crate) mod close_message;
 mod ending;
 mod farewell;
@@ -18,6 +19,8 @@ use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::{Error as WsError, Message};
 use tokio_util::sync::CancellationToken;
 
+use crate::journal_sink::emit;
+use crate::relay::session::bridge::bridge_event::BridgeEvent;
 use crate::relay::session::bridge::ending::Ending;
 use crate::relay::session::bridge::farewell::{finish, settle};
 use crate::relay::session::bridge::limits::Limits;
@@ -63,11 +66,11 @@ where
     match tokio::time::timeout(limit, write.send(message)).await {
         Ok(Ok(())) => Ok(()),
         Ok(Err(refused)) => {
-            tracing::debug!("peer refused a message: {refused:?}");
+            emit(&BridgeEvent::PeerRefused { refused: &refused });
             Err(Ending::Gone)
         },
         Err(elapsed) => {
-            tracing::debug!("peer stopped reading: {elapsed}");
+            emit(&BridgeEvent::PeerStoppedReading { elapsed: &elapsed });
             Err(Ending::Stalled)
         },
     }
@@ -99,7 +102,7 @@ async fn echo_close<W>(
     W: Sink<Message, Error: Debug> + Unpin,
 {
     if let Err(why) = send_within(write, echoed_close(frame), limit).await {
-        tracing::debug!("close echo not delivered: {why:?}");
+        emit(&BridgeEvent::CloseEchoNotDelivered { why });
     }
 }
 
@@ -115,7 +118,7 @@ where
 {
     let ending = match next_within(read, idle).await {
         Err(elapsed) => {
-            tracing::debug!("peer went silent: {elapsed}");
+            emit(&BridgeEvent::PeerWentSilent { elapsed: &elapsed });
             Some(Ending::Idle)
         },
         Ok(None) => Some(Ending::Gone),

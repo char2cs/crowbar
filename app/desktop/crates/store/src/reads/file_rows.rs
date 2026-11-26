@@ -5,40 +5,47 @@ use sidebar::{Expansion, FileKind, FileRow, GitStatus};
 use crate::live::FileEntry;
 use crate::live::PanelState;
 
-pub(crate) fn of(panel: &PanelState) -> Vec<FileRow> {
-    level(panel, "", 0)
+pub(crate) fn of(
+    panel: &PanelState,
+    workspace: &str,
+) -> Vec<FileRow> {
+    level((panel, workspace), "", 0)
 }
 
 fn level(
-    panel: &PanelState,
+    (panel, workspace): (&PanelState, &str),
     directory: &str,
     depth: u8,
 ) -> Vec<FileRow> {
     let entries = panel.listings.get(directory).map_or_default(Vec::as_slice);
     entries
         .iter()
-        .flat_map(|entry| entry_rows(panel, entry, depth))
+        .flat_map(|entry| entry_rows((panel, workspace), entry, depth))
         .collect()
 }
 
 fn entry_rows(
-    panel: &PanelState,
+    (panel, workspace): (&PanelState, &str),
     entry: &FileEntry,
     depth: u8,
 ) -> Vec<FileRow> {
-    let expansion = expansion_of(panel, entry);
+    let expansion = expansion_of((panel, workspace), entry);
     let mut rows = vec![row(entry, (expansion, depth), panel)];
     if entry.is_directory() && expansion == Expansion::Expanded {
-        rows.extend(level(panel, &entry.path, depth.saturating_add(1)));
+        rows.extend(level(
+            (panel, workspace),
+            &entry.path,
+            depth.saturating_add(1),
+        ));
     }
     rows
 }
 
 fn expansion_of(
-    panel: &PanelState,
+    (panel, workspace): (&PanelState, &str),
     entry: &FileEntry,
 ) -> Expansion {
-    if panel.expanded.contains(&entry.path) {
+    if panel.expansions.contains(workspace, &entry.path) {
         return Expansion::Expanded;
     }
     Expansion::Collapsed
@@ -99,6 +106,8 @@ fn status_of(
 mod tests {
     use super::*;
 
+    const W: &str = "w";
+
     fn entry(
         name: &str,
         path: &str,
@@ -131,9 +140,9 @@ mod tests {
     #[test]
     fn a_folded_directory_hides_its_children_and_an_unfolded_one_shows_them_deeper() {
         let mut panel = panel();
-        assert_eq!(of(&panel).len(), 2);
-        panel.toggle("src");
-        let rows = of(&panel);
+        assert_eq!(of(&panel, W).len(), 2);
+        panel.expansions.toggle(W, "src");
+        let rows = of(&panel, W);
         assert_eq!(
             rows.iter()
                 .map(|row| (row.path.as_str(), row.depth))
@@ -145,7 +154,7 @@ mod tests {
 
     fn reporting(reported: &[(&str, GitStatus)]) -> PanelState {
         let mut panel = panel();
-        panel.toggle("src");
+        panel.expansions.toggle(W, "src");
         panel.statuses.clear();
         for (path, status) in reported {
             panel.statuses.insert((*path).into(), *status);
@@ -178,18 +187,18 @@ mod tests {
         ];
         for (reported, row, expected) in CASES {
             let panel = reporting(reported);
-            assert_eq!(of(&panel)[*row].status, *expected, "{reported:?}");
+            assert_eq!(of(&panel, W)[*row].status, *expected, "{reported:?}");
         }
     }
 
     #[test]
     fn a_path_the_gitignore_hides_reads_as_ignored_unless_git_reports_it() {
         let mut panel = panel();
-        panel.toggle("src");
+        panel.expansions.toggle(W, "src");
         panel.statuses.clear();
         panel.statuses.insert("a.txt".into(), GitStatus::Untracked);
         panel.ignores.learn("", "src/\na.txt");
-        let rows = of(&panel);
+        let rows = of(&panel, W);
         let statuses: Vec<_> = rows.iter().map(|row| row.status).collect();
         assert_eq!(
             statuses,

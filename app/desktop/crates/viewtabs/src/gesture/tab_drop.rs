@@ -6,8 +6,9 @@ use crate::span::Span;
 
 const EDGE: f32 = 0.25;
 
+/// Where a drop lands on the strip.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TabDrop {
+pub enum TabDrop {
     /// Between tabs: a tab of its own at this index.
     Reorder(usize),
     /// On the middle of a tab: merged into that tab as a split.
@@ -92,6 +93,7 @@ fn open_in_new_tab(
         Command::AddTab {
             id: new_tab.id,
             title: new_tab.title,
+            space: layout::SpaceId::default(),
         },
         open_in(instance, new_tab.id),
         move_tab(new_tab.id, index.min(tab_count)),
@@ -164,6 +166,7 @@ mod tests {
                 provisional: false,
                 working: false,
                 kind: crate::pill::MemberKind::Chat,
+                glyph: None,
             })
             .collect();
         TabView {

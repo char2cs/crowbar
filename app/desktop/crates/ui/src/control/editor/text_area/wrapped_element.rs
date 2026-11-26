@@ -16,11 +16,12 @@ pub(crate) use wrapped_surface::WrappedSurface;
 
 use gpui::{
     App, AvailableSpace, Bounds, ContentMask, Element, ElementId, ElementInputHandler, Entity,
-    GlobalElementId, InspectorElementId, IntoElement, LayoutId, Pixels, Size, Style, Window, fill,
-    point, px, relative, size,
+    GlobalElementId, InspectorElementId, LayoutId, Pixels, Size, Style, Window, fill, point, px,
+    relative, size,
 };
 
 use crate::control::editor::field::capture_pointer;
+use crate::control::editor::field::native_selection;
 use crate::control::editor::field::{blinks, tend};
 use crate::control::editor::text_area::layout::Layout;
 use crate::control::editor::text_area::wrapped_element::frame::Frame;
@@ -29,6 +30,7 @@ use crate::control::editor::text_area::wrapped_element::shape::Shape;
 use crate::control::editor::text_input::CARET_WIDTH;
 use crate::foundation::Palette;
 use crate::foundation::Pose;
+use crate::foundation::WindowActivity;
 
 pub(crate) struct WrappedElement<S: WrappedSurface> {
     area: Entity<S>,
@@ -83,7 +85,7 @@ impl<S: WrappedSurface> WrappedElement<S> {
             .map(|band| {
                 fill(
                     Bounds::new(origin + band.origin, band.size),
-                    self.palette.editor_selection(),
+                    native_selection(),
                 )
             })
             .collect();
@@ -124,14 +126,6 @@ fn wrap_width(
         AvailableSpace::Definite(width) => Some(width),
         AvailableSpace::MinContent | AvailableSpace::MaxContent => None,
     })
-}
-
-impl<S: WrappedSurface> IntoElement for WrappedElement<S> {
-    type Element = Self;
-
-    fn into_element(self) -> Self::Element {
-        self
-    }
 }
 
 impl<S: WrappedSurface> Element for WrappedElement<S> {
@@ -197,7 +191,7 @@ impl<S: WrappedSurface> Element for WrappedElement<S> {
             let handler = ElementInputHandler::new(bounds, self.area.clone());
             window.handle_input(&focus, handler, cx);
         }
-        let lit = editable && focus.is_focused(window) && window.is_window_active();
+        let lit = editable && focus.is_focused(window) && WindowActivity::of(window, cx);
         let blinks = blinks(Pose::from(lit && frame.caret.is_some()), cx);
         let shown = self.area.read(cx).blink().is_shown() || blinks == Pose::Off;
         let caret = Pose::from(lit && shown);
@@ -265,6 +259,24 @@ mod tests {
         let settled = draws.get();
         cx.executor().advance_clock(GTK_DEFAULT_PHASE * 10);
         assert_eq!(draws.get(), settled, "no frames while inactive");
+    }
+
+    #[gpui::test]
+    fn the_area_caret_blinks_while_a_child_window_holds_the_keyboard(cx: &mut TestAppContext) {
+        let (_, draws, cx) = drawn_area(cx);
+        cx.deactivate_window();
+        cx.update(|window, cx| {
+            let id = window.window_handle().window_id();
+            WindowActivity::gained(id, cx);
+        });
+        cx.run_until_parked();
+        let settled = draws.get();
+        cx.executor().advance_clock(GTK_DEFAULT_PHASE);
+        assert_eq!(
+            draws.get(),
+            settled + 1,
+            "the window still holds the keyboard"
+        );
     }
 
     #[test]

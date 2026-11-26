@@ -28,12 +28,15 @@ Licensed under the MIT License. The font aggregates glyphs from upstream icon se
 that carry their own licenses; see the note in the license file.
 Full license text: [`licenses/SymbolsNerdFont-MIT.txt`](licenses/SymbolsNerdFont-MIT.txt)
 
-### Geist Mono — `app/desktop/crates/ui/assets/fonts/GeistMono-Variable.ttf`
+### Geist Mono — `app/desktop/crates/ui/assets/fonts/GeistMono-{Regular,Bold}.ttf`
 
 Copyright (c) 2023 Vercel, in collaboration with basement.studio
 
 Licensed under the SIL Open Font License, Version 1.1.
 Full license text: [`licenses/Geist-OFL-1.1.txt`](licenses/Geist-OFL-1.1.txt)
+The files are static instances of the variable Geist Mono, made by
+`tools/scripts/font-instances.py`: Modified Versions under the OFL, which names no Reserved
+Font Name, so they keep the family name.
 
 ### Instrument Serif — `app/desktop/crates/ui/assets/fonts/InstrumentSerif.ttf`
 
@@ -42,10 +45,13 @@ Copyright 2022 The Instrument Serif Project Authors (https://github.com/Instrume
 Licensed under the SIL Open Font License, Version 1.1.
 Full license text: [`licenses/InstrumentSerif-OFL-1.1.txt`](licenses/InstrumentSerif-OFL-1.1.txt)
 
-### Cal Sans UI — `app/desktop/crates/ui/assets/fonts/CalSansUI.ttf`
+### Cal Sans UI — `app/desktop/crates/ui/assets/fonts/CalSansUI-*.ttf`
 
-TrueType build of the Cal Sans UI file listed above; same copyright and license
-([`licenses/CalSans-OFL-1.1.txt`](licenses/CalSans-OFL-1.1.txt)).
+Static instances (wght 400, 500, 600 and 700 at GEOM 0, and a 14° oblique of 500) of the
+TrueType Cal Sans UI file listed above, made by `tools/scripts/font-instances.py`; same
+copyright and license ([`licenses/CalSans-OFL-1.1.txt`](licenses/CalSans-OFL-1.1.txt)).
+They are Modified Versions under the OFL, which names no Reserved Font Name, so they keep
+the family name.
 
 ## Icons
 

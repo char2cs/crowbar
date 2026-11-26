@@ -49,12 +49,8 @@ impl PaneHost {
         if focused.slot.is_some() && self.keyboard == Keyboard::Pane {
             return Ok(());
         }
-        let holder = self
-            .panes
-            .values()
-            .filter(|runtime| runtime.is_visible())
-            .find_map(|runtime| runtime.slot.and_then(|id| self.pool.get(id)));
-        Ok(holder.map_or(Ok(()), |slot| slot.handle.focus_parent())?)
+        let holder = self.pool.views().next().map(|(_, handle)| handle);
+        Ok(holder.map_or(Ok(()), webview::Handle::focus_parent)?)
     }
 }
 
@@ -63,7 +59,7 @@ mod tests {
     use webview::Call;
 
     use super::*;
-    use crate::catalog::PaneLifecycle;
+    use crate::catalog::{PaneKind, PaneLifecycle};
     use crate::test_support::{browser_at, fixture, instance, pane_type, register};
 
     #[test]
@@ -130,6 +126,29 @@ mod tests {
             .filter_map(focus_call)
             .collect();
         assert_eq!(focus_calls, ["focus"]);
+    }
+
+    #[test]
+    fn a_native_pane_that_hides_the_page_takes_the_keyboard_from_it() {
+        let mut f = fixture();
+        let mut native = pane_type("core.native", PaneLifecycle::KeepAlive);
+        native.kind = PaneKind::Native;
+        f.host.registry_mut().register(native).unwrap();
+        let panes = [instance("c1", "core.chat"), instance("n1", "core.native")];
+        f.sync(&panes, &["c1"], Some("c1"));
+        register(&mut f, "c1", "core.chat");
+        f.sync_with(&panes, &["c1"], (Some("c1"), Keyboard::Pane));
+        let before = f.mock.calls().len();
+        f.sync(&panes, &["n1"], Some("n1"));
+        let focus_calls: Vec<&str> = f.mock.calls()[before..]
+            .iter()
+            .filter_map(focus_call)
+            .collect();
+        assert_eq!(
+            focus_calls,
+            ["focus_parent"],
+            "the hidden chat kept the keys the terminal opened over it"
+        );
     }
 
     fn focus_call(call: &Call) -> Option<&'static str> {

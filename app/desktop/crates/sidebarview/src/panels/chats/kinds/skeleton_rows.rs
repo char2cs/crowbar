@@ -1,9 +1,11 @@
 //! The bars shown before the projects scope has synced.
 
-use gpui::{IntoElement, ParentElement, Pixels, Styled, div, px};
+use gpui::{InteractiveElement, IntoElement, ParentElement, Pixels, Styled, div, px};
 use ui::Skeleton;
 
 use crate::sidebar::{SPACE_LG, SPACE_MD};
+
+pub(crate) const SELECTOR: &str = "sidebar-skeleton";
 
 const BAR_HEIGHT: Pixels = px(20.0);
 
@@ -18,6 +20,7 @@ pub(crate) fn skeleton_rows(inner_width: f32) -> impl IntoElement {
         )
     });
     div()
+        .debug_selector(|| SELECTOR.into())
         .flex()
         .flex_col()
         .gap(SPACE_MD)

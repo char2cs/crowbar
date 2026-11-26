@@ -32,6 +32,11 @@ describe('PaneClient', () => {
       { kind: 'pane.setTitle', title: 'Fix the build' },
     ],
     [
+      're-keys the pane on new params',
+      (client: PaneClient) => client.setParams({ threadId: 'c9' }),
+      { kind: 'pane.setParams', params: { threadId: 'c9' } },
+    ],
+    [
       'saves state',
       (client: PaneClient) => client.setState({ scroll: 4 }),
       { kind: 'pane.setState', state: { scroll: 4 } },
@@ -65,8 +70,8 @@ describe('PaneClient', () => {
     ],
     [
       'asks the shell to store a setting',
-      (client: PaneClient) => client.setSetting('showMinimap', true),
-      { kind: 'settings.set', version: 1, key: 'showMinimap', value: true },
+      (client: PaneClient) => client.setSetting('wordWrap', true),
+      { kind: 'settings.set', version: 1, key: 'wordWrap', value: true },
     ],
     [
       'marks review files viewed',
@@ -80,6 +85,21 @@ describe('PaneClient', () => {
         files: [{ path: 'src/a.ts', signature: 'M||1|0' }],
         viewed: true,
       },
+    ],
+    [
+      'hands the shell the text its document view holds',
+      (client: PaneClient) => client.editDocument('# Title\n'),
+      { kind: 'document.edit', text: '# Title\n' },
+    ],
+    [
+      'asks the shell for the source editor',
+      (client: PaneClient) => client.showSource(),
+      { kind: 'document.showSource' },
+    ],
+    [
+      'asks the shell to save the document',
+      (client: PaneClient) => client.saveDocument(),
+      { kind: 'document.save' },
     ],
     [
       'runs a command',
@@ -218,6 +238,15 @@ describe('PaneClient', () => {
     expect(heard.mock.calls).toEqual([[120]])
   })
 
+  it('hears the hosts the shell paired', () => {
+    const client = new PaneClient(pane.channel, 'core.chat')
+    const heard = vi.fn()
+    client.onHosts(heard)
+    const hosts = [{ id: 'h1', name: 'rigremote', endpoint: '127.0.0.1:4747' }]
+    pane.deliver({ sdk: 1, kind: 'hosts', hosts })
+    expect(heard.mock.calls).toEqual([[hosts]])
+  })
+
   it('hears the viewed map and the files to reveal the shell sends', () => {
     const client = new PaneClient(pane.channel, 'core.review')
     const viewed = vi.fn()
@@ -228,6 +257,22 @@ describe('PaneClient', () => {
     pane.deliver({ sdk: 1, kind: 'review.reveal', path: 'src/a.ts' })
     expect(viewed.mock.calls).toEqual([[{ workspace: 'w1', viewed: { 'a.ts': 's' } }]])
     expect(reveal.mock.calls).toEqual([['src/a.ts']])
+  })
+
+  it('hears the text of the document the shell owns', () => {
+    const client = new PaneClient(pane.channel, 'core.editor')
+    const heard = vi.fn()
+    client.onDocumentText(heard)
+    pane.deliver({ sdk: 1, kind: 'document.text', text: '# Title\n' })
+    expect(heard.mock.calls).toEqual([['# Title\n']])
+  })
+
+  it('hears the files dropped on its page and where', () => {
+    const client = new PaneClient(pane.channel, 'core.chat')
+    const heard = vi.fn()
+    client.onFilesDropped(heard)
+    pane.deliver({ sdk: 1, kind: 'files.dropped', paths: ['/tmp/a b.md'], x: 12.5, y: 40 })
+    expect(heard.mock.calls).toEqual([[{ paths: ['/tmp/a b.md'], x: 12.5, y: 40 }]])
   })
 
   it('ignores text that is not a frame', () => {

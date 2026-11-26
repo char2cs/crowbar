@@ -34,6 +34,7 @@ pub(crate) fn member(pane: &PaneId) -> MemberView {
         provisional: pane.as_str() == "p1",
         working: pane.as_str() == "p3",
         kind: viewtabs::MemberKind::Chat,
+        glyph: None,
     }
 }
 
@@ -49,6 +50,7 @@ fn add_chat_tab(
     layout.apply(Command::AddTab {
         id: tab,
         title: title.clone(),
+        space: layout::SpaceId::default(),
     })?;
     layout.apply(Command::OpenPane {
         tab,

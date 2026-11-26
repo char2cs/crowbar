@@ -5,6 +5,7 @@ import { OperationFailedError } from '@/lib/errors/operation-failed'
  *  desktop proxy's own `daemon_unavailable`, `host_unreachable` and `host_identity_changed`. */
 export type ProblemCode =
   | 'invalid_argument'
+  | 'unauthorized'
   | 'forbidden'
   | 'not_found'
   | 'conflict'

@@ -97,8 +97,6 @@ jobs:
         run: |
           bash tools/scripts/check-rust-rules.sh --self-test
           bash tools/scripts/check-rust-rules.sh --mobile
-      - name: Vendored crates are upstream plus their patch series
-        run: bash app/desktop/vendor/update.sh --check
       - name: fmt
         run: cd app && cargo fmt --all --check
       - name: clippy
@@ -164,10 +162,18 @@ jobs:
       - name: Tests (headless)
         run: cd app && cargo test --locked --workspace --all-features
       # Opt-in real-infrastructure tests (#[ignore = "real-infra: ..."], docs/rust-style.md M41): real sockets, child
-      # processes and files, no display. webview and platform keep their display tests for the GUI step below,
-      # as does every test in a `needs_display` module.
+      # processes and files. webview and platform keep their display tests for the GUI step below, as does every
+      # test in a `needs_display` module. `--include-ignored` also runs every other `needs display` test, so
+      # Linux runs the step on an Xvfb display.
       - name: Real-infrastructure tests
-        run: 'cd app && cargo test --locked --workspace --all-features --exclude webview --exclude platform -- --include-ignored --skip needs_display::'
+        run: |
+          cd app
+          tests=(cargo test --locked --workspace --all-features --exclude webview --exclude platform -- --include-ignored --skip needs_display::)
+          if [[ $RUNNER_OS == Linux ]]; then
+            xvfb-run -a -s '-screen 0 1920x1080x24' "${tests[@]}"
+            exit
+          fi
+          "${tests[@]}"
       # Tests that open a real window are `#[ignore = "needs display"]` (docs/rust-style.md M41).
       # Linux: Xvfb + openbox + lavapipe software Vulkan.
       - name: GUI tests (Linux, Xvfb + openbox + lavapipe)

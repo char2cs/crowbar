@@ -20,13 +20,18 @@ impl Render for Probe {
         cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
         let element = (self.build)(window, cx);
-        div().size_full().flex().items_start().child(
-            div()
-                .flex_none()
-                .w(gpui::px(294.0))
-                .debug_selector(|| "probe".into())
-                .child(element),
-        )
+        div()
+            .size_full()
+            .flex()
+            .items_start()
+            .child(ui::hear())
+            .child(
+                div()
+                    .flex_none()
+                    .w(gpui::px(294.0))
+                    .debug_selector(|| "probe".into())
+                    .child(element),
+            )
     }
 }
 

@@ -1,6 +1,6 @@
 [package]
 name = "startup"
-description = "The full-screen native startup and data-migration view of the Crowbar shell."
+description = "The halt gate of the Crowbar shell: what replaces the window once the daemon halts."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -15,14 +15,11 @@ path = "src/bin/gallery/main.rs"
 [dependencies]
 gpui.workspace = true
 gpui_platform.workspace = true
-serde.workspace = true
 thiserror.workspace = true
-tracing.workspace = true
 ui.workspace = true
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
-serde_json.workspace = true
 
 [lints]
 workspace = true

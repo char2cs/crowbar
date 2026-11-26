@@ -32,7 +32,7 @@ use crate::plan::Plan;
 use crate::reads::{active_project, host_of};
 use crate::{
     live::panel_loader,
-    plan::{agent as plan_agent, create as plan_create, planner, runner},
+    plan::{create as plan_create, planner, runner},
 };
 
 /// Plans each command from the current entities and runs it on the runtime; the stream shows the
@@ -84,7 +84,8 @@ impl SidebarCommands {
         path: &str,
     ) {
         let (open, listed, chat, client) = self.hub.edit(|state| {
-            let open = state.panels.toggle(path);
+            let workspace = crate::reads::files::followed_workspace_id(state).to_owned();
+            let open = state.panels.expansions.toggle(&workspace, path);
             let chat = state.panels.chat.clone();
             let client = chat.as_deref().and_then(|chat| state.client_of_chat(chat));
             (open, state.panels.listings.contains_key(path), chat, client)
@@ -96,39 +97,27 @@ impl SidebarCommands {
             return;
         }
         let (hub, path) = (Arc::clone(&self.hub), path.to_owned());
+        let outcome = Arc::clone(&self.outcome);
         self.handle.spawn(async move {
-            panel_loader::load_directory(&hub, &client, (&chat, &path)).await;
+            panel_loader::load_reported(&hub, (&client, &outcome), (&chat, &path)).await;
         });
     }
 
-    /// Adds the repository at `path`, a folder of the open space's own host, to that space.
+    /// Adds the repository at `path`, a folder of the open space's own host, to that space under
+    /// `name`, or the folder's own name when `name` is blank. `Outcome::Added` answers success;
+    /// a failure is a toast titled "Add “name” failed".
     ///
     /// # Errors
     /// [`Error::Refused`] when no space is open, its host is not loaded, or the folder has no name.
     pub fn import_repo(
         &self,
-        path: &str,
+        (path, name): (&str, &str),
     ) -> Result<(), Error> {
         let plan = self.hub.read(|state| {
             let project = active_project(state);
-            plan_create::repo(
-                state,
-                project.as_ref(),
-                (path, &daemonapi::Uuid::random().to_string()),
-            )
+            plan_create::repo(state, project.as_ref(), (path, name))
         });
         self.run(plan)
-    }
-
-    /// Starts the runner of `chat` again; a live chat answers with its runner and nothing changes.
-    ///
-    /// # Errors
-    /// [`Error::Refused`] when the chat is not loaded.
-    pub fn resume_chat(
-        &self,
-        chat: &str,
-    ) -> Result<(), Error> {
-        self.run(self.hub.read(|state| plan_agent::resume(state, chat)))
     }
 
     fn plan_and_run(
@@ -283,6 +272,36 @@ mod tests {
         assert_eq!(heard.recv().await, Some(refused));
     }
 
+    #[tokio::test]
+    async fn a_delete_whose_cascade_took_unselected_chats_names_them() {
+        let (commands, daemon, mut heard) = heard_commands();
+        let answer = r#"{"takenChatIds":["bo","t","hc"]}"#;
+        daemon.ok("DELETE", OWNER_DELETE, answer);
+        commands
+            .dispatch(Command::CommitRemoval(RowId::from("bo")))
+            .unwrap();
+        let named = Outcome::AlsoRemoved {
+            titles: vec!["Hello".into()],
+        };
+        assert_eq!(
+            heard.recv().await,
+            Some(named),
+            "only the home chat was not selected"
+        );
+    }
+
+    fn status_asked(daemon: &FakeDaemon) -> bool {
+        let seen = daemon.seen();
+        seen.iter()
+            .any(|call| call.path == "/v0/chats/hc/git/status")
+    }
+
+    async fn until_status_asked(daemon: &FakeDaemon) {
+        while !status_asked(daemon) {
+            tokio::task::yield_now().await;
+        }
+    }
+
     async fn until_listed(commands: &SidebarCommands) {
         while commands.hub.read(|state| state.panels.listings.is_empty()) {
             tokio::task::yield_now().await;
@@ -332,6 +351,40 @@ mod tests {
             .filter(|call| call.path.contains("path=src"))
             .count();
         assert_eq!(listed, 1);
+    }
+
+    #[tokio::test]
+    async fn a_folder_opened_in_a_workspace_is_open_again_when_its_chat_is_followed_back() {
+        let (commands, daemon) = commands();
+        daemon.ok(
+            "GET",
+            "/v0/chats/hc/files/tree?path=.",
+            r#"[{"name":"src","path":"src","type":"directory"}]"#,
+        );
+        daemon.ok(
+            "GET",
+            "/v0/chats/hc/files/tree?path=src",
+            r#"[{"name":"m.rs","path":"src/m.rs","type":"file"}]"#,
+        );
+        commands
+            .dispatch(Command::ToggleDirectory("src".into()))
+            .unwrap();
+        until_listed(&commands).await;
+        commands
+            .hub
+            .edit(|state| state.panels.follow(Some("bo".into())));
+        commands
+            .hub
+            .edit(|state| state.panels.follow(Some("hc".into())));
+        panel_loader::followed_ask::ask(&commands.hub, (&commands.handle, &commands.outcome));
+        until_status_asked(&daemon).await;
+        let rows = commands.hub.read(crate::reads::files);
+        let paths: Vec<&str> = rows.iter().map(|row| row.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            ["src", "src/m.rs"],
+            "develop keys open folders by workspace"
+        );
     }
 
     fn assert_all_refused(

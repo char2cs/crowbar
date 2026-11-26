@@ -1,9 +1,11 @@
+pub(super) mod assignment;
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use protocol::{PaneId, PaneOrigin};
 
-use crate::scheme::assignment::Assignment;
+use crate::scheme::origin_table::assignment::Assignment;
 
 /// Which origin each live web view currently acts for. The pane host writes it when it
 /// assigns a pane to a web view; the protocol router reads it to authorize requests, so a

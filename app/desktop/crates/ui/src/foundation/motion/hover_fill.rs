@@ -89,7 +89,10 @@ mod tests {
                 window,
                 cx,
             ));
-            filled(self.line, window, cx)
+            div()
+                .size_full()
+                .child(crate::hear())
+                .child(filled(self.line, window, cx))
         }
     }
 

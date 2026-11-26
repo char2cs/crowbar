@@ -7,6 +7,7 @@ import * as keymap from '@/features/keymaps/hooks/use-effective-keymap'
 import * as reconnect from '@/features/terminal/lib/terminal-reconnect-map'
 import { toast } from '@/features/window/stores/toast-store'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
+import { cacheReadsSettled } from '@/__tests__/__fixtures__/feed-cache-reads'
 import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
 
 /** The pane chrome a surface test does not look at: no chords, no reconnect
@@ -43,5 +44,9 @@ export function chatPane(store: WorkspaceStore, props: PaneProps = {}) {
   )
 }
 
-export const renderChatPane = (store: WorkspaceStore, props: PaneProps = {}) =>
-  act(async () => render(chatPane(store, props)))
+// A fresh feed reads its cache before it holds its scope, so the feed settles a turn later.
+export const renderChatPane = async (store: WorkspaceStore, props: PaneProps = {}) => {
+  const view = await act(async () => render(chatPane(store, props)))
+  await cacheReadsSettled()
+  return view
+}

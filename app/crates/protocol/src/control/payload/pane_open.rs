@@ -1,3 +1,5 @@
+pub(super) mod open_mode;
+
 use serde::{Deserialize, Serialize};
 
 use crate::control::payload::{DocumentPath, OpenMode, Params};

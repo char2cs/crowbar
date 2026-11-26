@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { hasPairedRemote, useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { LOCAL_HOST } from '@/features/hosts/types'
+import { attachFeed } from '@/features/agent/stores/chat-feed'
+import { chatStore } from '@/features/agent/stores/chat-store'
+import { pairRemoteHost } from '@/__tests__/__fixtures__/remote-host'
+import { streamDaemonFor } from '@/__tests__/__fixtures__/stream-daemon'
 
 describe('useHostConfigStore', () => {
   beforeEach(() => {
@@ -236,5 +240,25 @@ describe('useHostConfigStore', () => {
       pairedFingerprint: '',
       clientId: '',
     })
+  })
+})
+
+describe('removing a host', () => {
+  it('drops the chat feeds kept on it', async () => {
+    const host1 = streamDaemonFor('host-1')
+    pairRemoteHost('host-1')
+    await Promise.resolve()
+    host1.answer = () => []
+    const detach = attachFeed('host-1', 'chat-1')
+    await vi.waitFor(() =>
+      expect(host1.sent.filter((r) => r.op === 'sub' && r.scope === 'chat:chat-1')).toHaveLength(1),
+    )
+    host1.deliver({ t: 'synced', scope: 'chat:chat-1' })
+    detach()
+    expect(chatStore.getState().feeds['chat-1']).toBeDefined()
+
+    useHostConfigStore.getState().removeHost('host-1')
+
+    expect(chatStore.getState().feeds['chat-1']).toBeUndefined()
   })
 })

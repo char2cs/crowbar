@@ -48,6 +48,14 @@ export function openFeed(chatId: string) {
   if (!chatStore.getState().feeds[chatId]) publish(chatId, emptyFeed())
 }
 
+/** Shows a stored feed in place of a feed nothing has filled yet; false when one already has. */
+export function showStoredFeed(chatId: string, stored: ChatFeed): boolean {
+  const feed = chatStore.getState().feeds[chatId]
+  if (!feed || feed.seq !== 0 || feed.status !== 'connecting' || drafts.has(chatId)) return false
+  publish(chatId, stored)
+  return true
+}
+
 /** Marks the feed failed; `error` is the daemon's word for why, when it gave one. */
 export function failFeed(chatId: string, error?: string) {
   const feed = chatStore.getState().feeds[chatId]

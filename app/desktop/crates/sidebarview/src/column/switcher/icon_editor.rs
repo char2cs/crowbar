@@ -1,39 +1,57 @@
-//! The icon popover of a space: preview, upload, emoji and reset.
+//! The icon popover of a space or a repository: preview, upload, emoji, GitHub and reset.
+
+mod github;
+mod preview;
 
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use gpui::StyledImage as _;
 use gpui::TaskExt as _;
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    App, AppContext as _, Context, Div, FontWeight, IntoElement, ParentElement, PathPromptOptions,
-    Render, Styled, Window, div, img, px,
+    App, AppContext as _, Context, Div, InteractiveElement as _, IntoElement, ParentElement,
+    Render, Styled, Subscription, Window, div, px,
 };
-use sidebar::SpaceIcon;
+use sidebar::{Mark, SpaceIcon};
 use ui::{
-    Button, ButtonSize, ButtonVariant, Icon, IconName, Surface, TextInput, TextInputStyle, Theme,
-    radius,
+    Button, ButtonSize, ButtonVariant, ChoiceKind, FileChoice, FileChooser, FileFilter, IconName,
+    Surface, TextInput, TextInputEvent, TextInputStyle, Theme,
 };
 
-use crate::sidebar::scale::{ICON_LARGE, SPACE_MD, SPACE_SM, TEXT_CAPTION};
+use crate::column::switcher::icon_label::section_label;
+use crate::sidebar::scale::{SPACE_LG, SPACE_SM};
 
-const PREVIEW: f32 = 56.0;
-const EMOJI_PREVIEW: f32 = 24.0;
-const WIDTH: f32 = 224.0;
-const LABEL: &str = "ICON";
+const WIDTH: f32 = 222.0;
+
+// SPEC: docs/triage/2026-11-18-side-by-side-audit/16-dlg.md DLG-047: rfd's GTK chooser with develop's Images filter.
+const ICON_IMAGE: FileChoice = FileChoice {
+    title: "Open File",
+    kind: ChoiceKind::File,
+    filter: Some(FileFilter {
+        name: Some("Images"),
+        extensions: &["png", "jpg", "jpeg", "webp"],
+        mime_types: &[],
+    }),
+};
 
 pub(crate) type Pick = Rc<dyn Fn(SpaceIcon, &mut App)>;
+pub(crate) type Act = Rc<dyn Fn(&mut App)>;
+pub(crate) type Busy = Rc<dyn Fn(&App) -> bool>;
 
 pub(crate) struct IconEditor {
     pub(crate) current: SpaceIcon,
     emoji: gpui::Entity<TextInput>,
     typing: bool,
     pick: Pick,
+    busy: Busy,
+    fallback: Mark,
+    github: Option<Act>,
+    _typed: Subscription,
 }
 
 impl IconEditor {
     pub(crate) fn new(
-        pick: Pick,
+        (pick, busy): (Pick, Busy),
         cx: &mut Context<'_, Self>,
     ) -> Self {
         let emoji = cx.new(|cx| {
@@ -41,11 +59,19 @@ impl IconEditor {
                 .on(Surface::Window)
                 .style(TextInputStyle::Compact)
         });
+        let typed = cx.subscribe(&emoji, |this, _, event: &TextInputEvent, cx| match event {
+            TextInputEvent::Submitted => this.set_emoji(cx),
+            _ => cx.notify(),
+        });
         Self {
             current: SpaceIcon::Default,
             emoji,
             typing: false,
             pick,
+            busy,
+            fallback: Mark::Fallback,
+            github: None,
+            _typed: typed,
         }
     }
 
@@ -59,17 +85,13 @@ impl IconEditor {
         cx.notify();
     }
 
-    fn upload(cx: &mut Context<'_, Self>) {
-        let options = PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: false,
-            prompt: None,
-        };
-        let picked = cx.prompt_for_paths(options);
+    fn upload(
+        window: &Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let picked = FileChooser::choose(ICON_IMAGE, window, cx);
         cx.spawn(async move |this, cx| {
-            let paths = picked.await.ok().and_then(Result::ok).flatten();
-            let icon = paths.and_then(|paths| first_image(&paths));
+            let icon = first_image(&picked.await);
             this.update(cx, |this, cx| this.chosen(icon, cx))
         })
         .detach_and_log_err(cx);
@@ -89,10 +111,37 @@ impl IconEditor {
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
-        let text = self.emoji.read(cx).text().to_owned();
-        if let Some(icon) = SpaceIcon::emoji(&text) {
-            self.choose(icon, cx);
+        let text = self.emoji.read(cx).text().trim().to_owned();
+        let Some(icon) = SpaceIcon::emoji(&text) else {
+            return;
+        };
+        self.emoji.update(cx, |field, cx| field.set_text("", cx));
+        self.typing = false;
+        self.choose(icon, cx);
+    }
+}
+
+impl IconEditor {
+    fn toggle_typing(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.typing = !self.typing;
+        if self.typing {
+            let field = self.emoji.clone();
+            field.update(cx, |field, cx| field.focus(window, cx));
         }
+        cx.notify();
+    }
+}
+
+impl IconEditor {
+    pub(super) fn busy(
+        &self,
+        cx: &App,
+    ) -> bool {
+        (self.busy)(cx)
     }
 }
 
@@ -100,55 +149,33 @@ fn first_image(paths: &[PathBuf]) -> Option<SpaceIcon> {
     paths.first().and_then(|path| SpaceIcon::image(path))
 }
 
-fn preview(
-    icon: &SpaceIcon,
-    palette: &ui::Palette,
-) -> Div {
-    let frame = div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center()
-        .size(px(PREVIEW))
-        .rounded(radius::XL)
-        .bg(palette.muted());
-    match icon {
-        SpaceIcon::Emoji(text) => frame.text_size(px(EMOJI_PREVIEW)).child(text.clone()),
-        SpaceIcon::Image(path) => frame.child(
-            img(PathBuf::from(path))
-                .size(px(PREVIEW))
-                .rounded(radius::XL)
-                .object_fit(gpui::ObjectFit::Cover),
-        ),
-        SpaceIcon::Default => frame.child(
-            Icon::new(IconName::Books)
-                .size(ICON_LARGE)
-                .color(palette.foreground()),
-        ),
-    }
-}
-
 impl IconEditor {
-    fn action_row(cx: &mut Context<'_, Self>) -> Div {
+    fn action_row(
+        &self,
+        cx: &mut Context<'_, Self>,
+    ) -> Div {
         let upload = Button::new("icon-upload", "Upload")
             .icon(IconName::UploadSimple)
             .size(ButtonSize::Xs)
-            .variant(ButtonVariant::Outline)
-            .on_click(cx.listener(|_, _, _, cx| Self::upload(cx)));
+            .variant(ButtonVariant::Muted)
+            .grow()
+            .when(self.busy(cx), Button::disabled)
+            .on_click(cx.listener(|_, _, window, cx| Self::upload(window, cx)));
         let emoji = Button::new("icon-emoji", "Emoji")
             .icon(IconName::Smiley)
             .size(ButtonSize::Xs)
-            .variant(ButtonVariant::Outline)
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.typing = !this.typing;
-                cx.notify();
-            }));
+            .variant(ButtonVariant::Muted)
+            .grow()
+            .when(self.typing, |emoji| emoji.variant(ButtonVariant::Secondary))
+            .when(self.busy(cx), Button::disabled)
+            .on_click(cx.listener(|this, _, window, cx| this.toggle_typing(window, cx)));
         div()
             .flex()
-            .flex_wrap()
             .gap(SPACE_SM)
+            .debug_selector(|| "icon-actions".into())
             .child(upload)
             .child(emoji)
+            .children(self.github_button(cx))
     }
 
     fn typing_row(
@@ -156,8 +183,12 @@ impl IconEditor {
         cx: &mut Context<'_, Self>,
     ) -> Option<Div> {
         let set = Button::new("icon-emoji-set", "Set")
-            .size(ButtonSize::Xs)
+            .size(ButtonSize::Sm)
             .on_click(cx.listener(|this, _, _, cx| this.set_emoji(cx)));
+        let set = set.when(
+            self.busy(cx) || self.emoji.read(cx).text().trim().is_empty(),
+            Button::disabled,
+        );
         self.typing.then(|| {
             div()
                 .flex()
@@ -170,13 +201,15 @@ impl IconEditor {
     fn reset_button(
         &self,
         cx: &mut Context<'_, Self>,
-    ) -> Option<Button> {
+    ) -> Option<Div> {
         let reset = Button::new("icon-reset", "Reset to default")
             .icon(IconName::Trash)
             .size(ButtonSize::Xs)
-            .variant(ButtonVariant::Ghost)
+            .variant(ButtonVariant::Faint)
+            .grow()
+            .when(self.busy(cx), Button::disabled)
             .on_click(cx.listener(|this, _, _, cx| this.choose(SpaceIcon::Default, cx)));
-        (self.current != SpaceIcon::Default).then_some(reset)
+        (self.current != SpaceIcon::Default).then(|| div().flex().child(reset))
     }
 }
 
@@ -190,17 +223,13 @@ impl Render for IconEditor {
         div()
             .flex()
             .flex_col()
-            .gap(SPACE_MD)
+            .gap(SPACE_LG)
+            .p(SPACE_LG)
             .w(px(WIDTH))
-            .child(
-                div()
-                    .text_size(TEXT_CAPTION)
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(palette.muted_foreground())
-                    .child(LABEL),
-            )
-            .child(preview(&self.current, palette))
-            .child(Self::action_row(cx))
+            .debug_selector(|| "icon-editor".into())
+            .child(section_label(palette))
+            .child(self.preview(palette))
+            .child(self.action_row(cx))
             .children(self.typing_row(cx))
             .children(self.reset_button(cx))
     }
@@ -220,7 +249,7 @@ mod tests {
     ) -> gpui::Entity<IconEditor> {
         let sink = Rc::clone(seen);
         let pick: Pick = Rc::new(move |icon, _| sink.borrow_mut().push(icon));
-        cx.update(|cx| cx.new(|cx| IconEditor::new(pick, cx)))
+        cx.update(|cx| cx.new(|cx| IconEditor::new((pick, Rc::new(|_| false)), cx)))
     }
 
     #[gpui::test]
@@ -242,5 +271,94 @@ mod tests {
             editor.read_with(cx, |this, _| this.current.clone()),
             SpaceIcon::Default
         );
+    }
+    #[gpui::test]
+    fn the_emoji_button_opens_a_focused_field_that_enter_sets_and_closes(cx: &mut TestAppContext) {
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let sink = Rc::clone(&seen);
+        let pick: Pick = Rc::new(move |icon, _| sink.borrow_mut().push(icon));
+        cx.update(|cx| ui::init(cx).expect("ui installs"));
+        let (editor, cx) =
+            cx.add_window_view(|_, cx| IconEditor::new((pick, Rc::new(|_| false)), cx));
+        editor.update_in(cx, IconEditor::toggle_typing);
+        let focused = editor.update_in(cx, |this, window, cx| {
+            gpui::Focusable::focus_handle(this.emoji.read(cx), cx).is_focused(window)
+        });
+        assert!(
+            focused,
+            "the field takes the keyboard, as develop's autoFocus"
+        );
+        let field = editor.read_with(cx, |this, _| this.emoji.clone());
+        field.update(cx, |field, cx| {
+            field.set_text("🦀", cx);
+            cx.emit(TextInputEvent::Submitted);
+        });
+        cx.run_until_parked();
+        assert_eq!(*seen.borrow(), vec![SpaceIcon::Emoji("🦀".into())]);
+        let after = editor.read_with(cx, |this, cx| {
+            (this.typing, this.emoji.read(cx).text().to_owned())
+        });
+        assert_eq!(after, (false, String::new()), "the field closes empty");
+    }
+
+    #[gpui::test]
+    fn the_editor_fills_develops_popover_with_a_centred_preview_over_buttons_sharing_the_row(
+        cx: &mut TestAppContext
+    ) {
+        let pick: Pick = Rc::new(|_, _| {});
+        cx.update(|cx| ui::init(cx).expect("ui installs"));
+        let (editor, cx) =
+            cx.add_window_view(|_, cx| IconEditor::new((pick, Rc::new(|_| false)), cx));
+        cx.run_until_parked();
+        let root = cx.debug_bounds("icon-editor").unwrap_or_default();
+        assert_eq!(
+            f32::from(root.size.width),
+            222.0,
+            "w-64 less its border and the viewport's px-4"
+        );
+        let preview = cx.debug_bounds("icon-preview").unwrap_or_default();
+        assert_eq!(
+            preview.center().x,
+            root.center().x,
+            "the preview is centred"
+        );
+        let row = cx.debug_bounds("icon-actions").unwrap_or_default();
+        let end = gpui::point(row.right() - px(4.0), row.center().y);
+        cx.simulate_click(end, gpui::Modifiers::none());
+        assert!(
+            editor.read_with(cx, |this, _| this.typing),
+            "the last flex-1 button, Emoji, reaches the row's end"
+        );
+    }
+
+    #[gpui::test]
+    fn upload_asks_develop_s_image_chooser_and_takes_the_picked_image(cx: &mut TestAppContext) {
+        let asked = crate::test_support::answer_choices_with(cx, "/w/mark.png");
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let sink = Rc::clone(&seen);
+        let pick: Pick = Rc::new(move |icon, _| sink.borrow_mut().push(icon));
+        cx.update(|cx| ui::init(cx).expect("ui installs"));
+        let (_, cx) = cx.add_window_view(|_, cx| IconEditor::new((pick, Rc::new(|_| false)), cx));
+        cx.run_until_parked();
+        let row = cx.debug_bounds("icon-actions").unwrap_or_default();
+        let upload = gpui::point(row.left() + px(4.0), row.center().y);
+        cx.simulate_click(upload, gpui::Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(*asked.borrow(), [ICON_IMAGE]);
+        assert_eq!(*seen.borrow(), [SpaceIcon::Image("/w/mark.png".into())]);
+    }
+
+    #[gpui::test]
+    fn upload_asks_no_chooser_while_the_icon_is_busy(cx: &mut TestAppContext) {
+        let asked = crate::test_support::answer_choices_with(cx, "/w/mark.png");
+        let pick: Pick = Rc::new(|_, _| {});
+        cx.update(|cx| ui::init(cx).expect("ui installs"));
+        let (_, cx) = cx.add_window_view(|_, cx| IconEditor::new((pick, Rc::new(|_| true)), cx));
+        cx.run_until_parked();
+        let row = cx.debug_bounds("icon-actions").unwrap_or_default();
+        let upload = gpui::point(row.left() + px(4.0), row.center().y);
+        cx.simulate_click(upload, gpui::Modifiers::none());
+        cx.run_until_parked();
+        assert!(asked.borrow().is_empty(), "a disabled Upload opens nothing");
     }
 }

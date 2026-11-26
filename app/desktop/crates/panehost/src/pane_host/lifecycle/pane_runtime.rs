@@ -1,6 +1,7 @@
 use layout::PaneInstance;
 use protocol::{Lifecycle, PaneId, PaneState, PaneTypeId, ShellFrame};
 
+use crate::catalog::PaneKind;
 use crate::pane_host::lifecycle::pane_phase::PanePhase;
 use crate::pane_host::lifecycle::stage::Stage;
 use crate::slot::Id;
@@ -8,6 +9,7 @@ use crate::slot::Id;
 #[derive(Debug)]
 pub(crate) struct PaneRuntime {
     pub(crate) type_id: PaneTypeId,
+    pub(crate) kind: PaneKind,
     pub(crate) phase: PanePhase,
     pub(crate) slot: Option<Id>,
     pub(crate) stage: Stage,
@@ -20,6 +22,7 @@ impl PaneRuntime {
     pub(crate) fn new(type_id: PaneTypeId) -> Self {
         Self {
             type_id,
+            kind: PaneKind::Web,
             phase: PanePhase::Parked,
             slot: None,
             stage: Stage::Hidden,

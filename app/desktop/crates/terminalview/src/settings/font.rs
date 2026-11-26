@@ -5,13 +5,11 @@ use terminal::StyleFlags;
 
 use crate::settings::Settings;
 
-const FALLBACKS: [&str; 7] = [
+const FALLBACKS: [&str; 5] = [
     "Symbols Nerd Font Mono",
     "Symbols Nerd Font",
     "JetBrainsMono Nerd Font Mono",
     "MesloLGS NF",
-    "Noto Color Emoji",
-    "Noto Sans Symbols 2",
     "DejaVu Sans Mono",
 ];
 

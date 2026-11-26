@@ -3,10 +3,11 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, AnyWindowHandle, App, Bounds, Context, InteractiveElement, IntoElement,
-    ParentElement, Pixels, Render, Styled, TestAppContext, VisualTestContext, Window, div,
+    AnyElement, App, Bounds, Context, InteractiveElement, IntoElement, ParentElement, Pixels,
+    Render, Styled, TestAppContext, VisualTestContext, Window, div,
 };
 
+use crate::foundation::Modality;
 use crate::foundation::Motion;
 use crate::foundation::Theme;
 
@@ -24,12 +25,17 @@ impl Render for Probe {
         cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
         let element = (self.build)(window, cx);
-        div().size_full().flex().items_start().child(
-            div()
-                .flex_none()
-                .debug_selector(|| "probe".into())
-                .child(element),
-        )
+        div()
+            .size_full()
+            .flex()
+            .items_start()
+            .child(crate::hear())
+            .child(
+                div()
+                    .flex_none()
+                    .debug_selector(|| "probe".into())
+                    .child(element),
+            )
     }
 }
 
@@ -41,6 +47,7 @@ pub(crate) fn open<E: IntoElement>(
     cx.update(|cx| {
         cx.set_global(Theme::default());
         cx.set_global(Motion::default());
+        Modality::install(cx);
         cx.bind_keys(crate::floating::menu_bindings());
         cx.bind_keys(crate::floating::popover_bindings());
         cx.bind_keys(crate::floating::dialog_bindings());
@@ -52,31 +59,18 @@ pub(crate) fn open<E: IntoElement>(
     cx
 }
 
-/// Opens a window showing `build()` and its top layer; returns the window, then the top layer.
+/// Opens a window showing `build()` with a float host installed, so its floating elements
+/// paint in float windows of their own; [`floating`] finds the newest one.
 pub(crate) fn open_floating<E: IntoElement>(
     cx: &mut TestAppContext,
     build: impl Fn(&mut Window, &mut App) -> E + 'static,
-) -> (VisualTestContext, VisualTestContext) {
-    cx.update(|cx| {
-        cx.set_global(Theme::default());
-        cx.set_global(Motion::default());
-        cx.bind_keys(crate::floating::menu_bindings());
-        cx.bind_keys(crate::floating::popover_bindings());
-        cx.bind_keys(crate::floating::dialog_bindings());
-        cx.bind_keys(crate::control::text_input_bindings());
-    });
-    let build: Build = Rc::new(move |window, cx| build(window, cx).into_any_element());
-    let owner: AnyWindowHandle = cx.add_window(move |_, _| Probe { build }).into();
-    let top = cx.update(|cx| crate::floating::TopLayer::open(owner, cx));
-    let top = top.unwrap_or_else(|error| panic!("open the top layer: {error}"));
-    cx.run_until_parked();
-    (
-        VisualTestContext::from_window(owner, cx),
-        VisualTestContext::from_window(top, cx),
-    )
+) -> VisualTestContext {
+    cx.update(crate::testing::open_float_windows);
+    let window = open(cx, build).update(|window, _| window.window_handle());
+    VisualTestContext::from_window(window, cx)
 }
 
-/// Lets a closed floating element leave the top layer: the test platform draws inside an effect
+/// Lets a closed floating element go: the test platform draws inside an effect
 /// flush, so the state of a portal that stopped rendering is released on the next one.
 pub(crate) fn settle(cx: &mut VisualTestContext) {
     cx.update(|_, _| {});

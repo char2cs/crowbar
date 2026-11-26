@@ -1,24 +1,23 @@
 //! Spaces in the switcher: projects, the active space and space list ports, icons, focus and running agents.
 
 mod active_space;
-mod focus;
-mod icon_choice;
 mod pane_focus;
 mod project;
 mod project_id;
-mod running_agent;
-mod scope_sync;
+mod requests;
 mod space_facts;
 mod space_icon;
 mod space_list;
 
 pub use active_space::ActiveSpace;
-pub use focus::Focus;
 pub use pane_focus::PaneFocus;
+pub use pane_focus::focus::Focus;
+pub use pane_focus::running_agent::RunningAgent;
 pub use project::Project;
 pub use project_id::ProjectId;
-pub use running_agent::RunningAgent;
-pub use scope_sync::ScopeSync;
+pub use requests::Requests;
+pub use requests::icon_target::IconTarget;
 pub use space_facts::SpaceFacts;
 pub use space_icon::SpaceIcon;
 pub use space_list::SpaceList;
+pub use space_list::scope_sync::ScopeSync;

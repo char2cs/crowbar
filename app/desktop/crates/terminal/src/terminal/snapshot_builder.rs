@@ -112,6 +112,7 @@ fn cursor_of<T: EventListener>(
 mod tests {
     use super::*;
     use crate::snapshot::Rgb;
+    use crate::snapshot::{StyleFlags, Underline};
     use crate::test_support::{emulator_showing, row_text};
     use alacritty_terminal::index::{Column, Line, Point, Side};
     use alacritty_terminal::selection::{Selection, SelectionType};
@@ -138,27 +139,66 @@ mod tests {
         );
     }
 
+    type Span = (usize, Rgb, StyleFlags, Underline);
+
+    struct Case {
+        name: &'static str,
+        output: &'static str,
+        selected: (usize, usize),
+        spans: &'static [Span],
+        backgrounds: &'static [usize],
+    }
+
+    const FG: Rgb = Rgb::from_hex(1);
+    const ANSI: Rgb = Rgb::from_hex(4);
+
+    const CASES: &[Case] = &[
+        Case {
+            name: "a selected cell draws in the foreground on no background",
+            output: "\x1b[41;32mab\x1b[0m",
+            selected: (0, 0),
+            spans: &[
+                (1, FG, StyleFlags::NONE, Underline::None),
+                (1, ANSI, StyleFlags::NONE, Underline::None),
+            ],
+            backgrounds: &[1],
+        },
+        Case {
+            name: "b to e take b's bold and drop c and d's underline, as xterm merges a selected run",
+            output: "\x1b[1mab\x1b[0;4mcd\x1b[0mef",
+            selected: (1, 4),
+            spans: &[
+                (5, FG, StyleFlags::BOLD, Underline::None),
+                (1, FG, StyleFlags::NONE, Underline::None),
+            ],
+            backgrounds: &[],
+        },
+    ];
+
     #[test]
-    fn selected_cells_draw_in_the_foreground_on_no_background_as_xterm_draws_them() {
-        let mut term = emulator_showing("\x1b[41;32mab\x1b[0m", 10, 2);
-        let at = |column| Point::new(Line(0), Column(column));
-        let mut selection = Selection::new(SelectionType::Simple, at(0), Side::Left);
-        selection.update(at(0), Side::Right);
-        term.selection = Some(selection);
+    fn selected_cells_draw_as_xterm_draws_them() {
         let palette = Palette {
-            foreground: Rgb::from_hex(1),
+            foreground: FG,
             background: Rgb::from_hex(2),
             cursor: Rgb::from_hex(3),
-            ansi: [Rgb::from_hex(4); 16],
+            ansi: [ANSI; 16],
         };
-        let row = &build_snapshot(&term, &palette, None).rows[0];
-        let colors: Vec<Rgb> = row.segments[0]
-            .spans
-            .iter()
-            .map(|span| span.foreground)
-            .collect();
-        assert_eq!(colors, [palette.foreground, Rgb::from_hex(4)]);
-        assert_eq!(row.backgrounds.len(), 1);
-        assert_eq!(row.backgrounds[0].column, 1);
+        let at = |column| Point::new(Line(0), Column(column));
+        for case in CASES {
+            let mut term = emulator_showing(case.output, 10, 2);
+            let mut selection =
+                Selection::new(SelectionType::Simple, at(case.selected.0), Side::Left);
+            selection.update(at(case.selected.1), Side::Right);
+            term.selection = Some(selection);
+            let row = &build_snapshot(&term, &palette, None).rows[0];
+            let spans: Vec<Span> = row.segments[0]
+                .spans
+                .iter()
+                .map(|span| (span.len, span.foreground, span.flags, span.underline))
+                .collect();
+            assert_eq!(spans, case.spans, "{}: spans", case.name);
+            let filled: Vec<usize> = row.backgrounds.iter().map(|span| span.column).collect();
+            assert_eq!(filled, case.backgrounds, "{}: backgrounds", case.name);
+        }
     }
 }

@@ -26,7 +26,8 @@ impl Render for Counted {
     }
 }
 
-fn install(cx: &mut TestAppContext) {
+/// Installs the theme, motion and text input bindings a field needs.
+pub(crate) fn install(cx: &mut TestAppContext) {
     cx.update(|cx| {
         cx.set_global(Theme::default());
         cx.set_global(Motion::default());

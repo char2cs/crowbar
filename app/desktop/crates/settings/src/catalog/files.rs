@@ -1,6 +1,6 @@
 //! The Files page.
 
-use super::number_setting::NumberSetting;
+use super::rows::number_setting::NumberSetting;
 use super::rows::row;
 use crate::schema::Control;
 use crate::schema::ControlWidth;
@@ -9,7 +9,7 @@ use crate::schema::Row;
 use crate::schema::Section;
 use crate::values::Value;
 
-const INDENT_SIZE: NumberSetting = NumberSetting::new((8.0, 32.0, 1.0), 16.0);
+const INDENT_SIZE: NumberSetting = NumberSetting::normalized((8.0, 32.0, 1.0), 16.0);
 
 pub(super) fn page() -> Page {
     Page::new("file-explorer", "Files", "tree-structure")
