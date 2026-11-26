@@ -6,9 +6,9 @@ use crate::schema::Heading;
 use crate::schema::ListBlock;
 use crate::schema::Page;
 
-pub(super) const HOSTS: &str = "hosts";
+pub(in crate::catalog) const HOSTS: &str = "hosts";
 
-pub(super) fn page() -> Page {
+pub(in crate::catalog) fn page() -> Page {
     Page::new("hosts", "Hosts", "hard-drives")
         .block(Heading::new(
             "Hosts",

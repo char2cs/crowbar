@@ -295,7 +295,7 @@ mod tests {
                 .map(|page| page.id().clone())
                 .collect()
         });
-        assert_eq!(pages.len(), 10);
+        assert_eq!(pages.len(), 11);
         for page in pages {
             run(&harness, Intent::Select(page.clone()), cx);
             assert_eq!(

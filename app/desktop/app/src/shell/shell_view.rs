@@ -64,6 +64,7 @@ pub(crate) struct ShellView {
     file_prompt: Option<Entity<file_prompt::FilePrompt>>,
     name_prompt: Option<(protocol::PaneId, Entity<name_prompt::NamePrompt>)>,
     pairing: Option<Entity<pairing::View>>,
+    device_offer: Option<Entity<pairing::OfferView>>,
     first_run: Option<(events::first_run::landing::Landing, Entity<oobe::View>)>,
     question: Option<gpui::AnyView>,
     pending_close: Option<pending_close::PendingClose>,
@@ -123,6 +124,7 @@ impl ShellView {
             file_prompt: None,
             name_prompt: None,
             pairing: None,
+            device_offer: None,
             first_run: None,
             question: None,
             pending_close: None,
@@ -179,6 +181,7 @@ impl ShellView {
             || self.file_prompt.is_some()
             || self.name_prompt.is_some()
             || self.pairing.is_some()
+            || self.device_offer.is_some()
             || self.first_run.is_some()
             || self.question.is_some()
     }
@@ -219,6 +222,7 @@ impl ShellView {
             .children(layer(self.first_run.as_ref().map(|(_, oobe)| oobe)).map(solid))
             .children(layer(self.folder_import.as_ref()))
             .children(layer(self.pairing.as_ref()))
+            .children(layer(self.device_offer.as_ref()))
             .children(
                 self.question
                     .clone()

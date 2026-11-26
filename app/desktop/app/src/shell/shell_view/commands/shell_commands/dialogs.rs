@@ -3,6 +3,7 @@ use std::path::Path;
 use branchimport::ImportEvent;
 use diagnostics::LogPaths;
 use gpui::{AppContext as _, Context, Entity, Window};
+use settings::RecordBackend as _;
 
 use super::ShellView;
 use crate::daemon::diagnostics_export;
@@ -39,6 +40,49 @@ impl ShellView {
         if matches!(event, pairing::Event::Close) {
             self.pairing = None;
             cx.notify();
+        }
+    }
+
+    pub(in crate::shell::shell_view) fn show_device_offer(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if self.device_offer.is_some() {
+            return;
+        }
+        let (signal, _) = data_signal::callbacks(&self.requests, &self.data_queued);
+        let offer = match self.data.device_offer(signal) {
+            Ok(offer) => offer,
+            Err(error) => {
+                return tracing::warn!(%error, "no device can pair without a local daemon");
+            },
+        };
+        let dialog = cx.new(|_| pairing::OfferView::new(offer));
+        self.subscriptions
+            .push(cx.subscribe(&dialog, |this, _, _: &pairing::Event, cx| {
+                this.close_device_offer(cx);
+            }));
+        self.device_offer = Some(dialog);
+        cx.notify();
+    }
+
+    // SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/hosts/components/add-device-dialog.tsx
+    fn close_device_offer(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.device_offer = None;
+        cx.notify();
+        let Some(backend) = self.settings_backend() else {
+            return;
+        };
+        let reread = backend.apply(
+            settings::DEVICE_RECORDS,
+            "",
+            settings::RecordCommand::Refresh,
+        );
+        if let Err(error) = reread {
+            tracing::warn!(%error, "the paired devices were not read again");
         }
     }
 

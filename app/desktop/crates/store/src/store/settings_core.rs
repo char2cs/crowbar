@@ -1,6 +1,7 @@
 //! Settings and record lists over the daemon and the shell's own settings file.
 
 mod agents;
+mod devices;
 pub(crate) mod json_file;
 mod lists;
 mod live_records;
@@ -31,6 +32,7 @@ use crate::live::Roster;
 use crate::live::{Outcome, OutcomeSink};
 use crate::store::settings_core::agents::descriptor_report::DescriptorReport;
 use crate::store::settings_core::agents::permission_key::PERMISSION;
+use crate::store::settings_core::devices::device::Device;
 use crate::store::settings_core::settings_writer::SettingsWriter;
 use crate::store::settings_core::system_fonts::choices as font_choices;
 
@@ -40,6 +42,13 @@ pub(crate) const HOSTS: &str = "hosts";
 pub(crate) const DESCRIPTORS: &str = "descriptors";
 const UPLOAD_DESCRIPTOR: &str = "agents.uploadDescriptor";
 const ADD_HOST: &str = "hosts.add";
+const ADD_DEVICE: &str = "devices.add";
+const DAEMON_HELD: [&str; 4] = [
+    PERMISSION,
+    settings::DEVICE_CONNECTIONS,
+    settings::DEVICE_ADDRESS,
+    settings::DEVICE_LISTENING,
+];
 const CLEAR_BROWSING_DATA: &str = "browser.clearData";
 // PLATFORM: linux: browser tabs share the app's own storage, so only macOS clears browsing data.
 const CLEARS_BROWSING_DATA: bool = cfg!(target_os = "macos");
@@ -49,6 +58,7 @@ pub(crate) struct SettingsCore {
     pub(crate) values: Mutex<BTreeMap<String, Value>>,
     pub(crate) agents: Mutex<Loadable<Vec<Provider>>>,
     pub(crate) descriptors: Mutex<Loadable<Vec<DescriptorReport>>>,
+    pub(crate) devices: Mutex<Loadable<Vec<Device>>>,
     outbox: Mutex<Vec<Change>>,
     pub(crate) hub: Arc<Hub>,
     pub(crate) handle: Handle,
@@ -88,6 +98,7 @@ impl SettingsCore {
             values: Mutex::new(values),
             agents: Mutex::new(Loadable::Loading),
             descriptors: Mutex::new(Loadable::Loading),
+            devices: Mutex::new(Loadable::Loading),
             outbox: Mutex::new(Vec::new()),
             hub: wiring.hub,
             handle: wiring.handle,
@@ -108,6 +119,8 @@ impl SettingsCore {
             core.read_permission().await;
             core.read_agents().await;
             core.read_descriptors().await;
+            core.read_access().await;
+            core.read_devices().await;
         });
     }
 
@@ -156,6 +169,9 @@ impl SettingsCore {
         if key.as_str() == PERMISSION {
             return self.send_permission(previous, level);
         }
+        if key.as_str() == settings::DEVICE_CONNECTIONS {
+            return self.send_access(previous);
+        }
         self.push(Change::Setting(key.clone(), announced));
     }
 
@@ -166,9 +182,9 @@ impl SettingsCore {
     ) -> Option<Value> {
         let mut values = locked(&self.values);
         let previous = values.insert(key.as_str().to_owned(), value);
-        if key.as_str() != PERMISSION {
+        if !DAEMON_HELD.contains(&key.as_str()) {
             let mut local = values.clone();
-            local.remove(PERMISSION);
+            local.retain(|key, _| !DAEMON_HELD.contains(&key.as_str()));
             self.writer.submit(local);
         }
         previous
@@ -185,6 +201,7 @@ impl SettingsCore {
         let asked = match id {
             UPLOAD_DESCRIPTOR => Outcome::PickDescriptor,
             ADD_HOST => Outcome::PairHost,
+            ADD_DEVICE => Outcome::AddDevice,
             CLEAR_BROWSING_DATA => Outcome::ClearBrowsingData,
             other => return Err(Error::Unavailable(format!("{other} is not available here"))),
         };

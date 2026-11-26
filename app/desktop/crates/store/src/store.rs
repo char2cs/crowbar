@@ -16,6 +16,9 @@ pub use branch_import::{Availability, BranchImport, BranchListing, ImportBranch,
 pub use folder_browse::{BrowseEntry, FolderBrowse, FolderChoice, FolderListing, ROOT_PATH};
 pub use legacy_drafts::LegacyDrafts;
 pub use local_link::LocalLink;
+pub use pairing::device_offer::DeviceOffer;
+pub use pairing::offer::Offer;
+pub use pairing::offer_state::OfferState;
 pub use pairing::pairing_session::{PairingPending, PairingSession, PairingStage, PairingState};
 pub use ports::Ports;
 pub use projects::projects_load::ProjectsLoad;

@@ -51,6 +51,7 @@ editor = { path = "desktop/crates/editor" }
 editorview = { path = "desktop/crates/editorview" }
 
 async-channel = "2"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 gdkx11 = "0.18"
 gpui = { package = "gpui-pre", version = "=0.3.14" }
 gpui-kit = { version = "=0.11.0", default-features = false, features = [
