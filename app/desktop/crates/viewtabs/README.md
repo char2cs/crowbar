@@ -11,7 +11,6 @@ the sidebar toggle (`mod+b`), driven by the layout model's commands.
   `ToggleSidebar`).
 - `TabView`, `MemberView`, `MemberKind`: what one pill shows.
 - `SidebarState`, `Clock`.
-- `tabsgallery` binary (`src/bin/gallery/`): the row over a fake model, with chat chips to drag in.
 
 ## Depends on
 
