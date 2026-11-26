@@ -1,0 +1,193 @@
+name: Desktop build
+
+# Called by rust.yml (branch pushes, never published) and by nightly / prerelease /
+# stable-release. Packages the Rust shell with app/desktop/packaging/package.sh: a universal
+# DMG, and an AppImage plus a deb for each Linux architecture. With the APPLE_* secrets the
+# DMG is signed and notarized (docs/macos-code-signing.md); without them it is ad-hoc signed.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to build
+        type: string
+        default: ''
+      version:
+        description: App version stamped into the Rust workspace, e.g. 0.1.0-nightly; empty keeps app/Cargo.toml's
+        type: string
+        default: ''
+      channel:
+        description: VITE_BUILD_CHANNEL (nightly | beta | release)
+        type: string
+        default: ''
+      build-version:
+        description: VITE_BUILD_VERSION (tag shown in the UI)
+        type: string
+        default: ''
+      timestamp:
+        description: VITE_BUILD_TIMESTAMP
+        type: string
+        default: ''
+      artifact-prefix:
+        description: Artifacts are named <prefix>-macos and <prefix>-linux-<goarch>
+        type: string
+        required: true
+      retention-days:
+        description: Days the artifacts are kept; 0 keeps the repository default
+        type: number
+        default: 0
+    secrets:
+      APPLE_CERTIFICATE:
+        required: false
+      APPLE_CERTIFICATE_PASSWORD:
+        required: false
+      APPLE_SIGNING_IDENTITY:
+        required: false
+      APPLE_ID:
+        required: false
+      APPLE_PASSWORD:
+        required: false
+      APPLE_TEAM_ID:
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+  NODE_OPTIONS: --max-old-space-size=6144
+  VITE_BUILD_CHANNEL: ${{ inputs.channel }}
+  VITE_BUILD_VERSION: ${{ inputs.build-version }}
+  VITE_BUILD_TIMESTAMP: ${{ inputs.timestamp }}
+
+jobs:
+  macos:
+    # macos-26 (not macos-latest): the Liquid Glass icon needs Xcode 26's actool, and
+    # macos-latest lands on either 15 or 26.
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Check Xcode and the Metal toolchain
+        run: |
+          xcrun --sdk macosx metal --version || {
+            xcodebuild -downloadComponent MetalToolchain
+            xcrun --sdk macosx metal --version
+          }
+      - name: Install Rust toolchain (app/rust-toolchain.toml)
+        working-directory: app
+        run: rustup toolchain install && rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app
+          key: package-macos
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.2'
+          cache-dependency-path: api/go.sum
+      - uses: oven-sh/setup-bun@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-packager@0.11.8
+      - name: Stamp the version into the Rust workspace
+        if: inputs.version != ''
+        working-directory: app
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          sed -i.orig "/^\[workspace\.package\]/,/^\[/s/^version = \".*\"/version = \"${VERSION}\"/" Cargo.toml
+          rm Cargo.toml.orig
+          cargo update --workspace
+      - name: Package (universal DMG)
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: bash app/desktop/packaging/package.sh
+      - name: Verify the bundle
+        run: |
+          bundle=app/target/package/out/Crowbar.app/Contents
+          lipo -archs "$bundle/MacOS/crowbar"
+          lipo -archs "$bundle/MacOS/crowbar-api"
+          test -f "$bundle/Resources/panes/chat/index.html"
+          codesign --verify --strict --verbose=2 "$bundle/.."
+          du -h app/target/package/dist/*.dmg
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact-prefix }}-macos
+          path: app/target/package/dist/*.dmg
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention-days }}
+
+  linux:
+    name: linux (${{ matrix.goarch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            goarch: amd64
+          - runner: ubuntu-24.04-arm
+            goarch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+      # xdg-utils is explicit because the AppImage carries /usr/bin/xdg-open and the arm64
+      # runner image, unlike x86's, has no Chrome to pull it in.
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake clang pkg-config dpkg-dev file xdg-utils \
+            libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev librsvg2-dev \
+            libfontconfig-dev libfreetype-dev libssl-dev libdbus-1-dev libzstd-dev libasound2-dev \
+            libxcb1-dev libx11-dev libx11-xcb-dev libxcb-xkb-dev libxcb-render0-dev \
+            libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libxkbcommon-x11-dev \
+            libxkbfile-dev libwayland-dev libvulkan-dev
+      - name: Install Rust toolchain (app/rust-toolchain.toml)
+        working-directory: app
+        run: rustup toolchain install && rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app
+          key: package-linux-${{ matrix.goarch }}
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.2'
+          cache-dependency-path: api/go.sum
+      - uses: oven-sh/setup-bun@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-packager@0.11.8
+      - name: Stamp the version into the Rust workspace
+        if: inputs.version != ''
+        working-directory: app
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          sed -i.orig "/^\[workspace\.package\]/,/^\[/s/^version = \".*\"/version = \"${VERSION}\"/" Cargo.toml
+          rm Cargo.toml.orig
+          cargo update --workspace
+      - name: Package (AppImage + deb)
+        run: bash app/desktop/packaging/package.sh
+      - name: Verify the packages
+        run: |
+          dpkg-deb --info app/target/package/dist/*.deb
+          dpkg-deb --contents app/target/package/dist/*.deb | grep -E 'usr/bin/|chat/index.html|\.desktop'
+          du -h app/target/package/dist/*
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact-prefix }}-linux-${{ matrix.goarch }}
+          path: |
+            app/target/package/dist/*.AppImage
+            app/target/package/dist/*.deb
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention-days }}
