@@ -22,6 +22,18 @@ use line_event::LineEvent;
 
 type Finished = (String, AgentAnswer);
 
+pub(crate) async fn serve<S: PeerStream>(
+    stream: &mut S,
+    session: &PeerSession,
+) -> Ending {
+    let mut line = Line::new(session);
+    let mut flow = ControlFlow::Continue(());
+    while flow.is_continue() {
+        flow = line.step(stream).await;
+    }
+    flow.break_value().unwrap_or(Ending::Lost)
+}
+
 pub(crate) struct Line<'a> {
     session: &'a PeerSession,
     tabs: watch::Receiver<Vec<TabSummary>>,
@@ -154,43 +166,145 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use tokio::sync::watch;
+    use serde_json::{Value, json};
 
     use super::*;
-    use crate::test_support::{RecordingShell, line, tab};
-    use crate::wait::Replies;
+    use crate::shell::TabCommands;
+    use crate::test_support::{Daemon, RecordingShell, line, session, tab};
+    use crate::wait::{Delivery, Replies};
 
-    #[tokio::test(start_paused = true)]
-    async fn a_frame_the_daemon_may_not_send_changes_nothing_and_a_hung_up_daemon_ends_the_line() {
-        let (_tabs, tabs_rx) = watch::channel(vec![tab("http://a.test/")]);
+    struct Rig {
+        daemon: Daemon,
+        tabs: watch::Sender<Vec<TabSummary>>,
+        shell: Arc<RecordingShell>,
+        replies: Arc<Replies>,
+    }
+
+    fn rig() -> Rig {
+        let (mut stream, daemon) = line();
+        let (tabs, tabs_rx) = watch::channel(vec![tab("http://a.test/")]);
+        let shell = Arc::new(RecordingShell::default());
+        let replies = Arc::new(Replies::default());
         let session = PeerSession {
             tabs: tabs_rx,
-            commands: Arc::new(RecordingShell::default()),
-            replies: Arc::new(Replies::default()),
+            commands: Arc::clone(&shell) as Arc<dyn TabCommands>,
+            replies: Arc::clone(&replies),
         };
+        tokio::spawn(async move {
+            serve(&mut stream, &session).await;
+        });
+        Rig {
+            daemon,
+            tabs,
+            shell,
+            replies,
+        }
+    }
+
+    fn request(
+        id: &str,
+        op: &str,
+        args: &Value,
+    ) -> Value {
+        json!({"type":"request","id":id,"op":op,"chatId":"c1","tab":"b1","args":args})
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_hello_is_answered_with_the_tabs_and_a_change_is_reported_once() {
+        let mut rig = rig();
+        rig.daemon.say(&json!({"type":"hello"}));
+        let first = rig.daemon.next().await;
+        assert_eq!(first["tabs"][0]["url"], "http://a.test/");
+        rig.tabs.send_replace(vec![tab("http://a.test/")]);
+        rig.tabs.send_replace(vec![tab("http://b.test/")]);
+        let second = rig.daemon.next().await;
+        assert_eq!(
+            second["tabs"][0]["url"], "http://b.test/",
+            "an equal list is not repeated"
+        );
+        let more = tokio::time::timeout(Duration::from_millis(1), rig.daemon.next()).await;
+        assert!(more.is_err(), "nothing more was reported");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_request_reaches_the_shell_and_the_shells_answer_goes_back_under_its_id() {
+        let mut rig = rig();
+        rig.daemon.say(&request("7", "click", &json!({"ref":"e1"})));
+        let _tabs = rig.daemon.next().await;
+        let received = rig.shell.first().await;
+        let named = (
+            received.id.as_str(),
+            received.chat_id.as_str(),
+            received.tab.as_str(),
+        );
+        assert_eq!(named, ("7", "c1", "b1"));
+        assert!(matches!(received.op, AgentOp::Page { .. }));
+        let delivered = rig
+            .replies
+            .from_page("b1", "7", AgentAnswer::Done(json!("clicked")));
+        assert_eq!(delivered, Delivery::Delivered);
+        let answer = rig.daemon.next().await;
+        assert_eq!(
+            answer,
+            json!({"type":"response","id":"7","ok":true,"result":"clicked"})
+        );
+    }
+
+    const CASES: &[(&str, &str, &str)] = &[
+        ("navigate", r#"{"url":"file:///etc/passwd"}"#, "file"),
+        ("snapshot", "{}", "no answer"),
+    ];
+
+    async fn fails_under_its_id(&(op, args, mentions): &(&str, &str, &str)) {
+        let mut rig = rig();
+        let args: Value = serde_json::from_str(args).unwrap();
+        rig.daemon.say(&request("9", op, &args));
+        let _tabs = rig.daemon.next().await;
+        let answer = rig.daemon.next().await;
+        assert_eq!((&answer["ok"], &answer["id"]), (&json!(false), &json!("9")));
+        let error = answer["error"].as_str().unwrap();
+        assert!(error.contains(mentions), "{op}: {answer}");
+    }
+
+    async fn every_failure() {
+        for case in CASES {
+            fails_under_its_id(case).await;
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_request_that_cannot_be_carried_out_or_is_never_answered_fails_under_its_id() {
+        every_failure().await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_connection_ends_as_lost_when_the_daemon_hangs_up_and_as_gone_when_the_window_does() {
+        let (tabs, tabs_rx) = watch::channel(vec![tab("http://a.test/")]);
+        let session = session(tabs_rx);
         let (mut stream, daemon) = line();
         let mut at = Line::new(&session);
-        daemon.say(&serde_json::json!({"type":"nonsense"}));
-        assert_eq!(at.step(&mut stream).await, ControlFlow::Continue(()));
+        daemon.say(&json!({"type":"nonsense"}));
+        let unknown = at.step(&mut stream).await;
+        assert_eq!(
+            unknown,
+            ControlFlow::Continue(()),
+            "an unknown frame changes nothing"
+        );
         drop(daemon);
-        assert_eq!(at.step(&mut stream).await, ControlFlow::Break(Ending::Lost));
+        assert_eq!(serve(&mut stream, &session).await, Ending::Lost);
+        let (mut stream, _daemon) = line();
+        drop(tabs);
+        assert_eq!(serve(&mut stream, &session).await, Ending::WindowGone);
     }
 
     #[tokio::test(start_paused = true)]
     async fn the_requests_of_a_connection_that_ends_stop_waiting() {
         let (_tabs, tabs_rx) = watch::channel(vec![tab("http://a.test/")]);
-        let replies = Arc::new(Replies::default());
-        let session = PeerSession {
-            tabs: tabs_rx,
-            commands: Arc::new(RecordingShell::default()),
-            replies: Arc::clone(&replies),
-        };
+        let session = session(tabs_rx);
+        let replies = Arc::clone(&session.replies);
         let (mut stream, daemon) = line();
         let mut at = Line::new(&session);
-        let request = serde_json::json!({
-            "type":"request","id":"7","op":"snapshot","chatId":"c1","tab":"b1","args":{}
-        });
-        daemon.say(&request);
+        daemon.say(&request("7", "snapshot", &json!({})));
         let heard = at.step(&mut stream).await;
         assert_eq!(heard, ControlFlow::Continue(()));
         let quiet = tokio::time::timeout(Duration::from_millis(1), at.step(&mut stream)).await;

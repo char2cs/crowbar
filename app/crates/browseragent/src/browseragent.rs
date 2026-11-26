@@ -43,15 +43,12 @@ async fn attach_once<C: PeerConnector>(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use serde_json::json;
     use tokio::sync::watch;
 
     use super::*;
     use crate::error::Error;
-    use crate::test_support::{FakeConnector, FakeStream, RecordingShell, line, tab};
-    use crate::wait::Replies;
+    use crate::test_support::{FakeConnector, FakeStream, line, session, tab};
 
     async fn attach(
         lines: Vec<Result<FakeStream, Error>>,
@@ -66,12 +63,7 @@ mod tests {
         let (second, mut second_daemon) = line();
         let lines = vec![Ok(first), Err(Error::Stream("not yet".into())), Ok(second)];
         let (tabs, tabs_rx) = watch::channel(vec![tab("http://a.test/")]);
-        let session = PeerSession {
-            tabs: tabs_rx,
-            commands: Arc::new(RecordingShell::default()),
-            replies: Arc::new(Replies::default()),
-        };
-        let attached = tokio::spawn(attach(lines, session));
+        let attached = tokio::spawn(attach(lines, session(tabs_rx)));
         drop(first_daemon);
         second_daemon.say(&json!({"type":"hello"}));
         let reported = second_daemon.next().await;
@@ -88,13 +80,11 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_window_that_goes_while_the_daemon_is_down_ends_the_loop() {
         let (tabs, tabs_rx) = watch::channel(vec![tab("http://a.test/")]);
-        let session = PeerSession {
-            tabs: tabs_rx,
-            commands: Arc::new(RecordingShell::default()),
-            replies: Arc::new(Replies::default()),
-        };
         drop(tabs);
-        let ended = tokio::time::timeout(Duration::from_secs(60), attach(Vec::new(), session));
+        let ended = tokio::time::timeout(
+            Duration::from_secs(60),
+            attach(Vec::new(), session(tabs_rx)),
+        );
         assert!(
             ended.await.is_ok(),
             "the loop kept retrying for a gone window"
