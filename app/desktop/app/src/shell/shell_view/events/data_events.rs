@@ -110,6 +110,7 @@ impl ShellView {
                 self.show_notice(NoticeKey::Command, (ToastKind::Error, reason), cx);
             },
             DataOutcome::Refused { title, reason } => self.show_refusal(title, reason, cx),
+            DataOutcome::Alert { title, message } => self.show_alert((title, message), window, cx),
             DataOutcome::ReviewViewed { workspace, viewed } => {
                 self.push_review_viewed(&workspace, &viewed);
             },

@@ -4,6 +4,7 @@ mod after;
 pub(crate) mod agent;
 pub(crate) mod create;
 mod edit;
+mod failing;
 mod failure_title;
 mod icon;
 mod merge;
@@ -37,6 +38,7 @@ pub(crate) struct Plan {
     pub(crate) removal: Option<Removal>,
     pub(crate) failure: Option<String>,
     pub(crate) explained: Option<String>,
+    pub(crate) alerting: Option<String>,
     pub(crate) settling: Option<String>,
 }
 
@@ -59,6 +61,7 @@ impl Plan {
             removal: None,
             failure: None,
             explained: None,
+            alerting: None,
             settling: None,
         }
     }
@@ -87,15 +90,6 @@ impl Plan {
         removal: Removal,
     ) -> Self {
         self.removal = Some(removal);
-        self
-    }
-
-    #[must_use]
-    pub(crate) fn failing_as(
-        mut self,
-        title: Option<String>,
-    ) -> Self {
-        self.failure = title;
         self
     }
 
@@ -138,15 +132,6 @@ impl Plan {
         landing: Surface,
     ) -> Self {
         self.landing = landing;
-        self
-    }
-
-    #[must_use]
-    pub(crate) fn explaining(
-        mut self,
-        reason: &str,
-    ) -> Self {
-        self.explained = Some(reason.to_owned());
         self
     }
 

@@ -100,6 +100,7 @@ impl SidebarCommands {
             Command::RenameFile { path, new_path } => self
                 .require_free(new_path)
                 .and_then(|()| self.rename_file(path, new_path)),
+            Command::MoveFile { path, new_path } => self.move_file(path, new_path),
             Command::DeleteFile { path } => self.delete_file(path),
             Command::CopyFile { path, destination } => self
                 .require_free(destination)

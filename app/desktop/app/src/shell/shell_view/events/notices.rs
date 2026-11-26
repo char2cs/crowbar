@@ -7,6 +7,8 @@ use crate::shell::shell_view::ShellView;
 use crate::shell::window::notice_key::NoticeKey;
 use crate::shell::window::notices;
 
+const ALERT_OK: &str = "OK";
+
 impl ShellView {
     pub(crate) fn track_daemon(
         &mut self,
@@ -72,6 +74,24 @@ impl ShellView {
         tracing::warn!(%title, %reason, "a command failed");
         let (key, notice) = notices::failure_notice(title, reason);
         self.show_keyed(&key, notice, cx);
+    }
+
+    pub(crate) fn show_alert(
+        &mut self,
+        (title, message): (String, String),
+        window: &Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let Some(native) = ui::NativeAlert::installed(cx) else {
+            return self.show_refusal(title, message, cx);
+        };
+        tracing::warn!(%title, %message, "a command failed");
+        let request = ui::AlertRequest {
+            title: Some(title.into()),
+            message: message.into(),
+            buttons: vec![ui::AlertButton::new(ALERT_OK, ui::AlertRole::Accept)],
+        };
+        native.ask(request, window, cx).detach();
     }
 
     pub(crate) fn show_keyed(
@@ -143,6 +163,35 @@ mod tests {
             (false, true),
             "docked in the open sidebar, then floating"
         );
+    }
+
+    #[gpui::test]
+    fn an_alert_asks_the_desktop_s_message_dialog_with_a_lone_ok(cx: &mut TestAppContext) {
+        let asked = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let record = std::rc::Rc::clone(&asked);
+        let ask: ui::AskAlert = std::rc::Rc::new(move |request, _, _| {
+            record.borrow_mut().push(request);
+            gpui::Task::ready(Some(0))
+        });
+        let mut opened = open_shell(cx);
+        opened
+            .window
+            .update(|_, cx| cx.set_global(ui::NativeAlert::new(ask)));
+        let words = (
+            "Move Failed".to_owned(),
+            "Failed to move a.rs: locked".to_owned(),
+        );
+        opened
+            .shell
+            .update_in(&mut opened.window, |shell, window, cx| {
+                shell.show_alert(words, window, cx);
+            });
+        let request = ui::AlertRequest {
+            title: Some("Move Failed".into()),
+            message: "Failed to move a.rs: locked".into(),
+            buttons: vec![ui::AlertButton::new("OK", ui::AlertRole::Accept)],
+        };
+        assert_eq!(*asked.borrow(), [request]);
     }
 
     #[gpui::test]

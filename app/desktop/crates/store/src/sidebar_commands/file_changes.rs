@@ -18,8 +18,28 @@ use crate::sidebar_commands::SidebarCommands;
 use crate::sidebar_commands::file_session::{PATH_KEY, parent_of};
 use crate::sidebar_commands::new_entry::NewEntry;
 
+// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/file-explorer/file-explorer/components/file-explorer-tree.tsx
+const MOVE_FAILED: &str = "Move Failed";
+
+fn titled(title: &str) -> impl FnOnce(Plan) -> Plan + '_ {
+    move |plan| plan.failing_as(Some(title.to_owned()))
+}
+
 fn files_route(target: &FileTarget) -> String {
     format!("/v0/chats/{}/files", target.chat)
+}
+
+fn patched<'a>(
+    (path, new_path): (&'a str, &'a str)
+) -> impl FnOnce(&FileTarget) -> (Call, Vec<String>) + 'a {
+    move |target| {
+        let body = json!({PATH_KEY: path, "newPath": new_path});
+        let left_and_entered = vec![parent_of(path), parent_of(new_path)];
+        (
+            Call::patch(files_route(target)).json(body),
+            left_and_entered,
+        )
+    }
 }
 
 async fn change_and_reload(
@@ -52,13 +72,13 @@ async fn say_content(
 impl SidebarCommands {
     fn change_files(
         &self,
-        failure: Option<&str>,
+        failing: impl FnOnce(Plan) -> Plan,
         make: impl FnOnce(&FileTarget) -> (Call, Vec<String>),
     ) -> Result<(), Error> {
         let target = self.hub.read(file_target::of).map_err(Error::from)?;
         let (call, mut directories) = make(&target);
         directories.dedup();
-        let plan = Plan::of(&target.host, vec![call]).failing_as(failure.map(str::to_owned));
+        let plan = failing(Plan::of(&target.host, vec![call]));
         let (hub, outcome) = (Arc::clone(&self.hub), Arc::clone(&self.outcome));
         let client = self.hub.read(|state| state.client_of_chat(&target.chat));
         let reload = |directory| ReloadTarget {
@@ -77,7 +97,7 @@ impl SidebarCommands {
         path: &str,
         entry: NewEntry,
     ) -> Result<(), Error> {
-        self.change_files(None, |target| {
+        self.change_files(std::convert::identity, |target| {
             let body = json!({PATH_KEY: path, "type": entry.kind()});
             (
                 Call::post(files_route(target)).json(body),
@@ -91,7 +111,7 @@ impl SidebarCommands {
         (source, destination): (&str, &str),
         failure: &str,
     ) -> Result<(), Error> {
-        self.change_files(Some(failure), |target| {
+        self.change_files(titled(failure), |target| {
             let body = json!({"sourcePath": source, "destPath": destination});
             let route = format!("{}/copy", files_route(target));
             (Call::post(route).json(body), vec![parent_of(destination)])
@@ -103,21 +123,24 @@ impl SidebarCommands {
         path: &str,
         new_path: &str,
     ) -> Result<(), Error> {
-        self.change_files(Some("Rename failed"), |target| {
-            let body = json!({PATH_KEY: path, "newPath": new_path});
-            let left_and_entered = vec![parent_of(path), parent_of(new_path)];
-            (
-                Call::patch(files_route(target)).json(body),
-                left_and_entered,
-            )
-        })
+        self.change_files(titled("Rename failed"), patched((path, new_path)))
+    }
+
+    pub(crate) fn move_file(
+        &self,
+        path: &str,
+        new_path: &str,
+    ) -> Result<(), Error> {
+        let lead = format!("Failed to move {}", sidebar::PathText::new(path).base());
+        let failing = |plan: Plan| titled(MOVE_FAILED)(plan).alerting(lead);
+        self.change_files(failing, patched((path, new_path)))
     }
 
     pub(crate) fn delete_file(
         &self,
         path: &str,
     ) -> Result<(), Error> {
-        self.change_files(None, |target| {
+        self.change_files(std::convert::identity, |target| {
             let body = json!({PATH_KEY: path});
             (
                 Call::delete(files_route(target)).json(body),
@@ -306,5 +329,27 @@ mod tests {
             reason: "src/c is taken".into(),
         };
         assert_eq!(until_said(&said, 3).await[2], refused);
+    }
+
+    #[tokio::test]
+    async fn a_refused_drag_move_is_said_in_develops_move_failed_dialog() {
+        let (commands, daemon, said) = commands();
+        daemon.answer(
+            ("PATCH", "/v0/chats/hc/files"),
+            423,
+            r#"{"success":false,"error":"workspace locked"}"#,
+        );
+        serve_listings(&daemon, &["src", "lib"]);
+        commands.move_file("src/a.rs", "lib/a.rs").unwrap();
+        let moved = until_seen(&daemon, "PATCH", "/v0/chats/hc/files").await;
+        assert_eq!(
+            moved,
+            Some(json!({"path": "src/a.rs", "newPath": "lib/a.rs"}))
+        );
+        let alert = Outcome::Alert {
+            title: "Move Failed".into(),
+            message: "Failed to move a.rs: workspace locked".into(),
+        };
+        assert_eq!(until_said(&said, 1).await[0], alert);
     }
 }

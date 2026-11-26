@@ -46,6 +46,14 @@ pub enum Outcome {
         /// Why, fit to show.
         reason: String,
     },
+    /// A command failed where develop stops to say so: shown as a message dialog titled for
+    /// the command, such as "Move Failed", with a lone OK.
+    Alert {
+        /// What failed.
+        title: String,
+        /// What failed and why, fit to show.
+        message: String,
+    },
     /// The daemon refused to delete `row` because work on it exists nowhere else: the shell asks
     /// again, naming `at_risk`, before the delete is sent with consent to lose it.
     WorkAtRisk {

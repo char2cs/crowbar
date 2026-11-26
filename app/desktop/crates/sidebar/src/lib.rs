@@ -12,8 +12,8 @@ mod tree;
 
 pub use error::Error;
 pub use explorer::{
-    CopyNote, FileAction, FileClipboard, FileDialog, FileKey, FileProperties, MenuScope,
-    ShellAnswers,
+    CopyNote, DropSpot, FileAction, FileClipboard, FileDialog, FileDrop, FileKey, FileMove,
+    FileProperties, MenuScope, ShellAnswers,
 };
 #[cfg(feature = "fixtures")]
 pub use fixtures::DemoShell;
