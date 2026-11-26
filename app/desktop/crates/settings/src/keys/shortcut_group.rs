@@ -25,8 +25,7 @@ impl ShortcutGroup {
         &self.shortcuts
     }
 
-    /// An empty group titled `title`.
-    pub fn new(
+    pub(crate) fn new(
         title: impl Into<String>,
         overrides: impl Into<Key>,
     ) -> Self {
@@ -38,9 +37,8 @@ impl ShortcutGroup {
         }
     }
 
-    /// Takes the active preset from the setting `key`.
     #[must_use]
-    pub fn preset_from(
+    pub(crate) fn preset_from(
         mut self,
         key: impl Into<Key>,
     ) -> Self {
@@ -48,9 +46,8 @@ impl ShortcutGroup {
         self
     }
 
-    /// Appends a shortcut.
     #[must_use]
-    pub fn shortcut(
+    pub(crate) fn shortcut(
         mut self,
         shortcut: Shortcut,
     ) -> Self {

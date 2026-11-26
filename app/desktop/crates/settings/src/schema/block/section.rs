@@ -43,8 +43,7 @@ impl Section {
         self.note.as_deref()
     }
 
-    /// A section titled `title` with a visible heading.
-    pub fn new(title: impl Into<String>) -> Self {
+    pub(crate) fn new(title: impl Into<String>) -> Self {
         Self {
             title: title.into(),
             description: None,
@@ -54,16 +53,14 @@ impl Section {
         }
     }
 
-    /// Hides the heading but keeps the title for search.
     #[must_use]
-    pub fn headerless(mut self) -> Self {
+    pub(crate) fn headerless(mut self) -> Self {
         self.show_header = false;
         self
     }
 
-    /// The text under the heading.
     #[must_use]
-    pub fn describe(
+    pub(crate) fn describe(
         mut self,
         text: impl Into<String>,
     ) -> Self {
@@ -71,9 +68,8 @@ impl Section {
         self
     }
 
-    /// The paragraph under the rows.
     #[must_use]
-    pub fn noted(
+    pub(crate) fn noted(
         mut self,
         text: impl Into<String>,
     ) -> Self {
@@ -81,9 +77,8 @@ impl Section {
         self
     }
 
-    /// Appends a row.
     #[must_use]
-    pub fn row(
+    pub(crate) fn row(
         mut self,
         row: Row,
     ) -> Self {

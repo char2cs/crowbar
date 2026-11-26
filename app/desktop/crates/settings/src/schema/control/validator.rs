@@ -11,11 +11,7 @@ pub enum Validator {
 }
 
 impl Validator {
-    /// Whether `text` is acceptable; empty text always is, because it means "unset".
-    ///
-    /// # Errors
-    /// Returns the [`Issue`] found in a non-empty `text`.
-    pub fn check(
+    pub(crate) fn check(
         self,
         text: &str,
     ) -> Result<(), Issue> {

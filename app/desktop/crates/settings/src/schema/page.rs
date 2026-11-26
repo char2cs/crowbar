@@ -2,7 +2,6 @@
 
 use crate::keys::ShortcutGroup;
 use crate::schema::block::Block;
-use crate::schema::condition::Condition;
 use crate::schema::page_id::PageId;
 use crate::schema::row::Row;
 use crate::schema::search_entry::SearchEntry;
@@ -13,7 +12,6 @@ pub struct Page {
     pub(crate) id: PageId,
     pub(crate) label: String,
     pub(crate) icon: String,
-    pub(crate) when: Option<Condition>,
     pub(crate) blocks: Vec<Block>,
     pub(crate) index: Vec<SearchEntry>,
 }
@@ -31,8 +29,7 @@ impl Page {
         &self.blocks
     }
 
-    /// A page `id` labelled `label` with the Phosphor icon whose file stem is `icon`.
-    pub fn new(
+    pub(crate) fn new(
         id: impl Into<PageId>,
         label: impl Into<String>,
         icon: impl Into<String>,
@@ -41,25 +38,13 @@ impl Page {
             id: id.into(),
             label: label.into(),
             icon: icon.into(),
-            when: None,
             blocks: Vec::new(),
             index: Vec::new(),
         }
     }
 
-    /// Shows the page only while `condition` holds.
     #[must_use]
-    pub fn when(
-        mut self,
-        condition: Condition,
-    ) -> Self {
-        self.when = Some(condition);
-        self
-    }
-
-    /// Appends a block.
-    #[must_use]
-    pub fn block(
+    pub(crate) fn block(
         mut self,
         block: impl Into<Block>,
     ) -> Self {
@@ -67,9 +52,8 @@ impl Page {
         self
     }
 
-    /// Adds `entries` to the search index; a search shows the page only when one of them matches.
     #[must_use]
-    pub fn indexed(
+    pub(crate) fn indexed(
         mut self,
         entries: impl IntoIterator<Item = SearchEntry>,
     ) -> Self {
@@ -111,12 +95,10 @@ mod tests {
     #[test]
     fn blocks_append_in_order() {
         let page = Page::new("git", "Git", "git-branch")
-            .when(Condition::capability("git"))
             .block(Section::new("One"))
             .block(Section::new("Two"));
         assert_eq!((page.id().as_str(), page.label()), ("git", "Git"));
         assert_eq!(page.icon, "git-branch");
-        assert!(page.when.is_some());
         assert_eq!(page.blocks.len(), 2);
     }
 

@@ -35,8 +35,7 @@ impl Row {
         &self.control
     }
 
-    /// A row for `key` shown as `label` with `control`.
-    pub fn new(
+    pub(crate) fn new(
         key: impl Into<Key>,
         label: impl Into<String>,
         control: Control,
@@ -56,9 +55,8 @@ impl Row {
         }
     }
 
-    /// Shows the control disabled, refusing changes, while `condition` holds.
     #[must_use]
-    pub fn frozen_while(
+    pub(crate) fn frozen_while(
         mut self,
         condition: Condition,
     ) -> Self {
@@ -66,9 +64,8 @@ impl Row {
         self
     }
 
-    /// The default, which also makes the row resettable.
     #[must_use]
-    pub fn default_value(
+    pub(crate) fn default_value(
         mut self,
         value: impl Into<Value>,
     ) -> Self {
@@ -76,23 +73,20 @@ impl Row {
         self
     }
 
-    /// Keeps the default as the value's fallback but draws no reset icon.
     #[must_use]
-    pub fn without_reset(mut self) -> Self {
+    pub(crate) fn without_reset(mut self) -> Self {
         self.reset = ResetOffer::Withheld;
         self
     }
 
-    /// Draws the label as a muted caption instead of a form label.
     #[must_use]
-    pub fn captioned(mut self) -> Self {
+    pub(crate) fn captioned(mut self) -> Self {
         self.label_style = LabelStyle::Caption;
         self
     }
 
-    /// Shows the row only while `condition` holds.
     #[must_use]
-    pub fn when(
+    pub(crate) fn when(
         mut self,
         condition: Condition,
     ) -> Self {

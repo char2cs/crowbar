@@ -14,13 +14,24 @@ pub(crate) fn heading_view(
 
 #[cfg(test)]
 mod tests {
+    use settings::{Block, default_schema};
+
     use super::*;
     use crate::test_support::measure;
 
     #[gpui::test]
     fn the_heading_is_as_tall_as_its_title_plus_its_description(cx: &mut gpui::TestAppContext) {
-        let tall = measure(cx, |_, cx| {
-            let heading = Heading::new("Agents", "Why.");
+        let schema = default_schema().unwrap();
+        let heading = schema
+            .pages()
+            .iter()
+            .flat_map(|page| page.blocks().iter())
+            .find_map(|block| match block {
+                Block::Heading(heading) => Some(heading.clone()),
+                _ => None,
+            })
+            .unwrap();
+        let tall = measure(cx, move |_, cx| {
             heading_view(&heading, cx).into_any_element()
         });
         let flat = measure(cx, |_, cx| {

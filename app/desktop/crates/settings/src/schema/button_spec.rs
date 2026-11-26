@@ -42,8 +42,7 @@ impl ButtonSpec {
         &self.action
     }
 
-    /// A button labelled `label` that runs `action`.
-    pub fn new(
+    pub(crate) fn new(
         label: impl Into<String>,
         action: Action,
     ) -> Self {
@@ -59,9 +58,8 @@ impl ButtonSpec {
         }
     }
 
-    /// Shows the Phosphor icon with this file stem before the label.
     #[must_use]
-    pub fn icon(
+    pub(crate) fn icon(
         mut self,
         stem: impl Into<String>,
     ) -> Self {
@@ -69,9 +67,8 @@ impl ButtonSpec {
         self
     }
 
-    /// Asks `confirm` before the action runs.
     #[must_use]
-    pub fn confirm(
+    pub(crate) fn confirm(
         mut self,
         confirm: Confirm,
     ) -> Self {
@@ -79,9 +76,8 @@ impl ButtonSpec {
         self
     }
 
-    /// Enables the button only while `condition` holds.
     #[must_use]
-    pub fn enabled_when(
+    pub(crate) fn enabled_when(
         mut self,
         condition: Condition,
     ) -> Self {
@@ -101,9 +97,8 @@ impl ButtonSpec {
         self.face
     }
 
-    /// Draws the button between blocks as `face`.
     #[must_use]
-    pub fn faced(
+    pub(crate) fn faced(
         mut self,
         face: ButtonFace,
     ) -> Self {
@@ -111,9 +106,8 @@ impl ButtonSpec {
         self
     }
 
-    /// Sets the help line under a button that stands between blocks.
     #[must_use]
-    pub fn noted(
+    pub(crate) fn noted(
         mut self,
         text: impl Into<String>,
     ) -> Self {
@@ -121,9 +115,8 @@ impl ButtonSpec {
         self
     }
 
-    /// Explains in the row description why the button is disabled.
     #[must_use]
-    pub fn disabled_note(
+    pub(crate) fn disabled_note(
         mut self,
         note: impl Into<String>,
     ) -> Self {

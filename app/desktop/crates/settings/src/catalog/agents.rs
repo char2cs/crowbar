@@ -29,8 +29,7 @@ pub(super) fn page() -> Page {
         .block(
             ListBlock::new(AGENTS, "No agents available.")
                 .intro(REORDER_HINT)
-                .states("Loading agents…", "Crowbar could not load the agent list — it could not reach the daemon.")
-                .columns(&["Installed", "Tools", "Enabled"]),
+                .states("Loading agents…", "Crowbar could not load the agent list — it could not reach the daemon."),
         )
         .block(
             ListBlock::new(DESCRIPTORS, "No descriptors.")

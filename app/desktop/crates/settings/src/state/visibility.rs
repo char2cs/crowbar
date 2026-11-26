@@ -36,14 +36,9 @@ impl Visibility {
     ) -> Self {
         let query = Query::new(query);
         let mut visibility = Self::default();
-        for page in schema
-            .pages()
-            .iter()
-            .filter(|page| holds(page.when.as_ref(), scope))
-            .filter(|page| {
-                query.is_blank() || page.index.iter().any(|entry| query.finds_entry(entry))
-            })
-        {
+        for page in schema.pages().iter().filter(|page| {
+            query.is_blank() || page.index.iter().any(|entry| query.finds_entry(entry))
+        }) {
             visibility.add_page(page, scope, &query);
         }
         visibility
@@ -196,8 +191,7 @@ mod tests {
             ShortcutGroup::new("Tabs", "overrides")
                 .shortcut(Shortcut::new("tabs.new", "New tab", "mod+t")),
         );
-        let hidden = Page::new("dev", "Developer", "bug").when(Condition::capability("dev"));
-        Schema::new(vec![appearance, agents, keys, hidden]).unwrap()
+        Schema::new(vec![appearance, agents, keys]).unwrap()
     }
 
     fn compute(

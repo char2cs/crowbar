@@ -16,7 +16,7 @@ of the dialog (search, selection, drafts, validation, optimistic writes, prompts
 - Ports and values: `Backend`, `Read`, `Write`, `Follow`,
   `Listener`, `Subscription`, `Snapshot`, `Change`, `Key`, `Value`, `Values`, `Choice`, `Error`.
 - Schema: `Schema`, `default_schema`, `preset_overrides`, `Page`, `PageId`, `Block`, `Section`,
-  `Heading`, `ListBlock`, `Row`, `Condition`, `Control`, `ControlWidth`, `ChoiceSource`,
+  `Heading`, `ListBlock`, `Row`, `Control`, `ControlWidth`, `ChoiceSource`,
   `NumberRange`, `Nudge`, `Validator`, `Issue`, `ButtonSpec`, `Action`, `Confirm`, and the record
   list and keybinding constants (`AGENT_RECORDS`, `KEYBINDING_OVERRIDES`, ...).
 - Shortcuts: `ModifierKey` (with `ModifierKey::primary`), `Pressed`, `Capture`, `Refusal`,

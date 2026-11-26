@@ -54,24 +54,26 @@ mod tests {
     #[test]
     fn a_failed_write_restores_the_value_and_names_the_row() {
         let mut state = state();
-        let row = gitignore_row();
+        let (row, key) = (gitignore_row(), Key::from("showIgnored"));
         assert!(state.toggle(&row).is_some());
-        assert!(state.has_unsaved());
-        state.write_failed(&Key::from("showIgnored"));
-        assert_eq!(
-            state.label_of(&Key::from("showIgnored")),
-            "Respect .gitignore"
-        );
+        state.write_failed(&key);
+        assert_eq!(state.label_of(&key), "Respect .gitignore");
         assert!(!state.switch_on(&row), "back to the default");
-        assert!(!state.has_unsaved());
-        assert!(state.toggle(&row).is_some());
-        state.acknowledged(&Key::from("showIgnored"));
-        assert!(!state.has_unsaved());
     }
 
     #[test]
-    fn remote_changes_update_values_and_conditions() {
+    fn remote_changes_wait_for_a_write_in_flight_and_update_conditions() {
         let mut state = state();
+        let (row, key) = (gitignore_row(), Key::from("showIgnored"));
+        assert!(state.toggle(&row).is_some());
+        state.remote_changed(&key, Value::Bool(true));
+        assert!(state.switch_on(&row), "the write in flight wins");
+        state.acknowledged(&key);
+        state.remote_changed(&key, Value::Bool(true));
+        assert!(
+            !state.switch_on(&row),
+            "acknowledged, so the remote value shows"
+        );
         state.remote_changed(&Key::from("engine"), Value::from("custom"));
         state.select_page(&PageId::from("browser"));
         assert!(state.row_visible(&custom_row()));

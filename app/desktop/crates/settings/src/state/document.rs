@@ -104,13 +104,11 @@ mod tests {
         let key = Key::from("tabSize");
         document.apply(&key, Value::Number(4.0));
         document.apply(&key, Value::Number(5.0));
-        assert!(document.has_unsaved());
         document.fail(&key);
         assert!(
             document.values().get(&key).is_none(),
             "both writes are undone to the original state"
         );
-        assert!(!document.has_unsaved());
         document.apply(&key, Value::Number(6.0));
         document.acknowledge(&key);
         document.apply(&key, Value::Number(7.0));
@@ -120,17 +118,5 @@ mod tests {
             Some(&Value::Number(6.0)),
             "back to the acknowledged value"
         );
-    }
-
-    #[test]
-    fn remote_changes_do_not_override_a_write_in_flight() {
-        let mut document = document();
-        let key = Key::from("tabSize");
-        document.apply(&key, Value::Number(4.0));
-        document.remote(&key, Value::Number(8.0));
-        assert_eq!(document.values().get(&key), Some(&Value::Number(4.0)));
-        document.acknowledge(&key);
-        document.remote(&key, Value::Number(8.0));
-        assert_eq!(document.values().get(&key), Some(&Value::Number(8.0)));
     }
 }

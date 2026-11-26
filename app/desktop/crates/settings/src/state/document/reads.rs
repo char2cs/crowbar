@@ -59,10 +59,6 @@ impl Document {
             .get(&row.key)
             .is_some_and(|draft| *draft != row.control.text_of(self.value(&row.key)))
     }
-
-    pub(crate) fn has_unsaved(&self) -> bool {
-        !self.unsaved.is_empty()
-    }
 }
 
 #[cfg(test)]

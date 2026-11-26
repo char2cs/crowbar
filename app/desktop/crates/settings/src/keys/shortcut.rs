@@ -19,8 +19,7 @@ impl Shortcut {
         &self.label
     }
 
-    /// A shortcut for `command`; an empty or unparsable `default` leaves it unbound.
-    pub fn new(
+    pub(crate) fn new(
         command: impl Into<String>,
         label: impl Into<String>,
         default: &str,
@@ -34,9 +33,8 @@ impl Shortcut {
         }
     }
 
-    /// The chord the preset `preset` binds instead of the default; an unparsable `chord` is ignored.
     #[must_use]
-    pub fn in_preset(
+    pub(crate) fn in_preset(
         mut self,
         preset: &str,
         chord: &str,
@@ -46,9 +44,8 @@ impl Shortcut {
         self
     }
 
-    /// Marks the chord as shown but not rebindable: the shell does not route it through the keymap.
     #[must_use]
-    pub fn display_only(mut self) -> Self {
+    pub(crate) fn display_only(mut self) -> Self {
         self.display_only = true;
         self
     }

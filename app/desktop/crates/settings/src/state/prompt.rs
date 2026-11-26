@@ -28,11 +28,6 @@ impl Prompt {
     pub fn message(&self) -> &str {
         &self.confirm.message
     }
-
-    /// The label of the confirming button.
-    pub fn confirm_label(&self) -> &str {
-        &self.confirm.action
-    }
 }
 
 #[cfg(test)]
@@ -46,7 +41,7 @@ mod tests {
             then: Effect::Invoke("kill".to_owned()),
         };
         assert_eq!(
-            (prompt.title(), prompt.message(), prompt.confirm_label()),
+            (prompt.title(), prompt.message(), prompt.confirm().action()),
             ("Kill?", "Ends the agent.", "Kill")
         );
     }

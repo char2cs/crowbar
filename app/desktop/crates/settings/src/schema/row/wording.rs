@@ -4,9 +4,8 @@ use crate::schema::condition::Condition;
 use crate::schema::row::Row;
 
 impl Row {
-    /// The text under the label.
     #[must_use]
-    pub fn describe(
+    pub(crate) fn describe(
         mut self,
         text: impl Into<String>,
     ) -> Self {
@@ -14,9 +13,8 @@ impl Row {
         self
     }
 
-    /// The text under the label while the field holds an invalid value.
     #[must_use]
-    pub fn describe_invalid(
+    pub(crate) fn describe_invalid(
         mut self,
         text: impl Into<String>,
     ) -> Self {
@@ -24,9 +22,8 @@ impl Row {
         self
     }
 
-    /// The text under the label while `condition` holds, in place of the description.
     #[must_use]
-    pub fn describe_while(
+    pub(crate) fn describe_while(
         mut self,
         (condition, text): (Condition, &str),
     ) -> Self {
