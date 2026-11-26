@@ -1,5 +1,4 @@
-//! The area that keeps the peek card open. It floats with the card in a float window, above
-//! the page, so it hears the pointer leave where the owner window no longer sees it.
+//! The area that keeps the peek card open while the pointer is over it or the card.
 
 use gpui::StatefulInteractiveElement;
 use gpui::prelude::FluentBuilder;
@@ -32,20 +31,26 @@ impl Sidebar {
             .when(zone.side == DockSide::Left, Styled::left_0)
             .when(zone.side == DockSide::Right, Styled::right_0)
             .occlude()
-            .on_hover(move |hovered, _, cx| {
+            .on_hover(move |hovered, window, cx| {
                 let pose = Pose::from(*hovered);
-                sidebar.update(cx, |this, cx| this.follow_peek_hover(pose, cx));
+                sidebar.update(cx, |this, cx| this.follow_peek_hover(pose, window, cx));
             })
             .child(card);
         ui::Shaped::catch(area).into_any_element()
     }
 
+    // PLATFORM: linux a web view is its own X window, so the pointer leaves the window, not the area, when it moves onto one.
     fn follow_peek_hover(
         &mut self,
         pose: Pose,
+        window: &Window,
         cx: &mut Context<'_, Self>,
     ) {
-        if pose == Pose::Off {
+        let at = window.mouse_position();
+        let kept = self
+            .peek_zone(window)
+            .keeps(f32::from(at.x), f32::from(at.y));
+        if pose == Pose::Off && !kept {
             self.pointer_left_peek(cx);
         }
     }

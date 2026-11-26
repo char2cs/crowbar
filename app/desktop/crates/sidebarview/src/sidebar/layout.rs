@@ -84,13 +84,13 @@ impl Sidebar {
         let asks = self.tree.removals().confirmation().is_some()
             || self.tree.files().dialog().is_some()
             || self.question.is_some();
-        if asks {
+        if asks || geometry.is_drawer() {
             return ui::Float::Modal;
         }
-        if geometry.is_drawer() || self.menu.is_some() {
-            return ui::Float::Popover;
+        if self.line_target().is_some() {
+            return ui::Float::Drag;
         }
-        ui::Float::Passive
+        ui::Float::Popover
     }
 
     fn floats(
@@ -338,7 +338,7 @@ mod tests {
             .simulate_resize(gpui::size(px(600.0), px(800.0)));
         floating.window.run_until_parked();
         let drawer = floating
-            .top()
+            .window
             .debug_bounds("sidebar-drawer")
             .unwrap_or_default();
         let placed = (

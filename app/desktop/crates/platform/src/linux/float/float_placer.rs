@@ -1,35 +1,25 @@
 use raw_window_handle::RawWindowHandle;
-use x11rb::CURRENT_TIME;
 use x11rb::NONE;
 use x11rb::connection::Connection as _;
 use x11rb::errors::{ConnectError, ReplyError};
-use x11rb::properties::{WmSizeHints, WmSizeHintsSpecification};
 use x11rb::protocol::shape::{ConnectionExt as _, SK, SO};
-use x11rb::protocol::xproto::{
-    ClientMessageEvent, ClipOrdering, ConfigureWindowAux, ConnectionExt as _, EventMask,
-    InputFocus as RevertTo, StackMode,
-};
+use x11rb::protocol::xproto::{ClipOrdering, ConfigureWindowAux, ConnectionExt as _, StackMode};
 use x11rb::rust_connection::RustConnection;
 
 use crate::error::Error;
-use crate::linux::float::atoms::Atoms;
 use crate::linux::float::card::Card;
 use crate::linux::float::region::rectangles;
 
-const STATE_ADD: u32 = 1;
-const WORDS: u8 = 32;
-
-/// Places, shapes and focuses the windows that float above a shell window, over a connection
-/// of its own, given the raw handles of stock GPUI windows.
+/// Places and shapes the pop-up window that floats above a shell window, over a connection of
+/// its own, given the raw handles of stock GPUI windows.
 ///
-/// A float window covers its owner's content area exactly, so what it paints lines up with
-/// the owner. Without a compositor X shows no translucency, so a float window then shows only
-/// its cards.
+/// The pop-up window covers its owner's content area exactly, so what it paints lines up with
+/// the owner. Without a compositor X shows no translucency, so it then shows only its cards.
 #[derive(Debug)]
 pub struct FloatPlacer {
     connection: RustConnection,
     root: u32,
-    atoms: Atoms,
+    compositor: u32,
 }
 
 impl FloatPlacer {
@@ -37,7 +27,7 @@ impl FloatPlacer {
     ///
     /// # Errors
     /// [`Error::X11Connect`] when no X server answers, [`Error::Float`] when it will not name
-    /// the atoms this needs.
+    /// the compositor's selection.
     pub fn connect() -> Result<Self, Error> {
         let (connection, screen) = RustConnection::connect(None)?;
         let root = connection
@@ -46,49 +36,12 @@ impl FloatPlacer {
             .get(screen)
             .ok_or(ConnectError::InvalidScreen)?
             .root;
-        let compositor = format!("_NET_WM_CM_S{screen}");
-        let atoms = Atoms {
-            compositor: atom(&connection, &compositor)?,
-            state: atom(&connection, "_NET_WM_STATE")?,
-            skip_taskbar: atom(&connection, "_NET_WM_STATE_SKIP_TASKBAR")?,
-            skip_pager: atom(&connection, "_NET_WM_STATE_SKIP_PAGER")?,
-        };
+        let compositor = atom(&connection, &format!("_NET_WM_CM_S{screen}"))?;
         Ok(Self {
             connection,
             root,
-            atoms,
+            compositor,
         })
-    }
-
-    /// Keeps a float window the window manager manages off the taskbar and pager, and asks
-    /// that it stays where [`Self::cover`] puts it.
-    ///
-    /// # Errors
-    /// [`Error::ForeignWindow`] for a handle that is not an X window, [`Error::Float`] when the
-    /// connection broke.
-    pub fn pin(
-        &self,
-        float: RawWindowHandle,
-    ) -> Result<(), Error> {
-        let window = xid(float)?;
-        let mut hints = WmSizeHints::new();
-        hints.position = Some((WmSizeHintsSpecification::UserSpecified, 0, 0));
-        hints
-            .set_normal_hints(&self.connection, window)
-            .map_err(ReplyError::from)?;
-        let skip = [
-            STATE_ADD,
-            self.atoms.skip_taskbar,
-            self.atoms.skip_pager,
-            0,
-            0,
-        ];
-        let message = ClientMessageEvent::new(WORDS, window, self.atoms.state, skip);
-        let reach = EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY;
-        self.connection
-            .send_event(false, self.root, reach, message)
-            .map_err(ReplyError::from)?;
-        self.flush()
     }
 
     /// Moves and sizes `float` over the content area of `owner` and raises it.
@@ -151,27 +104,10 @@ impl FloatPlacer {
         Ok(())
     }
 
-    /// Gives the keyboard to `float`.
-    ///
-    /// # Errors
-    /// [`Error::ForeignWindow`] for a handle that is not an X window, [`Error::Focus`] when the
-    /// window is not viewable.
-    pub fn focus(
-        &self,
-        float: RawWindowHandle,
-    ) -> Result<(), Error> {
-        let window = xid(float)?;
-        self.connection
-            .set_input_focus(RevertTo::PARENT, window, CURRENT_TIME)
-            .map_err(ReplyError::from)
-            .and_then(x11rb::cookie::VoidCookie::check)
-            .map_err(|source| Error::Focus { window, source })
-    }
-
     fn composited(&self) -> Result<bool, Error> {
         let owner = self
             .connection
-            .get_selection_owner(self.atoms.compositor)?
+            .get_selection_owner(self.compositor)?
             .reply()?;
         Ok(owner.owner != NONE)
     }

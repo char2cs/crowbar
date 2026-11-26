@@ -32,6 +32,7 @@ fn record_events(
 ) {
     cx.subscribe(view, move |_, event: &LayoutEvent, _| match event {
         LayoutEvent::Apply(command) => commands.borrow_mut().push(command.clone()),
+        LayoutEvent::Hovered => {},
         other => opened.borrow_mut().push(other.clone()),
     })
     .detach();
@@ -137,18 +138,11 @@ pub(crate) fn open_under_row_source<'a>(
     }
 }
 
-/// A layout view in a window whose floating elements open windows of their own.
+/// A layout view in a visual window, where drags, drop previews and the handle are drawn.
 pub(crate) struct Floating {
     pub(crate) view: Entity<LayoutView>,
     pub(crate) window: VisualTestContext,
     pub(crate) clock: Rc<Cell<Instant>>,
-}
-
-impl Floating {
-    /// The float window the owner opened last; the owner's own window while it has none.
-    pub(crate) fn top(&mut self) -> VisualTestContext {
-        ui::testing::newest_window(&mut self.window)
-    }
 }
 
 pub(crate) fn open_floating(

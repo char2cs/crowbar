@@ -31,7 +31,7 @@ mod test_support;
 use crate::shell::shell_view::assembly::watches::Watches;
 
 use crate::daemon::daemon_link::DaemonLink;
-use crate::panes::content::holes::visible_panes;
+use crate::panes::content::holes::{overlays, visible_panes};
 use crate::panes::content::shell_pane_source::ShellPaneSource;
 use crate::panes::tracking::focused_chat::focused_chat;
 use crate::shell::inbox::shell_request::ShellRequest;
@@ -84,6 +84,7 @@ pub(crate) struct ShellView {
     notices: Entity<ToastQueue>,
     backend: crate::daemon::backend::BackendWatch,
     link_menu: Option<link_menu::LinkMenu>,
+    cover: Entity<ui::Cover>,
     subscriptions: Vec<Subscription>,
 }
 
@@ -94,8 +95,10 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) -> Self {
         let (requests, queue) = (parts.requests.clone(), parts.queue.clone());
-        let mut built = build_children(&parts, &requests, cx);
+        let mut built = build_children(&parts, &requests, window, cx);
         built.subscriptions = Self::subscribe_children(&built, window, cx);
+        let resync = cx.observe(&built.cover, |this, _, cx| this.sync(cx));
+        built.subscriptions.push(resync);
         let mut view = Self::assemble(parts, built, requests, cx.focus_handle());
         view.begin(queue, window, cx);
         view
@@ -142,6 +145,7 @@ impl ShellView {
             notices: built.notices,
             backend: events::backend::watching(built.workspace),
             link_menu: None,
+            cover: built.cover,
             subscriptions: built.subscriptions,
         }
     }
@@ -291,7 +295,11 @@ impl ShellView {
         let (chrome, _) = self.chrome(cx);
         let visible = visible_panes(self.state.showing(), area, (chrome, self.source.as_ref()));
         self.state.set_theme(*Theme::of(cx));
-        let outcome = self.state.sync(parent, (visible, self.source.native()));
+        let handle = self.layout.read(cx).handle_hole();
+        let overlays = overlays(self.cover.read(cx), handle, area);
+        let outcome = self
+            .state
+            .sync(parent, (visible, self.source.native()), overlays);
         self.apply_outcome(outcome, cx);
     }
 }
@@ -373,15 +381,6 @@ mod tests {
         pub(super) pane: protocol::PaneId,
         preferences: Arc<crate::test_support::MemoryPreferences>,
         pub(super) space: Rc<crate::test_support::FakeSpace>,
-    }
-
-    impl Opened {
-        fn top(
-            &mut self,
-            float: ui::Float,
-        ) -> gpui::VisualTestContext {
-            ui::testing::float_window(&mut self.window, float)
-        }
     }
 
     pub(super) fn open_shell(cx: &mut TestAppContext) -> Opened {
@@ -492,21 +491,21 @@ mod tests {
         assert_eq!(kept, ::sidebar::Visibility::Closed);
     }
 
-    fn hidden_views(mock: &webview::MockPlatform) -> usize {
-        mock.calls().iter().filter(|call| hides(call)).count()
-    }
-
-    fn hides(call: &webview::Call) -> bool {
-        let webview::Call::SetVisibility { visibility, .. } = call else {
-            return false;
-        };
-        *visibility == webview::Visibility::Hidden
+    fn views_set(
+        mock: &webview::MockPlatform,
+        wanted: webview::Visibility,
+    ) -> usize {
+        let set = |call: &&webview::Call| matches!(call, webview::Call::SetVisibility { visibility, .. } if *visibility == wanted);
+        mock.calls().iter().filter(set).count()
     }
 
     #[gpui::test]
-    fn a_prompt_floats_above_the_panes_and_leaves_them_shown(cx: &mut TestAppContext) {
-        let mut opened = open_shell(cx);
-        let before = hidden_views(&opened.mock);
+    fn a_prompt_is_drawn_in_the_window_and_covers_the_web_views_until_it_closes(
+        cx: &mut TestAppContext
+    ) {
+        let mut opened = open_started_shell(cx);
+        let [covered, shown] = [webview::Visibility::Covered, webview::Visibility::Shown]
+            .map(|visibility| views_set(&opened.mock, visibility));
         let pane = opened.pane.clone();
         opened
             .shell
@@ -514,18 +513,23 @@ mod tests {
                 shell.ask_rename((&pane, "Chat"), window, cx);
             });
         opened.window.run_until_parked();
-        assert_eq!(
-            opened.window.debug_bounds("ui-dialog"),
-            None,
-            "nothing in the window"
-        );
         assert!(
-            opened
-                .top(ui::Float::Modal)
-                .debug_bounds("ui-dialog")
-                .is_some()
+            opened.window.debug_bounds("ui-dialog").is_some(),
+            "drawn in the window"
         );
-        assert_eq!(hidden_views(&opened.mock), before, "no web view was hidden");
+        assert_eq!(
+            views_set(&opened.mock, webview::Visibility::Covered),
+            covered + 1,
+            "the chat is covered under it"
+        );
+        opened.window.simulate_keystrokes("escape");
+        opened.window.run_until_parked();
+        assert_eq!(opened.window.debug_bounds("ui-dialog"), None, "closed");
+        assert_eq!(
+            views_set(&opened.mock, webview::Visibility::Shown),
+            shown + 1,
+            "the chat shows again"
+        );
     }
 
     fn page_focuses(mock: &webview::MockPlatform) -> usize {
@@ -590,6 +594,7 @@ mod tests {
     pub(super) fn open_started_shell(cx: &mut TestAppContext) -> Opened {
         let mut opened = open_shell(cx);
         opened.shell.update(&mut opened.window, |shell, cx| {
+            shell.placement = Some((webview::ParentWindow::X11(9), PLACED));
             let restarted = startup::Input::Restarted;
             shell
                 .startup
@@ -639,23 +644,69 @@ mod tests {
         opened.window.run_until_parked();
     }
 
+    fn cuts(mock: &webview::MockPlatform) -> Vec<Option<webview::Bounds>> {
+        let cut = |call: &webview::Call| match call {
+            webview::Call::SetCutout { hole, .. } => Some(*hole),
+            _ => None,
+        };
+        mock.calls().iter().filter_map(cut).collect()
+    }
+
     #[gpui::test]
-    fn a_press_in_the_top_layer_leaves_the_keyboard_with_the_page(cx: &mut TestAppContext) {
+    fn hovering_a_split_pane_cuts_its_handle_out_of_the_web_view_under_it(cx: &mut TestAppContext) {
+        let mut opened = open_started_shell(cx);
+        let pane = opened.pane.clone();
+        let layout = opened
+            .shell
+            .read_with(&opened.window, |shell, _| shell.layout.clone());
+        let tab = layout
+            .read_with(&opened.window, |view, _| view.shown_tab())
+            .expect("a tab");
+        let placement = layout::Placement {
+            target: pane.clone(),
+            edge: layout::Edge::Right,
+        };
+        let chat = "t2".into();
+        let open = layoutview::LayoutEvent::OpenChat {
+            chat,
+            tab,
+            placement,
+        };
+        layout.update(&mut opened.window, |_, cx| cx.emit(open));
+        opened.window.run_until_parked();
+        let before = cuts(&opened.mock).len();
+        layout.update(&mut opened.window, |view, cx| view.page_entered(&pane, cx));
+        opened.window.run_until_parked();
+        let hole = cuts(&opened.mock).get(before).copied().flatten();
+        assert!(
+            hole.is_some(),
+            "the handle's hole is cut from the page under it"
+        );
+        layout.update(&mut opened.window, |view, cx| view.page_left(&pane, cx));
+        opened.window.run_until_parked();
+        assert_eq!(cuts(&opened.mock).last(), Some(&None), "whole again");
+    }
+
+    #[gpui::test]
+    fn a_press_on_a_page_closes_a_drawn_menu_and_the_page_takes_the_keyboard(
+        cx: &mut TestAppContext
+    ) {
         let mut opened = open_drawn_menu(cx);
         own_keyboard_by_page(&mut opened);
+        assert!(opened.window.debug_bounds("ui-menu").is_some(), "open");
         let before = page_focuses(&opened.mock);
-        let away = gpui::point(gpui::px(600.0), gpui::px(400.0));
-        let none = gpui::Modifiers::none();
-        opened
-            .top(ui::Float::Popover)
-            .simulate_mouse_down(away, gpui::MouseButton::Left, none);
-        opened
-            .top(ui::Float::Popover)
-            .simulate_mouse_up(away, gpui::MouseButton::Left, none);
+        let pane = opened.pane.clone();
+        let text = r#"{"sdk":1,"kind":"shell.focus"}"#.to_owned();
+        let pressed = panehost::IpcMessage { pane, text };
+        let shell = opened.shell.clone();
+        opened.window.update(|window, cx| {
+            shell.update(cx, |shell, cx| shell.on_ipc(pressed, window, cx));
+        });
         opened.window.run_until_parked();
+        assert_eq!(opened.window.debug_bounds("ui-menu"), None, "closed");
         assert!(
             page_focuses(&opened.mock) > before,
-            "the shell did not claim the keyboard"
+            "the page has the keyboard"
         );
     }
 
@@ -664,7 +715,7 @@ mod tests {
         let mut opened = open_drawn_menu(cx);
         own_keyboard_by_page(&mut opened);
         let before = page_focuses(&opened.mock);
-        opened.top(ui::Float::Popover).simulate_keystrokes("escape");
+        opened.window.simulate_keystrokes("escape");
         opened.window.run_until_parked();
         assert!(
             page_focuses(&opened.mock) > before,

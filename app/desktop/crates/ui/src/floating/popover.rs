@@ -163,7 +163,6 @@ mod tests {
     use super::*;
     use crate::control::Button;
     use crate::test_support::probe::{open, open_floating, settle};
-    use crate::testing::newest_window;
 
     fn build(
         _: &mut Window,
@@ -215,20 +214,33 @@ mod tests {
     }
 
     #[gpui::test]
-    fn an_open_popover_floats_in_the_top_layer_and_takes_the_keyboard(cx: &mut TestAppContext) {
+    fn an_open_popover_is_drawn_in_the_window_takes_the_keyboard_and_a_press_on_a_web_view_closes_it(
+        cx: &mut TestAppContext
+    ) {
         let mut owner = open_floating(cx, build);
         owner.simulate_click(point(px(10.0), px(10.0)), gpui::Modifiers::none());
-        let mut top = newest_window(&mut owner);
-        top.run_until_parked();
-        assert!(owner.debug_bounds("popover-body").is_none());
-        assert!(top.debug_bounds("popover-body").is_some());
-        assert!(top.update(|window, cx| window.focused(cx).is_some()));
-        top.simulate_keystrokes("escape");
+        owner.run_until_parked();
+        assert!(owner.debug_bounds("popover-body").is_some());
+        assert_eq!(
+            crate::testing::covered(&mut owner).1.len(),
+            1,
+            "its card covers"
+        );
+        assert!(owner.update(|window, cx| window.focused(cx).is_some()));
+        owner.simulate_keystrokes("escape");
         settle(&mut owner);
         assert!(
-            newest_window(&mut owner)
-                .debug_bounds("popover-body")
-                .is_none()
+            owner.debug_bounds("popover-body").is_none(),
+            "escape closes it"
         );
+        owner.simulate_click(point(px(10.0), px(10.0)), gpui::Modifiers::none());
+        owner.run_until_parked();
+        owner.update(crate::Cover::press_outside);
+        settle(&mut owner);
+        assert!(
+            owner.debug_bounds("popover-body").is_none(),
+            "a press outside closes it"
+        );
+        assert_eq!(crate::testing::covered(&mut owner).1, Vec::new());
     }
 }

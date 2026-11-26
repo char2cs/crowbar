@@ -60,6 +60,10 @@ pub enum LayoutEvent {
         /// The tab's pane.
         pane: PaneId,
     },
+    /// The pointer moved onto or off a pane, and [`LayoutView::handle_hole`] moved with it.
+    ///
+    /// [`LayoutView::handle_hole`]: crate::LayoutView::handle_hole
+    Hovered,
     /// Something the user should be told, such as why a key did nothing.
     Announce(String),
     /// The "+" button of a strip was pressed: open a New Tab page as a new tab of the group

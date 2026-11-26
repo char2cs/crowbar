@@ -1,22 +1,25 @@
-//! An element that tells its float window where a card is, so the window shows it and lets
-//! the pointer reach it there.
+//! An element that tells where a card is: to the pop-up window it paints in, which shows it and
+//! lets the pointer reach it there, or to the cover of the overlay it belongs to.
 
 use gpui::{
-    AnyElement, App, Bounds, DevicePixels, Element, ElementId, GlobalElementId, InspectorElementId,
-    IntoElement, LayoutId, Pixels, Window,
+    AnyElement, App, Bounds, DevicePixels, Element, ElementId, EntityId, GlobalElementId,
+    InspectorElementId, IntoElement, LayoutId, Pixels, Window,
 };
 
 use crate::floating::layers::float_host::float_region::FloatRegion;
 use crate::floating::layers::float_host::part::Part;
 use crate::floating::layers::registry::Registry;
+use crate::floating::portal::cover::painting::Painting;
 use crate::foundation::opaque_debug;
 
-/// Wraps a floating card, laid out and painted as the card itself. In a float window it marks
-/// the card's bounds as shown, as taking the pointer, or both; elsewhere it does nothing.
+/// Wraps a floating card, laid out and painted as the card itself. In the pop-up window it
+/// marks the card's bounds as shown, as taking the pointer, or both; in an overlay drawn in the
+/// window, a seen card covers the native views under it.
 pub struct Shaped {
     child: AnyElement,
     radius: Pixels,
     part: Part,
+    overlay: Option<EntityId>,
 }
 
 impl Shaped {
@@ -51,6 +54,7 @@ impl Shaped {
             child: child.into_any_element(),
             radius,
             part,
+            overlay: None,
         }
     }
 }
@@ -76,6 +80,7 @@ impl Element for Shaped {
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
+        self.overlay = Painting::current(cx);
         (self.child.request_layout(window, cx), ())
     }
 
@@ -94,6 +99,9 @@ impl Element for Shaped {
             radius: DevicePixels::from(self.radius.scale(scale)),
         };
         Registry::note(window.window_handle().window_id(), (self.part, region), cx);
+        if let Some(overlay) = self.overlay.filter(|_| self.part != Part::Catch) {
+            Painting::note(overlay, bounds, cx);
+        }
         self.child.prepaint(window, cx);
     }
 

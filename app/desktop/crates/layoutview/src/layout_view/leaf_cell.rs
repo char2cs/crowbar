@@ -46,6 +46,7 @@ impl LayoutView {
         let cell = PaneCell {
             handle: self.handle_for(&pane, (now, motion), cx),
             ring_opacity: self.rings.opacity(&pane, now, motion),
+            dragging: ui::Cover::of(window, cx).read(cx).dragging(),
             on_enter: Self::enter_action((HoverSource::Cell, &pane), cx),
             on_leave: Self::leave_action((HoverSource::Cell, &pane), cx),
             on_press: Self::press_action(&pane, cx),

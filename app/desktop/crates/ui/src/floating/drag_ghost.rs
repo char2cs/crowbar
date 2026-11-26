@@ -90,14 +90,13 @@ mod tests {
     };
 
     use super::*;
+    use crate::test_support::floats::windows;
     use crate::test_support::probe::{measure, open_floating};
-    use crate::testing::newest_window;
+    use crate::testing::covered;
 
     #[gpui::test]
     fn the_ghost_is_a_thirty_two_pixel_pill_of_the_requested_width(cx: &mut TestAppContext) {
-        let bounds = measure(cx, |_, cx| {
-            cx.new(|_| DragGhost::new("Untitled chat", 160.0))
-        });
+        let bounds = measure(cx, |_, cx| pill("Untitled chat".into(), 160.0, cx));
         assert_eq!(bounds.size.width, px(160.0), "requested width");
         assert_eq!(bounds.size.height, px(32.0), "pill height");
     }
@@ -115,7 +114,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn the_ghost_follows_the_pointer_in_the_top_layer(cx: &mut TestAppContext) {
+    fn the_ghost_follows_the_pointer_in_the_window_and_covers_all_of_it(cx: &mut TestAppContext) {
         let mut owner = open_floating(cx, |_, _| {
             div()
                 .id("source")
@@ -128,18 +127,17 @@ mod tests {
         owner.simulate_mouse_move(point(px(120.0), px(90.0)), MouseButton::Left, modifiers);
         owner.simulate_mouse_move(point(px(150.0), px(100.0)), MouseButton::Left, modifiers);
         owner.run_until_parked();
-        assert_eq!(
-            owner.debug_bounds("drag-ghost"),
-            None,
-            "nothing in the window"
-        );
-        let mut top = newest_window(&mut owner);
-        let ghost = top.debug_bounds("drag-ghost").unwrap_or_default();
+        assert_eq!(windows(&mut owner), 1, "no window of its own");
+        let ghost = owner.debug_bounds("drag-ghost").unwrap_or_default();
         assert_eq!(ghost.size.width, px(100.0), "{ghost:?}");
         assert_eq!(
             ghost.origin,
             point(px(30.0), px(10.0)),
-            "moved with the pointer, drawn once"
+            "moved with the pointer"
+        );
+        assert!(
+            covered(&mut owner).0,
+            "every web view is hidden during a drag"
         );
     }
 }

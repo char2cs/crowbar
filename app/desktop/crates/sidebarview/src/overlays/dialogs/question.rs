@@ -183,7 +183,9 @@ mod tests {
     }
 
     #[gpui::test]
-    fn the_kill_question_floats_above_the_panes_and_answers_a_click(cx: &mut TestAppContext) {
+    fn the_kill_question_is_drawn_in_the_window_hides_the_panes_and_answers_a_click(
+        cx: &mut TestAppContext
+    ) {
         let mut floating = crate::test_support::open_floating(cx, DemoShell::reference());
         let sidebar = floating.sidebar.clone();
         let question = Question::kill(RowId::from("chat"), "Refactor");
@@ -191,15 +193,17 @@ mod tests {
             this.apply(Intent::Ask(question), window, cx);
         });
         floating.window.run_until_parked();
-        assert_eq!(
-            floating.window.debug_bounds("ui-dialog"),
-            None,
-            "nothing in the window"
+        assert!(
+            ui::testing::covered(&mut floating.window).0,
+            "every web view is hidden"
         );
-        let card = floating.top().debug_bounds("ui-dialog").unwrap_or_default();
+        let card = floating
+            .window
+            .debug_bounds("ui-dialog")
+            .unwrap_or_default();
         let accept = point(card.right() - px(40.0), card.bottom() - px(24.0));
         floating
-            .top()
+            .window
             .simulate_click(accept, gpui::Modifiers::none());
         assert_eq!(
             floating.recorder.sent(),
@@ -216,7 +220,7 @@ mod tests {
             this.apply(Intent::Ask(question), window, cx);
         });
         floating.window.run_until_parked();
-        crate::test_support::press(&mut floating.top(), "escape");
+        crate::test_support::press(&mut floating.window, "escape");
         assert_eq!(floating.recorder.sent(), Vec::new());
         assert!(sidebar.read_with(&floating.window, |this, _| this.question.is_none()));
     }

@@ -17,12 +17,14 @@ use protocol::PaneId;
 use ui::Motion;
 
 use crate::geometry::chrome_context::ChromeContext;
+use crate::geometry::pane_frame::PaneFrame;
 use crate::host::pane_source::PaneSource;
 use crate::layout_event::LayoutEvent;
 use crate::layout_view::clock::Clock;
 use crate::layout_view::drag::drop_hover::DropHover;
 use crate::layout_view::drag::sash_grab::SashGrab;
 use crate::layout_view::hover_source::HoverSource;
+use crate::layout_view::pane::pane_cell::handle_rect;
 use crate::layout_view::pane::pane_fades::PaneFades;
 use crate::layout_view::pane::pane_hover::PaneHover;
 
@@ -121,6 +123,24 @@ impl LayoutView {
         self.pointer_entered((HoverSource::Page, pane), cx);
     }
 
+    /// Where the handle of the hovered pane hangs, relative to the view, while a split tab
+    /// shows one. The shell cuts it out of the web views under it, so the handle is seen and
+    /// pressed there.
+    #[must_use]
+    pub fn handle_hole(&self) -> Option<Rect> {
+        let tab = self.tab.as_ref().filter(|tab| tab.group_count() > 1)?;
+        let pane = self.hover.pane()?;
+        let (rect, _) = tab
+            .leaves(self.local())
+            .into_iter()
+            .find(|(_, group)| group.shown() == Some(pane))?;
+        Some(handle_rect(&PaneFrame::new(
+            rect,
+            self.local(),
+            self.chrome,
+        )))
+    }
+
     /// The pointer left `pane`'s web view.
     pub fn page_left(
         &mut self,
@@ -184,32 +204,35 @@ mod tests {
     }
 
     #[gpui::test]
-    fn the_drop_preview_floats_above_the_panes_until_the_drag_leaves(cx: &mut TestAppContext) {
+    fn while_the_drop_preview_shows_the_panes_are_tinted_and_the_window_covered(
+        cx: &mut TestAppContext
+    ) {
         let mut floating = crate::test_support::open_floating(cx, &side_by_side());
         let view = floating.view.clone();
         let over = DragSubject::Chat("t1".into());
         let window = &mut floating.window;
+        assert_eq!(
+            window.debug_bounds("pane-drag-tint"),
+            None,
+            "no drag, no tint"
+        );
         view.update(window, |view, cx| {
             view.hover(&over, point(px(10.0), px(100.0)), cx);
         });
         window.run_until_parked();
-        assert_eq!(
-            window.debug_bounds("drop-preview"),
-            None,
-            "nothing in the window"
+        assert!(
+            window.debug_bounds("drop-preview").is_some(),
+            "in the window"
         );
-        assert!(floating.top().debug_bounds("drop-preview").is_some());
-        let window = &mut floating.window;
+        assert!(ui::testing::covered(window).0, "the web views are hidden");
+        assert!(window.debug_bounds("pane-drag-tint").is_some(), "tinted");
         view.update(window, |view, cx| {
             view.hover(&over, point(px(-5.0), px(-5.0)), cx);
         });
-        window.update(|_, _| {});
         window.run_until_parked();
-        assert_eq!(
-            floating.top().debug_bounds("drop-preview"),
-            None,
-            "gone outside"
-        );
+        assert_eq!(window.debug_bounds("drop-preview"), None, "gone outside");
+        assert!(!ui::testing::covered(window).0, "the web views are back");
+        assert_eq!(window.debug_bounds("pane-drag-tint"), None, "untinted");
     }
 
     #[gpui::test]

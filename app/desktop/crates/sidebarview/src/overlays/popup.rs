@@ -17,8 +17,8 @@ pub(crate) use menu_entry::MenuEntry;
 pub(crate) use open_menu::OpenMenu;
 
 use gpui::{
-    AnchoredPositionMode, AnyElement, App, Context, InteractiveElement, IntoElement, MouseButton,
-    ParentElement, Styled, Window, anchored, deferred, div, px,
+    AnchoredPositionMode, AnyElement, Context, IntoElement, ParentElement, Styled, anchored,
+    deferred, div, px,
 };
 use ui::layer;
 
@@ -34,13 +34,10 @@ impl Sidebar {
     ) -> Option<AnyElement> {
         let menu = self.menu.as_ref()?;
         let entries = self.menu_entries();
-        let (close_left, close_right) = (Self::closer(cx), Self::closer(cx));
-        let away = div()
-            .occlude()
-            .absolute()
-            .size_full()
-            .on_mouse_down(MouseButton::Left, close_left)
-            .on_mouse_down(MouseButton::Right, close_right);
+        let sidebar = cx.entity();
+        let away = ui::click_away("sidebar-menu-away", move |_, cx| {
+            sidebar.update(cx, Sidebar::close_menu);
+        });
         let list = MenuList {
             sidebar: cx.entity(),
             highlighted: menu.cursor.highlighted(),
@@ -57,17 +54,10 @@ impl Sidebar {
             div()
                 .absolute()
                 .size_full()
-                .child(ui::Shaped::catch(away))
+                .child(away)
                 .child(deferred(popup).with_priority(layer::MENU))
                 .into_any_element(),
         )
-    }
-
-    fn closer(
-        cx: &mut Context<'_, Self>
-    ) -> impl Fn(&gpui::MouseDownEvent, &mut Window, &mut App) + 'static {
-        let sidebar = cx.entity();
-        move |_, _, cx| sidebar.update(cx, Sidebar::close_menu)
     }
 }
 

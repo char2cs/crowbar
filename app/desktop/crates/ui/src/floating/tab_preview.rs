@@ -117,13 +117,14 @@ mod tests {
     use gpui::{AppContext as _, TestAppContext};
 
     use super::*;
-    use crate::test_support::probe::{measure, open_floating, settle};
-    use crate::testing::newest_window;
+    use crate::test_support::probe::{measure, open, settle};
 
     #[gpui::test]
     fn the_preview_fits_its_name_on_an_eleven_pixel_line(cx: &mut TestAppContext) {
-        let short = measure(cx, |_, cx| cx.new(|_| TabPreview::new("a.rs")));
-        let long = measure(cx, |_, cx| cx.new(|_| TabPreview::new("a-longer-name.rs")));
+        let short = measure(cx, |_, cx| preview(&TabPreview::new("a.rs"), cx));
+        let long = measure(cx, |_, cx| {
+            preview(&TabPreview::new("a-longer-name.rs"), cx)
+        });
         assert!(long.size.width > short.size.width, "{short:?} {long:?}");
         let tall = f32::from(short.size.height);
         assert!((26.0..=27.0).contains(&tall), "{tall}");
@@ -132,7 +133,7 @@ mod tests {
     #[gpui::test]
     fn a_long_name_stops_at_two_hundred_pixels(cx: &mut TestAppContext) {
         let name = "n".repeat(400);
-        let bounds = measure(cx, move |_, cx| cx.new(|_| TabPreview::new(name.clone())));
+        let bounds = measure(cx, move |_, cx| preview(&TabPreview::new(name.clone()), cx));
         let most = LABEL_MAX + 2.0 * f32::from(spacing::STEP_2) + 2.0;
         assert!(f32::from(bounds.size.width) <= most, "{bounds:?}");
     }
@@ -140,13 +141,14 @@ mod tests {
     #[gpui::test]
     fn a_widened_preview_keeps_its_width_when_its_holder_has_none(cx: &mut TestAppContext) {
         let tab = gpui::size(px(116.0), px(32.0));
-        let mut owner = open_floating(cx, move |_, cx| {
-            let preview = cx.new(|_| TabPreview::new("Untitled").wide(tab.width));
-            div().relative().size_0().child(preview)
+        let held = std::rc::Rc::new(std::cell::OnceCell::new());
+        let owner = open(cx, move |_, cx| {
+            let preview =
+                held.get_or_init(|| cx.new(|_| TabPreview::new("Untitled").wide(tab.width)));
+            div().relative().size_0().child(preview.clone())
         });
-        let mut top = newest_window(&mut owner);
-        settle(&mut top);
-        let ghost = top.debug_bounds("drag-ghost").unwrap_or_default();
+        settle(owner);
+        let ghost = owner.debug_bounds("drag-ghost").unwrap_or_default();
         assert_eq!(
             ghost.size.width, tab.width,
             "a drag view lays its ghost out at no size"

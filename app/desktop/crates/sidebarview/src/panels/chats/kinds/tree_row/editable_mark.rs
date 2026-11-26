@@ -130,21 +130,21 @@ mod tests {
             .window
             .simulate_click(mark.center(), Modifiers::none());
         floating.window.run_until_parked();
-        assert!(floating.top().debug_bounds("icon-editor").is_some());
+        assert!(floating.window.debug_bounds("icon-editor").is_some());
         let folded = floating
             .sidebar
             .read_with(&floating.window, |this, _| this.tree.folded().count());
         assert_eq!(folded, 0, "the press does not fold the repo");
         let actions = floating
-            .top()
+            .window
             .debug_bounds("icon-actions")
             .unwrap_or_default();
         floating
-            .top()
+            .window
             .simulate_click(actions.center(), Modifiers::none());
-        floating.top().simulate_input("⭐");
-        floating.top().simulate_keystrokes("enter");
-        floating.top().run_until_parked();
+        floating.window.simulate_input("⭐");
+        floating.window.simulate_keystrokes("enter");
+        floating.window.run_until_parked();
         let want = Command::SetRepoIcon {
             row: RowId::from("demo"),
             icon: SpaceIcon::Emoji("⭐".into()),
@@ -166,16 +166,16 @@ mod tests {
             .simulate_click(mark.center(), Modifiers::none());
         floating.window.run_until_parked();
         let actions = floating
-            .top()
+            .window
             .debug_bounds("icon-actions")
             .unwrap_or_default();
         let github = point(actions.right() - px(4.0), actions.center().y);
         for press in [actions.center(), github] {
-            floating.top().simulate_click(press, Modifiers::none());
+            floating.window.simulate_click(press, Modifiers::none());
         }
-        floating.top().simulate_input("⭐");
-        floating.top().simulate_keystrokes("enter");
-        floating.top().run_until_parked();
+        floating.window.simulate_input("⭐");
+        floating.window.simulate_keystrokes("enter");
+        floating.window.run_until_parked();
         assert_eq!(
             floating.recorder.sent(),
             Vec::new(),

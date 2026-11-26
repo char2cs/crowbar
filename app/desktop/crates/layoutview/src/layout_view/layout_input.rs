@@ -1,5 +1,5 @@
 use gpui::{Context, DragMoveEvent, MouseDownEvent, Pixels, Point, Window};
-use layout::{Command, Sash};
+use layout::{Command, Rect, Sash};
 use protocol::PaneId;
 use ui::SashDrag;
 
@@ -48,8 +48,9 @@ impl LayoutView {
         (source, pane): (HoverSource, &PaneId),
         cx: &mut Context<'_, Self>,
     ) {
+        let before = self.handle_hole();
         self.hover.entered(source, pane);
-        self.hover_changed(cx);
+        self.hover_changed(before, cx);
     }
 
     pub(crate) fn pointer_left(
@@ -57,15 +58,20 @@ impl LayoutView {
         (source, pane): (HoverSource, &PaneId),
         cx: &mut Context<'_, Self>,
     ) {
+        let before = self.handle_hole();
         self.hover.left(source, pane);
-        self.hover_changed(cx);
+        self.hover_changed(before, cx);
     }
 
     fn hover_changed(
         &mut self,
+        before: Option<Rect>,
         cx: &mut Context<'_, Self>,
     ) {
         self.sync_fades(cx);
+        if self.handle_hole() != before {
+            cx.emit(LayoutEvent::Hovered);
+        }
         cx.notify();
     }
 
@@ -133,8 +139,10 @@ impl LayoutView {
 
 #[cfg(test)]
 mod tests {
-    use gpui::TestAppContext;
+    use gpui::{TestAppContext, px};
     use layout::Edge;
+
+    use crate::layout_event::LayoutEvent;
 
     use crate::layout_view::hover_source::HoverSource;
     use crate::test_support::{layout_of, open, pane_id};
@@ -177,22 +185,41 @@ mod tests {
     }
 
     #[gpui::test]
-    fn the_handle_of_a_hovered_pane_floats_above_its_web_view(cx: &mut TestAppContext) {
+    fn the_handle_of_a_hovered_pane_is_drawn_in_the_window_over_its_hole(cx: &mut TestAppContext) {
         let layout = layout_of("a", &[("b", "a", Edge::Right)]);
         let mut floating = crate::test_support::open_floating(cx, &layout);
         let (view, window) = (floating.view.clone(), &mut floating.window);
         view.update(window, |view, cx| {
+            view.pointer_entered((HoverSource::Page, &pane_id("b")), cx);
+        });
+        let hovered = std::rc::Rc::new(std::cell::Cell::new(0));
+        let counted = std::rc::Rc::clone(&hovered);
+        let count = move |_, event: &LayoutEvent, _: &mut gpui::App| {
+            counted.set(counted.get() + usize::from(*event == LayoutEvent::Hovered));
+        };
+        let _counting = window.update(|_, cx| cx.subscribe(&view, count));
+        view.update(window, |view, cx| {
             view.pointer_entered((HoverSource::Cell, &pane_id("a")), cx);
+            view.pointer_entered((HoverSource::Handle, &pane_id("a")), cx);
         });
         let later = floating.clock.get() + std::time::Duration::from_secs(1);
         floating.clock.set(later);
         view.update(window, |_, cx| cx.notify());
         window.run_until_parked();
+        let drawn = window.debug_bounds("pane-handle").expect("in the window");
+        let hole = view
+            .read_with(window, |view, _| view.handle_hole())
+            .expect("a hole while hovered");
         assert_eq!(
-            window.debug_bounds("pane-handle"),
-            None,
-            "nothing in the window"
+            (drawn.origin.x, drawn.origin.y, drawn.size.width),
+            (px(hole.x), px(hole.y), px(hole.width)),
+            "the hole is where the handle is drawn"
         );
-        assert!(floating.top().debug_bounds("pane-handle").is_some());
+        assert_eq!(hovered.get(), 1, "the shell is told the hole moved to a");
+        let told = hovered.get();
+        view.update(window, |view, cx| {
+            view.pointer_left((HoverSource::Cell, &pane_id("a")), cx);
+        });
+        assert_eq!(hovered.get(), told, "still on the handle: nothing moved");
     }
 }

@@ -1,17 +1,16 @@
-//! Float windows in tests of the crates that build on this one.
+//! The pop-up window and covers in tests of the crates that build on this one.
 #![cfg(any(test, feature = "test-support"))]
 
-use gpui::{App, VisualTestContext};
+use gpui::{App, Bounds, Pixels, VisualTestContext};
 use raw_window_handle::RawWindowHandle;
 
-use crate::{Float, FloatHost, FloatRegion};
+use crate::{FloatHost, FloatRegion};
 
 impl FloatHost for () {
     fn cover(
         &self,
         _: RawWindowHandle,
         _: RawWindowHandle,
-        _: Float,
     ) {
     }
 
@@ -22,21 +21,15 @@ impl FloatHost for () {
         _: &[FloatRegion],
     ) {
     }
-
-    fn focus(
-        &self,
-        _: RawWindowHandle,
-    ) {
-    }
 }
 
-/// Lets floating elements open their float windows as plain test windows, as the shell's
-/// placer does on the desktop.
+/// Lets passive portals open their pop-up window as a plain test window, as the shell's placer
+/// does on the desktop.
 pub fn open_float_windows(cx: &mut App) {
     crate::install_float_host((), cx);
 }
 
-/// The float window `owner` opened last; `owner` itself while it has none.
+/// The window `owner` opened last; `owner` itself while it has none.
 pub fn newest_window(owner: &mut VisualTestContext) -> VisualTestContext {
     owner.run_until_parked();
     let own = owner.update(|window, _| window.window_handle());
@@ -48,16 +41,14 @@ pub fn newest_window(owner: &mut VisualTestContext) -> VisualTestContext {
     VisualTestContext::from_window(newest, owner)
 }
 
-/// The float window of kind `float` that `owner` has open; `owner` itself while it has none.
-pub fn float_window(
-    owner: &mut VisualTestContext,
-    float: Float,
-) -> VisualTestContext {
-    owner.run_until_parked();
-    let own = owner.update(|window, _| window.window_handle());
-    let open = owner.update(|window, cx| crate::open_float_window(window, float, cx));
-    let window = open.unwrap_or(own);
-    VisualTestContext::from_window(window, owner)
+/// What the overlays open in `window` cover: the whole window, or these cards.
+pub fn covered(window: &mut VisualTestContext) -> (bool, Vec<Bounds<Pixels>>) {
+    window.run_until_parked();
+    window.update(|window, cx| {
+        let cover = crate::Cover::of(window, cx);
+        let cover = cover.read(cx);
+        (cover.whole(), cover.cards())
+    })
 }
 
 #[cfg(test)]

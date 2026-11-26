@@ -57,6 +57,7 @@ impl ShellView {
         if !page_took_focus {
             return;
         }
+        ui::Cover::press_outside(window, cx);
         window.focus(&self.focus, cx);
         self.state.apply_keyboard();
     }
