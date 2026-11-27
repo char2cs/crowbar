@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::sync::Arc;
 
 use crate::shell::window::traffic_lights;
 use gpui::{
@@ -9,6 +10,7 @@ use windowstate::{DEFAULT_SIZE, Placement, Rect, WindowState, WindowStore};
 
 pub(crate) const WINDOW_TITLE: &str = "Crowbar";
 pub(crate) const APP_ID: &str = "Crowbar";
+const ICON: &[u8] = include_bytes!("../../../../../mobile/src-tauri/icons/32x32.png");
 
 pub(crate) struct WindowMemory {
     store: WindowStore,
@@ -37,6 +39,8 @@ impl WindowMemory {
             app_id: Some(APP_ID.to_owned()),
             window_background: background(),
             app_owns_titlebar_drag: true,
+            // PLATFORM: linux X11 shows the icon a window carries; macOS takes the bundle's.
+            icon: window_icon(),
             ..WindowOptions::default()
         }
     }
@@ -66,6 +70,13 @@ impl WindowMemory {
             },
         }
     }
+}
+
+fn window_icon() -> Option<Arc<image::RgbaImage>> {
+    image::load_from_memory_with_format(ICON, image::ImageFormat::Png)
+        .map(|icon| Arc::new(icon.into_rgba8()))
+        .inspect_err(|error| tracing::warn!(%error, "the window icon cannot be read"))
+        .ok()
 }
 
 fn first_run(cx: &mut App) -> Placement {
@@ -212,5 +223,12 @@ mod tests {
         let memory = WindowMemory::new(Path::new("/nonexistent/crowbar/window.json"));
         let app_id = cx.update(|cx| memory.options(cx).app_id);
         assert_eq!(app_id.as_deref(), Some("Crowbar"));
+    }
+
+    #[gpui::test]
+    fn the_window_carries_the_icon_develop_puts_on_it(cx: &mut gpui::TestAppContext) {
+        let memory = WindowMemory::new(Path::new("/nonexistent/crowbar/window.json"));
+        let icon = cx.update(|cx| memory.options(cx).icon);
+        assert_eq!(icon.map(|icon| icon.dimensions()), Some((32, 32)));
     }
 }
