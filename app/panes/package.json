@@ -105,7 +105,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "fake-indexeddb": "^6.2.5",
     "globals": "^17.11.0",
-    "jsdom": "^30.0.0",
+    "jsdom": "^31.0.1",
     "knip": "6.38.0",
     "prettier": "^3.9.6",
     "react-doctor": "0.9.1",
