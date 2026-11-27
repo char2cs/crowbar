@@ -13,7 +13,6 @@ mod settings_writer;
 mod system_fonts;
 
 pub(crate) use json_file::JsonFile;
-pub use json_file::LegacyImport;
 pub(crate) use loadable::Loadable;
 pub(crate) use parts::Parts;
 pub use settings_adapter::SettingsAdapter;

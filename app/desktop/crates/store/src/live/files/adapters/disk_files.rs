@@ -1,5 +1,5 @@
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::live::files::Files;
 
@@ -21,18 +21,6 @@ impl Files for DiskFiles {
     ) -> io::Result<()> {
         atomicfile::write(path, bytes)
     }
-
-    fn children(
-        &self,
-        directory: &Path,
-    ) -> Vec<PathBuf> {
-        let Ok(read) = std::fs::read_dir(directory) else {
-            return Vec::new();
-        };
-        let mut paths: Vec<PathBuf> = read.filter_map(|entry| Some(entry.ok()?.path())).collect();
-        paths.sort();
-        paths
-    }
 }
 
 #[cfg(test)]
@@ -40,19 +28,11 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "real-infra: the disk adapter of the Files port: atomic write and listing on a real directory"]
-    fn a_written_file_reads_back_and_its_directory_lists_it() {
+    #[ignore = "real-infra: the disk adapter of the Files port: atomic write on a real directory"]
+    fn a_written_file_reads_back() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("nested").join("a.txt");
         DiskFiles::default().write(&path, b"hi").unwrap();
         assert_eq!(DiskFiles::default().read(&path).unwrap(), b"hi");
-        assert_eq!(
-            DiskFiles::default().children(&dir.path().join("nested")),
-            [path]
-        );
-        assert_eq!(
-            DiskFiles::default().children(&dir.path().join("none")),
-            Vec::<PathBuf>::new()
-        );
     }
 }

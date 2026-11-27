@@ -1,4 +1,3 @@
-use settings::LEGACY_TERMINAL_LINE_HEIGHT;
 use settings::Value;
 use terminal::CursorShape;
 
@@ -31,11 +30,7 @@ pub(crate) fn terminal_settings(read: impl Fn(&str) -> Option<Value>) -> termina
     terminalview::Settings {
         font_family: family(read("terminalFontFamily").as_ref()).unwrap_or(base.font_family),
         font_size: narrowed(number("terminalFontSize", FONT_SIZE), base.font_size),
-        line_height: narrowed(
-            number("terminalLineHeight", LINE_HEIGHT)
-                .map(|stored| LEGACY_TERMINAL_LINE_HEIGHT.loaded(stored)),
-            base.line_height,
-        ),
+        line_height: narrowed(number("terminalLineHeight", LINE_HEIGHT), base.line_height),
         letter_spacing: narrowed(
             number("terminalLetterSpacing", LETTER_SPACING),
             base.letter_spacing,
@@ -129,13 +124,6 @@ mod tests {
         let stored: Stored = BTreeMap::from([("terminalFontFamily", web)]);
         let settings = terminal_settings(read(&stored));
         assert_eq!(settings.font_family, ui::font::MONO_FAMILY);
-    }
-
-    #[test]
-    fn the_retired_line_height_default_reads_as_todays() {
-        let stored: Stored = BTreeMap::from([("terminalLineHeight", Value::Number(1.2))]);
-        let settings = terminal_settings(read(&stored));
-        assert!((settings.line_height - 1.0).abs() < f32::EPSILON);
     }
 
     type Case = (&'static str, &'static str, Value, terminalview::Settings);

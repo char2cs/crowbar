@@ -69,26 +69,6 @@ impl Drafts {
         self.write()
     }
 
-    /// Keeps each of `drafts` whose document has no draft yet, the first of two for one document
-    /// winning, and says how many were kept: drafts carried over from an older editor.
-    ///
-    /// # Errors
-    /// When the drafts file cannot be written; the drafts are still kept for this run.
-    pub fn adopt(
-        &mut self,
-        drafts: Vec<Draft>,
-    ) -> std::io::Result<usize> {
-        let before = self.kept.len();
-        for draft in drafts {
-            self.kept.entry(draft.uri.clone()).or_insert(draft);
-        }
-        let adopted = self.kept.len() - before;
-        if adopted > 0 {
-            self.write()?;
-        }
-        Ok(adopted)
-    }
-
     /// Drops every draft whose document is not in `held`: the drafts of tabs that were not
     /// restored, as develop's `restoreDocuments` clears them.
     ///
@@ -170,7 +150,7 @@ mod tests {
     }
 
     #[test]
-    fn kept_and_adopted_drafts_survive_a_restart_and_a_discarded_one_does_not() {
+    fn kept_drafts_survive_a_restart_and_a_discarded_one_does_not() {
         let file = MemoryFile::default();
         let (mut drafts, error) = Drafts::open(Box::new(file.clone()));
         assert!(error.is_none(), "no file yet");
@@ -178,20 +158,9 @@ mod tests {
         drafts.keep(draft("a", "two")).unwrap();
         drafts.keep(draft("b", "three")).unwrap();
         drafts.discard("b").unwrap();
-        let old = vec![draft("a", "old"), draft("c", "first"), draft("c", "second")];
-        assert_eq!(drafts.adopt(old).unwrap(), 1, "only c is new");
         let (restarted, _) = Drafts::open(Box::new(file.clone()));
-        assert_eq!(
-            restarted.get("a"),
-            Some(&draft("a", "two")),
-            "kept beats adopted"
-        );
+        assert_eq!(restarted.get("a"), Some(&draft("a", "two")));
         assert_eq!(restarted.get("b"), None);
-        assert_eq!(
-            restarted.get("c"),
-            Some(&draft("c", "first")),
-            "the first of a pair"
-        );
         let mut restarted = restarted;
         restarted.keep_only(&["a".to_owned()].into()).unwrap();
         let (swept, _) = Drafts::open(Box::new(file));

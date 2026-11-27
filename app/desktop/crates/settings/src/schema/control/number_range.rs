@@ -92,7 +92,6 @@ impl NumberRange {
         match self.on_load {
             OnLoad::Kept => value,
             OnLoad::Normalized => self.normalize(value),
-            OnLoad::Replaced(legacy) => legacy.loaded(value),
         }
     }
 

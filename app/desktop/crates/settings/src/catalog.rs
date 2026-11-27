@@ -32,8 +32,6 @@ pub const DEVICE_CONNECTIONS: &str = machines::devices::ALLOW;
 pub const DEVICE_ADDRESS: &str = machines::devices::ADDRESS;
 /// Where devices reach the daemon while connections are allowed.
 pub const DEVICE_LISTENING: &str = machines::devices::LISTENING;
-/// The terminal line height develop once defaulted to, read on load as today's default.
-pub const LEGACY_TERMINAL_LINE_HEIGHT: crate::schema::LegacyNumber = terminal::LEGACY_LINE_HEIGHT;
 /// The setting that stores custom keybindings.
 pub const KEYBINDING_OVERRIDES: &str = keybindings::OVERRIDES;
 /// The setting that stores the active keybinding preset.

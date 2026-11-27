@@ -5,7 +5,7 @@ mod adapters;
 pub(crate) use adapters::DiskFiles;
 
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 pub(crate) trait Files: std::fmt::Debug + Send + Sync {
     fn read(
@@ -18,11 +18,6 @@ pub(crate) trait Files: std::fmt::Debug + Send + Sync {
         path: &Path,
         bytes: &[u8],
     ) -> io::Result<()>;
-
-    fn children(
-        &self,
-        directory: &Path,
-    ) -> Vec<PathBuf>;
 }
 
 pub(crate) fn read_text(

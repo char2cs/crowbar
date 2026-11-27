@@ -4,8 +4,6 @@ mod adapters;
 mod app_options;
 mod daemon;
 mod error;
-mod legacy_drafts;
-mod legacy_settings;
 mod native;
 mod panes;
 mod shell;
@@ -117,8 +115,6 @@ fn main() -> anyhow::Result<()> {
         &LogPaths::in_data_dir(&options.state_dir()),
         env!("CARGO_PKG_VERSION"),
     )?;
-    legacy_settings::import_old_settings(std::env::var_os("HOME").map(PathBuf::from), &options);
-    legacy_drafts::import_old_drafts(std::env::var_os("HOME").map(PathBuf::from), &options);
     let link = Rc::new(DaemonLink::start(&options)?);
     let (caret, caret_changes) = caret_follower::channel();
     let host = build_host(&options, (link.transport(), caret), Path::is_file)?;

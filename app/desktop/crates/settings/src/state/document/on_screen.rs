@@ -103,7 +103,7 @@ mod tests {
             ("browserZoom", Some(999.0), "300"),
             ("terminalLineHeight", Some(1.43), "1.4"),
             ("terminalLineHeight", Some(5.0), "5"),
-            ("terminalLineHeight", Some(1.2), "1"),
+            ("terminalLineHeight", Some(1.2), "1.2"),
             ("terminalLetterSpacing", Some(9.0), "9"),
         ];
         for (key, stored, shown) in cases {
@@ -117,20 +117,6 @@ mod tests {
             let state = crate::State::new(schema.clone(), snapshot, None, chord::Primary::Control);
             assert_eq!(state.field_text(&row), shown, "{key} {stored:?}");
         }
-    }
-
-    #[test]
-    fn a_retired_default_reads_as_the_default_and_offers_no_reset() {
-        let schema = crate::default_schema().unwrap();
-        let row = schema
-            .rows()
-            .find(|row| row.key().as_str() == "terminalLineHeight")
-            .cloned()
-            .unwrap();
-        let values = Values::default().with("terminalLineHeight", 1.2);
-        let snapshot = crate::values::Snapshot::new(values);
-        let state = crate::State::new(schema, snapshot, None, chord::Primary::Control);
-        assert!(!state.resettable(&row));
     }
 
     #[test]

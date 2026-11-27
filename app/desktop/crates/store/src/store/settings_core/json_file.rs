@@ -1,9 +1,6 @@
 //! The shell's own settings, kept in one JSON file of the state directory.
 
-mod legacy_import;
 mod stored_value;
-
-pub use legacy_import::LegacyImport;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
