@@ -199,7 +199,10 @@ mod tests {
             proxy,
             "the proxy names itself"
         );
+        let served = Arc::clone(&installed.connection);
         drop(installed);
+        // PLATFORM: linux X serves each connection on its own, so wait for the dropping one.
+        served.get_input_focus().unwrap().reply().unwrap();
         assert_eq!(
             proxy_named_on(&connection, window),
             NONE,

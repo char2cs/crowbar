@@ -78,7 +78,6 @@ jobs:
     uses: ./.github/workflows/desktop-build.yml
     secrets: inherit
     with:
-      ref: develop
       version: ${{ needs.derive-version.outputs.version }}-nightly
       channel: nightly
       timestamp: ${{ needs.derive-version.outputs.timestamp }}
@@ -122,6 +121,9 @@ jobs:
               echo "renamed ${base} -> ${new}"
             fi
           done
+      # Before the old nightly is deleted: a release the manifest cannot install never replaces it.
+      - name: Check ARROW.md can install this release
+        run: bash tools/scripts/check-arrow.sh nightly release-artifacts
       - name: Generate unified SHA256SUMS
         run: |
           cd release-artifacts

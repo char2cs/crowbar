@@ -9,7 +9,7 @@ final class NavigationRig {
   private static let frameSeconds = 1.0 / framesPerSecond
   private static let maxSettleFrames = 600
 
-  var machine = NavigationMachine(width: Self.width, strip: Self.strip)
+  var machine = NavigationMachine(width: NavigationRig.width, strip: NavigationRig.strip)
   var web = FakeWeb()
 
   func run(_ commands: [NavigationCommand]?) {

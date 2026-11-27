@@ -4,7 +4,7 @@
 //! exits), `noisy` (writes a megabyte that is not UTF-8 to stderr before serving), `wedge`
 //! (accepts and never answers), `stall` (answers the first request, then never answers),
 //! `deaf` (serves, and ignores SIGTERM) or `late` (answers health with 503 until `<socket>.serve`
-//! exists, dialling `<socket>.spent` after each such answer so a test hears it).
+//! exists, dialling `<socket>.up` once it listens so a test hears it).
 
 mod answer_event;
 mod journal_sink;
@@ -85,13 +85,9 @@ async fn answer(
     let head = String::from_utf8_lossy(buf.get(..read).unwrap_or_default()).into_owned();
     let socket = socket_arg();
     let unserved = late::unserved_reply(&head, mode, socket.as_deref());
-    let late = unserved.is_some();
     let reply = unserved.unwrap_or_else(|| reply_body(&head, mode, served));
     if let Err(error) = stream.write_all(reply.as_bytes()).await {
         journal_sink::emit(&AnswerEvent::ClientLeft { error: &error });
-    }
-    if late {
-        late::tell_spent(socket.as_deref());
     }
 }
 
@@ -180,5 +176,6 @@ async fn main() -> ExitCode {
     let Ok(listener) = UnixListener::bind(&path) else {
         return ExitCode::from(EXIT_BIND);
     };
+    late::tell_listening(&mode, &path);
     serve(listener, mode).await
 }

@@ -6,7 +6,8 @@ import UIKit
 private func crowbarChromeFont(
   _ index: Int,
   _ length: UnsafeMutablePointer<Int>
-)
+) -> UnsafePointer<UInt8>?
+
 enum CrowbarFont {
   static let uiFontName = "CalSansUI-Regular"
   static let heading = "InstrumentSerif-Regular"

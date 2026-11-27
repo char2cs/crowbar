@@ -90,7 +90,6 @@ jobs:
     uses: ./.github/workflows/desktop-build.yml
     secrets: inherit
     with:
-      ref: master
       version: ${{ needs.guard.outputs.version }}
       channel: release
       build-version: ${{ needs.guard.outputs.tag }}

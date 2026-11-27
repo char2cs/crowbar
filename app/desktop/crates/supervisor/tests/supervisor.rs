@@ -1,5 +1,7 @@
 //! Public-API tests of `supervisor` against a fake `crowbar-api` binary.
 
+#[path = "support/real_infra/journal_lines.rs"]
+mod journal_lines;
 #[path = "support/real_infra/late_launch.rs"]
 mod late_launch;
 #[path = "../src/test_support/script.rs"]
@@ -291,7 +293,7 @@ async fn a_late_answer_makes_the_launch_ready_without_a_respawn() -> TestResult 
     ];
     for (heard_by, timings) in cases {
         let mut launch = launch_until_startup_is_spent(timings).await?;
-        launch.let_serve()?;
+        launch.let_serve().await?;
         tell(heard_by, &launch.supervisor);
         let ready = |e: &DaemonEvent| matches!(e, DaemonEvent::Ready { pid: Some(_) });
         let heard = heard_until(&mut launch.events, ready).await?;

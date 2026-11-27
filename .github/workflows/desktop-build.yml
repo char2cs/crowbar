@@ -8,16 +8,12 @@ name: Desktop build
 on:
   workflow_call:
     inputs:
-      ref:
-        description: Git ref to build
-        type: string
-        default: ''
       version:
         description: App version stamped into the Rust workspace, e.g. 0.1.0-nightly; empty keeps app/Cargo.toml's
         type: string
         default: ''
       channel:
-        description: VITE_BUILD_CHANNEL (nightly | beta | release)
+        description: VITE_BUILD_CHANNEL (nightly | beta | release); nightly builds develop, release builds master
         type: string
         default: ''
       build-version:
@@ -70,7 +66,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ inputs.channel == 'nightly' && 'develop' || inputs.channel == 'release' && 'master' || github.sha }}
       - name: Check Xcode and the Metal toolchain
         run: |
           xcrun --sdk macosx metal --version || {
@@ -138,7 +134,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ inputs.channel == 'nightly' && 'develop' || inputs.channel == 'release' && 'master' || github.sha }}
       # xdg-utils is explicit because the AppImage carries /usr/bin/xdg-open and the arm64
       # runner image, unlike x86's, has no Chrome to pull it in.
       - name: Install system deps

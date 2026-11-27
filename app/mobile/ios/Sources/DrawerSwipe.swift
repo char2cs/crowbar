@@ -2,10 +2,10 @@ import UIKit
 import WebKit
 
 final class DrawerSwipe: NSObject, UIGestureRecognizerDelegate {
-  enum Motion { case rightward, leftward, either }
+  enum Direction { case rightward, leftward, either }
 
   struct Claim {
-    var motion: Motion
+    var motion: Direction
     var overridesScrollers = false
   }
 
@@ -47,7 +47,7 @@ final class DrawerSwipe: NSObject, UIGestureRecognizerDelegate {
     guard let expected, let host = pan.view else { return false }
     let velocity = pan.velocity(in: host)
     guard abs(velocity.x) > abs(velocity.y) * Motion.swipeBias else { return false }
-    let direction: Motion = velocity.x > 0 ? .rightward : .leftward
+    let direction: Direction = velocity.x > 0 ? .rightward : .leftward
     guard expected.motion == .either || expected.motion == direction else { return false }
     guard expected.overridesScrollers || ProcessInfo.processInfo.systemUptime - touched < Self.hold
     else { return false }

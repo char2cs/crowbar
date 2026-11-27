@@ -41,7 +41,7 @@ final class CSSArgsTests: XCTestCase {
 
   func testPartsAndAlphaFollowTheSyntax() {
     for item in Self.parseCases {
-      let args = CSSArgs(item.input)
+      let args = CSSArgs(item.input[...])
       XCTAssertEqual(args.parts, item.parts, item.name)
       XCTAssertEqual(args.alpha, item.alpha, accuracy: 0.0001, item.name)
     }

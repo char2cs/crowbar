@@ -95,7 +95,7 @@ func TestPeer_RefusesAClientThatCameOverTLS(t *testing.T) {
 	browser.Register(r.Group("/v0"), browserbridge.New())
 	srv := httptest.NewTLSServer(r)
 	t.Cleanup(srv.Close)
-	dialer := websocket.Dialer{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}} //nolint:gosec // a test server's self-signed certificate
+	dialer := websocket.Dialer{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
 	conn, resp, err := dialer.Dial("wss"+strings.TrimPrefix(srv.URL, "https")+"/v0/browser/peer", nil)
 	require.Error(t, err)
 	require.Nil(t, conn)

@@ -12,7 +12,11 @@ version = 2
 yanked = "deny"
 # Each entry must name the crate, the parent that pulls it in, and when to revisit it.
 # Delete an entry as soon as `cargo deny check` stops needing it.
-ignore = []
+ignore = [
+  # chrono, unmaintained: gpui-pre and gpui-pre-scheduler pull it in (store uses it too).
+  # Revisit when gpui-pre drops it.
+  "RUSTSEC-2026-0543",
+]
 
 [licenses]
 version = 2

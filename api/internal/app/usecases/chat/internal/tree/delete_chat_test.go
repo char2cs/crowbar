@@ -165,7 +165,7 @@ func TestDeleteChat_ATakenRowUnderATakenParentHandsItsChildToTheRoot(t *testing.
 }
 
 // seedOwner appends the chat that owns wsID: the row a workspace is drawn as.
-func seedOwner(chats *mocks.AgentChatPlacements, id string, wsID string) {
+func seedOwner(chats *mocks.AgentChatPlacements, id, wsID string) {
 	chats.Rows = append(chats.Rows, domain.Chat{
 		ID: id, Type: domain.ChatTypeChat, WorkspaceID: wsID, OwnsWorkspace: true,
 	})

@@ -257,6 +257,8 @@ jobs:
     if: needs.changes.outputs.rust == 'true'
     uses: ./.github/workflows/desktop-build.yml
     with:
+      # Nightly's kind of version, so stamping it is proven before develop.
+      version: 0.1.0-nightly
       artifact-prefix: package
       retention-days: 7
 

@@ -81,7 +81,7 @@ struct TabPill: View {
 
   private var closeIcon: some View {
     PhosphorIcon(
-      tab.dirty ? .circle : .x,
+      tab.dirty ? .circle : .xMark,
       size: tab.dirty ? Metric.statusDot : IconSize.dirtyCompact,
       emphasis: tab.dirty ? 0 : Self.closeEmphasis
     )

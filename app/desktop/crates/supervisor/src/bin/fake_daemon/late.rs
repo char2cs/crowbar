@@ -1,5 +1,5 @@
-//! The `late` mode: health is unserved until the test creates `<socket>.serve`, and each unserved
-//! answer is announced by dialling `<socket>.spent`.
+//! The `late` mode: health is unserved until the test creates `<socket>.serve`, and the daemon
+//! announces that it listens by dialling `<socket>.up`.
 
 use std::os::unix::net::UnixStream;
 use std::path::Path;
@@ -19,11 +19,14 @@ pub(crate) fn unserved_reply(
     (mode == LATE && head.starts_with(HEALTH) && gated).then(|| UNSERVED.to_owned())
 }
 
-pub(crate) fn tell_spent(socket: Option<&str>) {
-    let Some(socket) = socket else {
+pub(crate) fn tell_listening(
+    mode: &str,
+    socket: &str,
+) {
+    if mode != LATE {
         return;
-    };
-    if let Err(error) = UnixStream::connect(format!("{socket}.spent")) {
-        tracing::debug!("no test listens for unserved answers: {error}");
+    }
+    if let Err(error) = UnixStream::connect(format!("{socket}.up")) {
+        tracing::debug!("no test listens for the daemon: {error}");
     }
 }

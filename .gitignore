@@ -12,6 +12,7 @@ app/panes/dist/
 app/panes/.vite/
 
 # Tauri / Rust
+app/target/
 app/mobile/src-tauri/target/
 app/mobile/src-tauri/binaries/
 

@@ -5,7 +5,8 @@ use tempfile::TempDir;
 use tokio::net::UnixListener;
 use tokio::sync::broadcast::Receiver;
 
-use crate::support::{config, next_matching};
+use crate::journal_lines::listen;
+use crate::support::{config, next_matching, within_budget};
 
 const STARTUP_POLLS: u32 = 3;
 
@@ -13,10 +14,11 @@ const STARTUP_POLLS: u32 = 3;
 pub(crate) struct Launch {
     pub(crate) supervisor: Supervisor,
     pub(crate) events: Receiver<DaemonEvent>,
+    listening: UnixListener,
     home: TempDir,
 }
 
-/// Starts a `late` daemon and returns once every startup poll has been refused.
+/// Starts a `late` daemon and returns once the supervisor gives its startup up.
 pub(crate) async fn launch_until_startup_is_spent(
     timings: Timings
 ) -> Result<Launch, Box<dyn std::error::Error>> {
@@ -27,23 +29,30 @@ pub(crate) async fn launch_until_startup_is_spent(
             ..timings
         },
     )?;
-    let spent = UnixListener::bind(home.path().join("d.sock.spent"))?;
+    let listening = UnixListener::bind(home.path().join("d.sock.up"))?;
+    let (mut lines, _journal) = listen();
     let supervisor = Supervisor::start(cfg);
     let events = supervisor.events();
-    for _ in 0..STARTUP_POLLS {
-        spent.accept().await?;
-    }
+    within_budget(async {
+        while !lines.recv().await?.contains("daemon_unserved") {}
+        Some(())
+    })
+    .await?
+    .ok_or("the journal closed before startup was given up")?;
     Ok(Launch {
         supervisor,
         events,
+        listening,
         home,
     })
 }
 
 impl Launch {
-    /// Lets the daemon serve from its next health request on.
-    pub(crate) fn let_serve(&self) -> std::io::Result<()> {
-        std::fs::write(self.home.path().join("d.sock.serve"), b"")
+    /// Lets the daemon, once it listens, serve from its next health request on.
+    pub(crate) async fn let_serve(&self) -> Result<(), Box<dyn std::error::Error>> {
+        within_budget(self.listening.accept()).await??;
+        std::fs::write(self.home.path().join("d.sock.serve"), b"")?;
+        Ok(())
     }
 }
 

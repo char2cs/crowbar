@@ -23,7 +23,7 @@ final class SheetPlanTests: XCTestCase {
   private let cases = [
     Case(
       name: "stale open after a user dismissal does not re-present",
-      events: Self.shown + [
+      events: SheetPlanTests.shown + [
         (.dismissedByUser, nil),
         (.update(.open), SheetPlan.Step.none),
         (.update(.closed), SheetPlan.Step.none),
@@ -32,7 +32,7 @@ final class SheetPlanTests: XCTestCase {
     ),
     Case(
       name: "a web close dismisses once",
-      events: Self.shown + [
+      events: SheetPlanTests.shown + [
         (.update(.closed), .dismiss),
         (.update(.closed), SheetPlan.Step.none),
         (.finished, SheetPlan.Step.none),
