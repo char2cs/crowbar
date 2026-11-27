@@ -126,6 +126,29 @@ func TestModelDriven_RedrawAfterResizeKeyframeIsADiff(t *testing.T) {
 	})
 }
 
+func TestModelDriven_ATimerThatFiredBeforeItWasStoppedSendsNothing(t *testing.T) {
+	s, ch := attachQuiet(t, "sid-md-stale-timer")
+	synctest.Test(t, func(t *testing.T) {
+		stopTimerInBubble(t, s)
+		require.NoError(t, s.Resize(74, 10))
+		s.mu.Lock()
+		replaced := s.emitTimer
+		s.mu.Unlock()
+		require.NoError(t, s.Resize(80, 12))
+
+		s.mu.Lock()
+		s.emitDueLocked(replaced)
+		s.mu.Unlock()
+		require.Empty(t, takeFrames(ch), "the resize that replaced the timer is still settling")
+
+		time.Sleep(resizeSettle)
+		synctest.Wait()
+		frames := takeFrames(ch)
+		require.Len(t, frames, 1, "its own timer still sends the keyframe")
+		assertRebuilds(t, s, frames[0], 80, 12)
+	})
+}
+
 func TestModelDriven_SameSizeResizeSendsNothing(t *testing.T) {
 	s, ch := attachQuiet(t, "sid-md-resize-same")
 	synctest.Test(t, func(t *testing.T) {

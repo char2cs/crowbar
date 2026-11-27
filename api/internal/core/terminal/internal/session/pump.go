@@ -91,18 +91,23 @@ func (s *Session) armEmitTimerLocked(
 	t = time.AfterFunc(delay, func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		if s.emitTimer == t {
-			s.emitTimer = nil
-		}
-		select {
-		case <-s.done:
-			return
-		default:
-		}
-		s.lastEmitAt = s.now()
-		s.emitFrameLocked()
+		s.emitDueLocked(t)
 	})
 	s.emitTimer = t
+}
+
+func (s *Session) emitDueLocked(t *time.Timer) {
+	if s.emitTimer != t {
+		return
+	}
+	s.emitTimer = nil
+	select {
+	case <-s.done:
+		return
+	default:
+	}
+	s.lastEmitAt = s.now()
+	s.emitFrameLocked()
 }
 
 func (s *Session) stopEmitTimerLocked() {
